@@ -1,9 +1,12 @@
 <template>
-  <el-card>
+  <el-card class="page-card">
     <template #header>
       <div class="card-header">
-        <span>用户管理</span>
-        <el-button type="primary" @click="handleAdd">新增用户</el-button>
+        <div class="header-left">
+          <el-icon class="header-icon"><User /></el-icon>
+          <span class="header-title">用户管理</span>
+        </div>
+        <el-button type="primary" :icon="Plus" @click="handleAdd">新增用户</el-button>
       </div>
     </template>
 
@@ -78,6 +81,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { User, Plus } from '@element-plus/icons-vue'
 import * as userApi from '../api/users'
 
 const loading = ref(false)
@@ -200,9 +204,38 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.page-card {
+  min-height: calc(100vh - 120px);
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-icon {
+  font-size: 20px;
+  color: #667eea;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.el-table {
+  margin-top: 16px;
+}
+
+.el-table :deep(.el-table__cell) {
+  padding: 16px 0;
 }
 </style>

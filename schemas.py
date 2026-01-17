@@ -5,6 +5,17 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr
 
 
+# Auth Schemas
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 # AppUser Schemas
 class AppUserBase(BaseModel):
     username: str

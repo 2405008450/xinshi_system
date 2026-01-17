@@ -30,9 +30,13 @@ api.interceptors.response.use(
   error => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
-      window.location.href = '/login'
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
-    return Promise.reject(error)
+    // 将错误信息统一处理
+    const errorMessage = error.response?.data?.detail || error.message || '请求失败'
+    return Promise.reject({ ...error, detail: errorMessage, message: errorMessage })
   }
 )
 

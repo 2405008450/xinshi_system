@@ -1,9 +1,12 @@
 <template>
-  <el-card>
+  <el-card class="page-card">
     <template #header>
       <div class="card-header">
-        <span>项目管理</span>
-        <el-button type="primary" @click="handleAdd">新增项目</el-button>
+        <div class="header-left">
+          <el-icon class="header-icon"><Folder /></el-icon>
+          <span class="header-title">项目管理</span>
+        </div>
+        <el-button type="primary" :icon="Plus" @click="handleAdd">新增项目</el-button>
       </div>
     </template>
 
@@ -112,6 +115,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Folder, Plus } from '@element-plus/icons-vue'
 import * as projectApi from '../api/projects'
 
 const loading = ref(false)

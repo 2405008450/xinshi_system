@@ -42,6 +42,24 @@ const routes = [
         name: 'ProjectFiles',
         component: () => import('../views/ProjectFiles.vue'),
         meta: { title: '项目文件管理' }
+      },
+      {
+        path: 'project-details',
+        name: 'ProjectDetails',
+        component: () => import('../views/ProjectDetails.vue'),
+        meta: { title: '项目详情' }
+      },
+      {
+        path: 'translators',
+        name: 'Translators',
+        component: () => import('../views/Translators.vue'),
+        meta: { title: '译员信息' }
+      },
+      {
+        path: 'clients',
+        name: 'Clients',
+        component: () => import('../views/Clients.vue'),
+        meta: { title: '客户信息' }
       }
     ]
   }
