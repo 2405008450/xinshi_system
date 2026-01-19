@@ -6,8 +6,8 @@
           <el-icon :size="28"><OfficeBuilding /></el-icon>
         </div>
         <div class="logo-text">
-          <h2>信实系统</h2>
-          <span class="logo-subtitle">翻译管理平台</span>
+          <h2>信实翻译公司</h2>
+          <span class="logo-subtitle">翻译项目管理平台</span>
         </div>
       </div>
       <el-menu
@@ -45,6 +45,18 @@
         <el-menu-item index="/clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
+        </el-menu-item>
+        <el-menu-item index="/subsidiary-clients">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>子公司客户信息</template>
+        </el-menu-item>
+        <el-menu-item index="/client-contacts">
+          <el-icon><ChatLineRound /></el-icon>
+          <template #title>客户联系人及回访</template>
+        </el-menu-item>
+        <el-menu-item index="/consultations">
+          <el-icon><QuestionFilled /></el-icon>
+          <template #title>咨询基本情况</template>
         </el-menu-item>
         <el-divider class="menu-divider" />
         <el-menu-item index="/user-roles">
@@ -93,7 +105,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuilding, ArrowDown } from '@element-plus/icons-vue'
+import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -163,7 +175,7 @@ const handleLogout = async () => {
   display: flex;
   align-items: center;
   padding: 0 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -225,9 +237,9 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .sidebar-menu :deep(.el-menu-item .el-icon) {

@@ -60,6 +60,24 @@ const routes = [
         name: 'Clients',
         component: () => import('../views/Clients.vue'),
         meta: { title: '客户信息' }
+      },
+      {
+        path: 'subsidiary-clients',
+        name: 'SubsidiaryClients',
+        component: () => import('../views/SubsidiaryClients.vue'),
+        meta: { title: '子公司客户信息' }
+      },
+      {
+        path: 'client-contacts',
+        name: 'ClientContacts',
+        component: () => import('../views/ClientContacts.vue'),
+        meta: { title: '客户联系人及回访' }
+      },
+      {
+        path: 'consultations',
+        name: 'Consultations',
+        component: () => import('../views/Consultations.vue'),
+        meta: { title: '咨询基本情况' }
       }
     ]
   }

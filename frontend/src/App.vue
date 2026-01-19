@@ -74,14 +74,14 @@ body {
 }
 
 .el-button--primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   border: none;
 }
 
 .el-button--primary:hover {
-  background: linear-gradient(135deg, #5568d3 0%, #6a3d8f 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 /* 输入框样式优化 */
@@ -95,7 +95,7 @@ body {
 }
 
 .el-input__wrapper.is-focus {
-  box-shadow: 0 0 0 1px #667eea inset;
+  box-shadow: 0 0 0 1px #3b82f6 inset;
 }
 
 /* 对话框样式优化 */
@@ -137,7 +137,7 @@ body {
 }
 
 .el-pagination .el-pager li.is-active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #fff;
 }
 
