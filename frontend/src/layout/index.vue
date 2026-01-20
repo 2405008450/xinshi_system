@@ -24,11 +24,33 @@
           <el-icon><Key /></el-icon>
           <template #title>角色管理</template>
         </el-menu-item>
-        <el-divider class="menu-divider" />
-        <el-menu-item index="/projects">
-          <el-icon><Folder /></el-icon>
-          <template #title>项目管理</template>
+        <el-menu-item index="/user-roles">
+          <el-icon><Connection /></el-icon>
+          <template #title>用户角色关联</template>
         </el-menu-item>
+        <el-divider class="menu-divider" />
+        <!-- 项目管理子菜单 -->
+        <el-sub-menu index="/project-management">
+          <template #title>
+            <el-icon><Folder /></el-icon>
+            <span>项目管理</span>
+          </template>
+          <el-menu-item index="/project-management/translation">
+            <template #title>笔译项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/project-management/interpretation">
+            <template #title>口译项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/project-management/annotation">
+            <template #title>标注项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/project-management/recruitment">
+            <template #title>招聘项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/project-management/other">
+            <template #title>其他项目管理</template>
+          </el-menu-item>
+        </el-sub-menu>
         <el-menu-item index="/project-details">
           <el-icon><InfoFilled /></el-icon>
           <template #title>项目详情</template>
@@ -38,31 +60,35 @@
           <template #title>项目文件</template>
         </el-menu-item>
         <el-divider class="menu-divider" />
-        <el-menu-item index="/translators">
-          <el-icon><Avatar /></el-icon>
-          <template #title>译员信息</template>
-        </el-menu-item>
-        <el-menu-item index="/clients">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>客户信息</template>
-        </el-menu-item>
-        <el-menu-item index="/subsidiary-clients">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>子公司客户信息</template>
-        </el-menu-item>
-        <el-menu-item index="/client-contacts">
-          <el-icon><ChatLineRound /></el-icon>
-          <template #title>客户联系人及回访</template>
-        </el-menu-item>
-        <el-menu-item index="/consultations">
-          <el-icon><QuestionFilled /></el-icon>
-          <template #title>咨询基本情况</template>
-        </el-menu-item>
-        <el-divider class="menu-divider" />
-        <el-menu-item index="/user-roles">
-          <el-icon><Connection /></el-icon>
-          <template #title>用户角色关联</template>
-        </el-menu-item>
+        <!-- 资源管理子菜单 -->
+        <el-sub-menu index="/resource-management">
+          <template #title>
+            <el-icon><Avatar /></el-icon>
+            <span>资源管理</span>
+          </template>
+          <el-menu-item index="/resource-management/translators">
+            <template #title>译员信息</template>
+          </el-menu-item>
+        </el-sub-menu>
+        <!-- 客户管理子菜单 -->
+        <el-sub-menu index="/client-management">
+          <template #title>
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>客户管理</span>
+          </template>
+          <el-menu-item index="/client-management/clients">
+            <template #title>客户信息</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/subsidiary-clients">
+            <template #title>子公司客户信息</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/client-contacts">
+            <template #title>客户联系人及回访</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/consultations">
+            <template #title>咨询基本情况</template>
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
     <el-container>
@@ -110,7 +136,10 @@ import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuil
 const route = useRoute()
 const router = useRouter()
 
-const activeMenu = computed(() => route.path)
+const activeMenu = computed(() => {
+  // 对于嵌套路由，返回完整路径
+  return route.path
+})
 
 const currentPageTitle = computed(() => {
   return route.meta?.title || '首页'
@@ -245,6 +274,43 @@ const handleLogout = async () => {
 .sidebar-menu :deep(.el-menu-item .el-icon) {
   margin-right: 8px;
   font-size: 18px;
+}
+
+.sidebar-menu :deep(.el-sub-menu) {
+  margin: 4px 12px;
+}
+
+.sidebar-menu :deep(.el-sub-menu__title) {
+  color: #d1d5db;
+  height: 50px;
+  line-height: 50px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.sidebar-menu :deep(.el-sub-menu__title:hover) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.sidebar-menu :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
+  color: #fff;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-icon) {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu) {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu-item) {
+  margin: 2px 8px;
+  padding-left: 40px !important;
 }
 
 .menu-divider {

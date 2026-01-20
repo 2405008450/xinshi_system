@@ -64,3 +64,25 @@ frontend/
 1. 确保后端服务运行在 http://127.0.0.1:8000
 2. 登录功能目前是简化版本，实际项目中需要实现完整的认证流程
 3. 部分接口可能需要根据实际后端响应调整
+
+
+路由结构：
+/ (Layout)
+├── /users - 用户管理
+├── /roles - 角色管理
+├── /user-roles - 用户角色关联
+├── /project-management (项目管理)
+│   ├── /translation - 笔译项目管理
+│   ├── /interpretation - 口译项目管理
+│   ├── /annotation - 标注项目管理
+│   ├── /recruitment - 招聘项目管理
+│   └── /other - 其他项目管理
+├── /project-details - 项目详情
+├── /project-files - 项目文件
+├── /resource-management (资源管理)
+│   └── /translators - 译员信息
+└── /client-management (客户管理)
+    ├── /clients - 客户信息
+    ├── /subsidiary-clients - 子公司客户信息
+    ├── /client-contacts - 客户联系人及回访
+    └── /consultations - 咨询基本情况
