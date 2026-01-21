@@ -10,6 +10,10 @@
           <span class="logo-subtitle">翻译项目管理平台</span>
         </div>
       </div>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <MockSwitch />
+        <span>Mock模式</span>
+      </div>
       <el-menu
         :default-active="activeMenu"
         router
@@ -89,6 +93,57 @@
             <template #title>咨询基本情况</template>
           </el-menu-item>
         </el-sub-menu>
+        <el-divider class="menu-divider" />
+        <!-- 财务管理 -->
+        <el-menu-item index="/finance">
+          <el-icon><Money /></el-icon>
+          <template #title>财务管理</template>
+        </el-menu-item>
+        <!-- 营销管理 -->
+        <el-menu-item index="/marketing">
+          <el-icon><Promotion /></el-icon>
+          <template #title>营销管理</template>
+        </el-menu-item>
+        <!-- 人力管理子菜单 -->
+        <el-sub-menu index="/hr-management">
+          <template #title>
+            <el-icon><User /></el-icon>
+            <span>人力管理</span>
+          </template>
+          <el-menu-item index="/hr-management/attendance">
+            <template #title>考勤管理</template>
+          </el-menu-item>
+          <el-menu-item index="/hr-management/kpi">
+            <template #title>KPI管理</template>
+          </el-menu-item>
+          <el-menu-item index="/hr-management/salary">
+            <template #title>薪酬管理</template>
+          </el-menu-item>
+          <el-menu-item index="/hr-management/onboarding">
+            <template #title>入职管理</template>
+          </el-menu-item>
+          <el-menu-item index="/hr-management/offboarding">
+            <template #title>离职管理</template>
+          </el-menu-item>
+        </el-sub-menu>
+        <!-- 内务管理子菜单 -->
+        <el-sub-menu index="/administration-management">
+          <template #title>
+            <el-icon><House /></el-icon>
+            <span>内务管理</span>
+          </template>
+          <el-menu-item index="/administration-management/office">
+            <template #title>办公室管理</template>
+          </el-menu-item>
+          <el-menu-item index="/administration-management/office-equipment">
+            <template #title>办公室设备管理</template>
+          </el-menu-item>
+        </el-sub-menu>
+        <!-- 采购管理 -->
+        <el-menu-item index="/procurement">
+          <el-icon><ShoppingCart /></el-icon>
+          <template #title>采购管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -131,7 +186,8 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled } from '@element-plus/icons-vue'
+import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart } from '@element-plus/icons-vue'
+import MockSwitch from '../components/MockSwitch.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -338,7 +394,7 @@ const handleLogout = async () => {
   align-items: center;
   gap: 16px;
 }
-
+ 
 .user-info {
   display: flex;
   align-items: center;

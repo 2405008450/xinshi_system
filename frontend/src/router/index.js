@@ -54,8 +54,10 @@ const routes = [
             path: 'translation',
             name: 'TranslationProjects',
             component: () => import('../views/TranslationProjects.vue'),
-            meta: { title: '笔译项目管理' }
+            meta: { title: '笔译项目管理'
+            }
           },
+
           {
             path: 'interpretation',
             name: 'InterpretationProjects',
@@ -129,6 +131,87 @@ const routes = [
             meta: { title: '咨询基本情况' }
           }
         ]
+      },
+      // 财务管理
+      {
+        path: 'finance',
+        name: 'FinanceManagement',
+        component: () => import('../views/FinanceManagement.vue'),
+        meta: { title: '财务管理' }
+      },
+      // 营销管理
+      {
+        path: 'marketing',
+        name: 'MarketingManagement',
+        component: () => import('../views/MarketingManagement.vue'),
+        meta: { title: '营销管理' }
+      },
+      // 人力管理 - 嵌套路由
+      {
+        path: 'hr-management',
+        component: () => import('../views/HRManagement.vue'),
+        redirect: '/hr-management/attendance',
+        meta: { title: '人力管理' },
+        children: [
+          {
+            path: 'attendance',
+            name: 'Attendance',
+            component: () => import('../views/Attendance.vue'),
+            meta: { title: '考勤管理' }
+          },
+          {
+            path: 'kpi',
+            name: 'KPI',
+            component: () => import('../views/KPI.vue'),
+            meta: { title: 'KPI管理' }
+          },
+          {
+            path: 'salary',
+            name: 'Salary',
+            component: () => import('../views/Salary.vue'),
+            meta: { title: '薪酬管理' }
+          },
+          {
+            path: 'onboarding',
+            name: 'Onboarding',
+            component: () => import('../views/Onboarding.vue'),
+            meta: { title: '入职管理' }
+          },
+          {
+            path: 'offboarding',
+            name: 'Offboarding',
+            component: () => import('../views/Offboarding.vue'),
+            meta: { title: '离职管理' }
+          }
+        ]
+      },
+      // 内务管理 - 嵌套路由
+      {
+        path: 'administration-management',
+        component: () => import('../views/AdministrationManagement.vue'),
+        redirect: '/administration-management/office',
+        meta: { title: '内务管理' },
+        children: [
+          {
+            path: 'office',
+            name: 'Office',
+            component: () => import('../views/Office.vue'),
+            meta: { title: '办公室管理' }
+          },
+          {
+            path: 'office-equipment',
+            name: 'OfficeEquipment',
+            component: () => import('../views/OfficeEquipment.vue'),
+            meta: { title: '办公室设备管理' }
+          }
+        ]
+      },
+      // 采购管理
+      {
+        path: 'procurement',
+        name: 'ProcurementManagement',
+        component: () => import('../views/ProcurementManagement.vue'),
+        meta: { title: '采购管理' }
       }
     ]
   }
