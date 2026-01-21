@@ -39,9 +39,18 @@
             <el-icon><Folder /></el-icon>
             <span>项目管理</span>
           </template>
-          <el-menu-item index="/project-management/translation">
+          <el-sub-menu index="/project-management/translation">
             <template #title>笔译项目管理</template>
-          </el-menu-item>
+            <el-menu-item index="/project-management/translation">
+              <template #title>项目流程表</template>
+            </el-menu-item>
+            <el-menu-item index="/project-management/translation/project-details">
+              <template #title>项目详情</template>
+            </el-menu-item>
+            <el-menu-item index="/project-management/translation/project-files">
+              <template #title>项目文件</template>
+            </el-menu-item>
+          </el-sub-menu>
           <el-menu-item index="/project-management/interpretation">
             <template #title>口译项目管理</template>
           </el-menu-item>
@@ -55,13 +64,13 @@
             <template #title>其他项目管理</template>
           </el-menu-item>
         </el-sub-menu>
-        <el-menu-item index="/project-details">
-          <el-icon><InfoFilled /></el-icon>
-          <template #title>项目详情</template>
+        <el-menu-item index="/work-schedule">
+          <el-icon><ChatLineRound /></el-icon>
+          <template #title>工作安排</template>
         </el-menu-item>
-        <el-menu-item index="/project-files">
-          <el-icon><Document /></el-icon>
-          <template #title>项目文件</template>
+        <el-menu-item index="/technology-management">
+          <el-icon><QuestionFilled /></el-icon>
+          <template #title>技术管理</template>
         </el-menu-item>
         <el-divider class="menu-divider" />
         <!-- 资源管理子菜单 -->
@@ -72,6 +81,12 @@
           </template>
           <el-menu-item index="/resource-management/translators">
             <template #title>译员信息</template>
+          </el-menu-item>
+          <el-menu-item index="/resource-management/annotators">
+            <template #title>标注员</template>
+          </el-menu-item>
+          <el-menu-item index="/resource-management/suppliers">
+            <template #title>供应商</template>
           </el-menu-item>
         </el-sub-menu>
         <!-- 客户管理子菜单 -->
@@ -186,7 +201,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { User, Key, Folder, Connection, Document, InfoFilled, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart } from '@element-plus/icons-vue'
+import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
 
 const route = useRoute()

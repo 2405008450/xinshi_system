@@ -5,6 +5,7 @@ import {
   getMockSubsidiaryClients,
   getMockClientContacts,
   getMockConsultations,
+  getMockTranslationProjects,
   delay
 } from './data'
 
@@ -341,6 +342,109 @@ export const mockApi = {
         return createMockResponse(null, { error: true, errorMessage: '记录不存在' })
       }
       consultations.splice(index, 1)
+      return createMockResponse({ success: true }, { delay: 300 })
+    }
+  },
+  
+  // 项目流程表相关
+  projects: {
+    get: async (params = {}) => {
+      let data = [...getMockTranslationProjects()] // 创建副本
+      
+      // 搜索过滤
+      if (params.search) {
+        data = data.filter(item => {
+          return (
+            (item.projectName && item.projectName.includes(params.search)) ||
+            (item.orderNo && item.orderNo.includes(params.search)) ||
+            (item.clientShortName && item.clientShortName.includes(params.search))
+          )
+        })
+      }
+      
+      // 保存总数
+      const total = data.length
+      
+      // 分页处理 - 根据不同的分页参数格式
+      let skip = 0
+      let limit = 10
+      
+      if (params.skip !== undefined) {
+        skip = params.skip
+      } else if (params.page !== undefined) {
+        skip = (params.page - 1) * (params.limit || 10)
+      }
+      
+      if (params.limit !== undefined) {
+        limit = params.limit
+      }
+      
+      const paginated = paginate(data, skip, limit)
+      
+      return createMockResponse(paginated, { delay: 200 })
+    },
+    
+    getById: async (id) => {
+      const data = getMockTranslationProjects()
+      const item = data.find(p => p.id === id)
+      if (!item) {
+        return createMockResponse(null, { error: true, errorMessage: '项目不存在' })
+      }
+      return createMockResponse(item, { delay: 150 })
+    },
+    
+    create: async (data) => {
+      const projects = getMockTranslationProjects()
+      const now = new Date()
+      const pad = (value) => String(value).padStart(2, '0')
+      const formatDateTime = (date) => {
+        const year = date.getFullYear()
+        const month = pad(date.getMonth() + 1)
+        const day = pad(date.getDate())
+        const hour = pad(date.getHours())
+        const minute = pad(date.getMinutes())
+        const second = pad(date.getSeconds())
+        return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+      }
+      
+      const newProject = {
+        id: `mock-${Date.now()}`,
+        ...data,
+        createdAt: data.createdAt || formatDateTime(now),
+        updatedAt: formatDateTime(now)
+      }
+      projects.push(newProject)
+      return createMockResponse(newProject, { delay: 400 })
+    },
+    
+    update: async (id, data) => {
+      const projects = getMockTranslationProjects()
+      const index = projects.findIndex(p => p.id === id)
+      if (index === -1) {
+        return createMockResponse(null, { error: true, errorMessage: '项目不存在' })
+      }
+      const now = new Date()
+      const pad = (value) => String(value).padStart(2, '0')
+      const formatDateTime = (date) => {
+        const year = date.getFullYear()
+        const month = pad(date.getMonth() + 1)
+        const day = pad(date.getDate())
+        const hour = pad(date.getHours())
+        const minute = pad(date.getMinutes())
+        const second = pad(date.getSeconds())
+        return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+      }
+      projects[index] = { ...projects[index], ...data, updatedAt: formatDateTime(now) }
+      return createMockResponse(projects[index], { delay: 400 })
+    },
+    
+    delete: async (id) => {
+      const projects = getMockTranslationProjects()
+      const index = projects.findIndex(p => p.id === id)
+      if (index === -1) {
+        return createMockResponse(null, { error: true, errorMessage: '项目不存在' })
+      }
+      projects.splice(index, 1)
       return createMockResponse({ success: true }, { delay: 300 })
     }
   }

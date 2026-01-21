@@ -231,12 +231,97 @@ export const generateConsultations = (clients, count = 25) => {
   return consultations
 }
 
+// 生成项目流程表 Mock 数据
+export const generateTranslationProjects = (count = 30) => {
+  const projects = []
+  const projectStatuses = ['pending', 'in_progress', 'completed', 'paused']
+  const cooperationTypes = ['全职', '兼职', '自由职业', '外包']
+  const statMethods = ['按字数', '按页数', '按项目', '按小时']
+  const fileTypes = ['合同', '技术文档', '法律文件', '商务文件', '学术论文', '其他']
+  const progressStatuses = ['未开始', '进行中', '已完成', '待审核', '已审核']
+  
+  const clients = generateClients(20)
+  
+  for (let i = 0; i < count; i++) {
+    const client = random.choice(clients)
+    const receptionTime = random.date.past(0.5)
+    const deadlineTime = random.date.between({
+      from: receptionTime,
+      to: new Date(receptionTime.getTime() + 30 * 24 * 60 * 60 * 1000)
+    })
+    const assignmentTime = random.date.between({
+      from: receptionTime,
+      to: deadlineTime
+    })
+    const sentTime = random.date.between({
+      from: assignmentTime,
+      to: deadlineTime
+    })
+    const createdAt = random.date.past(1)
+    const updatedAt = random.date.between({
+      from: createdAt,
+      to: new Date()
+    })
+    
+    const pad = (value) => String(value).padStart(2, '0')
+    const formatDateTime = (date) => {
+      const year = date.getFullYear()
+      const month = pad(date.getMonth() + 1)
+      const day = pad(date.getDate())
+      const hour = pad(date.getHours())
+      const minute = pad(date.getMinutes())
+      const second = pad(date.getSeconds())
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+    }
+    
+    const generateOrderNo = () => {
+      const now = new Date()
+      const year = now.getFullYear()
+      const month = pad(now.getMonth() + 1)
+      const day = pad(now.getDate())
+      const sequence = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
+      return `${year}${month}${day}${sequence}`
+    }
+    
+    projects.push({
+      id: random.uuid(),
+      orderNo: generateOrderNo(),
+      projectName: `${client.client_short_name}-${random.choice(['翻译项目', '文档翻译', '合同翻译', '技术文档翻译'])}-${i + 1}`,
+      clientShortName: client.client_short_name,
+      clientCode: client.client_code,
+      projectStatus: random.choice(projectStatuses),
+      customerReceptionTime: formatDateTime(receptionTime),
+      customerDeadlineTime: formatDateTime(deadlineTime),
+      translatorCooperationType: random.choice(cooperationTypes),
+      translatorAssignee: random.person(),
+      translatorAssignmentTime: formatDateTime(assignmentTime),
+      translatorDeliveryProgress: random.choice(progressStatuses),
+      review1Progress: random.choice(progressStatuses),
+      preReviewQcProgress: random.choice(progressStatuses),
+      layoutProgress: random.choice(progressStatuses),
+      consolidationProgress: random.choice(progressStatuses),
+      sentToClientTime: formatDateTime(sentTime),
+      clientFeedback: random.choice(['满意', '基本满意', '需要修改', '待反馈', '']),
+      postReviewQcProgress: random.choice(progressStatuses),
+      review2Progress: random.choice(progressStatuses),
+      reservedTranslatorStatMethod: random.choice(statMethods),
+      reservedTranslatorWordCount: random.int(1000, 50000),
+      fileTypeSecondary: random.choice(fileTypes),
+      leadPmId: `PM${String(random.int(1, 10)).padStart(3, '0')}`,
+      updatedAt: formatDateTime(updatedAt),
+      createdAt: formatDateTime(createdAt)
+    })
+  }
+  return projects
+}
+
 // 初始化所有 Mock 数据
 let mockClients = null
 let mockTranslators = null
 let mockSubsidiaryClients = null
 let mockClientContacts = null
 let mockConsultations = null
+let mockTranslationProjects = null
 
 export const initMockData = () => {
   if (!mockClients) {
@@ -245,6 +330,7 @@ export const initMockData = () => {
     mockSubsidiaryClients = generateSubsidiaryClients(mockClients, 15)
     mockClientContacts = generateClientContacts(mockClients, 40)
     mockConsultations = generateConsultations(mockClients, 35)
+    mockTranslationProjects = generateTranslationProjects(30)
   }
 }
 
@@ -271,6 +357,11 @@ export const getMockClientContacts = () => {
 export const getMockConsultations = () => {
   initMockData()
   return mockConsultations
+}
+
+export const getMockTranslationProjects = () => {
+  initMockData()
+  return mockTranslationProjects
 }
 
 // 模拟网络延迟

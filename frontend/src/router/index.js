@@ -31,18 +31,6 @@ const routes = [
         component: () => import('../views/UserRoles.vue'),
         meta: { title: '用户角色关联' }
       },
-      {
-        path: 'project-files',
-        name: 'ProjectFiles',
-        component: () => import('../views/ProjectFiles.vue'),
-        meta: { title: '项目文件管理' }
-      },
-      {
-        path: 'project-details',
-        name: 'ProjectDetails',
-        component: () => import('../views/ProjectDetails.vue'),
-        meta: { title: '项目详情' }
-      },
       // 项目管理 - 嵌套路由
       {
         path: 'project-management',
@@ -54,8 +42,19 @@ const routes = [
             path: 'translation',
             name: 'TranslationProjects',
             component: () => import('../views/TranslationProjects.vue'),
-            meta: { title: '笔译项目管理'
-            }
+            meta: { title: '项目流程表' }
+          },
+          {
+            path: 'translation/project-details',
+            name: 'TranslationProjectDetails',
+            component: () => import('../views/ProjectDetails.vue'),
+            meta: { title: '项目详情' }
+          },
+          {
+            path: 'translation/project-files',
+            name: 'TranslationProjectFiles',
+            component: () => import('../views/ProjectFiles.vue'),
+            meta: { title: '项目文件' }
           },
 
           {
@@ -84,6 +83,12 @@ const routes = [
           }
         ]
       },
+      {
+        path: 'work-schedule',
+        name: 'WorkSchedule',
+        component: () => import('../views/WorkSchedule.vue'),
+        meta: { title: '工作安排' }
+      },
       // 资源管理 - 嵌套路由
       {
         path: 'resource-management',
@@ -96,6 +101,18 @@ const routes = [
             name: 'Translators',
             component: () => import('../views/Translators.vue'),
             meta: { title: '译员信息' }
+          },
+          {
+            path: 'annotators',
+            name: 'Annotators',
+            component: () => import('../views/Annotators.vue'),
+            meta: { title: '标注员' }
+          },
+          {
+            path: 'suppliers',
+            name: 'Suppliers',
+            component: () => import('../views/Suppliers.vue'),
+            meta: { title: '供应商' }
           }
         ]
       },
@@ -212,7 +229,14 @@ const routes = [
         name: 'ProcurementManagement',
         component: () => import('../views/ProcurementManagement.vue'),
         meta: { title: '采购管理' }
-      }
+      },
+      {
+        path: 'technology-management',
+        name: 'TechnologyManagement',
+        component: () => import('../views/TechnologyManagement.vue'),
+        meta: { title: '技术管理' }
+      },
+
     ]
   }
 ]
