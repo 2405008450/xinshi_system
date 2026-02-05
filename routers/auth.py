@@ -7,7 +7,7 @@ from jose import JWTError, jwt
 import hashlib
 
 from database import get_db
-from crud import get_user_by_username
+from crud import get_user_by_username, get_user_roles_with_role_names
 from schemas import Token, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -66,7 +66,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """登录接口(OAuth2 兼容)"""
+    """登录接口(OAuth2 兼容)，返回 token 与用户角色列表"""
     user = get_user_by_username(db, username=form_data.username)
     if not user:
         raise HTTPException(
@@ -88,17 +88,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             detail="User is inactive"
         )
     
+    role_names = get_user_roles_with_role_names(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names}
 
 
 @router.post("/login/json", response_model=Token)
 def login_json(login_data: LoginRequest, db: Session = Depends(get_db)):
-    """登录接口(JSON 格式)"""
+    """登录接口(JSON 格式)，返回 token 与用户角色列表"""
     user = get_user_by_username(db, username=login_data.username)
     if not user:
         raise HTTPException(
@@ -120,9 +121,10 @@ def login_json(login_data: LoginRequest, db: Session = Depends(get_db)):
             detail="User is inactive"
         )
     
+    role_names = get_user_roles_with_role_names(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names}

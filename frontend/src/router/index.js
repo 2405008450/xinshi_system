@@ -1,6 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Layout from '../layout/index.vue'
+import { TRANSLATION_PROJECT_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles } from '../utils/permission'
+
+/** 仅笔译项目管理可访问的角色（客户专员、项目专员、项目经理） */
+const translationRoles = TRANSLATION_PROJECT_ROLES
 
 const routes = [
   {
@@ -36,25 +40,25 @@ const routes = [
         path: 'project-management',
         component: () => import('../views/ProjectManagement.vue'),
         redirect: '/project-management/translation',
-        meta: { title: '项目管理' },
+        meta: { title: '项目管理', roles: translationRoles },
         children: [
           {
             path: 'translation',
             name: 'TranslationProjects',
             component: () => import('../views/TranslationProjects.vue'),
-            meta: { title: '项目流程表' }
+            meta: { title: '项目流程表', roles: translationRoles }
           },
           {
             path: 'translation/project-details',
             name: 'TranslationProjectDetails',
             component: () => import('../views/ProjectDetails.vue'),
-            meta: { title: '项目详情' }
+            meta: { title: '项目详情', roles: translationRoles }
           },
           {
             path: 'translation/project-files',
             name: 'TranslationProjectFiles',
             component: () => import('../views/ProjectFiles.vue'),
-            meta: { title: '项目文件' }
+            meta: { title: '项目文件', roles: translationRoles }
           },
 
           {
@@ -246,16 +250,33 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
+// 路由守卫：认证 + 角色权限
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   if (to.path === '/login') {
     next()
-  } else if (!token) {
-    next('/login')
-  } else {
-    next()
+    return
   }
+  if (!token) {
+    next('/login')
+    return
+  }
+  // 已登录但未存储角色（如旧会话）：强制重新登录以获取角色
+  if (getStoredRoles().length === 0) {
+    next('/login')
+    return
+  }
+  // 根路径按角色重定向到首页
+  if (to.path === '/') {
+    next(isSuperAdmin() ? '/users' : '/project-management/translation')
+    return
+  }
+  // 检查当前用户是否有权访问目标路由
+  if (!canAccessRoute(to)) {
+    next(isSuperAdmin() ? '/users' : '/project-management/translation')
+    return
+  }
+  next()
 })
 
 export default router

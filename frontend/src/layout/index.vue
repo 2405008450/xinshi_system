@@ -20,20 +20,23 @@
         class="sidebar-menu"
         :collapse="false"
       >
-        <el-menu-item index="/users">
-          <el-icon><User /></el-icon>
-          <template #title>用户管理</template>
-        </el-menu-item>
-        <el-menu-item index="/roles">
-          <el-icon><Key /></el-icon>
-          <template #title>角色管理</template>
-        </el-menu-item>
-        <el-menu-item index="/user-roles">
-          <el-icon><Connection /></el-icon>
-          <template #title>用户角色关联</template>
-        </el-menu-item>
-        <el-divider class="menu-divider" />
-        <!-- 项目管理子菜单 -->
+        <!-- 仅超级管理员可见：用户/角色/用户角色关联 -->
+        <template v-if="showFullMenu">
+          <el-menu-item index="/users">
+            <el-icon><User /></el-icon>
+            <template #title>用户管理</template>
+          </el-menu-item>
+          <el-menu-item index="/roles">
+            <el-icon><Key /></el-icon>
+            <template #title>角色管理</template>
+          </el-menu-item>
+          <el-menu-item index="/user-roles">
+            <el-icon><Connection /></el-icon>
+            <template #title>用户角色关联</template>
+          </el-menu-item>
+          <el-divider class="menu-divider" />
+        </template>
+        <!-- 项目管理：超级管理员看全部，其他角色仅看笔译 -->
         <el-sub-menu index="/project-management">
           <template #title>
             <el-icon><Folder /></el-icon>
@@ -51,114 +54,111 @@
               <template #title>项目文件</template>
             </el-menu-item>
           </el-sub-menu>
-          <el-menu-item index="/project-management/interpretation">
-            <template #title>口译项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/project-management/annotation">
-            <template #title>标注项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/project-management/recruitment">
-            <template #title>招聘项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/project-management/other">
-            <template #title>其他项目管理</template>
-          </el-menu-item>
-        </el-sub-menu>
-        <el-menu-item index="/work-schedule">
-          <el-icon><ChatLineRound /></el-icon>
-          <template #title>工作安排</template>
-        </el-menu-item>
-        <el-menu-item index="/technology-management">
-          <el-icon><QuestionFilled /></el-icon>
-          <template #title>技术管理</template>
-        </el-menu-item>
-        <el-divider class="menu-divider" />
-        <!-- 资源管理子菜单 -->
-        <el-sub-menu index="/resource-management">
-          <template #title>
-            <el-icon><Avatar /></el-icon>
-            <span>资源管理</span>
+          <template v-if="showFullMenu">
+            <el-menu-item index="/project-management/interpretation">
+              <template #title>口译项目管理</template>
+            </el-menu-item>
+            <el-menu-item index="/project-management/annotation">
+              <template #title>标注项目管理</template>
+            </el-menu-item>
+            <el-menu-item index="/project-management/recruitment">
+              <template #title>招聘项目管理</template>
+            </el-menu-item>
+            <el-menu-item index="/project-management/other">
+              <template #title>其他项目管理</template>
+            </el-menu-item>
           </template>
-          <el-menu-item index="/resource-management/translators">
-            <template #title>译员信息</template>
-          </el-menu-item>
-          <el-menu-item index="/resource-management/annotators">
-            <template #title>标注员</template>
-          </el-menu-item>
-          <el-menu-item index="/resource-management/suppliers">
-            <template #title>供应商</template>
-          </el-menu-item>
         </el-sub-menu>
-        <!-- 客户管理子菜单 -->
-        <el-sub-menu index="/client-management">
-          <template #title>
-            <el-icon><OfficeBuilding /></el-icon>
-            <span>客户管理</span>
-          </template>
-          <el-menu-item index="/client-management/clients">
-            <template #title>客户信息</template>
+        <template v-if="showFullMenu">
+          <el-menu-item index="/work-schedule">
+            <el-icon><ChatLineRound /></el-icon>
+            <template #title>工作安排</template>
           </el-menu-item>
-          <el-menu-item index="/client-management/subsidiary-clients">
-            <template #title>子公司客户信息</template>
+          <el-menu-item index="/technology-management">
+            <el-icon><QuestionFilled /></el-icon>
+            <template #title>技术管理</template>
           </el-menu-item>
-          <el-menu-item index="/client-management/client-contacts">
-            <template #title>客户联系人及回访</template>
+          <el-divider class="menu-divider" />
+          <el-sub-menu index="/resource-management">
+            <template #title>
+              <el-icon><Avatar /></el-icon>
+              <span>资源管理</span>
+            </template>
+            <el-menu-item index="/resource-management/translators">
+              <template #title>译员信息</template>
+            </el-menu-item>
+            <el-menu-item index="/resource-management/annotators">
+              <template #title>标注员</template>
+            </el-menu-item>
+            <el-menu-item index="/resource-management/suppliers">
+              <template #title>供应商</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="/client-management">
+            <template #title>
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>客户管理</span>
+            </template>
+            <el-menu-item index="/client-management/clients">
+              <template #title>客户信息</template>
+            </el-menu-item>
+            <el-menu-item index="/client-management/subsidiary-clients">
+              <template #title>子公司客户信息</template>
+            </el-menu-item>
+            <el-menu-item index="/client-management/client-contacts">
+              <template #title>客户联系人及回访</template>
+            </el-menu-item>
+            <el-menu-item index="/client-management/consultations">
+              <template #title>咨询基本情况</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-divider class="menu-divider" />
+          <el-menu-item index="/finance">
+            <el-icon><Money /></el-icon>
+            <template #title>财务管理</template>
           </el-menu-item>
-          <el-menu-item index="/client-management/consultations">
-            <template #title>咨询基本情况</template>
+          <el-menu-item index="/marketing">
+            <el-icon><Promotion /></el-icon>
+            <template #title>营销管理</template>
           </el-menu-item>
-        </el-sub-menu>
-        <el-divider class="menu-divider" />
-        <!-- 财务管理 -->
-        <el-menu-item index="/finance">
-          <el-icon><Money /></el-icon>
-          <template #title>财务管理</template>
-        </el-menu-item>
-        <!-- 营销管理 -->
-        <el-menu-item index="/marketing">
-          <el-icon><Promotion /></el-icon>
-          <template #title>营销管理</template>
-        </el-menu-item>
-        <!-- 人力管理子菜单 -->
-        <el-sub-menu index="/hr-management">
-          <template #title>
-            <el-icon><User /></el-icon>
-            <span>人力管理</span>
-          </template>
-          <el-menu-item index="/hr-management/attendance">
-            <template #title>考勤管理</template>
+          <el-sub-menu index="/hr-management">
+            <template #title>
+              <el-icon><User /></el-icon>
+              <span>人力管理</span>
+            </template>
+            <el-menu-item index="/hr-management/attendance">
+              <template #title>考勤管理</template>
+            </el-menu-item>
+            <el-menu-item index="/hr-management/kpi">
+              <template #title>KPI管理</template>
+            </el-menu-item>
+            <el-menu-item index="/hr-management/salary">
+              <template #title>薪酬管理</template>
+            </el-menu-item>
+            <el-menu-item index="/hr-management/onboarding">
+              <template #title>入职管理</template>
+            </el-menu-item>
+            <el-menu-item index="/hr-management/offboarding">
+              <template #title>离职管理</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="/administration-management">
+            <template #title>
+              <el-icon><House /></el-icon>
+              <span>内务管理</span>
+            </template>
+            <el-menu-item index="/administration-management/office">
+              <template #title>办公室管理</template>
+            </el-menu-item>
+            <el-menu-item index="/administration-management/office-equipment">
+              <template #title>办公室设备管理</template>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-menu-item index="/procurement">
+            <el-icon><ShoppingCart /></el-icon>
+            <template #title>采购管理</template>
           </el-menu-item>
-          <el-menu-item index="/hr-management/kpi">
-            <template #title>KPI管理</template>
-          </el-menu-item>
-          <el-menu-item index="/hr-management/salary">
-            <template #title>薪酬管理</template>
-          </el-menu-item>
-          <el-menu-item index="/hr-management/onboarding">
-            <template #title>入职管理</template>
-          </el-menu-item>
-          <el-menu-item index="/hr-management/offboarding">
-            <template #title>离职管理</template>
-          </el-menu-item>
-        </el-sub-menu>
-        <!-- 内务管理子菜单 -->
-        <el-sub-menu index="/administration-management">
-          <template #title>
-            <el-icon><House /></el-icon>
-            <span>内务管理</span>
-          </template>
-          <el-menu-item index="/administration-management/office">
-            <template #title>办公室管理</template>
-          </el-menu-item>
-          <el-menu-item index="/administration-management/office-equipment">
-            <template #title>办公室设备管理</template>
-          </el-menu-item>
-        </el-sub-menu>
-        <!-- 采购管理 -->
-        <el-menu-item index="/procurement">
-          <el-icon><ShoppingCart /></el-icon>
-          <template #title>采购管理</template>
-        </el-menu-item>
+        </template>
       </el-menu>
     </el-aside>
     <el-container>
@@ -173,7 +173,7 @@
           <el-dropdown @command="handleCommand">
             <span class="user-info">
               <el-avatar :size="32" :icon="User" />
-              <span class="username">管理员</span>
+              <span class="username">{{ displayName }}</span>
               <el-icon class="el-icon--right"><arrow-down /></el-icon>
             </span>
             <template #dropdown>
@@ -203,12 +203,22 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
+import { isSuperAdmin, getStoredRoles } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
 
+/** 是否显示完整菜单（超级管理员） */
+const showFullMenu = computed(() => isSuperAdmin())
+
+/** 当前用户名（可从 token 或存储解析，此处简单显示） */
+const displayName = computed(() => {
+  const roles = getStoredRoles()
+  if (roles.length) return roles.join('、') || '用户'
+  return '用户'
+})
+
 const activeMenu = computed(() => {
-  // 对于嵌套路由，返回完整路径
   return route.path
 })
 
@@ -236,6 +246,7 @@ const handleLogout = async () => {
       type: 'warning'
     })
     localStorage.removeItem('token')
+    localStorage.removeItem('user_roles')
     router.push('/login')
   } catch {
     // 用户取消

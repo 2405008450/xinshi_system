@@ -9,6 +9,9 @@ from pydantic import BaseModel, EmailStr
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    roles: Optional[list[str]] = None
 
 
 class LoginRequest(BaseModel):

@@ -105,6 +105,8 @@ const handleLogin = async () => {
         const { login } = await import('../api/auth')
         const res = await login(loginForm)
         localStorage.setItem('token', res.access_token)
+        const roles = Array.isArray(res.roles) ? res.roles : []
+        localStorage.setItem('user_roles', JSON.stringify(roles))
         ElMessage.success('登录成功')
         router.push('/')
       } catch (error) {

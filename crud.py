@@ -184,8 +184,30 @@ def get_user_roles_by_user(db: Session, user_id: UUID) -> List[UserRole]:
     return db.query(UserRole).filter(UserRole.user_id == user_id).all()
 
 
+def get_user_role_names(db: Session, user_id: UUID) -> List[str]:
+    """获取用户的所有角色名称"""
+    user_roles = db.query(UserRole).filter(UserRole.user_id == user_id).all()
+    role_names = []
+    for user_role in user_roles:
+        role = get_role(db, user_role.role_id)
+        if role:
+            role_names.append(role.role_name)
+    return role_names
+
+
 def get_user_roles_by_role(db: Session, role_id: UUID) -> List[UserRole]:
     return db.query(UserRole).filter(UserRole.role_id == role_id).all()
+
+
+def get_user_roles_with_role_names(db: Session, user_id: UUID) -> List[str]:
+    """获取用户的所有角色名称列表"""
+    user_roles = (
+        db.query(Role.role_name)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == user_id)
+        .all()
+    )
+    return [r.role_name for r in user_roles]
 
 
 def get_user_role_by_user_and_role(db: Session, user_id: UUID, role_id: UUID) -> Optional[UserRole]:
