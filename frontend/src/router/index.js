@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Layout from '../layout/index.vue'
-import { TRANSLATION_PROJECT_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles } from '../utils/permission'
+import { TRANSLATION_PROJECT_ROLES, WORK_SCHEDULE_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles } from '../utils/permission'
 
 /** 仅笔译项目管理可访问的角色（客户专员、项目专员、项目经理） */
 const translationRoles = TRANSLATION_PROJECT_ROLES
+/** 工作安排可访问的角色（项目经理） */
+const workScheduleRoles = WORK_SCHEDULE_ROLES
 
 const routes = [
   {
@@ -91,7 +93,7 @@ const routes = [
         path: 'work-schedule',
         name: 'WorkSchedule',
         component: () => import('../views/WorkSchedule.vue'),
-        meta: { title: '工作安排' }
+        meta: { title: '工作安排', roles: workScheduleRoles }
       },
       // 资源管理 - 嵌套路由
       {

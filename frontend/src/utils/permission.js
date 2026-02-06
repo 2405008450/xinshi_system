@@ -81,3 +81,6 @@ export const TRANSLATION_PROJECT_ROLES = [
   ROLE_PROJECT_SPECIALIST,
   ROLE_PROJECT_MANAGER
 ]
+
+/** 工作安排可访问的角色（仅项目经理，超级管理员始终可访问） */
+export const WORK_SCHEDULE_ROLES = [ROLE_PROJECT_MANAGER]

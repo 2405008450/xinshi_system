@@ -1,24 +1,29 @@
 <template>
   <el-container class="layout-container">
-    <el-aside width="240px" class="sidebar">
+    <el-aside :width="sidebarWidth" class="sidebar" :class="{ 'sidebar--collapsed': isCollapse }">
       <div class="logo">
         <div class="logo-icon">
           <el-icon :size="28"><OfficeBuilding /></el-icon>
         </div>
-        <div class="logo-text">
-          <h2>信实翻译公司</h2>
-          <span class="logo-subtitle">翻译项目管理平台</span>
-        </div>
+        <transition name="logo-text">
+          <div v-show="!isCollapse" class="logo-text">
+            <h2>信实翻译公司</h2>
+            <span class="logo-subtitle">翻译项目管理平台</span>
+          </div>
+        </transition>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px">
+      <div class="sidebar-extra" :class="{ 'sidebar-extra--collapsed': isCollapse }">
         <MockSwitch />
-        <span>Mock模式</span>
+        <transition name="fade">
+          <span v-show="!isCollapse" class="sidebar-extra-label">Mock模式</span>
+        </transition>
       </div>
       <el-menu
         :default-active="activeMenu"
         router
         class="sidebar-menu"
-        :collapse="false"
+        :collapse="isCollapse"
+        :collapse-transition="false"
       >
         <!-- 仅超级管理员可见：用户/角色/用户角色关联 -->
         <template v-if="showFullMenu">
@@ -69,11 +74,12 @@
             </el-menu-item>
           </template>
         </el-sub-menu>
+        <!-- 工作安排：超级管理员 或 项目经理 -->
+        <el-menu-item v-if="showWorkSchedule" index="/work-schedule">
+          <el-icon><ChatLineRound /></el-icon>
+          <template #title>工作安排</template>
+        </el-menu-item>
         <template v-if="showFullMenu">
-          <el-menu-item index="/work-schedule">
-            <el-icon><ChatLineRound /></el-icon>
-            <template #title>工作安排</template>
-          </el-menu-item>
           <el-menu-item index="/technology-management">
             <el-icon><QuestionFilled /></el-icon>
             <template #title>技术管理</template>
@@ -164,6 +170,15 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
+          <el-tooltip :content="isCollapse ? '展开菜单' : '收起菜单'" placement="bottom">
+            <el-button
+              class="collapse-btn"
+              :icon="isCollapse ? Expand : Fold"
+              circle
+              text
+              @click="toggleCollapse"
+            />
+          </el-tooltip>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentPageTitle }}</el-breadcrumb-item>
@@ -198,18 +213,43 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart } from '@element-plus/icons-vue'
+import { ref, computed, onMounted } from 'vue'
+import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
-import { isSuperAdmin, getStoredRoles } from '../utils/permission'
+import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
 
+const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
+
+/** 侧边栏是否折叠 */
+const isCollapse = ref(false)
+
+/** 侧边栏宽度 */
+const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '240px'))
+
+function toggleCollapse() {
+  isCollapse.value = !isCollapse.value
+  try {
+    localStorage.setItem(STORAGE_COLLAPSE_KEY, isCollapse.value ? '1' : '0')
+  } catch {}
+}
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem(STORAGE_COLLAPSE_KEY)
+    if (saved !== null) isCollapse.value = saved === '1'
+  } catch {}
+})
+
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
+
+/** 是否显示工作安排（超级管理员 或 项目经理） */
+const showWorkSchedule = computed(() => showFullMenu.value || hasRole(ROLE_PROJECT_MANAGER))
 
 /** 当前用户名（可从 token 或存储解析，此处简单显示） */
 const displayName = computed(() => {
@@ -266,6 +306,54 @@ const handleLogout = async () => {
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
   overflow-y: auto;
   overflow-x: hidden;
+  transition: width 0.28s ease;
+}
+
+.sidebar--collapsed .logo {
+  padding: 0 12px;
+  justify-content: center;
+}
+
+.sidebar--collapsed .logo-icon {
+  margin-right: 0;
+}
+
+.sidebar-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 12px;
+  min-height: 40px;
+}
+
+.sidebar-extra--collapsed {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar-extra-label {
+  white-space: nowrap;
+}
+
+.logo-text-enter-active,
+.logo-text-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.logo-text-enter-from,
+.logo-text-leave-to {
+  opacity: 0;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .sidebar::-webkit-scrollbar {
@@ -395,6 +483,17 @@ const handleLogout = async () => {
   padding-left: 40px !important;
 }
 
+/* 折叠状态下菜单项居中 */
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item),
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title) {
+  padding: 0 20px;
+  text-align: center;
+}
+
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title .el-icon) {
+  margin-right: 0;
+}
+
 .menu-divider {
   margin: 12px 20px;
   border-color: rgba(255, 255, 255, 0.1);
@@ -413,6 +512,18 @@ const handleLogout = async () => {
 
 .header-left {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.collapse-btn {
+  font-size: 18px;
+  color: #374151;
+}
+
+.collapse-btn:hover {
+  color: #2563eb;
 }
 
 .header-right {
