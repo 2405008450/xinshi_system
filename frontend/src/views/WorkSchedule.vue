@@ -22,6 +22,30 @@
     <!-- 顶层分类 Tabs -->
     <el-tabs v-model="activeTab" type="border-card">
 
+      <!-- ====== Tab: 我的任务 ====== -->
+      <el-tab-pane label="我的任务" name="my_tasks">
+        <div class="section-block">
+          <p v-if="currentUserName" class="section-desc">当前用户：<strong>{{ currentUserName }}</strong></p>
+          <el-table :data="myTasksList" border size="small" class="data-table">
+            <el-table-column type="index" label="序号" width="60" />
+            <el-table-column prop="category" label="任务类型" width="140">
+              <template #default="{ row }">
+                <el-tag :type="getTaskCategoryType(row.category)" size="small" effect="plain">
+                  {{ row.category }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="content" label="任务内容" min-width="300" show-overflow-tooltip />
+            <el-table-column prop="projectNo" label="项目编号" width="140" show-overflow-tooltip />
+            <el-table-column prop="deadline" label="交稿时间" width="140" show-overflow-tooltip />
+          </el-table>
+          <div v-if="currentUserName && !myTasksList.length" class="info-block">
+            <p>暂无您的任务，或安排表中的姓名与登录账号不一致。如有疑问请联系项目经理。</p>
+          </div>
+          <el-empty v-else-if="!currentUserName" description="请先登录，登录账号将用于匹配「我的任务」" />
+        </div>
+      </el-tab-pane>
+
       <!-- ====== Tab: 总览 ====== -->
       <el-tab-pane label="总览" name="overview">
         <!-- Part 0 项目经理安排 -->
@@ -71,15 +95,15 @@
         </div>
       </el-tab-pane>
 
-      <!-- ====== Tab: 今日急稿 ====== -->
-      <el-tab-pane label="今日急稿" name="urgent">
+      <!-- ====== Tab: 急稿安排 ====== -->
+      <el-tab-pane label="急稿安排" name="urgent">
         <div class="section-block">
           <div class="sub-section">
             <h4>1. 证件类今日优先次序</h4>
             <p>各位翻译（李娴）轮流安排</p>
           </div>
           <div class="sub-section">
-            <h4>2. 今日急稿译审安排</h4>
+            <h4>2. 急稿译审安排</h4>
             <p>需审改的找<strong>陈佳</strong></p>
           </div>
           <div class="sub-section">
@@ -189,8 +213,8 @@
         </div>
       </el-tab-pane>
 
-      <!-- ====== Tab: 全部任务 ====== -->
-      <el-tab-pane label="全部任务" name="all_tasks">
+      <!-- ====== Tab: 全部项目 ====== -->
+      <el-tab-pane label="全部项目" name="all_tasks">
         <div class="filter-bar">
           <el-select v-model="taskFilter.dept" placeholder="按部门筛选" clearable style="width: 140px" @change="fetchTasks">
             <el-option v-for="d in DEPARTMENTS" :key="d.key" :label="d.label" :value="d.key" />
@@ -306,7 +330,7 @@ const DEPARTMENTS = [
 
 // ==================== 状态 ====================
 const scheduleDate = ref('')
-const activeTab = ref('overview')
+const activeTab = ref('my_tasks')
 const activeDept = ref('项目经理')
 const openPersons = ref([])
 const loading = ref(false)
@@ -317,6 +341,30 @@ const taskFormRef = ref(null)
 const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
   return WEEKDAYS[new Date(scheduleDate.value).getDay()]
+})
+
+/** 当前登录用户名（用于「我的任务」匹配安排表中的人员姓名） */
+const currentUserName = ref('')
+function initCurrentUserName() {
+  try {
+    currentUserName.value = (localStorage.getItem('user_name') || '').trim()
+  } catch {
+    currentUserName.value = ''
+  }
+}
+
+/** 我的任务：根据当前用户名从部门人员数据中筛出该人员的任务列表 */
+const myTasksList = computed(() => {
+  const name = currentUserName.value
+  if (!name) return []
+  const person = deptPersonData.value.find((p) => p.name === name || p.name.includes(name) || name.includes(p.name))
+  if (!person || !person.tasks) return []
+  return person.tasks.map((t) => ({
+    category: t.category,
+    content: t.content,
+    projectNo: t.projectNo || '',
+    deadline: t.deadline || ''
+  }))
 })
 
 const pmRotationOrder = ref('伟琪 / 李娴 / 孟花')
@@ -540,7 +588,7 @@ function getTaskCategoryType(cat) {
   return map[cat] || ''
 }
 
-// ==================== 全部任务列表 ====================
+// ==================== 全部项目列表 ====================
 const taskFilter = reactive({ dept: '', person: '', status: '' })
 const filteredTaskList = ref([])
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
@@ -682,6 +730,7 @@ function onDateChange() {
 
 // ==================== 初始化 ====================
 onMounted(() => {
+  initCurrentUserName()
   const today = new Date()
   scheduleDate.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
   initDeptPersonData()

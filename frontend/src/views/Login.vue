@@ -105,8 +105,10 @@ const handleLogin = async () => {
         const { login } = await import('../api/auth')
         const res = await login(loginForm)
         localStorage.setItem('token', res.access_token)
-        const roles = Array.isArray(res.roles) ? res.roles : []
+        const raw = Array.isArray(res.roles) ? res.roles : []
+        const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
         localStorage.setItem('user_roles', JSON.stringify(roles))
+        localStorage.setItem('user_name', loginForm.username || '')
         ElMessage.success('登录成功')
         router.push('/')
       } catch (error) {

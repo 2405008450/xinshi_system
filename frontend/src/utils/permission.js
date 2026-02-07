@@ -9,6 +9,9 @@ export const ROLE_SUPER_ADMIN = '超级管理员'
 export const ROLE_CUSTOMER_SPECIALIST = '客户专员'
 export const ROLE_PROJECT_SPECIALIST = '项目专员'
 export const ROLE_PROJECT_MANAGER = '项目经理'
+export const ROLE_TEST = '测试'
+export const ROLE_REVIEW = '译审'
+export const ROLE_SALES = '销售'
 
 /** 拥有全部权限的角色（任一即可） */
 export const SUPER_ROLES = [ROLE_ADMIN, ROLE_SUPER_ADMIN]
@@ -75,12 +78,24 @@ export const TRANSLATION_PROJECT_PATHS = [
   '/project-management/translation/project-files'
 ]
 
-/** 笔译项目管理可访问的角色（非超级管理员时） */
+/** 笔译项目管理可访问的角色（非超级管理员时）；含测试、译审、销售等，登录后均可进入默认页 */
 export const TRANSLATION_PROJECT_ROLES = [
   ROLE_CUSTOMER_SPECIALIST,
   ROLE_PROJECT_SPECIALIST,
-  ROLE_PROJECT_MANAGER
+  ROLE_PROJECT_MANAGER,
+  ROLE_TEST,
+  ROLE_REVIEW,
+  ROLE_SALES
 ]
 
-/** 工作安排可访问的角色（仅项目经理，超级管理员始终可访问） */
-export const WORK_SCHEDULE_ROLES = [ROLE_PROJECT_MANAGER]
+/** 工作安排可访问的角色（含测试、译审、销售等，均可查看及「我的任务」） */
+export const WORK_SCHEDULE_ROLES = [
+  ROLE_SUPER_ADMIN,
+  ROLE_ADMIN,
+  ROLE_PROJECT_MANAGER,
+  ROLE_CUSTOMER_SPECIALIST,
+  ROLE_PROJECT_SPECIALIST,
+  ROLE_TEST,
+  ROLE_REVIEW,
+  ROLE_SALES
+]

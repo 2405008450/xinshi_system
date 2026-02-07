@@ -5,7 +5,7 @@ import { TRANSLATION_PROJECT_ROLES, WORK_SCHEDULE_ROLES, canAccessRoute, isSuper
 
 /** 仅笔译项目管理可访问的角色（客户专员、项目专员、项目经理） */
 const translationRoles = TRANSLATION_PROJECT_ROLES
-/** 工作安排可访问的角色（项目经理） */
+/** 工作安排可访问的角色（超级管理员、项目经理） */
 const workScheduleRoles = WORK_SCHEDULE_ROLES
 
 const routes = [
@@ -48,7 +48,7 @@ const routes = [
             path: 'translation',
             name: 'TranslationProjects',
             component: () => import('../views/TranslationProjects.vue'),
-            meta: { title: '项目流程表', roles: translationRoles }
+            meta: { title: '项目流程', roles: translationRoles }
           },
           {
             path: 'translation/project-details',

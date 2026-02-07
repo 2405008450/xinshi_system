@@ -50,7 +50,7 @@
           <el-sub-menu index="/project-management/translation">
             <template #title>笔译项目管理</template>
             <el-menu-item index="/project-management/translation">
-              <template #title>项目流程表</template>
+              <template #title>项目流程</template>
             </el-menu-item>
             <el-menu-item index="/project-management/translation/project-details">
               <template #title>项目详情</template>
@@ -218,7 +218,7 @@ import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted } from 'vue'
 import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
-import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER } from '../utils/permission'
+import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -248,8 +248,8 @@ onMounted(() => {
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
 
-/** 是否显示工作安排（超级管理员 或 项目经理） */
-const showWorkSchedule = computed(() => showFullMenu.value || hasRole(ROLE_PROJECT_MANAGER))
+/** 是否显示工作安排（超级管理员、项目经理、客户专员、项目专员均可查看） */
+const showWorkSchedule = computed(() => showFullMenu.value || hasRole([ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES]))
 
 /** 当前用户名（可从 token 或存储解析，此处简单显示） */
 const displayName = computed(() => {
@@ -287,6 +287,7 @@ const handleLogout = async () => {
     })
     localStorage.removeItem('token')
     localStorage.removeItem('user_roles')
+    localStorage.removeItem('user_name')
     router.push('/login')
   } catch {
     // 用户取消
