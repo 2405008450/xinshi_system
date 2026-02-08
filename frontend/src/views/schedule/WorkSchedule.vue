@@ -15,39 +15,32 @@
           />
           <el-tag type="info" effect="plain">{{ weekdayLabel }}</el-tag>
           <el-button type="primary" @click="handleAddTask">新增任务</el-button>
+          <el-button @click="copyFromYesterday">从昨日复制</el-button>
         </div>
       </div>
     </template>
 
-    <!-- 顶层分类 Tabs -->
+    <!-- 顶层分类 Tabs（管理页：不含「我的任务」，普通用户请使用「我的工作台」/workbench） -->
     <el-tabs v-model="activeTab" type="border-card">
-
-      <!-- ====== Tab: 我的任务 ====== -->
-      <el-tab-pane label="我的任务" name="my_tasks">
-        <div class="section-block">
-          <p v-if="currentUserName" class="section-desc">当前用户：<strong>{{ currentUserName }}</strong></p>
-          <el-table :data="myTasksList" border size="small" class="data-table">
-            <el-table-column type="index" label="序号" width="60" />
-            <el-table-column prop="category" label="任务类型" width="140">
-              <template #default="{ row }">
-                <el-tag :type="getTaskCategoryType(row.category)" size="small" effect="plain">
-                  {{ row.category }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="content" label="任务内容" min-width="300" show-overflow-tooltip />
-            <el-table-column prop="projectNo" label="项目编号" width="140" show-overflow-tooltip />
-            <el-table-column prop="deadline" label="交稿时间" width="140" show-overflow-tooltip />
-          </el-table>
-          <div v-if="currentUserName && !myTasksList.length" class="info-block">
-            <p>暂无您的任务，或安排表中的姓名与登录账号不一致。如有疑问请联系项目经理。</p>
-          </div>
-          <el-empty v-else-if="!currentUserName" description="请先登录，登录账号将用于匹配「我的任务」" />
-        </div>
-      </el-tab-pane>
 
       <!-- ====== Tab: 总览 ====== -->
       <el-tab-pane label="总览" name="overview">
+        <!-- 急稿相关说明（原急稿安排内容） -->
+        <div class="section-block">
+          <div class="sub-section">
+            <h4>1. 证件类今日优先次序</h4>
+            <p>各位翻译（李娴）轮流安排</p>
+          </div>
+          <div class="sub-section">
+            <h4>2. 急稿译审安排</h4>
+            <p>需审改的找<strong>陈佳</strong></p>
+          </div>
+          <div class="sub-section">
+            <h4>3. 文字类今天优先次序</h4>
+            <p class="hint">除要求特别高的找Tom看，其他可自行指定翻译基本检查或直接给客户专员。中英/英中译员优先次序见「译员安排」。</p>
+          </div>
+        </div>
+
         <!-- Part 0 项目经理安排 -->
         <div class="section-block">
           <h3 class="section-title">项目经理安排</h3>
@@ -63,19 +56,32 @@
 
         <!-- Part II 班次 -->
         <div class="section-block">
-          <h3 class="section-title">今日班次</h3>
+          <div class="section-title-row">
+            <h3 class="section-title">今日班次</h3>
+            <el-button type="primary" size="small" @click="openShiftFullEdit">编辑班次</el-button>
+          </div>
+          <p class="section-desc hint">常规：早早班 8:30-18:00、早班 9:00-18:30、晚班 10:30-20:00、晚晚班 13:30-21:30；另有特殊班次。一周排班一次，临时变动可用「临时调整」。</p>
           <el-table :data="shiftTableData" border size="small" class="data-table">
-            <el-table-column prop="shift" label="班次" width="140" />
-            <el-table-column prop="layoutIt" label="排版/IT部" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="client" label="客户部" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="hr" label="HR部" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="translationProject" label="翻译部+项目部" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="shift" label="班次" width="160" show-overflow-tooltip />
+            <el-table-column prop="layoutIt" label="排版" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="client" label="客户部" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="hr" label="（项目助理）HR部" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="translationProject" label="翻译部+项目部" min-width="140" show-overflow-tooltip />
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row, $index }">
+                <el-button type="primary" link size="small" @click="openShiftRowEdit($index)">临时调整</el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <div class="info-block">
-            <h4>请假/调休</h4>
+            <div class="info-block-title-row">
+              <h4>请假/调休</h4>
+              <el-button type="primary" link size="small" @click="openLeaveNotesEdit">编辑</el-button>
+            </div>
             <ul>
               <li v-for="(note, i) in leaveNotes" :key="i">{{ note }}</li>
             </ul>
+            <el-empty v-if="!leaveNotes.length" description="暂无请假/调休公告" :image-size="48" />
           </div>
         </div>
 
@@ -95,22 +101,15 @@
         </div>
       </el-tab-pane>
 
-      <!-- ====== Tab: 急稿安排 ====== -->
-      <el-tab-pane label="急稿安排" name="urgent">
+      <!-- ====== Tab: 译员安排（中英/英中） ====== -->
+      <el-tab-pane label="译员安排" name="translator">
         <div class="section-block">
           <div class="sub-section">
-            <h4>1. 证件类今日优先次序</h4>
-            <p>各位翻译（李娴）轮流安排</p>
-          </div>
-          <div class="sub-section">
-            <h4>2. 急稿译审安排</h4>
-            <p>需审改的找<strong>陈佳</strong></p>
-          </div>
-          <div class="sub-section">
-            <h4>3. 文字类今天优先次序</h4>
+            <div class="section-title-row">
+              <h4>中英 今日优先次序</h4>
+              <el-button type="primary" size="small" @click="openTranslatorTableEdit('zhEn')">编辑中英</el-button>
+            </div>
             <p class="hint">除要求特别高的找Tom看，其他可自行指定翻译基本检查或直接给客户专员。</p>
-
-            <h5>(1) 中英</h5>
             <el-table :data="urgentTableZhEn" border size="small" class="data-table">
               <el-table-column prop="order" label="优先次序" width="110" />
               <el-table-column prop="name" label="姓名" width="90" />
@@ -120,8 +119,12 @@
               <el-table-column prop="dailyRate" label="日均接/速度/字数" width="140" />
               <el-table-column prop="remarks" label="备注" min-width="200" show-overflow-tooltip />
             </el-table>
-
-            <h5>(2) 英中</h5>
+          </div>
+          <div class="sub-section">
+            <div class="section-title-row">
+              <h4>英中 今日优先次序</h4>
+              <el-button type="primary" size="small" @click="openTranslatorTableEdit('enZh')">编辑英中</el-button>
+            </div>
             <p class="hint">字数多、修订多、参考多等复杂情况需基本检查；要求很高的需找Tom。其他直接给客户专员。</p>
             <el-table :data="urgentTableEnZh" border size="small" class="data-table">
               <el-table-column prop="order" label="优先次序" width="120" />
@@ -308,6 +311,149 @@
         <el-button type="primary" @click="submitTask">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 班次整表编辑弹窗（一周排班） -->
+    <el-dialog v-model="shiftFullEditVisible" title="编辑班次表" width="900px" @close="closeShiftFullEdit">
+      <p class="section-desc hint">可增删行、修改每格人员；班次时间可选预设或自定义（如 8:45~9:30）。</p>
+      <el-table :data="shiftFullEditData" border size="small" class="data-table">
+        <el-table-column label="班次" width="180">
+          <template #default="{ row }">
+            <el-select v-model="row.shift" filterable allow-create default-first-option placeholder="选预设或输入" style="width: 100%">
+              <el-option v-for="opt in SHIFT_PRESET_OPTIONS" :key="opt" :label="opt" :value="opt" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="排版" min-width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.layoutIt" placeholder="人员，多人用顿号" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="客户部" min-width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.client" placeholder="人员" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="HR部" min-width="100">
+          <template #default="{ row }">
+            <el-input v-model="row.hr" placeholder="人员" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="翻译部+项目部" min-width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.translationProject" placeholder="人员" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ $index }">
+            <el-button type="danger" link size="small" @click="removeShiftRow($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="shift-edit-actions">
+        <el-button type="primary" plain @click="addShiftRow">新增一行（特殊班次）</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="shiftFullEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitShiftFullEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 班次单行临时调整弹窗 -->
+    <el-dialog v-model="shiftRowEditVisible" title="临时调整该班次" width="520px" @close="closeShiftRowEdit">
+      <el-form label-width="120px" size="small">
+        <el-form-item label="班次时间">
+          <el-select v-model="shiftRowForm.shift" filterable allow-create default-first-option placeholder="选预设或输入" style="width: 100%">
+            <el-option v-for="opt in SHIFT_PRESET_OPTIONS" :key="opt" :label="opt" :value="opt" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="排版">
+          <el-input v-model="shiftRowForm.layoutIt" placeholder="多人用顿号分隔" />
+        </el-form-item>
+        <el-form-item label="客户部">
+          <el-input v-model="shiftRowForm.client" />
+        </el-form-item>
+        <el-form-item label="HR部">
+          <el-input v-model="shiftRowForm.hr" />
+        </el-form-item>
+        <el-form-item label="翻译部+项目部">
+          <el-input v-model="shiftRowForm.translationProject" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="shiftRowEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitShiftRowEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 请假/调休公告编辑弹窗 -->
+    <el-dialog v-model="leaveNotesEditVisible" title="编辑请假/调休公告" width="560px" @close="closeLeaveNotesEdit">
+      <p class="section-desc hint">已提前申请的请假、调休等，可增删改。保存后仅影响当日安排数据。</p>
+      <div class="leave-notes-edit-list">
+        <div v-for="(item, i) in leaveNotesEditList" :key="i" class="leave-notes-edit-item">
+          <el-input v-model="leaveNotesEditList[i]" type="textarea" :rows="2" placeholder="如：张三 2月10日-12日请假" />
+          <el-button type="danger" link size="small" class="leave-notes-del-btn" @click="removeLeaveNote(i)">删除</el-button>
+        </div>
+      </div>
+      <el-button type="primary" plain size="small" @click="addLeaveNote">新增一条</el-button>
+      <template #footer>
+        <el-button @click="leaveNotesEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitLeaveNotesEdit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 译员安排表编辑（中英/英中） -->
+    <el-dialog v-model="translatorEditVisible" :title="translatorEditTitle" width="920px" @close="closeTranslatorTableEdit">
+      <p class="section-desc hint">可增删行、修改各列。保存后仅影响当日安排数据。</p>
+      <el-table :data="translatorEditData" border size="small" class="data-table">
+        <el-table-column label="优先次序" width="120">
+          <template #default="{ row }">
+            <el-input v-model="row.order" placeholder="如 1、2、N/A" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="姓名" width="100">
+          <template #default="{ row }">
+            <el-input v-model="row.name" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="140">
+          <template #default="{ row }">
+            <el-input v-model="row.type" placeholder="如 全部" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="质量" width="70">
+          <template #default="{ row }">
+            <el-input v-model="row.quality" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="云端/修订" width="100">
+          <template #default="{ row }">
+            <el-input v-model="row.cloudRev" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="日均接/速度/字数" width="150">
+          <template #default="{ row }">
+            <el-input v-model="row.dailyRate" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="180">
+          <template #default="{ row }">
+            <el-input v-model="row.remarks" type="textarea" :rows="1" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="70" fixed="right">
+          <template #default="{ $index }">
+            <el-button type="danger" link size="small" @click="removeTranslatorRow($index)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="shift-edit-actions">
+        <el-button type="primary" plain @click="addTranslatorRow">新增一行</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="translatorEditVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitTranslatorTableEdit">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -317,20 +463,29 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+/** 班次预设：早早班、早班、晚班、晚晚班 + 常见特殊班次 */
+const SHIFT_PRESET_OPTIONS = [
+  '早早班 8:30-18:00',
+  '早班 9:00-18:30',
+  '晚班 10:30-20:00',
+  '晚晚班 13:30-21:30',
+  '9:30-18:30',
+  '8:45~9:30'
+]
 const DEPARTMENTS = [
   { key: '项目经理', label: '项目经理' },
   { key: '翻译部', label: '翻译部' },
   { key: '项目部', label: '项目部' },
   { key: '客户部', label: '客户部' },
   { key: 'HR部', label: 'HR部' },
-  { key: '排版/IT部', label: '排版/IT部' },
+  { key: '排版', label: '排版' },
   { key: '招聘项目', label: '招聘项目' },
   { key: '销售', label: '销售' }
 ]
 
 // ==================== 状态 ====================
 const scheduleDate = ref('')
-const activeTab = ref('my_tasks')
+const activeTab = ref('overview')
 const activeDept = ref('项目经理')
 const openPersons = ref([])
 const loading = ref(false)
@@ -338,33 +493,28 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新增任务')
 const taskFormRef = ref(null)
 
+// 班次编辑：整表 / 单行
+const shiftFullEditVisible = ref(false)
+const shiftFullEditData = ref([])
+const shiftRowEditVisible = ref(false)
+const editingShiftRowIndex = ref(-1)
+const shiftRowForm = reactive({ shift: '', layoutIt: '', client: '', hr: '', translationProject: '' })
+
+// 请假/调休公告编辑
+const leaveNotesEditVisible = ref(false)
+const leaveNotesEditList = ref([])
+
+// 译员安排表编辑（中英 / 英中）
+const translatorEditVisible = ref(false)
+const translatorEditType = ref('zhEn') // 'zhEn' | 'enZh'
+const translatorEditData = ref([])
+const translatorEditTitle = computed(() =>
+  translatorEditType.value === 'zhEn' ? '编辑中英 今日优先次序' : '编辑英中 今日优先次序'
+)
+
 const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
   return WEEKDAYS[new Date(scheduleDate.value).getDay()]
-})
-
-/** 当前登录用户名（用于「我的任务」匹配安排表中的人员姓名） */
-const currentUserName = ref('')
-function initCurrentUserName() {
-  try {
-    currentUserName.value = (localStorage.getItem('user_name') || '').trim()
-  } catch {
-    currentUserName.value = ''
-  }
-}
-
-/** 我的任务：根据当前用户名从部门人员数据中筛出该人员的任务列表 */
-const myTasksList = computed(() => {
-  const name = currentUserName.value
-  if (!name) return []
-  const person = deptPersonData.value.find((p) => p.name === name || p.name.includes(name) || name.includes(p.name))
-  if (!person || !person.tasks) return []
-  return person.tasks.map((t) => ({
-    category: t.category,
-    content: t.content,
-    projectNo: t.projectNo || '',
-    deadline: t.deadline || ''
-  }))
 })
 
 const pmRotationOrder = ref('伟琪 / 李娴 / 孟花')
@@ -396,11 +546,11 @@ const urgentTableEnZh = ref([
 
 // ==================== 班次表 ====================
 const shiftTableData = ref([
-  { shift: '8:30-18:00', layoutIt: '', client: '靖琳、楚翘', hr: '翠珍', translationProject: '伟琪' },
-  { shift: '9:00-18:30', layoutIt: '运坚、胜辉、浚轩、裕林、晨旭', client: '瑞珠', hr: '雅然、辛建、文慧', translationProject: '以龙、志林' },
+  { shift: '早早班 8:30-18:00', layoutIt: '', client: '靖琳、楚翘', hr: '翠珍', translationProject: '伟琪' },
+  { shift: '早班 9:00-18:30', layoutIt: '运坚、胜辉、浚轩、裕林、晨旭', client: '瑞珠', hr: '雅然、辛建、文慧', translationProject: '以龙、志林' },
   { shift: '9:30-18:30', layoutIt: '', client: '家铭（9点半）', hr: '立溶、舒婷、宇琪', translationProject: '旷姣' },
-  { shift: '10:30-20:00', layoutIt: '美霞、苗丹、黄萌', client: '舒倩(晚班)', hr: '紫霞', translationProject: '振中、孟花' },
-  { shift: '13:30-21:30', layoutIt: '大杰', client: '烨珊', hr: '颖琦、少洁、菀筠', translationProject: '李娴' },
+  { shift: '晚班 10:30-20:00', layoutIt: '美霞、苗丹、黄萌', client: '舒倩(晚班)', hr: '紫霞', translationProject: '振中、孟花' },
+  { shift: '晚晚班 13:30-21:30', layoutIt: '大杰', client: '烨珊', hr: '颖琦、少洁、菀筠', translationProject: '李娴' },
   { shift: '8:45~9:30', layoutIt: '泉哥、武哥（销售）', client: '少妃、陈佳、韵钰', hr: '', translationProject: 'Thomas' }
 ])
 
@@ -416,8 +566,10 @@ const leaveNotes = ref([
 // ==================== 各部门人员任务数据 ====================
 const deptPersonData = ref([])
 
-function initDeptPersonData() {
-  deptPersonData.value = [
+const SCHEDULE_STORAGE_PREFIX = 'work_schedule_'
+
+function getDefaultDeptPersonData() {
+  return [
     // 项目经理
     { name: '伟琪', dept: '项目经理', status: 'scheduled', tasks: [
       { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
@@ -466,7 +618,7 @@ function initDeptPersonData() {
     ], fixedTasks: [] },
 
     // 客户部
-    { name: '楚翘', dept: '客户部', status: 'scheduled', tasks: [
+    { name: '楚翘', dept: '客户部', status: 'not_scheduled', tasks: [
       { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
       { category: '直接项目任务', content: '6k排版已回，陈慧楠专检早八点半回，验收发客户', projectNo: 'TP260204003', deadline: '2月6日9点' },
       { category: '直接项目任务', content: '1.4k修订，黎凤早8:30回，检查修订及专检', projectNo: 'TP260205003', deadline: '2月6日9:30' },
@@ -527,18 +679,18 @@ function initDeptPersonData() {
     { name: '颖琦', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
     { name: '少洁', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
 
-    // 排版/IT部
-    { name: '运坚', dept: '排版/IT部', status: 'scheduled', tasks: [
+    // 排版
+    { name: '运坚', dept: '排版', status: 'scheduled', tasks: [
       { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
     ], fixedTasks: [] },
-    { name: '瑞珠', dept: '排版/IT部', status: 'scheduled', tasks: [
+    { name: '瑞珠', dept: '排版', status: 'scheduled', tasks: [
       { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
       { category: '直接项目任务', content: '4k，已派王珊娜，早八点半回稿，专检排版', projectNo: 'TP260205022', deadline: '2月6日10点' },
       { category: '直接项目任务', content: '3.5k，已派廖伟燕修订，早九点回，检查修订及专检', projectNo: 'TP260205020', deadline: '2月6日11:30' },
       { category: '直接项目任务', content: '7k，柬译中（MTPE），专检排版', projectNo: 'TP260202014', deadline: '2月6日15点' },
       { category: '直接项目任务', content: '7k，已派陆素明，周五晚十点回，专检排版', projectNo: 'TP260205023', deadline: '2月9日9:30' }
     ], fixedTasks: ['每月专检稽查（梁承敏、沈佳佳）'] },
-    { name: '大杰', dept: '排版/IT部', status: 'scheduled', tasks: [
+    { name: '大杰', dept: '排版', status: 'scheduled', tasks: [
       { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
       { category: '直接项目任务', content: '大杰调整排版，运坚转HTML（吉利汽车客户反馈）', projectNo: '', deadline: '' }
     ], fixedTasks: ['每月专检稽查（贺媛、孙晓燕）'] },
@@ -553,6 +705,250 @@ function initDeptPersonData() {
     { name: '以龙', dept: '销售', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
     { name: '志林', dept: '销售', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] }
   ]
+}
+
+function initDeptPersonData() {
+  deptPersonData.value = getDefaultDeptPersonData()
+}
+
+/** 获取某日工作安排的默认数据（用于无存储时或“从昨日复制”的模板） */
+function getDefaultScheduleData() {
+  return {
+    deptPersonData: getDefaultDeptPersonData(),
+    notScheduledTasks: [
+      { personName: '-', department: '翻译部', projectOrTask: '3w，李娴跟进：已派曹柳云9号早八点半回，Thomas审改，李娴导出完整版、给翠珍派一检二检，瑞珠排版，待安排内部细节检查', projectNo: 'TP260202016', remarks: '广州年鉴，中译英（母语），2月28日交' }
+    ],
+    pmRotationOrder: '伟琪 / 李娴 / 孟花',
+    shiftTableData: [
+      { shift: '早早班 8:30-18:00', layoutIt: '', client: '靖琳、楚翘', hr: '翠珍', translationProject: '伟琪' },
+      { shift: '早班 9:00-18:30', layoutIt: '运坚、胜辉、浚轩、裕林、晨旭', client: '瑞珠', hr: '雅然、辛建、文慧', translationProject: '以龙、志林' },
+      { shift: '9:30-18:30', layoutIt: '', client: '家铭（9点半）', hr: '立溶、舒婷、宇琪', translationProject: '旷姣' },
+      { shift: '晚班 10:30-20:00', layoutIt: '美霞、苗丹、黄萌', client: '舒倩(晚班)', hr: '紫霞', translationProject: '振中、孟花' },
+      { shift: '晚晚班 13:30-21:30', layoutIt: '大杰', client: '烨珊', hr: '颖琦、少洁、菀筠', translationProject: '李娴' },
+      { shift: '8:45~9:30', layoutIt: '泉哥、武哥（销售）', client: '少妃、陈佳、韵钰', hr: '', translationProject: 'Thomas' }
+    ],
+    leaveNotes: [
+      '武哥周五（2月6日）12:00后请假',
+      'Thomas周五（0206）14:00开始请假，7、8点在家办公',
+      '陈佳0206上午请假，0206下午、0208-0210、0215在家办公共5天，0211-0214请假4天',
+      '瑞珠2月11日-14日（周三至周六）休年假',
+      '以龙2月11日-14日请假四天',
+      '美霞0213-0214调休两天'
+    ],
+    urgentTableZhEn: [
+      { order: '2 中午12点后', name: '王婷', type: '全部', quality: '73', cloudRev: '-', dailyRate: '5/1000/8000', remarks: '法律类需审改，其他中英要求不是很高的可基本检查' },
+      { order: '3 傍晚5点后', name: '王邃玲', type: '全部', quality: '80', cloudRev: '可/可', dailyRate: '5/1000/6000', remarks: '法律类需安排审改' },
+      { order: '1', name: '高超', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '5/1000/8000', remarks: '大概仅适合银行，法律类需审改' },
+      { order: 'N/A', name: '曹柳云', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '-', remarks: '非合同法律类需审改' },
+      { order: '0', name: '孙红艳', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '2/500/2000', remarks: '中英要求不高的均可基本检查' },
+      { order: '1', name: '商莹', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '3/500/3000', remarks: '不接法律和医学' },
+      { order: 'N/A', name: '陈风', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/7000', remarks: '需审改' },
+      { order: '2 中午12点后', name: '雷智', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
+      { order: 'N/A', name: '何长青', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
+      { order: '1', name: '李鲁莎', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/6000', remarks: '需审改' }
+    ],
+    urgentTableEnZh: [
+      { order: '2（白天不做稿）', name: '史明月', type: '全部（不适合对中文要求高的）', quality: '74', cloudRev: '可/未知', dailyRate: '1/500/4000', remarks: '工作日中午和下午不能做稿，一般需审改' },
+      { order: '1', name: '杨雪', type: '全部（法律类优先）', quality: '75', cloudRev: '可/未知', dailyRate: '5/350/3000', remarks: '律师，一般需审改' },
+      { order: 'N/A', name: '王邃玲', type: '全部（中文较好）', quality: '78', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '注意优先安排中英项目' },
+      { order: 'N/A', name: '曹柳云', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '一般需审改' },
+      { order: '1', name: '梁昌金', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '5/500/4000', remarks: '一般需审改' },
+      { order: '1', name: '熊建磊', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
+      { order: '1', name: '张留寰', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
+      { order: '1', name: '乔艳红', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '?/?/7000', remarks: '急稿可不改' }
+    ]
+  }
+}
+
+/** 从 localStorage 读取某日安排，若无则返回 null */
+function getScheduleFromStorage(date) {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_STORAGE_PREFIX + date)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+/** 将当前页面数据保存到 localStorage（按当前选择日期） */
+function saveScheduleForDate() {
+  const date = scheduleDate.value
+  if (!date) return
+  try {
+    const data = {
+      deptPersonData: deptPersonData.value,
+      notScheduledTasks: notScheduledTasks.value,
+      pmRotationOrder: pmRotationOrder.value,
+      shiftTableData: shiftTableData.value,
+      leaveNotes: leaveNotes.value,
+      urgentTableZhEn: urgentTableZhEn.value,
+      urgentTableEnZh: urgentTableEnZh.value
+    }
+    localStorage.setItem(SCHEDULE_STORAGE_PREFIX + date, JSON.stringify(data))
+  } catch (e) {
+    console.error('保存工作安排失败', e)
+  }
+}
+
+/** 加载某日安排到页面：有存储则用存储，无则用默认数据 */
+function loadScheduleForDate(date) {
+  const stored = getScheduleFromStorage(date)
+  const defaultData = getDefaultScheduleData()
+  if (stored) {
+    deptPersonData.value = stored.deptPersonData ?? defaultData.deptPersonData
+    notScheduledTasks.value = stored.notScheduledTasks ?? defaultData.notScheduledTasks
+    pmRotationOrder.value = stored.pmRotationOrder ?? defaultData.pmRotationOrder
+    shiftTableData.value = stored.shiftTableData ?? defaultData.shiftTableData
+    leaveNotes.value = stored.leaveNotes ?? defaultData.leaveNotes
+    urgentTableZhEn.value = stored.urgentTableZhEn ?? defaultData.urgentTableZhEn
+    urgentTableEnZh.value = stored.urgentTableEnZh ?? defaultData.urgentTableEnZh
+  } else {
+    deptPersonData.value = defaultData.deptPersonData
+    notScheduledTasks.value = defaultData.notScheduledTasks
+    pmRotationOrder.value = defaultData.pmRotationOrder
+    shiftTableData.value = defaultData.shiftTableData
+    leaveNotes.value = defaultData.leaveNotes
+    urgentTableZhEn.value = defaultData.urgentTableZhEn
+    urgentTableEnZh.value = defaultData.urgentTableEnZh
+  }
+  fetchTasks()
+}
+
+// ==================== 班次编辑（整表 / 单行临时调整） ====================
+function openShiftFullEdit() {
+  shiftFullEditData.value = JSON.parse(JSON.stringify(shiftTableData.value))
+  shiftFullEditVisible.value = true
+}
+
+function closeShiftFullEdit() {
+  shiftFullEditData.value = []
+}
+
+function addShiftRow() {
+  shiftFullEditData.value.push({ shift: '', layoutIt: '', client: '', hr: '', translationProject: '' })
+}
+
+function removeShiftRow(index) {
+  shiftFullEditData.value.splice(index, 1)
+}
+
+function submitShiftFullEdit() {
+  shiftTableData.value = JSON.parse(JSON.stringify(shiftFullEditData.value))
+  saveScheduleForDate()
+  shiftFullEditVisible.value = false
+  ElMessage.success('班次表已保存')
+}
+
+function openShiftRowEdit(index) {
+  const row = shiftTableData.value[index]
+  if (!row) return
+  editingShiftRowIndex.value = index
+  shiftRowForm.shift = row.shift || ''
+  shiftRowForm.layoutIt = row.layoutIt || ''
+  shiftRowForm.client = row.client || ''
+  shiftRowForm.hr = row.hr || ''
+  shiftRowForm.translationProject = row.translationProject || ''
+  shiftRowEditVisible.value = true
+}
+
+function closeShiftRowEdit() {
+  editingShiftRowIndex.value = -1
+  shiftRowForm.shift = ''
+  shiftRowForm.layoutIt = ''
+  shiftRowForm.client = ''
+  shiftRowForm.hr = ''
+  shiftRowForm.translationProject = ''
+}
+
+function submitShiftRowEdit() {
+  const idx = editingShiftRowIndex.value
+  if (idx < 0 || !shiftTableData.value[idx]) return
+  shiftTableData.value[idx] = {
+    shift: shiftRowForm.shift,
+    layoutIt: shiftRowForm.layoutIt,
+    client: shiftRowForm.client,
+    hr: shiftRowForm.hr,
+    translationProject: shiftRowForm.translationProject
+  }
+  saveScheduleForDate()
+  shiftRowEditVisible.value = false
+  ElMessage.success('该班次已临时调整并保存')
+}
+
+// ==================== 请假/调休公告编辑 ====================
+function openLeaveNotesEdit() {
+  leaveNotesEditList.value = [...leaveNotes.value]
+  leaveNotesEditVisible.value = true
+}
+
+function closeLeaveNotesEdit() {
+  leaveNotesEditList.value = []
+}
+
+function addLeaveNote() {
+  leaveNotesEditList.value.push('')
+}
+
+function removeLeaveNote(index) {
+  leaveNotesEditList.value.splice(index, 1)
+}
+
+function submitLeaveNotesEdit() {
+  leaveNotes.value = leaveNotesEditList.value.filter((s) => String(s).trim() !== '')
+  saveScheduleForDate()
+  leaveNotesEditVisible.value = false
+  ElMessage.success('请假/调休公告已保存')
+}
+
+// ==================== 译员安排表编辑（中英/英中） ====================
+const TRANSLATOR_ROW_TEMPLATE = () => ({
+  order: '',
+  name: '',
+  type: '',
+  quality: '',
+  cloudRev: '',
+  dailyRate: '',
+  remarks: ''
+})
+
+function openTranslatorTableEdit(type) {
+  translatorEditType.value = type
+  const source = type === 'zhEn' ? urgentTableZhEn.value : urgentTableEnZh.value
+  translatorEditData.value = JSON.parse(JSON.stringify(source.length ? source : [TRANSLATOR_ROW_TEMPLATE()]))
+  translatorEditVisible.value = true
+}
+
+function closeTranslatorTableEdit() {
+  translatorEditData.value = []
+}
+
+function addTranslatorRow() {
+  translatorEditData.value.push(TRANSLATOR_ROW_TEMPLATE())
+}
+
+function removeTranslatorRow(index) {
+  translatorEditData.value.splice(index, 1)
+}
+
+function submitTranslatorTableEdit() {
+  const data = translatorEditData.value.map((r) => ({
+    order: r.order || '',
+    name: r.name || '',
+    type: r.type || '',
+    quality: r.quality || '',
+    cloudRev: r.cloudRev || '',
+    dailyRate: r.dailyRate || '',
+    remarks: r.remarks || ''
+  }))
+  if (translatorEditType.value === 'zhEn') {
+    urgentTableZhEn.value = data
+  } else {
+    urgentTableEnZh.value = data
+  }
+  saveScheduleForDate()
+  translatorEditVisible.value = false
+  ElMessage.success(translatorEditType.value === 'zhEn' ? '中英译员安排已保存' : '英中译员安排已保存')
 }
 
 // ==================== 暂不安排 ====================
@@ -637,7 +1033,8 @@ function resetTaskFilter() {
 
 // ==================== 新增/编辑弹窗 ====================
 const taskForm = reactive({
-  id: '', scheduleDate: '', personName: '', department: '', taskCategory: '', projectOrTask: '', projectNo: '', deadline: '', timeSlot: '', status: 'scheduled', remarks: ''
+  id: '', scheduleDate: '', personName: '', department: '', taskCategory: '', projectOrTask: '', projectNo: '', deadline: '', timeSlot: '', status: 'scheduled', remarks: '',
+  _editContent: '', _editProjectNo: '' // 编辑时用于定位原任务，提交后替换
 })
 const taskRules = {
   personName: [{ required: true, message: '请输入人员', trigger: 'blur' }],
@@ -667,7 +1064,9 @@ function handleEditDeptTask(person, task) {
     projectOrTask: task.content,
     projectNo: task.projectNo || '',
     deadline: task.deadline || '',
-    status: person.status
+    status: person.status,
+    _editContent: task.content,
+    _editProjectNo: task.projectNo || ''
   })
   dialogVisible.value = true
 }
@@ -680,6 +1079,7 @@ function handleDeleteTask(row) {
         person.tasks = person.tasks.filter((t) => t.content !== row.projectOrTask)
       }
       ElMessage.success('已删除')
+      saveScheduleForDate()
       fetchTasks()
     })
     .catch(() => {})
@@ -698,7 +1098,10 @@ function submitTask() {
     }
     if (person) {
       if (taskForm.id && taskForm.id.endsWith('-edit')) {
-        // 编辑模式
+        const idx = person.tasks.findIndex(
+          (t) => t.content === taskForm._editContent && (t.projectNo || '') === (taskForm._editProjectNo || '')
+        )
+        if (idx !== -1) person.tasks[idx] = newTask
       } else {
         person.tasks.push(newTask)
       }
@@ -714,27 +1117,58 @@ function submitTask() {
     }
     ElMessage.success('已保存')
     dialogVisible.value = false
+    saveScheduleForDate()
     fetchTasks()
   })
 }
 
 function resetTaskForm() {
-  Object.keys(taskForm).forEach((k) => { taskForm[k] = '' })
+  Object.keys(taskForm).forEach((k) => {
+    if (k.startsWith('_')) return
+    taskForm[k] = ''
+  })
   taskForm.status = 'scheduled'
+  taskForm._editContent = ''
+  taskForm._editProjectNo = ''
   taskFormRef.value?.resetFields()
 }
 
 function onDateChange() {
+  loadScheduleForDate(scheduleDate.value)
+}
+
+/** 取昨日日期 YYYY-MM-DD */
+function getYesterdayDate(dateStr) {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() - 1)
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
+}
+
+function copyFromYesterday() {
+  const yesterday = getYesterdayDate(scheduleDate.value)
+  const data = getScheduleFromStorage(yesterday)
+  if (!data) {
+    ElMessage.warning('昨日无安排数据可复制，请先保存昨日安排或选择其他日期')
+    return
+  }
+  const defaultData = getDefaultScheduleData()
+  deptPersonData.value = data.deptPersonData ?? defaultData.deptPersonData
+  notScheduledTasks.value = data.notScheduledTasks ?? defaultData.notScheduledTasks
+  pmRotationOrder.value = data.pmRotationOrder ?? defaultData.pmRotationOrder
+  shiftTableData.value = data.shiftTableData ?? defaultData.shiftTableData
+  leaveNotes.value = data.leaveNotes ?? defaultData.leaveNotes
+  urgentTableZhEn.value = data.urgentTableZhEn ?? defaultData.urgentTableZhEn
+  urgentTableEnZh.value = data.urgentTableEnZh ?? defaultData.urgentTableEnZh
+  saveScheduleForDate()
   fetchTasks()
+  ElMessage.success('已从昨日复制并保存为当日安排')
 }
 
 // ==================== 初始化 ====================
 onMounted(() => {
-  initCurrentUserName()
   const today = new Date()
   scheduleDate.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
-  initDeptPersonData()
-  fetchTasks()
+  loadScheduleForDate(scheduleDate.value)
 })
 </script>
 
@@ -759,6 +1193,17 @@ onMounted(() => {
 /* 各分区 */
 .section-block {
   margin-bottom: 28px;
+}
+.section-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.section-title-row .section-title {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--el-color-primary-light-7);
 }
 .section-title {
   font-size: 15px;
@@ -795,6 +1240,17 @@ onMounted(() => {
   padding: 12px 16px;
   background: var(--el-fill-color-light);
   border-radius: 8px;
+}
+.info-block-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.info-block-title-row h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
 }
 .info-block h4 {
   margin: 0 0 8px 0;
@@ -847,6 +1303,22 @@ onMounted(() => {
 .sub-section h4 { margin: 0 0 8px; font-size: 14px; color: var(--el-text-color-primary); }
 .sub-section h5 { margin: 14px 0 6px; font-size: 13px; color: var(--el-text-color-regular); }
 .hint { color: var(--el-text-color-secondary); font-size: 12px; margin: 4px 0 8px; }
+.shift-edit-actions {
+  margin-top: 12px;
+}
+.leave-notes-edit-list {
+  margin-bottom: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.leave-notes-edit-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.leave-notes-edit-item .el-input { flex: 1; }
+.leave-notes-del-btn { flex-shrink: 0; margin-top: 4px; }
 
 /* 部门 > 人员折叠面板 */
 .person-collapse {

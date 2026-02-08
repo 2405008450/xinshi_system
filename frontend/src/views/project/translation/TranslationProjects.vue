@@ -14,10 +14,10 @@
         <span class="page-title">项目流程</span>
         <el-select
           v-model="currentProjectId"
-          placeholder="选择项目"
+          placeholder="选择项目（选后可在下方设定难度并推进流程）"
           filterable
           clearable
-          style="width: 320px"
+          style="width: 380px"
           @change="onProjectChange"
         >
           <el-option
@@ -40,8 +40,8 @@
       />
     </el-steps>
 
-    <!-- 当前阶段操作区 -->
-    <el-card v-if="currentProject" class="stage-card" shadow="never">
+    <!-- 当前阶段操作区（客户专员在此设定难度并指定下一环节负责人） -->
+    <el-card v-if="currentProject" ref="stageCardRef" class="stage-card" shadow="never">
       <template #header>
         <div class="stage-card-header">
           <span class="stage-name">当前阶段：{{ currentStage?.title }}</span>
@@ -84,6 +84,9 @@
           </el-select>
         </template>
         <div class="stage-actions">
+          <p v-if="!workflowState.difficulty || !nextAssigneeUserId" class="action-hint">
+            请先选择难度，再选择下一环节负责人后即可点击下方按钮提交。
+          </p>
           <el-button type="primary" :disabled="!workflowState.difficulty || !nextAssigneeUserId" @click="confirmDifficulty">
             确认难度并进入下一环节
           </el-button>
@@ -173,7 +176,12 @@
       </template>
     </el-card>
 
-    <el-empty v-else description="请先选择项目" class="empty-stage" />
+    <el-empty v-else class="empty-stage">
+      <template #description>
+        <p>请在上方下拉框<strong>选择项目</strong>，或从下方「待我处理」Tab 中点「进入」。</p>
+        <p class="empty-hint">若项目当前阶段为「客户专员」且尚未设定难度，选择后将显示<strong>难度评级</strong>与下一环节负责人。</p>
+      </template>
+    </el-empty>
 
     <!-- 打回原因弹窗 -->
     <el-dialog
@@ -208,14 +216,18 @@
           <el-table-column prop="orderNo" label="订单号" width="140" />
           <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
           <el-table-column prop="clientShortName" label="客户简称" width="120" />
-          <el-table-column label="当前阶段" width="120">
+          <el-table-column label="当前阶段" width="180">
             <template #default="{ row }">
-              {{ getWorkflowState(row.id)?.currentStageKey ? (stageByKey[getWorkflowState(row.id).currentStageKey]?.title || getWorkflowState(row.id).currentStageKey) : '-' }}
+              <span v-if="getWorkflowState(row.id)?.currentStageKey">
+                {{ stageByKey[getWorkflowState(row.id).currentStageKey]?.title || getWorkflowState(row.id).currentStageKey }}
+                <el-tag v-if="getWorkflowState(row.id).currentStageKey === 'reception' && !getWorkflowState(row.id).difficulty" type="warning" size="small" style="margin-left: 6px">待设定难度</el-tag>
+              </span>
+              <span v-else>-</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="selectProject(row.id)">进入</el-button>
+              <el-button type="primary" link size="small" @click="selectProject(row)">进入</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -314,10 +326,11 @@
  * 完成并提交时：必填「下一环节负责人」nextAssigneeUserId，提交后写入 state 与 log。
  * 待我处理：筛选 currentAssigneeUserName === 当前登录用户 且 currentStageKey !== 'completed'。
  */
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { getUsersByRoleName } from '@/api/workflow'
+import { getStoredRoles } from '@/utils/permission'
 import { isMockEnabled } from '@/mock'
 
 // ---------- 全流程阶段定义（顺序固定） ----------
@@ -384,11 +397,12 @@ const stageProgressMap = {
 const workflowStateByProject = reactive({})
 
 function getWorkflowState(projectId) {
-  if (!projectId) return null
-  if (!workflowStateByProject[projectId]) {
+  if (projectId === undefined || projectId === null || projectId === '') return null
+  const key = String(projectId)
+  if (!workflowStateByProject[key]) {
     // 必须用 reactive() 包装，否则在 completeCurrentStage 等中修改 currentStageKey 等属性时
     // 不会触发视图更新（动态赋值的普通对象不是响应式的）
-    workflowStateByProject[projectId] = reactive({
+    workflowStateByProject[key] = reactive({
       difficulty: null,
       currentStageKey: 'reception',
       currentAssigneeUserId: null,
@@ -407,13 +421,13 @@ function getWorkflowState(projectId) {
       ]
     })
   }
-  return workflowStateByProject[projectId]
+  return workflowStateByProject[key]
 }
 
 const currentProjectId = ref('')
 const projectList = ref([])
 const handoverNote = ref('')
-const activeTab = ref('overview')
+const activeTab = ref('my_tasks')
 const fileList = ref([])
 
 const rollbackDialogVisible = ref(false)
@@ -423,10 +437,16 @@ const rollbackNote = ref('')
 const nextAssigneeUserId = ref('')
 const nextStageUsers = ref([])
 const nextStageUsersLoading = ref(false)
+const stageCardRef = ref(null)
+/** 从「待我处理」点「进入」时保存的行对象，保证阶段卡片一定能显示（避免 id 匹配不到） */
+const selectedProjectRow = ref(null)
 
-const currentProject = computed(() =>
-  projectList.value.find((p) => p.id === currentProjectId.value)
-)
+const currentProject = computed(() => {
+  if (selectedProjectRow.value) return selectedProjectRow.value
+  const id = currentProjectId.value
+  if (id === undefined || id === null || id === '') return undefined
+  return projectList.value.find((p) => String(p.id) === String(id))
+})
 
 const workflowState = computed(() => getWorkflowState(currentProjectId.value) || {})
 
@@ -477,6 +497,12 @@ const currentUserName = computed(() => {
   }
 })
 
+/** 当前用户是否为客户专员（用于展示「待设定难度」的接稿项目） */
+const isCustomerSpecialist = computed(() => {
+  const roles = getStoredRoles()
+  return roles.includes('客户专员')
+})
+
 const nextStageAfterReception = computed(() => {
   if (!workflowState.currentStageKey || workflowState.currentStageKey !== 'reception' || !workflowState.difficulty) return null
   const steps = getEffectiveStages(workflowState.difficulty)
@@ -498,7 +524,11 @@ const myTaskProjects = computed(() => {
   return projectList.value.filter((p) => {
     const state = getWorkflowState(p.id)
     if (!state || state.currentStageKey === 'completed') return false
-    return state.currentAssigneeUserName === name
+    // 已指定负责人且是自己 → 待我处理
+    if (state.currentAssigneeUserName === name) return true
+    // 客户专员：当前阶段为接稿且未设定难度的项目也视为「待我处理」（需设定难度）
+    if (isCustomerSpecialist.value && state.currentStageKey === 'reception' && !state.difficulty) return true
+    return false
   })
 })
 
@@ -705,17 +735,31 @@ async function loadProjects() {
 }
 
 function onProjectChange() {
+  selectedProjectRow.value = null
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
 }
 
-function selectProject(projectId) {
-  currentProjectId.value = projectId
+function selectProject(projectIdOrRow) {
+  const isRow = projectIdOrRow != null && typeof projectIdOrRow === 'object' && 'id' in projectIdOrRow
+  if (isRow) {
+    currentProjectId.value = projectIdOrRow.id
+    selectedProjectRow.value = projectIdOrRow
+  } else {
+    currentProjectId.value = projectIdOrRow
+    selectedProjectRow.value = null
+  }
   activeTab.value = 'overview'
+  nextTick(() => {
+    const el = stageCardRef.value?.$el ?? stageCardRef.value
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
 }
 
 function onMyTaskRowClick(row) {
-  if (row && row.id) selectProject(row.id)
+  if (row && row.id) selectProject(row)
 }
 
 onMounted(() => {
@@ -792,6 +836,12 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
+.stage-difficulty .action-hint {
+  font-size: 13px;
+  color: var(--el-color-warning);
+  margin: 0 0 10px 0;
+}
+
 .stage-progress {
   margin-bottom: 20px;
 }
@@ -826,6 +876,12 @@ onMounted(() => {
 
 .empty-stage {
   margin: 40px 0;
+}
+
+.empty-stage .empty-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 
 .rollback-hint {

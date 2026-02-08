@@ -90,6 +90,18 @@ const routes = [
         ]
       },
       {
+        path: 'workbench',
+        name: 'WorkDashboard',
+        component: () => import('../views/schedule/WorkDashboard.vue'),
+        meta: { title: '我的工作台' }
+      },
+      {
+        path: 'admin/schedule',
+        name: 'WorkScheduleAdmin',
+        component: () => import('../views/schedule/WorkSchedule.vue'),
+        meta: { title: '排班管理', roles: workScheduleRoles }
+      },
+      {
         path: 'work-schedule',
         name: 'WorkSchedule',
         component: () => import('../views/schedule/WorkSchedule.vue'),

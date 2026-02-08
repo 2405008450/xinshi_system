@@ -74,10 +74,15 @@
             </el-menu-item>
           </template>
         </el-sub-menu>
-        <!-- 工作安排：超级管理员 或 项目经理 -->
-        <el-menu-item v-if="showWorkSchedule" index="/work-schedule">
+        <!-- 我的工作台：普通用户查看当日任务与班次 -->
+        <el-menu-item index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
-          <template #title>工作安排</template>
+          <template #title>我的工作台</template>
+        </el-menu-item>
+        <!-- 排班管理：管理员编辑排班 -->
+        <el-menu-item v-if="showWorkSchedule" index="/work-schedule">
+          <el-icon><Calendar /></el-icon>
+          <template #title>排班管理</template>
         </el-menu-item>
         <template v-if="showFullMenu">
           <el-menu-item index="/technology-management">
@@ -216,7 +221,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted } from 'vue'
-import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
+import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
 import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES } from '../utils/permission'
 
