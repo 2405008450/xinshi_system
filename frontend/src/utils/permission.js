@@ -68,14 +68,13 @@ export function canAccessRoute(route) {
 }
 
 /**
- * 笔译项目管理相关路由/路径（用于菜单与守卫）
+ * 笔译项目管理相关路由/路径（扁平，用于菜单与守卫）
  * 客户专员、项目专员、项目经理 仅能访问这些
  */
 export const TRANSLATION_PROJECT_PATHS = [
-  '/project-management',
-  '/project-management/translation',
-  '/project-management/translation/project-details',
-  '/project-management/translation/project-files'
+  '/translation',
+  '/translation-details',
+  '/translation-files'
 ]
 
 /** 笔译项目管理可访问的角色（非超级管理员时）；含测试、译审、销售等，登录后均可进入默认页 */
@@ -88,7 +87,7 @@ export const TRANSLATION_PROJECT_ROLES = [
   ROLE_SALES
 ]
 
-/** 工作安排可访问的角色（含测试、译审、销售等，均可查看及「我的任务」） */
+/** 工作台（我的任务/班次只读）可访问的角色：客户专员、项目专员、项目经理、测试、译审、销售等 */
 export const WORK_SCHEDULE_ROLES = [
   ROLE_SUPER_ADMIN,
   ROLE_ADMIN,
@@ -99,3 +98,30 @@ export const WORK_SCHEDULE_ROLES = [
   ROLE_REVIEW,
   ROLE_SALES
 ]
+
+/** 排班管理查看权限：所有员工都可以查看 */
+export const SCHEDULE_VIEW_ROLES = [
+  ROLE_SUPER_ADMIN,
+  ROLE_ADMIN,
+  ROLE_PROJECT_MANAGER,
+  ROLE_CUSTOMER_SPECIALIST,
+  ROLE_PROJECT_SPECIALIST,
+  ROLE_TEST,
+  ROLE_REVIEW,
+  ROLE_SALES
+]
+
+/** 排班管理编辑权限：仅项目经理与超级管理员可以编辑 */
+export const SCHEDULE_ADMIN_ROLES = [
+  ROLE_SUPER_ADMIN,
+  ROLE_ADMIN,
+  ROLE_PROJECT_MANAGER
+]
+
+/**
+ * 判断当前用户是否有排班管理编辑权限
+ * @returns {boolean}
+ */
+export function canEditSchedule() {
+  return isSuperAdmin() || hasRole(SCHEDULE_ADMIN_ROLES)
+}

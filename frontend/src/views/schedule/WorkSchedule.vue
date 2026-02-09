@@ -14,8 +14,8 @@
             @change="onDateChange"
           />
           <el-tag type="info" effect="plain">{{ weekdayLabel }}</el-tag>
-          <el-button type="primary" @click="handleAddTask">新增任务</el-button>
-          <el-button @click="copyFromYesterday">从昨日复制</el-button>
+          <el-button v-if="canEdit" type="primary" @click="handleAddTask">新增任务</el-button>
+          <el-button v-if="canEdit" @click="copyFromYesterday">从昨日复制</el-button>
         </div>
       </div>
     </template>
@@ -58,7 +58,7 @@
         <div class="section-block">
           <div class="section-title-row">
             <h3 class="section-title">今日班次</h3>
-            <el-button type="primary" size="small" @click="openShiftFullEdit">编辑班次</el-button>
+            <el-button v-if="canEdit" type="primary" size="small" @click="openShiftFullEdit">编辑班次</el-button>
           </div>
           <p class="section-desc hint">常规：早早班 8:30-18:00、早班 9:00-18:30、晚班 10:30-20:00、晚晚班 13:30-21:30；另有特殊班次。一周排班一次，临时变动可用「临时调整」。</p>
           <el-table :data="shiftTableData" border size="small" class="data-table">
@@ -67,7 +67,7 @@
             <el-table-column prop="client" label="客户部" min-width="180" show-overflow-tooltip />
             <el-table-column prop="hr" label="（项目助理）HR部" min-width="120" show-overflow-tooltip />
             <el-table-column prop="translationProject" label="翻译部+项目部" min-width="140" show-overflow-tooltip />
-            <el-table-column label="操作" width="100" fixed="right">
+            <el-table-column v-if="canEdit" label="操作" width="100" fixed="right">
               <template #default="{ row, $index }">
                 <el-button type="primary" link size="small" @click="openShiftRowEdit($index)">临时调整</el-button>
               </template>
@@ -76,7 +76,7 @@
           <div class="info-block">
             <div class="info-block-title-row">
               <h4>请假/调休</h4>
-              <el-button type="primary" link size="small" @click="openLeaveNotesEdit">编辑</el-button>
+              <el-button v-if="canEdit" type="primary" link size="small" @click="openLeaveNotesEdit">编辑</el-button>
             </div>
             <ul>
               <li v-for="(note, i) in leaveNotes" :key="i">{{ note }}</li>
@@ -107,7 +107,7 @@
           <div class="sub-section">
             <div class="section-title-row">
               <h4>中英 今日优先次序</h4>
-              <el-button type="primary" size="small" @click="openTranslatorTableEdit('zhEn')">编辑中英</el-button>
+              <el-button v-if="canEdit" type="primary" size="small" @click="openTranslatorTableEdit('zhEn')">编辑中英</el-button>
             </div>
             <p class="hint">除要求特别高的找Tom看，其他可自行指定翻译基本检查或直接给客户专员。</p>
             <el-table :data="urgentTableZhEn" border size="small" class="data-table">
@@ -123,7 +123,7 @@
           <div class="sub-section">
             <div class="section-title-row">
               <h4>英中 今日优先次序</h4>
-              <el-button type="primary" size="small" @click="openTranslatorTableEdit('enZh')">编辑英中</el-button>
+              <el-button v-if="canEdit" type="primary" size="small" @click="openTranslatorTableEdit('enZh')">编辑英中</el-button>
             </div>
             <p class="hint">字数多、修订多、参考多等复杂情况需基本检查；要求很高的需找Tom。其他直接给客户专员。</p>
             <el-table :data="urgentTableEnZh" border size="small" class="data-table">
@@ -170,7 +170,7 @@
                   </div>
                 </template>
                 <div class="person-tasks">
-                  <el-table :data="person.tasks" border size="small">
+                  <el-table :data="getDeptTasksSorted(person)" border size="small">
                     <el-table-column type="index" label="#" width="50" />
                     <el-table-column prop="category" label="任务类型" width="140">
                       <template #default="{ row }">
@@ -182,7 +182,7 @@
                     <el-table-column prop="content" label="任务内容" min-width="300" show-overflow-tooltip />
                     <el-table-column prop="projectNo" label="项目编号" width="140" show-overflow-tooltip />
                     <el-table-column prop="deadline" label="交稿时间" width="140" show-overflow-tooltip />
-                    <el-table-column label="操作" width="100" fixed="right">
+                    <el-table-column v-if="canEdit" label="操作" width="100" fixed="right">
                       <template #default="{ row }">
                         <el-button type="primary" link size="small" @click="handleEditDeptTask(person, row)">编辑</el-button>
                       </template>
@@ -201,6 +201,8 @@
         </el-tabs>
       </el-tab-pane>
 
+
+
       <!-- ====== Tab: 暂不安排 ====== -->
       <el-tab-pane label="暂不安排" name="not_scheduled">
         <div class="section-block">
@@ -213,6 +215,32 @@
             <el-table-column prop="remarks" label="备注" min-width="180" show-overflow-tooltip />
           </el-table>
           <el-empty v-if="!notScheduledTasks.length" description="今日无暂不安排项" />
+        </div>
+      </el-tab-pane>
+      
+      <!-- ====== Tab: 当天来稿 ====== -->
+      <el-tab-pane label="当天来稿" name="today_incoming">
+        <div class="section-block">
+          <div class="section-title-row" style="margin-bottom: 12px;">
+            <span class="section-desc">当日来稿项目，按回客户时间倒序排列（交稿截止时间越晚的越靠前）。</span>
+            <el-button type="primary" size="small" :loading="todayIncomingLoading" @click="fetchTodayIncoming">刷新</el-button>
+          </div>
+          <el-table :data="todayIncomingList" border size="small" class="data-table" v-loading="todayIncomingLoading">
+            <el-table-column type="index" label="#" width="50" />
+            <el-table-column prop="project_no" label="项目编号" width="140" show-overflow-tooltip />
+            <el-table-column prop="client_name" label="客户/项目" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="status" label="项目状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="getProjectStatusType(row.status)" size="small" effect="plain">
+                  {{ getProjectStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="deadline" label="回客户时间" width="160" sortable show-overflow-tooltip />
+            <el-table-column prop="word_count" label="字数" width="100" show-overflow-tooltip />
+            <el-table-column prop="remarks" label="备注" min-width="180" show-overflow-tooltip />
+          </el-table>
+          <el-empty v-if="!todayIncomingLoading && !todayIncomingList.length" description="今日暂无来稿" />
         </div>
       </el-tab-pane>
 
@@ -244,7 +272,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="remarks" label="备注" min-width="140" show-overflow-tooltip />
-          <el-table-column label="操作" width="120" fixed="right">
+          <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="handleEditTask(row)">编辑</el-button>
               <el-button type="danger" link size="small" @click="handleDeleteTask(row)">删除</el-button>
@@ -458,8 +486,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getProjects } from '@/api/projects'
+import { canEditSchedule } from '@/utils/permission'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -516,6 +546,9 @@ const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
   return WEEKDAYS[new Date(scheduleDate.value).getDay()]
 })
+
+/** 当前用户是否有编辑排班的权限（项目经理、超管） */
+const canEdit = computed(() => canEditSchedule())
 
 const pmRotationOrder = ref('伟琪 / 李娴 / 孟花')
 
@@ -962,6 +995,67 @@ const notScheduledTasks = ref([
   }
 ])
 
+// ==================== 当天来稿 ====================
+const todayIncomingList = ref([])
+const todayIncomingLoading = ref(false)
+
+function getProjectStatusLabel(status) {
+  const map = { pending: '待启动', in_progress: '进行中', completed: '已完成', paused: '已暂停' }
+  return map[status] || status || '-'
+}
+
+function getProjectStatusType(status) {
+  const map = { pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger' }
+  return map[status] || 'info'
+}
+
+/** 解析日期字符串为可比较值（用于排序），支持 ISO、YYYY-MM-DD、中文简写等 */
+function parseDeadlineForSort(deadline) {
+  if (!deadline || typeof deadline !== 'string') return 0
+  const s = deadline.trim()
+  const iso = /^\d{4}-\d{2}-\d{2}/.exec(s)
+  if (iso) return new Date(iso[0]).getTime()
+  const cn = /(\d{1,2})月(\d{1,2})日/.exec(s)
+  if (cn) {
+    const y = new Date().getFullYear()
+    const m = parseInt(cn[1], 10) - 1
+    const d = parseInt(cn[2], 10)
+    return new Date(y, m, d).getTime()
+  }
+  return 0
+}
+
+async function fetchTodayIncoming() {
+  todayIncomingLoading.value = true
+  try {
+    const dateToUse = scheduleDate.value || new Date().toISOString().slice(0, 10)
+    const todayStr = dateToUse.slice(0, 10)
+    const res = await getProjects({ limit: 500 })
+    const list = Array.isArray(res) ? res : []
+    const todayItems = list.filter((p) => {
+      const createdAt = p.created_at
+      if (!createdAt) return false
+      const createdStr = typeof createdAt === 'string' ? createdAt.slice(0, 10) : ''
+      return createdStr === todayStr
+    })
+    todayItems.sort((a, b) => {
+      const ta = parseDeadlineForSort(a.deadline)
+      const tb = parseDeadlineForSort(b.deadline)
+      return tb - ta
+    })
+    todayIncomingList.value = todayItems
+  } catch (e) {
+    ElMessage.error('获取当天来稿失败：' + (e.message || '网络错误'))
+    todayIncomingList.value = []
+  } finally {
+    todayIncomingLoading.value = false
+  }
+}
+
+watch(activeTab, (name) => {
+  if (name === 'today_incoming') fetchTodayIncoming()
+})
+
 // ==================== 部门统计 ====================
 const deptStats = computed(() => {
   return DEPARTMENTS.map((d) => ({
@@ -982,6 +1076,17 @@ function getPersonsByDept(deptKey) {
 function getTaskCategoryType(cat) {
   const map = { '直接项目任务': 'danger', '非直接项目任务': 'warning', '固定任务': 'info', '其他': '' }
   return map[cat] || ''
+}
+
+/** 任务类型显示顺序：直接项目任务 > 非直接项目任务 > 固定任务 > 其他 */
+const TASK_CATEGORY_ORDER = { '直接项目任务': 0, '非直接项目任务': 1, '固定任务': 2, '其他': 3 }
+function getDeptTasksSorted(person) {
+  if (!person?.tasks?.length) return []
+  return [...person.tasks].sort((a, b) => {
+    const orderA = TASK_CATEGORY_ORDER[a.category] ?? 4
+    const orderB = TASK_CATEGORY_ORDER[b.category] ?? 4
+    return orderA - orderB
+  })
 }
 
 // ==================== 全部项目列表 ====================

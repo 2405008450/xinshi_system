@@ -20,6 +20,7 @@
       </div>
       <el-menu
         :default-active="activeMenu"
+        :unique-opened="false"
         router
         class="sidebar-menu"
         :collapse="isCollapse"
@@ -41,46 +42,40 @@
           </el-menu-item>
           <el-divider class="menu-divider" />
         </template>
-        <!-- 项目管理：超级管理员看全部，其他角色仅看笔译 -->
-        <el-sub-menu index="/project-management">
-          <template #title>
-            <el-icon><Folder /></el-icon>
-            <span>项目管理</span>
-          </template>
-          <el-sub-menu index="/project-management/translation">
-            <template #title>笔译项目管理</template>
-            <el-menu-item index="/project-management/translation">
-              <template #title>项目流程</template>
-            </el-menu-item>
-            <el-menu-item index="/project-management/translation/project-details">
-              <template #title>项目详情</template>
-            </el-menu-item>
-            <el-menu-item index="/project-management/translation/project-files">
-              <template #title>项目文件</template>
-            </el-menu-item>
-          </el-sub-menu>
-          <template v-if="showFullMenu">
-            <el-menu-item index="/project-management/interpretation">
-              <template #title>口译项目管理</template>
-            </el-menu-item>
-            <el-menu-item index="/project-management/annotation">
-              <template #title>标注项目管理</template>
-            </el-menu-item>
-            <el-menu-item index="/project-management/recruitment">
-              <template #title>招聘项目管理</template>
-            </el-menu-item>
-            <el-menu-item index="/project-management/other">
-              <template #title>其他项目管理</template>
-            </el-menu-item>
-          </template>
-        </el-sub-menu>
-        <!-- 我的工作台：普通用户查看当日任务与班次 -->
-        <el-menu-item index="/workbench">
+        <!-- 项目管理：扁平菜单 -->
+        <el-menu-item v-if="showTranslationMenu" index="/translation">
+          <el-icon><Folder /></el-icon>
+          <template #title>项目流程</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/translation-details">
+          <el-icon><Document /></el-icon>
+          <template #title>项目详情</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/translation-files">
+          <el-icon><Files /></el-icon>
+          <template #title>项目文件</template>
+        </el-menu-item>
+        <template v-if="showFullMenu">
+          <el-menu-item index="/interpretation">
+            <template #title>口译项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/annotation">
+            <template #title>标注项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/recruitment">
+            <template #title>招聘项目管理</template>
+          </el-menu-item>
+          <el-menu-item index="/other">
+            <template #title>其他项目管理</template>
+          </el-menu-item>
+        </template>
+        <!-- 我的工作台：客户专员、项目专员等查看我的任务与班次 -->
+        <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
           <template #title>我的工作台</template>
         </el-menu-item>
-        <!-- 排班管理：管理员编辑排班 -->
-        <el-menu-item v-if="showWorkSchedule" index="/work-schedule">
+        <!-- 排班管理：所有员工可查看（编辑权限在页面内控制） -->
+        <el-menu-item v-if="showSchedule" index="/work-schedule">
           <el-icon><Calendar /></el-icon>
           <template #title>排班管理</template>
         </el-menu-item>
@@ -207,9 +202,22 @@
         </div>
       </el-header>
       <el-main class="main-content">
-        <router-view v-slot="{ Component }">
+        <router-view v-slot="{ Component, route }">
           <transition name="fade-transform" mode="out-in">
-            <component :is="Component" />
+            <Suspense>
+              <component 
+                v-if="Component" 
+                :is="Component" 
+                :key="route.path" 
+              />
+              <template #fallback>
+                <div class="loading-container">
+                  <el-icon class="is-loading" :size="40">
+                    <Loading />
+                  </el-icon>
+                </div>
+              </template>
+            </Suspense>
           </transition>
         </router-view>
       </el-main>
@@ -220,10 +228,10 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { ref, computed, onMounted } from 'vue'
-import { User, Key, Folder, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, Loading } from '@element-plus/icons-vue'
 import MockSwitch from '../components/MockSwitch.vue'
-import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES } from '../utils/permission'
+import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES, TRANSLATION_PROJECT_ROLES, SCHEDULE_VIEW_ROLES } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -253,8 +261,13 @@ onMounted(() => {
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
 
-/** 是否显示工作安排（超级管理员、项目经理、客户专员、项目专员均可查看） */
-const showWorkSchedule = computed(() => showFullMenu.value || hasRole([ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES]))
+/** 是否显示「我的工作台」（客户专员、项目专员、项目经理等） */
+const showWorkbench = computed(() => showFullMenu.value || hasRole([ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES]))
+/** 是否显示「排班管理」（所有员工都可以查看，只是编辑权限不同） */
+const showSchedule = computed(() => showFullMenu.value || hasRole(SCHEDULE_VIEW_ROLES))
+
+/** 是否显示笔译相关菜单（项目流程、项目详情、项目文件） */
+const showTranslationMenu = computed(() => showFullMenu.value || hasRole(TRANSLATION_PROJECT_ROLES))
 
 /** 当前用户名（可从 token 或存储解析，此处简单显示） */
 const displayName = computed(() => {
@@ -263,9 +276,20 @@ const displayName = computed(() => {
   return '用户'
 })
 
-const activeMenu = computed(() => {
-  return route.path
-})
+/** 当前激活的菜单项 */
+const activeMenu = ref(route.path)
+
+/** 监听路由变化，更新激活菜单 */
+watch(
+  () => route.path,
+  (newPath) => {
+    // 使用 nextTick 确保 DOM 更新后再设置激活菜单
+    nextTick(() => {
+      activeMenu.value = newPath
+    })
+  },
+  { immediate: true }
+)
 
 const currentPageTitle = computed(() => {
   return route.meta?.title || '首页'
@@ -562,6 +586,15 @@ const handleLogout = async () => {
   background: #f9fafb;
   padding: 24px;
   overflow-y: auto;
+}
+
+/* 加载状态 */
+.loading-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: #3b82f6;
 }
 
 /* 页面切换动画 */
