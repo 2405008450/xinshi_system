@@ -59,10 +59,10 @@
       <div v-if="isAtReception && !workflowState.difficulty" class="stage-difficulty">
         <div class="section-label">来稿难度评级（客户专员初步判断）</div>
         <p class="handover-hint">请根据来稿情况选择难度，将决定后续流程是否经过「项目经理」「译审」环节。</p>
-        <el-radio-group v-model="workflowState.difficulty" class="difficulty-radio">
-          <el-radio value="simple">简单（跳过项目经理、译审）</el-radio>
-          <el-radio value="normal">普通（跳过译审）</el-radio>
-          <el-radio value="complex">复杂（全流程）</el-radio>
+        <el-radio-group v-model="pendingDifficulty" class="difficulty-radio">
+          <el-radio label="simple">简单（跳过项目经理、译审）</el-radio>
+          <el-radio label="normal">普通（跳过译审）</el-radio>
+          <el-radio label="complex">复杂（全流程）</el-radio>
         </el-radio-group>
         <template v-if="nextStageAfterReception">
           <div class="section-label">下一环节负责人</div>
@@ -84,10 +84,10 @@
           </el-select>
         </template>
         <div class="stage-actions">
-          <p v-if="!workflowState.difficulty || !nextAssigneeUserId" class="action-hint">
+          <p v-if="!pendingDifficulty || !nextAssigneeUserId" class="action-hint">
             请先选择难度，再选择下一环节负责人后即可点击下方按钮提交。
           </p>
-          <el-button type="primary" :disabled="!workflowState.difficulty || !nextAssigneeUserId" @click="confirmDifficulty">
+          <el-button type="primary" :disabled="!pendingDifficulty || !nextAssigneeUserId" @click="confirmDifficulty">
             确认难度并进入下一环节
           </el-button>
         </div>
@@ -435,6 +435,7 @@ const rollbackSteps = ref(1)
 const rollbackNote = ref('')
 
 const nextAssigneeUserId = ref('')
+const pendingDifficulty = ref(null)
 const nextStageUsers = ref([])
 const nextStageUsersLoading = ref(false)
 const stageCardRef = ref(null)
@@ -450,42 +451,42 @@ const currentProject = computed(() => {
 
 const workflowState = computed(() => getWorkflowState(currentProjectId.value) || {})
 
-const effectiveSteps = computed(() => getEffectiveStages(workflowState.difficulty))
+const effectiveSteps = computed(() => getEffectiveStages(workflowState.value.difficulty))
 
-const currentStage = computed(() => stageByKey[workflowState.currentStageKey] ?? null)
+const currentStage = computed(() => stageByKey[workflowState.value.currentStageKey] ?? null)
 
 const currentStepIndexInFlow = computed(() => {
-  const key = workflowState.currentStageKey
+  const key = workflowState.value.currentStageKey
   const idx = effectiveSteps.value.findIndex((s) => s.key === key)
   return idx >= 0 ? idx : 0
 })
 
-const isAtReception = computed(() => workflowState.currentStageKey === 'reception')
+const isAtReception = computed(() => workflowState.value.currentStageKey === 'reception')
 
 const isCurrentStageDone = computed(() => {
-  const note = workflowState.stageNotes?.[workflowState.currentStageKey]
+  const note = workflowState.value.stageNotes?.[workflowState.value.currentStageKey]
   return note !== undefined && note !== ''
 })
 
 const stageNoteForCurrentStage = computed(
-  () => workflowState.stageNotes?.[workflowState.currentStageKey] ?? ''
+  () => workflowState.value.stageNotes?.[workflowState.value.currentStageKey] ?? ''
 )
 
 const currentStageProgressFields = computed(
-  () => stageProgressMap[workflowState.currentStageKey] || []
+  () => stageProgressMap[workflowState.value.currentStageKey] || []
 )
 
-const transitionLog = computed(() => workflowState.transitionLog || [])
+const transitionLog = computed(() => workflowState.value.transitionLog || [])
 
 const canRollbackOne = computed(() => {
   const steps = effectiveSteps.value
-  const idx = steps.findIndex((s) => s.key === workflowState.currentStageKey)
+  const idx = steps.findIndex((s) => s.key === workflowState.value.currentStageKey)
   return idx > 0
 })
 
 const canRollbackTwo = computed(() => {
   const steps = effectiveSteps.value
-  const idx = steps.findIndex((s) => s.key === workflowState.currentStageKey)
+  const idx = steps.findIndex((s) => s.key === workflowState.value.currentStageKey)
   return idx >= 2
 })
 
@@ -504,8 +505,8 @@ const isCustomerSpecialist = computed(() => {
 })
 
 const nextStageAfterReception = computed(() => {
-  if (!workflowState.currentStageKey || workflowState.currentStageKey !== 'reception' || !workflowState.difficulty) return null
-  const steps = getEffectiveStages(workflowState.difficulty)
+  if (workflowState.value.currentStageKey !== 'reception' || !pendingDifficulty.value) return null
+  const steps = getEffectiveStages(pendingDifficulty.value)
   return steps[1] || null
 })
 
@@ -604,7 +605,8 @@ function appendLog(state, entry) {
 
 function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
-  if (!state || !state.difficulty || !nextAssigneeUserId.value) return
+  if (!state || !pendingDifficulty.value || !nextAssigneeUserId.value) return
+  state.difficulty = pendingDifficulty.value
   const steps = getEffectiveStages(state.difficulty)
   const nextIdx = 1
   if (nextIdx >= steps.length) return
@@ -626,6 +628,7 @@ function confirmDifficulty() {
   state.currentAssigneeUserId = nextAssigneeUserId.value
   state.currentAssigneeUserName = nextUserName
   nextAssigneeUserId.value = ''
+  pendingDifficulty.value = null
   ElMessage.success('难度已确认，已指定下一环节负责人，流程已推进')
 }
 
@@ -710,6 +713,10 @@ function confirmRollback() {
     operator: currentStageInfo?.role || '-'
   })
   state.currentStageKey = target.key
+  // 清除目标阶段的旧备注，使其可重新处理
+  if (state.stageNotes) {
+    delete state.stageNotes[target.key]
+  }
   rollbackDialogVisible.value = false
   rollbackNote.value = ''
   handoverNote.value = ''
@@ -738,6 +745,7 @@ function onProjectChange() {
   selectedProjectRow.value = null
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
+  pendingDifficulty.value = null
 }
 
 function selectProject(projectIdOrRow) {
@@ -749,6 +757,9 @@ function selectProject(projectIdOrRow) {
     currentProjectId.value = projectIdOrRow
     selectedProjectRow.value = null
   }
+  handoverNote.value = ''
+  nextAssigneeUserId.value = ''
+  pendingDifficulty.value = null
   activeTab.value = 'overview'
   nextTick(() => {
     const el = stageCardRef.value?.$el ?? stageCardRef.value
