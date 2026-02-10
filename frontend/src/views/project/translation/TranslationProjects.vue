@@ -1,7 +1,7 @@
 <template>
   <!--
     流程说明：
-    - 完整流程：客户专员 → 项目经理 → 项目专员 → 项目助理 → 译员 → 译审 → 完成
+    - 完整流程：客户专员 → 项目经理 → 项目专员 → 项目助理 → 译审 → 专检 → 排版 → 完成
     - 难度由客户专员在接稿时初步判断，决定是否跳过环节：
       · 简单：跳过 项目经理、译审
       · 普通：跳过 译审
@@ -31,12 +31,13 @@
     </template>
 
     <!-- 流程步骤条（按难度只显示有效环节） -->
-    <el-steps :active="currentStepIndexInFlow" finish-status="success" align-center class="workflow-steps">
+    <el-steps :active="currentStepIndexInFlow" finish-status="success" process-status="process" align-center class="workflow-steps">
       <el-step
         v-for="(step, index) in effectiveSteps"
         :key="step.key"
         :title="step.title"
         :description="step.role"
+        :class="{ 'is-current-stage': step.key === workflowState.currentStageKey }"
       />
     </el-steps>
 
@@ -64,6 +65,65 @@
           <el-radio label="normal">普通（跳过译审）</el-radio>
           <el-radio label="complex">复杂（全流程）</el-radio>
         </el-radio-group>
+        <div class="section-label">文件是否可编辑</div>
+        <p class="handover-hint">不可编辑文件将自动增加「排版指派」阶段（由排版专员承接）。</p>
+        <el-radio-group v-model="pendingFileEditable" class="difficulty-radio">
+          <el-radio :label="true">可编辑文件</el-radio>
+          <el-radio :label="false">不可编辑文件</el-radio>
+        </el-radio-group>
+        <div v-if="currentStageEditableFields.length" class="stage-progress">
+          <div class="section-label">本阶段进度填写</div>
+          <p class="handover-hint">请填写接稿阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
+          <el-form label-width="130px" size="small" class="stage-form">
+            <template v-for="field in currentStageEditableFields" :key="field.key">
+              <el-form-item :label="field.label">
+                <el-date-picker
+                  v-if="field.type === 'date'"
+                  v-model="stageFormData[field.key]"
+                  type="datetime"
+                  placeholder="请选择日期时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  style="width: 100%"
+                />
+                <el-select
+                  v-else-if="field.type === 'select'"
+                  v-model="stageFormData[field.key]"
+                  placeholder="请选择"
+                  clearable
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="opt in field.options"
+                    :key="opt"
+                    :label="opt"
+                    :value="opt"
+                  />
+                </el-select>
+                <el-input
+                  v-else
+                  v-model="stageFormData[field.key]"
+                  placeholder="请输入"
+                />
+              </el-form-item>
+            </template>
+          </el-form>
+          <div class="stage-actions">
+            <el-button type="info" plain @click="saveCurrentStageProgress">
+              更新本阶段进度
+            </el-button>
+          </div>
+        </div>
+        <div class="section-label">处理备注 / 交接留言</div>
+        <p class="handover-hint">向下一阶段负责人传递关键信息，提交后将推进流程并锁定本阶段备注。</p>
+        <el-input
+          v-model="handoverNote"
+          type="textarea"
+          :rows="4"
+          placeholder="请输入本阶段处理说明、注意事项或交接给下一阶段的留言..."
+          maxlength="500"
+          show-word-limit
+        />
         <template v-if="nextStageAfterReception">
           <div class="section-label">下一环节负责人</div>
           <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageAfterReception.title }}」。</p>
@@ -84,23 +144,68 @@
           </el-select>
         </template>
         <div class="stage-actions">
-          <p v-if="!pendingDifficulty || !nextAssigneeUserId" class="action-hint">
-            请先选择难度，再选择下一环节负责人后即可点击下方按钮提交。
+          <p v-if="!pendingDifficulty || pendingFileEditable === null || !nextAssigneeUserId" class="action-hint">
+            请先选择难度与文件是否可编辑，再选择下一环节负责人后即可点击下方按钮提交。
           </p>
-          <el-button type="primary" :disabled="!pendingDifficulty || !nextAssigneeUserId" @click="confirmDifficulty">
+          <el-button type="primary" :disabled="!pendingDifficulty || pendingFileEditable === null || !nextAssigneeUserId" @click="confirmDifficulty">
             确认难度并进入下一环节
           </el-button>
         </div>
       </div>
 
       <template v-else>
-        <!-- 关键进度信息（只读） -->
-        <div class="stage-progress">
-          <div class="section-label">关键进度信息</div>
+        <!-- 本阶段进度填写（可编辑） -->
+        <div v-if="currentStageEditableFields.length && !isCurrentStageDone" class="stage-progress">
+          <div class="section-label">本阶段进度填写</div>
+          <p class="handover-hint">请填写本阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
+          <el-form label-width="130px" size="small" class="stage-form">
+            <template v-for="field in currentStageEditableFields" :key="field.key">
+              <el-form-item :label="field.label">
+                <el-date-picker
+                  v-if="field.type === 'date'"
+                  v-model="stageFormData[field.key]"
+                  type="datetime"
+                  placeholder="请选择日期时间"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  style="width: 100%"
+                />
+                <el-select
+                  v-else-if="field.type === 'select'"
+                  v-model="stageFormData[field.key]"
+                  placeholder="请选择"
+                  clearable
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="opt in field.options"
+                    :key="opt"
+                    :label="opt"
+                    :value="opt"
+                  />
+                </el-select>
+                <el-input
+                  v-else
+                  v-model="stageFormData[field.key]"
+                  placeholder="请输入"
+                />
+              </el-form-item>
+            </template>
+          </el-form>
+          <div class="stage-actions">
+            <el-button type="info" plain @click="saveCurrentStageProgress">
+              更新本阶段进度
+            </el-button>
+          </div>
+        </div>
+
+        <!-- 已完成阶段查看本阶段已填写的进度数据 -->
+        <div v-if="currentStageEditableFields.length && isCurrentStageDone" class="stage-progress">
+          <div class="section-label">本阶段已填写的进度信息</div>
           <el-descriptions :column="2" border size="small">
-            <template v-for="item in currentStageProgressFields" :key="item.key">
-              <el-descriptions-item :label="item.label" :span="item.span ?? 1">
-                <span class="readonly-value">{{ projectProgress[item.key] ?? '-' }}</span>
+            <template v-for="item in currentStageEditableFields" :key="item.key">
+              <el-descriptions-item :label="item.label">
+                <span class="readonly-value">{{ resolveFieldValue(item.key) }}</span>
               </el-descriptions-item>
             </template>
           </el-descriptions>
@@ -157,6 +262,14 @@
             >
               打回上两环节
             </el-button>
+            <el-button
+              v-if="canRollbackToStart"
+              type="danger"
+              plain
+              @click="openRollbackDialog(0, true)"
+            >
+              打回初始节点
+            </el-button>
           </div>
         </div>
 
@@ -164,12 +277,15 @@
         <div v-else class="stage-handover-readonly">
           <div class="section-label">本阶段交接留言</div>
           <div class="readonly-note">{{ stageNoteForCurrentStage || '（无）' }}</div>
-          <div v-if="canRollbackOne || canRollbackTwo" class="stage-actions" style="margin-top: 12px">
+          <div v-if="canRollbackOne || canRollbackTwo || canRollbackToStart" class="stage-actions" style="margin-top: 12px">
             <el-button v-if="canRollbackOne" type="warning" plain @click="openRollbackDialog(1)">
               打回上一环节
             </el-button>
             <el-button v-if="canRollbackTwo" type="warning" plain @click="openRollbackDialog(2)">
               打回上两环节
+            </el-button>
+            <el-button v-if="canRollbackToStart" type="danger" plain @click="openRollbackDialog(0, true)">
+              打回初始节点
             </el-button>
           </div>
         </div>
@@ -186,9 +302,9 @@
     <!-- 打回原因弹窗 -->
     <el-dialog
       v-model="rollbackDialogVisible"
-      :title="`打回${rollbackSteps}环节`"
+      :title="rollbackDialogTitle"
       width="480px"
-      @close="rollbackNote = ''"
+      @close="handleRollbackDialogClose"
     >
       <p class="rollback-hint">请填写打回原因，便于上一环节负责人知悉并重新处理。该记录将保留在操作日志中。</p>
       <el-input
@@ -241,8 +357,8 @@
           <el-descriptions-item label="客户简称">{{ currentProject.clientShortName }}</el-descriptions-item>
           <el-descriptions-item label="客户编号">{{ currentProject.clientCode }}</el-descriptions-item>
           <el-descriptions-item label="项目状态">
-            <el-tag :type="getStatusType(currentProject.projectStatus)" size="small">
-              {{ getStatusLabel(currentProject.projectStatus) }}
+            <el-tag :type="getStatusType(workflowState.projectStatus || currentProject.projectStatus)" size="small">
+              {{ getStatusLabel(workflowState.projectStatus || currentProject.projectStatus) }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="难度评级">
@@ -336,11 +452,13 @@ import { isMockEnabled } from '@/mock'
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
   { key: 'reception', title: '客户专员', role: '客户专员' },
+  { key: 'layout_assign', title: '排版指派', role: '排版专员', assignRoles: ['排版专员'] },
   { key: 'project_manager', title: '项目经理', role: '项目经理' },
   { key: 'project_specialist', title: '项目专员', role: '项目专员' },
   { key: 'project_assistant', title: '项目助理', role: '项目助理' },
-  { key: 'translator', title: '译员', role: '译员' },
   { key: 'review', title: '译审', role: '译审' },
+  { key: 'special_qc', title: '专检', role: '项目专员 / 客户专员', assignRoles: ['项目专员', '客户专员'] },
+  { key: 'layout', title: '排版', role: '排版专员', assignRoles: ['排版专员'] },
   { key: 'completed', title: '完成', role: '-' }
 ]
 
@@ -348,49 +466,153 @@ const STAGE_KEYS = ALL_STAGES.map((s) => s.key)
 const stageByKey = Object.fromEntries(ALL_STAGES.map((s) => [s.key, s]))
 
 /** 根据难度返回本单实际经过的环节（有序），用于步骤条与推进逻辑 */
-function getEffectiveStages(difficulty) {
+function getEffectiveStages(difficulty, fileEditable = true) {
   if (!difficulty) return [ALL_STAGES[0]]
+  const shouldInsertLayoutAssign = fileEditable === false || fileEditable === 'no'
+  let steps = [...ALL_STAGES]
+  if (!shouldInsertLayoutAssign) {
+    steps = steps.filter((s) => s.key !== 'layout_assign')
+  }
   if (difficulty === 'simple') {
-    return ALL_STAGES.filter((s) => !['project_manager', 'review'].includes(s.key))
+    // 简单：跳过 项目经理、译审；专检/排版仍保留
+    return steps.filter((s) => !['project_manager', 'review'].includes(s.key))
   }
   if (difficulty === 'normal') {
-    return ALL_STAGES.filter((s) => s.key !== 'review')
+    // 普通：跳过 译审；专检/排版仍保留
+    return steps.filter((s) => s.key !== 'review')
   }
-  return [...ALL_STAGES]
+  return steps
 }
 
-/** 各阶段在 project 上展示的进度字段 */
+/**
+ * 各阶段的进度字段配置
+ * - editable: 本阶段负责人需要手动填写的字段（可编辑）
+ * - readonly: 从上一阶段继承的只读字段（供本阶段查看参考）
+ * 每个字段: { key, label, type? }  type 可选 'input'(默认) | 'select' | 'date'
+ */
+/**
+ * 各阶段通用的项目状态选项
+ * - 进入阶段时自动设为"进行中"，用户可手动切为"已暂停"
+ * - 完成并提交时自动设为下一阶段的"进行中"
+ */
+const PROJECT_STATUS_OPTIONS = ['进行中', '已暂停']
+
 const stageProgressMap = {
-  reception: [
-    { key: 'customerReceptionTime', label: '客户接待时间' },
-    { key: 'customerDeadlineTime', label: '客户交稿时间' },
-    { key: 'clientShortName', label: '客户简称' }
-  ],
-  project_manager: [
-    { key: 'translatorCooperationType', label: '译员合作形式' },
-    { key: 'translatorAssignee', label: '译员安排' },
-    { key: 'translatorAssignmentTime', label: '译员安排时间' }
-  ],
-  project_specialist: [
-    { key: 'translatorAssignee', label: '译员' },
-    { key: 'translatorAssignmentTime', label: '译员安排时间' }
-  ],
-  project_assistant: [
-    { key: 'translatorAssignee', label: '译员' },
-    { key: 'translatorDeliveryProgress', label: '译员交稿进度' }
-  ],
-  translator: [
-    { key: 'translatorAssignee', label: '译员' },
-    { key: 'translatorDeliveryProgress', label: '译员交稿进度' }
-  ],
-  review: [
-    { key: 'review1Progress', label: '审核进度' },
-    { key: 'postReviewQcProgress', label: '审核后专检进度' }
-  ],
-  completed: [
-    { key: 'sentToClientTime', label: '发客户时间' },
-    { key: 'clientFeedback', label: '客户反馈' }
-  ]
+  reception: {
+    editable: [
+      { key: 'customerReceptionTime', label: '客户来搞时间', type: 'date' },
+      { key: 'customerDeadlineTime', label: '交稿客户时间', type: 'date' },
+      { key: 'clientShortName', label: '客户简称' },
+      { key: 'fileType', label: '文件类型', type: 'select', options: ['合同', '技术文档', '法律文件', '商务文件', '学术论文', '其他'] },
+      { key: 'translationDirection', label: '翻译方向' },
+      { key: 'wordCount', label: '字数统计' }
+    ],
+    readonly: []
+  },
+  layout_assign: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'layoutAssignNote', label: '排版指派说明' }
+    ],
+    readonly: [
+      { key: 'customerDeadlineTime', label: '客户交稿时间' },
+      { key: 'clientShortName', label: '客户简称' }
+    ]
+  },
+  project_manager: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'priority', label: '优先级', type: 'select', options: ['低', '中', '高', '紧急'] },
+      { key: 'wordCount', label: '预估字数' }
+    ],
+    readonly: [
+      { key: 'customerReceptionTime', label: '客户接待时间' },
+      { key: 'customerDeadlineTime', label: '客户交稿时间' },
+      { key: 'clientShortName', label: '客户简称' }
+    ]
+  },
+  project_specialist: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'languagePair', label: '语言方向' },
+      { key: 'fileTypeSecondary', label: '文件类型', type: 'select', options: ['合同', '技术文档', '法律文件', '商务文件', '学术论文', '其他'] }
+    ],
+    readonly: [
+      { key: 'customerDeadlineTime', label: '客户交稿时间' },
+      { key: 'priority', label: '优先级' },
+      { key: 'wordCount', label: '预估字数' }
+    ]
+  },
+  project_assistant: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'translatorAssignee', label: '译员安排' },
+      { key: 'translatorAssignmentTime', label: '译员安排时间', type: 'date' },
+      { key: 'estimatedTime', label: '译员预计处理耗时', type: 'text' },
+      { key: 'actualTime', label: '译员实际处理耗时' },
+      { key: 'translatorDeliveryProgress', label: '译员交稿进度', type: 'select', options: ['未开始', '进行中', '已完成', '待审核', '已审核'] }
+    ],
+    readonly: [
+      { key: 'customerDeadlineTime', label: '客户交稿时间' },
+      { key: 'languagePair', label: '语言对' },
+      { key: 'priority', label: '优先级' }
+    ]
+  },
+  review: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'review1Progress', label: '审核进度', type: 'select', options: ['未开始', '进行中', '已完成'] },
+      { key: 'postReviewQcProgress', label: '审核后专检进度', type: 'select', options: ['未开始', '进行中', '已完成'] }
+    ],
+    readonly: [
+      { key: 'translatorAssignee', label: '译员' },
+      { key: 'translatorDeliveryProgress', label: '译员交稿进度' }
+    ]
+  },
+  special_qc: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'specialQcResult', label: '专检结果', type: 'select', options: ['通过', '需修改', '驳回'] },
+      { key: 'specialQcNote', label: '专检说明' }
+    ],
+    readonly: [
+      { key: 'review1Progress', label: '审核进度' },
+      { key: 'postReviewQcProgress', label: '审核后专检进度' },
+      { key: 'translatorAssignee', label: '译员' }
+    ]
+  },
+  layout: {
+    editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
+      { key: 'estimatedTime', label: '预计处理耗时' },
+      { key: 'actualTime', label: '实际处理耗时' },
+      { key: 'layoutProgress', label: '排版进度', type: 'select', options: ['未开始', '进行中', '已完成'] },
+      { key: 'layoutNote', label: '排版备注' }
+    ],
+    readonly: [
+      { key: 'specialQcResult', label: '专检结果' },
+      { key: 'specialQcNote', label: '专检说明' }
+    ]
+  },
+  completed: {
+    editable: [],
+    readonly: [
+      { key: 'specialQcResult', label: '专检结果' },
+      { key: 'layoutProgress', label: '排版进度' },
+      { key: 'review1Progress', label: '审核进度' },
+      { key: 'translatorAssignee', label: '译员' }
+    ]
+  }
 }
 
 // ---------- 当前项目流程状态（未接后端时按项目 ID 存内存） ----------
@@ -404,10 +626,13 @@ function getWorkflowState(projectId) {
     // 不会触发视图更新（动态赋值的普通对象不是响应式的）
     workflowStateByProject[key] = reactive({
       difficulty: null,
+      fileEditable: null, // true | false
       currentStageKey: 'reception',
       currentAssigneeUserId: null,
       currentAssigneeUserName: null,
+      projectStatus: 'pending',  // 'pending'|'in_progress'|'paused'|'completed' 全局项目状态
       stageNotes: {},
+      stageData: {},  // { [stageKey]: { [fieldKey]: value } } 各阶段填写的进度数据
       transitionLog: [
         {
           at: formatDateTime(new Date()),
@@ -432,10 +657,12 @@ const fileList = ref([])
 
 const rollbackDialogVisible = ref(false)
 const rollbackSteps = ref(1)
+const rollbackToStart = ref(false)
 const rollbackNote = ref('')
 
 const nextAssigneeUserId = ref('')
 const pendingDifficulty = ref(null)
+const pendingFileEditable = ref(null)
 const nextStageUsers = ref([])
 const nextStageUsersLoading = ref(false)
 const stageCardRef = ref(null)
@@ -451,7 +678,7 @@ const currentProject = computed(() => {
 
 const workflowState = computed(() => getWorkflowState(currentProjectId.value) || {})
 
-const effectiveSteps = computed(() => getEffectiveStages(workflowState.value.difficulty))
+const effectiveSteps = computed(() => getEffectiveStages(workflowState.value.difficulty, workflowState.value.fileEditable))
 
 const currentStage = computed(() => stageByKey[workflowState.value.currentStageKey] ?? null)
 
@@ -472,9 +699,12 @@ const stageNoteForCurrentStage = computed(
   () => workflowState.value.stageNotes?.[workflowState.value.currentStageKey] ?? ''
 )
 
-const currentStageProgressFields = computed(
-  () => stageProgressMap[workflowState.value.currentStageKey] || []
+const currentStageConfig = computed(
+  () => stageProgressMap[workflowState.value.currentStageKey] || { editable: [], readonly: [] }
 )
+
+/** 本阶段可编辑字段 */
+const currentStageEditableFields = computed(() => currentStageConfig.value.editable || [])
 
 const transitionLog = computed(() => workflowState.value.transitionLog || [])
 
@@ -489,6 +719,16 @@ const canRollbackTwo = computed(() => {
   const idx = steps.findIndex((s) => s.key === workflowState.value.currentStageKey)
   return idx >= 2
 })
+
+const canRollbackToStart = computed(() => {
+  const steps = effectiveSteps.value
+  const idx = steps.findIndex((s) => s.key === workflowState.value.currentStageKey)
+  return idx > 0
+})
+
+const rollbackDialogTitle = computed(() => (
+  rollbackToStart.value ? '打回初始节点' : `打回${rollbackSteps.value}环节`
+))
 
 const currentUserName = computed(() => {
   try {
@@ -505,18 +745,21 @@ const isCustomerSpecialist = computed(() => {
 })
 
 const nextStageAfterReception = computed(() => {
-  if (workflowState.value.currentStageKey !== 'reception' || !pendingDifficulty.value) return null
-  const steps = getEffectiveStages(pendingDifficulty.value)
+  if (workflowState.value.currentStageKey !== 'reception' || !pendingDifficulty.value || pendingFileEditable.value === null) return null
+  const steps = getEffectiveStages(pendingDifficulty.value, pendingFileEditable.value)
   return steps[1] || null
 })
 
 const nextStageForAssignee = computed(() => {
   const state = getWorkflowState(currentProjectId.value)
   if (!state || state.currentStageKey === 'completed') return null
-  const steps = getEffectiveStages(state.difficulty)
+  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   if (idx < 0 || idx >= steps.length - 1) return null
-  return steps[idx + 1] || null
+  const next = steps[idx + 1]
+  // 如果下一步是"完成"，不需要指定负责人
+  if (next && next.key === 'completed') return null
+  return next || null
 })
 
 const myTaskProjects = computed(() => {
@@ -533,21 +776,105 @@ const myTaskProjects = computed(() => {
   })
 })
 
+/** 当前阶段可编辑字段的表单数据 */
+const stageFormData = reactive({})
+
+/** 从所有已完成阶段的 stageData 中查找某字段最新值（后填写的覆盖先填写的） */
+function resolveFieldValue(fieldKey) {
+  const state = getWorkflowState(currentProjectId.value)
+  if (!state || !state.stageData) return '-'
+  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
+  const curIdx = steps.findIndex((s) => s.key === state.currentStageKey)
+  // 从当前阶段往前找，取最近一次填写的值
+  for (let i = curIdx; i >= 0; i--) {
+    const data = state.stageData[steps[i].key]
+    if (data && data[fieldKey] !== undefined && data[fieldKey] !== '') return data[fieldKey]
+  }
+  // 兜底：从项目原始数据中取
+  const p = currentProject.value
+  return p?.[fieldKey] ?? '-'
+}
+
+/** 初始化当前阶段的表单数据（切换项目或推进阶段时调用） */
+function initStageFormData() {
+  const state = getWorkflowState(currentProjectId.value)
+  if (!state) return
+  const config = stageProgressMap[state.currentStageKey]
+  if (!config) return
+  // 清空旧数据
+  Object.keys(stageFormData).forEach((k) => delete stageFormData[k])
+  // 如果该阶段已有保存的数据（打回后重新进入），恢复之
+  const saved = state.stageData?.[state.currentStageKey]
+  for (const field of config.editable) {
+    stageFormData[field.key] = saved?.[field.key] ?? ''
+  }
+  // 进入非首阶段、非完成阶段时，自动将项目状态设为"进行中"
+  if (state.currentStageKey !== 'reception' && state.currentStageKey !== 'completed') {
+    if (stageFormData.projectStatus !== undefined) {
+      stageFormData.projectStatus = stageFormData.projectStatus || '进行中'
+    }
+    state.projectStatus = 'in_progress'
+  }
+}
+
+// 当用户在表单中切换项目状态（进行中 ↔ 已暂停）时，同步到全局 workflowState
+watch(() => stageFormData.projectStatus, (val) => {
+  if (!val) return
+  const state = getWorkflowState(currentProjectId.value)
+  if (!state || state.currentStageKey === 'completed') return
+  if (val === '已暂停') {
+    state.projectStatus = 'paused'
+  } else if (val === '进行中') {
+    state.projectStatus = 'in_progress'
+  }
+})
+
 const nextStageToAssign = computed(() => nextStageAfterReception.value || nextStageForAssignee.value)
 
 watch(nextStageToAssign, async (stage) => {
   nextAssigneeUserId.value = ''
-  if (!stage || !stage.role) {
+  if (!stage || (!stage.role && !stage.assignRoles) || stage.role === '-') {
     nextStageUsers.value = []
     return
   }
   nextStageUsersLoading.value = true
   try {
-    const list = await getUsersByRoleName(stage.role)
-    nextStageUsers.value = list || []
+    let list = []
+    // 支持单角色或多角色（如专检可由项目专员/客户专员承接）
+    if (Array.isArray(stage.assignRoles) && stage.assignRoles.length) {
+      const roleLists = await Promise.all(stage.assignRoles.map((r) => getUsersByRoleName(r)))
+      const merged = roleLists.flat().filter(Boolean)
+      const seen = new Set()
+      list = merged.filter((u) => {
+        const id = String(u.id)
+        if (seen.has(id)) return false
+        seen.add(id)
+        return true
+      })
+    } else if (stage.role && stage.role !== '-') {
+      list = await getUsersByRoleName(stage.role)
+    }
+    // 如果精确匹配角色名查不到用户，尝试加载全部用户作为候选（兜底）
+    if (!list || list.length === 0) {
+      const roleDesc = Array.isArray(stage.assignRoles) && stage.assignRoles.length
+        ? stage.assignRoles.join(' / ')
+        : stage.role
+      console.warn(`未找到角色「${roleDesc}」对应的用户，将加载全部用户作为候选`)
+      const { getUsers } = await import('@/api/users')
+      const allUsers = await getUsers({ limit: 500 })
+      list = Array.isArray(allUsers) ? allUsers : []
+    }
+    nextStageUsers.value = list
   } catch (e) {
     console.error(e)
-    nextStageUsers.value = []
+    // 出错时也尝试加载全部用户
+    try {
+      const { getUsers } = await import('@/api/users')
+      const allUsers = await getUsers({ limit: 500 })
+      nextStageUsers.value = Array.isArray(allUsers) ? allUsers : []
+    } catch {
+      nextStageUsers.value = []
+    }
   } finally {
     nextStageUsersLoading.value = false
   }
@@ -590,12 +917,12 @@ function difficultyLabel(d) {
 
 function getStatusLabel(status) {
   const map = { pending: '待启动', in_progress: '进行中', completed: '已完成', paused: '已暂停' }
-  return map[status] || status
+  return map[status] || status || '待启动'
 }
 
 function getStatusType(status) {
   const map = { pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger' }
-  return map[status] || ''
+  return map[status] || 'info'
 }
 
 function appendLog(state, entry) {
@@ -605,9 +932,15 @@ function appendLog(state, entry) {
 
 function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
-  if (!state || !pendingDifficulty.value || !nextAssigneeUserId.value) return
+  if (!state || !pendingDifficulty.value || pendingFileEditable.value === null || !nextAssigneeUserId.value) return
+  const note = handoverNote.value?.trim() || '（无备注）'
+  state.stageNotes = state.stageNotes || {}
+  state.stageNotes[state.currentStageKey] = note
+  state.stageData = state.stageData || {}
+  state.stageData[state.currentStageKey] = { ...stageFormData }
   state.difficulty = pendingDifficulty.value
-  const steps = getEffectiveStages(state.difficulty)
+  state.fileEditable = pendingFileEditable.value
+  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const nextIdx = 1
   if (nextIdx >= steps.length) return
   const next = steps[nextIdx]
@@ -620,6 +953,7 @@ function confirmDifficulty() {
     toTitle: next.title,
     direction: 'forward',
     description: `确认难度为「${difficultyLabel(state.difficulty)}」，进入${next.title}，指定负责人：${nextUserName}`,
+    note,
     operator: '客户专员',
     nextAssigneeUserId: nextAssigneeUserId.value,
     nextAssigneeUserName: nextUserName
@@ -627,15 +961,26 @@ function confirmDifficulty() {
   state.currentStageKey = next.key
   state.currentAssigneeUserId = nextAssigneeUserId.value
   state.currentAssigneeUserName = nextUserName
+  handoverNote.value = ''
   nextAssigneeUserId.value = ''
   pendingDifficulty.value = null
+  pendingFileEditable.value = null
+  initStageFormData()
   ElMessage.success('难度已确认，已指定下一环节负责人，流程已推进')
+}
+
+function saveCurrentStageProgress() {
+  const state = getWorkflowState(currentProjectId.value)
+  if (!state) return
+  state.stageData = state.stageData || {}
+  state.stageData[state.currentStageKey] = { ...stageFormData }
+  ElMessage.success('本阶段进度已更新（暂存）')
 }
 
 function completeCurrentStage() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
-  const steps = getEffectiveStages(state.difficulty)
+  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   if (idx < 0) return
   const nextIdx = idx + 1
@@ -644,9 +989,17 @@ function completeCurrentStage() {
   const note = handoverNote.value?.trim() || '（无备注）'
   state.stageNotes = state.stageNotes || {}
   state.stageNotes[state.currentStageKey] = note
+  // 保存本阶段填写的进度数据
+  state.stageData = state.stageData || {}
+  state.stageData[state.currentStageKey] = { ...stageFormData }
+  // 自动记录实际处理耗时（如果用户未手动填写）
+  if (state.stageData[state.currentStageKey].actualTime === '') {
+    state.stageData[state.currentStageKey].actualTime = formatDateTime(new Date())
+  }
   handoverNote.value = ''
   const currentStageInfo = stageByKey[state.currentStageKey]
   if (nextIdx >= steps.length) {
+    state.projectStatus = 'completed'
     appendLog(state, {
       at: formatDateTime(new Date()),
       fromStage: state.currentStageKey,
@@ -661,6 +1014,7 @@ function completeCurrentStage() {
     state.currentAssigneeUserId = null
     state.currentAssigneeUserName = null
     nextAssigneeUserId.value = ''
+    initStageFormData()
     ElMessage.success('本阶段已完成')
     return
   }
@@ -682,13 +1036,21 @@ function completeCurrentStage() {
   state.currentAssigneeUserId = nextAssigneeUserId.value
   state.currentAssigneeUserName = nextUserName
   nextAssigneeUserId.value = ''
+  initStageFormData()
   ElMessage.success('本阶段已完成，已指定下一环节负责人，流程已推进')
 }
 
-function openRollbackDialog(steps) {
+function openRollbackDialog(steps, toStart = false) {
   rollbackSteps.value = steps
+  rollbackToStart.value = !!toStart
   rollbackNote.value = ''
   rollbackDialogVisible.value = true
+}
+
+function handleRollbackDialogClose() {
+  rollbackNote.value = ''
+  rollbackSteps.value = 1
+  rollbackToStart.value = false
 }
 
 function confirmRollback() {
@@ -696,10 +1058,10 @@ function confirmRollback() {
   if (!note) return
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
-  const steps = getEffectiveStages(state.difficulty)
+  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   const backSteps = rollbackSteps.value
-  const targetIdx = Math.max(0, idx - backSteps)
+  const targetIdx = rollbackToStart.value ? 0 : Math.max(0, idx - backSteps)
   const target = steps[targetIdx]
   const currentStageInfo = stageByKey[state.currentStageKey]
   appendLog(state, {
@@ -708,18 +1070,29 @@ function confirmRollback() {
     toStage: target.key,
     toTitle: target.title,
     direction: 'rollback',
-    description: `打回至「${target.title}」`,
+    description: rollbackToStart.value ? `打回至初始节点「${target.title}」` : `打回至「${target.title}」`,
     note,
     operator: currentStageInfo?.role || '-'
   })
   state.currentStageKey = target.key
+  if (target.key === 'reception') {
+    state.currentAssigneeUserId = null
+    state.currentAssigneeUserName = null
+    state.projectStatus = 'pending'
+    state.difficulty = null
+    state.fileEditable = null
+  }
   // 清除目标阶段的旧备注，使其可重新处理
   if (state.stageNotes) {
     delete state.stageNotes[target.key]
   }
+  if (state.stageData) {
+    delete state.stageData[target.key]
+  }
   rollbackDialogVisible.value = false
-  rollbackNote.value = ''
+  handleRollbackDialogClose()
   handoverNote.value = ''
+  initStageFormData()
   ElMessage.success(`已打回至「${target.title}」`)
 }
 
@@ -734,6 +1107,7 @@ async function loadProjects() {
     }
     if (projectList.value.length && !currentProjectId.value) {
       currentProjectId.value = projectList.value[0].id
+      initStageFormData()
     }
   } catch (e) {
     console.error(e)
@@ -746,6 +1120,8 @@ function onProjectChange() {
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
   pendingDifficulty.value = null
+  pendingFileEditable.value = null
+  initStageFormData()
 }
 
 function selectProject(projectIdOrRow) {
@@ -760,6 +1136,8 @@ function selectProject(projectIdOrRow) {
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
   pendingDifficulty.value = null
+  pendingFileEditable.value = null
+  initStageFormData()
   activeTab.value = 'overview'
   nextTick(() => {
     const el = stageCardRef.value?.$el ?? stageCardRef.value
@@ -799,6 +1177,18 @@ onMounted(() => {
 
 .workflow-steps {
   margin-bottom: 24px;
+}
+
+/* 正在进行中的阶段使用高对比橙色高亮，和已完成绿色区分 */
+.workflow-steps :deep(.el-step.is-current-stage .el-step__head .el-step__icon) {
+  background: var(--el-color-warning-light-7);
+  border-color: var(--el-color-warning);
+  color: var(--el-color-warning-dark-2);
+}
+
+.workflow-steps :deep(.el-step.is-current-stage .el-step__title) {
+  color: var(--el-color-warning-dark-2);
+  font-weight: 700;
 }
 
 .stage-card {
@@ -855,6 +1245,14 @@ onMounted(() => {
 
 .stage-progress {
   margin-bottom: 20px;
+}
+
+.stage-form {
+  max-width: 600px;
+}
+
+.stage-form .el-form-item {
+  margin-bottom: 14px;
 }
 
 .readonly-value {
