@@ -3,7 +3,7 @@
     <el-switch
       v-model="mockEnabled"
       @change="handleMockChange"
-      active-text="Mock模式"
+      active-text=" "
       inactive-text="真实API"
       inline-prompt
       :active-icon="Platform"

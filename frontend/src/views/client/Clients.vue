@@ -7,6 +7,21 @@
       </div>
     </template>
 
+    <div class="search-bar">
+      <el-form :inline="true" :model="searchForm" class="search-form-inline">
+        <el-form-item label="客户编号">
+          <el-input v-model="searchForm.client_code" placeholder="支持模糊搜索" clearable />
+        </el-form-item>
+        <el-form-item label="客户名称">
+          <el-input v-model="searchForm.client_name" placeholder="支持模糊搜索" clearable />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button @click="resetSearch">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="client_code" label="客户编号" width="150" />
@@ -52,6 +67,8 @@
       :title="dialogTitle"
       width="900px"
       @close="resetForm"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
     >
       <el-form
         ref="formRef"
@@ -154,7 +171,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -166,6 +183,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as clientApi from '@/api/clients'
 
 const loading = ref(false)
+const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增客户')
 const formRef = ref(null)
@@ -201,13 +219,33 @@ const rules = {
   client_manager: [{ required: true, message: '请输入客户负责人', trigger: 'blur' }]
 }
 
+const searchForm = reactive({
+  client_code: '',
+  client_name: ''
+})
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const resetSearch = () => {
+  searchForm.client_code = ''
+  searchForm.client_name = ''
+  handleSearch()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await clientApi.getClients({
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
-    })
+    }
+    if (searchForm.client_code) params.client_code = searchForm.client_code
+    if (searchForm.client_name) params.client_name = searchForm.client_name
+    
+    const res = await clientApi.getClients(params)
     tableData.value = res || []
     pagination.total = res?.length || 0
   } catch (error) {
@@ -266,6 +304,7 @@ const handleSubmit = async () => {
   
   await formRef.value.validate(async (valid) => {
     if (valid) {
+      submitLoading.value = true
       try {
         const submitData = { ...form }
         delete submitData.id
@@ -280,6 +319,8 @@ const handleSubmit = async () => {
         fetchData()
       } catch (error) {
         ElMessage.error(error.detail || '操作失败')
+      } finally {
+        submitLoading.value = false
       }
     }
   })
@@ -316,5 +357,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.search-bar {
+  margin-bottom: 20px;
 }
 </style>

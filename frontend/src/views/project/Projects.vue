@@ -10,6 +10,21 @@
       </div>
     </template>
 
+    <div class="search-bar">
+      <el-form :inline="true" :model="searchForm" class="search-form-inline">
+        <el-form-item label="项目编号">
+          <el-input v-model="searchForm.project_no" placeholder="支持模糊搜索" clearable />
+        </el-form-item>
+        <el-form-item label="客户名称">
+          <el-input v-model="searchForm.client_name" placeholder="支持模糊搜索" clearable />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button @click="resetSearch">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column prop="project_no" label="项目编号" width="150" />
       <el-table-column prop="client_name" label="客户名称" width="150" />
@@ -42,6 +57,8 @@
       :title="dialogTitle"
       width="700px"
       @close="resetForm"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
     >
       <el-form
         ref="formRef"
@@ -69,7 +86,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="状态" prop="status">
-              <el-input v-model="form.status" />
+              <el-select v-model="form.status" placeholder="请选择状态" style="width: 100%">
+                <el-option label="新建" value="新建" />
+                <el-option label="进行中" value="进行中" />
+                <el-option label="已完成" value="已完成" />
+                <el-option label="已取消" value="已取消" />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -88,7 +110,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="字数" prop="word_count">
-              <el-input v-model="form.word_count" />
+              <el-input v-model="form.word_count" type="number" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -106,7 +128,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -119,6 +141,7 @@ import { Folder, Plus } from '@element-plus/icons-vue'
 import * as projectApi from '@/api/projects'
 
 const loading = ref(false)
+const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增项目')
 const formRef = ref(null)
@@ -149,13 +172,33 @@ const rules = {
   project_no: [{ required: true, message: '请输入项目编号', trigger: 'blur' }]
 }
 
+const searchForm = reactive({
+  project_no: '',
+  client_name: ''
+})
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const resetSearch = () => {
+  searchForm.project_no = ''
+  searchForm.client_name = ''
+  handleSearch()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await projectApi.getProjects({
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
-    })
+    }
+    if (searchForm.project_no) params.project_no = searchForm.project_no
+    if (searchForm.client_name) params.client_name = searchForm.client_name
+    
+    const res = await projectApi.getProjects(params)
     tableData.value = res
     pagination.total = res.length
   } catch (error) {
@@ -210,6 +253,7 @@ const handleSubmit = async () => {
   
   await formRef.value.validate(async (valid) => {
     if (valid) {
+      submitLoading.value = true
       try {
         const submitData = { ...form }
         delete submitData.id
@@ -224,6 +268,8 @@ const handleSubmit = async () => {
         fetchData()
       } catch (error) {
         ElMessage.error(error.detail || '操作失败')
+      } finally {
+        submitLoading.value = false
       }
     }
   })
@@ -257,5 +303,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.search-bar {
+  margin-bottom: 20px;
 }
 </style>

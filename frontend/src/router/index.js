@@ -57,7 +57,7 @@ const routes = [
         path: 'translation-files',
         name: 'TranslationProjectFiles',
         component: () => import('../views/project/translation/ProjectFiles.vue'),
-        meta: { title: '项目文件', roles: translationRoles }
+        meta: { title: '项目文件' }
       },
       // 项目管理 - 其他类型（扁平）
       {
@@ -262,33 +262,33 @@ const router = createRouter({
 // 路由守卫：认证 + 角色权限
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  
+
   // 1. 登录页面：无需权限检查，直接放行
   if (to.path === '/login') {
     next()
     return
   }
-  
+
   // 2. 未登录：重定向到登录页
   if (!token) {
     next('/login')
     return
   }
-  
+
   // 3. 已登录但未存储角色：强制重新登录以获取角色
   const userRoles = getStoredRoles()
   if (userRoles.length === 0) {
     next('/login')
     return
   }
-  
+
   // 4. 根路径：按角色重定向到首页
   if (to.path === '/') {
     const homePath = isSuperAdmin() ? '/users' : '/translation'
     next(homePath)
     return
   }
-  
+
   // 5. 权限检查：检查当前用户是否有权访问目标路由
   if (!canAccessRoute(to)) {
     // 特殊处理：无排班管理权限但有工作台权限时，重定向到工作台
@@ -302,7 +302,7 @@ router.beforeEach((to, from, next) => {
     next(homePath)
     return
   }
-  
+
   // 6. 通过所有检查：允许访问
   next()
 })

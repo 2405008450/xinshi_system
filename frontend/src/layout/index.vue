@@ -51,7 +51,7 @@
           <el-icon><Document /></el-icon>
           <template #title>项目详情</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/translation-files">
+        <el-menu-item v-if="showFullMenu" index="/translation-files">
           <el-icon><Files /></el-icon>
           <template #title>项目文件</template>
         </el-menu-item>
@@ -203,22 +203,25 @@
       </el-header>
       <el-main class="main-content">
         <router-view v-slot="{ Component, route }">
-          <transition name="fade-transform" mode="out-in">
-            <Suspense>
-              <component 
-                v-if="Component" 
-                :is="Component" 
-                :key="route.path" 
-              />
-              <template #fallback>
-                <div class="loading-container">
-                  <el-icon class="is-loading" :size="40">
-                    <Loading />
-                  </el-icon>
-                </div>
-              </template>
-            </Suspense>
-          </transition>
+          <template v-if="Component">
+            <transition name="fade-transform" mode="out-in">
+              <Suspense>
+                <template #default>
+                  <component 
+                    :is="Component" 
+                    :key="route.path" 
+                  />
+                </template>
+                <template #fallback>
+                  <div class="loading-container">
+                    <el-icon class="is-loading" :size="40">
+                      <Loading />
+                    </el-icon>
+                  </div>
+                </template>
+              </Suspense>
+            </transition>
+          </template>
         </router-view>
       </el-main>
     </el-container>

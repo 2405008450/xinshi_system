@@ -11,7 +11,7 @@
   <el-card class="translation-projects-page">
     <template #header>
       <div class="card-header">
-        <span class="page-title">项目流程</span>
+        <span class="page-title">笔译项目流程</span>
         <el-select
           v-model="currentProjectId"
           placeholder="选择项目（选后可在下方设定难度并推进流程）"
@@ -68,8 +68,8 @@
         <div class="section-label">文件是否可编辑</div>
         <p class="handover-hint">不可编辑文件将自动增加「排版指派」阶段（由排版专员承接）。</p>
         <el-radio-group v-model="pendingFileEditable" class="difficulty-radio">
-          <el-radio :label="true">可编辑文件</el-radio>
-          <el-radio :label="false">不可编辑文件</el-radio>
+          <el-radio :label="true">无需排版专员</el-radio>
+          <el-radio :label="false">需要排版专员</el-radio>
         </el-radio-group>
         <div v-if="currentStageEditableFields.length" class="stage-progress">
           <div class="section-label">本阶段进度填写</div>
@@ -143,7 +143,12 @@
             />
           </el-select>
         </template>
-        <div class="stage-actions">
+        <div v-if="!canOperateCurrentStage" class="stage-permission-hint">
+          <el-alert type="warning" :closable="false" show-icon>
+            <template #title>您不是客户专员，无法设定难度</template>
+          </el-alert>
+        </div>
+        <div v-else class="stage-actions">
           <p v-if="!pendingDifficulty || pendingFileEditable === null || !nextAssigneeUserId" class="action-hint">
             请先选择难度与文件是否可编辑，再选择下一环节负责人后即可点击下方按钮提交。
           </p>
@@ -242,7 +247,12 @@
               />
             </el-select>
           </template>
-          <div class="stage-actions stage-actions-multi">
+          <div v-if="!canOperateCurrentStage" class="stage-permission-hint">
+            <el-alert type="warning" :closable="false" show-icon>
+              <template #title>您不是当前阶段的负责人，无法执行操作</template>
+            </el-alert>
+          </div>
+          <div v-else class="stage-actions stage-actions-multi">
             <el-button type="primary" :disabled="!!nextStageForAssignee && !nextAssigneeUserId" @click="completeCurrentStage">
               完成本阶段并提交
             </el-button>
@@ -500,10 +510,10 @@ const PROJECT_STATUS_OPTIONS = ['进行中', '已暂停']
 const stageProgressMap = {
   reception: {
     editable: [
-      { key: 'customerReceptionTime', label: '客户来搞时间', type: 'date' },
+      { key: 'customerReceptionTime', label: '客户来稿时间', type: 'date' },
       { key: 'customerDeadlineTime', label: '交稿客户时间', type: 'date' },
       { key: 'clientShortName', label: '客户简称' },
-      { key: 'fileType', label: '文件类型', type: 'select', options: ['合同', '技术文档', '法律文件', '商务文件', '学术论文', '其他'] },
+      { key: 'fileType', label: '文件类型' },
       { key: 'translationDirection', label: '翻译方向' },
       { key: 'wordCount', label: '字数统计' }
     ],
@@ -541,7 +551,7 @@ const stageProgressMap = {
       { key: 'estimatedTime', label: '预计处理耗时' },
       { key: 'actualTime', label: '实际处理耗时' },
       { key: 'languagePair', label: '语言方向' },
-      { key: 'fileTypeSecondary', label: '文件类型', type: 'select', options: ['合同', '技术文档', '法律文件', '商务文件', '学术论文', '其他'] }
+      { key: 'fileTypeSecondary', label: '文件类型' }
     ],
     readonly: [
       { key: 'customerDeadlineTime', label: '客户交稿时间' },
@@ -723,7 +733,8 @@ const canRollbackTwo = computed(() => {
 const canRollbackToStart = computed(() => {
   const steps = effectiveSteps.value
   const idx = steps.findIndex((s) => s.key === workflowState.value.currentStageKey)
-  return idx > 0
+  // 只有 idx >= 2 时才显示"打回初始节点"，避免和"打回上一环节"重复
+  return idx >= 2
 })
 
 const rollbackDialogTitle = computed(() => (
@@ -742,6 +753,27 @@ const currentUserName = computed(() => {
 const isCustomerSpecialist = computed(() => {
   const roles = getStoredRoles()
   return roles.includes('客户专员')
+})
+
+/** 当前用户是否有权操作当前阶段（是负责人或拥有该阶段对应角色，或是超级管理员） */
+const canOperateCurrentStage = computed(() => {
+  const state = getWorkflowState(currentProjectId.value)
+  if (!state) return false
+  const name = currentUserName.value
+  const roles = getStoredRoles()
+  // 超级管理员始终可操作
+  if (roles.includes('admin') || roles.includes('超级管理员')) return true
+  // 已指定负责人时，只有负责人本人可操作
+  if (state.currentAssigneeUserName) {
+    return state.currentAssigneeUserName === name
+  }
+  // 未指定负责人（如接稿阶段），检查角色匹配
+  const stage = stageByKey[state.currentStageKey]
+  if (!stage) return false
+  if (stage.assignRoles && stage.assignRoles.length) {
+    return stage.assignRoles.some((r) => roles.includes(r))
+  }
+  return roles.includes(stage.role)
 })
 
 const nextStageAfterReception = computed(() => {
@@ -933,6 +965,7 @@ function appendLog(state, entry) {
 function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state || !pendingDifficulty.value || pendingFileEditable.value === null || !nextAssigneeUserId.value) return
+  if (!canOperateCurrentStage.value) return
   const note = handoverNote.value?.trim() || '（无备注）'
   state.stageNotes = state.stageNotes || {}
   state.stageNotes[state.currentStageKey] = note
@@ -980,12 +1013,14 @@ function saveCurrentStageProgress() {
 function completeCurrentStage() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
+  if (!canOperateCurrentStage.value) return
   const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   if (idx < 0) return
   const nextIdx = idx + 1
   const next = nextIdx < steps.length ? steps[nextIdx] : null
-  if (next && !nextAssigneeUserId.value) return
+  // 只有下一阶段不是"完成"且未选择负责人时才阻止提交
+  if (next && next.key !== 'completed' && !nextAssigneeUserId.value) return
   const note = handoverNote.value?.trim() || '（无备注）'
   state.stageNotes = state.stageNotes || {}
   state.stageNotes[state.currentStageKey] = note
