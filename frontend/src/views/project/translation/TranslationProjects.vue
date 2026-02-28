@@ -455,7 +455,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjects } from '@/api/projects'
-import { getUsersByRoleName } from '@/api/workflow'
+import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
 import { getStoredRoles } from '@/utils/permission'
 import { isMockEnabled } from '@/mock'
 
@@ -625,39 +625,42 @@ const stageProgressMap = {
   }
 }
 
-// ---------- 当前项目流程状态（未接后端时按项目 ID 存内存） ----------
 const workflowStateByProject = reactive({})
 
 function getWorkflowState(projectId) {
   if (projectId === undefined || projectId === null || projectId === '') return null
   const key = String(projectId)
-  if (!workflowStateByProject[key]) {
-    // 必须用 reactive() 包装，否则在 completeCurrentStage 等中修改 currentStageKey 等属性时
-    // 不会触发视图更新（动态赋值的普通对象不是响应式的）
-    workflowStateByProject[key] = reactive({
-      difficulty: null,
-      fileEditable: null, // true | false
-      currentStageKey: 'reception',
-      currentAssigneeUserId: null,
-      currentAssigneeUserName: null,
-      projectStatus: 'pending',  // 'pending'|'in_progress'|'paused'|'completed' 全局项目状态
-      stageNotes: {},
-      stageData: {},  // { [stageKey]: { [fieldKey]: value } } 各阶段填写的进度数据
-      transitionLog: [
-        {
-          at: formatDateTime(new Date()),
-          fromStage: '',
-          toStage: 'reception',
-          toTitle: '客户专员',
-          direction: 'forward',
-          description: '进入接稿（客户专员）',
-          operator: '系统'
-        }
-      ]
-    })
-  }
-  return workflowStateByProject[key]
+  return workflowStateByProject[key] || null
 }
+
+function setWorkflowState(projectId, payload) {
+  const key = String(projectId)
+  if (!workflowStateByProject[key]) {
+    workflowStateByProject[key] = reactive({})
+  }
+  const state = workflowStateByProject[key]
+  
+  state.difficulty = payload.difficulty
+  state.fileEditable = payload.file_editable
+  state.currentStageKey = payload.current_stage_key
+  state.currentAssigneeUserId = payload.current_assignee_id
+  state.currentAssigneeUserName = payload.current_assignee_name
+  state.projectStatus = payload.project_status
+  state.stageNotes = payload.stage_notes || {}
+  state.stageData = payload.stage_data || {}
+  state.transitionLog = (payload.logs || []).map(log => ({
+    at: log.created_at ? log.created_at.replace('T', ' ').substring(0, 19) : '',
+    fromStage: log.from_stage,
+    toStage: log.to_stage,
+    direction: log.direction,
+    description: log.description,
+    operator: log.operator_name,
+    note: log.note,
+    nextAssigneeUserName: log.next_assignee_name
+  }))
+}
+
+const myTaskProjectsList = ref([])
 
 const currentProjectId = ref('')
 const projectList = ref([])
@@ -957,122 +960,89 @@ function getStatusType(status) {
   return map[status] || 'info'
 }
 
-function appendLog(state, entry) {
-  state.transitionLog = state.transitionLog || []
-  state.transitionLog.push(entry)
-}
 
-function confirmDifficulty() {
+async function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state || !pendingDifficulty.value || pendingFileEditable.value === null || !nextAssigneeUserId.value) return
   if (!canOperateCurrentStage.value) return
   const note = handoverNote.value?.trim() || '（无备注）'
-  state.stageNotes = state.stageNotes || {}
-  state.stageNotes[state.currentStageKey] = note
-  state.stageData = state.stageData || {}
-  state.stageData[state.currentStageKey] = { ...stageFormData }
-  state.difficulty = pendingDifficulty.value
-  state.fileEditable = pendingFileEditable.value
-  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
-  const nextIdx = 1
-  if (nextIdx >= steps.length) return
-  const next = steps[nextIdx]
-  const selectedUser = nextStageUsers.value.find((u) => u.id === nextAssigneeUserId.value)
-  const nextUserName = selectedUser ? (selectedUser.full_name || selectedUser.username || selectedUser.id) : ''
-  appendLog(state, {
-    at: formatDateTime(new Date()),
-    fromStage: 'reception',
-    toStage: next.key,
-    toTitle: next.title,
-    direction: 'forward',
-    description: `确认难度为「${difficultyLabel(state.difficulty)}」，进入${next.title}，指定负责人：${nextUserName}`,
-    note,
-    operator: '客户专员',
-    nextAssigneeUserId: nextAssigneeUserId.value,
-    nextAssigneeUserName: nextUserName
-  })
-  state.currentStageKey = next.key
-  state.currentAssigneeUserId = nextAssigneeUserId.value
-  state.currentAssigneeUserName = nextUserName
-  handoverNote.value = ''
-  nextAssigneeUserId.value = ''
-  pendingDifficulty.value = null
-  pendingFileEditable.value = null
-  initStageFormData()
-  ElMessage.success('难度已确认，已指定下一环节负责人，流程已推进')
+  
+  try {
+    const res = await setDifficultyAPI(currentProjectId.value, {
+      difficulty: pendingDifficulty.value,
+      file_editable: pendingFileEditable.value,
+      next_assignee_id: nextAssigneeUserId.value,
+      note: note,
+      stage_data: { ...stageFormData }
+    })
+    setWorkflowState(currentProjectId.value, res)
+    handoverNote.value = ''
+    nextAssigneeUserId.value = ''
+    pendingDifficulty.value = null
+    pendingFileEditable.value = null
+    initStageFormData()
+    ElMessage.success('难度已确认，已指定下一环节负责人，流程已推进')
+    loadProjects()
+  } catch (e) {
+    console.error('设定难度失败', e)
+    ElMessage.error('操作失败：' + (e.response?.data?.detail || e.message))
+  }
 }
 
-function saveCurrentStageProgress() {
+async function saveCurrentStageProgress() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
-  state.stageData = state.stageData || {}
-  state.stageData[state.currentStageKey] = { ...stageFormData }
-  ElMessage.success('本阶段进度已更新（暂存）')
+  try {
+    const res = await updateStageDataAPI(currentProjectId.value, {
+      stage_data: { ...stageFormData }
+    })
+    setWorkflowState(currentProjectId.value, res)
+    ElMessage.success('本阶段进度已更新（暂存）')
+  } catch (e) {
+    console.error('暂存数据失败', e)
+    ElMessage.error('暂存数据失败：' + (e.response?.data?.detail || e.message))
+  }
 }
 
-function completeCurrentStage() {
+async function completeCurrentStage() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
   if (!canOperateCurrentStage.value) return
+  
   const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   if (idx < 0) return
   const nextIdx = idx + 1
   const next = nextIdx < steps.length ? steps[nextIdx] : null
-  // 只有下一阶段不是"完成"且未选择负责人时才阻止提交
+  
   if (next && next.key !== 'completed' && !nextAssigneeUserId.value) return
+  
   const note = handoverNote.value?.trim() || '（无备注）'
-  state.stageNotes = state.stageNotes || {}
-  state.stageNotes[state.currentStageKey] = note
-  // 保存本阶段填写的进度数据
-  state.stageData = state.stageData || {}
-  state.stageData[state.currentStageKey] = { ...stageFormData }
-  // 自动记录实际处理耗时（如果用户未手动填写）
-  if (state.stageData[state.currentStageKey].actualTime === '') {
-    state.stageData[state.currentStageKey].actualTime = formatDateTime(new Date())
+  const currentStageData = { ...stageFormData }
+  
+  if (currentStageData.actualTime === undefined || currentStageData.actualTime === '') {
+    currentStageData.actualTime = formatDateTime(new Date())
   }
-  handoverNote.value = ''
-  const currentStageInfo = stageByKey[state.currentStageKey]
-  if (nextIdx >= steps.length) {
-    state.projectStatus = 'completed'
-    appendLog(state, {
-      at: formatDateTime(new Date()),
-      fromStage: state.currentStageKey,
-      toStage: 'completed',
-      toTitle: '完成',
-      direction: 'forward',
-      description: `从「${currentStageInfo?.title || state.currentStageKey}」进入「完成」`,
-      note,
-      operator: currentStageInfo?.role || '-'
-    })
-    state.currentStageKey = 'completed'
-    state.currentAssigneeUserId = null
-    state.currentAssigneeUserName = null
+  
+  try {
+    const payload = {
+      note: note,
+      stage_data: currentStageData
+    }
+    if (next && next.key !== 'completed') {
+      payload.next_assignee_id = nextAssigneeUserId.value
+    }
+    const res = await transitionWorkflowAPI(currentProjectId.value, payload)
+    setWorkflowState(currentProjectId.value, res)
+    handoverNote.value = ''
     nextAssigneeUserId.value = ''
     initStageFormData()
-    ElMessage.success('本阶段已完成')
-    return
+    ElMessage.success(next && next.key === 'completed' ? '本阶段已完成' : '本阶段已完成，已指定下一环节负责人，流程已推进')
+    loadProjects()
+  } catch (e) {
+    console.error('流转推进失败', e)
+    ElMessage.error('操作失败：' + (e.response?.data?.detail || e.message))
   }
-  const selectedUser = nextStageUsers.value.find((u) => u.id === nextAssigneeUserId.value)
-  const nextUserName = selectedUser ? (selectedUser.full_name || selectedUser.username || selectedUser.id) : ''
-  appendLog(state, {
-    at: formatDateTime(new Date()),
-    fromStage: state.currentStageKey,
-    toStage: next.key,
-    toTitle: next.title,
-    direction: 'forward',
-    description: `从「${currentStageInfo?.title || state.currentStageKey}」进入「${next.title}」，指定负责人：${nextUserName}`,
-    note,
-    operator: currentStageInfo?.role || '-',
-    nextAssigneeUserId: nextAssigneeUserId.value,
-    nextAssigneeUserName: nextUserName
-  })
-  state.currentStageKey = next.key
-  state.currentAssigneeUserId = nextAssigneeUserId.value
-  state.currentAssigneeUserName = nextUserName
-  nextAssigneeUserId.value = ''
-  initStageFormData()
-  ElMessage.success('本阶段已完成，已指定下一环节负责人，流程已推进')
 }
 
 function openRollbackDialog(steps, toStart = false) {
@@ -1088,50 +1058,45 @@ function handleRollbackDialogClose() {
   rollbackToStart.value = false
 }
 
-function confirmRollback() {
+async function confirmRollback() {
   const note = rollbackNote.value?.trim()
   if (!note) return
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
-  const steps = getEffectiveStages(state.difficulty, state.fileEditable)
-  const idx = steps.findIndex((s) => s.key === state.currentStageKey)
-  const backSteps = rollbackSteps.value
-  const targetIdx = rollbackToStart.value ? 0 : Math.max(0, idx - backSteps)
-  const target = steps[targetIdx]
-  const currentStageInfo = stageByKey[state.currentStageKey]
-  appendLog(state, {
-    at: formatDateTime(new Date()),
-    fromStage: state.currentStageKey,
-    toStage: target.key,
-    toTitle: target.title,
-    direction: 'rollback',
-    description: rollbackToStart.value ? `打回至初始节点「${target.title}」` : `打回至「${target.title}」`,
-    note,
-    operator: currentStageInfo?.role || '-'
-  })
-  state.currentStageKey = target.key
-  if (target.key === 'reception') {
-    state.currentAssigneeUserId = null
-    state.currentAssigneeUserName = null
-    state.projectStatus = 'pending'
-    state.difficulty = null
-    state.fileEditable = null
+  
+  try {
+    const res = await rollbackWorkflowAPI(currentProjectId.value, {
+      steps: rollbackSteps.value,
+      to_start: rollbackToStart.value,
+      note: note
+    })
+    setWorkflowState(currentProjectId.value, res)
+    rollbackDialogVisible.value = false
+    handleRollbackDialogClose()
+    handoverNote.value = ''
+    initStageFormData()
+    ElMessage.success(`已成功打回项目`)
+    loadProjects()
+  } catch (e) {
+    console.error('打回失败', e)
+    ElMessage.error('操作失败：' + (e.response?.data?.detail || e.message))
   }
-  // 清除目标阶段的旧备注，使其可重新处理
-  if (state.stageNotes) {
-    delete state.stageNotes[target.key]
-  }
-  if (state.stageData) {
-    delete state.stageData[target.key]
-  }
-  rollbackDialogVisible.value = false
-  handleRollbackDialogClose()
-  handoverNote.value = ''
-  initStageFormData()
-  ElMessage.success(`已打回至「${target.title}」`)
 }
 
 async function loadProjects() {
+  try {
+    const userId = localStorage.getItem('user_id')
+    if (!userId) {
+      myTaskProjectsList.value = []
+    } else {
+      const tasks = await getMyTasksAPI(userId)
+      myTaskProjectsList.value = Array.isArray(tasks) ? tasks : []
+    }
+  } catch (e) {
+    console.error('获取待我处理任务失败', e)
+    myTaskProjectsList.value = []
+  }
+
   try {
     if (isMockEnabled()) {
       const { getMockTranslationProjects } = await import('@/mock/data')
@@ -1142,11 +1107,22 @@ async function loadProjects() {
     }
     if (projectList.value.length && !currentProjectId.value) {
       currentProjectId.value = projectList.value[0].id
-      initStageFormData()
+      await fetchWorkflowState()
     }
   } catch (e) {
     console.error(e)
     projectList.value = []
+  }
+}
+
+async function fetchWorkflowState() {
+  if (!currentProjectId.value) return
+  try {
+    const state = await getWorkflowStateAPI(currentProjectId.value)
+    setWorkflowState(currentProjectId.value, state)
+    initStageFormData()
+  } catch (e) {
+    console.error('获取流程状态失败', e)
   }
 }
 
@@ -1156,7 +1132,7 @@ function onProjectChange() {
   nextAssigneeUserId.value = ''
   pendingDifficulty.value = null
   pendingFileEditable.value = null
-  initStageFormData()
+  fetchWorkflowState()
 }
 
 function selectProject(projectIdOrRow) {
@@ -1172,7 +1148,7 @@ function selectProject(projectIdOrRow) {
   nextAssigneeUserId.value = ''
   pendingDifficulty.value = null
   pendingFileEditable.value = null
-  initStageFormData()
+  fetchWorkflowState()
   activeTab.value = 'overview'
   nextTick(() => {
     const el = stageCardRef.value?.$el ?? stageCardRef.value
@@ -1183,7 +1159,11 @@ function selectProject(projectIdOrRow) {
 }
 
 function onMyTaskRowClick(row) {
-  if (row && row.id) selectProject(row)
+  if (row && row.translation_project_id) {
+    selectProject(row.translation_project_id)
+  } else if (row && row.id) {
+    selectProject(row.id)
+  }
 }
 
 onMounted(() => {

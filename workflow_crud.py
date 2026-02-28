@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from workflow_models import WorkflowInstance, WorkflowLog
-from models import TranslationProject, AppUser
+from models import TranslationProject, AppUser, Client
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -64,23 +64,42 @@ def get_workflow_by_id(db: Session, instance_id: UUID) -> Optional[WorkflowInsta
         .first()
 
 
+from sqlalchemy import or_
+from crud import get_user_roles_with_role_names
+
 def get_my_tasks(db: Session, user_id: UUID) -> list:
     """查询当前用户作为负责人且未完成的工作流实例，返回带项目信息的列表"""
-    results = db.query(WorkflowInstance, TranslationProject)\
+    roles = get_user_roles_with_role_names(db, user_id)
+    is_customer_specialist = '客户专员' in roles
+    
+    query = db.query(WorkflowInstance, TranslationProject, Client)\
         .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
-        .filter(
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        
+    if is_customer_specialist:
+        query = query.filter(
+            or_(
+                WorkflowInstance.current_assignee_id == user_id,
+                (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None)
+            ),
+            WorkflowInstance.current_stage_key != 'completed'
+        )
+    else:
+        query = query.filter(
             WorkflowInstance.current_assignee_id == user_id,
             WorkflowInstance.current_stage_key != 'completed'
-        )\
-        .all()
+        )
+        
+    results = query.all()
 
     tasks = []
-    for wf, proj in results:
+    for wf, proj, client in results:
         tasks.append({
             'workflow_instance_id': wf.id,
             'translation_project_id': proj.id,
             'order_no': proj.order_no,
             'project_name': proj.project_name,
+            'client_short_name': client.client_short_name if client else '',
             'current_stage_key': wf.current_stage_key,
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,

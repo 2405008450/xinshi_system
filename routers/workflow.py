@@ -81,11 +81,15 @@ def _build_state_response(instance) -> dict:
 
 @router.get("/my-tasks", response_model=list[MyTaskItem])
 def get_my_tasks_endpoint(
-    user_id: UUID = Query(..., description="当前用户ID"),
+    user_id: str = Query(..., description="当前用户ID"),
     db: Session = Depends(get_db),
 ):
     """获取当前用户的待办任务列表"""
-    tasks = get_my_tasks(db, user_id)
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    tasks = get_my_tasks(db, user_uuid)
     return tasks
 
 

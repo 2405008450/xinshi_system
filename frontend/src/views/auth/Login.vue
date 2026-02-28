@@ -105,6 +105,7 @@ const handleLogin = async () => {
         const { login } = await import('@/api/auth')
         const res = await login(loginForm)
         localStorage.setItem('token', res.access_token)
+        localStorage.setItem('user_id', res.user_id)
         const raw = Array.isArray(res.roles) ? res.roles : []
         const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
         localStorage.setItem('user_roles', JSON.stringify(roles))

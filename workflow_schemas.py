@@ -90,6 +90,7 @@ class MyTaskItem(BaseModel):
     translation_project_id: UUID
     order_no: str
     project_name: str
+    client_short_name: Optional[str] = None
     current_stage_key: str
     difficulty: Optional[str] = None
     project_status: Optional[str] = None
