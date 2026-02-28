@@ -25,7 +25,6 @@ class AppUser(Base):
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
-    project: Mapped[list['Project']] = relationship('Project', back_populates='app_user')
     user_role: Mapped[list['UserRole']] = relationship('UserRole', back_populates='user')
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='app_user')
 
@@ -44,31 +43,102 @@ class Role(Base):
     user_role: Mapped[list['UserRole']] = relationship('UserRole', back_populates='role')
 
 
-class Project(Base):
-    __tablename__ = 'project'
+class Client(Base):
+    __tablename__ = 'client'
     __table_args__ = (
-        ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_project_creator'),
-        PrimaryKeyConstraint('id', name='project_pkey'),
-        UniqueConstraint('project_no', name='project_project_no_key')
+        PrimaryKeyConstraint('id', name='client_pkey'),
+        UniqueConstraint('client_code', name='client_client_code_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    project_no: Mapped[str] = mapped_column(String(50), nullable=False)
-    client_name: Mapped[Optional[str]] = mapped_column(String(255))
-    project_type: Mapped[Optional[str]] = mapped_column(String(50))
-    source_language: Mapped[Optional[str]] = mapped_column(String(50))
-    target_language: Mapped[Optional[str]] = mapped_column(String(50))
-    word_count: Mapped[Optional[str]] = mapped_column(String(50))
-    deadline: Mapped[Optional[str]] = mapped_column(String(50))
-    status: Mapped[Optional[str]] = mapped_column(String(50))
-    sales_owner: Mapped[Optional[str]] = mapped_column(String(255))
+    client_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    client_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_short_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    client_manager: Mapped[Optional[str]] = mapped_column(String(100))
+    manager_contact: Mapped[Optional[str]] = mapped_column(String(100))
+    field_level1: Mapped[Optional[str]] = mapped_column(String(100))
+    field_level2: Mapped[Optional[str]] = mapped_column(String(100))
+    country: Mapped[Optional[str]] = mapped_column(String(50))
+    province: Mapped[Optional[str]] = mapped_column(String(50))
+    city: Mapped[Optional[str]] = mapped_column(String(50))
+    district: Mapped[Optional[str]] = mapped_column(String(50))
+    client_status: Mapped[Optional[str]] = mapped_column(String(20), server_default=text("'pending'"))
+    cooperation_start_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='client')
+
+
+class Translator(Base):
+    __tablename__ = 'translator'
+    __table_args__ = (
+        PrimaryKeyConstraint('id', name='translator_pkey'),
+        UniqueConstraint('translator_code', name='translator_translator_code_key')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    translator_code: Mapped[Optional[str]] = mapped_column(String(50))
+    translator_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))
+    contact_info: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='translator')
+
+
+class TranslationProject(Base):
+    __tablename__ = 'translation_project'
+    __table_args__ = (
+        ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='RESTRICT', name='fk_translation_project_client'),
+        ForeignKeyConstraint(['translator_id'], ['translator.id'], ondelete='SET NULL', name='fk_translation_project_translator'),
+        ForeignKeyConstraint(['pm_confirmed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_pm'),
+        ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_creator'),
+        PrimaryKeyConstraint('id', name='translation_project_pkey'),
+        UniqueConstraint('order_no', name='translation_project_order_no_key')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    order_no: Mapped[str] = mapped_column(String(50), nullable=False)
+    project_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_type_secondary: Mapped[Optional[str]] = mapped_column(String(100))
+    
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    customer_reception_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    sent_to_client_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    client_feedback: Mapped[Optional[str]] = mapped_column(Text)
+    
+    project_status: Mapped[Optional[str]] = mapped_column(String(50))
+    pm_confirmed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    
+    translator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    translator_assignment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    expected_translator_stats_method: Mapped[Optional[str]] = mapped_column(String(100))
+    expected_translator_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    
+    translator_delivery_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    pre_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    review1_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    review2_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    post_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    layout_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    consolidation_progress: Mapped[Optional[str]] = mapped_column(String(20))
+
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
-    app_user: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='project')
-    project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='project')
+    # Relationships
+    client: Mapped[Optional['Client']] = relationship('Client', back_populates='projects')
+    translator: Mapped[Optional['Translator']] = relationship('Translator', back_populates='projects')
+    pm_user: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[pm_confirmed_by])
+    creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
+    
+    project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='translation_project', cascade='all, delete-orphan')
+    workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='translation_project', uselist=False, cascade='all, delete-orphan')
 
 
 class UserRole(Base):
@@ -92,13 +162,13 @@ class UserRole(Base):
 class ProjectFile(Base):
     __tablename__ = 'project_file'
     __table_args__ = (
-        ForeignKeyConstraint(['project_id'], ['project.id'], ondelete='CASCADE', name='fk_project'),
+        ForeignKeyConstraint(['translation_project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_project_file_project'),
         ForeignKeyConstraint(['uploaded_by'], ['app_user.id'], ondelete='SET NULL', name='fk_uploader'),
         PrimaryKeyConstraint('id', name='project_file_pkey')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_type: Mapped[Optional[str]] = mapped_column(String(50))
@@ -108,5 +178,5 @@ class ProjectFile(Base):
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
-    project: Mapped['Project'] = relationship('Project', back_populates='project_file')
+    translation_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='project_file')
     app_user: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='project_file')

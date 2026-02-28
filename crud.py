@@ -3,15 +3,18 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from models import AppUser, Role, Project, UserRole, ProjectFile
+from models import AppUser, Role, TranslationProject, UserRole, ProjectFile, Client, Translator
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
-    ProjectCreate, ProjectUpdate,
+    TranslationProjectCreate, TranslationProjectUpdate,
     UserRoleCreate,
-    ProjectFileCreate, ProjectFileUpdate
+    ProjectFileCreate, ProjectFileUpdate,
+    ClientCreate, ClientUpdate,
+    TranslatorCreate, TranslatorUpdate
 )
 import hashlib
+from utils import generate_order_no
 
 
 # AppUser CRUD
@@ -116,35 +119,93 @@ def delete_role(db: Session, role_id: UUID) -> bool:
     return True
 
 
-# Project CRUD
-def get_project(db: Session, project_id: UUID) -> Optional[Project]:
-    return db.query(Project).filter(Project.id == project_id).first()
+# Client CRUD
+def get_client(db: Session, client_id: UUID) -> Optional[Client]:
+    return db.query(Client).filter(Client.id == client_id).first()
+
+def get_clients(db: Session, skip: int = 0, limit: int = 100) -> List[Client]:
+    return db.query(Client).offset(skip).limit(limit).all()
+
+def create_client(db: Session, client: ClientCreate) -> Client:
+    db_client = Client(**client.model_dump())
+    db.add(db_client)
+    db.commit()
+    db.refresh(db_client)
+    return db_client
+
+def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> Optional[Client]:
+    db_client = get_client(db, client_id)
+    if not db_client:
+        return None
+    for field, value in client_update.model_dump(exclude_unset=True).items():
+        setattr(db_client, field, value)
+    db.commit()
+    db.refresh(db_client)
+    return db_client
+
+def delete_client(db: Session, client_id: UUID) -> bool:
+    db_client = get_client(db, client_id)
+    if not db_client:
+        return False
+    db.delete(db_client)
+    db.commit()
+    return True
 
 
-def get_project_by_no(db: Session, project_no: str) -> Optional[Project]:
-    return db.query(Project).filter(Project.project_no == project_no).first()
+# Translator CRUD
+def get_translator(db: Session, translator_id: UUID) -> Optional[Translator]:
+    return db.query(Translator).filter(Translator.id == translator_id).first()
+
+def get_translators(db: Session, skip: int = 0, limit: int = 100) -> List[Translator]:
+    return db.query(Translator).offset(skip).limit(limit).all()
+
+def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
+    db_translator = Translator(**translator.model_dump())
+    db.add(db_translator)
+    db.commit()
+    db.refresh(db_translator)
+    return db_translator
+
+def update_translator(db: Session, translator_id: UUID, translator_update: TranslatorUpdate) -> Optional[Translator]:
+    db_translator = get_translator(db, translator_id)
+    if not db_translator:
+        return None
+    for field, value in translator_update.model_dump(exclude_unset=True).items():
+        setattr(db_translator, field, value)
+    db.commit()
+    db.refresh(db_translator)
+    return db_translator
+
+def delete_translator(db: Session, translator_id: UUID) -> bool:
+    db_translator = get_translator(db, translator_id)
+    if not db_translator:
+        return False
+    db.delete(db_translator)
+    db.commit()
+    return True
 
 
-def get_projects(db: Session, skip: int = 0, limit: int = 100, created_by: Optional[UUID] = None) -> List[Project]:
-    query = db.query(Project)
+# Translation Project CRUD
+def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
+    return db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+
+
+def get_translation_project_by_no(db: Session, order_no: str) -> Optional[TranslationProject]:
+    return db.query(TranslationProject).filter(TranslationProject.order_no == order_no).first()
+
+
+def get_translation_projects(db: Session, skip: int = 0, limit: int = 100, created_by: Optional[UUID] = None) -> List[TranslationProject]:
+    query = db.query(TranslationProject)
     if created_by:
-        query = query.filter(Project.created_by == created_by)
+        query = query.filter(TranslationProject.created_by == created_by)
     return query.offset(skip).limit(limit).all()
 
 
-def create_project(db: Session, project: ProjectCreate) -> Project:
-    db_project = Project(
-        project_no=project.project_no,
-        client_name=project.client_name,
-        project_type=project.project_type,
-        source_language=project.source_language,
-        target_language=project.target_language,
-        word_count=project.word_count,
-        deadline=project.deadline,
-        status=project.status,
-        sales_owner=project.sales_owner,
-        remarks=project.remarks,
-        created_by=project.created_by
+def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
+    order_no = generate_order_no(db)
+    db_project = TranslationProject(
+        order_no=order_no,
+        **project.model_dump()
     )
     db.add(db_project)
     db.commit()
@@ -152,8 +213,8 @@ def create_project(db: Session, project: ProjectCreate) -> Project:
     return db_project
 
 
-def update_project(db: Session, project_id: UUID, project_update: ProjectUpdate) -> Optional[Project]:
-    db_project = get_project(db, project_id)
+def update_translation_project(db: Session, project_id: UUID, project_update: TranslationProjectUpdate) -> Optional[TranslationProject]:
+    db_project = get_translation_project(db, project_id)
     if not db_project:
         return None
     
@@ -166,8 +227,8 @@ def update_project(db: Session, project_id: UUID, project_update: ProjectUpdate)
     return db_project
 
 
-def delete_project(db: Session, project_id: UUID) -> bool:
-    db_project = get_project(db, project_id)
+def delete_translation_project(db: Session, project_id: UUID) -> bool:
+    db_project = get_translation_project(db, project_id)
     if not db_project:
         return False
     db.delete(db_project)
@@ -250,8 +311,8 @@ def get_project_file(db: Session, file_id: UUID) -> Optional[ProjectFile]:
     return db.query(ProjectFile).filter(ProjectFile.id == file_id).first()
 
 
-def get_project_files_by_project(db: Session, project_id: UUID, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
-    return db.query(ProjectFile).filter(ProjectFile.project_id == project_id).offset(skip).limit(limit).all()
+def get_project_files_by_project(db: Session, translation_project_id: UUID, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
+    return db.query(ProjectFile).filter(ProjectFile.translation_project_id == translation_project_id).offset(skip).limit(limit).all()
 
 
 def get_project_files(db: Session, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
@@ -260,7 +321,7 @@ def get_project_files(db: Session, skip: int = 0, limit: int = 100) -> List[Proj
 
 def create_project_file(db: Session, project_file: ProjectFileCreate) -> ProjectFile:
     db_file = ProjectFile(
-        project_id=project_file.project_id,
+        translation_project_id=project_file.translation_project_id,
         file_name=project_file.file_name,
         storage_path=project_file.storage_path,
         file_type=project_file.file_type,

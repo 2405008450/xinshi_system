@@ -70,45 +70,134 @@ class RoleResponse(RoleBase):
         from_attributes = True
 
 
-# Project Schemas
-class ProjectBase(BaseModel):
-    project_no: str
-    client_name: Optional[str] = None
-    project_type: Optional[str] = None
-    source_language: Optional[str] = None
-    target_language: Optional[str] = None
-    word_count: Optional[str] = None
-    deadline: Optional[str] = None
-    status: Optional[str] = None
-    sales_owner: Optional[str] = None
+# Client Schemas
+class ClientBase(BaseModel):
+    client_code: str
+    client_name: str
+    client_short_name: str
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    field_level1: Optional[str] = None
+    field_level2: Optional[str] = None
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    client_status: Optional[str] = "pending"
+    cooperation_start_date: Optional[datetime] = None
     remarks: Optional[str] = None
 
+class ClientCreate(ClientBase):
+    pass
 
-class ProjectCreate(ProjectBase):
+class ClientUpdate(BaseModel):
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    field_level1: Optional[str] = None
+    field_level2: Optional[str] = None
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    client_status: Optional[str] = None
+    cooperation_start_date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+class ClientResponse(ClientBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Translator Schemas
+class TranslatorBase(BaseModel):
+    translator_code: Optional[str] = None
+    translator_name: str
+    cooperation_type: Optional[str] = None
+    contact_info: Optional[str] = None
+
+class TranslatorCreate(TranslatorBase):
+    pass
+
+class TranslatorUpdate(BaseModel):
+    translator_code: Optional[str] = None
+    translator_name: Optional[str] = None
+    cooperation_type: Optional[str] = None
+    contact_info: Optional[str] = None
+
+class TranslatorResponse(TranslatorBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Translation Project Schemas
+class TranslationProjectBase(BaseModel):
+    project_name: str
+    file_type_secondary: Optional[str] = None
+    client_id: Optional[UUID] = None
+    customer_reception_time: Optional[datetime] = None
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    project_status: Optional[str] = None
+    pm_confirmed_by: Optional[UUID] = None
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
+
+class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
 
+class TranslationProjectUpdate(BaseModel):
+    project_name: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    client_id: Optional[UUID] = None
+    customer_reception_time: Optional[datetime] = None
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    project_status: Optional[str] = None
+    pm_confirmed_by: Optional[UUID] = None
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
 
-class ProjectUpdate(BaseModel):
-    project_no: Optional[str] = None
-    client_name: Optional[str] = None
-    project_type: Optional[str] = None
-    source_language: Optional[str] = None
-    target_language: Optional[str] = None
-    word_count: Optional[str] = None
-    deadline: Optional[str] = None
-    status: Optional[str] = None
-    sales_owner: Optional[str] = None
-    remarks: Optional[str] = None
-
-
-class ProjectResponse(ProjectBase):
+class TranslationProjectResponse(TranslationProjectBase):
     id: UUID
+    order_no: str
     created_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
 
 
 # UserRole Schemas
@@ -131,7 +220,7 @@ class UserRoleResponse(UserRoleBase):
 
 # ProjectFile Schemas
 class ProjectFileBase(BaseModel):
-    project_id: UUID
+    translation_project_id: UUID
     file_name: str
     storage_path: str
     file_type: Optional[str] = None

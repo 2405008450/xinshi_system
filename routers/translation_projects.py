@@ -6,25 +6,18 @@ from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from database import get_db
 from crud import (
-    get_project, get_project_by_no, get_projects,
-    create_project, update_project, delete_project
+    get_translation_project, get_translation_project_by_no, get_translation_projects,
+    create_translation_project, update_translation_project, delete_translation_project
 )
-from schemas import ProjectCreate, ProjectUpdate, ProjectResponse
+from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(prefix="/projects/translation", tags=["translation_projects"])
 
 
-@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project_endpoint(project: ProjectCreate, db: Session = Depends(get_db)):
+@router.post("/", response_model=TranslationProjectResponse, status_code=status.HTTP_201_CREATED)
+def create_project_endpoint(project: TranslationProjectCreate, db: Session = Depends(get_db)):
     try:
-        # 检查项目编号是否已存在
-        db_project = get_project_by_no(db, project_no=project.project_no)
-        if db_project:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Project number already exists"
-            )
-        return create_project(db=db, project=project)
+        return create_translation_project(db=db, project=project)
     except HTTPException:
         raise
     except IntegrityError as e:
@@ -54,20 +47,20 @@ def create_project_endpoint(project: ProjectCreate, db: Session = Depends(get_db
         )
 
 
-@router.get("/", response_model=List[ProjectResponse])
+@router.get("/", response_model=List[TranslationProjectResponse])
 def read_projects(
     skip: int = 0,
     limit: int = 100,
     created_by: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
-    projects = get_projects(db, skip=skip, limit=limit, created_by=created_by)
+    projects = get_translation_projects(db, skip=skip, limit=limit, created_by=created_by)
     return projects
 
 
-@router.get("/{project_id}", response_model=ProjectResponse)
+@router.get("/{project_id}", response_model=TranslationProjectResponse)
 def read_project(project_id: UUID, db: Session = Depends(get_db)):
-    db_project = get_project(db, project_id=project_id)
+    db_project = get_translation_project(db, project_id=project_id)
     if db_project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -76,13 +69,13 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
     return db_project
 
 
-@router.put("/{project_id}", response_model=ProjectResponse)
+@router.put("/{project_id}", response_model=TranslationProjectResponse)
 def update_project_endpoint(
     project_id: UUID,
-    project_update: ProjectUpdate,
+    project_update: TranslationProjectUpdate,
     db: Session = Depends(get_db)
 ):
-    db_project = update_project(db, project_id=project_id, project_update=project_update)
+    db_project = update_translation_project(db, project_id=project_id, project_update=project_update)
     if db_project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -93,7 +86,7 @@ def update_project_endpoint(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project_endpoint(project_id: UUID, db: Session = Depends(get_db)):
-    success = delete_project(db, project_id=project_id)
+    success = delete_translation_project(db, project_id=project_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
