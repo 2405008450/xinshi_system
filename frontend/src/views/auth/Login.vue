@@ -112,7 +112,7 @@ const handleLogin = async () => {
         localStorage.setItem('user_name', loginForm.username || '')
         localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
         ElMessage.success('登录成功')
-        router.push('/')
+        router.push('/workbench')
       } catch (error) {
         ElMessage.error(error.detail || error.message || '登录失败')
       } finally {

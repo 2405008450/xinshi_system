@@ -200,25 +200,9 @@
       </el-header>
       <el-main class="main-content">
         <router-view v-slot="{ Component, route }">
-          <template v-if="Component">
-            <transition name="fade-transform" mode="out-in">
-              <Suspense>
-                <template #default>
-                  <component 
-                    :is="Component" 
-                    :key="route.path" 
-                  />
-                </template>
-                <template #fallback>
-                  <div class="loading-container">
-                    <el-icon class="is-loading" :size="40">
-                      <Loading />
-                    </el-icon>
-                  </div>
-                </template>
-              </Suspense>
-            </transition>
-          </template>
+          <transition name="fade-transform" mode="out-in">
+            <component v-if="Component" :is="Component" :key="route.path" />
+          </transition>
         </router-view>
       </el-main>
     </el-container>
@@ -229,7 +213,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, Loading } from '@element-plus/icons-vue'
+import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, getStoredRoles } from '../utils/permission'
 
 const route = useRoute()

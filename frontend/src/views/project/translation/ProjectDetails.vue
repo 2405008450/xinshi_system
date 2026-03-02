@@ -135,8 +135,8 @@
       :total="pagination.total"
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
-      @size-change="fetchData"
-      @current-change="fetchData"
+      @size-change="applyPagination"
+      @current-change="applyPagination"
       style="margin-top: 20px"
     />
 
@@ -144,7 +144,7 @@
       v-model="dialogVisible"
       :title="dialogTitle"
       width="980px"
-      @close="resetForm"
+      @closed="onDialogClosed"
     >
       <el-form
         ref="formRef"
@@ -351,7 +351,7 @@
         </el-row>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="handleCancel">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
@@ -359,7 +359,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View } from '@element-plus/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject } from '@/api/projects'
@@ -370,6 +370,7 @@ const dialogTitle = ref('新增项目详情')
 const formRef = ref(null)
 
 const tableData = ref([])
+const allData = ref([])
 const pagination = reactive({
   page: 1,
   limit: 10,
@@ -461,17 +462,22 @@ const getStatusType = (status) => {
   return typeMap[status] || ''
 }
 
+const applyPagination = () => {
+  const start = (pagination.page - 1) * pagination.limit
+  tableData.value = allData.value.slice(start, start + pagination.limit)
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
-    const response = await getProjects({
-      page: pagination.page,
-      limit: pagination.limit
-    })
-    tableData.value = Array.isArray(response) ? response : []
-    pagination.total = Array.isArray(response) ? response.length : 0
+    const response = await getProjects({ skip: 0, limit: 100 })
+    allData.value = Array.isArray(response) ? response : []
+    pagination.total = allData.value.length
+    pagination.page = 1
+    applyPagination()
   } catch (error) {
     console.error('获取数据失败:', error)
+    allData.value = []
     tableData.value = []
     pagination.total = 0
     ElMessage.error('获取数据失败')
@@ -482,6 +488,7 @@ const fetchData = async () => {
 
 const handleAdd = () => {
   dialogTitle.value = '新增项目详情'
+  clearDraft()
   resetForm()
   form.id = generateUuid()
   form.orderNo = generateOrderNo()
@@ -492,6 +499,7 @@ const handleAdd = () => {
 
 const handleEdit = (row) => {
   dialogTitle.value = '编辑项目详情'
+  clearDraft()  // 清除新增草稿，避免编辑内容混入新增表单
   Object.assign(form, {
     id: row.id || '',
     orderNo: row.orderNo || '',
@@ -539,6 +547,22 @@ const handleDelete = async (row) => {
   }
 }
 
+const NULLABLE_FIELDS = [
+  'customerReceptionTime', 'customerDeadlineTime',
+  'translatorAssignmentTime', 'sentToClientTime',
+  'updatedAt', 'createdAt', 'leadPmId'
+]
+
+const cleanPayload = (obj) => {
+  const result = { ...obj }
+  NULLABLE_FIELDS.forEach(key => {
+    if (result[key] === '' || result[key] === undefined) {
+      result[key] = null
+    }
+  })
+  return result
+}
+
 const handleSubmit = async () => {
   if (!formRef.value) return
 
@@ -549,13 +573,16 @@ const handleSubmit = async () => {
         if (!form.orderNo) form.orderNo = generateOrderNo()
         if (!form.createdAt) form.createdAt = getNowDateTime()
         form.updatedAt = getNowDateTime()
+        const payload = cleanPayload(form)
         if (dialogTitle.value === '新增项目详情') {
-          await createProject(form)
+          await createProject(payload)
         } else {
-          await updateProject(form.id, form)
+          await updateProject(payload.id, payload)
         }
 
         ElMessage.success(dialogTitle.value === '编辑项目详情' ? '更新成功' : '创建成功')
+        clearDraft()
+        draftWatchEnabled = false
         dialogVisible.value = false
         fetchData()
       } catch (error) {
@@ -595,6 +622,58 @@ const resetForm = () => {
     createdAt: ''
   })
   formRef.value?.resetFields()
+}
+
+// ==================== 表单草稿缓存 ====================
+const DRAFT_KEY = 'projectDetailFormDraft'
+const formDirty = ref(false)
+let draftWatchEnabled = false
+let debounceTimer = null
+
+const saveDraft = () => {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...form }))
+  } catch { /* quota exceeded or private mode */ }
+}
+
+const loadDraft = () => {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+const clearDraft = () => {
+  localStorage.removeItem(DRAFT_KEY)
+  formDirty.value = false
+}
+
+watch(
+  () => ({ ...form }),
+  () => {
+    if (!draftWatchEnabled) return
+    formDirty.value = true
+    clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(saveDraft, 500)
+  },
+  { deep: true }
+)
+
+const handleDialogBeforeClose = (done) => {
+  done()
+}
+
+const handleCancel = () => {
+  handleDialogBeforeClose(() => {
+    dialogVisible.value = false
+  })
+}
+
+const onDialogClosed = () => {
+  draftWatchEnabled = false
+  resetForm()
 }
 
 onMounted(() => {

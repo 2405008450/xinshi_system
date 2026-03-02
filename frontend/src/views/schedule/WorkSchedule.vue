@@ -744,7 +744,6 @@ async function getDefaultScheduleData() {
   }
 }
 
-/** 将当前页面数据保存到后端数据库（按当前选择日期） */
 async function saveScheduleForDate() {
   const date = scheduleDate.value
   if (!date) return
@@ -766,9 +765,18 @@ async function saveScheduleForDate() {
 
 /** 加载某日安排到页面：从后端拉取，无则用默认数据 */
 async function loadScheduleForDate(date) {
-  const defaultData = await getDefaultScheduleData()
-  try {
-    const stored = await getSchedule(date)
+  // 并行发起默认数据和当日排班数据，不再串行等待
+  const [defaultResult, storedResult] = await Promise.allSettled([
+    getDefaultScheduleData(),
+    getSchedule(date)
+  ])
+  const defaultData = defaultResult.status === 'fulfilled' ? defaultResult.value : {
+    deptPersonData: [], notScheduledTasks: [], pmRotationOrder: '',
+    shiftTableData: [], leaveNotes: [], urgentTableZhEn: [], urgentTableEnZh: []
+  }
+  const stored = storedResult.status === 'fulfilled' ? storedResult.value : null
+
+  if (stored) {
     deptPersonData.value = stored.dept_person_data ?? defaultData.deptPersonData
     notScheduledTasks.value = stored.not_scheduled_tasks ?? defaultData.notScheduledTasks
     pmRotationOrder.value = stored.pm_rotation_order ?? defaultData.pmRotationOrder
@@ -776,7 +784,7 @@ async function loadScheduleForDate(date) {
     leaveNotes.value = stored.leave_notes ?? defaultData.leaveNotes
     urgentTableZhEn.value = stored.urgent_table_zh_en ?? defaultData.urgentTableZhEn
     urgentTableEnZh.value = stored.urgent_table_en_zh ?? defaultData.urgentTableEnZh
-  } catch {
+  } else {
     // 404 或网络错误，用默认数据
     deptPersonData.value = defaultData.deptPersonData
     notScheduledTasks.value = defaultData.notScheduledTasks
@@ -1197,15 +1205,15 @@ async function copyFromYesterday() {
 onMounted(async () => {
   const today = new Date()
   scheduleDate.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
-  loadScheduleForDate(scheduleDate.value)
-  loadLeaveRecords()
-  // 加载员工列表供请假表单选人
-  try {
-    const staff = await getStaffList()
-    allStaffList.value = Array.isArray(staff) ? staff : []
-  } catch {
-    allStaffList.value = []
-  }
+  // 三组请求全部并行，互不等待；getStaffList 与 loadScheduleForDate 内部的 staff/list 合并为一次
+  const [, , staffResult] = await Promise.allSettled([
+    loadScheduleForDate(scheduleDate.value),
+    loadLeaveRecords(),
+    getStaffList()
+  ])
+  allStaffList.value = staffResult.status === 'fulfilled' && Array.isArray(staffResult.value)
+    ? staffResult.value
+    : []
 })
 </script>
 

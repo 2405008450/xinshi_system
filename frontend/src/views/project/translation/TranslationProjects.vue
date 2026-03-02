@@ -454,7 +454,7 @@
  * 完成并提交时：必填「下一环节负责人」nextAssigneeUserId，提交后写入 state 与 log。
  * 待我处理：筛选 currentAssigneeUserName === 当前登录用户 且 currentStageKey !== 'completed'。
  */
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
@@ -878,7 +878,10 @@ watch(() => stageFormData.projectStatus, (val) => {
 
 const nextStageToAssign = computed(() => nextStageAfterReception.value || nextStageForAssignee.value)
 
-watch(nextStageToAssign, async (stage) => {
+let _nextStageLoadVersion = 0
+
+const stopNextStageWatch = watch(nextStageToAssign, async (stage) => {
+  const version = ++_nextStageLoadVersion
   nextAssigneeUserId.value = ''
   if (!stage || (!stage.role && !stage.assignRoles) || stage.role === '-') {
     nextStageUsers.value = []
@@ -890,6 +893,7 @@ watch(nextStageToAssign, async (stage) => {
     // 支持单角色或多角色（如专检可由项目专员/客户专员承接）
     if (Array.isArray(stage.assignRoles) && stage.assignRoles.length) {
       const roleLists = await Promise.all(stage.assignRoles.map((r) => getUsersByRoleName(r)))
+      if (version !== _nextStageLoadVersion) return
       const merged = roleLists.flat().filter(Boolean)
       const seen = new Set()
       list = merged.filter((u) => {
@@ -900,6 +904,7 @@ watch(nextStageToAssign, async (stage) => {
       })
     } else if (stage.role && stage.role !== '-') {
       list = await getUsersByRoleName(stage.role)
+      if (version !== _nextStageLoadVersion) return
     }
     // 如果精确匹配角色名查不到用户，尝试加载全部用户作为候选（兜底）
     if (!list || list.length === 0) {
@@ -909,32 +914,42 @@ watch(nextStageToAssign, async (stage) => {
       console.warn(`未找到角色「${roleDesc}」对应的用户，将加载全部用户作为候选`)
       const { getUsers } = await import('@/api/users')
       const allUsers = await getUsers({ limit: 500 })
+      if (version !== _nextStageLoadVersion) return
       list = Array.isArray(allUsers) ? allUsers : []
     }
     // 获取今日请假员工并标记
     try {
       const today = new Date().toISOString().slice(0, 10)
       const leaveList = await getOnLeaveUsers(today)
+      if (version !== _nextStageLoadVersion) return
       const onLeaveIds = new Set((Array.isArray(leaveList) ? leaveList : []).map((r) => String(r.employee_id)))
       list = list.map((u) => ({ ...u, onLeave: onLeaveIds.has(String(u.id)) }))
     } catch {
       // 请假接口失败不阻塞选人
     }
+    if (version !== _nextStageLoadVersion) return
     nextStageUsers.value = list
   } catch (e) {
+    if (version !== _nextStageLoadVersion) return
     console.error(e)
     // 出错时也尝试加载全部用户
     try {
       const { getUsers } = await import('@/api/users')
       const allUsers = await getUsers({ limit: 500 })
+      if (version !== _nextStageLoadVersion) return
       nextStageUsers.value = Array.isArray(allUsers) ? allUsers : []
     } catch {
       nextStageUsers.value = []
     }
   } finally {
-    nextStageUsersLoading.value = false
+    if (version === _nextStageLoadVersion) nextStageUsersLoading.value = false
   }
 }, { immediate: true })
+
+onUnmounted(() => {
+  stopNextStageWatch()
+  _nextStageLoadVersion++
+})
 
 const projectProgress = computed(() => {
   const p = currentProject.value
