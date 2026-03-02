@@ -1,14 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
-import { TRANSLATION_PROJECT_ROLES, WORK_SCHEDULE_ROLES, SCHEDULE_VIEW_ROLES, SCHEDULE_ADMIN_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles, hasRole } from '../utils/permission'
+import { SCHEDULE_ADMIN_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles, hasRole } from '../utils/permission'
 
-/** 仅笔译项目管理可访问的角色（客户专员、项目专员、项目经理） */
-const translationRoles = TRANSLATION_PROJECT_ROLES
-/** 工作台（我的任务）可访问角色 */
-const workbenchRoles = WORK_SCHEDULE_ROLES
-/** 排班管理查看权限（所有员工） */
-const scheduleViewRoles = SCHEDULE_VIEW_ROLES
 /** 排班管理编辑权限（仅项目经理与超级管理员） */
 const scheduleAdminRoles = SCHEDULE_ADMIN_ROLES
 
@@ -45,19 +39,19 @@ const routes = [
         path: 'translation',
         name: 'TranslationProjects',
         component: () => import('../views/project/translation/TranslationProjects.vue'),
-        meta: { title: '项目流程', roles: translationRoles }
+        meta: { title: '项目流程', roles: ['*'] }
       },
       {
         path: 'translation-details',
         name: 'TranslationProjectDetails',
         component: () => import('../views/project/translation/ProjectDetails.vue'),
-        meta: { title: '项目详情', roles: translationRoles }
+        meta: { title: '项目详情', roles: ['*'] }
       },
       {
         path: 'translation-files',
         name: 'TranslationProjectFiles',
         component: () => import('../views/project/translation/ProjectFiles.vue'),
-        meta: { title: '项目文件' }
+        meta: { title: '项目文件', roles: ['*'] }
       },
       // 项目管理 - 其他类型（扁平）
       {
@@ -88,19 +82,19 @@ const routes = [
         path: 'workbench',
         name: 'WorkDashboard',
         component: () => import('../views/schedule/WorkDashboard.vue'),
-        meta: { title: '我的工作台', roles: workbenchRoles }
+        meta: { title: '我的工作台', roles: ['*'] }
       },
       {
         path: 'admin/schedule',
         name: 'WorkScheduleAdmin',
         component: () => import('../views/schedule/WorkSchedule.vue'),
-        meta: { title: '排班管理', roles: scheduleViewRoles }
+        meta: { title: '排班管理', roles: ['*'] }
       },
       {
         path: 'work-schedule',
         name: 'WorkSchedule',
         component: () => import('../views/schedule/WorkSchedule.vue'),
-        meta: { title: '排班管理', roles: scheduleViewRoles }
+        meta: { title: '排班管理', roles: ['*'] }
       },
       // 资源管理 - 嵌套路由
       {
@@ -291,12 +285,6 @@ router.beforeEach((to, from, next) => {
 
   // 5. 权限检查：检查当前用户是否有权访问目标路由
   if (!canAccessRoute(to)) {
-    // 特殊处理：无排班管理权限但有工作台权限时，重定向到工作台
-    const isScheduleAdminRoute = to.path === '/work-schedule' || to.path === '/admin/schedule'
-    if (isScheduleAdminRoute && hasRole(WORK_SCHEDULE_ROLES)) {
-      next('/workbench')
-      return
-    }
     // 其他无权限访问：重定向到对应角色的首页
     const homePath = isSuperAdmin() ? '/users' : '/translation'
     next(homePath)

@@ -363,8 +363,6 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View } from '@element-plus/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject } from '@/api/projects'
-import { isMockEnabled } from '@/mock'
-import { mockApi } from '@/mock'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -466,21 +464,12 @@ const getStatusType = (status) => {
 const fetchData = async () => {
   loading.value = true
   try {
-    if (isMockEnabled()) {
-      const { getMockTranslationProjects } = await import('@/mock/data')
-      const allProjects = getMockTranslationProjects()
-      pagination.total = allProjects.length
-      const skip = (pagination.page - 1) * pagination.limit
-      const end = skip + pagination.limit
-      tableData.value = allProjects.slice(skip, end)
-    } else {
-      const response = await getProjects({
-        page: pagination.page,
-        limit: pagination.limit
-      })
-      tableData.value = Array.isArray(response) ? response : []
-      pagination.total = Array.isArray(response) ? response.length : 0
-    }
+    const response = await getProjects({
+      page: pagination.page,
+      limit: pagination.limit
+    })
+    tableData.value = Array.isArray(response) ? response : []
+    pagination.total = Array.isArray(response) ? response.length : 0
   } catch (error) {
     console.error('获取数据失败:', error)
     tableData.value = []
@@ -539,12 +528,7 @@ const handleDelete = async (row) => {
     await ElMessageBox.confirm('确定要删除该项目详情吗？', '提示', {
       type: 'warning'
     })
-
-    if (isMockEnabled()) {
-      await mockApi.projects.delete(row.id)
-    } else {
-      await deleteProject(row.id)
-    }
+    await deleteProject(row.id)
 
     ElMessage.success('删除成功')
     fetchData()
@@ -565,19 +549,10 @@ const handleSubmit = async () => {
         if (!form.orderNo) form.orderNo = generateOrderNo()
         if (!form.createdAt) form.createdAt = getNowDateTime()
         form.updatedAt = getNowDateTime()
-
-        if (isMockEnabled()) {
-          if (dialogTitle.value === '新增项目详情') {
-            await mockApi.projects.create(form)
-          } else {
-            await mockApi.projects.update(form.id, form)
-          }
+        if (dialogTitle.value === '新增项目详情') {
+          await createProject(form)
         } else {
-          if (dialogTitle.value === '新增项目详情') {
-            await createProject(form)
-          } else {
-            await updateProject(form.id, form)
-          }
+          await updateProject(form.id, form)
         }
 
         ElMessage.success(dialogTitle.value === '编辑项目详情' ? '更新成功' : '创建成功')

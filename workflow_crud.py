@@ -141,6 +141,28 @@ def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
 
 # ========== 设定难度 ==========
 
+import re
+
+def _sync_stage_data_to_project(db: Session, project_id: UUID, stage_data: dict):
+    if not stage_data:
+        return
+    project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+    if not project:
+        return
+    
+    def to_snake(name):
+        return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+
+    for k, v in stage_data.items():
+        snake_k = to_snake(k)
+        if hasattr(project, snake_k):
+            if isinstance(v, str) and v.strip() == '':
+                if 'time' in snake_k or 'date' in snake_k:
+                    setattr(project, snake_k, None)
+                    continue
+            setattr(project, snake_k, v)
+
+
 def set_difficulty(
     db: Session,
     project_id: UUID,
@@ -166,6 +188,8 @@ def set_difficulty(
     current_data = dict(instance.stage_data or {})
     if stage_data:
         current_data['reception'] = stage_data
+        _sync_stage_data_to_project(db, project_id, stage_data)
+        
     instance.stage_data = current_data
 
     # 设置难度
@@ -233,6 +257,8 @@ def transition_forward(
     current_data = dict(instance.stage_data or {})
     if stage_data:
         current_data[instance.current_stage_key] = stage_data
+        _sync_stage_data_to_project(db, project_id, stage_data)
+        
     instance.stage_data = current_data
 
     current_stage_info = STAGE_BY_KEY.get(instance.current_stage_key, {})
@@ -370,6 +396,8 @@ def update_stage_data(
     current_data = dict(instance.stage_data or {})
     current_data[instance.current_stage_key] = stage_data
     instance.stage_data = current_data
+    
+    _sync_stage_data_to_project(db, project_id, stage_data)
 
     db.commit()
     db.refresh(instance)

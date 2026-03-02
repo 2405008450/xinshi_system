@@ -1,0 +1,175 @@
+======================================================================
+数据库中共有 9 张表
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+TABLE: app_user  (8 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  username                                 character varying      NO  -
+  password_hash                            character varying      NO  -
+  full_name                                character varying     YES  -
+  email                                    character varying     YES  -
+  is_active                                boolean               YES  true
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: client  (10 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  client_code                              character varying      NO  -
+  client_name                              character varying      NO  -
+  client_short_name                        character varying      NO  -
+  client_manager                           character varying     YES  -
+  manager_contact                          character varying     YES  -
+  field_level1                             character varying     YES  -
+  field_level2                             character varying     YES  -
+  country                                  character varying     YES  -
+  province                                 character varying     YES  -
+  city                                     character varying     YES  -
+  district                                 character varying     YES  -
+  client_status                            character varying     YES  'pending'::character varying
+  cooperation_start_date                   timestamp without time zone  YES  -
+  remarks                                  text                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: project_file  (0 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  translation_project_id                   uuid                   NO  -
+  file_name                                character varying      NO  -
+  storage_path                             text                   NO  -
+  file_type                                character varying     YES  -
+  file_ext                                 character varying     YES  -
+  file_size                                bigint                YES  -
+  storage_type                             character varying     YES  -
+  uploaded_by                              uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: role  (9 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  role_name                                character varying      NO  -
+  description                              text                  YES  -
+
+──────────────────────────────────────────────────────────────────────
+TABLE: translation_project  (20 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  order_no                                 character varying      NO  -
+  project_name                             character varying      NO  -
+  file_type_secondary                      character varying     YES  -
+  client_id                                uuid                  YES  -
+  customer_reception_time                  timestamp without time zone  YES  -
+  customer_deadline_time                   timestamp without time zone  YES  -
+  sent_to_client_time                      timestamp without time zone  YES  -
+  client_feedback                          text                  YES  -
+  project_status                           character varying     YES  -
+  pm_confirmed_by                          uuid                  YES  -
+  translator_id                            uuid                  YES  -
+  translator_assignment_time               timestamp without time zone  YES  -
+  expected_translator_stats_method         character varying     YES  -
+  expected_translator_word_count           bigint                YES  -
+  translator_delivery_progress             character varying     YES  -
+  pre_review_qc_progress                   character varying     YES  -
+  review1_progress                         character varying     YES  -
+  review2_progress                         character varying     YES  -
+  post_review_qc_progress                  character varying     YES  -
+  layout_progress                          character varying     YES  -
+  consolidation_progress                   character varying     YES  -
+  created_by                               uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: translator  (0 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  translator_code                          character varying     YES  -
+  translator_name                          character varying      NO  -
+  cooperation_type                         character varying     YES  -
+  contact_info                             character varying     YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: user_role  (8 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  user_id                                  uuid                   NO  -
+  role_id                                  uuid                   NO  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: workflow_instance  (20 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  translation_project_id                   uuid                   NO  -
+  difficulty                               character varying     YES  -
+  file_editable                            boolean               YES  -
+  current_stage_key                        character varying      NO  'reception'::character varying
+  current_assignee_id                      uuid                  YES  -
+  project_status                           character varying     YES  'pending'::character varying
+  stage_notes                              jsonb                 YES  '{}'::jsonb
+  stage_data                               jsonb                 YES  '{}'::jsonb
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: workflow_log  (20 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  workflow_instance_id                     uuid                   NO  -
+  operator_id                              uuid                  YES  -
+  from_stage                               character varying     YES  -
+  to_stage                                 character varying     YES  -
+  direction                                character varying     YES  -
+  description                              text                  YES  -
+  note                                     text                  YES  -
+  next_assignee_id                         uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+======================================================================
+translation_project 表前 3 行:
+======================================================================
+  id=c3730723-a1e9-4be0-8a17-1082355a74c8  order_no=PRJ-20260228-0001  name=[漕启鸣] 测试翻译项目批次 239  client=59e14867-dea0-49d4-bc14-220002a416e7  status=pending
+  id=d82e59de-f57f-4c13-a225-7c4637e44627  order_no=PRJ-20260228-0002  name=[隋信灿] 测试翻译项目批次 603  client=4b16bb7d-ce2c-4cc7-9453-3394825e712c  status=pending
+  id=1c984f07-d318-473d-9fe2-921c3bec1dad  order_no=PRJ-20260228-0003  name=[隋信灿] 测试翻译项目批次 840  client=4b16bb7d-ce2c-4cc7-9453-3394825e712c  status=pending
+
+======================================================================
+workflow_instance 表前 3 行:
+======================================================================
+  id=66bb4de4-01aa-458e-bfc9-fefde720875d  proj=c3730723-a1e9-4be0-8a17-1082355a74c8  stage=reception  status=pending
+  id=4c8ef8aa-3a05-436b-996e-7c86faf354e8  proj=d82e59de-f57f-4c13-a225-7c4637e44627  stage=reception  status=pending
+  id=12d400f9-0127-4f3b-af41-02454375793c  proj=1c984f07-d318-473d-9fe2-921c3bec1dad  stage=reception  status=pending
+
+======================================================================
+workflow_log 表前 3 行:
+======================================================================
+  id=f19a2ac9-476e-4eb0-ae0b-5844b379a08b  wf=66bb4de4-01aa-458e-bfc9-fefde720875d  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
+  id=03496d39-c6a4-46fd-8276-0609304b311f  wf=4c8ef8aa-3a05-436b-996e-7c86faf354e8  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
+  id=03c725ce-c04b-4934-b909-fc7e02fc8d91  wf=12d400f9-0127-4f3b-af41-02454375793c  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
+
+✅ 检查完毕

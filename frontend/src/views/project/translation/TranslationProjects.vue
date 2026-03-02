@@ -457,7 +457,6 @@ import { ElMessage } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
 import { getStoredRoles } from '@/utils/permission'
-import { isMockEnabled } from '@/mock'
 
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
@@ -752,6 +751,14 @@ const currentUserName = computed(() => {
   }
 })
 
+const currentUserId = computed(() => {
+  try {
+    return localStorage.getItem('user_id') || ''
+  } catch {
+    return ''
+  }
+})
+
 /** 当前用户是否为客户专员（用于展示「待设定难度」的接稿项目） */
 const isCustomerSpecialist = computed(() => {
   const roles = getStoredRoles()
@@ -767,7 +774,9 @@ const canOperateCurrentStage = computed(() => {
   // 超级管理员始终可操作
   if (roles.includes('admin') || roles.includes('超级管理员')) return true
   // 已指定负责人时，只有负责人本人可操作
-  if (state.currentAssigneeUserName) {
+  if (state.currentAssigneeUserId) {
+    return state.currentAssigneeUserId === currentUserId.value
+  } else if (state.currentAssigneeUserName) {
     return state.currentAssigneeUserName === name
   }
   // 未指定负责人（如接稿阶段），检查角色匹配
@@ -1098,13 +1107,8 @@ async function loadProjects() {
   }
 
   try {
-    if (isMockEnabled()) {
-      const { getMockTranslationProjects } = await import('@/mock/data')
-      projectList.value = getMockTranslationProjects()
-    } else {
-      const res = await getProjects({ page: 1, limit: 100 })
-      projectList.value = Array.isArray(res) ? res : []
-    }
+    const res = await getProjects({ page: 1, limit: 100 })
+    projectList.value = Array.isArray(res) ? res : []
     if (projectList.value.length && !currentProjectId.value) {
       currentProjectId.value = projectList.value[0].id
       await fetchWorkflowState()

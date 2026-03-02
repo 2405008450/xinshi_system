@@ -186,26 +186,56 @@ def delete_translator(db: Session, translator_id: UUID) -> bool:
 
 
 # Translation Project CRUD
-def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
-    return db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+from models import Client
 
+def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
+    result = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id).filter(TranslationProject.id == project_id).first()
+    if not result:
+        return None
+    project, short_name, code = result
+    project.client_short_name = short_name
+    project.client_code = code
+    return project
 
 def get_translation_project_by_no(db: Session, order_no: str) -> Optional[TranslationProject]:
-    return db.query(TranslationProject).filter(TranslationProject.order_no == order_no).first()
-
+    result = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id).filter(TranslationProject.order_no == order_no).first()
+    if not result:
+        return None
+    project, short_name, code = result
+    project.client_short_name = short_name
+    project.client_code = code
+    return project
 
 def get_translation_projects(db: Session, skip: int = 0, limit: int = 100, created_by: Optional[UUID] = None) -> List[TranslationProject]:
-    query = db.query(TranslationProject)
+    query = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id)
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
-    return query.offset(skip).limit(limit).all()
-
+    results = query.offset(skip).limit(limit).all()
+    projects = []
+    for project, short_name, code in results:
+        project.client_short_name = short_name
+        project.client_code = code
+        projects.append(project)
+    return projects
 
 def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
     order_no = generate_order_no(db)
+    
+    project_data = project.model_dump(exclude={'client_short_name', 'client_code'})
+    
+    # Try looking up client_id by client_short_name if provided and client_id is missing
+    if project.client_short_name and not project.client_id:
+        client = db.query(Client).filter(Client.client_short_name == project.client_short_name).first()
+        if client:
+            project_data['client_id'] = client.id
+    elif project.client_code and not project.client_id:
+        client = db.query(Client).filter(Client.client_code == project.client_code).first()
+        if client:
+            project_data['client_id'] = client.id
+
     db_project = TranslationProject(
         order_no=order_no,
-        **project.model_dump()
+        **project_data
     )
     db.add(db_project)
     db.commit()
@@ -218,13 +248,26 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     if not db_project:
         return None
     
-    update_data = project_update.model_dump(exclude_unset=True)
+    update_data = project_update.model_dump(exclude_unset=True, exclude={'client_short_name', 'client_code'})
+    
+    # Try looking up client_id by client_short_name if provided and client_id is not specifically being updated
+    if project_update.client_short_name and 'client_id' not in update_data:
+        client = db.query(Client).filter(Client.client_short_name == project_update.client_short_name).first()
+        if client:
+            update_data['client_id'] = client.id
+    elif project_update.client_code and 'client_id' not in update_data:
+        client = db.query(Client).filter(Client.client_code == project_update.client_code).first()
+        if client:
+            update_data['client_id'] = client.id
+
     for field, value in update_data.items():
         setattr(db_project, field, value)
     
     db.commit()
     db.refresh(db_project)
-    return db_project
+    
+    # Reload with client_short_name
+    return get_translation_project(db, project_id)
 
 
 def delete_translation_project(db: Session, project_id: UUID) -> bool:

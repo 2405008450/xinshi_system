@@ -145,6 +145,8 @@ class TranslationProjectBase(BaseModel):
     project_name: str
     file_type_secondary: Optional[str] = None
     client_id: Optional[UUID] = None
+    client_short_name: Optional[str] = None
+    client_code: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -170,6 +172,8 @@ class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     file_type_secondary: Optional[str] = None
     client_id: Optional[UUID] = None
+    client_short_name: Optional[str] = None
+    client_code: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None

@@ -64,51 +64,19 @@ export function canAccessRoute(route) {
 
   const metaRoles = route.meta?.roles
   if (!metaRoles || metaRoles.length === 0) return false
+  if (metaRoles.includes('*')) return true
+
   return metaRoles.some((r) => userRoles.includes(r))
 }
 
 /**
  * 笔译项目管理相关路由/路径（扁平，用于菜单与守卫）
- * 客户专员、项目专员、项目经理 仅能访问这些
+ * 所有普通员工（非超级管理员）均可访问这些基本功能
  */
 export const TRANSLATION_PROJECT_PATHS = [
   '/translation',
   '/translation-details',
   '/translation-files'
-]
-
-/** 笔译项目管理可访问的角色（非超级管理员时）；含测试、译审、销售等，登录后均可进入默认页 */
-export const TRANSLATION_PROJECT_ROLES = [
-  ROLE_CUSTOMER_SPECIALIST,
-  ROLE_PROJECT_SPECIALIST,
-  ROLE_PROJECT_MANAGER,
-  ROLE_TEST,
-  ROLE_REVIEW,
-  ROLE_SALES
-]
-
-/** 工作台（我的任务/班次只读）可访问的角色：客户专员、项目专员、项目经理、测试、译审、销售等 */
-export const WORK_SCHEDULE_ROLES = [
-  ROLE_SUPER_ADMIN,
-  ROLE_ADMIN,
-  ROLE_PROJECT_MANAGER,
-  ROLE_CUSTOMER_SPECIALIST,
-  ROLE_PROJECT_SPECIALIST,
-  ROLE_TEST,
-  ROLE_REVIEW,
-  ROLE_SALES
-]
-
-/** 排班管理查看权限：所有员工都可以查看 */
-export const SCHEDULE_VIEW_ROLES = [
-  ROLE_SUPER_ADMIN,
-  ROLE_ADMIN,
-  ROLE_PROJECT_MANAGER,
-  ROLE_CUSTOMER_SPECIALIST,
-  ROLE_PROJECT_SPECIALIST,
-  ROLE_TEST,
-  ROLE_REVIEW,
-  ROLE_SALES
 ]
 
 /** 排班管理编辑权限：仅项目经理与超级管理员可以编辑 */

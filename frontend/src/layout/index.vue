@@ -13,10 +13,6 @@
         </transition>
       </div>
       <div class="sidebar-extra" :class="{ 'sidebar-extra--collapsed': isCollapse }">
-        <MockSwitch />
-        <transition name="fade">
-          <span v-show="!isCollapse" class="sidebar-extra-label">Mock模式</span>
-        </transition>
       </div>
       <el-menu
         :default-active="activeMenu"
@@ -233,8 +229,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, Loading } from '@element-plus/icons-vue'
-import MockSwitch from '../components/MockSwitch.vue'
-import { isSuperAdmin, getStoredRoles, hasRole, ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES, TRANSLATION_PROJECT_ROLES, SCHEDULE_VIEW_ROLES } from '../utils/permission'
+import { isSuperAdmin, getStoredRoles } from '../utils/permission'
 
 const route = useRoute()
 const router = useRouter()
@@ -264,13 +259,13 @@ onMounted(() => {
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
 
-/** 是否显示「我的工作台」（客户专员、项目专员、项目经理等） */
-const showWorkbench = computed(() => showFullMenu.value || hasRole([ROLE_PROJECT_MANAGER, ROLE_CUSTOMER_SPECIALIST, ROLE_PROJECT_SPECIALIST, ROLE_TEST, ROLE_REVIEW, ROLE_SALES]))
-/** 是否显示「排班管理」（所有员工都可以查看，只是编辑权限不同） */
-const showSchedule = computed(() => showFullMenu.value || hasRole(SCHEDULE_VIEW_ROLES))
+/** 是否显示「我的工作台」（所有员工） */
+const showWorkbench = computed(() => true)
+/** 是否显示「排班管理」（所有员工可以查看） */
+const showSchedule = computed(() => true)
 
-/** 是否显示笔译相关菜单（项目流程、项目详情、项目文件） */
-const showTranslationMenu = computed(() => showFullMenu.value || hasRole(TRANSLATION_PROJECT_ROLES))
+/** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
+const showTranslationMenu = computed(() => true)
 
 /** 当前用户名（可从 token 或存储解析，此处简单显示） */
 const displayName = computed(() => {
