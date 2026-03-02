@@ -1,5 +1,5 @@
 ======================================================================
-数据库中共有 9 张表
+数据库中共有 10 张表
 ======================================================================
 
 ──────────────────────────────────────────────────────────────────────
@@ -171,5 +171,23 @@ workflow_log 表前 3 行:
   id=f19a2ac9-476e-4eb0-ae0b-5844b379a08b  wf=66bb4de4-01aa-458e-bfc9-fefde720875d  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
   id=03496d39-c6a4-46fd-8276-0609304b311f  wf=4c8ef8aa-3a05-436b-996e-7c86faf354e8  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
   id=03c725ce-c04b-4934-b909-fc7e02fc8d91  wf=12d400f9-0127-4f3b-af41-02454375793c  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
+
+──────────────────────────────────────────────────────────────────────
+TABLE: work_schedule  (0 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  schedule_date                            date                   NO  -
+  shift_table                              jsonb                 YES  '[]'::jsonb
+  leave_notes                              jsonb                 YES  '[]'::jsonb
+  urgent_table_zh_en                       jsonb                 YES  '[]'::jsonb
+  urgent_table_en_zh                       jsonb                 YES  '[]'::jsonb
+  dept_person_data                         jsonb                 YES  '[]'::jsonb
+  not_scheduled_tasks                      jsonb                 YES  '[]'::jsonb
+  pm_rotation_order                        character varying     YES  -
+  updated_by                               uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
 
 ✅ 检查完毕

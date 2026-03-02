@@ -94,7 +94,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
 
 
 @router.post("/login/json", response_model=Token)
@@ -127,4 +127,4 @@ def login_json(login_data: LoginRequest, db: Session = Depends(get_db)):
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}

@@ -38,6 +38,12 @@
           </el-menu-item>
           <el-divider class="menu-divider" />
         </template>
+        <!-- 工作台 -->
+        <el-menu-item v-if="showWorkbench" index="/workbench">
+          <el-icon><ChatLineRound /></el-icon>
+          <template #title>我的工作台</template>
+        </el-menu-item>
+        
         <!-- 项目管理：扁平菜单 -->
         <el-menu-item v-if="showTranslationMenu" index="/translation">
           <el-icon><Folder /></el-icon>
@@ -65,11 +71,6 @@
             <template #title>其他项目管理</template>
           </el-menu-item>
         </template>
-        <!-- 我的工作台：客户专员、项目专员等查看我的任务与班次 -->
-        <el-menu-item v-if="showWorkbench" index="/workbench">
-          <el-icon><ChatLineRound /></el-icon>
-          <template #title>我的工作台</template>
-        </el-menu-item>
         <!-- 排班管理：所有员工可查看（编辑权限在页面内控制） -->
         <el-menu-item v-if="showSchedule" index="/work-schedule">
           <el-icon><Calendar /></el-icon>
@@ -267,10 +268,12 @@ const showSchedule = computed(() => true)
 /** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
 const showTranslationMenu = computed(() => true)
 
-/** 当前用户名（可从 token 或存储解析，此处简单显示） */
+/** 当前用户名（优先显示真实姓名，其次用户名，最后回退到用户） */
 const displayName = computed(() => {
-  const roles = getStoredRoles()
-  if (roles.length) return roles.join('、') || '用户'
+  const fullName = localStorage.getItem('user_full_name')
+  if (fullName) return fullName
+  const userName = localStorage.getItem('user_name')
+  if (userName) return userName
   return '用户'
 })
 

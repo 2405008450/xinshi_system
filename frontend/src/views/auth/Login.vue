@@ -110,6 +110,7 @@ const handleLogin = async () => {
         const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
         localStorage.setItem('user_roles', JSON.stringify(roles))
         localStorage.setItem('user_name', loginForm.username || '')
+        localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
         ElMessage.success('登录成功')
         router.push('/')
       } catch (error) {

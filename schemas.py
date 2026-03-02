@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
@@ -11,6 +11,7 @@ class Token(BaseModel):
     token_type: str
     user_id: Optional[str] = None
     username: Optional[str] = None
+    full_name: Optional[str] = None
     roles: Optional[list[str]] = None
 
 
@@ -249,6 +250,71 @@ class ProjectFileUpdate(BaseModel):
 class ProjectFileResponse(ProjectFileBase):
     id: UUID
     uploaded_by: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# WorkSchedule Schemas
+from datetime import date as date_type
+from typing import Any
+
+class WorkScheduleBase(BaseModel):
+    schedule_date: date_type
+    shift_table: Optional[Any] = None
+    leave_notes: Optional[Any] = None
+    urgent_table_zh_en: Optional[Any] = None
+    urgent_table_en_zh: Optional[Any] = None
+    dept_person_data: Optional[Any] = None
+    not_scheduled_tasks: Optional[Any] = None
+    pm_rotation_order: Optional[str] = None
+
+
+class WorkScheduleCreate(WorkScheduleBase):
+    updated_by: Optional[UUID] = None
+
+
+class WorkScheduleUpdate(BaseModel):
+    shift_table: Optional[Any] = None
+    leave_notes: Optional[Any] = None
+    urgent_table_zh_en: Optional[Any] = None
+    urgent_table_en_zh: Optional[Any] = None
+    dept_person_data: Optional[Any] = None
+    not_scheduled_tasks: Optional[Any] = None
+    pm_rotation_order: Optional[str] = None
+    updated_by: Optional[UUID] = None
+
+
+class WorkScheduleResponse(WorkScheduleBase):
+    id: UUID
+    updated_by: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ========== 请假 Schemas ==========
+
+class EmployeeLeaveCreate(BaseModel):
+    employee_id: UUID
+    employee_name: str
+    start_date: date
+    end_date: date
+    leave_type: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class EmployeeLeaveResponse(BaseModel):
+    id: UUID
+    employee_id: UUID
+    employee_name: str
+    start_date: date
+    end_date: date
+    leave_type: Optional[str] = None
+    reason: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

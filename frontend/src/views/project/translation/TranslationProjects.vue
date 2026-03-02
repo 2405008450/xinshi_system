@@ -138,8 +138,9 @@
             <el-option
               v-for="u in nextStageUsers"
               :key="u.id"
-              :label="u.full_name || u.username || u.id"
+              :label="(u.full_name || u.username || u.id) + (u.onLeave ? ' (请假中)' : '')"
               :value="u.id"
+              :disabled="!!u.onLeave"
             />
           </el-select>
         </template>
@@ -242,8 +243,9 @@
               <el-option
                 v-for="u in nextStageUsers"
                 :key="u.id"
-                :label="u.full_name || u.username || u.id"
+                :label="(u.full_name || u.username || u.id) + (u.onLeave ? ' (请假中)' : '')"
                 :value="u.id"
+                :disabled="!!u.onLeave"
               />
             </el-select>
           </template>
@@ -456,6 +458,7 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
+import { getOnLeaveUsers } from '@/api/leave'
 import { getStoredRoles } from '@/utils/permission'
 
 // ---------- 全流程阶段定义（顺序固定） ----------
@@ -907,6 +910,15 @@ watch(nextStageToAssign, async (stage) => {
       const { getUsers } = await import('@/api/users')
       const allUsers = await getUsers({ limit: 500 })
       list = Array.isArray(allUsers) ? allUsers : []
+    }
+    // 获取今日请假员工并标记
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const leaveList = await getOnLeaveUsers(today)
+      const onLeaveIds = new Set((Array.isArray(leaveList) ? leaveList : []).map((r) => String(r.employee_id)))
+      list = list.map((u) => ({ ...u, onLeave: onLeaveIds.has(String(u.id)) }))
+    } catch {
+      // 请假接口失败不阻塞选人
     }
     nextStageUsers.value = list
   } catch (e) {

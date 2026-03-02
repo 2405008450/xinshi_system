@@ -83,6 +83,31 @@
             </ul>
             <el-empty v-if="!leaveNotes.length" description="暂无请假/调休公告" :image-size="48" />
           </div>
+
+          <!-- 结构化请假管理 -->
+          <div class="info-block" style="margin-top: 16px">
+            <div class="info-block-title-row">
+              <h4>请假管理（结构化）</h4>
+              <el-button v-if="canEdit" type="primary" link size="small" @click="leaveFormVisible = true">新增请假</el-button>
+            </div>
+            <el-table v-if="leaveRecords.length" :data="leaveRecords" border size="small" class="data-table" style="margin-top: 8px">
+              <el-table-column prop="employee_name" label="员工" width="100" />
+              <el-table-column prop="start_date" label="开始日期" width="120" />
+              <el-table-column prop="end_date" label="结束日期" width="120" />
+              <el-table-column prop="leave_type" label="类型" width="100" />
+              <el-table-column prop="reason" label="原因" min-width="160" show-overflow-tooltip />
+              <el-table-column v-if="canEdit" label="操作" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-popconfirm title="确定删除该条请假记录？" @confirm="handleDeleteLeave(row.id)">
+                    <template #reference>
+                      <el-button type="danger" link size="small">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-else description="暂无结构化请假记录" :image-size="48" />
+          </div>
         </div>
 
         <!-- 统计卡片 -->
@@ -413,6 +438,39 @@
       </template>
     </el-dialog>
 
+    <!-- 结构化请假新增弹窗 -->
+    <el-dialog v-model="leaveFormVisible" title="新增请假记录" width="480px">
+      <el-form :model="leaveForm" label-width="80px">
+        <el-form-item label="员工">
+          <el-select v-model="leaveForm.employee_id" filterable placeholder="请选择员工" style="width: 100%" @change="onLeaveEmployeeChange">
+            <el-option v-for="u in allStaffList" :key="u.id" :label="u.name" :value="u.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="开始日期">
+          <el-date-picker v-model="leaveForm.start_date" type="date" value-format="YYYY-MM-DD" placeholder="选择开始日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="结束日期">
+          <el-date-picker v-model="leaveForm.end_date" type="date" value-format="YYYY-MM-DD" placeholder="选择结束日期" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="leaveForm.leave_type" placeholder="请选择" style="width: 100%">
+            <el-option label="请假" value="请假" />
+            <el-option label="调休" value="调休" />
+            <el-option label="事假" value="事假" />
+            <el-option label="病假" value="病假" />
+            <el-option label="年假" value="年假" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="原因">
+          <el-input v-model="leaveForm.reason" type="textarea" :rows="2" placeholder="可选填写" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="leaveFormVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitLeaveForm">提交</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 请假/调休公告编辑弹窗 -->
     <el-dialog v-model="leaveNotesEditVisible" title="编辑请假/调休公告" width="560px" @close="closeLeaveNotesEdit">
       <p class="section-desc hint">已提前申请的请假、调休等，可增删改。保存后仅影响当日安排数据。</p>
@@ -490,6 +548,8 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { canEditSchedule } from '@/utils/permission'
+import { getSchedule, saveSchedule, copySchedule, getStaffList, getTranslatorList } from '@/api/schedule'
+import { getLeaveRecords, createLeave, deleteLeave } from '@/api/leave'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -552,291 +612,172 @@ const canEdit = computed(() => canEditSchedule())
 
 const pmRotationOrder = ref('伟琪 / 李娴 / 孟花')
 
-// ==================== 急稿表 ====================
-const urgentTableZhEn = ref([
-  { order: '2 中午12点后', name: '王婷', type: '全部', quality: '73', cloudRev: '-', dailyRate: '5/1000/8000', remarks: '法律类需审改，其他中英要求不是很高的可基本检查' },
-  { order: '3 傍晚5点后', name: '王邃玲', type: '全部', quality: '80', cloudRev: '可/可', dailyRate: '5/1000/6000', remarks: '法律类需安排审改' },
-  { order: '1', name: '高超', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '5/1000/8000', remarks: '大概仅适合银行，法律类需审改' },
-  { order: 'N/A', name: '曹柳云', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '-', remarks: '非合同法律类需审改' },
-  { order: '0', name: '孙红艳', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '2/500/2000', remarks: '中英要求不高的均可基本检查' },
-  { order: '1', name: '商莹', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '3/500/3000', remarks: '不接法律和医学' },
-  { order: 'N/A', name: '陈风', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/7000', remarks: '需审改' },
-  { order: '2 中午12点后', name: '雷智', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
-  { order: 'N/A', name: '何长青', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
-  { order: '1', name: '李鲁莎', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/6000', remarks: '需审改' }
-])
-
-const urgentTableEnZh = ref([
-  { order: '2（白天不做稿）', name: '史明月', type: '全部（不适合对中文要求高的）', quality: '74', cloudRev: '可/未知', dailyRate: '1/500/4000', remarks: '工作日中午和下午不能做稿，一般需审改' },
-  { order: '1', name: '杨雪', type: '全部（法律类优先）', quality: '75', cloudRev: '可/未知', dailyRate: '5/350/3000', remarks: '律师，一般需审改' },
-  { order: 'N/A', name: '王邃玲', type: '全部（中文较好）', quality: '78', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '注意优先安排中英项目' },
-  { order: 'N/A', name: '曹柳云', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '一般需审改' },
-  { order: '1', name: '梁昌金', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '5/500/4000', remarks: '一般需审改' },
-  { order: '1', name: '熊建磊', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
-  { order: '1', name: '张留寰', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
-  { order: '1', name: '乔艳红', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '?/?/7000', remarks: '急稿可不改' }
-])
+// ==================== 急稿表（从 translator 表动态拉取） ====================
+const urgentTableZhEn = ref([])
+const urgentTableEnZh = ref([])
 
 // ==================== 班次表 ====================
-const shiftTableData = ref([
-  { shift: '早早班 8:30-18:00', layoutIt: '', client: '靖琳、楚翘', hr: '翠珍', translationProject: '伟琪' },
-  { shift: '早班 9:00-18:30', layoutIt: '运坚、胜辉、浚轩、裕林、晨旭', client: '瑞珠', hr: '雅然、辛建、文慧', translationProject: '以龙、志林' },
-  { shift: '9:30-18:30', layoutIt: '', client: '家铭（9点半）', hr: '立溶、舒婷、宇琪', translationProject: '旷姣' },
-  { shift: '晚班 10:30-20:00', layoutIt: '美霞、苗丹、黄萌', client: '舒倩(晚班)', hr: '紫霞', translationProject: '振中、孟花' },
-  { shift: '晚晚班 13:30-21:30', layoutIt: '大杰', client: '烨珊', hr: '颖琦、少洁、菀筠', translationProject: '李娴' },
-  { shift: '8:45~9:30', layoutIt: '泉哥、武哥（销售）', client: '少妃、陈佳、韵钰', hr: '', translationProject: 'Thomas' }
-])
+const shiftTableData = ref([])
+const leaveNotes = ref([])
 
-const leaveNotes = ref([
-  '武哥周五（2月6日）12:00后请假',
-  'Thomas周五（0206）14:00开始请假，7、8点在家办公',
-  '陈佳0206上午请假，0206下午、0208-0210、0215在家办公共5天，0211-0214请假4天',
-  '瑞珠2月11日-14日（周三至周六）休年假',
-  '以龙2月11日-14日请假四天',
-  '美霞0213-0214调休两天'
-])
+// ==================== 结构化请假管理 ====================
+const leaveRecords = ref([])
+const leaveFormVisible = ref(false)
+const leaveForm = reactive({
+  employee_id: '',
+  employee_name: '',
+  start_date: '',
+  end_date: '',
+  leave_type: '请假',
+  reason: ''
+})
+const allStaffList = ref([])
+
+async function loadLeaveRecords() {
+  try {
+    const res = await getLeaveRecords()
+    leaveRecords.value = Array.isArray(res) ? res : []
+  } catch {
+    leaveRecords.value = []
+  }
+}
+
+function onLeaveEmployeeChange(empId) {
+  const u = allStaffList.value.find((s) => s.id === empId)
+  leaveForm.employee_name = u ? u.name : ''
+}
+
+async function submitLeaveForm() {
+  if (!leaveForm.employee_id || !leaveForm.start_date || !leaveForm.end_date) {
+    ElMessage.warning('请填写员工、开始日期、结束日期')
+    return
+  }
+  try {
+    await createLeave({
+      employee_id: leaveForm.employee_id,
+      employee_name: leaveForm.employee_name,
+      start_date: leaveForm.start_date,
+      end_date: leaveForm.end_date,
+      leave_type: leaveForm.leave_type,
+      reason: leaveForm.reason
+    })
+    ElMessage.success('请假记录已添加')
+    leaveFormVisible.value = false
+    leaveForm.employee_id = ''
+    leaveForm.employee_name = ''
+    leaveForm.start_date = ''
+    leaveForm.end_date = ''
+    leaveForm.leave_type = '请假'
+    leaveForm.reason = ''
+    loadLeaveRecords()
+  } catch (e) {
+    ElMessage.error('添加失败：' + (e.response?.data?.detail || e.message))
+  }
+}
+
+async function handleDeleteLeave(leaveId) {
+  try {
+    await deleteLeave(leaveId)
+    ElMessage.success('已删除')
+    loadLeaveRecords()
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e.response?.data?.detail || e.message))
+  }
+}
 
 // ==================== 各部门人员任务数据 ====================
 const deptPersonData = ref([])
 
-const SCHEDULE_STORAGE_PREFIX = 'work_schedule_'
-
-function getDefaultDeptPersonData() {
-  return [
-    // 项目经理
-    { name: '伟琪', dept: '项目经理', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '整理词汇并上传术语库（完成项目任务后再做）', projectNo: '爱彼', deadline: '' },
-      { category: '直接项目任务', content: '1.2w跟进：舒婷派王珊娜，导出完整版译文、给颖琦派专检排版', projectNo: 'TP260205004', deadline: '2月9日9:30' },
-      { category: '直接项目任务', content: '剩06：60w+，李鲁莎已回，已发惠喜专检+排版，周日下午6点回', projectNo: 'TP260115013', deadline: '周日下午6点' }
-    ], fixedTasks: ['登记文件属性', '每月专检稽查（崔盼盼、水雅丽）'] },
-    { name: '李娴', dept: '项目经理', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '待安排的分析、继续已安排的分析、跟进自己的项目', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '461份（961页）分析及跟进：英文转录已完成，其他语种继续转录', projectNo: 'TP251224018', deadline: '2026年3月22日17点' },
-      { category: '直接项目任务', content: '2.5k，翠珍派沙柏霖，HR收稿时确认词汇及QA', projectNo: 'TP260205025', deadline: '2月9日10点' },
-      { category: '直接项目任务', content: '2.8k跟进：11语种，各译员回稿后专检排版、验收', projectNo: 'TP260205016', deadline: '2月10日下午17点' }
-    ], fixedTasks: ['每月专检稽查（戴欣然、刘惠喜）'] },
-    { name: '孟花', dept: '项目经理', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '跟进：英语已派孙红艳检查反馈，繁体已派贺媛处理更新', projectNo: 'TP251224029', deadline: '尽快回' },
-      { category: '直接项目任务', content: '大概15万中朝，MT后抽查、HR派数检、运坚还原、前中后抽查', projectNo: 'TP260202012', deadline: '2月8日晚18点' }
-    ], fixedTasks: ['每月专检稽查（王雨菡、陈慧楠）', '整理词汇（待定）'] },
-
-    // 翻译部
-    { name: '少妃', dept: '翻译部', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '词汇整理+句式跟进等非项目任务、跟进自己的项目', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '译员开拓跟进：哈萨克/乌克兰/格鲁吉亚/阿塞拜疆语', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '项目安排：185份Excel 40w跟进、483页整理跟进、13w分析跟进', projectNo: 'TP260121020 等', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '陈佳', dept: '翻译部', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '跟进招聘项目、安排邮件', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '10w（37份）跟进：文件15-29已派王婷修订，周六9点回', projectNo: 'TP260119005', deadline: '2月8日9:30/2月25日9:30' },
-      { category: '直接项目任务', content: '尼泊尔/英译中 审改', projectNo: 'TP260204018', deadline: '2月6日15点' },
-      { category: '直接项目任务', content: '3.6w 排版早上回，专检、基本检查，最后陈佳看看', projectNo: 'TP260202006', deadline: '2月6日17点' },
-      { category: '直接项目任务', content: '8k，黎凤周五下午6点回，陈佳看看，颖琦派专检排版', projectNo: 'TP260205006', deadline: '2月8日12点' },
-      { category: '直接项目任务', content: '19份，葡译中/德译中 审改', projectNo: 'TP260204020', deadline: '2月9日17点' }
-    ], fixedTasks: ['银行词汇', '信实翻译 中译小语种 机翻引擎测试'] },
-    { name: 'Thomas', dept: '翻译部', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '银行词汇', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '2.6k，彭霓周五早九点回，Thomas看看，瑞珠专检排版', projectNo: 'TP260204013', deadline: '2月6日中午12点' },
-      { category: '直接项目任务', content: '4.6w（8k+1.2w+2.6w）跟进审改', projectNo: 'TP260203010', deadline: '2月6日12点/16:30' },
-      { category: '直接项目任务', content: '4.5k 已审改，已一检，瑞珠二检及排版，最后Thomas验收', projectNo: 'TP260130008', deadline: '2月13日17点' },
-      { category: '直接项目任务', content: '广州年鉴 中译英（母语）整体流程跟进', projectNo: 'TP260202007', deadline: '2月13日17点' }
-    ], fixedTasks: [] },
-
-    // 项目部
-    { name: '旷姣', dept: '项目部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-
-    // 客户部
-    { name: '楚翘', dept: '客户部', status: 'not_scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '6k排版已回，陈慧楠专检早八点半回，验收发客户', projectNo: 'TP260204003', deadline: '2月6日9点' },
-      { category: '直接项目任务', content: '1.4k修订，黎凤早8:30回，检查修订及专检', projectNo: 'TP260205003', deadline: '2月6日9:30' },
-      { category: '直接项目任务', content: '900修订，曹柳云早八点半回，检查修订及专检', projectNo: 'TP260205026', deadline: '2月6日11点' },
-      { category: '直接项目任务', content: '王纵横 中译英（NAATI翻译）', projectNo: 'TP260130023', deadline: '2月6日中午12点' },
-      { category: '直接项目任务', content: '吴先生 中译英（MTPE）', projectNo: 'TP260203015', deadline: '2月6日下午18点' },
-      { category: '直接项目任务', content: '费雪尔 英译中（对照回稿）', projectNo: 'TP260204002', deadline: '2月6日下午18点' },
-      { category: '直接项目任务', content: '胜美达 日译中', projectNo: 'TP260204019', deadline: '2月6日下午17点' },
-      { category: '直接项目任务', content: '马小姐 英译中（代办澳洲海牙认证）', projectNo: 'TP260123012', deadline: '2月10日下午18点' }
-    ], fixedTasks: [] },
-    { name: '雅然', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '验收发客户', projectNo: 'TP260203005', deadline: '2月6日9:30' },
-      { category: '直接项目任务', content: '验收发客户', projectNo: 'TP260205019', deadline: '2月6日9:30' },
-      { category: '直接项目任务', content: '验收发客户', projectNo: 'TP260205028', deadline: '2月6日9:30' },
-      { category: '直接项目任务', content: '专检排版', projectNo: 'TP260205027', deadline: '2月6日9:30' },
-      { category: '直接项目任务', content: '王雨菡检查修订+专检，早九点回，看是否需调整排版', projectNo: 'TP260204015', deadline: '2月6日11点' }
-    ], fixedTasks: [] },
-    { name: '苗丹', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '杨雪周四晚十一点回，苗丹后续', projectNo: 'TP260205029', deadline: '2月6日11点' }
-    ], fixedTasks: [] },
-    { name: '家铭', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '已派曹柳云，早八点半回，专检排版', projectNo: 'TP251226015', deadline: '' },
-      { category: '直接项目任务', content: '杨雪周四晚回，专检排版', projectNo: 'TP260205030', deadline: '2月6日中午12点' }
-    ], fixedTasks: [] },
-    { name: '黄萌', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '专检排版', projectNo: 'TP260204027', deadline: '2月6日11点' }
-    ], fixedTasks: [] },
-    { name: '武哥', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '靖琳', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '辛建', dept: '客户部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-
-    // HR部
-    { name: '韵钰', dept: 'HR部', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '词汇整理+句式跟进等非项目任务', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '合肥思达智数信息科技，评测项目，多语种翻译质检', projectNo: 'TP260202003', deadline: '2月28日23点' }
-    ], fixedTasks: ['（暂停）项目专员培训资料调整', '（暂停）项目经理培训资料梳理、编写'] },
-    { name: '立溶', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '舒婷', dept: 'HR部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '其他', content: '百度地图上架', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '宇琪', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '翠珍', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '紫霞', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '菀筠', dept: 'HR部', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '其他', content: '爱企查上架', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '颖琦', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '少洁', dept: 'HR部', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-
-    // 排版
-    { name: '运坚', dept: '排版', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-    { name: '瑞珠', dept: '排版', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '4k，已派王珊娜，早八点半回稿，专检排版', projectNo: 'TP260205022', deadline: '2月6日10点' },
-      { category: '直接项目任务', content: '3.5k，已派廖伟燕修订，早九点回，检查修订及专检', projectNo: 'TP260205020', deadline: '2月6日11:30' },
-      { category: '直接项目任务', content: '7k，柬译中（MTPE），专检排版', projectNo: 'TP260202014', deadline: '2月6日15点' },
-      { category: '直接项目任务', content: '7k，已派陆素明，周五晚十点回，专检排版', projectNo: 'TP260205023', deadline: '2月9日9:30' }
-    ], fixedTasks: ['每月专检稽查（梁承敏、沈佳佳）'] },
-    { name: '大杰', dept: '排版', status: 'scheduled', tasks: [
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '大杰调整排版，运坚转HTML（吉利汽车客户反馈）', projectNo: '', deadline: '' }
-    ], fixedTasks: ['每月专检稽查（贺媛、孙晓燕）'] },
-
-    // 招聘项目
-    { name: '振中', dept: '招聘项目', status: 'scheduled', tasks: [
-      { category: '非直接项目任务', content: '非直接项目任务、固定项目任务', projectNo: '', deadline: '' },
-      { category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }
-    ], fixedTasks: [] },
-
-    // 销售
-    { name: '以龙', dept: '销售', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] },
-    { name: '志林', dept: '销售', status: 'scheduled', tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }], fixedTasks: [] }
-  ]
-}
-
-function initDeptPersonData() {
-  deptPersonData.value = getDefaultDeptPersonData()
-}
-
-/** 获取某日工作安排的默认数据（用于无存储时或“从昨日复制”的模板） */
-function getDefaultScheduleData() {
-  return {
-    deptPersonData: getDefaultDeptPersonData(),
-    notScheduledTasks: [
-      { personName: '-', department: '翻译部', projectOrTask: '3w，李娴跟进：已派曹柳云9号早八点半回，Thomas审改，李娴导出完整版、给翠珍派一检二检，瑞珠排版，待安排内部细节检查', projectNo: 'TP260202016', remarks: '广州年鉴，中译英（母语），2月28日交' }
-    ],
-    pmRotationOrder: '伟琪 / 李娴 / 孟花',
-    shiftTableData: [
-      { shift: '早早班 8:30-18:00', layoutIt: '', client: '靖琳、楚翘', hr: '翠珍', translationProject: '伟琪' },
-      { shift: '早班 9:00-18:30', layoutIt: '运坚、胜辉、浚轩、裕林、晨旭', client: '瑞珠', hr: '雅然、辛建、文慧', translationProject: '以龙、志林' },
-      { shift: '9:30-18:30', layoutIt: '', client: '家铭（9点半）', hr: '立溶、舒婷、宇琪', translationProject: '旷姣' },
-      { shift: '晚班 10:30-20:00', layoutIt: '美霞、苗丹、黄萌', client: '舒倩(晚班)', hr: '紫霞', translationProject: '振中、孟花' },
-      { shift: '晚晚班 13:30-21:30', layoutIt: '大杰', client: '烨珊', hr: '颖琦、少洁、菀筠', translationProject: '李娴' },
-      { shift: '8:45~9:30', layoutIt: '泉哥、武哥（销售）', client: '少妃、陈佳、韵钰', hr: '', translationProject: 'Thomas' }
-    ],
-    leaveNotes: [
-      '武哥周五（2月6日）12:00后请假',
-      'Thomas周五（0206）14:00开始请假，7、8点在家办公',
-      '陈佳0206上午请假，0206下午、0208-0210、0215在家办公共5天，0211-0214请假4天',
-      '瑞珠2月11日-14日（周三至周六）休年假',
-      '以龙2月11日-14日请假四天',
-      '美霞0213-0214调休两天'
-    ],
-    urgentTableZhEn: [
-      { order: '2 中午12点后', name: '王婷', type: '全部', quality: '73', cloudRev: '-', dailyRate: '5/1000/8000', remarks: '法律类需审改，其他中英要求不是很高的可基本检查' },
-      { order: '3 傍晚5点后', name: '王邃玲', type: '全部', quality: '80', cloudRev: '可/可', dailyRate: '5/1000/6000', remarks: '法律类需安排审改' },
-      { order: '1', name: '高超', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '5/1000/8000', remarks: '大概仅适合银行，法律类需审改' },
-      { order: 'N/A', name: '曹柳云', type: '全部', quality: '73', cloudRev: '可/可', dailyRate: '-', remarks: '非合同法律类需审改' },
-      { order: '0', name: '孙红艳', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '2/500/2000', remarks: '中英要求不高的均可基本检查' },
-      { order: '1', name: '商莹', type: '全部', quality: '74', cloudRev: '可/可', dailyRate: '3/500/3000', remarks: '不接法律和医学' },
-      { order: 'N/A', name: '陈风', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/7000', remarks: '需审改' },
-      { order: '2 中午12点后', name: '雷智', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
-      { order: 'N/A', name: '何长青', type: '全部', quality: '74', cloudRev: '-', dailyRate: '?/?/4000', remarks: '需审改' },
-      { order: '1', name: '李鲁莎', type: '全部', quality: '73', cloudRev: '-', dailyRate: '?/?/6000', remarks: '需审改' }
-    ],
-    urgentTableEnZh: [
-      { order: '2（白天不做稿）', name: '史明月', type: '全部（不适合对中文要求高的）', quality: '74', cloudRev: '可/未知', dailyRate: '1/500/4000', remarks: '工作日中午和下午不能做稿，一般需审改' },
-      { order: '1', name: '杨雪', type: '全部（法律类优先）', quality: '75', cloudRev: '可/未知', dailyRate: '5/350/3000', remarks: '律师，一般需审改' },
-      { order: 'N/A', name: '王邃玲', type: '全部（中文较好）', quality: '78', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '注意优先安排中英项目' },
-      { order: 'N/A', name: '曹柳云', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '5/500/4000', remarks: '一般需审改' },
-      { order: '1', name: '梁昌金', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '5/500/4000', remarks: '一般需审改' },
-      { order: '1', name: '熊建磊', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
-      { order: '1', name: '张留寰', type: '全部', quality: '75', cloudRev: '可/未知', dailyRate: '-', remarks: '一般要审改' },
-      { order: '1', name: '乔艳红', type: '全部', quality: '75', cloudRev: '可/可', dailyRate: '?/?/7000', remarks: '急稿可不改' }
-    ]
-  }
-}
-
-/** 从 localStorage 读取某日安排，若无则返回 null */
-function getScheduleFromStorage(date) {
+/**
+ * 从后端 API 动态拉取员工列表，生成排班初始模板
+ */
+async function fetchDefaultDeptPersonData() {
   try {
-    const raw = localStorage.getItem(SCHEDULE_STORAGE_PREFIX + date)
-    if (!raw) return null
-    return JSON.parse(raw)
-  } catch {
-    return null
+    const staffList = await getStaffList()
+    if (Array.isArray(staffList) && staffList.length > 0) {
+      return staffList.map((s) => ({
+        name: s.name,
+        dept: s.dept || '',
+        status: 'scheduled',
+        tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }],
+        fixedTasks: Array.isArray(s.fixedTasks) ? s.fixedTasks : []
+      }))
+    }
+  } catch (e) {
+    console.warn('拉取员工列表失败，使用空模板', e)
+  }
+  return []
+}
+
+/**
+ * 从后端 API 动态拉取译员列表
+ */
+async function fetchDefaultTranslatorData(direction) {
+  try {
+    const list = await getTranslatorList(direction)
+    if (Array.isArray(list)) return list
+  } catch (e) {
+    console.warn('拉取译员列表失败', e)
+  }
+  return []
+}
+
+async function initDeptPersonData() {
+  deptPersonData.value = await fetchDefaultDeptPersonData()
+}
+
+/** 获取某日工作安排的默认数据（用于无存储时的初始模板，从数据库动态生成） */
+async function getDefaultScheduleData() {
+  const [defaultStaff, defaultZhEn, defaultEnZh] = await Promise.all([
+    fetchDefaultDeptPersonData(),
+    fetchDefaultTranslatorData('zh_en'),
+    fetchDefaultTranslatorData('en_zh')
+  ])
+  return {
+    deptPersonData: defaultStaff,
+    notScheduledTasks: [],
+    pmRotationOrder: '',
+    shiftTableData: [],
+    leaveNotes: [],
+    urgentTableZhEn: defaultZhEn,
+    urgentTableEnZh: defaultEnZh
   }
 }
 
-/** 将当前页面数据保存到 localStorage（按当前选择日期） */
-function saveScheduleForDate() {
+/** 将当前页面数据保存到后端数据库（按当前选择日期） */
+async function saveScheduleForDate() {
   const date = scheduleDate.value
   if (!date) return
   try {
     const data = {
-      deptPersonData: deptPersonData.value,
-      notScheduledTasks: notScheduledTasks.value,
-      pmRotationOrder: pmRotationOrder.value,
-      shiftTableData: shiftTableData.value,
-      leaveNotes: leaveNotes.value,
-      urgentTableZhEn: urgentTableZhEn.value,
-      urgentTableEnZh: urgentTableEnZh.value
+      shift_table: shiftTableData.value,
+      leave_notes: leaveNotes.value,
+      urgent_table_zh_en: urgentTableZhEn.value,
+      urgent_table_en_zh: urgentTableEnZh.value,
+      dept_person_data: deptPersonData.value,
+      not_scheduled_tasks: notScheduledTasks.value,
+      pm_rotation_order: pmRotationOrder.value
     }
-    localStorage.setItem(SCHEDULE_STORAGE_PREFIX + date, JSON.stringify(data))
+    await saveSchedule(date, data)
   } catch (e) {
     console.error('保存工作安排失败', e)
   }
 }
 
-/** 加载某日安排到页面：有存储则用存储，无则用默认数据 */
-function loadScheduleForDate(date) {
-  const stored = getScheduleFromStorage(date)
-  const defaultData = getDefaultScheduleData()
-  if (stored) {
-    deptPersonData.value = stored.deptPersonData ?? defaultData.deptPersonData
-    notScheduledTasks.value = stored.notScheduledTasks ?? defaultData.notScheduledTasks
-    pmRotationOrder.value = stored.pmRotationOrder ?? defaultData.pmRotationOrder
-    shiftTableData.value = stored.shiftTableData ?? defaultData.shiftTableData
-    leaveNotes.value = stored.leaveNotes ?? defaultData.leaveNotes
-    urgentTableZhEn.value = stored.urgentTableZhEn ?? defaultData.urgentTableZhEn
-    urgentTableEnZh.value = stored.urgentTableEnZh ?? defaultData.urgentTableEnZh
-  } else {
+/** 加载某日安排到页面：从后端拉取，无则用默认数据 */
+async function loadScheduleForDate(date) {
+  const defaultData = await getDefaultScheduleData()
+  try {
+    const stored = await getSchedule(date)
+    deptPersonData.value = stored.dept_person_data ?? defaultData.deptPersonData
+    notScheduledTasks.value = stored.not_scheduled_tasks ?? defaultData.notScheduledTasks
+    pmRotationOrder.value = stored.pm_rotation_order ?? defaultData.pmRotationOrder
+    shiftTableData.value = stored.shift_table ?? defaultData.shiftTableData
+    leaveNotes.value = stored.leave_notes ?? defaultData.leaveNotes
+    urgentTableZhEn.value = stored.urgent_table_zh_en ?? defaultData.urgentTableZhEn
+    urgentTableEnZh.value = stored.urgent_table_en_zh ?? defaultData.urgentTableEnZh
+  } catch {
+    // 404 或网络错误，用默认数据
     deptPersonData.value = defaultData.deptPersonData
     notScheduledTasks.value = defaultData.notScheduledTasks
     pmRotationOrder.value = defaultData.pmRotationOrder
@@ -985,15 +926,7 @@ function submitTranslatorTableEdit() {
 }
 
 // ==================== 暂不安排 ====================
-const notScheduledTasks = ref([
-  {
-    personName: '-',
-    department: '翻译部',
-    projectOrTask: '3w，李娴跟进：已派曹柳云9号早八点半回，Thomas审改，李娴导出完整版、给翠珍派一检二检，瑞珠排版，待安排内部细节检查',
-    projectNo: 'TP260202016',
-    remarks: '广州年鉴，中译英（母语），2月28日交'
-  }
-])
+const notScheduledTasks = ref([])
 
 // ==================== 当天来稿 ====================
 const todayIncomingList = ref([])
@@ -1249,31 +1182,30 @@ function getYesterdayDate(dateStr) {
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
 
-function copyFromYesterday() {
+async function copyFromYesterday() {
   const yesterday = getYesterdayDate(scheduleDate.value)
-  const data = getScheduleFromStorage(yesterday)
-  if (!data) {
+  try {
+    await copySchedule(yesterday, scheduleDate.value)
+    await loadScheduleForDate(scheduleDate.value)
+    ElMessage.success('已从昨日复制并保存为当日安排')
+  } catch (e) {
     ElMessage.warning('昨日无安排数据可复制，请先保存昨日安排或选择其他日期')
-    return
   }
-  const defaultData = getDefaultScheduleData()
-  deptPersonData.value = data.deptPersonData ?? defaultData.deptPersonData
-  notScheduledTasks.value = data.notScheduledTasks ?? defaultData.notScheduledTasks
-  pmRotationOrder.value = data.pmRotationOrder ?? defaultData.pmRotationOrder
-  shiftTableData.value = data.shiftTableData ?? defaultData.shiftTableData
-  leaveNotes.value = data.leaveNotes ?? defaultData.leaveNotes
-  urgentTableZhEn.value = data.urgentTableZhEn ?? defaultData.urgentTableZhEn
-  urgentTableEnZh.value = data.urgentTableEnZh ?? defaultData.urgentTableEnZh
-  saveScheduleForDate()
-  fetchTasks()
-  ElMessage.success('已从昨日复制并保存为当日安排')
 }
 
 // ==================== 初始化 ====================
-onMounted(() => {
+onMounted(async () => {
   const today = new Date()
   scheduleDate.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
   loadScheduleForDate(scheduleDate.value)
+  loadLeaveRecords()
+  // 加载员工列表供请假表单选人
+  try {
+    const staff = await getStaffList()
+    allStaffList.value = Array.isArray(staff) ? staff : []
+  } catch {
+    allStaffList.value = []
+  }
 })
 </script>
 

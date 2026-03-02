@@ -15,7 +15,7 @@
     <div class="dashboard-flow">
       <section class="section-block">
         <h3 class="section-title">我的任务</h3>
-        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="myTasksList" />
+        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="workflowTasks" />
       </section>
 
       <section class="section-block">
@@ -37,16 +37,29 @@ import { ref, computed, onMounted } from 'vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
 import MyTasksPanel from './components/MyTasksPanel.vue'
 import ShiftTableReadonly from './components/ShiftTableReadonly.vue'
-import { useScheduleData } from './composables/useScheduleData'
+import { getSchedule } from '@/api/schedule'
+import { getMyTasksAPI } from '@/api/workflow'
 
-const {
-  scheduleDate,
-  weekdayLabel,
-  deptPersonData,
-  shiftTableData,
-  leaveNotes,
-  loadScheduleForDate
-} = useScheduleData()
+const scheduleDate = ref('')
+const weekdayLabel = computed(() => {
+  if (!scheduleDate.value) return ''
+  const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return days[new Date(scheduleDate.value).getDay()]
+})
+
+const shiftTableData = ref([])
+const leaveNotes = ref([])
+
+async function loadScheduleForDate(date) {
+  try {
+    const stored = await getSchedule(date)
+    shiftTableData.value = stored.shift_table ?? []
+    leaveNotes.value = stored.leave_notes ?? []
+  } catch {
+    shiftTableData.value = []
+    leaveNotes.value = []
+  }
+}
 
 const currentUserName = ref('')
 function initCurrentUserName() {
@@ -57,20 +70,17 @@ function initCurrentUserName() {
   }
 }
 
-const myTasksList = computed(() => {
-  const name = currentUserName.value
-  if (!name) return []
-  const person = deptPersonData.value.find(
-    (p) => p.name === name || p.name.includes(name) || name.includes(p.name)
-  )
-  if (!person || !person.tasks) return []
-  return person.tasks.map((t) => ({
-    category: t.category,
-    content: t.content,
-    projectNo: t.projectNo || '',
-    deadline: t.deadline || ''
-  }))
-})
+const workflowTasks = ref([])
+async function loadMyWorkflowTasks() {
+  try {
+    const userId = localStorage.getItem('user_id')
+    if (!userId) { workflowTasks.value = []; return }
+    const tasks = await getMyTasksAPI(userId)
+    workflowTasks.value = Array.isArray(tasks) ? tasks : []
+  } catch {
+    workflowTasks.value = []
+  }
+}
 
 function onDateChange() {
   loadScheduleForDate(scheduleDate.value)
@@ -85,6 +95,7 @@ onMounted(() => {
     String(today.getDate()).padStart(2, '0')
   ].join('-')
   loadScheduleForDate(scheduleDate.value)
+  loadMyWorkflowTasks()
 })
 </script>
 

@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from workflow_models import WorkflowInstance, WorkflowLog
-from models import TranslationProject, AppUser, Client
+from models import TranslationProject, AppUser, Client, EmployeeLeave
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -139,6 +139,26 @@ def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
     return instance
 
 
+# ========== 请假校验 ==========
+
+import datetime as _dt
+
+
+def _check_on_leave(db: Session, user_id: UUID):
+    """检查用户今天是否在请假，是则抛出 ValueError 阻止派发"""
+    today = _dt.date.today()
+    leave = db.query(EmployeeLeave).filter(
+        EmployeeLeave.employee_id == user_id,
+        EmployeeLeave.start_date <= today,
+        EmployeeLeave.end_date >= today,
+    ).first()
+    if leave:
+        raise ValueError(
+            f"该用户（{leave.employee_name}）当前处于请假中"
+            f"（{leave.start_date} ~ {leave.end_date}），无法指派任务"
+        )
+
+
 # ========== 设定难度 ==========
 
 import re
@@ -205,6 +225,9 @@ def set_difficulty(
     # 查询负责人名称
     next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
     next_user_name = (next_user.full_name or next_user.username) if next_user else ''
+
+    # 校验负责人是否请假
+    _check_on_leave(db, next_assignee_id)
 
     # 写入日志
     log = WorkflowLog(
@@ -292,6 +315,10 @@ def transition_forward(
         if next_assignee_id:
             next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
             next_user_name = (next_user.full_name or next_user.username) if next_user else ''
+
+        # 校验负责人是否请假
+        if next_assignee_id and next_stage['key'] != 'completed':
+            _check_on_leave(db, next_assignee_id)
 
         if next_stage['key'] == 'completed':
             description = f"从「{current_stage_info.get('title', '')}」进入「完成」"

@@ -2,7 +2,8 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKeyConstraint, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Date, ForeignKeyConstraint, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -22,6 +23,8 @@ class AppUser(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     email: Mapped[Optional[str]] = mapped_column(String(255))
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
+    department: Mapped[Optional[str]] = mapped_column(String(50))
+    fixed_tasks: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
@@ -83,6 +86,13 @@ class Translator(Base):
     translator_name: Mapped[str] = mapped_column(String(255), nullable=False)
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))
     contact_info: Mapped[Optional[str]] = mapped_column(String(255))
+    translation_type: Mapped[Optional[str]] = mapped_column(String(255))
+    quality_score: Mapped[Optional[str]] = mapped_column(String(10))
+    cloud_revision: Mapped[Optional[str]] = mapped_column(String(50))
+    daily_rate: Mapped[Optional[str]] = mapped_column(String(100))
+    direction: Mapped[Optional[str]] = mapped_column(String(20))
+    default_priority: Mapped[Optional[int]] = mapped_column(server_default=text('0'))
+    schedule_remarks: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
@@ -180,3 +190,45 @@ class ProjectFile(Base):
 
     translation_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='project_file')
     app_user: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='project_file')
+
+
+class WorkSchedule(Base):
+    """每日工作安排表（排班管理），按日期存储，项目经理每日微调"""
+    __tablename__ = 'work_schedule'
+    __table_args__ = (
+        PrimaryKeyConstraint('id', name='work_schedule_pkey'),
+        UniqueConstraint('schedule_date', name='work_schedule_date_key'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    schedule_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, unique=True)
+
+    # 各板块数据以 JSONB 存储，前端直接读写整块 JSON
+    shift_table: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    leave_notes: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    urgent_table_zh_en: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    urgent_table_en_zh: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    dept_person_data: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    not_scheduled_tasks: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    pm_rotation_order: Mapped[Optional[str]] = mapped_column(String(500))
+
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class EmployeeLeave(Base):
+    """员工请假记录"""
+    __tablename__ = 'employee_leave'
+    __table_args__ = (
+        PrimaryKeyConstraint('id', name='employee_leave_pkey'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    employee_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    employee_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    leave_type: Mapped[Optional[str]] = mapped_column(String(50))
+    reason: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
