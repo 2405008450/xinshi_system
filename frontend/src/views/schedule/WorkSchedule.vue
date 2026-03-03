@@ -73,31 +73,41 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="info-block">
-            <div class="info-block-title-row">
-              <h4>请假/调休</h4>
-              <el-button v-if="canEdit" type="primary" link size="small" @click="openLeaveNotesEdit">编辑</el-button>
-            </div>
-            <ul>
-              <li v-for="(note, i) in leaveNotes" :key="i">{{ note }}</li>
-            </ul>
-            <el-empty v-if="!leaveNotes.length" description="暂无请假/调休公告" :image-size="48" />
-          </div>
-
           <!-- 结构化请假管理 -->
           <div class="info-block" style="margin-top: 16px">
             <div class="info-block-title-row">
               <h4>请假管理（结构化）</h4>
-              <el-button v-if="canEdit" type="primary" link size="small" @click="leaveFormVisible = true">新增请假</el-button>
+              <el-button v-if="canEdit" type="primary" link size="small" @click="resetLeaveForm(); leaveFormVisible = true">新增请假</el-button>
+            </div>
+            <!-- 日期筛选器 -->
+            <div class="leave-filter-row">
+              <el-date-picker
+                v-model="leaveFilterRange"
+                type="datetimerange"
+                range-separator="至"
+                start-placeholder="开始时间"
+                end-placeholder="结束时间"
+                format="YYYY-MM-DD HH:mm"
+                value-format="YYYY-MM-DDTHH:mm:ss"
+                style="width: 340px"
+              />
+              <el-button type="primary" @click="loadLeaveRecords">查询</el-button>
+              <el-button @click="leaveFilterRange = []; loadLeaveRecords()">重置</el-button>
             </div>
             <el-table v-if="leaveRecords.length" :data="leaveRecords" border size="small" class="data-table" style="margin-top: 8px">
               <el-table-column prop="employee_name" label="员工" width="100" />
-              <el-table-column prop="start_date" label="开始日期" width="120" />
-              <el-table-column prop="end_date" label="结束日期" width="120" />
+              <el-table-column prop="start_date" label="开始时间" width="160">
+                <template #default="{ row }">{{ formatDateTime(row.start_date) }}</template>
+              </el-table-column>
+              <el-table-column prop="end_date" label="结束时间" width="160">
+                <template #default="{ row }">{{ formatDateTime(row.end_date) }}</template>
+              </el-table-column>
               <el-table-column prop="leave_type" label="类型" width="100" />
               <el-table-column prop="reason" label="原因" min-width="160" show-overflow-tooltip />
-              <el-table-column v-if="canEdit" label="操作" width="80" fixed="right">
+              <el-table-column prop="created_at" label="创建时间" width="160" />
+              <el-table-column v-if="canEdit" label="操作" width="120" fixed="right">
                 <template #default="{ row }">
+                  <el-button type="primary" link size="small" @click="handleEditLeave(row)">编辑</el-button>
                   <el-popconfirm title="确定删除该条请假记录？" @confirm="handleDeleteLeave(row.id)">
                     <template #reference>
                       <el-button type="danger" link size="small">删除</el-button>
@@ -438,19 +448,24 @@
       </template>
     </el-dialog>
 
-    <!-- 结构化请假新增弹窗 -->
-    <el-dialog v-model="leaveFormVisible" title="新增请假记录" width="480px">
-      <el-form :model="leaveForm" label-width="80px">
-        <el-form-item label="员工">
+    <!-- 结构化请假新增/编辑弹窗 -->
+    <el-dialog
+      v-model="leaveFormVisible"
+      :title="leaveEditingId ? '编辑请假记录' : '新增请假记录'"
+      width="480px"
+      @close="resetLeaveForm"
+    >
+      <el-form ref="leaveFormRef" :model="leaveForm" :rules="leaveFormRules" label-width="80px">
+        <el-form-item label="员工" prop="employee_id">
           <el-select v-model="leaveForm.employee_id" filterable placeholder="请选择员工" style="width: 100%" @change="onLeaveEmployeeChange">
             <el-option v-for="u in allStaffList" :key="u.id" :label="u.name" :value="u.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="开始日期">
-          <el-date-picker v-model="leaveForm.start_date" type="date" value-format="YYYY-MM-DD" placeholder="选择开始日期" style="width: 100%" />
+        <el-form-item label="开始时间" prop="start_date">
+          <el-date-picker v-model="leaveForm.start_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择开始时间" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="结束日期">
-          <el-date-picker v-model="leaveForm.end_date" type="date" value-format="YYYY-MM-DD" placeholder="选择结束日期" style="width: 100%" />
+        <el-form-item label="结束时间" prop="end_date">
+          <el-date-picker v-model="leaveForm.end_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择结束时间" style="width: 100%" />
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="leaveForm.leave_type" placeholder="请选择" style="width: 100%">
@@ -466,24 +481,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="leaveFormVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitLeaveForm">提交</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 请假/调休公告编辑弹窗 -->
-    <el-dialog v-model="leaveNotesEditVisible" title="编辑请假/调休公告" width="560px" @close="closeLeaveNotesEdit">
-      <p class="section-desc hint">已提前申请的请假、调休等，可增删改。保存后仅影响当日安排数据。</p>
-      <div class="leave-notes-edit-list">
-        <div v-for="(item, i) in leaveNotesEditList" :key="i" class="leave-notes-edit-item">
-          <el-input v-model="leaveNotesEditList[i]" type="textarea" :rows="2" placeholder="如：张三 2月10日-12日请假" />
-          <el-button type="danger" link size="small" class="leave-notes-del-btn" @click="removeLeaveNote(i)">删除</el-button>
-        </div>
-      </div>
-      <el-button type="primary" plain size="small" @click="addLeaveNote">新增一条</el-button>
-      <template #footer>
-        <el-button @click="leaveNotesEditVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitLeaveNotesEdit">保存</el-button>
+        <el-button @click="leaveFormVisible = false; resetLeaveForm()">取消</el-button>
+        <el-button type="primary" @click="submitLeaveForm">确定</el-button>
       </template>
     </el-dialog>
 
@@ -549,7 +548,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProjects } from '@/api/projects'
 import { canEditSchedule } from '@/utils/permission'
 import { getSchedule, saveSchedule, copySchedule, getStaffList, getTranslatorList } from '@/api/schedule'
-import { getLeaveRecords, createLeave, deleteLeave } from '@/api/leave'
+import { getLeaveRecords, createLeave, deleteLeave, updateLeave } from '@/api/leave'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -590,10 +589,6 @@ const shiftRowEditVisible = ref(false)
 const editingShiftRowIndex = ref(-1)
 const shiftRowForm = reactive({ shift: '', layoutIt: '', client: '', hr: '', translationProject: '' })
 
-// 请假/调休公告编辑
-const leaveNotesEditVisible = ref(false)
-const leaveNotesEditList = ref([])
-
 // 译员安排表编辑（中英 / 英中）
 const translatorEditVisible = ref(false)
 const translatorEditType = ref('zhEn') // 'zhEn' | 'enZh'
@@ -618,7 +613,6 @@ const urgentTableEnZh = ref([])
 
 // ==================== 班次表 ====================
 const shiftTableData = ref([])
-const leaveNotes = ref([])
 
 // ==================== 结构化请假管理 ====================
 const leaveRecords = ref([])
@@ -633,13 +627,44 @@ const leaveForm = reactive({
 })
 const allStaffList = ref([])
 
+// 日期范围筛选
+const leaveFilterRange = ref([])
+
+// 校验规则
+const leaveFormRules = {
+  employee_id: [{ required: true, message: '请选择员工', trigger: 'change' }],
+  start_date: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  end_date: [{ required: true, message: '请选择结束日期', trigger: 'change' }]
+}
+
+// 编辑状态
+const leaveEditingId = ref(null)
+const leaveFormRef = ref(null)
+
 async function loadLeaveRecords() {
+  const params = {}
+  if (leaveFilterRange.value && leaveFilterRange.value.length === 2) {
+    params.start_date = leaveFilterRange.value[0]
+    params.end_date = leaveFilterRange.value[1]
+  }
   try {
-    const res = await getLeaveRecords()
+    const res = await getLeaveRecords(params)
     leaveRecords.value = Array.isArray(res) ? res : []
   } catch {
     leaveRecords.value = []
   }
+}
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}`
 }
 
 function onLeaveEmployeeChange(empId) {
@@ -652,26 +677,32 @@ async function submitLeaveForm() {
     ElMessage.warning('请填写员工、开始日期、结束日期')
     return
   }
+  // 日期校验
+  if (leaveForm.end_date < leaveForm.start_date) {
+    ElMessage.warning('结束日期不能早于开始日期')
+    return
+  }
   try {
-    await createLeave({
+    const data = {
       employee_id: leaveForm.employee_id,
       employee_name: leaveForm.employee_name,
       start_date: leaveForm.start_date,
       end_date: leaveForm.end_date,
       leave_type: leaveForm.leave_type,
       reason: leaveForm.reason
-    })
-    ElMessage.success('请假记录已添加')
+    }
+    if (leaveEditingId.value) {
+      await updateLeave(leaveEditingId.value, data)
+      ElMessage.success('请假记录已更新')
+    } else {
+      await createLeave(data)
+      ElMessage.success('请假记录已添加')
+    }
     leaveFormVisible.value = false
-    leaveForm.employee_id = ''
-    leaveForm.employee_name = ''
-    leaveForm.start_date = ''
-    leaveForm.end_date = ''
-    leaveForm.leave_type = '请假'
-    leaveForm.reason = ''
+    resetLeaveForm()
     loadLeaveRecords()
   } catch (e) {
-    ElMessage.error('添加失败：' + (e.response?.data?.detail || e.message))
+    ElMessage.error((leaveEditingId.value ? '更新' : '添加') + '失败：' + (e.response?.data?.detail || e.message))
   }
 }
 
@@ -683,6 +714,27 @@ async function handleDeleteLeave(leaveId) {
   } catch (e) {
     ElMessage.error('删除失败：' + (e.response?.data?.detail || e.message))
   }
+}
+
+function handleEditLeave(row) {
+  leaveEditingId.value = row.id
+  leaveForm.employee_id = row.employee_id
+  leaveForm.employee_name = row.employee_name
+  leaveForm.start_date = row.start_date
+  leaveForm.end_date = row.end_date
+  leaveForm.leave_type = row.leave_type || '请假'
+  leaveForm.reason = row.reason || ''
+  leaveFormVisible.value = true
+}
+
+function resetLeaveForm() {
+  leaveEditingId.value = null
+  leaveForm.employee_id = ''
+  leaveForm.employee_name = ''
+  leaveForm.start_date = ''
+  leaveForm.end_date = ''
+  leaveForm.leave_type = '请假'
+  leaveForm.reason = ''
 }
 
 // ==================== 各部门人员任务数据 ====================
@@ -738,7 +790,6 @@ async function getDefaultScheduleData() {
     notScheduledTasks: [],
     pmRotationOrder: '',
     shiftTableData: [],
-    leaveNotes: [],
     urgentTableZhEn: defaultZhEn,
     urgentTableEnZh: defaultEnZh
   }
@@ -750,7 +801,6 @@ async function saveScheduleForDate() {
   try {
     const data = {
       shift_table: shiftTableData.value,
-      leave_notes: leaveNotes.value,
       urgent_table_zh_en: urgentTableZhEn.value,
       urgent_table_en_zh: urgentTableEnZh.value,
       dept_person_data: deptPersonData.value,
@@ -772,7 +822,7 @@ async function loadScheduleForDate(date) {
   ])
   const defaultData = defaultResult.status === 'fulfilled' ? defaultResult.value : {
     deptPersonData: [], notScheduledTasks: [], pmRotationOrder: '',
-    shiftTableData: [], leaveNotes: [], urgentTableZhEn: [], urgentTableEnZh: []
+    shiftTableData: [], urgentTableZhEn: [], urgentTableEnZh: []
   }
   const stored = storedResult.status === 'fulfilled' ? storedResult.value : null
 
@@ -781,7 +831,6 @@ async function loadScheduleForDate(date) {
     notScheduledTasks.value = stored.not_scheduled_tasks ?? defaultData.notScheduledTasks
     pmRotationOrder.value = stored.pm_rotation_order ?? defaultData.pmRotationOrder
     shiftTableData.value = stored.shift_table ?? defaultData.shiftTableData
-    leaveNotes.value = stored.leave_notes ?? defaultData.leaveNotes
     urgentTableZhEn.value = stored.urgent_table_zh_en ?? defaultData.urgentTableZhEn
     urgentTableEnZh.value = stored.urgent_table_en_zh ?? defaultData.urgentTableEnZh
   } else {
@@ -790,7 +839,6 @@ async function loadScheduleForDate(date) {
     notScheduledTasks.value = defaultData.notScheduledTasks
     pmRotationOrder.value = defaultData.pmRotationOrder
     shiftTableData.value = defaultData.shiftTableData
-    leaveNotes.value = defaultData.leaveNotes
     urgentTableZhEn.value = defaultData.urgentTableZhEn
     urgentTableEnZh.value = defaultData.urgentTableEnZh
   }
@@ -856,31 +904,6 @@ function submitShiftRowEdit() {
   saveScheduleForDate()
   shiftRowEditVisible.value = false
   ElMessage.success('该班次已临时调整并保存')
-}
-
-// ==================== 请假/调休公告编辑 ====================
-function openLeaveNotesEdit() {
-  leaveNotesEditList.value = [...leaveNotes.value]
-  leaveNotesEditVisible.value = true
-}
-
-function closeLeaveNotesEdit() {
-  leaveNotesEditList.value = []
-}
-
-function addLeaveNote() {
-  leaveNotesEditList.value.push('')
-}
-
-function removeLeaveNote(index) {
-  leaveNotesEditList.value.splice(index, 1)
-}
-
-function submitLeaveNotesEdit() {
-  leaveNotes.value = leaveNotesEditList.value.filter((s) => String(s).trim() !== '')
-  saveScheduleForDate()
-  leaveNotesEditVisible.value = false
-  ElMessage.success('请假/调休公告已保存')
 }
 
 // ==================== 译员安排表编辑（中英/英中） ====================
@@ -1223,6 +1246,11 @@ onMounted(async () => {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+}
+.leave-filter-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 .card-title {
   font-size: 16px;

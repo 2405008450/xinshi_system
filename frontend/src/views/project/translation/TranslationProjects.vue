@@ -138,9 +138,8 @@
             <el-option
               v-for="u in nextStageUsers"
               :key="u.id"
-              :label="(u.full_name || u.username || u.id) + (u.onLeave ? ' (请假中)' : '')"
+              :label="u.full_name || u.username || u.id"
               :value="u.id"
-              :disabled="!!u.onLeave"
             />
           </el-select>
         </template>
@@ -243,9 +242,8 @@
               <el-option
                 v-for="u in nextStageUsers"
                 :key="u.id"
-                :label="(u.full_name || u.username || u.id) + (u.onLeave ? ' (请假中)' : '')"
+                :label="u.full_name || u.username || u.id"
                 :value="u.id"
-                :disabled="!!u.onLeave"
               />
             </el-select>
           </template>
@@ -917,13 +915,12 @@ const stopNextStageWatch = watch(nextStageToAssign, async (stage) => {
       if (version !== _nextStageLoadVersion) return
       list = Array.isArray(allUsers) ? allUsers : []
     }
-    // 获取今日请假员工并标记
+    // 获取当前处于请假时段的员工，直接从候选名单中屏蔽
     try {
-      const today = new Date().toISOString().slice(0, 10)
-      const leaveList = await getOnLeaveUsers(today)
+      const leaveList = await getOnLeaveUsers()
       if (version !== _nextStageLoadVersion) return
       const onLeaveIds = new Set((Array.isArray(leaveList) ? leaveList : []).map((r) => String(r.employee_id)))
-      list = list.map((u) => ({ ...u, onLeave: onLeaveIds.has(String(u.id)) }))
+      list = list.filter((u) => !onLeaveIds.has(String(u.id)))
     } catch {
       // 请假接口失败不阻塞选人
     }
@@ -1001,6 +998,13 @@ async function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state || !pendingDifficulty.value || pendingFileEditable.value === null || !nextAssigneeUserId.value) return
   if (!canOperateCurrentStage.value) return
+
+  const selectedUser = nextStageUsers.value.find(u => u.id === nextAssigneeUserId.value)
+  if (selectedUser && selectedUser.onLeave) {
+    ElMessage.error('该负责人处于请假状态，无法被指派')
+    return
+  }
+
   const note = handoverNote.value?.trim() || '（无备注）'
   
   try {
@@ -1052,6 +1056,14 @@ async function completeCurrentStage() {
   const next = nextIdx < steps.length ? steps[nextIdx] : null
   
   if (next && next.key !== 'completed' && !nextAssigneeUserId.value) return
+  
+  if (nextAssigneeUserId.value) {
+    const selectedUser = nextStageUsers.value.find(u => u.id === nextAssigneeUserId.value)
+    if (selectedUser && selectedUser.onLeave) {
+      ElMessage.error('该负责人处于请假状态，无法被指派')
+      return
+    }
+  }
   
   const note = handoverNote.value?.trim() || '（无备注）'
   const currentStageData = { ...stageFormData }

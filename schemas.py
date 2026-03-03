@@ -301,8 +301,17 @@ class WorkScheduleResponse(WorkScheduleBase):
 class EmployeeLeaveCreate(BaseModel):
     employee_id: UUID
     employee_name: str
-    start_date: date
-    end_date: date
+    start_date: datetime
+    end_date: datetime
+    leave_type: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class EmployeeLeaveUpdate(BaseModel):
+    employee_id: Optional[UUID] = None
+    employee_name: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     leave_type: Optional[str] = None
     reason: Optional[str] = None
 
@@ -311,8 +320,8 @@ class EmployeeLeaveResponse(BaseModel):
     id: UUID
     employee_id: UUID
     employee_name: str
-    start_date: date
-    end_date: date
+    start_date: datetime
+    end_date: datetime
     leave_type: Optional[str] = None
     reason: Optional[str] = None
     created_at: Optional[datetime] = None

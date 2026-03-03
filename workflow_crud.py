@@ -145,17 +145,17 @@ import datetime as _dt
 
 
 def _check_on_leave(db: Session, user_id: UUID):
-    """检查用户今天是否在请假，是则抛出 ValueError 阻止派发"""
-    today = _dt.date.today()
+    """检查用户当前是否在请假，是则抛出 ValueError 阻止派发"""
+    now = _dt.datetime.now()
     leave = db.query(EmployeeLeave).filter(
         EmployeeLeave.employee_id == user_id,
-        EmployeeLeave.start_date <= today,
-        EmployeeLeave.end_date >= today,
+        EmployeeLeave.start_date <= now,
+        EmployeeLeave.end_date >= now,
     ).first()
     if leave:
         raise ValueError(
             f"该用户（{leave.employee_name}）当前处于请假中"
-            f"（{leave.start_date} ~ {leave.end_date}），无法指派任务"
+            f"（{leave.start_date.strftime('%Y-%m-%d %H:%M')} ~ {leave.end_date.strftime('%Y-%m-%d %H:%M')}），无法指派任务"
         )
 
 
