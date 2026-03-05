@@ -1,25 +1,25 @@
 # 构建阶段
-FROM node:18 as build
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# 复制package文件
-COPY frontend/package*.json frontend/
+# 先复制 package.json 利用缓存
+COPY frontend/package.json frontend/package-lock.json* ./
 
-# 安装依赖
-RUN cd frontend && npm install
+# 在容器内安装依赖（确保Linux权限正确）
+RUN npm install
 
-# 复制源代码
-COPY frontend/ frontend/
+# 复制前端源代码
+COPY frontend/ .
 
 # 构建
-RUN cd frontend && npm run build
+RUN npm run build
 
 # Nginx阶段
 FROM nginx:alpine
 
-# 复制构建产物
-COPY --from=build /app/frontend/dist /usr/share/nginx/html
+# 从构建阶段复制产物
+COPY --from=build /app/dist /usr/share/nginx/html
 
 # 复制nginx配置
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
