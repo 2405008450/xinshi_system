@@ -1,0 +1,21 @@
+# Node modules (避免Windows权限问题)
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+
+# 环境文件
+.env
+*.log
