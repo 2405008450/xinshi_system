@@ -39,18 +39,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # 前端 Nginx
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: xinshi_frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    restart: unless-stopped
-
 volumes:
   pgdata:
     driver: local
