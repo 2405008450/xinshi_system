@@ -122,6 +122,29 @@ class TranslatorBase(BaseModel):
     translator_name: str
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
+    translation_type: Optional[str] = None
+    quality_score: Optional[str] = None
+    cloud_revision: Optional[str] = None
+    daily_rate: Optional[str] = None
+    direction: Optional[str] = None
+    default_priority: Optional[int] = 0
+    schedule_remarks: Optional[str] = None
+    languages: Optional[str] = None
+    gender: Optional[str] = None
+    height: Optional[str] = None
+    appearance: Optional[str] = None
+    nationality: Optional[str] = None
+    ethnicity: Optional[str] = None
+    phone: Optional[str] = None
+    phone2: Optional[str] = None
+    email1: Optional[str] = None
+    email2: Optional[str] = None
+    resume_path: Optional[str] = None
+    other_contact: Optional[str] = None
+    overdue_count: Optional[int] = 0
+    overall_rating: Optional[str] = None
+    first_contact_date: Optional[date] = None
+    remarks: Optional[str] = None
 
 class TranslatorCreate(TranslatorBase):
     pass
@@ -131,6 +154,29 @@ class TranslatorUpdate(BaseModel):
     translator_name: Optional[str] = None
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
+    translation_type: Optional[str] = None
+    quality_score: Optional[str] = None
+    cloud_revision: Optional[str] = None
+    daily_rate: Optional[str] = None
+    direction: Optional[str] = None
+    default_priority: Optional[int] = None
+    schedule_remarks: Optional[str] = None
+    languages: Optional[str] = None
+    gender: Optional[str] = None
+    height: Optional[str] = None
+    appearance: Optional[str] = None
+    nationality: Optional[str] = None
+    ethnicity: Optional[str] = None
+    phone: Optional[str] = None
+    phone2: Optional[str] = None
+    email1: Optional[str] = None
+    email2: Optional[str] = None
+    resume_path: Optional[str] = None
+    other_contact: Optional[str] = None
+    overdue_count: Optional[int] = None
+    overall_rating: Optional[str] = None
+    first_contact_date: Optional[date] = None
+    remarks: Optional[str] = None
 
 class TranslatorResponse(TranslatorBase):
     id: UUID

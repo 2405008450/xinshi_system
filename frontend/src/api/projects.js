@@ -42,3 +42,7 @@ export const updateProject = (id, data) => {
 export const deleteProject = (id) => {
     return api.delete(`/projects/translation/${id}`)
 }
+
+export const getNextOrderNo = () => {
+    return api.get('/projects/translation/next-order-no').then(res => res.orderNo)
+}

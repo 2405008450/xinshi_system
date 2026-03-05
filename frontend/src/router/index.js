@@ -101,13 +101,13 @@ const routes = [
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
         redirect: '/resource-management/translators',
-        meta: { title: '资源管理' },
+        meta: { title: '资源管理', roles: ['*'] },
         children: [
           {
             path: 'translators',
             name: 'Translators',
             component: () => import('../views/resource/Translators.vue'),
-            meta: { title: '译员信息' }
+            meta: { title: '译员信息', roles: ['*'] }
           },
           {
             path: 'annotators',
@@ -128,31 +128,31 @@ const routes = [
         path: 'client-management',
         component: () => import('../views/client/ClientManagement.vue'),
         redirect: '/client-management/clients',
-        meta: { title: '客户管理' },
+        meta: { title: '客户管理', roles: ['*'] },
         children: [
           {
             path: 'clients',
             name: 'Clients',
             component: () => import('../views/client/Clients.vue'),
-            meta: { title: '客户信息' }
+            meta: { title: '客户信息', roles: ['*'] }
           },
           {
             path: 'subsidiary-clients',
             name: 'SubsidiaryClients',
             component: () => import('../views/client/SubsidiaryClients.vue'),
-            meta: { title: '子公司客户信息' }
+            meta: { title: '子公司客户信息', roles: ['*'] }
           },
           {
             path: 'client-contacts',
             name: 'ClientContacts',
             component: () => import('../views/client/ClientContacts.vue'),
-            meta: { title: '客户联系人及回访' }
+            meta: { title: '客户联系人及回访', roles: ['*'] }
           },
           {
             path: 'consultations',
             name: 'Consultations',
             component: () => import('../views/client/Consultations.vue'),
-            meta: { title: '咨询基本情况' }
+            meta: { title: '咨询基本情况', roles: ['*'] }
           }
         ]
       },

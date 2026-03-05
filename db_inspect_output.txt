@@ -105,8 +105,32 @@ TABLE: translator  (0 rows)
   translator_name                          character varying      NO  -
   cooperation_type                         character varying     YES  -
   contact_info                             character varying     YES  -
+  translation_type                         character varying     YES  -
+  quality_score                            character varying     YES  -
+  cloud_revision                           character varying     YES  -
+  daily_rate                               character varying     YES  -
+  direction                                character varying     YES  -
+  default_priority                         integer               YES  0
+  schedule_remarks                         text                  YES  -
+  languages                                character varying     YES  -
+  gender                                   character varying     YES  -
+  height                                   character varying     YES  -
+  appearance                               character varying     YES  -
+  nationality                              character varying     YES  -
+  ethnicity                                character varying     YES  -
+  phone                                    character varying     YES  -
+  phone2                                   character varying     YES  -
+  email1                                   character varying     YES  -
+  email2                                   character varying     YES  -
+  resume_path                              character varying     YES  -
+  other_contact                            character varying     YES  -
+  overdue_count                            integer               YES  0
+  overall_rating                           text                  YES  -
+  first_contact_date                       date                  YES  -
+  remarks                                  text                  YES  -
   created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
 
 ──────────────────────────────────────────────────────────────────────
 TABLE: user_role  (8 rows)

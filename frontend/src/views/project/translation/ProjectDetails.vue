@@ -362,7 +362,7 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { View } from '@element-plus/icons-vue'
-import { getProjects, createProject, updateProject, deleteProject } from '@/api/projects'
+import { getProjects, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -425,13 +425,20 @@ const getNowDateTime = () => {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`
 }
 
-const generateOrderNo = () => {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = pad(now.getMonth() + 1)
-  const day = pad(now.getDate())
-  const sequence = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
-  return `${year}${month}${day}${sequence}`
+const generateOrderNo = async () => {
+  try {
+    const orderNo = await getNextOrderNo()
+    return orderNo
+  } catch (error) {
+    console.error('获取订单号失败:', error)
+    // 备用方案：生成简单的本地订单号
+    const now = new Date()
+    const year = String(now.getFullYear()).slice(-2)
+    const month = pad(now.getMonth() + 1)
+    const day = pad(now.getDate())
+    const sequence = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
+    return `TP-${year}${month}${day}-${sequence}`
+  }
 }
 
 const generateUuid = () => {
@@ -486,12 +493,12 @@ const fetchData = async () => {
   }
 }
 
-const handleAdd = () => {
+const handleAdd = async () => {
   dialogTitle.value = '新增项目详情'
   clearDraft()
   resetForm()
   form.id = generateUuid()
-  form.orderNo = generateOrderNo()
+  form.orderNo = await generateOrderNo()
   form.createdAt = getNowDateTime()
   form.updatedAt = getNowDateTime()
   dialogVisible.value = true
@@ -570,7 +577,7 @@ const handleSubmit = async () => {
     if (valid) {
       try {
         if (!form.id) form.id = generateUuid()
-        if (!form.orderNo) form.orderNo = generateOrderNo()
+        if (!form.orderNo) form.orderNo = await generateOrderNo()
         if (!form.createdAt) form.createdAt = getNowDateTime()
         form.updatedAt = getNowDateTime()
         const payload = cleanPayload(form)

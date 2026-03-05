@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(pg_dump --help)"
     ]
   }
 }

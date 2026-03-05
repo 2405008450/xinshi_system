@@ -10,8 +10,15 @@ from crud import (
     create_translation_project, update_translation_project, delete_translation_project
 )
 from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
+from utils import generate_order_no
 
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"])
+
+
+@router.get("/next-order-no")
+def get_next_order_no(db: Session = Depends(get_db)):
+    """获取下一个订单号"""
+    return {"orderNo": generate_order_no(db)}
 
 
 @router.post("/", response_model=TranslationProjectResponse, status_code=status.HTTP_201_CREATED)

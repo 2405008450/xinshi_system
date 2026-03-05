@@ -76,45 +76,35 @@
           <el-icon><Calendar /></el-icon>
           <template #title>排班管理</template>
         </el-menu-item>
+        <!-- 译员信息：所有员工可查看 -->
+        <el-menu-item v-if="showResourceManagement" index="/resource-management/translators">
+          <el-icon><Avatar /></el-icon>
+          <template #title>译员信息</template>
+        </el-menu-item>
+        <!-- 客户管理：所有员工可查看 -->
+        <el-sub-menu v-if="showClientManagement" index="/client-management">
+          <template #title>
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>客户管理</span>
+          </template>
+          <el-menu-item index="/client-management/clients">
+            <template #title>客户信息</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/subsidiary-clients">
+            <template #title>子公司客户信息</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/client-contacts">
+            <template #title>客户联系人及回访</template>
+          </el-menu-item>
+          <el-menu-item index="/client-management/consultations">
+            <template #title>咨询基本情况</template>
+          </el-menu-item>
+        </el-sub-menu>
         <template v-if="showFullMenu">
           <el-menu-item index="/technology-management">
             <el-icon><QuestionFilled /></el-icon>
             <template #title>技术管理</template>
           </el-menu-item>
-          <el-divider class="menu-divider" />
-          <el-sub-menu index="/resource-management">
-            <template #title>
-              <el-icon><Avatar /></el-icon>
-              <span>资源管理</span>
-            </template>
-            <el-menu-item index="/resource-management/translators">
-              <template #title>译员信息</template>
-            </el-menu-item>
-            <el-menu-item index="/resource-management/annotators">
-              <template #title>标注员</template>
-            </el-menu-item>
-            <el-menu-item index="/resource-management/suppliers">
-              <template #title>供应商</template>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="/client-management">
-            <template #title>
-              <el-icon><OfficeBuilding /></el-icon>
-              <span>客户管理</span>
-            </template>
-            <el-menu-item index="/client-management/clients">
-              <template #title>客户信息</template>
-            </el-menu-item>
-            <el-menu-item index="/client-management/subsidiary-clients">
-              <template #title>子公司客户信息</template>
-            </el-menu-item>
-            <el-menu-item index="/client-management/client-contacts">
-              <template #title>客户联系人及回访</template>
-            </el-menu-item>
-            <el-menu-item index="/client-management/consultations">
-              <template #title>咨询基本情况</template>
-            </el-menu-item>
-          </el-sub-menu>
           <el-divider class="menu-divider" />
           <el-menu-item index="/finance">
             <el-icon><Money /></el-icon>
@@ -251,6 +241,11 @@ const showSchedule = computed(() => true)
 
 /** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
 const showTranslationMenu = computed(() => true)
+
+/** 是否显示「客户管理」（所有员工） */
+const showClientManagement = computed(() => true)
+/** 是否显示「资源管理」（所有员工） */
+const showResourceManagement = computed(() => true)
 
 /** 当前用户名（优先显示真实姓名，其次用户名，最后回退到用户） */
 const displayName = computed(() => {
