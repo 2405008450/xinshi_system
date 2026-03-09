@@ -1,9 +1,9 @@
 ======================================================================
-数据库中共有 10 张表
+数据库中共有 12 张表
 ======================================================================
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: app_user  (8 rows)
+TABLE: app_user  (47 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -15,6 +15,8 @@ TABLE: app_user  (8 rows)
   is_active                                boolean               YES  true
   created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  department                               character varying     YES  -
+  fixed_tasks                              jsonb                 YES  '[]'::jsonb
 
 ──────────────────────────────────────────────────────────────────────
 TABLE: client  (10 rows)
@@ -38,6 +40,50 @@ TABLE: client  (10 rows)
   remarks                                  text                  YES  -
   created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  english_name                             character varying     YES  -
+  english_short_name                       character varying     YES  -
+
+──────────────────────────────────────────────────────────────────────
+TABLE: consultation  (2 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  consultation_code                        character varying      NO  -
+  client_id                                uuid                  YES  -
+  consultation_time                        timestamp without time zone  YES  -
+  consultation_method                      character varying     YES  -
+  client_source                            character varying     YES  -
+  source_keyword                           character varying     YES  -
+  consultation_description                 text                  YES  -
+  remarks                                  text                  YES  -
+  customer_service_id                      uuid                  YES  -
+  sales_person_id                          uuid                  YES  -
+  status                                   character varying     YES  'pending'::character varying
+  consultation_type                        character varying     YES  -
+  handling_method                          character varying     YES  -
+  editor_id                                uuid                  YES  -
+  follow_up_count                          integer               YES  0
+  follow_up_time                           timestamp without time zone  YES  -
+  follow_up_status                         character varying     YES  -
+  follow_up_remarks                        text                  YES  -
+  follow_up_person_id                      uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: employee_leave  (2 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  employee_id                              uuid                   NO  -
+  employee_name                            character varying      NO  -
+  start_date                               date                   NO  -
+  end_date                                 date                   NO  -
+  leave_type                               character varying     YES  -
+  reason                                   character varying     YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
 
 ──────────────────────────────────────────────────────────────────────
 TABLE: project_file  (0 rows)
@@ -65,7 +111,7 @@ TABLE: role  (9 rows)
   description                              text                  YES  -
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: translation_project  (20 rows)
+TABLE: translation_project  (35 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -94,9 +140,12 @@ TABLE: translation_project  (20 rows)
   created_by                               uuid                  YES  -
   created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  language_pair                            character varying     YES  -
+  priority                                 character varying     YES  -
+  word_count                               bigint                YES  -
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: translator  (0 rows)
+TABLE: translator  (16 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -105,6 +154,8 @@ TABLE: translator  (0 rows)
   translator_name                          character varying      NO  -
   cooperation_type                         character varying     YES  -
   contact_info                             character varying     YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
   translation_type                         character varying     YES  -
   quality_score                            character varying     YES  -
   cloud_revision                           character varying     YES  -
@@ -128,12 +179,9 @@ TABLE: translator  (0 rows)
   overall_rating                           text                  YES  -
   first_contact_date                       date                  YES  -
   remarks                                  text                  YES  -
-  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
-  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
-
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: user_role  (8 rows)
+TABLE: user_role  (14 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -143,7 +191,25 @@ TABLE: user_role  (8 rows)
   created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: workflow_instance  (20 rows)
+TABLE: work_schedule  (2 rows)
+──────────────────────────────────────────────────────────────────────
+  COLUMN                                   TYPE                 NULL  DEFAULT
+  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
+  id                                       uuid                   NO  gen_random_uuid()
+  schedule_date                            date                   NO  -
+  shift_table                              jsonb                 YES  '[]'::jsonb
+  leave_notes                              jsonb                 YES  '[]'::jsonb
+  urgent_table_zh_en                       jsonb                 YES  '[]'::jsonb
+  urgent_table_en_zh                       jsonb                 YES  '[]'::jsonb
+  dept_person_data                         jsonb                 YES  '[]'::jsonb
+  not_scheduled_tasks                      jsonb                 YES  '[]'::jsonb
+  pm_rotation_order                        character varying     YES  -
+  updated_by                               uuid                  YES  -
+  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
+
+──────────────────────────────────────────────────────────────────────
+TABLE: workflow_instance  (31 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -160,7 +226,7 @@ TABLE: workflow_instance  (20 rows)
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
 
 ──────────────────────────────────────────────────────────────────────
-TABLE: workflow_log  (20 rows)
+TABLE: workflow_log  (40 rows)
 ──────────────────────────────────────────────────────────────────────
   COLUMN                                   TYPE                 NULL  DEFAULT
   ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
@@ -178,16 +244,16 @@ TABLE: workflow_log  (20 rows)
 ======================================================================
 translation_project 表前 3 行:
 ======================================================================
-  id=c3730723-a1e9-4be0-8a17-1082355a74c8  order_no=PRJ-20260228-0001  name=[漕启鸣] 测试翻译项目批次 239  client=59e14867-dea0-49d4-bc14-220002a416e7  status=pending
-  id=d82e59de-f57f-4c13-a225-7c4637e44627  order_no=PRJ-20260228-0002  name=[隋信灿] 测试翻译项目批次 603  client=4b16bb7d-ce2c-4cc7-9453-3394825e712c  status=pending
-  id=1c984f07-d318-473d-9fe2-921c3bec1dad  order_no=PRJ-20260228-0003  name=[隋信灿] 测试翻译项目批次 840  client=4b16bb7d-ce2c-4cc7-9453-3394825e712c  status=pending
+  id=1a58dfb0-8324-4cdb-a9ed-994ab0a7da9c  order_no=TP-20260302-0014  name=测试翻译项目批次 610  client=ce50afb4-ec6d-416e-91b7-b527f7a07abd  status=pending
+  id=1c984f07-d318-473d-9fe2-921c3bec1dad  order_no=TP-20260228-0003  name=测试翻译项目批次 840  client=4b16bb7d-ce2c-4cc7-9453-3394825e712c  status=已暂停
+  id=c1cff36a-a800-4836-bcb7-2f4c7ca3bd43  order_no=TP-20260302-0012  name=吉利  client=None  status=pending
 
 ======================================================================
 workflow_instance 表前 3 行:
 ======================================================================
-  id=66bb4de4-01aa-458e-bfc9-fefde720875d  proj=c3730723-a1e9-4be0-8a17-1082355a74c8  stage=reception  status=pending
-  id=4c8ef8aa-3a05-436b-996e-7c86faf354e8  proj=d82e59de-f57f-4c13-a225-7c4637e44627  stage=reception  status=pending
-  id=12d400f9-0127-4f3b-af41-02454375793c  proj=1c984f07-d318-473d-9fe2-921c3bec1dad  stage=reception  status=pending
+  id=b68b1897-1139-4317-80c8-2489edb2e988  proj=185e9769-af62-473a-be28-bdb777f7eaa6  stage=reception  status=pending
+  id=3ef92b8e-c8b6-4873-a18f-2c56aff44f60  proj=ac6b248a-48aa-48ff-805f-c5e8d2852dbf  stage=reception  status=pending
+  id=69563a01-6092-44b5-b687-d2238b05fd5a  proj=87d986e8-bb24-4e89-8407-3b6af6d8547f  stage=reception  status=pending
 
 ======================================================================
 workflow_log 表前 3 行:
@@ -196,30 +262,4 @@ workflow_log 表前 3 行:
   id=03496d39-c6a4-46fd-8276-0609304b311f  wf=4c8ef8aa-3a05-436b-996e-7c86faf354e8  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
   id=03c725ce-c04b-4934-b909-fc7e02fc8d91  wf=12d400f9-0127-4f3b-af41-02454375793c  from=  to=reception  dir=forward  desc=进入接稿（客户专员）
 
-──────────────────────────────────────────────────────────────────────
-TABLE: work_schedule  (0 rows)
-──────────────────────────────────────────────────────────────────────
-  COLUMN                                   TYPE                 NULL  DEFAULT
-  ──────────────────────────────────────  ──────────────────  ────  ──────────────────────────────
-  id                                       uuid                   NO  gen_random_uuid()
-  schedule_date                            date                   NO  -
-  shift_table                              jsonb                 YES  '[]'::jsonb
-  leave_notes                              jsonb                 YES  '[]'::jsonb
-  urgent_table_zh_en                       jsonb                 YES  '[]'::jsonb
-  urgent_table_en_zh                       jsonb                 YES  '[]'::jsonb
-  dept_person_data                         jsonb                 YES  '[]'::jsonb
-  not_scheduled_tasks                      jsonb                 YES  '[]'::jsonb
-  pm_rotation_order                        character varying     YES  -
-  updated_by                               uuid                  YES  -
-  created_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
-  updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
-
 ✅ 检查完毕
-
-======================================================================
-数据库更新记录 (由AI助手生成，用于同步模型更改到数据库)
-======================================================================
--- 在 translation_project 表中新增字段：language_pair, priority, word_count
-ALTER TABLE translation_project ADD COLUMN language_pair VARCHAR(100);
-ALTER TABLE translation_project ADD COLUMN priority VARCHAR(50);
-ALTER TABLE translation_project ADD COLUMN word_count BIGINT;
