@@ -7,7 +7,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 # 数据库配置
 DB_CONFIG = {
-    'host': 'localhost', # 由于脚本将在包含数据库的服务器内运行或可直接连通，先用 localhost，如果不行换成 'postgres' (docker compose service name)
+    'host': 'postgres', # 由于脚本将在包含数据库的服务器内运行或可直接连通，先用 localhost，如果不行换成 'postgres' (docker compose service name)
     'port': 5432,
     'database': 'xinshi_system',
     'user': 'postgres',
