@@ -7,6 +7,31 @@
       </div>
     </template>
 
+    <el-form :inline="true" :model="searchForm" class="search-form">
+      <el-form-item label="项目名称">
+        <el-input v-model="searchForm.projectName" placeholder="请输入项目名称" clearable @keyup.enter="handleSearch" />
+      </el-form-item>
+      <el-form-item label="订单号">
+        <el-input v-model="searchForm.orderNo" placeholder="请输入订单号" clearable @keyup.enter="handleSearch" />
+      </el-form-item>
+      <el-form-item label="客户简称">
+        <el-input v-model="searchForm.clientShortName" placeholder="请输入客户简称" clearable @keyup.enter="handleSearch" />
+      </el-form-item>
+      <el-form-item label="状态">
+        <el-select v-model="searchForm.projectStatus" placeholder="请选择状态" clearable style="width: 150px" @change="handleSearch">
+          <el-option label="待启动" value="pending" />
+          <el-option label="进行中" value="in_progress" />
+          <el-option label="已完成" value="completed" />
+          <el-option label="已暂停" value="paused" />
+          <el-option label="已终止" value="terminated" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="resetSearch">重置</el-button>
+      </el-form-item>
+    </el-form>
+
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="orderNo" label="订单号" width="160" />
@@ -104,6 +129,15 @@
                 <el-descriptions-item label="预定译员字数">
                   <span class="detail-value">{{ row.reservedTranslatorWordCount || 0 }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="翻译方向">
+                  <span class="detail-value">{{ row.languagePair || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="优先级">
+                  <span class="detail-value">{{ row.priority || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="项目字数">
+                  <span class="detail-value">{{ row.wordCount || '-' }}</span>
+                </el-descriptions-item>
                 <el-descriptions-item label="文件类型二级">
                   <span class="detail-value">{{ row.fileTypeSecondary || '-' }}</span>
                 </el-descriptions-item>
@@ -189,6 +223,7 @@
                 <el-option label="进行中" value="in_progress" />
                 <el-option label="已完成" value="completed" />
                 <el-option label="已暂停" value="paused" />
+                <el-option label="已终止" value="terminated" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -315,17 +350,40 @@
         </el-row>
         <el-row :gutter="20">
           <el-col :span="12">
+            <el-form-item label="翻译方向" prop="languagePair">
+              <el-input v-model="form.languagePair" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="优先级" prop="priority">
+              <el-select v-model="form.priority" placeholder="请选择" style="width: 100%">
+                <el-option label="低" value="低" />
+                <el-option label="中" value="中" />
+                <el-option label="高" value="高" />
+                <el-option label="紧急" value="紧急" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="项目字数" prop="wordCount">
+              <el-input-number v-model="form.wordCount" :min="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item label="文件类型二级" prop="fileTypeSecondary">
               <el-input v-model="form.fileTypeSecondary" />
             </el-form-item>
           </el-col>
+        </el-row>
+
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="大项目经理确认" prop="leadPmId">
               <el-input v-model="form.leadPmId" placeholder="用户ID" />
             </el-form-item>
           </el-col>
-        </el-row>
-        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="更新时间" prop="updatedAt">
               <el-date-picker
@@ -337,6 +395,8 @@
               />
             </el-form-item>
           </el-col>
+        </el-row>
+        <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="创建时间" prop="createdAt">
               <el-date-picker
@@ -377,12 +437,35 @@ const pagination = reactive({
   total: 0
 })
 
+const searchForm = reactive({
+  projectName: '',
+  orderNo: '',
+  clientShortName: '',
+  projectStatus: ''
+})
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const resetSearch = () => {
+  searchForm.projectName = ''
+  searchForm.orderNo = ''
+  searchForm.clientShortName = ''
+  searchForm.projectStatus = ''
+  handleSearch()
+}
+
 const form = reactive({
   id: '',
   orderNo: '',
   projectName: '',
   clientShortName: '',
   clientCode: '',
+  languagePair: '',
+  priority: '',
+  wordCount: 0,
   projectStatus: '',
   customerReceptionTime: '',
   customerDeadlineTime: '',
@@ -454,7 +537,8 @@ const getStatusLabel = (status) => {
     'pending': '待启动',
     'in_progress': '进行中',
     'completed': '已完成',
-    'paused': '已暂停'
+    'paused': '已暂停',
+    'terminated': '已终止'
   }
   return statusMap[status] || status
 }
@@ -464,7 +548,8 @@ const getStatusType = (status) => {
     'pending': 'info',
     'in_progress': 'warning',
     'completed': 'success',
-    'paused': 'danger'
+    'paused': 'danger',
+    'terminated': 'info'
   }
   return typeMap[status] || ''
 }
@@ -477,7 +562,15 @@ const applyPagination = () => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const response = await getProjects({ skip: 0, limit: 100 })
+    const params = {
+      skip: 0,
+      limit: 100,
+      project_name: searchForm.projectName || undefined,
+      order_no: searchForm.orderNo || undefined,
+      client_short_name: searchForm.clientShortName || undefined,
+      project_status: searchForm.projectStatus || undefined
+    }
+    const response = await getProjects(params)
     allData.value = Array.isArray(response) ? response : []
     pagination.total = allData.value.length
     pagination.page = 1
@@ -513,6 +606,9 @@ const handleEdit = (row) => {
     projectName: row.projectName || '',
     clientShortName: row.clientShortName || '',
     clientCode: row.clientCode || '',
+    languagePair: row.languagePair || '',
+    priority: row.priority || '',
+    wordCount: row.wordCount || 0,
     projectStatus: row.projectStatus || '',
     customerReceptionTime: row.customerReceptionTime || '',
     customerDeadlineTime: row.customerDeadlineTime || '',
@@ -606,6 +702,9 @@ const resetForm = () => {
     projectName: '',
     clientShortName: '',
     clientCode: '',
+    languagePair: '',
+    priority: '',
+    wordCount: 0,
     projectStatus: '',
     customerReceptionTime: '',
     customerDeadlineTime: '',
@@ -689,6 +788,23 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.search-form {
+  margin-bottom: 20px;
+  flex: 0 0 auto; /* 防止在剩余空间分配时被拉长 */
+}
+
+/* 保证表格内部结构稳定，防止组件整体被拉开距离 */
+.el-card :deep(.el-card__body) {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: 100%;
+}
+
+.el-table {
+  flex: 1;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

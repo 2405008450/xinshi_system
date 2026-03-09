@@ -76,6 +76,8 @@ class ClientBase(BaseModel):
     client_code: str
     client_name: str
     client_short_name: str
+    english_name: Optional[str] = None
+    english_short_name: Optional[str] = None
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -95,6 +97,8 @@ class ClientUpdate(BaseModel):
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
+    english_name: Optional[str] = None
+    english_short_name: Optional[str] = None
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -108,6 +112,61 @@ class ClientUpdate(BaseModel):
     remarks: Optional[str] = None
 
 class ClientResponse(ClientBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Consultation Schemas
+class ConsultationBase(BaseModel):
+    consultation_code: Optional[str] = None
+    client_id: Optional[UUID] = None
+    consultation_time: Optional[datetime] = None
+    consultation_method: Optional[str] = None
+    client_source: Optional[str] = None
+    source_keyword: Optional[str] = None
+    consultation_description: Optional[str] = None
+    remarks: Optional[str] = None
+    customer_service_id: Optional[UUID] = None
+    sales_person_id: Optional[UUID] = None
+    status: Optional[str] = "pending"
+    consultation_type: Optional[str] = None
+    handling_method: Optional[str] = None
+    editor_id: Optional[UUID] = None
+    follow_up_count: Optional[int] = 0
+    follow_up_time: Optional[datetime] = None
+    follow_up_status: Optional[str] = None
+    follow_up_remarks: Optional[str] = None
+    follow_up_person_id: Optional[UUID] = None
+
+class ConsultationCreate(ConsultationBase):
+    pass
+
+class ConsultationUpdate(BaseModel):
+    consultation_code: Optional[str] = None
+    client_id: Optional[UUID] = None
+    consultation_time: Optional[datetime] = None
+    consultation_method: Optional[str] = None
+    client_source: Optional[str] = None
+    source_keyword: Optional[str] = None
+    consultation_description: Optional[str] = None
+    remarks: Optional[str] = None
+    customer_service_id: Optional[UUID] = None
+    sales_person_id: Optional[UUID] = None
+    status: Optional[str] = None
+    consultation_type: Optional[str] = None
+    handling_method: Optional[str] = None
+    editor_id: Optional[UUID] = None
+    follow_up_count: Optional[int] = None
+    follow_up_time: Optional[datetime] = None
+    follow_up_status: Optional[str] = None
+    follow_up_remarks: Optional[str] = None
+    follow_up_person_id: Optional[UUID] = None
+
+class ConsultationResponse(ConsultationBase):
     id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -198,6 +257,9 @@ class TranslationProjectBase(BaseModel):
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
     project_status: Optional[str] = None
     pm_confirmed_by: Optional[UUID] = None
     translator_id: Optional[UUID] = None
@@ -225,6 +287,9 @@ class TranslationProjectUpdate(BaseModel):
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
     project_status: Optional[str] = None
     pm_confirmed_by: Optional[UUID] = None
     translator_id: Optional[UUID] = None

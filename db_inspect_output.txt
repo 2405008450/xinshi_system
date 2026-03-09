@@ -215,3 +215,11 @@ TABLE: work_schedule  (0 rows)
   updated_at                               timestamp without time zone  YES  CURRENT_TIMESTAMP
 
 ✅ 检查完毕
+
+======================================================================
+数据库更新记录 (由AI助手生成，用于同步模型更改到数据库)
+======================================================================
+-- 在 translation_project 表中新增字段：language_pair, priority, word_count
+ALTER TABLE translation_project ADD COLUMN language_pair VARCHAR(100);
+ALTER TABLE translation_project ADD COLUMN priority VARCHAR(50);
+ALTER TABLE translation_project ADD COLUMN word_count BIGINT;

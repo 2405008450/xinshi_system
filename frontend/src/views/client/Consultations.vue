@@ -9,17 +9,18 @@
 
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
+      <el-table-column prop="consultation_code" label="咨询编号" width="150" />
       <el-table-column prop="client_code" label="客户编号" width="150" />
       <el-table-column prop="client_name" label="客户名称" width="200" />
       <el-table-column prop="client_short_name" label="客户简称" width="150" />
-      <el-table-column prop="consultation_date" label="咨询时间" width="180" />
+      <el-table-column prop="consultation_time" label="咨询时间" width="180" />
       <el-table-column prop="consultation_method" label="咨询方式" width="120" />
       <el-table-column prop="client_source" label="客户来源" width="120" />
       <el-table-column prop="source_keyword" label="来源关键词" width="150" />
-      <el-table-column prop="consultation_status" label="咨询状态" width="120">
+      <el-table-column prop="status" label="咨询状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="getStatusType(row.consultation_status)">
-            {{ getStatusText(row.consultation_status) }}
+          <el-tag :type="getStatusType(row.status)">
+            {{ getStatusText(row.status) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -89,9 +90,9 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="咨询时间" prop="consultation_date">
+            <el-form-item label="咨询时间" prop="consultation_time">
               <el-date-picker
-                v-model="form.consultation_date"
+                v-model="form.consultation_time"
                 type="datetime"
                 placeholder="选择日期时间"
                 style="width: 100%"
@@ -132,8 +133,8 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="咨询状态" prop="consultation_status">
-              <el-select v-model="form.consultation_status" placeholder="请选择" style="width: 100%">
+            <el-form-item label="咨询状态" prop="status">
+              <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
                 <el-option label="待处理" value="pending" />
                 <el-option label="处理中" value="processing" />
                 <el-option label="已转化" value="converted" />
@@ -203,24 +204,25 @@ const pagination = reactive({
 
 const form = reactive({
   id: null,
+  client_id: null,
   client_code: '',
   client_name: '',
   client_short_name: '',
-  consultation_date: '',
+  consultation_time: '',
   consultation_method: '',
   client_source: '',
   source_keyword: '',
   consultation_description: '',
   service_staff: '',
   sales_staff: '',
-  consultation_status: 'pending',
+  status: 'pending',
   consultation_type: '',
   remarks: ''
 })
 
 const rules = {
   client_code: [{ required: true, message: '请选择客户编号', trigger: 'change' }],
-  consultation_date: [{ required: true, message: '请选择咨询时间', trigger: 'change' }]
+  consultation_time: [{ required: true, message: '请选择咨询时间', trigger: 'change' }]
 }
 
 const getStatusType = (status) => {
@@ -282,6 +284,7 @@ const handleClientChange = async (clientCode) => {
     const clients = await clientApi.getClients({ skip: 0, limit: 100 })
     const client = clients?.find(c => c.client_code === clientCode)
     if (client) {
+      form.client_id = client.id || null
       form.client_name = client.client_name || ''
       form.client_short_name = client.client_short_name || ''
     }
@@ -305,19 +308,21 @@ const handleAdd = async () => {
 
 const handleEdit = (row) => {
   dialogTitle.value = '编辑咨询'
+  // 直接使用行数据，这些字段已通过后端联表查询获取
   Object.assign(form, {
     id: row.id,
+    client_id: row.client_id || null,
     client_code: row.client_code || '',
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
-    consultation_date: row.consultation_date || '',
+    consultation_time: row.consultation_time || '',
     consultation_method: row.consultation_method || '',
     client_source: row.client_source || '',
     source_keyword: row.source_keyword || '',
     consultation_description: row.consultation_description || '',
     service_staff: row.service_staff || '',
     sales_staff: row.sales_staff || '',
-    consultation_status: row.consultation_status || 'pending',
+    status: row.status || 'pending',
     consultation_type: row.consultation_type || '',
     remarks: row.remarks || ''
   })
@@ -366,17 +371,18 @@ const handleSubmit = async () => {
 const resetForm = () => {
   Object.assign(form, {
     id: null,
+    client_id: null,
     client_code: '',
     client_name: '',
     client_short_name: '',
-    consultation_date: '',
+    consultation_time: '',
     consultation_method: '',
     client_source: '',
     source_keyword: '',
     consultation_description: '',
     service_staff: '',
     sales_staff: '',
-    consultation_status: 'pending',
+    status: 'pending',
     consultation_type: '',
     remarks: ''
   })

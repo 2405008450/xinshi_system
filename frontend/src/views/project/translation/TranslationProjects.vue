@@ -95,9 +95,9 @@
                 >
                   <el-option
                     v-for="opt in field.options"
-                    :key="opt"
-                    :label="opt"
-                    :value="opt"
+                    :key="typeof opt === 'object' ? opt.value : opt"
+                    :label="typeof opt === 'object' ? opt.label : opt"
+                    :value="typeof opt === 'object' ? opt.value : opt"
                   />
                 </el-select>
                 <el-input
@@ -184,9 +184,9 @@
                 >
                   <el-option
                     v-for="opt in field.options"
-                    :key="opt"
-                    :label="opt"
-                    :value="opt"
+                    :key="typeof opt === 'object' ? opt.value : opt"
+                    :label="typeof opt === 'object' ? opt.label : opt"
+                    :value="typeof opt === 'object' ? opt.value : opt"
                   />
                 </el-select>
                 <el-input
@@ -504,20 +504,27 @@ function getEffectiveStages(difficulty, fileEditable = true) {
  * 各阶段通用的项目状态选项
  * - 进入阶段时自动设为"进行中"，用户可手动切为"已暂停"
  * - 完成并提交时自动设为下一阶段的"进行中"
+ * - value 使用英文枚举，对应后端数据库存储值
  */
-const PROJECT_STATUS_OPTIONS = ['进行中', '已暂停']
+const PROJECT_STATUS_OPTIONS = [
+  { label: '进行中', value: 'in_progress' },
+  { label: '已暂停', value: 'paused' },
+  { label: '已终止', value: 'terminated' }
+]
 
 const stageProgressMap = {
   reception: {
     editable: [
+      { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
       { key: 'customerReceptionTime', label: '客户来稿时间', type: 'date' },
       { key: 'customerDeadlineTime', label: '交稿客户时间', type: 'date' },
-      { key: 'clientShortName', label: '客户简称' },
-      { key: 'fileType', label: '文件类型' },
-      { key: 'translationDirection', label: '翻译方向' },
+      { key: 'fileTypeSecondary', label: '文件类型' },
+      { key: 'languagePair', label: '翻译方向' },
       { key: 'wordCount', label: '字数统计' }
     ],
-    readonly: []
+    readonly: [
+      { key: 'clientShortName', label: '客户简称' }
+    ]
   },
   layout_assign: {
     editable: [
@@ -766,14 +773,14 @@ const isCustomerSpecialist = computed(() => {
   return roles.includes('客户专员')
 })
 
-/** 当前用户是否有权操作当前阶段（是负责人或拥有该阶段对应角色，或是超级管理员） */
+/** 当前用户是否有权操作当前阶段（是负责人或拥有该阶段对应角色，或是超级管理员/项目经理） */
 const canOperateCurrentStage = computed(() => {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return false
   const name = currentUserName.value
   const roles = getStoredRoles()
-  // 超级管理员始终可操作
-  if (roles.includes('admin') || roles.includes('超级管理员')) return true
+  // 超级管理员和项目经理始终可操作（不受阶段限制）
+  if (roles.includes('admin') || roles.includes('超级管理员') || roles.includes('项目经理')) return true
   // 已指定负责人时，只有负责人本人可操作
   if (state.currentAssigneeUserId) {
     return state.currentAssigneeUserId === currentUserId.value
@@ -856,22 +863,19 @@ function initStageFormData() {
   // 进入非首阶段、非完成阶段时，自动将项目状态设为"进行中"
   if (state.currentStageKey !== 'reception' && state.currentStageKey !== 'completed') {
     if (stageFormData.projectStatus !== undefined) {
-      stageFormData.projectStatus = stageFormData.projectStatus || '进行中'
+      stageFormData.projectStatus = stageFormData.projectStatus || 'in_progress'
     }
     state.projectStatus = 'in_progress'
   }
 }
 
-// 当用户在表单中切换项目状态（进行中 ↔ 已暂停）时，同步到全局 workflowState
+// 当用户在表单中切换项目状态时，同步到全局 workflowState（直接使用英文值）
 watch(() => stageFormData.projectStatus, (val) => {
   if (!val) return
   const state = getWorkflowState(currentProjectId.value)
   if (!state || state.currentStageKey === 'completed') return
-  if (val === '已暂停') {
-    state.projectStatus = 'paused'
-  } else if (val === '进行中') {
-    state.projectStatus = 'in_progress'
-  }
+  // 直接将表单值（英文枚举）同步到全局状态
+  state.projectStatus = val
 })
 
 const nextStageToAssign = computed(() => nextStageAfterReception.value || nextStageForAssignee.value)
@@ -958,6 +962,9 @@ const projectProgress = computed(() => {
     clientCode: p.clientCode,
     customerReceptionTime: p.customerReceptionTime,
     customerDeadlineTime: p.customerDeadlineTime,
+    languagePair: p.languagePair,
+    priority: p.priority,
+    wordCount: p.wordCount,
     translatorCooperationType: p.translatorCooperationType,
     translatorAssignee: p.translatorAssignee,
     translatorAssignmentTime: p.translatorAssignmentTime,
@@ -984,12 +991,12 @@ function difficultyLabel(d) {
 }
 
 function getStatusLabel(status) {
-  const map = { pending: '待启动', in_progress: '进行中', completed: '已完成', paused: '已暂停' }
+  const map = { pending: '待启动', in_progress: '进行中', completed: '已完成', paused: '已暂停', terminated: '已终止' }
   return map[status] || status || '待启动'
 }
 
 function getStatusType(status) {
-  const map = { pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger' }
+  const map = { pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger', terminated: 'info' }
   return map[status] || 'info'
 }
 

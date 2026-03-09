@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from models import AppUser, Role, TranslationProject, UserRole, ProjectFile, Client, Translator
+from models import AppUser, Role, TranslationProject, UserRole, ProjectFile, Client, Translator, Consultation
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
@@ -11,7 +11,8 @@ from schemas import (
     UserRoleCreate,
     ProjectFileCreate, ProjectFileUpdate,
     ClientCreate, ClientUpdate,
-    TranslatorCreate, TranslatorUpdate
+    TranslatorCreate, TranslatorUpdate,
+    ConsultationCreate, ConsultationUpdate
 )
 import hashlib
 from utils import generate_order_no
@@ -206,10 +207,27 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
     project.client_code = code
     return project
 
-def get_translation_projects(db: Session, skip: int = 0, limit: int = 100, created_by: Optional[UUID] = None) -> List[TranslationProject]:
+def get_translation_projects(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None
+) -> List[TranslationProject]:
     query = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id)
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
+    if project_name:
+        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+    if order_no:
+        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+    if project_status:
+        query = query.filter(TranslationProject.project_status == project_status)
+    if client_short_name:
+        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
     results = query.offset(skip).limit(limit).all()
     projects = []
     for project, short_name, code in results:
@@ -398,5 +416,91 @@ def delete_project_file(db: Session, file_id: UUID) -> bool:
     if not db_file:
         return False
     db.delete(db_file)
+    db.commit()
+    return True
+
+
+# Consultation CRUD
+import datetime as dt
+
+def generate_consultation_code(db: Session) -> str:
+    """
+    生成咨询流水号
+    格式: EQ-YYMMDD-NNN (如 EQ-260309-001)
+    """
+    today_str = dt.datetime.now().strftime("%y%m%d")
+    prefix = f"EQ-{today_str}-"
+
+    last_consultation = (
+        db.query(Consultation)
+        .filter(Consultation.consultation_code.like(f"EQ-{today_str}-%"))
+        .order_by(Consultation.consultation_code.desc())
+        .first()
+    )
+
+    if last_consultation and last_consultation.consultation_code:
+        try:
+            seq_str = last_consultation.consultation_code.split("-")[-1]
+            last_seq = int(seq_str)
+            new_seq = last_seq + 1
+        except ValueError:
+            new_seq = 1
+    else:
+        new_seq = 1
+
+    return f"{prefix}{new_seq:03d}"
+
+
+def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultation]:
+    result = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id).filter(Consultation.id == consultation_id).first()
+    if not result:
+        return None
+    consultation, client_code, client_name, client_short_name = result
+    consultation.client_code = client_code
+    consultation.client_name = client_name
+    consultation.client_short_name = client_short_name
+    return consultation
+
+
+def get_consultations(db: Session, skip: int = 0, limit: int = 100) -> List[Consultation]:
+    results = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id).offset(skip).limit(limit).all()
+    consultations = []
+    for consultation, client_code, client_name, client_short_name in results:
+        consultation.client_code = client_code
+        consultation.client_name = client_name
+        consultation.client_short_name = client_short_name
+        consultations.append(consultation)
+    return consultations
+
+
+def create_consultation(db: Session, consultation: ConsultationCreate) -> Consultation:
+    consultation_code = generate_consultation_code(db)
+
+    db_consultation = Consultation(
+        consultation_code=consultation_code,
+        **consultation.model_dump(exclude={'consultation_code'})
+    )
+    db.add(db_consultation)
+    db.commit()
+    db.refresh(db_consultation)
+    return db_consultation
+
+
+def update_consultation(db: Session, consultation_id: UUID, consultation_update: ConsultationUpdate) -> Optional[Consultation]:
+    db_consultation = get_consultation(db, consultation_id)
+    if not db_consultation:
+        return None
+    for field, value in consultation_update.model_dump(exclude_unset=True).items():
+        setattr(db_consultation, field, value)
+    db.commit()
+    db.refresh(db_consultation)
+    return db_consultation
+
+
+def delete_consultation(db: Session, consultation_id: UUID) -> bool:
+    db_consultation = get_consultation(db, consultation_id)
+    if not db_consultation:
+        return False
+    db.delete(db_consultation)
     db.commit()
     return True

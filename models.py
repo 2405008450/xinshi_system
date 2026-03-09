@@ -57,6 +57,8 @@ class Client(Base):
     client_code: Mapped[str] = mapped_column(String(50), nullable=False)
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
     client_short_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    english_name: Mapped[Optional[str]] = mapped_column(String(255))
+    english_short_name: Mapped[Optional[str]] = mapped_column(String(100))
     client_manager: Mapped[Optional[str]] = mapped_column(String(100))
     manager_contact: Mapped[Optional[str]] = mapped_column(String(100))
     field_level1: Mapped[Optional[str]] = mapped_column(String(100))
@@ -72,6 +74,50 @@ class Client(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='client')
+    consultations: Mapped[list['Consultation']] = relationship('Consultation', back_populates='client')
+
+
+class Consultation(Base):
+    __tablename__ = 'consultation'
+    __table_args__ = (
+        ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='SET NULL', name='fk_consultation_client'),
+        ForeignKeyConstraint(['customer_service_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_customer_service'),
+        ForeignKeyConstraint(['sales_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_sales_person'),
+        ForeignKeyConstraint(['editor_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_editor'),
+        ForeignKeyConstraint(['follow_up_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_follow_up_person'),
+        PrimaryKeyConstraint('id', name='consultation_pkey'),
+        UniqueConstraint('consultation_code', name='consultation_code_key')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    consultation_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    consultation_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    consultation_method: Mapped[Optional[str]] = mapped_column(String(50))
+    client_source: Mapped[Optional[str]] = mapped_column(String(100))
+    source_keyword: Mapped[Optional[str]] = mapped_column(String(255))
+    consultation_description: Mapped[Optional[str]] = mapped_column(Text)
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    customer_service_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sales_person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    status: Mapped[Optional[str]] = mapped_column(String(20), server_default=text("'pending'"))
+    consultation_type: Mapped[Optional[str]] = mapped_column(String(50))
+    handling_method: Mapped[Optional[str]] = mapped_column(String(100))
+    editor_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    follow_up_count: Mapped[Optional[int]] = mapped_column(server_default=text('0'))
+    follow_up_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    follow_up_status: Mapped[Optional[str]] = mapped_column(String(20))
+    follow_up_remarks: Mapped[Optional[str]] = mapped_column(Text)
+    follow_up_person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    # Relationships
+    client: Mapped[Optional['Client']] = relationship('Client', back_populates='consultations')
+    customer_service: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[customer_service_id])
+    sales_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[sales_person_id])
+    editor: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[editor_id])
+    follow_up_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[follow_up_person_id])
 
 
 class Translator(Base):
@@ -137,6 +183,10 @@ class TranslationProject(Base):
     customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     sent_to_client_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     client_feedback: Mapped[Optional[str]] = mapped_column(Text)
+    
+    language_pair: Mapped[Optional[str]] = mapped_column(String(100))
+    priority: Mapped[Optional[str]] = mapped_column(String(50))
+    word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
     
     project_status: Mapped[Optional[str]] = mapped_column(String(50))
     pm_confirmed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

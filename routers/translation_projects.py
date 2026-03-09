@@ -59,9 +59,22 @@ def read_projects(
     skip: int = 0,
     limit: int = 100,
     created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    projects = get_translation_projects(db, skip=skip, limit=limit, created_by=created_by)
+    projects = get_translation_projects(
+        db,
+        skip=skip,
+        limit=limit,
+        created_by=created_by,
+        project_name=project_name,
+        order_no=order_no,
+        project_status=project_status,
+        client_short_name=client_short_name
+    )
     return projects
 
 

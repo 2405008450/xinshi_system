@@ -740,6 +740,78 @@ function resetLeaveForm() {
 // ==================== 各部门人员任务数据 ====================
 const deptPersonData = ref([])
 
+function normalizeTaskForUi(task) {
+  const source = task || {}
+  return {
+    category: source.category || '其他',
+    content: source.content ?? source.projectName ?? source.project_name ?? '',
+    projectNo: source.projectNo ?? source.orderNo ?? source.order_no ?? '',
+    deadline: source.deadline ?? source.customerDeadlineTime ?? source.customer_deadline_time ?? '',
+    projectStatus: source.projectStatus ?? source.project_status ?? ''
+  }
+}
+
+function normalizeDeptPersonDataForUi(data) {
+  if (!Array.isArray(data)) return []
+  return data.map((person) => ({
+    name: person?.name || '',
+    dept: person?.dept || '',
+    status: person?.status || 'scheduled',
+    tasks: Array.isArray(person?.tasks) ? person.tasks.map(normalizeTaskForUi) : [],
+    fixedTasks: Array.isArray(person?.fixedTasks)
+      ? person.fixedTasks
+      : (Array.isArray(person?.fixed_tasks) ? person.fixed_tasks : [])
+  }))
+}
+
+function normalizeNotScheduledTasksForUi(data) {
+  if (!Array.isArray(data)) return []
+  return data.map((item) => ({
+    personName: item?.personName ?? item?.person_name ?? '',
+    department: item?.department ?? '',
+    projectOrTask: item?.projectOrTask ?? item?.projectName ?? item?.project_name ?? '',
+    projectNo: item?.projectNo ?? item?.orderNo ?? item?.order_no ?? '',
+    deadline: item?.deadline ?? item?.customerDeadlineTime ?? item?.customer_deadline_time ?? '',
+    remarks: item?.remarks ?? ''
+  }))
+}
+
+function serializeTaskForApi(task) {
+  const source = task || {}
+  return {
+    category: source.category || '其他',
+    project_name: source.content ?? source.projectName ?? source.project_name ?? '',
+    order_no: source.projectNo ?? source.orderNo ?? source.order_no ?? '',
+    customer_deadline_time: source.deadline ?? source.customerDeadlineTime ?? source.customer_deadline_time ?? '',
+    project_status: source.projectStatus ?? source.project_status ?? ''
+  }
+}
+
+function serializeDeptPersonDataForApi(data) {
+  if (!Array.isArray(data)) return []
+  return data.map((person) => ({
+    name: person?.name || '',
+    dept: person?.dept || '',
+    status: person?.status || 'scheduled',
+    tasks: Array.isArray(person?.tasks) ? person.tasks.map(serializeTaskForApi) : [],
+    fixed_tasks: Array.isArray(person?.fixedTasks)
+      ? person.fixedTasks
+      : (Array.isArray(person?.fixed_tasks) ? person.fixed_tasks : [])
+  }))
+}
+
+function serializeNotScheduledTasksForApi(data) {
+  if (!Array.isArray(data)) return []
+  return data.map((item) => ({
+    person_name: item?.personName ?? item?.person_name ?? '',
+    department: item?.department ?? '',
+    project_name: item?.projectOrTask ?? item?.projectName ?? item?.project_name ?? '',
+    order_no: item?.projectNo ?? item?.orderNo ?? item?.order_no ?? '',
+    customer_deadline_time: item?.deadline ?? item?.customerDeadlineTime ?? item?.customer_deadline_time ?? '',
+    remarks: item?.remarks ?? ''
+  }))
+}
+
 /**
  * 从后端 API 动态拉取员工列表，生成排班初始模板
  */
@@ -803,8 +875,8 @@ async function saveScheduleForDate() {
       shift_table: shiftTableData.value,
       urgent_table_zh_en: urgentTableZhEn.value,
       urgent_table_en_zh: urgentTableEnZh.value,
-      dept_person_data: deptPersonData.value,
-      not_scheduled_tasks: notScheduledTasks.value,
+      dept_person_data: serializeDeptPersonDataForApi(deptPersonData.value),
+      not_scheduled_tasks: serializeNotScheduledTasksForApi(notScheduledTasks.value),
       pm_rotation_order: pmRotationOrder.value
     }
     await saveSchedule(date, data)
@@ -827,8 +899,8 @@ async function loadScheduleForDate(date) {
   const stored = storedResult.status === 'fulfilled' ? storedResult.value : null
 
   if (stored) {
-    deptPersonData.value = stored.dept_person_data ?? defaultData.deptPersonData
-    notScheduledTasks.value = stored.not_scheduled_tasks ?? defaultData.notScheduledTasks
+    deptPersonData.value = normalizeDeptPersonDataForUi(stored.dept_person_data ?? defaultData.deptPersonData)
+    notScheduledTasks.value = normalizeNotScheduledTasksForUi(stored.not_scheduled_tasks ?? defaultData.notScheduledTasks)
     pmRotationOrder.value = stored.pm_rotation_order ?? defaultData.pmRotationOrder
     shiftTableData.value = stored.shift_table ?? defaultData.shiftTableData
     urgentTableZhEn.value = stored.urgent_table_zh_en ?? defaultData.urgentTableZhEn
@@ -836,7 +908,8 @@ async function loadScheduleForDate(date) {
   } else {
     // 404 或网络错误，用默认数据
     deptPersonData.value = defaultData.deptPersonData
-    notScheduledTasks.value = defaultData.notScheduledTasks
+    deptPersonData.value = normalizeDeptPersonDataForUi(deptPersonData.value)
+    notScheduledTasks.value = normalizeNotScheduledTasksForUi(defaultData.notScheduledTasks)
     pmRotationOrder.value = defaultData.pmRotationOrder
     shiftTableData.value = defaultData.shiftTableData
     urgentTableZhEn.value = defaultData.urgentTableZhEn
@@ -996,12 +1069,21 @@ async function fetchTodayIncoming() {
     const todayStr = dateToUse.slice(0, 10)
     const res = await getProjects({ limit: 500 })
     const list = Array.isArray(res) ? res : []
-    const todayItems = list.filter((p) => {
-      const createdAt = p.created_at
-      if (!createdAt) return false
-      const createdStr = typeof createdAt === 'string' ? createdAt.slice(0, 10) : ''
-      return createdStr === todayStr
-    })
+    const todayItems = list
+      .filter((p) => {
+        const createdAt = p.createdAt
+        if (!createdAt) return false
+        const createdStr = typeof createdAt === 'string' ? createdAt.slice(0, 10) : ''
+        return createdStr === todayStr
+      })
+      .map((p) => ({
+        project_no: p.orderNo || '',
+        client_name: p.projectName || '',
+        status: p.projectStatus || '',
+        deadline: p.customerDeadlineTime || '',
+        word_count: p.expectedTranslatorWordCount ?? '',
+        remarks: p.clientFeedback || ''
+      }))
     todayItems.sort((a, b) => {
       const ta = parseDeadlineForSort(a.deadline)
       const tb = parseDeadlineForSort(b.deadline)
