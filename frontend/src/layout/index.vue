@@ -82,33 +82,32 @@
           <template #title>译员信息</template>
         </el-menu-item>
         <!-- 客户管理：所有员工可查看 -->
-        <el-sub-menu v-if="showClientManagement" index="/client-management">
-          <template #title>
-            <el-icon><OfficeBuilding /></el-icon>
-            <span>客户管理</span>
-          </template>
-          <el-menu-item index="/client-management/clients">
-            <template #title>客户信息</template>
-          </el-menu-item>
-          <el-menu-item index="/client-management/subsidiary-clients">
-            <template #title>子公司客户信息</template>
-          </el-menu-item>
-          <el-menu-item index="/client-management/client-contacts">
-            <template #title>客户联系人及回访</template>
-          </el-menu-item>
-          <el-menu-item index="/client-management/consultations">
-            <template #title>咨询基本情况</template>
-          </el-menu-item>
-        </el-sub-menu>
+        <el-menu-item v-if="showClientManagement" index="/clients">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>客户信息</template>
+        </el-menu-item>
+        <el-menu-item v-if="showClientManagement" index="/subsidiary-clients">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>子公司客户信息</template>
+        </el-menu-item>
+        <el-menu-item v-if="showClientManagement" index="/client-contacts">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>客户联系人及回访</template>
+        </el-menu-item>
+        <el-menu-item v-if="showClientManagement" index="/consultations">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>咨询基本情况</template>
+        </el-menu-item>
+        <!-- 财务管理：所有员工可查看 -->
+        <el-menu-item index="/finance">
+          <el-icon><Money /></el-icon>
+          <template #title>财务管理</template>
+        </el-menu-item>
         <template v-if="showFullMenu">
+          <el-divider class="menu-divider" />
           <el-menu-item index="/technology-management">
             <el-icon><QuestionFilled /></el-icon>
             <template #title>技术管理</template>
-          </el-menu-item>
-          <el-divider class="menu-divider" />
-          <el-menu-item index="/finance">
-            <el-icon><Money /></el-icon>
-            <template #title>财务管理</template>
           </el-menu-item>
           <el-menu-item index="/marketing">
             <el-icon><Promotion /></el-icon>

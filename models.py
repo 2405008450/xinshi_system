@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Date, ForeignKeyConstraint, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Integer, Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -299,3 +299,66 @@ class EmployeeLeave(Base):
     leave_type: Mapped[Optional[str]] = mapped_column(String(50))
     reason: Mapped[Optional[str]] = mapped_column(String(500))
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class FinanceRecord(Base):
+    """财务主表：一单一条"""
+    __tablename__ = 'finance_record'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='RESTRICT', name='fk_finance_record_project'),
+        ForeignKeyConstraint(['sales_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_finance_record_sales_person'),
+        ForeignKeyConstraint(['follow_up_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_finance_record_follow_up_person'),
+        ForeignKeyConstraint(['edited_by'], ['app_user.id'], ondelete='SET NULL', name='fk_finance_record_edited_by'),
+        PrimaryKeyConstraint('id', name='finance_record_pkey'),
+        UniqueConstraint('project_id', name='uq_finance_record_project'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sales_person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    follow_up_person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    settlement_method: Mapped[Optional[str]] = mapped_column(String(50))
+    unit_price_excl_tax: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    unit_price_incl_tax: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    total_excl_tax: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    total_incl_tax: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    invoice_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'unissued'"))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    edited_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('now()'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('now()'))
+
+    # Relationships
+    project: Mapped['TranslationProject'] = relationship('TranslationProject', foreign_keys=[project_id])
+    sales_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[sales_person_id])
+    follow_up_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[follow_up_person_id])
+    editor: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[edited_by])
+    payments: Mapped[list['FinancePayment']] = relationship('FinancePayment', back_populates='finance_record', cascade='all, delete-orphan')
+
+
+class FinancePayment(Base):
+    """财务款项明细表：一单多条（定金/中期/尾款）"""
+    __tablename__ = 'finance_payment'
+    __table_args__ = (
+        ForeignKeyConstraint(['finance_id'], ['finance_record.id'], ondelete='CASCADE', name='fk_finance_payment_finance'),
+        ForeignKeyConstraint(['confirmed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_finance_payment_confirmed_by'),
+        PrimaryKeyConstraint('id', name='finance_payment_pkey'),
+        UniqueConstraint('finance_id', 'stage_type', 'stage_no', name='uq_finance_payment_stage'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    finance_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    stage_type: Mapped[str] = mapped_column(String(20), nullable=False)  # deposit, mid, final
+    stage_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    planned_amount: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    actual_amount: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
+    payment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    payment_method: Mapped[Optional[str]] = mapped_column(String(50))
+    confirmed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    confirmed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('now()'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('now()'))
+
+    # Relationships
+    finance_record: Mapped['FinanceRecord'] = relationship('FinanceRecord', back_populates='payments')
+    confirmer: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[confirmed_by])

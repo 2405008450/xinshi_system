@@ -123,45 +123,37 @@ const routes = [
           }
         ]
       },
-      // 客户管理 - 嵌套路由
+      // 客户管理 - 扁平路由
       {
-        path: 'client-management',
-        component: () => import('../views/client/ClientManagement.vue'),
-        redirect: '/client-management/clients',
-        meta: { title: '客户管理', roles: ['*'] },
-        children: [
-          {
-            path: 'clients',
-            name: 'Clients',
-            component: () => import('../views/client/Clients.vue'),
-            meta: { title: '客户信息', roles: ['*'] }
-          },
-          {
-            path: 'subsidiary-clients',
-            name: 'SubsidiaryClients',
-            component: () => import('../views/client/SubsidiaryClients.vue'),
-            meta: { title: '子公司客户信息', roles: ['*'] }
-          },
-          {
-            path: 'client-contacts',
-            name: 'ClientContacts',
-            component: () => import('../views/client/ClientContacts.vue'),
-            meta: { title: '客户联系人及回访', roles: ['*'] }
-          },
-          {
-            path: 'consultations',
-            name: 'Consultations',
-            component: () => import('../views/client/Consultations.vue'),
-            meta: { title: '咨询基本情况', roles: ['*'] }
-          }
-        ]
+        path: 'clients',
+        name: 'Clients',
+        component: () => import('../views/client/Clients.vue'),
+        meta: { title: '客户信息', roles: ['*'] }
+      },
+      {
+        path: 'subsidiary-clients',
+        name: 'SubsidiaryClients',
+        component: () => import('../views/client/SubsidiaryClients.vue'),
+        meta: { title: '子公司客户信息', roles: ['*'] }
+      },
+      {
+        path: 'client-contacts',
+        name: 'ClientContacts',
+        component: () => import('../views/client/ClientContacts.vue'),
+        meta: { title: '客户联系人及回访', roles: ['*'] }
+      },
+      {
+        path: 'consultations',
+        name: 'Consultations',
+        component: () => import('../views/client/Consultations.vue'),
+        meta: { title: '咨询基本情况', roles: ['*'] }
       },
       // 财务管理
       {
         path: 'finance',
         name: 'FinanceManagement',
         component: () => import('../views/finance/FinanceManagement.vue'),
-        meta: { title: '财务管理' }
+        meta: { title: '财务管理', roles: ['*'] }
       },
       // 营销管理
       {

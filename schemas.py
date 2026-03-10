@@ -439,3 +439,140 @@ class EmployeeLeaveResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ========== 财务 Schemas ==========
+
+class FinancePaymentBase(BaseModel):
+    stage_type: str  # deposit, mid, final
+    stage_no: int = 1
+    planned_amount: Optional[float] = None
+    actual_amount: Optional[float] = None
+    payment_time: Optional[datetime] = None
+    payment_method: Optional[str] = None
+    confirmed_by: Optional[UUID] = None
+    confirmed_at: Optional[datetime] = None
+
+
+class FinancePaymentCreate(FinancePaymentBase):
+    pass
+
+
+class FinancePaymentUpdate(BaseModel):
+    stage_type: Optional[str] = None
+    stage_no: Optional[int] = None
+    planned_amount: Optional[float] = None
+    actual_amount: Optional[float] = None
+    payment_time: Optional[datetime] = None
+    payment_method: Optional[str] = None
+    confirmed_by: Optional[UUID] = None
+    confirmed_at: Optional[datetime] = None
+
+
+class FinancePaymentResponse(FinancePaymentBase):
+    id: UUID
+    finance_id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FinanceRecordBase(BaseModel):
+    project_id: UUID
+    sales_person_id: Optional[UUID] = None
+    follow_up_person_id: Optional[UUID] = None
+    settlement_method: Optional[str] = None
+    unit_price_excl_tax: Optional[float] = None
+    unit_price_incl_tax: Optional[float] = None
+    total_excl_tax: Optional[float] = None
+    total_incl_tax: Optional[float] = None
+    invoice_status: Optional[str] = 'unissued'
+    remarks: Optional[str] = None
+    edited_by: Optional[UUID] = None
+
+
+class FinanceRecordCreate(FinanceRecordBase):
+    payments: Optional[list[FinancePaymentCreate]] = []
+
+
+class FinanceRecordUpdate(BaseModel):
+    sales_person_id: Optional[UUID] = None
+    follow_up_person_id: Optional[UUID] = None
+    settlement_method: Optional[str] = None
+    unit_price_excl_tax: Optional[float] = None
+    unit_price_incl_tax: Optional[float] = None
+    total_excl_tax: Optional[float] = None
+    total_incl_tax: Optional[float] = None
+    invoice_status: Optional[str] = None
+    remarks: Optional[str] = None
+    edited_by: Optional[UUID] = None
+    payments: Optional[list[FinancePaymentCreate]] = None
+
+
+class FinanceRecordResponse(FinanceRecordBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    payments: list[FinancePaymentResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class FinanceEntryPayload(BaseModel):
+    """4步综合表单一次性提交的联合 payload"""
+    # 第1步：咨询基本情况（可选，若已有咨询则传 consultation_id）
+    consultation_id: Optional[UUID] = None
+    consultation: Optional[ConsultationCreate] = None
+
+    # 第2步：项目详情（可选，若已有项目则传 project_id）
+    project_id: Optional[UUID] = None
+    project: Optional[TranslationProjectCreate] = None
+
+    # 第3步：原文路径（文本路径，存入项目备注或单独字段）
+    source_file_path: Optional[str] = None
+
+    # 第4步：财务信息
+    finance: Optional[FinanceRecordCreate] = None
+
+
+class FinanceEntryResponse(BaseModel):
+    """综合录入接口的返回"""
+    consultation_id: Optional[UUID] = None
+    project_id: Optional[UUID] = None
+    finance_id: Optional[UUID] = None
+    detail: str = "操作成功"
+
+
+class FinanceRecordDisplayResponse(BaseModel):
+    """视图 v_finance_record_display 的响应模型"""
+    finance_id: UUID
+    project_id: UUID
+    order_no: Optional[str] = None
+    client_short_name: Optional[str] = None
+    project_name: Optional[str] = None
+    project_status: Optional[str] = None
+    customer_reception_time: Optional[datetime] = None
+    settlement_method: Optional[str] = None
+    unit_price_excl_tax: Optional[float] = None
+    unit_price_incl_tax: Optional[float] = None
+    total_excl_tax: Optional[float] = None
+    total_incl_tax: Optional[float] = None
+    invoice_status: Optional[str] = None
+    remarks: Optional[str] = None
+    edited_by: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # 嵌套款项明细
+    payments: list[FinancePaymentResponse] = []
+    # 人员 ID（编辑回填用）
+    sales_person_id: Optional[UUID] = None
+    follow_up_person_id: Optional[UUID] = None
+    # 人员名称（前端展示用）
+    sales_person_name: Optional[str] = None
+    follow_up_person_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
