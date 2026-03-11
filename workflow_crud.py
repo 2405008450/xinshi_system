@@ -104,6 +104,7 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
             'customer_deadline_time': proj.customer_deadline_time,
+            'language_pair': proj.language_pair,
         })
     return tasks
 

@@ -75,6 +75,40 @@ class Client(Base):
 
     projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='client')
     consultations: Mapped[list['Consultation']] = relationship('Consultation', back_populates='client')
+    sub_clients: Mapped[list['SubClient']] = relationship('SubClient', back_populates='parent_client', cascade='all, delete-orphan')
+
+
+class SubClient(Base):
+    __tablename__ = 'sub_client'
+    __table_args__ = (
+        ForeignKeyConstraint(['parent_client_id'], ['client.id'], ondelete='CASCADE', name='fk_sub_client_parent'),
+        PrimaryKeyConstraint('id', name='sub_client_pkey'),
+        UniqueConstraint('sub_client_code', name='sub_client_code_key')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    parent_client_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sub_client_code: Mapped[str] = mapped_column(String(60), nullable=False)
+    client_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_short_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    english_name: Mapped[Optional[str]] = mapped_column(String(255))
+    english_short_name: Mapped[Optional[str]] = mapped_column(String(100))
+    client_manager: Mapped[Optional[str]] = mapped_column(String(100))
+    manager_contact: Mapped[Optional[str]] = mapped_column(String(100))
+    field_level1: Mapped[Optional[str]] = mapped_column(String(100))
+    field_level2: Mapped[Optional[str]] = mapped_column(String(100))
+    country: Mapped[Optional[str]] = mapped_column(String(50))
+    province: Mapped[Optional[str]] = mapped_column(String(50))
+    city: Mapped[Optional[str]] = mapped_column(String(50))
+    district: Mapped[Optional[str]] = mapped_column(String(50))
+    client_status: Mapped[Optional[str]] = mapped_column(String(20), server_default=text("'pending'"))
+    cooperation_start_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    parent_client: Mapped['Client'] = relationship('Client', back_populates='sub_clients')
+
 
 
 class Consultation(Base):

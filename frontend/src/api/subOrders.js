@@ -11,9 +11,12 @@ function toSnakeCase(str) {
 }
 
 function convertKeys(obj, converter) {
+    if (obj === null || obj === undefined) {
+        return obj
+    }
     if (Array.isArray(obj)) {
         return obj.map(v => convertKeys(v, converter))
-    } else if (obj !== null && obj.constructor === Object) {
+    } else if (obj.constructor === Object) {
         return Object.keys(obj).reduce((result, key) => {
             result[converter(key)] = convertKeys(obj[key], converter)
             return result

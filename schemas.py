@@ -73,7 +73,7 @@ class RoleResponse(RoleBase):
 
 # Client Schemas
 class ClientBase(BaseModel):
-    client_code: str
+    client_code: Optional[str] = None
     client_name: str
     client_short_name: str
     english_name: Optional[str] = None
@@ -113,6 +113,56 @@ class ClientUpdate(BaseModel):
 
 class ClientResponse(ClientBase):
     id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    sub_clients: list['SubClientResponse'] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
+
+# SubClient Schemas
+class SubClientBase(BaseModel):
+    sub_client_code: Optional[str] = None
+    client_name: str
+    client_short_name: str
+    english_name: Optional[str] = None
+    english_short_name: Optional[str] = None
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    field_level1: Optional[str] = None
+    field_level2: Optional[str] = None
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    client_status: Optional[str] = "pending"
+    cooperation_start_date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+class SubClientCreate(SubClientBase):
+    parent_client_id: UUID
+
+class SubClientUpdate(BaseModel):
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    english_name: Optional[str] = None
+    english_short_name: Optional[str] = None
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    field_level1: Optional[str] = None
+    field_level2: Optional[str] = None
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    client_status: Optional[str] = None
+    cooperation_start_date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+class SubClientResponse(SubClientBase):
+    id: UUID
+    parent_client_id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

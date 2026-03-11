@@ -86,11 +86,11 @@
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
         </el-menu-item>
-        <el-menu-item v-if="showClientManagement" index="/subsidiary-clients">
+        <el-menu-item v-if="showSubsidiaryClients" index="/subsidiary-clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>子公司客户信息</template>
         </el-menu-item>
-        <el-menu-item v-if="showClientManagement" index="/client-contacts">
+        <el-menu-item v-if="showClientContacts" index="/client-contacts">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户联系人及回访</template>
         </el-menu-item>
@@ -243,6 +243,10 @@ const showTranslationMenu = computed(() => true)
 
 /** 是否显示「客户管理」（所有员工） */
 const showClientManagement = computed(() => true)
+/** 是否显示「子公司客户信息」（仅超级管理员） */
+const showSubsidiaryClients = computed(() => isSuperAdmin())
+/** 是否显示「客户联系人及回复」（仅超级管理员） */
+const showClientContacts = computed(() => isSuperAdmin())
 /** 是否显示「资源管理」（所有员工） */
 const showResourceManagement = computed(() => true)
 

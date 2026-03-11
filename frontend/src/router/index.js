@@ -1,9 +1,9 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
 import { SCHEDULE_ADMIN_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles, hasRole } from '../utils/permission'
 
-/** 排班管理编辑权限（仅项目经理与超级管理员） */
+/** 排班管理编辑权限（仅项目总监与超级管理员）*/
 const scheduleAdminRoles = SCHEDULE_ADMIN_ROLES
 
 const routes = [
@@ -34,7 +34,7 @@ const routes = [
         component: () => import('../views/system/UserRoles.vue'),
         meta: { title: '用户角色关联' }
       },
-      // 项目管理 - 扁平路由（笔译）
+      // 项目管理 - 翻译路由
       {
         path: 'translation',
         name: 'TranslationProjects',
@@ -53,7 +53,13 @@ const routes = [
         component: () => import('../views/project/translation/ProjectFiles.vue'),
         meta: { title: '项目文件', roles: ['*'] }
       },
-      // 项目管理 - 其他类型（扁平）
+      {
+        path: 'translation-sub-orders/:projectId',
+        name: 'TranslationSubOrderManagement',
+        component: () => import('../views/project/translation/SubOrderManagement.vue'),
+        meta: { title: '子订单管理', roles: ['*'] }
+      },
+      // 项目管理 - 其他类型
       {
         path: 'interpretation',
         name: 'InterpretationProjects',
@@ -96,7 +102,7 @@ const routes = [
         component: () => import('../views/schedule/WorkSchedule.vue'),
         meta: { title: '排班管理', roles: ['*'] }
       },
-      // 资源管理 - 嵌套路由
+      // 资源管理 - 翻译路由
       {
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
@@ -107,7 +113,7 @@ const routes = [
             path: 'translators',
             name: 'Translators',
             component: () => import('../views/resource/Translators.vue'),
-            meta: { title: '译员信息', roles: ['*'] }
+            meta: { title: '译者信息', roles: ['*'] }
           },
           {
             path: 'annotators',
@@ -123,7 +129,7 @@ const routes = [
           }
         ]
       },
-      // 客户管理 - 扁平路由
+      // 客户管理 - 翻译路由
       {
         path: 'clients',
         name: 'Clients',
@@ -134,13 +140,13 @@ const routes = [
         path: 'subsidiary-clients',
         name: 'SubsidiaryClients',
         component: () => import('../views/client/SubsidiaryClients.vue'),
-        meta: { title: '子公司客户信息', roles: ['*'] }
+        meta: { title: '子公司客户信息' }
       },
       {
         path: 'client-contacts',
         name: 'ClientContacts',
         component: () => import('../views/client/ClientContacts.vue'),
-        meta: { title: '客户联系人及回访', roles: ['*'] }
+        meta: { title: '客户联系人及回复' }
       },
       {
         path: 'consultations',
@@ -162,18 +168,18 @@ const routes = [
         component: () => import('../views/marketing/MarketingManagement.vue'),
         meta: { title: '营销管理' }
       },
-      // 人力管理 - 嵌套路由
+      // 人力资源管理 - 翻译路由
       {
         path: 'hr-management',
         component: () => import('../views/hr/HRManagement.vue'),
         redirect: '/hr-management/attendance',
-        meta: { title: '人力管理' },
+        meta: { title: '人力资源管理' },
         children: [
           {
             path: 'attendance',
             name: 'Attendance',
             component: () => import('../views/hr/Attendance.vue'),
-            meta: { title: '考勤管理' }
+            meta: { title: '考核管理' }
           },
           {
             path: 'kpi',
@@ -201,12 +207,12 @@ const routes = [
           }
         ]
       },
-      // 内务管理 - 嵌套路由
+      // 内部管理 - 翻译路由
       {
         path: 'administration-management',
         component: () => import('../views/administration/AdministrationManagement.vue'),
         redirect: '/administration-management/office',
-        meta: { title: '内务管理' },
+        meta: { title: '内部管理' },
         children: [
           {
             path: 'office',
@@ -218,7 +224,7 @@ const routes = [
             path: 'office-equipment',
             name: 'OfficeEquipment',
             component: () => import('../views/administration/OfficeEquipment.vue'),
-            meta: { title: '办公室设备管理' }
+            meta: { title: '办公设备管理' }
           }
         ]
       },
@@ -249,48 +255,44 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
 
-  // 1. 登录页面：无需权限检查，直接放行
   if (to.path === '/login') {
     next()
     return
   }
 
-  // 2. 未登录：重定向到登录页
   if (!token) {
     next('/login')
     return
   }
 
-  // 3. 已登录但未存储角色：强制重新登录以获取角色
   const userRoles = getStoredRoles()
   if (userRoles.length === 0) {
     next('/login')
     return
   }
 
-  // 4. 根路径：按角色重定向到首页
   if (to.path === '/') {
     const homePath = isSuperAdmin() ? '/users' : '/translation'
     next(homePath)
     return
   }
 
-  // 5. 权限检查：检查当前用户是否有权访问目标路由
   if (!canAccessRoute(to)) {
-    // 其他无权限访问：重定向到对应角色的首页
     const homePath = isSuperAdmin() ? '/users' : '/translation'
     next(homePath)
     return
   }
 
-  // 6. 通过所有检查：允许访问
   next()
 })
 
-// 每次导航后同步浏览器标签标题，避免客户端跳转后 tab 不更新
 router.afterEach((to) => {
   const title = to.meta?.title
   document.title = title ? `${title} - 信实` : '信实翻译项目管理平台'
 })
 
 export default router
+
+
+
+

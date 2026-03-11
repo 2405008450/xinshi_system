@@ -19,3 +19,7 @@ export const updateConsultation = (id, data) => {
 export const deleteConsultation = (id) => {
   return api.delete(`/consultations/${id}`)
 }
+
+export const createProjectFromConsultation = (id, projectName) => {
+  return api.post(`/consultations/${id}/create-project`, { project_name: projectName })
+}

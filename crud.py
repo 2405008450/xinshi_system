@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_
 
-from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, Translator, Consultation
+from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, SubClient, Translator, Consultation
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
@@ -12,6 +12,7 @@ from schemas import (
     UserRoleCreate,
     ProjectFileCreate, ProjectFileUpdate,
     ClientCreate, ClientUpdate,
+    SubClientCreate, SubClientUpdate,
     TranslatorCreate, TranslatorUpdate,
     ConsultationCreate, ConsultationUpdate
 )
@@ -122,8 +123,35 @@ def delete_role(db: Session, role_id: UUID) -> bool:
 
 
 # Client CRUD
+import datetime as dt
+
+def generate_client_code(db: Session) -> str:
+    today = dt.datetime.now()
+    yy = today.strftime("%y")
+    mmdd = today.strftime("%m%d")
+    prefix = f"CL-{yy}-{mmdd}-"
+
+    last_record = (
+        db.query(Client)
+        .filter(Client.client_code.like(f"{prefix}%"))
+        .order_by(Client.client_code.desc())
+        .first()
+    )
+
+    if last_record and last_record.client_code:
+        try:
+            seq_str = last_record.client_code.split("-")[-1]
+            new_seq = int(seq_str) + 1
+        except ValueError:
+            new_seq = 1
+    else:
+        new_seq = 1
+
+    return f"{prefix}{new_seq:04d}"
+
+
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
-    return db.query(Client).filter(Client.id == client_id).first()
+    return db.query(Client).options(selectinload(Client.sub_clients)).filter(Client.id == client_id).first()
 
 def get_clients(
     db: Session,
@@ -132,7 +160,7 @@ def get_clients(
     client_code: Optional[str] = None,
     client_name: Optional[str] = None
 ) -> List[Client]:
-    query = db.query(Client)
+    query = db.query(Client).options(selectinload(Client.sub_clients))
     if client_code:
         query = query.filter(Client.client_code.ilike(f"%{client_code}%"))
     if client_name:
@@ -140,7 +168,10 @@ def get_clients(
     return query.offset(skip).limit(limit).all()
 
 def create_client(db: Session, client: ClientCreate) -> Client:
-    db_client = Client(**client.model_dump())
+    data = client.model_dump()
+    if not data.get('client_code'):
+        data['client_code'] = generate_client_code(db)
+    db_client = Client(**data)
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
@@ -164,6 +195,62 @@ def delete_client(db: Session, client_id: UUID) -> bool:
     db.commit()
     return True
 
+
+# SubClient CRUD
+def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
+    """生成子客户流水号, 格式 CL-YY-MMDD-NNNN.MMMM"""
+    parent = get_client(db, parent_id)
+    if not parent:
+        raise ValueError("母客户不存在")
+    base_no = parent.client_code
+
+    last = (
+        db.query(SubClient)
+        .filter(SubClient.parent_client_id == parent_id)
+        .filter(SubClient.sub_client_code.like(f"{base_no}.%"))
+        .order_by(SubClient.sub_client_code.desc())
+        .first()
+    )
+    if last and last.sub_client_code:
+        try:
+            seq_str = last.sub_client_code.rsplit(".", 1)[-1]
+            new_seq = int(seq_str) + 1
+        except (ValueError, IndexError):
+            new_seq = 1
+    else:
+        new_seq = 1
+
+    return f"{base_no}.{new_seq:04d}"
+
+def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
+    return db.query(SubClient).filter(SubClient.id == sub_client_id).first()
+
+def create_sub_client(db: Session, sub_client: SubClientCreate) -> SubClient:
+    sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
+    data = sub_client.model_dump(exclude={'sub_client_code'})
+    db_sub = SubClient(sub_client_code=sub_code, **data)
+    db.add(db_sub)
+    db.commit()
+    db.refresh(db_sub)
+    return db_sub
+
+def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) -> Optional[SubClient]:
+    db_sub = get_sub_client(db, sub_id)
+    if not db_sub:
+        return None
+    for field, value in sub_update.model_dump(exclude_unset=True).items():
+        setattr(db_sub, field, value)
+    db.commit()
+    db.refresh(db_sub)
+    return db_sub
+
+def delete_sub_client(db: Session, sub_id: UUID) -> bool:
+    db_sub = get_sub_client(db, sub_id)
+    if not db_sub:
+        return False
+    db.delete(db_sub)
+    db.commit()
+    return True
 
 # Translator CRUD
 def get_translator(db: Session, translator_id: UUID) -> Optional[Translator]:

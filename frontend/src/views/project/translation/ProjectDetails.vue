@@ -28,21 +28,19 @@
       </el-form-item>
     </el-form>
 
-    <el-table
-      :data="tableData"
-      v-loading="loading"
-      row-key="id"
-      border
-      :row-class-name="getProjectRowClassName"
-    >
+    <el-table :data="tableData" v-loading="loading" row-key="id" border :row-class-name="getProjectRowClassName">
       <el-table-column type="expand" width="48">
         <template #default="{ row }">
           <div class="sub-order-panel">
             <div class="sub-order-panel__header">
-              <span>子订单列表</span>
-              <el-tag size="small" type="info">共 {{ (row.subOrders || []).length }} 条</el-tag>
+              <div class="sub-order-panel__meta">
+                <span>子订单列表</span>
+                <el-tag size="small" type="info">共 {{ getSubOrderCount(row) }} 条</el-tag>
+                <el-tag v-if="hasMoreSubOrders(row)" size="small" type="warning">当前仅显示前 {{ SUB_ORDER_PREVIEW_LIMIT }} 条</el-tag>
+              </div>
+              <el-button v-if="hasMoreSubOrders(row)" type="primary" link @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
             </div>
-            <el-table :data="row.subOrders || []" border>
+            <el-table :data="getVisibleSubOrders(row)" border>
               <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
               <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
               <el-table-column prop="languagePair" label="语言" min-width="120" />
@@ -161,10 +159,20 @@
             <div class="section-actions">
               <el-button type="primary" @click="openCreateSubOrderDialog">新增子订单</el-button>
               <el-button @click="openBatchDialog">批量新增子订单</el-button>
+              <el-button v-if="hasMoreSubOrders({ subOrders: currentProjectSubOrders })" @click="goToSubOrderManagement(form)">查看全部子订单</el-button>
             </div>
           </div>
 
-          <el-table :data="currentProjectSubOrders" border>
+          <el-alert
+            v-if="hasMoreSubOrders({ subOrders: currentProjectSubOrders })"
+            title="当前仅展示前 10 条子订单，更多数据请进入独立子订单管理页查看和操作。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="sub-order-alert"
+          />
+
+          <el-table :data="getVisibleSubOrders({ subOrders: currentProjectSubOrders })" border>
             <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
             <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
             <el-table-column prop="languagePair" label="语言" min-width="120" />
@@ -293,10 +301,13 @@
 
 <script setup>
 import { defineComponent, h, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
 import { getProjects, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 
+const SUB_ORDER_PREVIEW_LIMIT = 10
+const router = useRouter()
 const projectStatusOptions = [
   { label: '待启动', value: 'pending' },
   { label: '进行中', value: 'in_progress' },
@@ -304,9 +315,7 @@ const projectStatusOptions = [
   { label: '已暂停', value: 'paused' },
   { label: '已终止', value: 'terminated' }
 ]
-
 const priorityOptions = ['低', '中', '高', '紧急']
-
 const projectDetailItems = [
   { label: 'ID', key: 'id', span: 2 },
   { label: '订单号', key: 'orderNo' },
@@ -337,7 +346,6 @@ const projectDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-
 const subOrderDetailItems = [
   { label: 'ID', key: 'id', span: 2 },
   { label: '母订单ID', key: 'parentProjectId', span: 2 },
@@ -367,30 +375,9 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-
-const createEmptyProjectForm = () => ({
-  id: '', orderNo: '', projectName: '', clientShortName: '', clientCode: '', fileTypeSecondary: '', languagePair: '',
-  priority: '', wordCount: 0, projectStatus: 'pending', customerReceptionTime: '', customerDeadlineTime: '',
-  sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', translatorId: '', translatorAssignmentTime: '',
-  expectedTranslatorStatsMethod: '', expectedTranslatorWordCount: 0, translatorDeliveryProgress: '', preReviewQcProgress: '',
-  review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '',
-  networkFilePath: ''
-})
-
-const createEmptySubOrderForm = () => ({
-  id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '',
-  wordCount: 0, customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '',
-  translatorAssignmentTime: '', expectedTranslatorStatsMethod: '', expectedTranslatorWordCount: 0, status: 'pending',
-  translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '',
-  postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: ''
-})
-
-const createBatchForm = () => ({
-  count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCount: 0,
-  customerDeadlineTime: '', sentToClientTime: '', translatorId: '', expectedTranslatorStatsMethod: '',
-  expectedTranslatorWordCount: 0, status: 'pending'
-})
-
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', clientShortName: '', clientCode: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCount: 0, projectStatus: 'pending', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', translatorId: '', translatorAssignmentTime: '', expectedTranslatorStatsMethod: '', expectedTranslatorWordCount: 0, translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '' })
+const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCount: 0, customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorAssignmentTime: '', expectedTranslatorStatsMethod: '', expectedTranslatorWordCount: 0, status: 'pending', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
+const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCount: 0, customerDeadlineTime: '', sentToClientTime: '', translatorId: '', expectedTranslatorStatsMethod: '', expectedTranslatorWordCount: 0, status: 'pending' })
 const loading = ref(false)
 const dialogVisible = ref(false)
 const subOrderDialogVisible = ref(false)
@@ -400,79 +387,33 @@ const subOrderDialogTitle = ref('新增子订单')
 const formRef = ref(null)
 const subOrderFormRef = ref(null)
 const batchFormRef = ref(null)
-
 const tableData = ref([])
 const allData = ref([])
 const currentProjectSubOrders = ref([])
-
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '', projectStatus: '' })
 const form = reactive(createEmptyProjectForm())
 const subOrderForm = reactive(createEmptySubOrderForm())
 const batchForm = reactive(createBatchForm())
-
-const rules = {
-  projectName: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
-  projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }]
-}
-
-const subOrderRules = {
-  subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }]
-}
-
-const batchRules = {
-  count: [{ required: true, message: '请输入生成数量', trigger: 'change' }]
-}
-
-const NULLABLE_FIELDS = [
-  'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId',
-  'translatorAssignmentTime', 'expectedTranslatorStatsMethod', 'expectedTranslatorWordCount', 'clientFeedback',
-  'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress',
-  'layoutProgress', 'consolidationProgress', 'networkFilePath', 'fileTypeSecondary', 'languagePair', 'priority',
-  'remarks', 'subProjectName'
-]
-
+const rules = { projectName: [{ required: true, message: '请输入项目名称', trigger: 'blur' }], projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }] }
+const subOrderRules = { subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }] }
+const batchRules = { count: [{ required: true, message: '请输入生成数量', trigger: 'change' }] }
+const NULLABLE_FIELDS = ['customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'expectedTranslatorStatsMethod', 'expectedTranslatorWordCount', 'clientFeedback', 'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress', 'layoutProgress', 'consolidationProgress', 'networkFilePath', 'fileTypeSecondary', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const getStatusLabel = (status) => projectStatusOptions.find(item => item.value === status)?.label || status || '-'
 const getStatusType = (status) => ({ pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger', terminated: 'info' }[status] || 'info')
 const displayValue = (value) => (value === null || value === undefined || value === '' ? '-' : value)
 const pad = (value) => String(value).padStart(2, '0')
-
-const normalizeProject = (project) => ({
-  ...project,
-  subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
-})
-
-const applyPagination = () => {
-  const start = (pagination.page - 1) * pagination.limit
-  tableData.value = allData.value.slice(start, start + pagination.limit)
-}
-
-const cleanPayload = (payload) => {
-  const result = { ...payload }
-  NULLABLE_FIELDS.forEach((key) => {
-    if (result[key] === '') result[key] = null
-  })
-  if (result.wordCount === null || result.wordCount === undefined) result.wordCount = 0
-  return result
-}
-
-const assignReactive = (target, values) => {
-  Object.keys(target).forEach((key) => {
-    target[key] = values[key] ?? (typeof target[key] === 'number' ? 0 : '')
-  })
-}
-
+const normalizeProject = (project) => ({ ...project, subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : [] })
+const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
+const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
+const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders) ? row.subOrders.slice(0, SUB_ORDER_PREVIEW_LIMIT) : [])
+const applyPagination = () => { const start = (pagination.page - 1) * pagination.limit; tableData.value = allData.value.slice(start, start + pagination.limit) }
+const cleanPayload = (payload) => { const result = { ...payload }; NULLABLE_FIELDS.forEach((key) => { if (result[key] === '') result[key] = null }); if (result.wordCount === null || result.wordCount === undefined) result.wordCount = 0; return result }
+const assignReactive = (target, values) => { Object.keys(target).forEach((key) => { target[key] = values[key] ?? (typeof target[key] === 'number' ? 0 : '') }) }
 const fetchData = async () => {
   loading.value = true
   try {
-    const params = {
-      skip: 0,
-      limit: 200,
-      project_name: searchForm.projectName || undefined,
-      order_no: searchForm.orderNo || undefined,
-      client_short_name: searchForm.clientShortName || undefined,
-      project_status: searchForm.projectStatus || undefined
-    }
+    const params = { skip: 0, limit: 200, project_name: searchForm.projectName || undefined, order_no: searchForm.orderNo || undefined, client_short_name: searchForm.clientShortName || undefined, project_status: searchForm.projectStatus || undefined }
     const response = await getProjects(params)
     allData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
     pagination.total = allData.value.length
@@ -487,7 +428,6 @@ const fetchData = async () => {
     loading.value = false
   }
 }
-
 const refreshProjectSubOrders = async (projectId) => {
   if (!projectId) return
   const response = await getSubOrdersByProject(projectId)
@@ -496,343 +436,51 @@ const refreshProjectSubOrders = async (projectId) => {
   allData.value = allData.value.map((item) => item.id === projectId ? { ...item, subOrders: normalized } : item)
   applyPagination()
 }
-
-const handleSearch = () => {
-  pagination.page = 1
-  fetchData()
-}
-
-const resetSearch = () => {
-  searchForm.projectName = ''
-  searchForm.orderNo = ''
-  searchForm.clientShortName = ''
-  searchForm.projectStatus = ''
-  handleSearch()
-}
-
+const handleSearch = () => { pagination.page = 1; fetchData() }
+const resetSearch = () => { searchForm.projectName = ''; searchForm.orderNo = ''; searchForm.clientShortName = ''; searchForm.projectStatus = ''; handleSearch() }
 const resetProjectForm = () => assignReactive(form, createEmptyProjectForm())
-const resetSubOrderForm = () => {
-  assignReactive(subOrderForm, createEmptySubOrderForm())
-  subOrderFormRef.value?.clearValidate()
+const resetSubOrderForm = () => { assignReactive(subOrderForm, createEmptySubOrderForm()); subOrderFormRef.value?.clearValidate() }
+const resetBatchForm = () => { assignReactive(batchForm, createBatchForm()); batchFormRef.value?.clearValidate() }
+const generateOrderNo = async () => { try { return await getNextOrderNo() } catch { const now = new Date(); return `TP-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}` } }
+const goToSubOrderManagement = (project) => {
+  const projectId = project.id || form.id
+  if (!projectId) return
+  router.push({ name: 'TranslationSubOrderManagement', params: { projectId }, query: { orderNo: project.orderNo || form.orderNo || '', projectName: project.projectName || form.projectName || '' } })
 }
-const resetBatchForm = () => {
-  assignReactive(batchForm, createBatchForm())
-  batchFormRef.value?.clearValidate()
-}
-
-const generateOrderNo = async () => {
-  try {
-    return await getNextOrderNo()
-  } catch {
-    const now = new Date()
-    return `TP-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`
-  }
-}
-
-const handleAdd = async () => {
-  dialogTitle.value = '新增项目详情'
-  resetProjectForm()
-  currentProjectSubOrders.value = []
-  form.orderNo = await generateOrderNo()
-  dialogVisible.value = true
-}
-
-const handleEdit = async (row) => {
-  dialogTitle.value = '编辑项目详情'
-  assignReactive(form, { ...createEmptyProjectForm(), ...row })
-  currentProjectSubOrders.value = Array.isArray(row.subOrders) ? [...row.subOrders] : []
-  dialogVisible.value = true
-  if (row.id) {
-    try {
-      await refreshProjectSubOrders(row.id)
-    } catch (error) {
-      ElMessage.error(error.detail || error.message || '加载子订单失败')
-    }
-  }
-}
-
-const handleDeleteProject = async (row) => {
-  try {
-    await ElMessageBox.confirm(`确认删除母订单 ${row.orderNo} 吗？`, '提示', { type: 'warning' })
-    await deleteProject(row.id)
-    ElMessage.success('删除成功')
-    await fetchData()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.detail || error.message || '删除失败')
-    }
-  }
-}
-
-const handleSubmit = async () => {
-  if (!formRef.value) return
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  try {
-    const payload = cleanPayload({ ...form })
-    if (dialogTitle.value === '新增项目详情') {
-      await createProject(payload)
-      ElMessage.success('创建成功')
-    } else {
-      await updateProject(payload.id, payload)
-      ElMessage.success('更新成功')
-    }
-    dialogVisible.value = false
-    await fetchData()
-  } catch (error) {
-    ElMessage.error(error.detail || error.message || '保存失败')
-  }
-}
-
-const onProjectDialogClosed = () => {
-  resetProjectForm()
-  resetSubOrderForm()
-  resetBatchForm()
-  currentProjectSubOrders.value = []
-}
-
-const createSubOrderDefaultsFromProject = () => ({
-  fileTypeSecondary: form.fileTypeSecondary,
-  languagePair: form.languagePair,
-  priority: form.priority,
-  wordCount: form.wordCount,
-  customerDeadlineTime: form.customerDeadlineTime,
-  sentToClientTime: form.sentToClientTime,
-  translatorId: form.translatorId,
-  translatorAssignmentTime: form.translatorAssignmentTime,
-  expectedTranslatorStatsMethod: form.expectedTranslatorStatsMethod,
-  expectedTranslatorWordCount: form.expectedTranslatorWordCount,
-  status: form.projectStatus || 'pending',
-  translatorDeliveryProgress: form.translatorDeliveryProgress,
-  preReviewQcProgress: form.preReviewQcProgress,
-  review1Progress: form.review1Progress,
-  review2Progress: form.review2Progress,
-  postReviewQcProgress: form.postReviewQcProgress,
-  layoutProgress: form.layoutProgress,
-  consolidationProgress: form.consolidationProgress,
-  networkFilePath: form.networkFilePath,
-  clientFeedback: form.clientFeedback
-})
-
-const openCreateSubOrderDialog = () => {
-  resetSubOrderForm()
-  subOrderDialogTitle.value = '新增子订单'
-  assignReactive(subOrderForm, {
-    ...createEmptySubOrderForm(),
-    ...createSubOrderDefaultsFromProject(),
-    parentProjectId: form.id
-  })
-  subOrderDialogVisible.value = true
-}
-
-const handleEditSubOrder = (row) => {
-  resetSubOrderForm()
-  subOrderDialogTitle.value = '编辑子订单'
-  assignReactive(subOrderForm, {
-    ...createEmptySubOrderForm(),
-    ...row,
-    parentProjectId: row.parentProjectId || form.id
-  })
-  subOrderDialogVisible.value = true
-}
-
-const openProjectEditorForSubOrder = async (projectRow, subOrderRow) => {
-  await handleEdit(projectRow)
-  await nextTick()
-  handleEditSubOrder(subOrderRow)
-}
-
-const buildSubOrderPayload = (source) => cleanPayload({
-  parentProjectId: form.id,
-  subProjectName: source.subProjectName,
-  fileTypeSecondary: source.fileTypeSecondary,
-  languagePair: source.languagePair,
-  priority: source.priority,
-  wordCount: source.wordCount,
-  customerDeadlineTime: source.customerDeadlineTime,
-  sentToClientTime: source.sentToClientTime,
-  clientFeedback: source.clientFeedback,
-  translatorId: source.translatorId,
-  translatorAssignmentTime: source.translatorAssignmentTime,
-  expectedTranslatorStatsMethod: source.expectedTranslatorStatsMethod,
-  expectedTranslatorWordCount: source.expectedTranslatorWordCount,
-  status: source.status,
-  translatorDeliveryProgress: source.translatorDeliveryProgress,
-  preReviewQcProgress: source.preReviewQcProgress,
-  review1Progress: source.review1Progress,
-  review2Progress: source.review2Progress,
-  postReviewQcProgress: source.postReviewQcProgress,
-  layoutProgress: source.layoutProgress,
-  consolidationProgress: source.consolidationProgress,
-  networkFilePath: source.networkFilePath,
-  remarks: source.remarks
-})
-
-const handleSubmitSubOrder = async () => {
-  if (!subOrderFormRef.value) return
-  const valid = await subOrderFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  try {
-    const payload = buildSubOrderPayload(subOrderForm)
-    if (subOrderDialogTitle.value === '新增子订单') {
-      await createSubOrder(payload)
-      ElMessage.success('子订单创建成功')
-    } else {
-      await updateSubOrder(subOrderForm.id, payload)
-      ElMessage.success('子订单更新成功')
-    }
-    subOrderDialogVisible.value = false
-    await refreshProjectSubOrders(form.id)
-    await fetchData()
-  } catch (error) {
-    ElMessage.error(error.detail || error.message || '子订单保存失败')
-  }
-}
-
-const handleDeleteSubOrder = async (row) => {
-  try {
-    await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' })
-    await deleteSubOrder(row.id)
-    ElMessage.success('子订单删除成功')
-    if (form.id && row.parentProjectId === form.id) {
-      await refreshProjectSubOrders(form.id)
-    }
-    await fetchData()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.detail || error.message || '子订单删除失败')
-    }
-  }
-}
-
-const openBatchDialog = () => {
-  resetBatchForm()
-  assignReactive(batchForm, {
-    ...createBatchForm(),
-    ...createSubOrderDefaultsFromProject(),
-    subProjectNamePrefix: form.projectName ? `${form.projectName}-子订单` : ''
-  })
-  batchDialogVisible.value = true
-}
-
-const createBatchSubProjectName = (index) => {
-  const prefix = batchForm.subProjectNamePrefix || (form.projectName ? `${form.projectName}-子订单` : '子订单')
-  return `${prefix}${String(index).padStart(2, '0')}`
-}
-
-const handleBatchCreateSubOrders = async () => {
-  if (!batchFormRef.value) return
-  const valid = await batchFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  try {
-    for (let offset = 0; offset < batchForm.count; offset += 1) {
-      const sequence = batchForm.startIndex + offset
-      const payload = buildSubOrderPayload({
-        ...batchForm,
-        subProjectName: createBatchSubProjectName(sequence),
-        remarks: ''
-      })
-      await createSubOrder(payload)
-    }
-    batchDialogVisible.value = false
-    ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`)
-    await refreshProjectSubOrders(form.id)
-    await fetchData()
-  } catch (error) {
-    ElMessage.error(error.detail || error.message || '批量新增失败')
-  }
-}
-
-const getProjectRowClassName = ({ row }) => ((row.subOrders || []).length ? '' : 'no-expand-row')
-
-const DetailPopover = defineComponent({
-  name: 'DetailPopover',
-  props: {
-    row: { type: Object, required: true },
-    title: { type: String, default: '详情' },
-    items: { type: Array, default: () => [] }
-  },
-  setup(props) {
-    return () => h(
-      ElPopover,
-      { placement: 'left', width: 720, trigger: 'click', title: props.title },
-      {
-        reference: () => h(ElButton, { type: 'info', size: 'small', link: true }, () => '查看详情'),
-        default: () => h(
-          'div',
-          { class: 'detail-popover' },
-          h(
-            ElDescriptions,
-            { column: 2, border: true },
-            () => props.items.map((item) => h(
-              ElDescriptionsItem,
-              { key: item.key, label: item.label, span: item.span || 1 },
-              () => item.type === 'status'
-                ? h(ElTag, { type: getStatusType(props.row[item.key]) }, () => getStatusLabel(props.row[item.key]))
-                : h('span', { class: 'detail-value' }, displayValue(props.row[item.key]))
-            ))
-          )
-        )
-      }
-    )
-  }
-})
-
+const handleAdd = async () => { dialogTitle.value = '新增项目详情'; resetProjectForm(); currentProjectSubOrders.value = []; form.orderNo = await generateOrderNo(); dialogVisible.value = true }
+const handleEdit = async (row) => { dialogTitle.value = '编辑项目详情'; assignReactive(form, { ...createEmptyProjectForm(), ...row }); currentProjectSubOrders.value = Array.isArray(row.subOrders) ? [...row.subOrders] : []; dialogVisible.value = true; if (row.id) { try { await refreshProjectSubOrders(row.id) } catch (error) { ElMessage.error(error.detail || error.message || '加载子订单失败') } } }
+const handleDeleteProject = async (row) => { try { await ElMessageBox.confirm(`确认删除母订单 ${row.orderNo} 吗？`, '提示', { type: 'warning' }); await deleteProject(row.id); ElMessage.success('删除成功'); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '删除失败') } }
+const handleSubmit = async () => { if (!formRef.value) return; const valid = await formRef.value.validate().catch(() => false); if (!valid) return; try { const payload = cleanPayload({ ...form }); if (dialogTitle.value === '新增项目详情') { await createProject(payload); ElMessage.success('创建成功') } else { await updateProject(payload.id, payload); ElMessage.success('更新成功') } dialogVisible.value = false; await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '保存失败') } }
+const onProjectDialogClosed = () => { resetProjectForm(); resetSubOrderForm(); resetBatchForm(); currentProjectSubOrders.value = [] }
+const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCount: form.wordCount, customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, expectedTranslatorStatsMethod: form.expectedTranslatorStatsMethod, expectedTranslatorWordCount: form.expectedTranslatorWordCount, status: form.projectStatus || 'pending', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, networkFilePath: form.networkFilePath, clientFeedback: form.clientFeedback })
+const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '新增子订单'; assignReactive(subOrderForm, { ...createEmptySubOrderForm(), ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
+const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, { ...createEmptySubOrderForm(), ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
+const openProjectEditorForSubOrder = async (projectRow, subOrderRow) => { await handleEdit(projectRow); await nextTick(); handleEditSubOrder(subOrderRow) }
+const buildSubOrderPayload = (source) => cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCount: source.wordCount ?? 0, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', expectedTranslatorStatsMethod: source.expectedTranslatorStatsMethod || '', expectedTranslatorWordCount: source.expectedTranslatorWordCount ?? 0, status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress || '', preReviewQcProgress: source.preReviewQcProgress || '', review1Progress: source.review1Progress || '', review2Progress: source.review2Progress || '', postReviewQcProgress: source.postReviewQcProgress || '', layoutProgress: source.layoutProgress || '', consolidationProgress: source.consolidationProgress || '', networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
+const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '子订单保存失败') } }
+const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '子订单删除失败') } }
+const openBatchDialog = () => { resetBatchForm(); assignReactive(batchForm, { ...createBatchForm(), ...createSubOrderDefaultsFromProject(), subProjectNamePrefix: form.projectName ? `${form.projectName}-子订单` : '' }); batchDialogVisible.value = true }
+const createBatchSubProjectName = (index) => { const prefix = batchForm.subProjectNamePrefix || (form.projectName ? `${form.projectName}-子订单` : '子订单'); return `${prefix}${String(index).padStart(2, '0')}` }
+const handleBatchCreateSubOrders = async () => { if (!batchFormRef.value) return; const valid = await batchFormRef.value.validate().catch(() => false); if (!valid) return; try { for (let offset = 0; offset < batchForm.count; offset += 1) { const sequence = batchForm.startIndex + offset; const payload = buildSubOrderPayload({ ...batchForm, subProjectName: createBatchSubProjectName(sequence), remarks: '' }); await createSubOrder(payload) } batchDialogVisible.value = false; ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`); await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '批量新增失败') } }
+const getProjectRowClassName = ({ row }) => (getSubOrderCount(row) ? '' : 'no-expand-row')
+const DetailPopover = defineComponent({ name: 'DetailPopover', props: { row: { type: Object, required: true }, title: { type: String, default: '详情' }, items: { type: Array, default: () => [] } }, setup(props) { return () => h(ElPopover, { placement: 'left', width: 720, trigger: 'click', title: props.title }, { reference: () => h(ElButton, { type: 'info', size: 'small', link: true }, () => '查看详情'), default: () => h('div', { class: 'detail-popover' }, h(ElDescriptions, { column: 2, border: true }, () => props.items.map((item) => h(ElDescriptionsItem, { key: item.key, label: item.label, span: item.span || 1 }, () => item.type === 'status' ? h(ElTag, { type: getStatusType(props.row[item.key]) }, () => getStatusLabel(props.row[item.key])) : h('span', { class: 'detail-value' }, displayValue(props.row[item.key])))))) }) } })
 onMounted(fetchData)
 </script>
 
 <style scoped>
-.search-form {
-  margin-bottom: 20px;
-}
-
+.search-form { margin-bottom: 20px; }
 .card-header,
 .section-header,
-.sub-order-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.section-title {
-  margin: 12px 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.section-actions {
-  display: flex;
-  gap: 12px;
-}
-
-.sub-order-panel {
-  padding: 12px 24px 20px;
-  background: #fafafa;
-}
-
-.sub-order-panel__header {
-  margin-bottom: 12px;
-}
-
-.detail-popover {
-  max-height: 620px;
-  overflow-y: auto;
-}
-
-.detail-value {
-  color: #606266;
-  word-break: break-all;
-}
-
-.el-alert {
-  margin-top: 16px;
-}
-
-:deep(.no-expand-row .el-table__expand-icon) {
-  visibility: hidden;
-  pointer-events: none;
-}
+.sub-order-panel__header { display: flex; align-items: center; justify-content: space-between; }
+.sub-order-panel__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.section-title { margin: 12px 0; font-size: 15px; font-weight: 600; }
+.section-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.sub-order-panel { padding: 12px 24px 20px; background: #fafafa; }
+.sub-order-panel__header { margin-bottom: 12px; }
+.sub-order-alert { margin-bottom: 12px; }
+.detail-popover { max-height: 620px; overflow-y: auto; }
+.detail-value { color: #606266; word-break: break-all; }
+.el-alert { margin-top: 16px; }
+:deep(.no-expand-row .el-table__expand-icon) { visibility: hidden; pointer-events: none; }
 </style>
+

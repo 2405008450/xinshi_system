@@ -198,26 +198,18 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="咨询方式" prop="consultation_method">
-              <el-select v-model="form.consultation_method" placeholder="请选择" style="width: 100%">
-                <el-option label="电话" value="phone" />
-                <el-option label="邮件" value="email" />
-                <el-option label="在线咨询" value="online" />
-                <el-option label="上门" value="onsite" />
-                <el-option label="其他" value="other" />
+            <el-form-item label="咨询状态" prop="status">
+              <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
+                <el-option label="待处理" value="pending" />
+                <el-option label="跟进中" value="following" />
+                <el-option label="已成交" value="success" />
+                <el-option label="未成交" value="failed" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户来源" prop="client_source">
-              <el-select v-model="form.client_source" placeholder="请选择" style="width: 100%">
-                <el-option label="官网" value="website" />
-                <el-option label="搜索引擎" value="search_engine" />
-                <el-option label="推荐" value="referral" />
-                <el-option label="社交媒体" value="social_media" />
-                <el-option label="展会" value="exhibition" />
-                <el-option label="其他" value="other" />
-              </el-select>
+              <el-input v-model="form.client_source" placeholder="请输入客户来源" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -229,12 +221,13 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="咨询状态" prop="status">
-              <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
-                <el-option label="待处理" value="pending" />
-                <el-option label="处理中" value="processing" />
-                <el-option label="已转化" value="converted" />
-                <el-option label="已放弃" value="abandoned" />
+            <el-form-item label="咨询方式" prop="consultation_method">
+              <el-select v-model="form.consultation_method" placeholder="请选择" style="width: 100%">
+                <el-option label="电话" value="phone" />
+                <el-option label="邮件" value="email" />
+                <el-option label="在线咨询" value="online" />
+                <el-option label="上门" value="onsite" />
+                <el-option label="其他" value="other" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -307,6 +300,38 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 创建翻译项目弹窗 -->
+    <el-dialog
+      v-model="createProjectDialogVisible"
+      title="🎉 咨询已成交 — 创建翻译项目"
+      width="500px"
+      :close-on-click-modal="false"
+      @close="createProjectForm.projectName = ''"
+    >
+      <p style="color: #606266; margin-bottom: 16px;">该咨询已标记为"已成交"，请输入翻译项目名称以自动建单：</p>
+      <el-form :model="createProjectForm" ref="createProjectFormRef" @submit.prevent>
+        <el-form-item
+          label="项目名称"
+          prop="projectName"
+          :rules="[{ required: true, message: '请输入项目名称', trigger: 'blur' }]"
+        >
+          <el-input
+            v-model="createProjectForm.projectName"
+            placeholder="请输入翻译项目名称"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createProjectDialogVisible = false">跳过</el-button>
+        <el-button
+          type="primary"
+          :loading="createProjectLoading"
+          @click="handleCreateProject"
+        >确认建单</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -315,7 +340,9 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
@@ -323,6 +350,13 @@ const formRef = ref(null)
 const clientOptions = ref([])
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
+
+// 创建翻译项目弹窗
+const createProjectDialogVisible = ref(false)
+const createProjectLoading = ref(false)
+const createProjectConsultationId = ref(null)
+const createProjectFormRef = ref(null)
+const createProjectForm = reactive({ projectName: '' })
 
 const tableData = ref([])
 const pagination = reactive({
@@ -366,9 +400,9 @@ const rules = {
 const getStatusType = (status) => {
   const statusMap = {
     pending: 'info',
-    processing: 'warning',
-    converted: 'success',
-    abandoned: 'danger',
+    following: 'warning',
+    success: 'success',
+    failed: 'danger',
   }
   return statusMap[status] || 'info'
 }
@@ -376,9 +410,9 @@ const getStatusType = (status) => {
 const getStatusText = (status) => {
   const statusMap = {
     pending: '待处理',
-    processing: '处理中',
-    converted: '已转化',
-    abandoned: '已放弃',
+    following: '跟进中',
+    success: '已成交',
+    failed: '未成交',
   }
   return statusMap[status] || status || '-'
 }
@@ -542,8 +576,15 @@ const handleSubmit = async () => {
     if (!valid) return
     try {
       const payload = buildPayload()
-      if (form.id) {
-        await consultationApi.updateConsultation(form.id, payload)
+      const isUpdate = !!form.id
+      // 记录提交前咨询的旧状态（用于判断是否首次变为已成交）
+      const prevStatus = isUpdate
+        ? (detailCache[form.id]?.status ?? tableData.value.find((r) => r.id === form.id)?.status)
+        : null
+      const consultationId = form.id
+
+      if (isUpdate) {
+        await consultationApi.updateConsultation(consultationId, payload)
         ElMessage.success('更新成功')
       } else {
         await consultationApi.createConsultation(payload)
@@ -551,10 +592,36 @@ const handleSubmit = async () => {
       }
       dialogVisible.value = false
       fetchData()
+
+      // 若本次操作将状态改为「已成交」，则弹窗提示用户创建翻译项目
+      if (isUpdate && payload.status === 'success' && prevStatus !== 'success') {
+        createProjectConsultationId.value = consultationId
+        createProjectForm.projectName = ''
+        createProjectDialogVisible.value = true
+      }
     } catch (error) {
-      ElMessage.error(error.detail || '操作失败')
+      ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
     }
   })
+}
+
+const handleCreateProject = async () => {
+  if (!createProjectFormRef.value) return
+  const valid = await createProjectFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  createProjectLoading.value = true
+  try {
+    await consultationApi.createProjectFromConsultation(
+      createProjectConsultationId.value,
+      createProjectForm.projectName
+    )
+    ElMessage.success('翻译项目已成功创建！')
+    createProjectDialogVisible.value = false
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || '创建翻译项目失败')
+  } finally {
+    createProjectLoading.value = false
+  }
 }
 
 const resetForm = () => {

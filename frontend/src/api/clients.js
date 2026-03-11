@@ -19,3 +19,15 @@ export const updateClient = (id, data) => {
 export const deleteClient = (id) => {
   return api.delete(`/clients/${id}`)
 }
+
+export const createSubClient = (clientId, data) => {
+  return api.post(`/clients/${clientId}/sub_clients`, data)
+}
+
+export const updateSubClient = (subId, data) => {
+  return api.put(`/clients/sub_clients/${subId}`, data)
+}
+
+export const deleteSubClient = (subId) => {
+  return api.delete(`/clients/sub_clients/${subId}`)
+}

@@ -18,6 +18,7 @@
             <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
             <el-table-column prop="order_no" label="项目编号" width="180" show-overflow-tooltip />
             <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
+            <el-table-column prop="language_pair" label="语言对" width="140" show-overflow-tooltip />
             <el-table-column label="客户交稿时间" width="160">
               <template #default="{ row }">
                 {{ formatDeadline(getTaskDeadline(row)) }}
@@ -70,6 +71,7 @@
             <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
             <el-table-column prop="order_no" label="项目编号" width="180" show-overflow-tooltip />
             <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
+            <el-table-column prop="language_pair" label="语言对" width="140" show-overflow-tooltip />
             <el-table-column label="客户交稿时间" width="160">
               <template #default="{ row }">
                 {{ formatDeadline(getTaskDeadline(row)) }}
