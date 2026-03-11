@@ -96,7 +96,7 @@
         </el-menu-item>
         <el-menu-item v-if="showClientManagement" index="/consultations">
           <el-icon><OfficeBuilding /></el-icon>
-          <template #title>咨询基本情况</template>
+          <template #title>新咨询管理</template>
         </el-menu-item>
         <!-- 财务管理：所有员工可查看 -->
         <el-menu-item index="/finance">

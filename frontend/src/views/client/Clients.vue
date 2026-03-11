@@ -22,7 +22,7 @@
       </el-form>
     </div>
 
-    <el-table :data="tableData" v-loading="loading" border>
+    <el-table :data="tableData" v-loading="loading" border :row-class-name="getRowClassName">
       <el-table-column type="expand">
         <template #default="{ row }">
           <div style="padding: 10px 40px" v-if="row.sub_clients && row.sub_clients.length > 0">
@@ -341,6 +341,10 @@ const handleSearch = () => {
   fetchData()
 }
 
+const getRowClassName = ({ row }) => {
+  return (!row.sub_clients || row.sub_clients.length === 0) ? 'hide-expand' : ''
+}
+
 const resetSearch = () => {
   searchForm.client_code = ''
   searchForm.client_name = ''
@@ -552,5 +556,8 @@ onMounted(() => {
 }
 .search-bar {
   margin-bottom: 20px;
+}
+:deep(.hide-expand .el-table__expand-icon) {
+  display: none !important;
 }
 </style>

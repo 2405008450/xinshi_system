@@ -1,6 +1,18 @@
 <template>
   <div class="section-block">
-    <p v-if="currentUserName" class="section-desc">当前用户：<strong>{{ currentUserName }}</strong></p>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px;">
+      <p v-if="currentUserName" class="section-desc" style="margin-bottom: 0;">当前用户：<strong>{{ currentUserName }}</strong></p>
+      
+      <el-form v-if="tasksList.length" :inline="true" :model="searchForm" size="small" style="margin-bottom: -18px;">
+        <el-form-item label="客户简称">
+          <el-input v-model="searchForm.client_short_name" placeholder="支持模糊搜索" clearable style="width: 140px" />
+        </el-form-item>
+        <el-form-item label="语言对">
+          <el-input v-model="searchForm.language_pair" placeholder="支持模糊搜索" clearable style="width: 140px" />
+        </el-form-item>
+      </el-form>
+    </div>
+
     <div class="tasks-panel">
       <div class="panel-header" @click="panelExpanded = !panelExpanded">
         <span class="panel-title">
@@ -115,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { ArrowDown } from '@element-plus/icons-vue'
 
 const STAGE_LABELS = {
@@ -146,6 +158,11 @@ defineEmits(['enter-project'])
 
 const panelExpanded = ref(true)
 const otherExpanded = ref(true)
+
+const searchForm = reactive({
+  client_short_name: '',
+  language_pair: ''
+})
 
 function formatDeadline(timeStr) {
   if (!timeStr) return '-'
@@ -187,12 +204,28 @@ function isUrgentTask(deadlineTime, refDateStr) {
 
 const urgentTasks = computed(() => {
   const ref = (props.referenceDate || '').trim() || null
-  return props.tasksList.filter(task => isUrgentTask(getTaskDeadline(task), ref))
+  let list = props.tasksList.filter(task => isUrgentTask(getTaskDeadline(task), ref))
+  
+  if (searchForm.client_short_name) {
+    list = list.filter(t => t.client_short_name && t.client_short_name.includes(searchForm.client_short_name))
+  }
+  if (searchForm.language_pair) {
+    list = list.filter(t => t.language_pair && t.language_pair.includes(searchForm.language_pair))
+  }
+  return list
 })
 
 const otherTasks = computed(() => {
   const ref = (props.referenceDate || '').trim() || null
-  return props.tasksList.filter(task => !isUrgentTask(getTaskDeadline(task), ref))
+  let list = props.tasksList.filter(task => !isUrgentTask(getTaskDeadline(task), ref))
+  
+  if (searchForm.client_short_name) {
+    list = list.filter(t => t.client_short_name && t.client_short_name.includes(searchForm.client_short_name))
+  }
+  if (searchForm.language_pair) {
+    list = list.filter(t => t.language_pair && t.language_pair.includes(searchForm.language_pair))
+  }
+  return list
 })
 </script>
 

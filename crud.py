@@ -564,7 +564,7 @@ import datetime as dt
 def generate_consultation_code(db: Session) -> str:
     """
     生成咨询流水号
-    格式: EQ-YYMMDD-NNN (如 EQ-260309-001)
+    格式: EQ-YYMMDD-NNNN (如 EQ-260309-0001)
     """
     today_str = dt.datetime.now().strftime("%y%m%d")
     prefix = f"EQ-{today_str}-"
@@ -586,7 +586,7 @@ def generate_consultation_code(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:03d}"
+    return f"{prefix}{new_seq:04d}"
 
 
 def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultation]:
@@ -600,12 +600,29 @@ def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultatio
     return consultation
 
 
-def get_consultations(db: Session, skip: int = 0, limit: int = 100) -> List[Consultation]:
-    results = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id).offset(skip).limit(limit).all()
+def get_consultations(
+    db: Session, 
+    skip: int = 0, 
+    limit: int = 100,
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None
+) -> List[Consultation]:
+    query = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id)
+    
+    if consultation_code:
+        query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
+    if client_name:
+        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
+    if status:
+        query = query.filter(Consultation.status == status)
+        
+    results = query.order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
+    
     consultations = []
-    for consultation, client_code, client_name, client_short_name in results:
+    for consultation, client_code, db_client_name, client_short_name in results:
         consultation.client_code = client_code
-        consultation.client_name = client_name
+        consultation.client_name = db_client_name
         consultation.client_short_name = client_short_name
         consultations.append(consultation)
     return consultations

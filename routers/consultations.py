@@ -25,9 +25,25 @@ def create_consultation_endpoint(consultation: ConsultationCreate, db: Session =
     return create_consultation(db=db, consultation=consultation)
 
 
+from typing import Optional
+
 @router.get("/", response_model=List[ConsultationResponse])
-def read_consultations(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return get_consultations(db, skip=skip, limit=limit)
+def read_consultations(
+    skip: int = 0, 
+    limit: int = 100, 
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    return get_consultations(
+        db, 
+        skip=skip, 
+        limit=limit,
+        consultation_code=consultation_code,
+        client_name=client_name,
+        status=status
+    )
 
 
 @router.get("/{consultation_id}", response_model=ConsultationResponse)

@@ -1,31 +1,52 @@
-<template>
+﻿<template>
   <el-card>
     <template #header>
       <div class="card-header">
-        <span>咨询基本情况</span>
+        <span>新咨询管理</span>
         <el-button type="primary" @click="handleAdd">新增咨询</el-button>
       </div>
     </template>
 
+    <el-form :inline="true" :model="searchForm" class="search-form">
+      <el-form-item label="咨询编号">
+        <el-input v-model="searchForm.consultation_code" placeholder="输入编号" clearable @keyup.enter="handleSearch" />
+      </el-form-item>
+      <el-form-item label="客户名称">
+        <el-input v-model="searchForm.client_name" placeholder="输入名称" clearable @keyup.enter="handleSearch" />
+      </el-form-item>
+      <el-form-item label="咨询状态">
+        <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px" @change="handleSearch">
+          <el-option label="待处理" value="pending" />
+          <el-option label="跟进中" value="following" />
+          <el-option label="已成交" value="success" />
+          <el-option label="未成交" value="failed" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="resetSearch">重置</el-button>
+      </el-form-item>
+    </el-form>
+
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="consultation_code" label="咨询编号" width="160" />
+      <el-table-column prop="status" label="咨询状态" width="120">
+        <template #default="{ row }">
+          <el-tag :type="getStatusType(row.status)">
+             {{ getStatusText(row.status) }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="client_code" label="客户编号" width="150" />
       <el-table-column prop="client_name" label="客户名称" width="200" show-overflow-tooltip />
       <el-table-column prop="client_short_name" label="客户简称" width="150" />
       <el-table-column prop="consultation_time" label="咨询时间" width="180">
         <template #default="{ row }">{{ formatDatetime(row.consultation_time) }}</template>
       </el-table-column>
-      <el-table-column prop="consultation_method" label="咨询方式" width="120" />
       <el-table-column prop="client_source" label="客户来源" width="120" />
       <el-table-column prop="source_keyword" label="来源关键词" width="150" />
-      <el-table-column prop="status" label="咨询状态" width="120">
-        <template #default="{ row }">
-          <el-tag :type="getStatusType(row.status)">
-            {{ getStatusText(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
+      <el-table-column prop="consultation_method" label="咨询方式" width="120" />
       <el-table-column prop="consultation_type" label="咨询类型" width="120" />
 
       <el-table-column label="详情" width="100" fixed="right">
@@ -65,6 +86,9 @@
                 <el-descriptions-item label="咨询时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).consultation_time) }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="咨询状态">
+                  <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
+                </el-descriptions-item>
                 <el-descriptions-item label="咨询方式">
                   <span class="detail-value">{{ getDetailRow(row).consultation_method || '-' }}</span>
                 </el-descriptions-item>
@@ -74,9 +98,7 @@
                 <el-descriptions-item label="来源关键词">
                   <span class="detail-value">{{ getDetailRow(row).source_keyword || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="咨询状态">
-                  <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
-                </el-descriptions-item>
+
                 <el-descriptions-item label="咨询类型">
                   <span class="detail-value">{{ getDetailRow(row).consultation_type || '-' }}</span>
                 </el-descriptions-item>
@@ -365,6 +387,24 @@ const pagination = reactive({
   total: 0,
 })
 
+const searchForm = reactive({
+  consultation_code: '',
+  client_name: '',
+  status: '',
+})
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const resetSearch = () => {
+  searchForm.consultation_code = ''
+  searchForm.client_name = ''
+  searchForm.status = ''
+  handleSearch()
+}
+
 const defaultForm = () => ({
   id: null,
   client_id: null,
@@ -448,10 +488,15 @@ const enrichClientFields = (row) => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await consultationApi.getConsultations({
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit,
-    })
+    }
+    if (searchForm.consultation_code) params.consultation_code = searchForm.consultation_code
+    if (searchForm.client_name) params.client_name = searchForm.client_name
+    if (searchForm.status) params.status = searchForm.status
+
+    const res = await consultationApi.getConsultations(params)
     const list = Array.isArray(res) ? res.map(enrichClientFields) : []
     tableData.value = list
     pagination.total = list.length
@@ -640,6 +685,10 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.search-form {
+  margin-bottom: 15px;
 }
 
 .detail-popover {

@@ -152,7 +152,7 @@ const routes = [
         path: 'consultations',
         name: 'Consultations',
         component: () => import('../views/client/Consultations.vue'),
-        meta: { title: '咨询基本情况', roles: ['*'] }
+        meta: { title: '新咨询管理', roles: ['*'] }
       },
       // 财务管理
       {
