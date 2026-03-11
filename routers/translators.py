@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -17,8 +17,28 @@ def create_translator_endpoint(translator: TranslatorCreate, db: Session = Depen
     return create_translator(db=db, translator=translator)
 
 @router.get("/", response_model=List[TranslatorResponse])
-def read_translators(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return get_translators(db, skip=skip, limit=limit)
+def read_translators(
+    skip: int = 0,
+    limit: int = 100,
+    translator_code: Optional[str] = Query(None),
+    translator_name: Optional[str] = Query(None),
+    cooperation_type: Optional[str] = Query(None),
+    languages: Optional[str] = Query(None),
+    translation_type: Optional[str] = Query(None),
+    direction: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_translators(
+        db,
+        skip=skip,
+        limit=limit,
+        translator_code=translator_code,
+        translator_name=translator_name,
+        cooperation_type=cooperation_type,
+        languages=languages,
+        translation_type=translation_type,
+        direction=direction
+    )
 
 @router.get("/{translator_id}", response_model=TranslatorResponse)
 def read_translator(translator_id: UUID, db: Session = Depends(get_db)):

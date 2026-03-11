@@ -7,6 +7,48 @@
       </div>
     </template>
 
+    <!-- 查询区域 -->
+    <div class="search-area">
+      <el-form :inline="true" :model="searchForm" class="search-form">
+        <el-form-item label="译员编号">
+          <el-input v-model="searchForm.translator_code" placeholder="请输入" clearable style="width: 120px" />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="searchForm.translator_name" placeholder="请输入" clearable style="width: 120px" />
+        </el-form-item>
+        <el-form-item label="合作形式">
+          <el-select v-model="searchForm.cooperation_type" placeholder="请选择" clearable style="width: 120px">
+            <el-option label="全职" value="全职" />
+            <el-option label="兼职" value="兼职" />
+            <el-option label="自由职业" value="自由职业" />
+            <el-option label="外包" value="外包" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="语种">
+          <el-input v-model="searchForm.languages" placeholder="请输入" clearable style="width: 120px" />
+        </el-form-item>
+        <el-form-item label="翻译类型">
+          <el-select v-model="searchForm.translation_type" placeholder="请选择" clearable style="width: 120px">
+            <el-option label="口译" value="口译" />
+            <el-option label="笔译" value="笔译" />
+            <el-option label="同传" value="同传" />
+            <el-option label="交传" value="交传" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="方向">
+          <el-select v-model="searchForm.direction" placeholder="请选择" clearable style="width: 100px">
+            <el-option label="中译外" value="中译外" />
+            <el-option label="外译中" value="外译中" />
+            <el-option label="双向" value="双向" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">查询</el-button>
+          <el-button @click="handleReset">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="translator_code" label="译员编号" width="120" />
@@ -267,6 +309,31 @@ const pagination = reactive({
   total: 0
 })
 
+const searchForm = reactive({
+  translator_code: '',
+  translator_name: '',
+  cooperation_type: '',
+  languages: '',
+  translation_type: '',
+  direction: ''
+})
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const handleReset = () => {
+  searchForm.translator_code = ''
+  searchForm.translator_name = ''
+  searchForm.cooperation_type = ''
+  searchForm.languages = ''
+  searchForm.translation_type = ''
+  searchForm.direction = ''
+  pagination.page = 1
+  fetchData()
+}
+
 const defaultForm = {
   id: null,
   translator_code: '',
@@ -313,10 +380,22 @@ const rules = {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await translatorApi.getTranslators({
+    const translatorCode = searchForm.translator_code?.trim()
+    const translatorName = searchForm.translator_name?.trim()
+    const languages = searchForm.languages?.trim()
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
-    })
+    }
+    // 添加查询条件
+    if (translatorCode) params.translator_code = translatorCode
+    if (translatorName) params.translator_name = translatorName
+    if (searchForm.cooperation_type) params.cooperation_type = searchForm.cooperation_type
+    if (languages) params.languages = languages
+    if (searchForm.translation_type) params.translation_type = searchForm.translation_type
+    if (searchForm.direction) params.direction = searchForm.direction
+
+    const res = await translatorApi.getTranslators(params)
     tableData.value = res || []
     pagination.total = res?.length || 0
   } catch (error) {
@@ -403,5 +482,14 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.search-area {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.search-form {
+  margin-bottom: 0;
 }
 </style>

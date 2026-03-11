@@ -1,13 +1,14 @@
 from typing import List, Optional
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_
 
-from models import AppUser, Role, TranslationProject, UserRole, ProjectFile, Client, Translator, Consultation
+from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, Translator, Consultation
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
     TranslationProjectCreate, TranslationProjectUpdate,
+    TranslationSubOrderCreate, TranslationSubOrderUpdate,
     UserRoleCreate,
     ProjectFileCreate, ProjectFileUpdate,
     ClientCreate, ClientUpdate,
@@ -124,8 +125,19 @@ def delete_role(db: Session, role_id: UUID) -> bool:
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
     return db.query(Client).filter(Client.id == client_id).first()
 
-def get_clients(db: Session, skip: int = 0, limit: int = 100) -> List[Client]:
-    return db.query(Client).offset(skip).limit(limit).all()
+def get_clients(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    client_code: Optional[str] = None,
+    client_name: Optional[str] = None
+) -> List[Client]:
+    query = db.query(Client)
+    if client_code:
+        query = query.filter(Client.client_code.ilike(f"%{client_code}%"))
+    if client_name:
+        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
+    return query.offset(skip).limit(limit).all()
 
 def create_client(db: Session, client: ClientCreate) -> Client:
     db_client = Client(**client.model_dump())
@@ -157,8 +169,31 @@ def delete_client(db: Session, client_id: UUID) -> bool:
 def get_translator(db: Session, translator_id: UUID) -> Optional[Translator]:
     return db.query(Translator).filter(Translator.id == translator_id).first()
 
-def get_translators(db: Session, skip: int = 0, limit: int = 100) -> List[Translator]:
-    return db.query(Translator).offset(skip).limit(limit).all()
+def get_translators(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    translator_code: Optional[str] = None,
+    translator_name: Optional[str] = None,
+    cooperation_type: Optional[str] = None,
+    languages: Optional[str] = None,
+    translation_type: Optional[str] = None,
+    direction: Optional[str] = None
+) -> List[Translator]:
+    query = db.query(Translator)
+    if translator_code:
+        query = query.filter(Translator.translator_code.ilike(f"%{translator_code}%"))
+    if translator_name:
+        query = query.filter(Translator.translator_name.ilike(f"%{translator_name}%"))
+    if cooperation_type:
+        query = query.filter(Translator.cooperation_type == cooperation_type)
+    if languages:
+        query = query.filter(Translator.languages.ilike(f"%{languages}%"))
+    if translation_type:
+        query = query.filter(Translator.translation_type == translation_type)
+    if direction:
+        query = query.filter(Translator.direction == direction)
+    return query.offset(skip).limit(limit).all()
 
 def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
     db_translator = Translator(**translator.model_dump())
@@ -190,7 +225,13 @@ def delete_translator(db: Session, translator_id: UUID) -> bool:
 from models import Client
 
 def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
-    result = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id).filter(TranslationProject.id == project_id).first()
+    result = (
+        db.query(TranslationProject, Client.client_short_name, Client.client_code)
+        .options(selectinload(TranslationProject.sub_orders))
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .filter(TranslationProject.id == project_id)
+        .first()
+    )
     if not result:
         return None
     project, short_name, code = result
@@ -199,7 +240,13 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
     return project
 
 def get_translation_project_by_no(db: Session, order_no: str) -> Optional[TranslationProject]:
-    result = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id).filter(TranslationProject.order_no == order_no).first()
+    result = (
+        db.query(TranslationProject, Client.client_short_name, Client.client_code)
+        .options(selectinload(TranslationProject.sub_orders))
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .filter(TranslationProject.order_no == order_no)
+        .first()
+    )
     if not result:
         return None
     project, short_name, code = result
@@ -217,7 +264,11 @@ def get_translation_projects(
     project_status: Optional[str] = None,
     client_short_name: Optional[str] = None
 ) -> List[TranslationProject]:
-    query = db.query(TranslationProject, Client.client_short_name, Client.client_code).outerjoin(Client, TranslationProject.client_id == Client.id)
+    query = (
+        db.query(TranslationProject, Client.client_short_name, Client.client_code)
+        .options(selectinload(TranslationProject.sub_orders))
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+    )
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
     if project_name:
@@ -504,3 +555,82 @@ def delete_consultation(db: Session, consultation_id: UUID) -> bool:
     db.delete(db_consultation)
     db.commit()
     return True
+
+
+# ============================================================
+# TranslationSubOrder CRUD
+# ============================================================
+
+def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
+    """根据母订单的 order_no 自动生成子订单号，如 TP-20260302-0014.0001"""
+    parent = db.query(TranslationProject).filter(TranslationProject.id == parent_project_id).first()
+    if not parent:
+        raise ValueError("母订单不存在")
+    base_no = parent.order_no  # e.g. TP-20260302-0014
+
+    # 查找当前最大子序号
+    last = (
+        db.query(TranslationSubOrder)
+        .filter(TranslationSubOrder.parent_project_id == parent_project_id)
+        .filter(TranslationSubOrder.sub_order_no.like(f"{base_no}.%"))
+        .order_by(TranslationSubOrder.sub_order_no.desc())
+        .first()
+    )
+    if last and last.sub_order_no:
+        try:
+            seq_str = last.sub_order_no.rsplit(".", 1)[-1]
+            new_seq = int(seq_str) + 1
+        except (ValueError, IndexError):
+            new_seq = 1
+    else:
+        new_seq = 1
+
+    return f"{base_no}.{new_seq:04d}"
+
+
+def get_sub_order(db: Session, sub_order_id: UUID) -> Optional[TranslationSubOrder]:
+    return db.query(TranslationSubOrder).filter(TranslationSubOrder.id == sub_order_id).first()
+
+
+def get_sub_orders_by_project(db: Session, parent_project_id: UUID) -> List[TranslationSubOrder]:
+    return (
+        db.query(TranslationSubOrder)
+        .filter(TranslationSubOrder.parent_project_id == parent_project_id)
+        .order_by(TranslationSubOrder.sub_order_no)
+        .all()
+    )
+
+
+def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200) -> List[TranslationSubOrder]:
+    return db.query(TranslationSubOrder).offset(skip).limit(limit).all()
+
+
+def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
+    sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
+    data = sub_order.model_dump(exclude={'sub_order_no'})
+    db_sub = TranslationSubOrder(sub_order_no=sub_order_no, **data)
+    db.add(db_sub)
+    db.commit()
+    db.refresh(db_sub)
+    return db_sub
+
+
+def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: TranslationSubOrderUpdate) -> Optional[TranslationSubOrder]:
+    db_sub = get_sub_order(db, sub_order_id)
+    if not db_sub:
+        return None
+    for field, value in sub_order_update.model_dump(exclude_unset=True).items():
+        setattr(db_sub, field, value)
+    db.commit()
+    db.refresh(db_sub)
+    return db_sub
+
+
+def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:
+    db_sub = get_sub_order(db, sub_order_id)
+    if not db_sub:
+        return False
+    db.delete(db_sub)
+    db.commit()
+    return True
+

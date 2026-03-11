@@ -3,7 +3,7 @@
     流程说明：
     - 完整流程：客户专员 → 项目经理 → 项目专员 → 项目助理 → 译审 → 专检 → 排版 → 完成
     - 难度由客户专员在接稿时初步判断，决定是否跳过环节：
-      · 简单：跳过 项目经理、译审
+      · 简单：跳过 项目经理、项目专员、译审
       · 普通：跳过 译审
       · 复杂：全流程
     - 支持打回上一环节/上两环节，打回原因与时间线、操作日志均保留
@@ -61,7 +61,7 @@
         <div class="section-label">来稿难度评级（客户专员初步判断）</div>
         <p class="handover-hint">请根据来稿情况选择难度，将决定后续流程是否经过「项目经理」「译审」环节。</p>
         <el-radio-group v-model="pendingDifficulty" class="difficulty-radio">
-          <el-radio label="simple">简单（跳过项目经理、译审）</el-radio>
+          <el-radio label="simple">简单（跳过项目经理、项目专员、译审）</el-radio>
           <el-radio label="normal">普通（跳过译审）</el-radio>
           <el-radio label="complex">复杂（全流程）</el-radio>
         </el-radio-group>
@@ -337,16 +337,16 @@
     <el-tabs v-model="activeTab" type="border-card" class="detail-tabs">
       <el-tab-pane label="待我处理" name="my_tasks">
         <div class="section-label">当前登录用户「{{ currentUserName }}」待处理的笔译项目</div>
-        <el-table :data="myTaskProjects" border size="small" highlight-current-row @current-change="onMyTaskRowClick">
+        <el-table :data="myTaskProjectsList" border size="small" highlight-current-row @current-change="onMyTaskRowClick">
           <el-table-column type="index" label="序号" width="60" />
-          <el-table-column prop="orderNo" label="订单号" width="140" />
-          <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="clientShortName" label="客户简称" width="120" />
+          <el-table-column prop="order_no" label="订单号" width="140" />
+          <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="client_short_name" label="客户简称" width="120" />
           <el-table-column label="当前阶段" width="180">
             <template #default="{ row }">
-              <span v-if="getWorkflowState(row.id)?.currentStageKey">
-                {{ stageByKey[getWorkflowState(row.id).currentStageKey]?.title || getWorkflowState(row.id).currentStageKey }}
-                <el-tag v-if="getWorkflowState(row.id).currentStageKey === 'reception' && !getWorkflowState(row.id).difficulty" type="warning" size="small" style="margin-left: 6px">待设定难度</el-tag>
+              <span v-if="row.current_stage_key">
+                {{ stageByKey[row.current_stage_key]?.title || row.current_stage_key }}
+                <el-tag v-if="row.current_stage_key === 'reception' && !row.difficulty" type="warning" size="small" style="margin-left: 6px">待设定难度</el-tag>
               </span>
               <span v-else>-</span>
             </template>
@@ -357,7 +357,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="!myTaskProjects.length" description="暂无待您处理的项目" />
+        <el-empty v-if="!myTaskProjectsList.length" description="暂无待您处理的项目" />
       </el-tab-pane>
 
       <el-tab-pane label="项目概览" name="overview">
@@ -484,8 +484,8 @@ function getEffectiveStages(difficulty, fileEditable = true) {
     steps = steps.filter((s) => s.key !== 'layout_assign')
   }
   if (difficulty === 'simple') {
-    // 简单：跳过 项目经理、译审；专检/排版仍保留
-    return steps.filter((s) => !['project_manager', 'review'].includes(s.key))
+    // 简单：跳过 项目经理、项目专员、译审；专检/排版仍保留
+    return steps.filter((s) => !['project_manager', 'project_specialist', 'review'].includes(s.key))
   }
   if (difficulty === 'normal') {
     // 普通：跳过 译审；专检/排版仍保留
@@ -767,11 +767,7 @@ const currentUserId = computed(() => {
   }
 })
 
-/** 当前用户是否为客户专员（用于展示「待设定难度」的接稿项目） */
-const isCustomerSpecialist = computed(() => {
-  const roles = getStoredRoles()
-  return roles.includes('客户专员')
-})
+
 
 /** 当前用户是否有权操作当前阶段（是负责人或拥有该阶段对应角色，或是超级管理员/项目经理） */
 const canOperateCurrentStage = computed(() => {
@@ -814,19 +810,7 @@ const nextStageForAssignee = computed(() => {
   return next || null
 })
 
-const myTaskProjects = computed(() => {
-  const name = currentUserName.value
-  if (!name) return []
-  return projectList.value.filter((p) => {
-    const state = getWorkflowState(p.id)
-    if (!state || state.currentStageKey === 'completed') return false
-    // 已指定负责人且是自己 → 待我处理
-    if (state.currentAssigneeUserName === name) return true
-    // 客户专员：当前阶段为接稿且未设定难度的项目也视为「待我处理」（需设定难度）
-    if (isCustomerSpecialist.value && state.currentStageKey === 'reception' && !state.difficulty) return true
-    return false
-  })
-})
+
 
 /** 当前阶段可编辑字段的表单数据 */
 const stageFormData = reactive({})

@@ -94,6 +94,7 @@ class MyTaskItem(BaseModel):
     current_stage_key: str
     difficulty: Optional[str] = None
     project_status: Optional[str] = None
+    customer_deadline_time: Optional[datetime] = None
 
     class Config:
         from_attributes = True

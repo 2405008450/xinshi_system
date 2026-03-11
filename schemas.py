@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import datetime, date
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 # Auth Schemas
@@ -168,6 +168,9 @@ class ConsultationUpdate(BaseModel):
 
 class ConsultationResponse(ConsultationBase):
     id: UUID
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -273,6 +276,7 @@ class TranslationProjectBase(BaseModel):
     post_review_qc_progress: Optional[str] = None
     layout_progress: Optional[str] = None
     consolidation_progress: Optional[str] = None
+    network_file_path: Optional[str] = None
 
 class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
@@ -303,10 +307,40 @@ class TranslationProjectUpdate(BaseModel):
     post_review_qc_progress: Optional[str] = None
     layout_progress: Optional[str] = None
     consolidation_progress: Optional[str] = None
+    network_file_path: Optional[str] = None
 
-class TranslationProjectResponse(TranslationProjectBase):
+# TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
+class TranslationSubOrderResponse(BaseModel):
     id: UUID
-    order_no: str
+    parent_project_id: UUID
+    sub_order_no: str
+    sub_project_name: Optional[str] = None
+    # 鏂囦欢/璇█/瀛楁暟
+    file_type_secondary: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
+    # 鏃堕棿鑺傜偣
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    # 璇戝憳
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    # 杩涘害
+    status: Optional[str] = None
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
+    # 鍏朵粬
+    network_file_path: Optional[str] = None
+    remarks: Optional[str] = None
     created_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -314,6 +348,76 @@ class TranslationProjectResponse(TranslationProjectBase):
     class Config:
         from_attributes = True
 
+
+class TranslationProjectResponse(TranslationProjectBase):
+    id: UUID
+    order_no: str
+    created_by: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    sub_orders: list['TranslationSubOrderResponse'] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
+
+# TranslationSubOrder Schemas
+class TranslationSubOrderCreate(BaseModel):
+    parent_project_id: UUID
+    sub_order_no: Optional[str] = None  # 若不传则由后端自动生成
+    sub_project_name: Optional[str] = None
+    # 鏂囦欢/璇█/瀛楁暟
+    file_type_secondary: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
+    # 鏃堕棿鑺傜偣
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    # 璇戝憳
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    # 杩涘害
+    status: Optional[str] = 'pending'
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
+    # 鍏朵粬
+    network_file_path: Optional[str] = None
+    remarks: Optional[str] = None
+    created_by: Optional[UUID] = None
+
+
+class TranslationSubOrderUpdate(BaseModel):
+    sub_project_name: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    status: Optional[str] = None
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
+    network_file_path: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 # UserRole Schemas
@@ -407,7 +511,7 @@ class WorkScheduleResponse(WorkScheduleBase):
         from_attributes = True
 
 
-# ========== 请假 Schemas ==========
+# ========== 璇峰亣 Schemas ==========
 
 class EmployeeLeaveCreate(BaseModel):
     employee_id: UUID
@@ -441,7 +545,7 @@ class EmployeeLeaveResponse(BaseModel):
         from_attributes = True
 
 
-# ========== 财务 Schemas ==========
+# ========== 璐㈠姟 Schemas ==========
 
 class FinancePaymentBase(BaseModel):
     stage_type: str  # deposit, mid, final
@@ -522,32 +626,30 @@ class FinanceRecordResponse(FinanceRecordBase):
 
 
 class FinanceEntryPayload(BaseModel):
-    """4步综合表单一次性提交的联合 payload"""
-    # 第1步：咨询基本情况（可选，若已有咨询则传 consultation_id）
-    consultation_id: Optional[UUID] = None
+    """4姝ョ患鍚堣〃鍗曚竴娆℃€ф彁浜ょ殑鑱斿悎 payload"""
+    # 绗?姝ワ細鍜ㄨ鍩烘湰鎯呭喌锛堝彲閫夛紝鑻ュ凡鏈夊挩璇㈠垯浼?consultation_id锛?    consultation_id: Optional[UUID] = None
     consultation: Optional[ConsultationCreate] = None
 
-    # 第2步：项目详情（可选，若已有项目则传 project_id）
-    project_id: Optional[UUID] = None
+    # 绗?姝ワ細椤圭洰璇︽儏锛堝彲閫夛紝鑻ュ凡鏈夐」鐩垯浼?project_id锛?    project_id: Optional[UUID] = None
     project: Optional[TranslationProjectCreate] = None
 
-    # 第3步：原文路径（文本路径，存入项目备注或单独字段）
+    # 绗?姝ワ細鍘熸枃璺緞锛堟枃鏈矾寰勶紝瀛樺叆椤圭洰澶囨敞鎴栧崟鐙瓧娈碉級
     source_file_path: Optional[str] = None
 
-    # 第4步：财务信息
+    # 绗?姝ワ細璐㈠姟淇℃伅
     finance: Optional[FinanceRecordCreate] = None
 
 
 class FinanceEntryResponse(BaseModel):
-    """综合录入接口的返回"""
+    """Combined entry response."""
     consultation_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
     finance_id: Optional[UUID] = None
-    detail: str = "操作成功"
+    detail: str = "鎿嶄綔鎴愬姛"
 
 
 class FinanceRecordDisplayResponse(BaseModel):
-    """视图 v_finance_record_display 的响应模型"""
+    """Response model for view v_finance_record_display."""
     finance_id: UUID
     project_id: UUID
     order_no: Optional[str] = None
@@ -565,14 +667,13 @@ class FinanceRecordDisplayResponse(BaseModel):
     edited_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    # 嵌套款项明细
+    # 宓屽娆鹃」鏄庣粏
     payments: list[FinancePaymentResponse] = []
-    # 人员 ID（编辑回填用）
-    sales_person_id: Optional[UUID] = None
+    # 浜哄憳 ID锛堢紪杈戝洖濉敤锛?    sales_person_id: Optional[UUID] = None
     follow_up_person_id: Optional[UUID] = None
-    # 人员名称（前端展示用）
-    sales_person_name: Optional[str] = None
+    # 浜哄憳鍚嶇О锛堝墠绔睍绀虹敤锛?    sales_person_name: Optional[str] = None
     follow_up_person_name: Optional[str] = None
 
     class Config:
         from_attributes = True
+

@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -17,8 +17,20 @@ def create_client_endpoint(client: ClientCreate, db: Session = Depends(get_db)):
     return create_client(db=db, client=client)
 
 @router.get("/", response_model=List[ClientResponse])
-def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return get_clients(db, skip=skip, limit=limit)
+def read_clients(
+    skip: int = 0,
+    limit: int = 100,
+    client_code: Optional[str] = Query(None),
+    client_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return get_clients(
+        db,
+        skip=skip,
+        limit=limit,
+        client_code=client_code,
+        client_name=client_name
+    )
 
 @router.get("/{client_id}", response_model=ClientResponse)
 def read_client(client_id: UUID, db: Session = Depends(get_db)):

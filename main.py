@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
-from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, translators, workflow, schedule, leave, consultations, finance
+from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, translators, workflow, schedule, leave, consultations, finance, sub_orders
 
 app = FastAPI()
 
@@ -21,6 +21,7 @@ app.include_router(schedule.router)
 app.include_router(leave.router)
 app.include_router(consultations.router)
 app.include_router(finance.router)
+app.include_router(sub_orders.router)
 
 
 @app.get("/")

@@ -15,7 +15,7 @@
     <div class="dashboard-flow">
       <section class="section-block">
         <h3 class="section-title">我的任务</h3>
-        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="workflowTasks" />
+        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="workflowTasks" @enter-project="handleEnterProject" />
       </section>
 
       <section class="section-block">
@@ -24,7 +24,7 @@
 
       <!-- 请假管理（结构化） -->
       <section class="section-block info-block">
-        <h4 class="section-title">请假管理（结构化）</h4>
+        <h4 class="section-title">请假管理</h4>
         <div class="leave-filter-row">
           <el-date-picker
             v-model="leaveFilterRange"
@@ -58,12 +58,19 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import ScheduleHeader from './components/ScheduleHeader.vue'
 import MyTasksPanel from './components/MyTasksPanel.vue'
 import ShiftTableReadonly from './components/ShiftTableReadonly.vue'
 import { getSchedule } from '@/api/schedule'
 import { getMyTasksAPI } from '@/api/workflow'
 import { getLeaveRecords } from '@/api/leave'
+
+const router = useRouter()
+
+function handleEnterProject(projectId) {
+  router.push('/project/translation')
+}
 
 const scheduleDate = ref('')
 const weekdayLabel = computed(() => {

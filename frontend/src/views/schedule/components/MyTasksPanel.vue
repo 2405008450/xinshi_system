@@ -1,31 +1,110 @@
 <template>
   <div class="section-block">
     <p v-if="currentUserName" class="section-desc">当前用户：<strong>{{ currentUserName }}</strong></p>
-    <el-table :data="tasksList" border size="small" class="data-table">
-      <el-table-column type="index" label="序号" width="60" />
-      <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="order_no" label="项目编号" width="180" show-overflow-tooltip />
-      <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
-      <el-table-column prop="current_stage_key" label="当前阶段" width="120">
-        <template #default="{ row }">
-          <el-tag size="small" effect="plain">{{ STAGE_LABELS[row.current_stage_key] || row.current_stage_key }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="difficulty" label="难度" width="80">
-        <template #default="{ row }">
-          <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
-            {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="project_status" label="状态" width="80">
-        <template #default="{ row }">
-          <el-tag :type="STATUS_TYPE[row.project_status] || ''" size="small" effect="plain">
-            {{ STATUS_LABEL[row.project_status] || row.project_status }}
-          </el-tag>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div class="tasks-panel">
+      <div class="panel-header" @click="panelExpanded = !panelExpanded">
+        <span class="panel-title">
+          紧急任务
+          <el-tag v-if="urgentTasks.length" type="danger" size="small">{{ urgentTasks.length }}</el-tag>
+        </span>
+        <el-icon class="expand-icon" :class="{ expanded: panelExpanded }">
+          <ArrowDown />
+        </el-icon>
+      </div>
+      <el-collapse-transition>
+        <div v-show="panelExpanded" class="panel-content">
+          <el-table v-if="urgentTasks.length" :data="urgentTasks" border size="small" class="data-table">
+            <el-table-column type="index" label="序号" width="60" />
+            <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="order_no" label="项目编号" width="180" show-overflow-tooltip />
+            <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
+            <el-table-column label="客户交稿时间" width="160">
+              <template #default="{ row }">
+                {{ formatDeadline(row.customer_deadline_time) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="current_stage_key" label="当前阶段" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain">{{ STAGE_LABELS[row.current_stage_key] || row.current_stage_key }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="difficulty" label="难度" width="80">
+              <template #default="{ row }">
+                <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
+                  {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="project_status" label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag :type="STATUS_TYPE[row.project_status] || ''" size="small" effect="plain">
+                  {{ STATUS_LABEL[row.project_status] || row.project_status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template #default="{ row }">
+                <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="$emit('enter-project', row.translation_project_id)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-else class="empty-tip">暂无当天及次日10点前的紧急任务</div>
+        </div>
+      </el-collapse-transition>
+    </div>
+
+    <div class="tasks-panel">
+      <div class="panel-header" @click="otherExpanded = !otherExpanded">
+        <span class="panel-title">
+          其他任务
+          <el-tag v-if="otherTasks.length" size="small">{{ otherTasks.length }}</el-tag>
+        </span>
+        <el-icon class="expand-icon" :class="{ expanded: otherExpanded }">
+          <ArrowDown />
+        </el-icon>
+      </div>
+      <el-collapse-transition>
+        <div v-show="otherExpanded" class="panel-content">
+          <el-table v-if="otherTasks.length" :data="otherTasks" border size="small" class="data-table">
+            <el-table-column type="index" label="序号" width="60" />
+            <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="order_no" label="项目编号" width="180" show-overflow-tooltip />
+            <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
+            <el-table-column label="客户交稿时间" width="160">
+              <template #default="{ row }">
+                {{ formatDeadline(row.customer_deadline_time) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="current_stage_key" label="当前阶段" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain">{{ STAGE_LABELS[row.current_stage_key] || row.current_stage_key }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="difficulty" label="难度" width="80">
+              <template #default="{ row }">
+                <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
+                  {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="project_status" label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag :type="STATUS_TYPE[row.project_status] || ''" size="small" effect="plain">
+                  {{ STATUS_LABEL[row.project_status] || row.project_status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template #default="{ row }">
+                <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="$emit('enter-project', row.translation_project_id)">进入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-else class="empty-tip">暂无其他任务</div>
+        </div>
+      </el-collapse-transition>
+    </div>
+
     <div v-if="currentUserName && !tasksList.length" class="info-block">
       <p>暂无待处理的工作流任务。</p>
     </div>
@@ -34,6 +113,9 @@
 </template>
 
 <script setup>
+import { ref, computed } from 'vue'
+import { ArrowDown } from '@element-plus/icons-vue'
+
 const STAGE_LABELS = {
   reception: '客户专员',
   layout_assign: '排版指派',
@@ -51,9 +133,50 @@ const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
 const STATUS_LABEL = { pending: '待处理', in_progress: '进行中', completed: '已完成', paused: '暂停' }
 const STATUS_TYPE = { pending: 'info', in_progress: '', completed: 'success', paused: 'warning' }
 
-defineProps({
+const props = defineProps({
   currentUserName: { type: String, default: '' },
   tasksList: { type: Array, default: () => [] }
+})
+
+defineEmits(['enter-project'])
+
+const panelExpanded = ref(true)
+const otherExpanded = ref(true)
+
+function formatDeadline(timeStr) {
+  if (!timeStr) return '-'
+  const d = new Date(timeStr)
+  if (isNaN(d.getTime())) return timeStr
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${h}:${min}`
+}
+
+function isUrgentTask(deadlineTime) {
+  if (!deadlineTime) return false
+  const now = new Date()
+  const deadline = new Date(deadlineTime)
+  if (isNaN(deadline.getTime())) return false
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const deadlineCutoff = new Date(tomorrow)
+  deadlineCutoff.setHours(10, 0, 0, 0)
+
+  return deadline >= today && deadline <= deadlineCutoff
+}
+
+const urgentTasks = computed(() => {
+  return props.tasksList.filter(task => isUrgentTask(task.customer_deadline_time))
+})
+
+const otherTasks = computed(() => {
+  return props.tasksList.filter(task => !isUrgentTask(task.customer_deadline_time))
 })
 </script>
 
@@ -68,4 +191,45 @@ defineProps({
   border-radius: 8px;
 }
 .info-block p { margin: 0; font-size: 13px; color: var(--el-text-color-regular); }
+
+.tasks-panel {
+  margin-bottom: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--el-fill-color-light);
+  cursor: pointer;
+  user-select: none;
+}
+.panel-header:hover {
+  background: var(--el-fill-color);
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.expand-icon {
+  transition: transform 0.3s;
+}
+.expand-icon.expanded {
+  transform: rotate(180deg);
+}
+.panel-content {
+  padding: 12px;
+}
+.empty-tip {
+  padding: 20px;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
 </style>

@@ -76,7 +76,7 @@
           <!-- 结构化请假管理 -->
           <div class="info-block" style="margin-top: 16px">
             <div class="info-block-title-row">
-              <h4>请假管理（结构化）</h4>
+              <h4>请假管理</h4>
               <el-button v-if="canEdit" type="primary" link size="small" @click="resetLeaveForm(); leaveFormVisible = true">新增请假</el-button>
             </div>
             <!-- 日期筛选器 -->

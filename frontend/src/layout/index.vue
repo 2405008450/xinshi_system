@@ -53,7 +53,7 @@
           <el-icon><Document /></el-icon>
           <template #title>项目详情</template>
         </el-menu-item>
-        <el-menu-item v-if="showFullMenu" index="/translation-files">
+        <el-menu-item index="/translation-files">
           <el-icon><Files /></el-icon>
           <template #title>项目文件</template>
         </el-menu-item>

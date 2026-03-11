@@ -40,8 +40,8 @@ def get_effective_stages(difficulty: Optional[str], file_editable: Optional[bool
         steps = [s for s in steps if s['key'] != 'layout_assign']
 
     if difficulty == 'simple':
-        # 简单：跳过 项目经理、译审
-        return [s for s in steps if s['key'] not in ('project_manager', 'review')]
+        # 简单：跳过 项目经理、项目专员、译审
+        return [s for s in steps if s['key'] not in ('project_manager', 'project_specialist', 'review')]
     elif difficulty == 'normal':
         # 普通：跳过 译审
         return [s for s in steps if s['key'] != 'review']
@@ -103,6 +103,7 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             'current_stage_key': wf.current_stage_key,
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
+            'customer_deadline_time': proj.customer_deadline_time,
         })
     return tasks
 

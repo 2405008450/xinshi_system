@@ -208,6 +208,9 @@ class TranslationProject(Base):
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
+    # 网络文件路径（如 \\win-server\xxx）
+    network_file_path: Mapped[Optional[str]] = mapped_column(String(500))
+
     # Relationships
     client: Mapped[Optional['Client']] = relationship('Client', back_populates='projects')
     translator: Mapped[Optional['Translator']] = relationship('Translator', back_populates='projects')
@@ -216,6 +219,64 @@ class TranslationProject(Base):
     
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='translation_project', cascade='all, delete-orphan')
     workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='translation_project', uselist=False, cascade='all, delete-orphan')
+    sub_orders: Mapped[list['TranslationSubOrder']] = relationship('TranslationSubOrder', back_populates='parent_project', cascade='all, delete-orphan')
+
+
+class TranslationSubOrder(Base):
+    """翻译子订单表（母订单的下级子任务），字段与 TranslationProject 同步对齐"""
+    __tablename__ = 'translation_sub_order'
+    __table_args__ = (
+        ForeignKeyConstraint(['parent_project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_sub_order_parent_project'),
+        ForeignKeyConstraint(['translator_id'], ['translator.id'], ondelete='SET NULL', name='fk_sub_order_translator'),
+        ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_sub_order_creator'),
+        PrimaryKeyConstraint('id', name='translation_sub_order_pkey'),
+        UniqueConstraint('sub_order_no', name='translation_sub_order_no_key')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    parent_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sub_order_no: Mapped[str] = mapped_column(String(60), nullable=False)  # 如 TP-20260302-0014.0001
+    sub_project_name: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # 文件/语言/字数
+    file_type_secondary: Mapped[Optional[str]] = mapped_column(String(100))
+    language_pair: Mapped[Optional[str]] = mapped_column(String(100))
+    priority: Mapped[Optional[str]] = mapped_column(String(50))
+    word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    # 时间节点（子订单独立的时间）
+    customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    sent_to_client_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    client_feedback: Mapped[Optional[str]] = mapped_column(Text)
+
+    # 译员信息
+    translator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    translator_assignment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    expected_translator_stats_method: Mapped[Optional[str]] = mapped_column(String(100))
+    expected_translator_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    # 各流程进度（与母订单字段一致）
+    status: Mapped[Optional[str]] = mapped_column(String(50), server_default=text("'pending'"))
+    translator_delivery_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    pre_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    review1_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    review2_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    post_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    layout_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    consolidation_progress: Mapped[Optional[str]] = mapped_column(String(20))
+
+    # 网络文件路径（如 \\\\win-server\\xxx）
+    network_file_path: Mapped[Optional[str]] = mapped_column(String(500))
+
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    # Relationships
+    parent_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='sub_orders')
+    translator: Mapped[Optional['Translator']] = relationship('Translator', foreign_keys=[translator_id])
+    creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
 
 
 class UserRole(Base):
