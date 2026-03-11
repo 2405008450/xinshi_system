@@ -15,7 +15,7 @@
     <div class="dashboard-flow">
       <section class="section-block">
         <h3 class="section-title">我的任务</h3>
-        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="workflowTasks" @enter-project="handleEnterProject" />
+        <MyTasksPanel :current-user-name="currentUserName" :tasks-list="workflowTasks" :reference-date="scheduleDate" @enter-project="handleEnterProject" />
       </section>
 
       <section class="section-block">

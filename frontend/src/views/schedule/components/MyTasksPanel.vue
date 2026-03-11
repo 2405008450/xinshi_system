@@ -20,7 +20,7 @@
             <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
             <el-table-column label="客户交稿时间" width="160">
               <template #default="{ row }">
-                {{ formatDeadline(row.customer_deadline_time) }}
+                {{ formatDeadline(getTaskDeadline(row)) }}
               </template>
             </el-table-column>
             <el-table-column prop="current_stage_key" label="当前阶段" width="120">
@@ -72,7 +72,7 @@
             <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
             <el-table-column label="客户交稿时间" width="160">
               <template #default="{ row }">
-                {{ formatDeadline(row.customer_deadline_time) }}
+                {{ formatDeadline(getTaskDeadline(row)) }}
               </template>
             </el-table-column>
             <el-table-column prop="current_stage_key" label="当前阶段" width="120">
@@ -135,7 +135,9 @@ const STATUS_TYPE = { pending: 'info', in_progress: '', completed: 'success', pa
 
 const props = defineProps({
   currentUserName: { type: String, default: '' },
-  tasksList: { type: Array, default: () => [] }
+  tasksList: { type: Array, default: () => [] },
+  /** 参考日期 YYYY-MM-DD，用于判定「当天及次日10点前」；不传则用当前真实日期 */
+  referenceDate: { type: String, default: '' }
 })
 
 defineEmits(['enter-project'])
@@ -155,13 +157,23 @@ function formatDeadline(timeStr) {
   return `${y}-${m}-${day} ${h}:${min}`
 }
 
-function isUrgentTask(deadlineTime) {
+/** 从任务对象取客户交稿时间（兼容接口 snake_case / camelCase） */
+function getTaskDeadline(task) {
+  return task?.customer_deadline_time ?? task?.customerDeadlineTime ?? null
+}
+
+/**
+ * 判定是否为紧急任务：客户交稿时间在「参考日当天 00:00」到「参考日次日 10:00」之间。
+ * @param {string|null} deadlineTime - ISO 或可解析的日期时间字符串
+ * @param {string} [refDateStr] - 参考日期 YYYY-MM-DD，不传则用当前日期
+ */
+function isUrgentTask(deadlineTime, refDateStr) {
   if (!deadlineTime) return false
-  const now = new Date()
   const deadline = new Date(deadlineTime)
   if (isNaN(deadline.getTime())) return false
 
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const ref = refDateStr && refDateStr.trim() ? new Date(refDateStr + 'T00:00:00') : new Date()
+  const today = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate())
   const tomorrow = new Date(today)
   tomorrow.setDate(tomorrow.getDate() + 1)
 
@@ -172,11 +184,13 @@ function isUrgentTask(deadlineTime) {
 }
 
 const urgentTasks = computed(() => {
-  return props.tasksList.filter(task => isUrgentTask(task.customer_deadline_time))
+  const ref = (props.referenceDate || '').trim() || null
+  return props.tasksList.filter(task => isUrgentTask(getTaskDeadline(task), ref))
 })
 
 const otherTasks = computed(() => {
-  return props.tasksList.filter(task => !isUrgentTask(task.customer_deadline_time))
+  const ref = (props.referenceDate || '').trim() || null
+  return props.tasksList.filter(task => !isUrgentTask(getTaskDeadline(task), ref))
 })
 </script>
 
