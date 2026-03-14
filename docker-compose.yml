@@ -3,14 +3,15 @@ version: '3.8'
 services:
   # PostgreSQL 数据库
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     container_name: xinshi_postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: XinShi@2026#PgS3cure!
       POSTGRES_DB: xinshi_system
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./xinshi_system.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     restart: unless-stopped
@@ -30,13 +31,25 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: 123456
+      DB_PASSWORD: XinShi@2026#PgS3cure!
       DB_NAME: xinshi_system
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  # 前端 Nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: xinshi_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
     restart: unless-stopped
 
 volumes:
