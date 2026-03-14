@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from workflow_crud import (
     get_workflow_by_project,
+    get_workflow_by_sub_order,
     get_my_tasks,
     init_workflow,
     set_difficulty,
@@ -32,7 +33,7 @@ from routers.auth import get_current_user
 router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(get_current_user)])
 
 
-def _build_state_response(instance) -> dict:
+def _build_state_response(instance) -> WorkflowStateResponse:
     """将 WorkflowInstance ORM 对象转换为 API 响应字典"""
     assignee_name = None
     if instance.current_assignee:
@@ -61,9 +62,15 @@ def _build_state_response(instance) -> dict:
             created_at=log.created_at,
         ))
 
+    sub_order_no = None
+    if instance.sub_order_id and instance.sub_order:
+        sub_order_no = instance.sub_order.sub_order_no
+
     return WorkflowStateResponse(
         id=instance.id,
         translation_project_id=instance.translation_project_id,
+        sub_order_id=instance.sub_order_id,
+        sub_order_no=sub_order_no,
         difficulty=instance.difficulty,
         file_editable=instance.file_editable,
         current_stage_key=instance.current_stage_key,
@@ -224,3 +231,114 @@ def update_stage_data_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+
+# ============================================================
+# 子订单工作流路由（与母订单路由逻辑一致，通过 sub_order_id 路由）
+# ============================================================
+
+@router.get("/suborder/{sub_order_id}", response_model=WorkflowStateResponse)
+def get_sub_order_workflow_state(sub_order_id: UUID, db: Session = Depends(get_db)):
+    """获取子订单的工作流状态"""
+    instance = get_workflow_by_sub_order(db, sub_order_id)
+    if not instance:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found for this sub-order")
+    return _build_state_response(instance)
+
+
+@router.post("/suborder/{sub_order_id}/init", response_model=WorkflowStateResponse, status_code=status.HTTP_201_CREATED)
+def init_sub_order_workflow_endpoint(sub_order_id: UUID, db: Session = Depends(get_db)):
+    """初始化子订单工作流"""
+    try:
+        instance = init_workflow(db, sub_order_id=sub_order_id)
+        return _build_state_response(instance)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/suborder/{sub_order_id}/set-difficulty", response_model=WorkflowStateResponse)
+def set_sub_order_difficulty_endpoint(
+    sub_order_id: UUID,
+    request: SetDifficultyRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    """子订单接稿：设定难度并推进"""
+    try:
+        instance = set_difficulty(
+            db,
+            sub_order_id=sub_order_id,
+            difficulty=request.difficulty,
+            file_editable=request.file_editable,
+            next_assignee_id=request.next_assignee_id,
+            group_assign_role=request.group_assign_role,
+            operator_id=current_user.id,
+            note=request.note,
+            stage_data=request.stage_data,
+        )
+        return _build_state_response(instance)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/suborder/{sub_order_id}/transition", response_model=WorkflowStateResponse)
+def transition_sub_order_endpoint(
+    sub_order_id: UUID,
+    request: TransitionRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    """子订单完成当前阶段，推进到下一阶段"""
+    try:
+        instance = transition_forward(
+            db,
+            sub_order_id=sub_order_id,
+            next_assignee_id=request.next_assignee_id,
+            group_assign_role=request.group_assign_role,
+            operator_id=current_user.id,
+            note=request.note,
+            stage_data=request.stage_data,
+        )
+        return _build_state_response(instance)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/suborder/{sub_order_id}/rollback", response_model=WorkflowStateResponse)
+def rollback_sub_order_endpoint(
+    sub_order_id: UUID,
+    request: RollbackRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    """子订单打回操作"""
+    try:
+        instance = rollback(
+            db,
+            sub_order_id=sub_order_id,
+            steps=request.steps,
+            to_start=request.to_start,
+            note=request.note,
+            operator_id=current_user.id,
+        )
+        return _build_state_response(instance)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.put("/suborder/{sub_order_id}/stage-data", response_model=WorkflowStateResponse)
+def update_sub_order_stage_data_endpoint(
+    sub_order_id: UUID,
+    request: StageDataUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """子订单：更新（暂存）当前阶段的进度表单数据"""
+    try:
+        instance = update_stage_data(
+            db,
+            sub_order_id=sub_order_id,
+            stage_data=request.stage_data,
+        )
+        return _build_state_response(instance)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

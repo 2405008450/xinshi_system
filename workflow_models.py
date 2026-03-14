@@ -13,7 +13,7 @@ from models import Base
 
 
 class WorkflowInstance(Base):
-    """工作流实例表 —— 每个笔译项目对应一条记录，记录当前流转状态"""
+    """工作流实例表 —— 每个笔译项目或子订单对应一条记录，记录当前流转状态"""
     __tablename__ = 'workflow_instance'
     __table_args__ = (
         ForeignKeyConstraint(
@@ -21,15 +21,19 @@ class WorkflowInstance(Base):
             ondelete='CASCADE', name='fk_wf_instance_project'
         ),
         ForeignKeyConstraint(
+            ['sub_order_id'], ['translation_sub_order.id'],
+            ondelete='CASCADE', name='fk_wf_instance_suborder'
+        ),
+        ForeignKeyConstraint(
             ['current_assignee_id'], ['app_user.id'],
             ondelete='SET NULL', name='fk_wf_instance_assignee'
         ),
         PrimaryKeyConstraint('id', name='workflow_instance_pkey'),
-        UniqueConstraint('translation_project_id', name='uq_wf_instance_project')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    translation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    sub_order_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
     difficulty: Mapped[Optional[str]] = mapped_column(String(20))          # simple / normal / complex
     file_editable: Mapped[Optional[bool]] = mapped_column()                # 文件是否可编辑
     current_stage_key: Mapped[str] = mapped_column(String(50), nullable=False, server_default=text("'reception'"))
@@ -42,7 +46,8 @@ class WorkflowInstance(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     # Relationships
-    translation_project = relationship('TranslationProject', back_populates='workflow_instance')
+    translation_project = relationship('TranslationProject', back_populates='workflow_instance', foreign_keys=[translation_project_id])
+    sub_order = relationship('TranslationSubOrder', back_populates='workflow_instance', foreign_keys=[sub_order_id])
     current_assignee = relationship('AppUser', foreign_keys=[current_assignee_id])
     logs: Mapped[list['WorkflowLog']] = relationship('WorkflowLog', back_populates='workflow_instance', cascade='all, delete-orphan', order_by='WorkflowLog.created_at')
 

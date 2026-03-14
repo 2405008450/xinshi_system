@@ -175,34 +175,50 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="140px">
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户编号" prop="client_code">
-              <el-select
-                v-model="form.client_code"
-                filterable
-                placeholder="请选择客户编号"
-                style="width: 100%"
-                @change="handleClientChange"
-              >
-                <el-option
-                  v-for="client in clientOptions"
-                  :key="client.id"
-                  :label="`${client.client_code} - ${client.client_name}`"
-                  :value="client.client_code"
-                />
-              </el-select>
+            <el-form-item label="客户名称" prop="client_name">
+              <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
+                <el-autocomplete
+                  v-model="form.client_name"
+                  :fetch-suggestions="searchClientsByName"
+                  placeholder="输入名称模糊搜索，无结果则新建"
+                  style="flex: 1;"
+                  value-key="client_name"
+                  clearable
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientNameClear"
+                  @input="handleClientNameInput"
+                >
+                  <template #default="{ item }">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <span>{{ item.client_name }}</span>
+                      <span style="color: #909399; font-size: 12px; margin-left: 10px;">{{ item.client_code }}</span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+                <el-tag v-if="form.client_id" type="success" size="small" effect="plain">老客户</el-tag>
+                <el-tag v-else-if="form.client_name" type="warning" size="small" effect="plain">新客户</el-tag>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称">
-              <el-input v-model="form.client_name" disabled />
+            <el-form-item label="客户编号">
+              <el-input
+                v-model="form.client_code"
+                disabled
+                :placeholder="!form.client_id && form.client_name ? '保存后自动生成' : '选择老客户后自动填充'"
+              />
             </el-form-item>
           </el-col>
         </el-row>
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户简称">
-              <el-input v-model="form.client_short_name" disabled />
+            <el-form-item label="客户简称" prop="client_short_name">
+              <el-input
+                v-model="form.client_short_name"
+                :disabled="!!form.client_id"
+                :placeholder="!form.client_id && form.client_name ? '新客户请填写简称（必填）' : ''"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -431,7 +447,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
@@ -443,10 +459,10 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
 const formRef = ref(null)
-const clientOptions = ref([])
 const userOptions = ref([])
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
+const clientSearchLoading = ref(false)
 
 // 创建翻译项目弹窗
 const createProjectDialogVisible = ref(false)
@@ -507,9 +523,21 @@ const defaultForm = () => ({
 
 const form = reactive(defaultForm())
 
+// 是否为新客户：没有关联的 client_id 但已填写客户名称
+const isNewClient = computed(() => !form.client_id && !!form.client_name)
+
 const rules = {
-  client_code: [{ required: true, message: '请选择客户编号', trigger: 'change' }],
-  consultation_time: [{ required: true, message: '请选择咨询时间', trigger: 'change' }],
+  client_name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
+  client_short_name: [{
+    validator: (_rule, value, callback) => {
+      if (isNewClient.value && !value?.trim()) {
+        callback(new Error('新客户必须填写客户简称'))
+      } else {
+        callback()
+      }
+    },
+    trigger: 'blur',
+  }],
   status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
 }
@@ -541,13 +569,44 @@ const formatDatetime = (val) => {
 
 const getDetailRow = (row) => detailCache[row.id] || row
 
-const loadClients = async () => {
-  try {
-    const res = await clientApi.getClients({ skip: 0, limit: 500 })
-    clientOptions.value = Array.isArray(res) ? res : []
-  } catch {
-    clientOptions.value = []
+// el-autocomplete 模糊搜索客户
+const searchClientsByName = async (queryString, cb) => {
+  if (!queryString?.trim()) {
+    cb([])
+    return
   }
+  clientSearchLoading.value = true
+  try {
+    const res = await clientApi.getClients({ client_name: queryString.trim(), skip: 0, limit: 10 })
+    cb(Array.isArray(res) ? res : [])
+  } catch {
+    cb([])
+  } finally {
+    clientSearchLoading.value = false
+  }
+}
+
+// 用户从下拉列表选中了已有客户
+const handleExistingClientSelect = (item) => {
+  form.client_id = item.id
+  form.client_name = item.client_name
+  form.client_code = item.client_code || ''
+  form.client_short_name = item.client_short_name || ''
+}
+
+// 用户手动输入（重新输入时清空已关联的客户）
+const handleClientNameInput = () => {
+  form.client_id = null
+  form.client_code = ''
+  form.client_short_name = ''
+}
+
+// 用户点击清空按钮
+const handleClientNameClear = () => {
+  form.client_id = null
+  form.client_name = ''
+  form.client_code = ''
+  form.client_short_name = ''
 }
 
 const loadUsers = async () => {
@@ -563,18 +622,6 @@ const getUserName = (id) => {
   if (!id) return '-'
   const user = userOptions.value.find((u) => u.id === id)
   return user ? (user.full_name || user.username) : id
-}
-
-const enrichClientFields = (row) => {
-  if (row.client_code && row.client_name && row.client_short_name) return row
-  const matched = clientOptions.value.find((c) => c.id === row.client_id)
-  if (!matched) return row
-  return {
-    ...row,
-    client_code: row.client_code || matched.client_code || '',
-    client_name: row.client_name || matched.client_name || '',
-    client_short_name: row.client_short_name || matched.client_short_name || '',
-  }
 }
 
 const fetchData = async () => {
@@ -596,28 +643,14 @@ const fetchData = async () => {
         status: params.status,
       })
     ])
-    const list = Array.isArray(res) ? res.map(enrichClientFields) : []
-    tableData.value = list
-    pagination.total = countRes?.total || list.length
+    tableData.value = Array.isArray(res) ? res : []
+    pagination.total = countRes?.total || tableData.value.length
   } catch {
     tableData.value = []
     pagination.total = 0
   } finally {
     loading.value = false
   }
-}
-
-const handleClientChange = (clientCode) => {
-  const client = clientOptions.value.find((c) => c.client_code === clientCode)
-  if (!client) {
-    form.client_id = null
-    form.client_name = ''
-    form.client_short_name = ''
-    return
-  }
-  form.client_id = client.id || null
-  form.client_name = client.client_name || ''
-  form.client_short_name = client.client_short_name || ''
 }
 
 const toNullable = (v) => (v === '' ? null : v)
@@ -648,7 +681,7 @@ const loadConsultationDetail = async (id) => {
   detailLoadingId.value = id
   try {
     const detail = await consultationApi.getConsultation(id)
-    detailCache[id] = enrichClientFields(detail)
+    detailCache[id] = detail
   } catch {
     ElMessage.error('加载详情失败')
   } finally {
@@ -663,30 +696,29 @@ const handleAdd = async () => {
 }
 
 const fillFormByRow = (row) => {
-  const item = enrichClientFields(row)
   Object.assign(form, {
-    id: item.id,
-    client_id: item.client_id || null,
-    client_code: item.client_code || '',
-    client_name: item.client_name || '',
-    client_short_name: item.client_short_name || '',
-    consultation_time: item.consultation_time || '',
-    consultation_method: item.consultation_method || '',
-    client_source: item.client_source || '',
-    source_keyword: item.source_keyword || '',
-    consultation_description: item.consultation_description || '',
-    status: item.status || 'following',
-    consultation_type: item.consultation_type || '',
-    handling_method: item.handling_method || '',
-    remarks: item.remarks || '',
-    customer_service_id: item.customer_service_id || null,
-    sales_person_id: item.sales_person_id || null,
-    editor_id: item.editor_id || null,
-    follow_up_count: item.follow_up_count ?? 0,
-    follow_up_time: item.follow_up_time || '',
-    follow_up_status: item.follow_up_status || '',
-    follow_up_remarks: item.follow_up_remarks || '',
-    follow_up_person_id: item.follow_up_person_id || null,
+    id: row.id,
+    client_id: row.client_id || null,
+    client_code: row.client_code || '',
+    client_name: row.client_name || '',
+    client_short_name: row.client_short_name || '',
+    consultation_time: row.consultation_time || '',
+    consultation_method: row.consultation_method || '',
+    client_source: row.client_source || '',
+    source_keyword: row.source_keyword || '',
+    consultation_description: row.consultation_description || '',
+    status: row.status || 'following',
+    consultation_type: row.consultation_type || '',
+    handling_method: row.handling_method || '',
+    remarks: row.remarks || '',
+    customer_service_id: row.customer_service_id || null,
+    sales_person_id: row.sales_person_id || null,
+    editor_id: row.editor_id || null,
+    follow_up_count: row.follow_up_count ?? 0,
+    follow_up_time: row.follow_up_time || '',
+    follow_up_status: row.follow_up_status || '',
+    follow_up_remarks: row.follow_up_remarks || '',
+    follow_up_person_id: row.follow_up_person_id || null,
   })
 }
 
@@ -694,8 +726,8 @@ const handleEdit = async (row) => {
   dialogTitle.value = '编辑咨询'
   try {
     const detail = await consultationApi.getConsultation(row.id)
-    detailCache[row.id] = enrichClientFields(detail)
-    fillFormByRow(detailCache[row.id])
+    detailCache[row.id] = detail
+    fillFormByRow(detail)
   } catch {
     fillFormByRow(row)
   }
@@ -719,6 +751,16 @@ const handleSubmit = async () => {
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     try {
+      // 新客户：先在客户表创建记录，获取自动生成的客户编号和 ID
+      if (isNewClient.value) {
+        const newClient = await clientApi.createClient({
+          client_name: form.client_name,
+          client_short_name: form.client_short_name,
+        })
+        form.client_id = newClient.id
+        form.client_code = newClient.client_code
+      }
+
       const payload = buildPayload()
       const isUpdate = !!form.id
       // 记录提交前咨询的旧状态（用于判断是否首次变为已成交）
@@ -731,13 +773,19 @@ const handleSubmit = async () => {
         await consultationApi.updateConsultation(consultationId, payload)
         ElMessage.success('更新成功')
       } else {
-        await consultationApi.createConsultation(payload)
+        const created = await consultationApi.createConsultation(payload)
         ElMessage.success('创建成功')
+        // 新建咨询也支持立即成交触发建项目弹窗
+        if (payload.status === 'success' && created?.id) {
+          createProjectConsultationId.value = created.id
+          createProjectForm.projectName = ''
+          createProjectDialogVisible.value = true
+        }
       }
       dialogVisible.value = false
       fetchData()
 
-      // 若本次操作将状态改为「已成交」，则弹窗提示用户创建翻译项目
+      // 若编辑时将状态改为「已成交」，则弹窗提示用户创建翻译项目
       if (isUpdate && payload.status === 'success' && prevStatus !== 'success') {
         createProjectConsultationId.value = consultationId
         createProjectForm.projectName = ''
@@ -759,7 +807,7 @@ const handleCreateProject = async () => {
       createProjectConsultationId.value,
       createProjectForm.projectName
     )
-    ElMessage.success('Project created. Opening workflow...')
+    ElMessage.success('\u9879\u76EE\u5DF2\u521B\u5EFA\uFF0C\u6B63\u5728\u8FDB\u5165\u6D41\u7A0B\u9875\u9762')
     createProjectDialogVisible.value = false
     createProjectConsultationId.value = null
     createProjectForm.projectName = ''
@@ -767,7 +815,7 @@ const handleCreateProject = async () => {
       router.push({ path: '/translation', query: { projectId: project.id } })
     }
   } catch (err) {
-    ElMessage.error(err?.response?.data?.detail || 'Failed to create project')
+    ElMessage.error(err?.response?.data?.detail || '\u521B\u5EFA\u9879\u76EE\u5931\u8D25')
   } finally {
     createProjectLoading.value = false
   }
@@ -779,7 +827,7 @@ const resetForm = () => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadClients(), loadUsers()])
+  await loadUsers()
   await fetchData()
 })
 </script>

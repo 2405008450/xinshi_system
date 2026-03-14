@@ -343,6 +343,7 @@ class TranslationSubOrder(Base):
     parent_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='sub_orders')
     translator: Mapped[Optional['Translator']] = relationship('Translator', foreign_keys=[translator_id])
     creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
+    workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='sub_order', uselist=False, cascade='all, delete-orphan')
 
 
 class UserRole(Base):

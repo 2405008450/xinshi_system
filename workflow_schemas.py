@@ -69,7 +69,9 @@ class WorkflowLogResponse(BaseModel):
 
 class WorkflowStateResponse(BaseModel):
     id: UUID
-    translation_project_id: UUID
+    translation_project_id: Optional[UUID] = None
+    sub_order_id: Optional[UUID] = None
+    sub_order_no: Optional[str] = None       # 子订单号（仅子订单工作流时有值）
     difficulty: Optional[str] = None
     file_editable: Optional[bool] = None
     current_stage_key: str
@@ -88,9 +90,10 @@ class WorkflowStateResponse(BaseModel):
 
 
 class MyTaskItem(BaseModel):
-    """待我处理列表中的单条项目"""
+    """待我处理列表中的单条项目（母订单或子订单）"""
     workflow_instance_id: UUID
-    translation_project_id: UUID
+    translation_project_id: Optional[UUID] = None
+    sub_order_id: Optional[UUID] = None
     order_no: str
     project_name: str
     client_short_name: Optional[str] = None
@@ -99,6 +102,7 @@ class MyTaskItem(BaseModel):
     project_status: Optional[str] = None
     customer_deadline_time: Optional[datetime] = None
     language_pair: Optional[str] = None
+    entity_type: Optional[str] = 'project'   # 'project' | 'suborder'
 
     class Config:
         from_attributes = True

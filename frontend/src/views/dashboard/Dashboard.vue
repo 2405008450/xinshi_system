@@ -2,33 +2,33 @@
   <div class="dashboard-page">
     <section class="hero">
       <div>
-        <p class="eyebrow">System Overview</p>
-        <h1>Dashboard</h1>
-        <p class="hero-copy">A quick view of workload, delivery pressure, and finance coverage.</p>
+        <p class="eyebrow">&#x7CFB;&#x7EDF;&#x6982;&#x89C8;</p>
+        <h1>&#x6570;&#x636E;&#x770B;&#x677F;</h1>
+        <p class="hero-copy">&#x5FEB;&#x901F;&#x67E5;&#x770B;&#x5F53;&#x524D;&#x5DE5;&#x4F5C;&#x8D1F;&#x8377;&#x3001;&#x4EA4;&#x4ED8;&#x538B;&#x529B;&#x548C;&#x8D22;&#x52A1;&#x8986;&#x76D6;&#x60C5;&#x51B5;&#x3002;</p>
       </div>
-      <el-button type="primary" @click="refreshDashboard">Refresh</el-button>
+      <el-button type="primary" @click="refreshDashboard">&#x5237;&#x65B0;</el-button>
     </section>
 
     <section class="stats-grid">
       <article class="stat-card">
-        <span>Projects</span>
+        <span>&#x9879;&#x76EE;&#x603B;&#x6570;</span>
         <strong>{{ stats.totalProjects }}</strong>
-        <small>{{ stats.inProgressProjects }} in progress</small>
+        <small>{{ stats.inProgressProjects }} &#x4E2A;&#x8FDB;&#x884C;&#x4E2D;</small>
       </article>
       <article class="stat-card accent-warning">
-        <span>Due Soon</span>
+        <span>&#x5373;&#x5C06;&#x5230;&#x671F;</span>
         <strong>{{ stats.dueSoonProjects }}</strong>
-        <small>{{ stats.overdueProjects }} overdue</small>
+        <small>{{ stats.overdueProjects }} &#x4E2A;&#x5DF2;&#x903E;&#x671F;</small>
       </article>
       <article class="stat-card accent-success">
-        <span>Finance Records</span>
+        <span>&#x8D22;&#x52A1;&#x8BB0;&#x5F55;</span>
         <strong>{{ stats.financeRecords }}</strong>
-        <small>{{ stats.unissuedInvoices }} unissued invoices</small>
+        <small>{{ stats.unissuedInvoices }} &#x6761;&#x672A;&#x5F00;&#x7968;</small>
       </article>
       <article class="stat-card accent-info">
-        <span>My Tasks</span>
+        <span>&#x6211;&#x7684;&#x4EFB;&#x52A1;</span>
         <strong>{{ stats.myTasks }}</strong>
-        <small>{{ stats.myUrgentTasks }} urgent now</small>
+        <small>{{ stats.myUrgentTasks }} &#x9879;&#x5F53;&#x524D;&#x7D27;&#x6025;</small>
       </article>
     </section>
 
@@ -36,42 +36,42 @@
       <el-card>
         <template #header>
           <div class="card-header">
-            <span>Upcoming Deadlines</span>
+            <span>&#x4E34;&#x671F;&#x9879;&#x76EE;</span>
             <el-tag v-if="deadlineProjects.length" type="warning" size="small">{{ deadlineProjects.length }}</el-tag>
           </div>
         </template>
         <el-table v-if="deadlineProjects.length" :data="deadlineProjects" size="small" border>
-          <el-table-column prop="orderNo" label="Order No" width="170" />
-          <el-table-column prop="projectName" label="Project" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="clientShortName" label="Client" width="140" show-overflow-tooltip />
-          <el-table-column label="Deadline" width="170">
+          <el-table-column prop="orderNo" label="&#x8BA2;&#x5355;&#x53F7;" width="170" />
+          <el-table-column prop="projectName" label="&#x9879;&#x76EE;&#x540D;&#x79F0;" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="clientShortName" label="&#x5BA2;&#x6237;" width="140" show-overflow-tooltip />
+          <el-table-column label="&#x622A;&#x6B62;&#x65F6;&#x95F4;" width="170">
             <template #default="{ row }">{{ formatDateTime(row.customerDeadlineTime) }}</template>
           </el-table-column>
-          <el-table-column label="State" width="110">
+          <el-table-column label="&#x72B6;&#x6001;" width="110">
             <template #default="{ row }">
-              <el-tag :type="isOverdue(row.customerDeadlineTime) ? 'danger' : 'warning'" size="small">{{ isOverdue(row.customerDeadlineTime) ? 'Overdue' : 'Due Soon' }}</el-tag>
+              <el-tag :type="isOverdue(row.customerDeadlineTime) ? 'danger' : 'warning'" size="small">{{ isOverdue(row.customerDeadlineTime) ? '已逾期' : '即将到期' }}</el-tag>
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-else description="No urgent deadlines" />
+        <el-empty v-else description="&#x6682;&#x65E0;&#x7D27;&#x6025;&#x622A;&#x6B62;&#x9879;&#x76EE;" />
       </el-card>
 
       <el-card>
         <template #header>
           <div class="card-header">
-            <span>My Attention Queue</span>
+            <span>&#x6211;&#x7684;&#x5173;&#x6CE8;&#x961F;&#x5217;</span>
             <el-tag v-if="myAttentionTasks.length" type="danger" size="small">{{ myAttentionTasks.length }}</el-tag>
           </div>
         </template>
         <el-table v-if="myAttentionTasks.length" :data="myAttentionTasks" size="small" border>
-          <el-table-column prop="order_no" label="Order No" width="170" />
-          <el-table-column prop="project_name" label="Project" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="current_stage_key" label="Stage" width="150" />
-          <el-table-column label="Deadline" width="170">
+          <el-table-column prop="order_no" label="&#x8BA2;&#x5355;&#x53F7;" width="170" />
+          <el-table-column prop="project_name" label="&#x9879;&#x76EE;&#x540D;&#x79F0;" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="current_stage_key" label="&#x5F53;&#x524D;&#x9636;&#x6BB5;" width="150" />
+          <el-table-column label="&#x622A;&#x6B62;&#x65F6;&#x95F4;" width="170">
             <template #default="{ row }">{{ formatDateTime(getTaskDeadline(row)) }}</template>
           </el-table-column>
         </el-table>
-        <el-empty v-else description="No urgent tasks" />
+        <el-empty v-else description="&#x6682;&#x65E0;&#x7D27;&#x6025;&#x4EFB;&#x52A1;" />
       </el-card>
     </section>
   </div>

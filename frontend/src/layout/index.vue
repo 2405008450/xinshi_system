@@ -41,7 +41,7 @@
         <!-- 工作台 -->
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
-          <template #title>Dashboard</template>
+          <template #title>&#x6570;&#x636E;&#x770B;&#x677F;</template>
         </el-menu-item>
         <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>

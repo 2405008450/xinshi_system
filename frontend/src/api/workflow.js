@@ -7,6 +7,7 @@ import { getUserRolesByRole } from './userRoles'
 import { getUsers } from './users'
 import api from './index'
 
+// ===== 母订单工作流 =====
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getWorkflowStateAPI = (projectId) => api.get(`/workflow/${projectId}`)
 export const initWorkflowAPI = (projectId) => api.post(`/workflow/${projectId}/init`)
@@ -14,6 +15,14 @@ export const setDifficultyAPI = (projectId, data) => api.post(`/workflow/${proje
 export const transitionWorkflowAPI = (projectId, data) => api.post(`/workflow/${projectId}/transition`, data)
 export const rollbackWorkflowAPI = (projectId, data) => api.post(`/workflow/${projectId}/rollback`, data)
 export const updateStageDataAPI = (projectId, data) => api.put(`/workflow/${projectId}/stage-data`, data)
+
+// ===== 子订单工作流 =====
+export const getSubOrderWorkflowStateAPI = (subOrderId) => api.get(`/workflow/suborder/${subOrderId}`)
+export const initSubOrderWorkflowAPI = (subOrderId) => api.post(`/workflow/suborder/${subOrderId}/init`)
+export const setSubOrderDifficultyAPI = (subOrderId, data) => api.post(`/workflow/suborder/${subOrderId}/set-difficulty`, data)
+export const transitionSubOrderWorkflowAPI = (subOrderId, data) => api.post(`/workflow/suborder/${subOrderId}/transition`, data)
+export const rollbackSubOrderWorkflowAPI = (subOrderId, data) => api.post(`/workflow/suborder/${subOrderId}/rollback`, data)
+export const updateSubOrderStageDataAPI = (subOrderId, data) => api.put(`/workflow/suborder/${subOrderId}/stage-data`, data)
 
 /**
  * 按角色名称获取该角色下的用户列表（用于下一环节负责人选择）

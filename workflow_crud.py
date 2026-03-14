@@ -11,7 +11,7 @@ from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uu
 from sqlalchemy.orm import Session
 
 from workflow_models import WorkflowInstance, WorkflowLog
-from models import TranslationProject, AppUser, Client, EmployeeLeave
+from models import TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -61,10 +61,25 @@ def get_workflow_by_project(db: Session, project_id: UUID) -> Optional[WorkflowI
         .first()
 
 
+def get_workflow_by_sub_order(db: Session, sub_order_id: UUID) -> Optional[WorkflowInstance]:
+    return db.query(WorkflowInstance)\
+        .filter(WorkflowInstance.sub_order_id == sub_order_id)\
+        .first()
+
+
 def get_workflow_by_id(db: Session, instance_id: UUID) -> Optional[WorkflowInstance]:
     return db.query(WorkflowInstance)\
         .filter(WorkflowInstance.id == instance_id)\
         .first()
+
+
+def _get_instance(db: Session, project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None) -> Optional[WorkflowInstance]:
+    """统一查询：按 project_id 或 sub_order_id 获取工作流实例"""
+    if project_id:
+        return get_workflow_by_project(db, project_id)
+    if sub_order_id:
+        return get_workflow_by_sub_order(db, sub_order_id)
+    return None
 
 
 from crud import (
@@ -76,15 +91,9 @@ from crud import (
 from notification_ws import dispatch_personal_message
 
 def get_my_tasks(db: Session, user_id: UUID) -> list:
-    """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，返回带项目信息的列表"""
+    """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，包含母订单和子订单"""
     roles = get_user_roles_with_role_names(db, user_id)
     is_customer_specialist = '客户专员' in roles
-
-    query = db.query(WorkflowInstance, TranslationProject, Client)\
-        .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
-        .outerjoin(Client, TranslationProject.client_id == Client.id)
-
-    # 构造"同组指派"匹配条件：group_assign_role 与该用户的任意角色匹配
     group_filters = [WorkflowInstance.group_assign_role == role for role in roles] if roles else []
 
     if is_customer_specialist:
@@ -93,28 +102,32 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None),
         ]
     else:
-        base_conditions = [
-            WorkflowInstance.current_assignee_id == user_id,
-        ]
+        base_conditions = [WorkflowInstance.current_assignee_id == user_id]
 
-    if group_filters:
-        query = query.filter(
-            or_(*base_conditions, *group_filters),
-            WorkflowInstance.current_stage_key != 'completed'
-        )
-    else:
-        query = query.filter(
-            or_(*base_conditions),
-            WorkflowInstance.current_stage_key != 'completed'
-        )
-        
-    results = query.all()
+    filter_cond = or_(*base_conditions, *group_filters) if group_filters else or_(*base_conditions)
+
+    # 查询母订单工作流
+    proj_query = db.query(WorkflowInstance, TranslationProject, Client)\
+        .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
+        .outerjoin(Client, TranslationProject.client_id == Client.id)\
+        .filter(filter_cond, WorkflowInstance.current_stage_key != 'completed',
+                WorkflowInstance.translation_project_id != None)
+    proj_results = proj_query.all()
+
+    # 查询子订单工作流
+    sub_query = db.query(WorkflowInstance, TranslationSubOrder, TranslationProject)\
+        .join(TranslationSubOrder, WorkflowInstance.sub_order_id == TranslationSubOrder.id)\
+        .join(TranslationProject, TranslationSubOrder.parent_project_id == TranslationProject.id)\
+        .filter(filter_cond, WorkflowInstance.current_stage_key != 'completed',
+                WorkflowInstance.sub_order_id != None)
+    sub_results = sub_query.all()
 
     tasks = []
-    for wf, proj, client in results:
+    for wf, proj, client in proj_results:
         tasks.append({
             'workflow_instance_id': wf.id,
             'translation_project_id': proj.id,
+            'sub_order_id': None,
             'order_no': proj.order_no,
             'project_name': proj.project_name,
             'client_short_name': client.client_short_name if client else '',
@@ -123,7 +136,25 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             'project_status': wf.project_status,
             'customer_deadline_time': proj.customer_deadline_time,
             'language_pair': proj.language_pair,
+            'entity_type': 'project',
         })
+
+    for wf, sub, proj in sub_results:
+        tasks.append({
+            'workflow_instance_id': wf.id,
+            'translation_project_id': proj.id,
+            'sub_order_id': sub.id,
+            'order_no': sub.sub_order_no,
+            'project_name': sub.sub_project_name or proj.project_name,
+            'client_short_name': '',
+            'current_stage_key': wf.current_stage_key,
+            'difficulty': wf.difficulty,
+            'project_status': wf.project_status,
+            'customer_deadline_time': sub.customer_deadline_time,
+            'language_pair': sub.language_pair,
+            'entity_type': 'suborder',
+        })
+
     return tasks
 
 
@@ -162,28 +193,41 @@ def _get_assignment_recipients(db: Session, next_assignee_id: Optional[UUID], gr
 
 def _notify_assignment(
     db: Session,
-    project_id: UUID,
+    project_id: Optional[UUID],
     stage_key: str,
     next_assignee_id: Optional[UUID],
     group_assign_role: Optional[str],
     action: str,
+    sub_order_id: Optional[UUID] = None,
 ) -> None:
     recipients = _get_assignment_recipients(db, next_assignee_id, group_assign_role)
     if not recipients:
         return
 
-    project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
-    if not project:
-        return
-
     stage_info = STAGE_BY_KEY.get(stage_key, {})
     stage_title = stage_info.get('title') or stage_key
     title = 'Workflow Task Updated'
+
+    if sub_order_id:
+        sub = db.query(TranslationSubOrder).filter(TranslationSubOrder.id == sub_order_id).first()
+        if not sub:
+            return
+        order_no = sub.sub_order_no
+        name = sub.sub_project_name or order_no
+        related_project_id = sub.parent_project_id
+    else:
+        project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+        if not project:
+            return
+        order_no = project.order_no
+        name = project.project_name
+        related_project_id = project.id
+
     if action == 'assigned':
-        content = f'Project {project.order_no} / {project.project_name} has entered {stage_title}. Please handle it.'
+        content = f'{order_no} / {name} has entered {stage_title}. Please handle it.'
         notification_type = 'workflow_assign'
     else:
-        content = f'Project {project.order_no} / {project.project_name} was rolled back to {stage_title}. Please review it.'
+        content = f'{order_no} / {name} was rolled back to {stage_title}. Please review it.'
         notification_type = 'workflow_rollback'
 
     notifications = create_notifications_for_users(
@@ -192,19 +236,23 @@ def _notify_assignment(
         title=title,
         content=content,
         notification_type=notification_type,
-        related_project_id=project.id,
+        related_project_id=related_project_id,
         commit=True,
     )
     _push_notifications(notifications)
 
 
-def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
-    existing = get_workflow_by_project(db, project_id)
+def init_workflow(db: Session, project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None) -> WorkflowInstance:
+    if not project_id and not sub_order_id:
+        raise ValueError("Must specify either project_id or sub_order_id")
+
+    existing = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if existing:
         return existing
 
     instance = WorkflowInstance(
         translation_project_id=project_id,
+        sub_order_id=sub_order_id,
         current_stage_key='reception',
         project_status='pending',
         stage_notes={},
@@ -246,10 +294,13 @@ def _check_on_leave(db: Session, user_id: UUID):
 
 import re
 
-def _sync_stage_data_to_project(db: Session, project_id: UUID, stage_data: dict):
+def _sync_stage_data_to_project(db: Session, project_id: Optional[UUID], stage_data: dict, sub_order_id: Optional[UUID] = None):
     if not stage_data:
         return
-    project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+    if sub_order_id:
+        project = db.query(TranslationSubOrder).filter(TranslationSubOrder.id == sub_order_id).first()
+    else:
+        project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
     if not project:
         return
 
@@ -306,21 +357,22 @@ def _sync_stage_data_to_project(db: Session, project_id: UUID, stage_data: dict)
 
 def set_difficulty(
     db: Session,
-    project_id: UUID,
-    difficulty: str,
-    file_editable: bool,
+    project_id: Optional[UUID] = None,
+    difficulty: str = '',
+    file_editable: bool = True,
     next_assignee_id: Optional[UUID] = None,
     group_assign_role: Optional[str] = None,
     operator_id: Optional[UUID] = None,
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
+    sub_order_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
     if not next_assignee_id and not group_assign_role:
         raise ValueError("Must specify either next_assignee_id or group_assign_role")
 
-    instance = get_workflow_by_project(db, project_id)
+    instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized for this project")
+        raise ValueError("Workflow not initialized")
     if instance.current_stage_key != 'reception':
         raise ValueError("Can only set difficulty at reception stage")
 
@@ -331,7 +383,7 @@ def set_difficulty(
     current_data = dict(instance.stage_data or {})
     if stage_data:
         current_data['reception'] = stage_data
-        _sync_stage_data_to_project(db, project_id, stage_data)
+        _sync_stage_data_to_project(db, project_id, stage_data, sub_order_id=sub_order_id)
     instance.stage_data = current_data
 
     instance.difficulty = difficulty
@@ -371,22 +423,23 @@ def set_difficulty(
 
     db.commit()
     db.refresh(instance)
-    _notify_assignment(db, project_id, next_stage['key'], next_assignee_id, group_assign_role, 'assigned')
+    _notify_assignment(db, project_id, next_stage['key'], next_assignee_id, group_assign_role, 'assigned', sub_order_id=sub_order_id)
     return instance
 
 
 def transition_forward(
     db: Session,
-    project_id: UUID,
+    project_id: Optional[UUID] = None,
     next_assignee_id: Optional[UUID] = None,
     group_assign_role: Optional[str] = None,
     operator_id: Optional[UUID] = None,
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
+    sub_order_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
-    instance = get_workflow_by_project(db, project_id)
+    instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized for this project")
+        raise ValueError("Workflow not initialized")
 
     steps = get_effective_stages(instance.difficulty, instance.file_editable)
     current_idx = next((i for i, s in enumerate(steps) if s['key'] == instance.current_stage_key), -1)
@@ -401,7 +454,7 @@ def transition_forward(
     current_data = dict(instance.stage_data or {})
     if stage_data:
         current_data[current_stage_key] = stage_data
-        _sync_stage_data_to_project(db, project_id, stage_data)
+        _sync_stage_data_to_project(db, project_id, stage_data, sub_order_id=sub_order_id)
     instance.stage_data = current_data
 
     current_stage_info = STAGE_BY_KEY.get(current_stage_key, {})
@@ -426,7 +479,8 @@ def transition_forward(
         )
         db.add(log)
         db.commit()
-        ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
+        if project_id:
+            ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
         db.refresh(instance)
         return instance
 
@@ -471,25 +525,26 @@ def transition_forward(
     instance.current_stage_key = next_stage['key']
 
     db.commit()
-    if next_stage['key'] == 'completed':
+    if next_stage['key'] == 'completed' and project_id:
         ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
     db.refresh(instance)
     if notify_stage_key:
-        _notify_assignment(db, project_id, notify_stage_key, notify_next_assignee_id, notify_group_assign_role, 'assigned')
+        _notify_assignment(db, project_id, notify_stage_key, notify_next_assignee_id, notify_group_assign_role, 'assigned', sub_order_id=sub_order_id)
     return instance
 
 
 def rollback(
     db: Session,
-    project_id: UUID,
+    project_id: Optional[UUID] = None,
     steps: int = 1,
     to_start: bool = False,
     note: str = '',
     operator_id: Optional[UUID] = None,
+    sub_order_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
-    instance = get_workflow_by_project(db, project_id)
+    instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized for this project")
+        raise ValueError("Workflow not initialized")
 
     effective = get_effective_stages(instance.difficulty, instance.file_editable)
     current_idx = next((i for i, s in enumerate(effective) if s['key'] == instance.current_stage_key), -1)
@@ -538,25 +593,26 @@ def rollback(
 
     target_role = STAGE_BY_KEY.get(target['key'], {}).get('role')
     if target_role and target_role != '-':
-        _notify_assignment(db, project_id, target['key'], None, target_role, 'rollback')
+        _notify_assignment(db, project_id, target['key'], None, target_role, 'rollback', sub_order_id=sub_order_id)
     return instance
 
 
 def update_stage_data(
     db: Session,
-    project_id: UUID,
-    stage_data: dict,
+    project_id: Optional[UUID] = None,
+    stage_data: dict = None,
+    sub_order_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
     """暂存当前阶段的进度表单数据"""
-    instance = get_workflow_by_project(db, project_id)
+    instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized for this project")
+        raise ValueError("Workflow not initialized")
 
     current_data = dict(instance.stage_data or {})
-    current_data[instance.current_stage_key] = stage_data
+    current_data[instance.current_stage_key] = stage_data or {}
     instance.stage_data = current_data
-    
-    _sync_stage_data_to_project(db, project_id, stage_data)
+
+    _sync_stage_data_to_project(db, project_id, stage_data or {}, sub_order_id=sub_order_id)
 
     db.commit()
     db.refresh(instance)

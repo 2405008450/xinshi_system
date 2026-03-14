@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -31,8 +31,14 @@ def create_sub_order_endpoint(sub_order: TranslationSubOrderCreate, db: Session 
 
 
 @router.get("/", response_model=List[TranslationSubOrderResponse])
-def read_all_sub_orders(skip: int = 0, limit: int = 200, db: Session = Depends(get_db)):
-    return get_all_sub_orders(db, skip=skip, limit=limit)
+def read_all_sub_orders(
+    skip: int = 0,
+    limit: int = 200,
+    sub_order_no: Optional[str] = None,
+    project_name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    return get_all_sub_orders(db, skip=skip, limit=limit, sub_order_no=sub_order_no, project_name=project_name)
 
 
 @router.get("/project/{project_id}", response_model=List[TranslationSubOrderResponse])

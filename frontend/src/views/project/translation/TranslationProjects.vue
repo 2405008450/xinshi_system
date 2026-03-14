@@ -13,23 +13,33 @@
       <div class="card-header">
         <span class="page-title">笔译项目流程</span>
         <el-select
-          v-model="currentProjectId"
-          placeholder="Search projects by name or order no."
+          v-model="currentEntityKey"
+          placeholder="搜索母订单或子订单号/名称"
           filterable
           remote
           reserve-keyword
           clearable
           :loading="projectOptionsLoading"
-          :remote-method="searchProjectOptions"
-          style="width: 380px"
-          @change="onProjectChange"
+          :remote-method="searchMixedOptions"
+          style="width: 420px"
+          @change="onEntityKeyChange"
         >
-          <el-option
-            v-for="p in projectList"
-            :key="p.id"
-            :label="`${p.orderNo} · ${p.projectName}`"
-            :value="p.id"
-          />
+          <el-option-group label="母订单">
+            <el-option
+              v-for="p in mixedEntityList.filter(e => e._type === 'project')"
+              :key="`project:${p.id}`"
+              :label="`[母] ${p.orderNo} · ${p.projectName}`"
+              :value="`project:${p.id}`"
+            />
+          </el-option-group>
+          <el-option-group label="子订单">
+            <el-option
+              v-for="s in mixedEntityList.filter(e => e._type === 'suborder')"
+              :key="`suborder:${s.id}`"
+              :label="`[子] ${s.subOrderNo || s.sub_order_no} · ${s.subProjectName || s.sub_project_name || ''}`"
+              :value="`suborder:${s.id}`"
+            />
+          </el-option-group>
         </el-select>
       </div>
     </template>
@@ -49,7 +59,10 @@
     <el-card v-if="currentProject" ref="stageCardRef" class="stage-card" shadow="never">
       <template #header>
         <div class="stage-card-header">
-          <span class="stage-name">当前阶段：{{ currentStage?.title }}</span>
+          <span class="stage-name">
+            当前阶段：{{ currentStage?.title }}
+            <el-tag v-if="currentEntityType === 'suborder'" type="warning" size="small" style="margin-left:6px">[子订单] {{ currentSubOrder?.subOrderNo || currentSubOrder?.sub_order_no }}</el-tag>
+          </span>
           <el-tag type="primary" effect="plain">{{ currentStage?.role }}</el-tag>
           <el-tag v-if="workflowState.currentAssigneeUserName" type="success" effect="plain" class="assignee-tag">
             当前负责人：{{ workflowState.currentAssigneeUserName }}
@@ -180,7 +193,7 @@
         </template>
         <div v-if="!canOperateCurrentStage" class="stage-permission-hint">
           <el-alert type="warning" :closable="false" show-icon>
-            <template #title>您不是客户专员，无法设定难度</template>
+            <template #title>仅客户专员或项目经理可设定难度</template>
           </el-alert>
         </div>
         <div v-else class="stage-actions">
@@ -402,8 +415,19 @@
         <div class="section-label">当前登录用户「{{ currentUserName }}」待处理的笔译项目</div>
         <el-table :data="myTaskProjectsList" border size="small" highlight-current-row @current-change="onMyTaskRowClick">
           <el-table-column type="index" label="序号" width="60" />
-          <el-table-column prop="order_no" label="订单号" width="140" />
-          <el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip />
+          <el-table-column label="类型" width="70">
+            <template #default="{ row }">
+              <el-tag :type="row.entity_type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
+                {{ row.entity_type === 'suborder' ? '子订单' : '母订单' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="订单号" width="160">
+            <template #default="{ row }">
+              {{ row.entity_type === 'suborder' ? (row.sub_order_no || row.order_no) : row.order_no }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="project_name" label="项目名称" min-width="180" show-overflow-tooltip />
           <el-table-column prop="client_short_name" label="客户简称" width="120" />
           <el-table-column label="当前阶段" width="180">
             <template #default="{ row }">
@@ -416,7 +440,7 @@
           </el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="selectProject(row)">进入</el-button>
+              <el-button type="primary" link size="small" @click="onMyTaskRowClick(row)">进入</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -446,9 +470,9 @@
 
       <el-tab-pane label="Files" name="files">
         <el-table :data="fileList" v-loading="fileListLoading" border size="small" style="width: 100%">
-          <el-table-column type="index" label="??" width="60" />
+          <el-table-column type="index" label="&#x5E8F;&#x53F7;" width="60" />
           <el-table-column prop="name" label="File Name" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="type" label="??" width="120" />
+          <el-table-column prop="type" label="&#x7C7B;&#x578B;" width="120" />
           <el-table-column prop="updatedAt" label="Created At" width="180" />
         </el-table>
         <el-empty v-if="!fileListLoading && !fileList.length" description="No files for this project" />
@@ -470,7 +494,7 @@
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
 
-      <el-tab-pane label="????" name="logs">
+      <el-tab-pane label="&#x65E5;&#x5FD7;&#x8BB0;&#x5F55;" name="logs">
         <el-form :inline="true" :model="logFilters" size="small" class="log-filter-bar">
           <el-form-item label="Type">
             <el-select v-model="logFilters.direction" clearable placeholder="All" style="width: 120px">
@@ -548,7 +572,12 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getProject, getProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
-import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
+import {
+  getUsersByRoleName,
+  getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI,
+  getSubOrderWorkflowStateAPI, initSubOrderWorkflowAPI, setSubOrderDifficultyAPI, transitionSubOrderWorkflowAPI, rollbackSubOrderWorkflowAPI, updateSubOrderStageDataAPI,
+} from '@/api/workflow'
+import { getSubOrdersByProject, getSubOrders } from '@/api/subOrders'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getStoredRoles } from '@/utils/permission'
 
@@ -766,7 +795,15 @@ function setWorkflowState(projectId, payload) {
 const myTaskProjectsList = ref([])
 
 const currentProjectId = ref('')
+// 'project' = 母订单, 'suborder' = 子订单
+const currentEntityType = ref('project')
+// 当前选中的子订单对象（entityType === 'suborder' 时有值）
+const currentSubOrder = ref(null)
 const projectList = ref([])
+// 统一下拉列表（母订单 + 子订单混合），每项含 _type 字段区分
+const mixedEntityList = ref([])
+// 当前下拉选中的值（格式：`${type}:${id}`）
+const currentEntityKey = ref('')
 const handoverNote = ref('')
 const activeTab = ref('my_tasks')
 const fileList = ref([])
@@ -828,6 +865,90 @@ function searchProjectOptions(query) {
   loadProjectOptions((query || '').trim())
 }
 
+/** 混合搜索：母订单 + 子订单，合并到 mixedEntityList */
+async function loadMixedOptions(query = '') {
+  projectOptionsLoading.value = true
+  try {
+    const projectParams = { skip: 0, limit: 50 }
+    const subOrderParams = { skip: 0, limit: 50 }
+    if (query) {
+      if (/^TP[-\w]/i.test(query)) {
+        projectParams.order_no = query
+      } else {
+        projectParams.project_name = query
+      }
+      if (/^SO[-\w]/i.test(query) || /^子/i.test(query)) {
+        subOrderParams.sub_order_no = query
+      } else {
+        subOrderParams.project_name = query
+      }
+    }
+
+    const [projectsRes, subOrdersRes] = await Promise.allSettled([
+      getProjects(projectParams),
+      getSubOrders(subOrderParams)
+    ])
+
+    const projects = (projectsRes.status === 'fulfilled' ? (Array.isArray(projectsRes.value) ? projectsRes.value : []) : [])
+      .map(p => ({ ...p, _type: 'project' }))
+
+    const subOrders = (subOrdersRes.status === 'fulfilled' ? (Array.isArray(subOrdersRes.value) ? subOrdersRes.value : []) : [])
+      .map(s => ({ ...s, _type: 'suborder' }))
+
+    projectList.value = mergeProjectOptions(projects.map(p => ({ ...p })))
+
+    // 保留当前选中项
+    const merged = [...projects, ...subOrders]
+    if (currentEntityType.value === 'suborder' && currentSubOrder.value) {
+      if (!merged.some(e => e._type === 'suborder' && String(e.id) === String(currentSubOrder.value.id))) {
+        merged.unshift({ ...currentSubOrder.value, _type: 'suborder', subOrderNo: currentSubOrder.value.subOrderNo || currentSubOrder.value.sub_order_no })
+      }
+    } else if (currentEntityType.value === 'project' && currentProjectId.value) {
+      if (!merged.some(e => e._type === 'project' && String(e.id) === String(currentProjectId.value))) {
+        const cur = selectedProjectRow.value || projectList.value.find(p => String(p.id) === String(currentProjectId.value))
+        if (cur) merged.unshift({ ...cur, _type: 'project' })
+      }
+    }
+    mixedEntityList.value = merged
+  } catch (e) {
+    console.error('Failed to load mixed options', e)
+  } finally {
+    projectOptionsLoading.value = false
+  }
+}
+
+function searchMixedOptions(query) {
+  loadMixedOptions((query || '').trim())
+}
+
+/** 下拉选中某项 */
+function onEntityKeyChange(val) {
+  if (!val) {
+    // 清空
+    currentEntityType.value = 'project'
+    currentProjectId.value = ''
+    currentSubOrder.value = null
+    selectedProjectRow.value = null
+    onProjectChange()
+    return
+  }
+  const [type, id] = val.split(':')
+  if (type === 'project') {
+    currentEntityType.value = 'project'
+    currentSubOrder.value = null
+    currentProjectId.value = id
+    selectedProjectRow.value = projectList.value.find(p => String(p.id) === id) || null
+    onProjectChange()
+  } else if (type === 'suborder') {
+    const so = mixedEntityList.value.find(e => e._type === 'suborder' && String(e.id) === id)
+    currentEntityType.value = 'suborder'
+    currentSubOrder.value = so || { id }
+    currentProjectId.value = id  // 复用 currentProjectId 存放当前 id，工作流 API 按 entityType 分支
+    selectedProjectRow.value = null
+    onProjectChange()
+  }
+}
+
 async function loadProjectFiles() {
   if (!currentProjectId.value) {
     fileList.value = []
@@ -849,6 +970,10 @@ async function loadProjectFiles() {
 const selectedProjectRow = ref(null)
 
 const currentProject = computed(() => {
+  if (currentEntityType.value === 'suborder') {
+    // 子订单模式：只要有子订单和工作流状态就显示阶段卡片
+    return currentSubOrder.value || (currentProjectId.value ? { id: currentProjectId.value } : undefined)
+  }
   if (selectedProjectRow.value) return selectedProjectRow.value
   const id = currentProjectId.value
   if (id === undefined || id === null || id === '') return undefined
@@ -959,8 +1084,14 @@ const canOperateCurrentStage = computed(() => {
   if (!state) return false
   const name = currentUserName.value
   const roles = getStoredRoles()
-  // 超级管理员和项目经理始终可操作（不受阶段限制）
-  if (roles.includes('admin') || roles.includes('超级管理员') || roles.includes('项目经理')) return true
+  // 超级管理员始终可操作
+  if (roles.includes('admin') || roles.includes('超级管理员')) return true
+  // 接稿阶段（难度设定）：客户专员 和 项目经理 均可操作，无需指派匹配
+  if (state.currentStageKey === 'reception') {
+    return roles.includes('客户专员') || roles.includes('项目经理')
+  }
+  // 项目经理对其他阶段也可操作
+  if (roles.includes('项目经理')) return true
   // 同组指派时：当前用户拥有该角色即可操作
   if (state.groupAssignRole && !state.currentAssigneeUserId) {
     return roles.includes(state.groupAssignRole)
@@ -971,7 +1102,7 @@ const canOperateCurrentStage = computed(() => {
   } else if (state.currentAssigneeUserName) {
     return state.currentAssigneeUserName === name
   }
-  // 未指定负责人（如接稿阶段），检查角色匹配
+  // 未指定负责人，检查角色匹配
   const stage = stageByKey[state.currentStageKey]
   if (!stage) return false
   if (stage.assignRoles && stage.assignRoles.length) {
@@ -1238,7 +1369,8 @@ async function confirmDifficulty() {
   try {
     const isGroupAssign = assignMode.value === 'group'
     const assignedRole = payload.group_assign_role
-    const res = await setDifficultyAPI(currentProjectId.value, payload)
+    const apiFn = currentEntityType.value === 'suborder' ? setSubOrderDifficultyAPI : setDifficultyAPI
+    const res = await apiFn(currentProjectId.value, payload)
     setWorkflowState(currentProjectId.value, res)
     handoverNote.value = ''
     nextAssigneeUserId.value = ''
@@ -1263,7 +1395,8 @@ async function saveCurrentStageProgress() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
   try {
-    const res = await updateStageDataAPI(currentProjectId.value, {
+    const apiFn = currentEntityType.value === 'suborder' ? updateSubOrderStageDataAPI : updateStageDataAPI
+    const res = await apiFn(currentProjectId.value, {
       stage_data: { ...stageFormData }
     })
     setWorkflowState(currentProjectId.value, res)
@@ -1314,7 +1447,8 @@ async function completeCurrentStage() {
   try {
     const isGroupAssign = assignMode.value === 'group'
     const assignedRole = payload.group_assign_role
-    const res = await transitionWorkflowAPI(currentProjectId.value, payload)
+    const transitionApiFn = currentEntityType.value === 'suborder' ? transitionSubOrderWorkflowAPI : transitionWorkflowAPI
+    const res = await transitionApiFn(currentProjectId.value, payload)
     setWorkflowState(currentProjectId.value, res)
     handoverNote.value = ''
     nextAssigneeUserId.value = ''
@@ -1355,7 +1489,8 @@ async function confirmRollback() {
   if (!state) return
   
   try {
-    const res = await rollbackWorkflowAPI(currentProjectId.value, {
+    const rollbackApiFn = currentEntityType.value === 'suborder' ? rollbackSubOrderWorkflowAPI : rollbackWorkflowAPI
+    const res = await rollbackApiFn(currentProjectId.value, {
       steps: rollbackSteps.value,
       to_start: rollbackToStart.value,
       note: note
@@ -1365,7 +1500,7 @@ async function confirmRollback() {
     handleRollbackDialogClose()
     handoverNote.value = ''
     initStageFormData()
-    ElMessage.success(`已成功打回项目`)
+    ElMessage.success(currentEntityType.value === 'suborder' ? '已成功打回子订单' : '已成功打回项目')
     loadProjects()
   } catch (e) {
     console.error('打回失败', e)
@@ -1383,11 +1518,15 @@ async function loadProjects() {
   }
 
   try {
-    await loadProjectOptions()
+    await loadMixedOptions()
     if (currentProjectId.value) {
-      await ensureProjectLoaded(currentProjectId.value)
+      if (currentEntityType.value === 'project') {
+        await ensureProjectLoaded(currentProjectId.value)
+      }
     } else if (projectList.value.length) {
+      currentEntityType.value = 'project'
       currentProjectId.value = projectList.value[0].id
+      currentEntityKey.value = `project:${projectList.value[0].id}`
       await fetchWorkflowState()
     }
   } catch (e) {
@@ -1427,10 +1566,26 @@ async function ensureProjectLoaded(projectId) {
 async function fetchWorkflowState() {
   if (!currentProjectId.value) return
   try {
-    await ensureProjectLoaded(currentProjectId.value)
-    const state = await getWorkflowStateAPI(currentProjectId.value)
-    setWorkflowState(currentProjectId.value, state)
-    initStageFormData()
+    if (currentEntityType.value === 'suborder') {
+      let state
+      try {
+        state = await getSubOrderWorkflowStateAPI(currentProjectId.value)
+      } catch (err) {
+        // 工作流未初始化（404），自动初始化
+        if (err?.response?.status === 404 || err?.status === 404) {
+          state = await initSubOrderWorkflowAPI(currentProjectId.value)
+        } else {
+          throw err
+        }
+      }
+      setWorkflowState(currentProjectId.value, state)
+      initStageFormData()
+    } else {
+      await ensureProjectLoaded(currentProjectId.value)
+      const state = await getWorkflowStateAPI(currentProjectId.value)
+      setWorkflowState(currentProjectId.value, state)
+      initStageFormData()
+    }
   } catch (e) {
     console.error('获取流程状态失败', e)
   }
@@ -1473,10 +1628,29 @@ function selectProject(projectIdOrRow) {
 }
 
 function onMyTaskRowClick(row) {
-  if (row && row.translation_project_id) {
-    selectProject(row.translation_project_id)
-  } else if (row && row.id) {
-    selectProject(row.id)
+  if (!row) return
+  if (row.entity_type === 'suborder' && row.sub_order_id) {
+    // 子订单任务
+    currentEntityType.value = 'suborder'
+    currentSubOrder.value = { id: row.sub_order_id, subOrderNo: row.sub_order_no || row.subOrderNo || row.orderNo || '' }
+    currentProjectId.value = row.sub_order_id
+    currentEntityKey.value = `suborder:${row.sub_order_id}`
+    selectedProjectRow.value = null
+    handoverNote.value = ''
+    nextAssigneeUserId.value = ''
+    groupAssignRole.value = ''
+    assignMode.value = 'personal'
+    pendingDifficulty.value = null
+    pendingFileEditable.value = null
+    fetchWorkflowState()
+    activeTab.value = 'overview'
+  } else {
+    // 母订单任务
+    const projectId = row.translation_project_id || row.id
+    currentEntityType.value = 'project'
+    currentSubOrder.value = null
+    currentEntityKey.value = `project:${projectId}`
+    selectProject(projectId)
   }
 }
 
@@ -1504,7 +1678,10 @@ watch(
     assignMode.value = 'personal'
     pendingDifficulty.value = null
     pendingFileEditable.value = null
+    currentEntityType.value = 'project'
+    currentSubOrder.value = null
     currentProjectId.value = routeProjectId
+    currentEntityKey.value = `project:${routeProjectId}`
     activeTab.value = 'overview'
     await fetchWorkflowState()
   },

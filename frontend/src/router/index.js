@@ -88,7 +88,7 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('../views/dashboard/Dashboard.vue'),
-        meta: { title: 'Dashboard', roles: ['*'] }
+        meta: { title: '\u6570\u636E\u770B\u677F', roles: ['*'] }
       },
       {
         path: 'workbench',

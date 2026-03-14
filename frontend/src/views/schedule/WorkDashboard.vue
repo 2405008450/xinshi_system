@@ -2,7 +2,7 @@
   <el-card>
     <template #header>
       <ScheduleHeader
-        title="My Workbench"
+        title="&#x6211;&#x7684;&#x5DE5;&#x4F5C;&#x53F0;"
         :model-value="scheduleDate"
         :weekday-label="weekdayLabel"
         :show-admin-actions="false"
@@ -15,24 +15,24 @@
     <div class="dashboard-flow">
       <section class="section-block summary-grid">
         <div class="summary-card danger">
-          <span class="summary-label">Overdue</span>
+          <span class="summary-label">&#x5DF2;&#x903E;&#x671F;</span>
           <strong>{{ overdueTasks.length }}</strong>
-          <small>tasks past deadline</small>
+          <small>&#x5DF2;&#x8D85;&#x8FC7;&#x622A;&#x6B62;&#x65F6;&#x95F4;</small>
         </div>
         <div class="summary-card warning">
-          <span class="summary-label">Due Soon</span>
+          <span class="summary-label">&#x5373;&#x5C06;&#x5230;&#x671F;</span>
           <strong>{{ urgentTasks.length }}</strong>
-          <small>within 24 hours</small>
+          <small>24 &#x5C0F;&#x65F6;&#x5185;&#x5230;&#x671F;</small>
         </div>
         <div class="summary-card info">
-          <span class="summary-label">My Tasks</span>
+          <span class="summary-label">&#x6211;&#x7684;&#x4EFB;&#x52A1;</span>
           <strong>{{ workflowTasks.length }}</strong>
-          <small>current workflow items</small>
+          <small>&#x5F53;&#x524D;&#x6D41;&#x7A0B;&#x4EFB;&#x52A1;</small>
         </div>
         <div class="summary-card neutral">
-          <span class="summary-label">Upcoming Leave</span>
+          <span class="summary-label">&#x5373;&#x5C06;&#x8BF7;&#x5047;</span>
           <strong>{{ leaveRecords.length }}</strong>
-          <small>next 30 days</small>
+          <small>&#x672A;&#x6765; 30 &#x5929;</small>
         </div>
       </section>
 
@@ -46,27 +46,27 @@
         />
         <el-table :data="attentionTasks" border size="small" class="data-table" style="margin-top: 12px;">
           <el-table-column type="index" label="#" width="60" />
-          <el-table-column prop="project_name" label="Project" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="order_no" label="Order No" width="180" />
-          <el-table-column prop="client_short_name" label="Client" width="140" show-overflow-tooltip />
-          <el-table-column label="Deadline" width="180">
+          <el-table-column prop="project_name" label="&#x9879;&#x76EE;&#x540D;&#x79F0;" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="order_no" label="&#x8BA2;&#x5355;&#x53F7;" width="180" />
+          <el-table-column prop="client_short_name" label="&#x5BA2;&#x6237;" width="140" show-overflow-tooltip />
+          <el-table-column label="&#x622A;&#x6B62;&#x65F6;&#x95F4;" width="180">
             <template #default="{ row }">{{ formatDateTime(getTaskDeadline(row)) }}</template>
           </el-table-column>
-          <el-table-column label="Status" width="100">
+          <el-table-column label="&#x72B6;&#x6001;" width="100">
             <template #default="{ row }">
-              <el-tag :type="isOverdue(row) ? 'danger' : 'warning'" size="small">{{ isOverdue(row) ? 'Overdue' : 'Due Soon' }}</el-tag>
+              <el-tag :type="isOverdue(row) ? 'danger' : 'warning'" size="small">{{ isOverdue(row) ? '已逾期' : '即将到期' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="Action" width="100" align="center">
+          <el-table-column label="&#x64CD;&#x4F5C;" width="100" align="center">
             <template #default="{ row }">
-              <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="handleEnterProject(row.translation_project_id)">Open</el-button>
+              <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="handleEnterProject(row.translation_project_id)">&#x8FDB;&#x5165;</el-button>
             </template>
           </el-table-column>
         </el-table>
       </section>
 
       <section class="section-block">
-        <h3 class="section-title">My Tasks</h3>
+        <h3 class="section-title">&#x6211;&#x7684;&#x4EFB;&#x52A1;</h3>
         <MyTasksPanel
           :current-user-name="currentUserName"
           :tasks-list="workflowTasks"
@@ -80,20 +80,20 @@
       </section>
 
       <section class="section-block info-block">
-        <h4 class="section-title">Leave Overview</h4>
-        <p class="section-desc">Read-only leave records for the next 30 days.</p>
+        <h4 class="section-title">&#x8BF7;&#x5047;&#x6982;&#x89C8;</h4>
+        <p class="section-desc">&#x672A;&#x6765; 30 &#x5929;&#x8BF7;&#x5047;&#x8BB0;&#x5F55;&#xFF0C;&#x53EA;&#x8BFB;&#x5C55;&#x793A;&#x3002;</p>
         <el-table v-if="leaveRecords.length" :data="leaveRecords" border size="small" class="data-table">
-          <el-table-column prop="employee_name" label="Employee" width="120" />
-          <el-table-column label="Start" width="170">
+          <el-table-column prop="employee_name" label="&#x5458;&#x5DE5;" width="120" />
+          <el-table-column label="&#x5F00;&#x59CB;&#x65F6;&#x95F4;" width="170">
             <template #default="{ row }">{{ formatDateTime(row.start_date) }}</template>
           </el-table-column>
-          <el-table-column label="End" width="170">
+          <el-table-column label="&#x7ED3;&#x675F;&#x65F6;&#x95F4;" width="170">
             <template #default="{ row }">{{ formatDateTime(row.end_date) }}</template>
           </el-table-column>
-          <el-table-column prop="leave_type" label="Type" width="120" />
-          <el-table-column prop="reason" label="Reason" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="leave_type" label="&#x8BF7;&#x5047;&#x7C7B;&#x578B;" width="120" />
+          <el-table-column prop="reason" label="&#x539F;&#x56E0;" min-width="180" show-overflow-tooltip />
         </el-table>
-        <div v-else class="empty-tip">No leave records in the next 30 days.</div>
+        <div v-else class="empty-tip">&#x672A;&#x6765; 30 &#x5929;&#x6682;&#x65E0;&#x8BF7;&#x5047;&#x8BB0;&#x5F55;&#x3002;</div>
       </section>
     </div>
   </el-card>
@@ -118,7 +118,7 @@ const currentUserName = ref('')
 
 const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
-  return new Date(scheduleDate.value).toLocaleDateString('en-US', { weekday: 'long' })
+  return new Date(scheduleDate.value).toLocaleDateString('zh-CN', { weekday: 'long' })
 })
 
 const getTaskDeadline = (task) => task?.customer_deadline_time ?? task?.customerDeadlineTime ?? null
@@ -171,12 +171,12 @@ const urgentTasks = computed(() => workflowTasks.value.filter(task => !isOverdue
 const attentionTasks = computed(() => [...overdueTasks.value, ...urgentTasks.value].slice(0, 8))
 const alertTitle = computed(() => {
   if (overdueTasks.value.length && urgentTasks.value.length) {
-    return `${overdueTasks.value.length} overdue task(s), ${urgentTasks.value.length} due soon.`
+    return `共有 ${overdueTasks.value.length} 项任务已逾期，${urgentTasks.value.length} 项任务即将到期。`
   }
   if (overdueTasks.value.length) {
-    return `${overdueTasks.value.length} overdue task(s) need attention.`
+    return `共有 ${overdueTasks.value.length} 项逾期任务需要处理。`
   }
-  return `${urgentTasks.value.length} task(s) due within 24 hours.`
+  return `共有 ${urgentTasks.value.length} 项任务将在 24 小时内到期。`
 })
 
 async function loadLeaveRecords() {

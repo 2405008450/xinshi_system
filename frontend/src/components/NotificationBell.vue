@@ -16,14 +16,14 @@
 
     <div class="notification-panel">
       <div class="notification-panel__header">
-        <span>Notifications</span>
+        <span>&#x901A;&#x77E5;</span>
         <el-button
           v-if="unreadCount > 0"
           text
           size="small"
           @click="handleMarkAllRead"
         >
-          Mark all read
+          &#x5168;&#x90E8;&#x5DF2;&#x8BFB;
         </el-button>
       </div>
       <el-scrollbar max-height="360px">
@@ -39,11 +39,11 @@
             <div class="notification-item__content">{{ item.content }}</div>
             <div class="notification-item__meta">
               <span>{{ formatTime(item.created_at) }}</span>
-              <span v-if="!item.is_read">Unread</span>
+              <span v-if="!item.is_read">&#x672A;&#x8BFB;</span>
             </div>
           </button>
         </div>
-        <el-empty v-else description="No notifications" :image-size="72" />
+        <el-empty v-else description="&#x6682;&#x65E0;&#x901A;&#x77E5;" :image-size="72" />
       </el-scrollbar>
     </div>
   </el-popover>
@@ -75,7 +75,7 @@ const loadNotifications = async () => {
     const data = await getNotifications({ limit: 10 })
     notifications.value = Array.isArray(data) ? data : []
   } catch (error) {
-    console.error('Failed to load notifications', error)
+    console.error('加载通知失败', error)
   }
 }
 
@@ -84,7 +84,7 @@ const loadUnreadCount = async () => {
     const data = await getUnreadNotificationCount()
     unreadCount.value = Number(data?.count || 0)
   } catch (error) {
-    console.error('Failed to load unread count', error)
+    console.error('加载未读数失败', error)
   }
 }
 
@@ -148,7 +148,7 @@ const connectSocket = () => {
         })
       }
     } catch (error) {
-      console.error('Failed to parse notification payload', error)
+      console.error('解析通知消息失败', error)
     }
   }
 
@@ -194,7 +194,7 @@ const handleNotificationClick = async (item) => {
       router.push({ path: '/translation', query: { projectId: item.related_project_id } })
     }
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || 'Failed to update notification')
+    ElMessage.error(error?.detail || error?.message || '更新通知失败')
   }
 }
 
@@ -204,7 +204,7 @@ const handleMarkAllRead = async () => {
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || 'Failed to mark notifications read')
+    ElMessage.error(error?.detail || error?.message || '批量已读失败')
   }
 }
 

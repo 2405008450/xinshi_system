@@ -997,8 +997,13 @@ def get_sub_orders_by_project(db: Session, parent_project_id: UUID) -> List[Tran
     )
 
 
-def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200) -> List[TranslationSubOrder]:
-    return db.query(TranslationSubOrder).offset(skip).limit(limit).all()
+def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_no: Optional[str] = None, project_name: Optional[str] = None) -> List[TranslationSubOrder]:
+    q = db.query(TranslationSubOrder)
+    if sub_order_no:
+        q = q.filter(TranslationSubOrder.sub_order_no.ilike(f'%{sub_order_no}%'))
+    if project_name:
+        q = q.filter(TranslationSubOrder.sub_project_name.ilike(f'%{project_name}%'))
+    return q.offset(skip).limit(limit).all()
 
 
 def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
