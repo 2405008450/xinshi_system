@@ -7,7 +7,7 @@ import { getUserRolesByRole } from './userRoles'
 import { getUsers } from './users'
 import api from './index'
 
-export const getMyTasksAPI = (userId) => api.get('/workflow/my-tasks', { params: { user_id: userId } })
+export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getWorkflowStateAPI = (projectId) => api.get(`/workflow/${projectId}`)
 export const initWorkflowAPI = (projectId) => api.post(`/workflow/${projectId}/init`)
 export const setDifficultyAPI = (projectId, data) => api.post(`/workflow/${projectId}/set-difficulty`, data)
