@@ -16,8 +16,15 @@ from schemas import (
     TranslatorCreate, TranslatorUpdate,
     ConsultationCreate, ConsultationUpdate
 )
-import hashlib
+from passlib.context import CryptContext
 from utils import generate_order_no
+
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(plain_password: str) -> str:
+    return pwd_context.hash(plain_password)
 
 
 # AppUser CRUD
@@ -34,11 +41,10 @@ def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[AppUser]:
 
 
 def create_user(db: Session, user: AppUserCreate) -> AppUser:
-    # 简单的密码哈希（实际项目中应使用 bcrypt 等）
-    password_hash = hashlib.sha256(user.password.encode()).hexdigest()
+    hashed = hash_password(user.password)
     db_user = AppUser(
         username=user.username,
-        password_hash=password_hash,
+        password_hash=hashed,
         full_name=user.full_name,
         email=user.email,
         is_active=user.is_active
@@ -56,7 +62,7 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
     
     update_data = user_update.model_dump(exclude_unset=True)
     if "password" in update_data:
-        update_data["password_hash"] = hashlib.sha256(update_data.pop("password").encode()).hexdigest()
+        update_data["password_hash"] = hash_password(update_data.pop("password"))
     
     for field, value in update_data.items():
         setattr(db_user, field, value)
@@ -394,7 +400,11 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
         **project_data
     )
     db.add(db_project)
-    db.commit()
+    db.flush()
+
+    from workflow_crud import init_workflow
+
+    init_workflow(db, db_project.id)
     db.refresh(db_project)
     return db_project
 

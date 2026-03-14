@@ -3,7 +3,7 @@
 """
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -27,8 +27,9 @@ from workflow_schemas import (
     MyTaskItem,
 )
 from models import AppUser
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/workflow", tags=["workflow"])
+router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(get_current_user)])
 
 
 def _build_state_response(instance) -> dict:
@@ -68,6 +69,7 @@ def _build_state_response(instance) -> dict:
         current_stage_key=instance.current_stage_key,
         current_assignee_id=instance.current_assignee_id,
         current_assignee_name=assignee_name,
+        group_assign_role=instance.group_assign_role,
         project_status=instance.project_status,
         stage_notes=instance.stage_notes,
         stage_data=instance.stage_data,
@@ -81,15 +83,11 @@ def _build_state_response(instance) -> dict:
 
 @router.get("/my-tasks", response_model=list[MyTaskItem])
 def get_my_tasks_endpoint(
-    user_id: str = Query(..., description="当前用户ID"),
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
-    """获取当前用户的待办任务列表"""
-    try:
-        user_uuid = UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user_id format")
-    tasks = get_my_tasks(db, user_uuid)
+    """Return tasks assigned to the current authenticated user."""
+    tasks = get_my_tasks(db, current_user.id)
     return tasks
 
 
@@ -127,6 +125,7 @@ def set_difficulty_endpoint(
     project_id: UUID,
     request: SetDifficultyRequest,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     """客户专员设定难度并推进到下一阶段"""
     try:
@@ -136,7 +135,8 @@ def set_difficulty_endpoint(
             difficulty=request.difficulty,
             file_editable=request.file_editable,
             next_assignee_id=request.next_assignee_id,
-            operator_id=request.operator_id,
+            group_assign_role=request.group_assign_role,
+            operator_id=current_user.id,
             note=request.note,
             stage_data=request.stage_data,
         )
@@ -155,6 +155,7 @@ def transition_endpoint(
     project_id: UUID,
     request: TransitionRequest,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     """完成当前阶段，推进到下一阶段"""
     try:
@@ -162,7 +163,8 @@ def transition_endpoint(
             db,
             project_id=project_id,
             next_assignee_id=request.next_assignee_id,
-            operator_id=request.operator_id,
+            group_assign_role=request.group_assign_role,
+            operator_id=current_user.id,
             note=request.note,
             stage_data=request.stage_data,
         )
@@ -181,6 +183,7 @@ def rollback_endpoint(
     project_id: UUID,
     request: RollbackRequest,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     """打回操作"""
     try:
@@ -190,7 +193,7 @@ def rollback_endpoint(
             steps=request.steps,
             to_start=request.to_start,
             note=request.note,
-            operator_id=request.operator_id,
+            operator_id=current_user.id,
         )
         return _build_state_response(instance)
     except ValueError as e:

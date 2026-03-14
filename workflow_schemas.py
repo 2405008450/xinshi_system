@@ -19,7 +19,8 @@ class SetDifficultyRequest(BaseModel):
     """客户专员设定难度并推进"""
     difficulty: str                          # simple / normal / complex
     file_editable: bool                      # 文件是否可编辑
-    next_assignee_id: UUID                   # 下一阶段负责人
+    next_assignee_id: Optional[UUID] = None  # 下一阶段指定个人（与 group_assign_role 二选一）
+    group_assign_role: Optional[str] = None  # 同组指派时的目标角色名
     note: Optional[str] = None               # 交接备注
     stage_data: Optional[dict] = None        # 当前阶段填写的进度数据
     operator_id: Optional[UUID] = None       # 操作人（后续可从 Token 解析）
@@ -27,7 +28,8 @@ class SetDifficultyRequest(BaseModel):
 
 class TransitionRequest(BaseModel):
     """完成当前阶段并推进到下一阶段"""
-    next_assignee_id: Optional[UUID] = None  # 下一阶段负责人（最后一步到 completed 可为空）
+    next_assignee_id: Optional[UUID] = None  # 下一阶段指定个人（与 group_assign_role 二选一）
+    group_assign_role: Optional[str] = None  # 同组指派时的目标角色名
     note: Optional[str] = None               # 交接备注
     stage_data: Optional[dict] = None        # 当前阶段填写的进度数据
     operator_id: Optional[UUID] = None       # 操作人
@@ -73,6 +75,7 @@ class WorkflowStateResponse(BaseModel):
     current_stage_key: str
     current_assignee_id: Optional[UUID] = None
     current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None   # 同组指派时的目标角色名
     project_status: Optional[str] = None
     stage_notes: Optional[dict] = None
     stage_data: Optional[dict] = None

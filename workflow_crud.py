@@ -68,25 +68,35 @@ from sqlalchemy import or_
 from crud import get_user_roles_with_role_names
 
 def get_my_tasks(db: Session, user_id: UUID) -> list:
-    """查询当前用户作为负责人且未完成的工作流实例，返回带项目信息的列表"""
+    """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，返回带项目信息的列表"""
     roles = get_user_roles_with_role_names(db, user_id)
     is_customer_specialist = '客户专员' in roles
-    
+
     query = db.query(WorkflowInstance, TranslationProject, Client)\
         .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)
-        
+
+    # 构造"同组指派"匹配条件：group_assign_role 与该用户的任意角色匹配
+    group_filters = [WorkflowInstance.group_assign_role == role for role in roles] if roles else []
+
     if is_customer_specialist:
+        base_conditions = [
+            WorkflowInstance.current_assignee_id == user_id,
+            (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None),
+        ]
+    else:
+        base_conditions = [
+            WorkflowInstance.current_assignee_id == user_id,
+        ]
+
+    if group_filters:
         query = query.filter(
-            or_(
-                WorkflowInstance.current_assignee_id == user_id,
-                (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None)
-            ),
+            or_(*base_conditions, *group_filters),
             WorkflowInstance.current_stage_key != 'completed'
         )
     else:
         query = query.filter(
-            WorkflowInstance.current_assignee_id == user_id,
+            or_(*base_conditions),
             WorkflowInstance.current_stage_key != 'completed'
         )
         
@@ -190,12 +200,16 @@ def set_difficulty(
     project_id: UUID,
     difficulty: str,
     file_editable: bool,
-    next_assignee_id: UUID,
+    next_assignee_id: Optional[UUID] = None,
+    group_assign_role: Optional[str] = None,
     operator_id: Optional[UUID] = None,
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
 ) -> WorkflowInstance:
-    """客户专员设定难度，推进到下一阶段"""
+    """客户专员设定难度，推进到下一阶段（支持指定个人或同组指派）"""
+    if not next_assignee_id and not group_assign_role:
+        raise ValueError("Must specify either next_assignee_id or group_assign_role")
+
     instance = get_workflow_by_project(db, project_id)
     if not instance:
         raise ValueError("Workflow not initialized for this project")
@@ -211,7 +225,6 @@ def set_difficulty(
     if stage_data:
         current_data['reception'] = stage_data
         _sync_stage_data_to_project(db, project_id, stage_data)
-        
     instance.stage_data = current_data
 
     # 设置难度
@@ -224,12 +237,20 @@ def set_difficulty(
         raise ValueError("No next stage available")
     next_stage = steps[1]
 
-    # 查询负责人名称
-    next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
-    next_user_name = (next_user.full_name or next_user.username) if next_user else ''
-
-    # 校验负责人是否请假
-    _check_on_leave(db, next_assignee_id)
+    if next_assignee_id:
+        # 指定个人：校验是否请假
+        _check_on_leave(db, next_assignee_id)
+        next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
+        next_user_name = (next_user.full_name or next_user.username) if next_user else ''
+        assign_desc = f"指定负责人：{next_user_name}"
+        instance.current_assignee_id = next_assignee_id
+        instance.group_assign_role = None
+    else:
+        # 同组指派
+        assign_desc = f"同组指派给「{group_assign_role}」组"
+        next_assignee_id = None
+        instance.current_assignee_id = None
+        instance.group_assign_role = group_assign_role
 
     # 写入日志
     log = WorkflowLog(
@@ -238,7 +259,7 @@ def set_difficulty(
         from_stage='reception',
         to_stage=next_stage['key'],
         direction='forward',
-        description=f"确认难度为「{difficulty}」，进入{next_stage['title']}，指定负责人：{next_user_name}",
+        description=f"确认难度为「{difficulty}」，进入{next_stage['title']}，{assign_desc}",
         note=note,
         next_assignee_id=next_assignee_id,
     )
@@ -246,7 +267,6 @@ def set_difficulty(
 
     # 推进
     instance.current_stage_key = next_stage['key']
-    instance.current_assignee_id = next_assignee_id
     instance.project_status = 'in_progress'
 
     db.commit()
@@ -260,11 +280,12 @@ def transition_forward(
     db: Session,
     project_id: UUID,
     next_assignee_id: Optional[UUID] = None,
+    group_assign_role: Optional[str] = None,
     operator_id: Optional[UUID] = None,
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
 ) -> WorkflowInstance:
-    """完成当前阶段，推进到下一阶段"""
+    """完成当前阶段，推进到下一阶段（支持指定个人或同组指派）"""
     instance = get_workflow_by_project(db, project_id)
     if not instance:
         raise ValueError("Workflow not initialized for this project")
@@ -283,7 +304,6 @@ def transition_forward(
     if stage_data:
         current_data[instance.current_stage_key] = stage_data
         _sync_stage_data_to_project(db, project_id, stage_data)
-        
     instance.stage_data = current_data
 
     current_stage_info = STAGE_BY_KEY.get(instance.current_stage_key, {})
@@ -293,6 +313,7 @@ def transition_forward(
         # 已是最后一步 → 完成
         instance.current_stage_key = 'completed'
         instance.current_assignee_id = None
+        instance.group_assign_role = None
         instance.project_status = 'completed'
 
         log = WorkflowLog(
@@ -308,27 +329,29 @@ def transition_forward(
     else:
         next_stage = steps[next_idx]
 
-        # 如果下一阶段不是 completed，需要指定负责人
-        if next_stage['key'] != 'completed' and not next_assignee_id:
-            raise ValueError("Must specify next_assignee_id for non-completed stages")
-
-        # 查询名称
-        next_user_name = ''
-        if next_assignee_id:
-            next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
-            next_user_name = (next_user.full_name or next_user.username) if next_user else ''
-
-        # 校验负责人是否请假
-        if next_assignee_id and next_stage['key'] != 'completed':
-            _check_on_leave(db, next_assignee_id)
-
         if next_stage['key'] == 'completed':
             description = f"从「{current_stage_info.get('title', '')}」进入「完成」"
             instance.project_status = 'completed'
             instance.current_assignee_id = None
-        else:
+            instance.group_assign_role = None
+            log_next_assignee_id = None
+        elif next_assignee_id:
+            # 指定个人
+            _check_on_leave(db, next_assignee_id)
+            next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
+            next_user_name = (next_user.full_name or next_user.username) if next_user else ''
             description = f"从「{current_stage_info.get('title', '')}」进入「{next_stage['title']}」，指定负责人：{next_user_name}"
             instance.current_assignee_id = next_assignee_id
+            instance.group_assign_role = None
+            log_next_assignee_id = next_assignee_id
+        elif group_assign_role:
+            # 同组指派
+            description = f"从「{current_stage_info.get('title', '')}」进入「{next_stage['title']}」，同组指派给「{group_assign_role}」组"
+            instance.current_assignee_id = None
+            instance.group_assign_role = group_assign_role
+            log_next_assignee_id = None
+        else:
+            raise ValueError("Must specify next_assignee_id or group_assign_role for non-completed stages")
 
         log = WorkflowLog(
             workflow_instance_id=instance.id,
@@ -338,7 +361,7 @@ def transition_forward(
             direction='forward',
             description=description,
             note=note,
-            next_assignee_id=next_assignee_id,
+            next_assignee_id=log_next_assignee_id,
         )
         db.add(log)
         instance.current_stage_key = next_stage['key']
@@ -392,9 +415,14 @@ def rollback(
 
     if target['key'] == 'reception':
         instance.current_assignee_id = None
+        instance.group_assign_role = None
         instance.project_status = 'pending'
         instance.difficulty = None
         instance.file_editable = None
+    else:
+        # 打回到中间环节时，清除指派信息，让重新指派
+        instance.current_assignee_id = None
+        instance.group_assign_role = None
 
     # 清除目标阶段的旧备注和数据，允许重新填写
     current_notes = dict(instance.stage_notes or {})

@@ -9,8 +9,9 @@ from crud import (
     create_role, update_role, delete_role
 )
 from schemas import RoleCreate, RoleUpdate, RoleResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/roles", tags=["roles"])
+router = APIRouter(prefix="/roles", tags=["roles"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)

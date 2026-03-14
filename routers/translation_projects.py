@@ -11,8 +11,10 @@ from crud import (
 )
 from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
 from utils import generate_order_no
+from routers.auth import get_current_user
+from models import AppUser
 
-router = APIRouter(prefix="/projects/translation", tags=["translation_projects"])
+router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/next-order-no")
@@ -22,9 +24,14 @@ def get_next_order_no(db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=TranslationProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project_endpoint(project: TranslationProjectCreate, db: Session = Depends(get_db)):
+def create_project_endpoint(
+    project: TranslationProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
     try:
-        return create_translation_project(db=db, project=project)
+        project_to_create = project.model_copy(update={"created_by": current_user.id})
+        return create_translation_project(db=db, project=project_to_create)
     except HTTPException:
         raise
     except IntegrityError as e:

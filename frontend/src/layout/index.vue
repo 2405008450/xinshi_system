@@ -300,6 +300,8 @@ const handleLogout = async () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user_roles')
     localStorage.removeItem('user_name')
+    localStorage.removeItem('user_id')
+    localStorage.removeItem('user_full_name')
     router.push('/login')
   } catch {
     // 用户取消

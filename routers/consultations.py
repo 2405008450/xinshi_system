@@ -11,9 +11,10 @@ from crud import (
     create_translation_project, get_translation_projects
 )
 from schemas import ConsultationCreate, ConsultationUpdate, ConsultationResponse, TranslationProjectCreate, TranslationProjectResponse
-from models import TranslationProject
+from models import AppUser, TranslationProject
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/consultations", tags=["consultations"])
+router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies=[Depends(get_current_user)])
 
 
 class CreateProjectFromConsultationRequest(BaseModel):
@@ -66,7 +67,8 @@ def update_consultation_endpoint(consultation_id: UUID, consultation_update: Con
 def create_project_from_consultation(
     consultation_id: UUID,
     body: CreateProjectFromConsultationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     """
     基于已成交的咨询记录，手动输入项目名称后创建翻译项目。
@@ -83,7 +85,7 @@ def create_project_from_consultation(
         project_name=body.project_name,
         client_id=db_consultation.client_id,
         customer_reception_time=db_consultation.consultation_time,
-        created_by=db_consultation.editor_id,
+        created_by=current_user.id,
     )
 
     new_project = create_translation_project(db, project_data)

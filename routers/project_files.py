@@ -10,8 +10,9 @@ from crud import (
     create_project_file, update_project_file, delete_project_file
 )
 from schemas import ProjectFileCreate, ProjectFileUpdate, ProjectFileResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/project-files", tags=["project-files"])
+router = APIRouter(prefix="/project-files", tags=["project-files"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/", response_model=ProjectFileResponse, status_code=status.HTTP_201_CREATED)

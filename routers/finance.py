@@ -13,8 +13,9 @@ from schemas import (
     FinanceRecordDisplayResponse,
     FinanceEntryPayload, FinanceEntryResponse
 )
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/finance", tags=["财务管理"])
+router = APIRouter(prefix="/finance", tags=["财务管理"], dependencies=[Depends(get_current_user)])
 
 
 # ---------- 辅助函数 ---------- #

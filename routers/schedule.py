@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import WorkSchedule, AppUser, Translator
 from schemas import WorkScheduleCreate, WorkScheduleUpdate, WorkScheduleResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/schedules", tags=["schedules"])
+router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(get_current_user)])
 
 
 def _normalize_task(task):

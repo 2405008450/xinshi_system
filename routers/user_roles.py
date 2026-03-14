@@ -11,8 +11,9 @@ from crud import (
     delete_user_role, delete_user_role_by_user_and_role
 )
 from schemas import UserRoleCreate, UserRoleResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/user-roles", tags=["user-roles"])
+router = APIRouter(prefix="/user-roles", tags=["user-roles"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/", response_model=UserRoleResponse, status_code=status.HTTP_201_CREATED)

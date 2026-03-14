@@ -50,6 +50,9 @@
           <el-tag v-if="workflowState.currentAssigneeUserName" type="success" effect="plain" class="assignee-tag">
             当前负责人：{{ workflowState.currentAssigneeUserName }}
           </el-tag>
+          <el-tag v-else-if="workflowState.groupAssignRole" type="warning" effect="plain" class="assignee-tag">
+            同组指派：{{ workflowState.groupAssignRole }}
+          </el-tag>
           <el-tag v-if="workflowState.difficulty" type="info" effect="plain" class="difficulty-tag">
             难度：{{ difficultyLabel(workflowState.difficulty) }}
           </el-tag>
@@ -126,22 +129,50 @@
         />
         <template v-if="nextStageAfterReception">
           <div class="section-label">下一环节负责人</div>
-          <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageAfterReception.title }}」。</p>
-          <el-select
-            v-model="nextAssigneeUserId"
-            placeholder="请选择下一环节负责人"
-            filterable
-            clearable
-            style="width: 100%; margin-bottom: 12px"
-            :loading="nextStageUsersLoading"
-          >
-            <el-option
-              v-for="u in nextStageUsers"
-              :key="u.id"
-              :label="u.full_name || u.username || u.id"
-              :value="u.id"
-            />
-          </el-select>
+          <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageAfterReception.title }}」，或选择同组指派给整个角色组。</p>
+          <el-radio-group v-model="assignMode" class="assign-mode-radio" style="margin-bottom: 12px">
+            <el-radio-button label="personal">指定个人</el-radio-button>
+            <el-radio-button label="group">同组指派</el-radio-button>
+          </el-radio-group>
+          <template v-if="assignMode === 'personal'">
+            <el-select
+              v-model="nextAssigneeUserId"
+              placeholder="请选择下一环节负责人"
+              filterable
+              clearable
+              style="width: 100%; margin-bottom: 12px"
+              :loading="nextStageUsersLoading"
+            >
+              <el-option
+                v-for="u in nextStageUsers"
+                :key="u.id"
+                :label="u.full_name || u.username || u.id"
+                :value="u.id"
+              />
+            </el-select>
+          </template>
+          <template v-else>
+            <el-select
+              v-model="groupAssignRole"
+              placeholder="请选择要指派的角色组"
+              style="width: 100%; margin-bottom: 12px"
+            >
+              <el-option
+                v-for="r in nextStageRoleOptions"
+                :key="r"
+                :label="r"
+                :value="r"
+              />
+            </el-select>
+            <el-alert
+              v-if="groupAssignRole"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 12px"
+            >
+              <template #title>将指派给所有「{{ groupAssignRole }}」角色的成员，该组所有成员均可在「待我处理」中看到此任务</template>
+            </el-alert>
+          </template>
         </template>
         <div v-if="!canOperateCurrentStage" class="stage-permission-hint">
           <el-alert type="warning" :closable="false" show-icon>
@@ -149,10 +180,10 @@
           </el-alert>
         </div>
         <div v-else class="stage-actions">
-          <p v-if="!pendingDifficulty || pendingFileEditable === null || !nextAssigneeUserId" class="action-hint">
+          <p v-if="!pendingDifficulty || pendingFileEditable === null || !receptionAssignReady" class="action-hint">
             请先选择难度与文件是否可编辑，再选择下一环节负责人后即可点击下方按钮提交。
           </p>
-          <el-button type="primary" :disabled="!pendingDifficulty || pendingFileEditable === null || !nextAssigneeUserId" @click="confirmDifficulty">
+          <el-button type="primary" :disabled="!pendingDifficulty || pendingFileEditable === null || !receptionAssignReady" @click="confirmDifficulty">
             确认难度并进入下一环节
           </el-button>
         </div>
@@ -230,22 +261,50 @@
           />
           <template v-if="nextStageForAssignee">
             <div class="section-label">下一环节负责人</div>
-            <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageForAssignee.title }}」。</p>
-            <el-select
-              v-model="nextAssigneeUserId"
-              placeholder="请选择下一环节负责人"
-              filterable
-              clearable
-              style="width: 100%; margin-bottom: 12px"
-              :loading="nextStageUsersLoading"
-            >
-              <el-option
-                v-for="u in nextStageUsers"
-                :key="u.id"
-                :label="u.full_name || u.username || u.id"
-                :value="u.id"
-              />
-            </el-select>
+            <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageForAssignee.title }}」，或选择同组指派给整个角色组。</p>
+            <el-radio-group v-model="assignMode" class="assign-mode-radio" style="margin-bottom: 12px">
+              <el-radio-button label="personal">指定个人</el-radio-button>
+              <el-radio-button label="group">同组指派</el-radio-button>
+            </el-radio-group>
+            <template v-if="assignMode === 'personal'">
+              <el-select
+                v-model="nextAssigneeUserId"
+                placeholder="请选择下一环节负责人"
+                filterable
+                clearable
+                style="width: 100%; margin-bottom: 12px"
+                :loading="nextStageUsersLoading"
+              >
+                <el-option
+                  v-for="u in nextStageUsers"
+                  :key="u.id"
+                  :label="u.full_name || u.username || u.id"
+                  :value="u.id"
+                />
+              </el-select>
+            </template>
+            <template v-else>
+              <el-select
+                v-model="groupAssignRole"
+                placeholder="请选择要指派的角色组"
+                style="width: 100%; margin-bottom: 12px"
+              >
+                <el-option
+                  v-for="r in nextStageRoleOptions"
+                  :key="r"
+                  :label="r"
+                  :value="r"
+                />
+              </el-select>
+              <el-alert
+                v-if="groupAssignRole"
+                type="info"
+                :closable="false"
+                style="margin-bottom: 12px"
+              >
+                <template #title>将指派给所有「{{ groupAssignRole }}」角色的成员，该组所有成员均可在「待我处理」中看到此任务</template>
+              </el-alert>
+            </template>
           </template>
           <div v-if="!canOperateCurrentStage" class="stage-permission-hint">
             <el-alert type="warning" :closable="false" show-icon>
@@ -253,7 +312,7 @@
             </el-alert>
           </div>
           <div v-else class="stage-actions stage-actions-multi">
-            <el-button type="primary" :disabled="!!nextStageForAssignee && !nextAssigneeUserId" @click="completeCurrentStage">
+            <el-button type="primary" :disabled="!!nextStageForAssignee && !transitionAssignReady" @click="completeCurrentStage">
               完成本阶段并提交
             </el-button>
             <el-button
@@ -424,7 +483,7 @@
               </p>
               <p v-if="entry.note" class="log-note">{{ entry.note }}</p>
               <p v-if="entry.nextAssigneeUserName" class="log-operator">指定下一环节负责人：{{ entry.nextAssigneeUserName }}</p>
-              <p v-else-if="entry.operator" class="log-operator">{{ entry.operator }}</p>
+              <p v-else-if="entry.operator" class="log-operator">操作人：{{ entry.operator }}</p>
             </el-card>
           </el-timeline-item>
         </el-timeline>
@@ -453,11 +512,14 @@
  * 待我处理：筛选 currentAssigneeUserName === 当前登录用户 且 currentStageKey !== 'completed'。
  */
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getProjects } from '@/api/projects'
+import { getProject, getProjects } from '@/api/projects'
 import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getStoredRoles } from '@/utils/permission'
+
+const route = useRoute()
 
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
@@ -652,6 +714,7 @@ function setWorkflowState(projectId, payload) {
   state.currentStageKey = payload.current_stage_key
   state.currentAssigneeUserId = payload.current_assignee_id
   state.currentAssigneeUserName = payload.current_assignee_name
+  state.groupAssignRole = payload.group_assign_role || null
   state.projectStatus = payload.project_status
   state.stageNotes = payload.stage_notes || {}
   state.stageData = payload.stage_data || {}
@@ -681,6 +744,8 @@ const rollbackToStart = ref(false)
 const rollbackNote = ref('')
 
 const nextAssigneeUserId = ref('')
+const assignMode = ref('personal')   // 'personal' | 'group'
+const groupAssignRole = ref('')       // 同组指派时选择的角色名
 const pendingDifficulty = ref(null)
 const pendingFileEditable = ref(null)
 const nextStageUsers = ref([])
@@ -777,6 +842,10 @@ const canOperateCurrentStage = computed(() => {
   const roles = getStoredRoles()
   // 超级管理员和项目经理始终可操作（不受阶段限制）
   if (roles.includes('admin') || roles.includes('超级管理员') || roles.includes('项目经理')) return true
+  // 同组指派时：当前用户拥有该角色即可操作
+  if (state.groupAssignRole && !state.currentAssigneeUserId) {
+    return roles.includes(state.groupAssignRole)
+  }
   // 已指定负责人时，只有负责人本人可操作
   if (state.currentAssigneeUserId) {
     return state.currentAssigneeUserId === currentUserId.value
@@ -864,11 +933,46 @@ watch(() => stageFormData.projectStatus, (val) => {
 
 const nextStageToAssign = computed(() => nextStageAfterReception.value || nextStageForAssignee.value)
 
+/** 下一阶段可供同组指派的角色选项列表 */
+const nextStageRoleOptions = computed(() => {
+  const stage = nextStageToAssign.value
+  if (!stage) return []
+  if (Array.isArray(stage.assignRoles) && stage.assignRoles.length) return stage.assignRoles
+  if (stage.role && stage.role !== '-') return [stage.role]
+  return []
+})
+
+/** 接稿阶段指派是否就绪 */
+const receptionAssignReady = computed(() => {
+  if (assignMode.value === 'personal') return !!nextAssigneeUserId.value
+  return !!groupAssignRole.value
+})
+
+/** 普通推进阶段指派是否就绪 */
+const transitionAssignReady = computed(() => {
+  if (assignMode.value === 'personal') return !!nextAssigneeUserId.value
+  return !!groupAssignRole.value
+})
+
+// 切换指派模式时清空另一侧的值
+watch(assignMode, (mode) => {
+  if (mode === 'personal') {
+    groupAssignRole.value = ''
+  } else {
+    nextAssigneeUserId.value = ''
+    // 默认预填下一阶段的第一个角色
+    const opts = nextStageRoleOptions.value
+    if (opts.length && !groupAssignRole.value) groupAssignRole.value = opts[0]
+  }
+})
+
 let _nextStageLoadVersion = 0
 
 const stopNextStageWatch = watch(nextStageToAssign, async (stage) => {
   const version = ++_nextStageLoadVersion
   nextAssigneeUserId.value = ''
+  groupAssignRole.value = ''
+  assignMode.value = 'personal'
   if (!stage || (!stage.role && !stage.assignRoles) || stage.role === '-') {
     nextStageUsers.value = []
     return
@@ -987,32 +1091,48 @@ function getStatusType(status) {
 
 async function confirmDifficulty() {
   const state = getWorkflowState(currentProjectId.value)
-  if (!state || !pendingDifficulty.value || pendingFileEditable.value === null || !nextAssigneeUserId.value) return
+  if (!state || !pendingDifficulty.value || pendingFileEditable.value === null) return
+  if (!receptionAssignReady.value) return
   if (!canOperateCurrentStage.value) return
 
-  const selectedUser = nextStageUsers.value.find(u => u.id === nextAssigneeUserId.value)
-  if (selectedUser && selectedUser.onLeave) {
-    ElMessage.error('该负责人处于请假状态，无法被指派')
-    return
+  if (assignMode.value === 'personal') {
+    const selectedUser = nextStageUsers.value.find(u => u.id === nextAssigneeUserId.value)
+    if (selectedUser && selectedUser.onLeave) {
+      ElMessage.error('该负责人处于请假状态，无法被指派')
+      return
+    }
   }
 
   const note = handoverNote.value?.trim() || '（无备注）'
-  
+  const payload = {
+    difficulty: pendingDifficulty.value,
+    file_editable: pendingFileEditable.value,
+    note: note,
+    stage_data: { ...stageFormData }
+  }
+  if (assignMode.value === 'personal') {
+    payload.next_assignee_id = nextAssigneeUserId.value
+  } else {
+    payload.group_assign_role = groupAssignRole.value
+  }
+
   try {
-    const res = await setDifficultyAPI(currentProjectId.value, {
-      difficulty: pendingDifficulty.value,
-      file_editable: pendingFileEditable.value,
-      next_assignee_id: nextAssigneeUserId.value,
-      note: note,
-      stage_data: { ...stageFormData }
-    })
+    const isGroupAssign = assignMode.value === 'group'
+    const assignedRole = payload.group_assign_role
+    const res = await setDifficultyAPI(currentProjectId.value, payload)
     setWorkflowState(currentProjectId.value, res)
     handoverNote.value = ''
     nextAssigneeUserId.value = ''
+    groupAssignRole.value = ''
+    assignMode.value = 'personal'
     pendingDifficulty.value = null
     pendingFileEditable.value = null
     initStageFormData()
-    ElMessage.success('难度已确认，已指定下一环节负责人，流程已推进')
+    ElMessage.success(
+      isGroupAssign
+        ? `难度已确认，已同组指派给「${assignedRole}」，流程已推进`
+        : '难度已确认，已指定下一环节负责人，流程已推进'
+    )
     loadProjects()
   } catch (e) {
     console.error('设定难度失败', e)
@@ -1039,44 +1159,56 @@ async function completeCurrentStage() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
   if (!canOperateCurrentStage.value) return
-  
+
   const steps = getEffectiveStages(state.difficulty, state.fileEditable)
   const idx = steps.findIndex((s) => s.key === state.currentStageKey)
   if (idx < 0) return
   const nextIdx = idx + 1
   const next = nextIdx < steps.length ? steps[nextIdx] : null
-  
-  if (next && next.key !== 'completed' && !nextAssigneeUserId.value) return
-  
-  if (nextAssigneeUserId.value) {
+
+  // 需要指派且未就绪则阻止
+  if (next && next.key !== 'completed' && !transitionAssignReady.value) return
+
+  if (assignMode.value === 'personal' && nextAssigneeUserId.value) {
     const selectedUser = nextStageUsers.value.find(u => u.id === nextAssigneeUserId.value)
     if (selectedUser && selectedUser.onLeave) {
       ElMessage.error('该负责人处于请假状态，无法被指派')
       return
     }
   }
-  
+
   const note = handoverNote.value?.trim() || '（无备注）'
   const currentStageData = { ...stageFormData }
-  
   if (currentStageData.actualTime === undefined || currentStageData.actualTime === '') {
     currentStageData.actualTime = formatDateTime(new Date())
   }
-  
-  try {
-    const payload = {
-      note: note,
-      stage_data: currentStageData
-    }
-    if (next && next.key !== 'completed') {
+
+  const payload = { note, stage_data: currentStageData }
+  if (next && next.key !== 'completed') {
+    if (assignMode.value === 'personal') {
       payload.next_assignee_id = nextAssigneeUserId.value
+    } else {
+      payload.group_assign_role = groupAssignRole.value
     }
+  }
+
+  try {
+    const isGroupAssign = assignMode.value === 'group'
+    const assignedRole = payload.group_assign_role
     const res = await transitionWorkflowAPI(currentProjectId.value, payload)
     setWorkflowState(currentProjectId.value, res)
     handoverNote.value = ''
     nextAssigneeUserId.value = ''
+    groupAssignRole.value = ''
+    assignMode.value = 'personal'
     initStageFormData()
-    ElMessage.success(next && next.key === 'completed' ? '本阶段已完成' : '本阶段已完成，已指定下一环节负责人，流程已推进')
+    let successMsg = '本阶段已完成'
+    if (next && next.key !== 'completed') {
+      successMsg = isGroupAssign
+        ? `本阶段已完成，已同组指派给「${assignedRole}」，流程已推进`
+        : '本阶段已完成，已指定下一环节负责人，流程已推进'
+    }
+    ElMessage.success(successMsg)
     loadProjects()
   } catch (e) {
     console.error('流转推进失败', e)
@@ -1124,13 +1256,8 @@ async function confirmRollback() {
 
 async function loadProjects() {
   try {
-    const userId = localStorage.getItem('user_id')
-    if (!userId) {
-      myTaskProjectsList.value = []
-    } else {
-      const tasks = await getMyTasksAPI(userId)
-      myTaskProjectsList.value = Array.isArray(tasks) ? tasks : []
-    }
+    const tasks = await getMyTasksAPI()
+    myTaskProjectsList.value = Array.isArray(tasks) ? tasks : []
   } catch (e) {
     console.error('获取待我处理任务失败', e)
     myTaskProjectsList.value = []
@@ -1139,7 +1266,9 @@ async function loadProjects() {
   try {
     const res = await getProjects({ page: 1, limit: 100 })
     projectList.value = Array.isArray(res) ? res : []
-    if (projectList.value.length && !currentProjectId.value) {
+    if (currentProjectId.value) {
+      await ensureProjectLoaded(currentProjectId.value)
+    } else if (projectList.value.length) {
       currentProjectId.value = projectList.value[0].id
       await fetchWorkflowState()
     }
@@ -1149,9 +1278,38 @@ async function loadProjects() {
   }
 }
 
+function getRouteProjectId() {
+  const value = route.query.projectId
+  if (Array.isArray(value)) return value[0] || ''
+  return value || ''
+}
+
+async function ensureProjectLoaded(projectId) {
+  if (!projectId) return
+  const projectIdText = String(projectId)
+  const exists = projectList.value.some((project) => String(project.id) === projectIdText)
+  if (exists) {
+    selectedProjectRow.value = null
+    return
+  }
+
+  try {
+    const project = await getProject(projectIdText)
+    if (!project?.id) return
+    selectedProjectRow.value = project
+    projectList.value = [
+      project,
+      ...projectList.value.filter((item) => String(item.id) !== projectIdText)
+    ]
+  } catch (e) {
+    console.error('Failed to load selected project', e)
+  }
+}
+
 async function fetchWorkflowState() {
   if (!currentProjectId.value) return
   try {
+    await ensureProjectLoaded(currentProjectId.value)
     const state = await getWorkflowStateAPI(currentProjectId.value)
     setWorkflowState(currentProjectId.value, state)
     initStageFormData()
@@ -1164,6 +1322,8 @@ function onProjectChange() {
   selectedProjectRow.value = null
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
+  groupAssignRole.value = ''
+  assignMode.value = 'personal'
   pendingDifficulty.value = null
   pendingFileEditable.value = null
   fetchWorkflowState()
@@ -1180,6 +1340,8 @@ function selectProject(projectIdOrRow) {
   }
   handoverNote.value = ''
   nextAssigneeUserId.value = ''
+  groupAssignRole.value = ''
+  assignMode.value = 'personal'
   pendingDifficulty.value = null
   pendingFileEditable.value = null
   fetchWorkflowState()
@@ -1199,6 +1361,25 @@ function onMyTaskRowClick(row) {
     selectProject(row.id)
   }
 }
+
+watch(
+  () => route.query.projectId,
+  async () => {
+    const routeProjectId = getRouteProjectId()
+    if (!routeProjectId) return
+    selectedProjectRow.value = null
+    handoverNote.value = ''
+    nextAssigneeUserId.value = ''
+    groupAssignRole.value = ''
+    assignMode.value = 'personal'
+    pendingDifficulty.value = null
+    pendingFileEditable.value = null
+    currentProjectId.value = routeProjectId
+    activeTab.value = 'overview'
+    await fetchWorkflowState()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   loadProjects()
@@ -1284,6 +1465,11 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.assign-mode-radio {
+  display: flex;
+  gap: 0;
 }
 
 .stage-difficulty .action-hint {

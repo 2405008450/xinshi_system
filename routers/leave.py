@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import EmployeeLeave
 from schemas import EmployeeLeaveCreate, EmployeeLeaveUpdate, EmployeeLeaveResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/leave", tags=["leave"])
+router = APIRouter(prefix="/leave", tags=["leave"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/on-leave", response_model=List[EmployeeLeaveResponse])

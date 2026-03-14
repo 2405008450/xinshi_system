@@ -34,6 +34,7 @@ class WorkflowInstance(Base):
     file_editable: Mapped[Optional[bool]] = mapped_column()                # 文件是否可编辑
     current_stage_key: Mapped[str] = mapped_column(String(50), nullable=False, server_default=text("'reception'"))
     current_assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    group_assign_role: Mapped[Optional[str]] = mapped_column(String(50))   # 同组指派时存储目标角色名
     project_status: Mapped[Optional[str]] = mapped_column(String(30), server_default=text("'pending'"))
     stage_notes: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     stage_data: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))

@@ -10,8 +10,9 @@ from crud import (
     get_sub_client, create_sub_client, update_sub_client, delete_sub_client
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/clients", tags=["clients"])
+router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(get_current_user)])
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 def create_client_endpoint(client: ClientCreate, db: Session = Depends(get_db)):

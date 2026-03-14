@@ -30,6 +30,10 @@ api.interceptors.response.use(
   error => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
+      localStorage.removeItem('user_roles')
+      localStorage.removeItem('user_name')
+      localStorage.removeItem('user_id')
+      localStorage.removeItem('user_full_name')
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -6,6 +7,14 @@ from database import get_db
 from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, translators, workflow, schedule, leave, consultations, finance, sub_orders
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 注册路由
 app.include_router(auth.router)
@@ -27,7 +36,7 @@ app.include_router(sub_orders.router)
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
-                         
+
 
 @app.get("/hello/{name}")
 async def say_hello(name: str):

@@ -10,8 +10,9 @@ from crud import (
     create_sub_order, update_sub_order, delete_sub_order
 )
 from schemas import TranslationSubOrderCreate, TranslationSubOrderUpdate, TranslationSubOrderResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/sub-orders", tags=["sub-orders"])
+router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/", response_model=TranslationSubOrderResponse, status_code=status.HTTP_201_CREATED)

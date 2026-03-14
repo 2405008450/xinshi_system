@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-card>
     <template #header>
       <div class="card-header">
@@ -16,10 +16,10 @@
       </el-form-item>
       <el-form-item label="咨询状态">
         <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px" @change="handleSearch">
-          <el-option label="待处理" value="pending" />
           <el-option label="跟进中" value="following" />
-          <el-option label="已成交" value="success" />
+          <el-option label="重点跟进" value="emphasis" />
           <el-option label="未成交" value="failed" />
+          <el-option label="已成交" value="success" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -105,14 +105,14 @@
                 <el-descriptions-item label="处理方式">
                   <span class="detail-value">{{ getDetailRow(row).handling_method || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客服人员ID">
-                  <span class="detail-value">{{ getDetailRow(row).customer_service_id || '-' }}</span>
+                <el-descriptions-item label="客服人员">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).customer_service_id) }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="销售人员ID">
-                  <span class="detail-value">{{ getDetailRow(row).sales_person_id || '-' }}</span>
+                <el-descriptions-item label="销售人员">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).sales_person_id) }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="编辑人ID">
-                  <span class="detail-value">{{ getDetailRow(row).editor_id || '-' }}</span>
+                <el-descriptions-item label="编辑人">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).editor_id) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="跟进次数">
                   <span class="detail-value">{{ getDetailRow(row).follow_up_count ?? 0 }}</span>
@@ -123,8 +123,8 @@
                 <el-descriptions-item label="跟进状态">
                   <span class="detail-value">{{ getDetailRow(row).follow_up_status || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="跟进人ID">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_person_id || '-' }}</span>
+                <el-descriptions-item label="跟进人">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).follow_up_person_id) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询描述" :span="2">
                   <span class="detail-value">{{ getDetailRow(row).consultation_description || '-' }}</span>
@@ -222,33 +222,20 @@
           <el-col :span="12">
             <el-form-item label="咨询状态" prop="status">
               <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
-                <el-option label="待处理" value="pending" />
                 <el-option label="跟进中" value="following" />
-                <el-option label="已成交" value="success" />
+                <el-option label="重点跟进" value="emphasis" />
                 <el-option label="未成交" value="failed" />
+                <el-option label="已成交" value="success" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户来源" prop="client_source">
-              <el-input v-model="form.client_source" placeholder="请输入客户来源" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="来源关键词" prop="source_keyword">
-              <el-input v-model="form.source_keyword" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="咨询方式" prop="consultation_method">
-              <el-select v-model="form.consultation_method" placeholder="请选择" style="width: 100%">
-                <el-option label="电话" value="phone" />
-                <el-option label="邮件" value="email" />
-                <el-option label="在线咨询" value="online" />
-                <el-option label="上门" value="onsite" />
+            <el-form-item label="咨询类型" prop="consultation_type">
+              <el-select v-model="form.consultation_type" placeholder="请选择" style="width: 100%">
+                <el-option label="笔译" value="translation" />
+                <el-option label="口译" value="interpretation" />
+                <el-option label="设备租赁" value="equipment_rental" />
+                <el-option label="招聘" value="recruitment" />
                 <el-option label="其他" value="other" />
               </el-select>
             </el-form-item>
@@ -257,12 +244,25 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="咨询类型" prop="consultation_type">
-              <el-select v-model="form.consultation_type" placeholder="请选择" style="width: 100%">
-                <el-option label="价格咨询" value="price" />
-                <el-option label="服务咨询" value="service" />
-                <el-option label="技术咨询" value="technical" />
-                <el-option label="合作咨询" value="cooperation" />
+            <el-form-item label="客户来源" prop="client_source">
+              <el-input v-model="form.client_source" placeholder="请输入客户来源" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="来源关键词" prop="source_keyword">
+              <el-input v-model="form.source_keyword" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="咨询方式" prop="consultation_method">
+              <el-select v-model="form.consultation_method" placeholder="请选择" style="width: 100%">
+                <el-option label="电话" value="phone" />
+                <el-option label="邮件" value="email" />
+                <el-option label="在线咨询" value="online" />
+                <el-option label="上门" value="onsite" />
                 <el-option label="其他" value="other" />
               </el-select>
             </el-form-item>
@@ -295,13 +295,86 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
+            <el-form-item label="客服人员" prop="customer_service_id">
+              <el-select
+                v-model="form.customer_service_id"
+                filterable
+                clearable
+                placeholder="请选择客服人员"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="user in userOptions"
+                  :key="user.id"
+                  :label="user.full_name || user.username"
+                  :value="user.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="销售人员" prop="sales_person_id">
+              <el-select
+                v-model="form.sales_person_id"
+                filterable
+                clearable
+                placeholder="请选择销售人员"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="user in userOptions"
+                  :key="user.id"
+                  :label="user.full_name || user.username"
+                  :value="user.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="编辑人" prop="editor_id">
+              <el-select
+                v-model="form.editor_id"
+                filterable
+                clearable
+                placeholder="请选择编辑人"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="user in userOptions"
+                  :key="user.id"
+                  :label="user.full_name || user.username"
+                  :value="user.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item label="跟进状态" prop="follow_up_status">
               <el-input v-model="form.follow_up_status" />
             </el-form-item>
           </el-col>
+        </el-row>
+
+        <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="跟进人ID" prop="follow_up_person_id">
-              <el-input v-model="form.follow_up_person_id" />
+            <el-form-item label="跟进人" prop="follow_up_person_id">
+              <el-select
+                v-model="form.follow_up_person_id"
+                filterable
+                clearable
+                placeholder="请选择跟进人"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="user in userOptions"
+                  :key="user.id"
+                  :label="user.full_name || user.username"
+                  :value="user.id"
+                />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -362,6 +435,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
+import * as userApi from '@/api/users'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -370,6 +444,7 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
 const formRef = ref(null)
 const clientOptions = ref([])
+const userOptions = ref([])
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
 
@@ -416,18 +491,18 @@ const defaultForm = () => ({
   client_source: '',
   source_keyword: '',
   consultation_description: '',
-  status: 'pending',
+  status: 'following',
   consultation_type: '',
   handling_method: '',
   remarks: '',
-  customer_service_id: '',
-  sales_person_id: '',
-  editor_id: '',
+  customer_service_id: null,
+  sales_person_id: null,
+  editor_id: null,
   follow_up_count: 0,
   follow_up_time: '',
   follow_up_status: '',
   follow_up_remarks: '',
-  follow_up_person_id: '',
+  follow_up_person_id: null,
 })
 
 const form = reactive(defaultForm())
@@ -435,24 +510,26 @@ const form = reactive(defaultForm())
 const rules = {
   client_code: [{ required: true, message: '请选择客户编号', trigger: 'change' }],
   consultation_time: [{ required: true, message: '请选择咨询时间', trigger: 'change' }],
+  status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
+  consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
 }
 
 const getStatusType = (status) => {
   const statusMap = {
-    pending: 'info',
     following: 'warning',
+    emphasis: 'danger',
+    failed: 'info',
     success: 'success',
-    failed: 'danger',
   }
   return statusMap[status] || 'info'
 }
 
 const getStatusText = (status) => {
   const statusMap = {
-    pending: '待处理',
     following: '跟进中',
-    success: '已成交',
+    emphasis: '重点跟进',
     failed: '未成交',
+    success: '已成交',
   }
   return statusMap[status] || status || '-'
 }
@@ -471,6 +548,21 @@ const loadClients = async () => {
   } catch {
     clientOptions.value = []
   }
+}
+
+const loadUsers = async () => {
+  try {
+    const res = await userApi.getUsers({ skip: 0, limit: 500 })
+    userOptions.value = Array.isArray(res) ? res : []
+  } catch {
+    userOptions.value = []
+  }
+}
+
+const getUserName = (id) => {
+  if (!id) return '-'
+  const user = userOptions.value.find((u) => u.id === id)
+  return user ? (user.full_name || user.username) : id
 }
 
 const enrichClientFields = (row) => {
@@ -576,18 +668,18 @@ const fillFormByRow = (row) => {
     client_source: item.client_source || '',
     source_keyword: item.source_keyword || '',
     consultation_description: item.consultation_description || '',
-    status: item.status || 'pending',
+    status: item.status || 'following',
     consultation_type: item.consultation_type || '',
     handling_method: item.handling_method || '',
     remarks: item.remarks || '',
-    customer_service_id: item.customer_service_id || '',
-    sales_person_id: item.sales_person_id || '',
-    editor_id: item.editor_id || '',
+    customer_service_id: item.customer_service_id || null,
+    sales_person_id: item.sales_person_id || null,
+    editor_id: item.editor_id || null,
     follow_up_count: item.follow_up_count ?? 0,
     follow_up_time: item.follow_up_time || '',
     follow_up_status: item.follow_up_status || '',
     follow_up_remarks: item.follow_up_remarks || '',
-    follow_up_person_id: item.follow_up_person_id || '',
+    follow_up_person_id: item.follow_up_person_id || null,
   })
 }
 
@@ -675,7 +767,7 @@ const resetForm = () => {
 }
 
 onMounted(async () => {
-  await loadClients()
+  await Promise.all([loadClients(), loadUsers()])
   await fetchData()
 })
 </script>

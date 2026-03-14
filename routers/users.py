@@ -9,8 +9,9 @@ from crud import (
     create_user, update_user, delete_user
 )
 from schemas import AppUserCreate, AppUserUpdate, AppUserResponse
+from routers.auth import get_current_user
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED)
