@@ -4,6 +4,10 @@ export const getClientContacts = (params) => {
   return api.get('/client-contacts/', { params })
 }
 
+export const getClientContactCount = () => {
+  return api.get('/client-contacts/count')
+}
+
 export const getClientContact = (id) => {
   return api.get(`/client-contacts/${id}`)
 }

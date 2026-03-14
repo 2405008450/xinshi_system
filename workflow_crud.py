@@ -65,7 +65,7 @@ def get_workflow_by_id(db: Session, instance_id: UUID) -> Optional[WorkflowInsta
 
 
 from sqlalchemy import or_
-from crud import get_user_roles_with_role_names
+from crud import ensure_finance_record_for_project, get_user_roles_with_role_names
 
 def get_my_tasks(db: Session, user_id: UUID) -> list:
     """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，返回带项目信息的列表"""
@@ -326,6 +326,7 @@ def transition_forward(
             note=note,
         )
         db.add(log)
+        ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
     else:
         next_stage = steps[next_idx]
 
@@ -365,6 +366,8 @@ def transition_forward(
         )
         db.add(log)
         instance.current_stage_key = next_stage['key']
+        if next_stage['key'] == 'completed':
+            ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
 
     db.commit()
     db.refresh(instance)

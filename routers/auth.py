@@ -26,8 +26,16 @@ if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable is not set")
 
 
+def normalize_password_for_bcrypt(plain_password: str) -> str:
+    password_bytes = plain_password.encode("utf-8")
+    # bcrypt only supports 72 bytes; pre-hash longer passwords to keep login usable.
+    if len(password_bytes) > 72:
+        return hashlib.sha256(password_bytes).hexdigest()
+    return plain_password
+
+
 def hash_password(plain_password: str) -> str:
-    return pwd_context.hash(plain_password)
+    return pwd_context.hash(normalize_password_for_bcrypt(plain_password))
 
 
 def is_bcrypt_hash(password_hash: Optional[str]) -> bool:
@@ -36,7 +44,10 @@ def is_bcrypt_hash(password_hash: Optional[str]) -> bool:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if is_bcrypt_hash(hashed_password):
-        return pwd_context.verify(plain_password, hashed_password)
+        try:
+            return pwd_context.verify(normalize_password_for_bcrypt(plain_password), hashed_password)
+        except ValueError:
+            return False
     return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
 
 

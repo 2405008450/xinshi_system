@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from database import get_db
 from crud import (
-    get_project_file, get_project_files_by_project, get_project_files,
+    count_project_files, count_project_files_by_project, get_project_file, get_project_files_by_project, get_project_files,
     create_project_file, update_project_file, delete_project_file
 )
 from schemas import ProjectFileCreate, ProjectFileUpdate, ProjectFileResponse
@@ -61,8 +61,18 @@ def read_project_files_by_project(
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    files = get_project_files_by_project(db, project_id=project_id, skip=skip, limit=limit)
+    files = get_project_files_by_project(db, translation_project_id=project_id, skip=skip, limit=limit)
     return files
+
+
+@router.get("/project/{project_id}/count")
+def read_project_file_count_by_project(project_id: UUID, db: Session = Depends(get_db)):
+    return {"total": count_project_files_by_project(db, translation_project_id=project_id)}
+
+
+@router.get("/count")
+def read_project_file_count(db: Session = Depends(get_db)):
+    return {"total": count_project_files(db)}
 
 
 @router.get("/{file_id}", response_model=ProjectFileResponse)

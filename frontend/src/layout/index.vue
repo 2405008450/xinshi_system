@@ -39,6 +39,10 @@
           <el-divider class="menu-divider" />
         </template>
         <!-- 工作台 -->
+        <el-menu-item index="/dashboard">
+          <el-icon><DataAnalysis /></el-icon>
+          <template #title>Dashboard</template>
+        </el-menu-item>
         <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
           <template #title>我的工作台</template>
@@ -202,7 +206,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand } from '@element-plus/icons-vue'
+import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, DataAnalysis } from '@element-plus/icons-vue'
 import { isSuperAdmin, getStoredRoles } from '../utils/permission'
 
 const route = useRoute()

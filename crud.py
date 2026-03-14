@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_
 
-from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, SubClient, Translator, Consultation
+from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
@@ -12,19 +12,28 @@ from schemas import (
     UserRoleCreate,
     ProjectFileCreate, ProjectFileUpdate,
     ClientCreate, ClientUpdate,
+    ClientContactCreate, ClientContactUpdate,
     SubClientCreate, SubClientUpdate,
     TranslatorCreate, TranslatorUpdate,
     ConsultationCreate, ConsultationUpdate
 )
 from passlib.context import CryptContext
+import hashlib
 from utils import generate_order_no
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def normalize_password_for_bcrypt(plain_password: str) -> str:
+    password_bytes = plain_password.encode("utf-8")
+    if len(password_bytes) > 72:
+        return hashlib.sha256(password_bytes).hexdigest()
+    return plain_password
+
+
 def hash_password(plain_password: str) -> str:
-    return pwd_context.hash(plain_password)
+    return pwd_context.hash(normalize_password_for_bcrypt(plain_password))
 
 
 # AppUser CRUD
@@ -198,6 +207,77 @@ def delete_client(db: Session, client_id: UUID) -> bool:
     if not db_client:
         return False
     db.delete(db_client)
+    db.commit()
+    return True
+
+
+def _fill_client_contact_fields(db: Session, data: dict) -> dict:
+    client = None
+    client_id = data.get('client_id')
+    client_code = data.get('client_code')
+
+    if client_id:
+        client = db.query(Client).filter(Client.id == client_id).first()
+    elif client_code:
+        client = db.query(Client).filter(Client.client_code == client_code).first()
+
+    if client:
+        data['client_id'] = client.id
+        data['client_code'] = client.client_code
+        data['client_name'] = client.client_name
+        data['client_short_name'] = client.client_short_name
+        data['client_manager'] = client.client_manager
+        data['manager_contact'] = client.manager_contact
+
+    return data
+
+
+def get_client_contact(db: Session, contact_id: UUID) -> Optional[ClientContact]:
+    return db.query(ClientContact).filter(ClientContact.id == contact_id).first()
+
+
+def get_client_contacts(db: Session, skip: int = 0, limit: int = 100) -> List[ClientContact]:
+    return (
+        db.query(ClientContact)
+        .order_by(ClientContact.visit_date.desc(), ClientContact.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def count_client_contacts(db: Session) -> int:
+    return db.query(ClientContact.id).count()
+
+
+def create_client_contact(db: Session, contact: ClientContactCreate) -> ClientContact:
+    data = _fill_client_contact_fields(db, contact.model_dump())
+    db_contact = ClientContact(**data)
+    db.add(db_contact)
+    db.commit()
+    db.refresh(db_contact)
+    return db_contact
+
+
+def update_client_contact(db: Session, contact_id: UUID, contact_update: ClientContactUpdate) -> Optional[ClientContact]:
+    db_contact = get_client_contact(db, contact_id)
+    if not db_contact:
+        return None
+
+    update_data = _fill_client_contact_fields(db, contact_update.model_dump(exclude_unset=True))
+    for field, value in update_data.items():
+        setattr(db_contact, field, value)
+
+    db.commit()
+    db.refresh(db_contact)
+    return db_contact
+
+
+def delete_client_contact(db: Session, contact_id: UUID) -> bool:
+    db_contact = get_client_contact(db, contact_id)
+    if not db_contact:
+        return False
+    db.delete(db_contact)
     db.commit()
     return True
 
@@ -380,6 +460,29 @@ def get_translation_projects(
         projects.append(project)
     return projects
 
+
+def count_translation_projects(
+    db: Session,
+    created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None
+) -> int:
+    query = db.query(TranslationProject.id).outerjoin(Client, TranslationProject.client_id == Client.id)
+    if created_by:
+        query = query.filter(TranslationProject.created_by == created_by)
+    if project_name:
+        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+    if order_no:
+        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+    if project_status:
+        query = query.filter(TranslationProject.project_status == project_status)
+    if client_short_name:
+        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
+    return query.count()
+
+
 def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
     order_no = generate_order_no(db)
     
@@ -524,8 +627,16 @@ def get_project_files_by_project(db: Session, translation_project_id: UUID, skip
     return db.query(ProjectFile).filter(ProjectFile.translation_project_id == translation_project_id).offset(skip).limit(limit).all()
 
 
+def count_project_files_by_project(db: Session, translation_project_id: UUID) -> int:
+    return db.query(ProjectFile.id).filter(ProjectFile.translation_project_id == translation_project_id).count()
+
+
 def get_project_files(db: Session, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
     return db.query(ProjectFile).offset(skip).limit(limit).all()
+
+
+def count_project_files(db: Session) -> int:
+    return db.query(ProjectFile.id).count()
 
 
 def create_project_file(db: Session, project_file: ProjectFileCreate) -> ProjectFile:
@@ -566,6 +677,17 @@ def delete_project_file(db: Session, file_id: UUID) -> bool:
     db.delete(db_file)
     db.commit()
     return True
+
+
+def ensure_finance_record_for_project(db: Session, project_id: UUID, edited_by: Optional[UUID] = None) -> FinanceRecord:
+    existing = db.query(FinanceRecord).filter(FinanceRecord.project_id == project_id).first()
+    if existing:
+        return existing
+
+    record = FinanceRecord(project_id=project_id, edited_by=edited_by)
+    db.add(record)
+    db.flush()
+    return record
 
 
 # Consultation CRUD
@@ -636,6 +758,22 @@ def get_consultations(
         consultation.client_short_name = client_short_name
         consultations.append(consultation)
     return consultations
+
+
+def count_consultations(
+    db: Session,
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None,
+) -> int:
+    query = db.query(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id)
+    if consultation_code:
+        query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
+    if client_name:
+        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
+    if status:
+        query = query.filter(Consultation.status == status)
+    return query.count()
 
 
 def create_consultation(db: Session, consultation: ConsultationCreate) -> Consultation:

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import (
-    get_consultation, get_consultations,
+    count_consultations, get_consultation, get_consultations,
     create_consultation, update_consultation, delete_consultation,
     create_translation_project, get_translation_projects
 )
@@ -27,6 +27,23 @@ def create_consultation_endpoint(consultation: ConsultationCreate, db: Session =
 
 
 from typing import Optional
+
+@router.get("/count")
+def read_consultation_count(
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    return {
+        "total": count_consultations(
+            db,
+            consultation_code=consultation_code,
+            client_name=client_name,
+            status=status,
+        )
+    }
+
 
 @router.get("/", response_model=List[ConsultationResponse])
 def read_consultations(

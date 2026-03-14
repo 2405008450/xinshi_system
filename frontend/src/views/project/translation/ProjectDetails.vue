@@ -303,7 +303,7 @@
 import { defineComponent, h, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
-import { getProjects, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
+import { getProjects, getProjectCount, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
@@ -407,23 +407,35 @@ const normalizeProject = (project) => ({ ...project, subOrders: Array.isArray(pr
 const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
 const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
 const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders) ? row.subOrders.slice(0, SUB_ORDER_PREVIEW_LIMIT) : [])
-const applyPagination = () => { const start = (pagination.page - 1) * pagination.limit; tableData.value = allData.value.slice(start, start + pagination.limit) }
+const applyPagination = () => { fetchData() }
 const cleanPayload = (payload) => { const result = { ...payload }; NULLABLE_FIELDS.forEach((key) => { if (result[key] === '') result[key] = null }); if (result.wordCount === null || result.wordCount === undefined) result.wordCount = 0; return result }
 const assignReactive = (target, values) => { Object.keys(target).forEach((key) => { target[key] = values[key] ?? (typeof target[key] === 'number' ? 0 : '') }) }
 const fetchData = async () => {
   loading.value = true
   try {
-    const params = { skip: 0, limit: 200, project_name: searchForm.projectName || undefined, order_no: searchForm.orderNo || undefined, client_short_name: searchForm.clientShortName || undefined, project_status: searchForm.projectStatus || undefined }
-    const response = await getProjects(params)
-    allData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
-    pagination.total = allData.value.length
-    pagination.page = 1
-    applyPagination()
+    const params = {
+      skip: (pagination.page - 1) * pagination.limit,
+      limit: pagination.limit,
+      project_name: searchForm.projectName || undefined,
+      order_no: searchForm.orderNo || undefined,
+      client_short_name: searchForm.clientShortName || undefined,
+      project_status: searchForm.projectStatus || undefined
+    }
+    const [response, countResponse] = await Promise.all([
+      getProjects(params),
+      getProjectCount({
+        project_name: params.project_name,
+        order_no: params.order_no,
+        client_short_name: params.client_short_name,
+        project_status: params.project_status
+      })
+    ])
+    tableData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
+    pagination.total = countResponse?.total || tableData.value.length
   } catch (error) {
-    allData.value = []
     tableData.value = []
     pagination.total = 0
-    ElMessage.error(error.detail || error.message || '获取数据失败')
+    ElMessage.error(error.detail || error.message || 'Failed to load projects')
   } finally {
     loading.value = false
   }
@@ -433,9 +445,9 @@ const refreshProjectSubOrders = async (projectId) => {
   const response = await getSubOrdersByProject(projectId)
   const normalized = Array.isArray(response) ? response.sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
   currentProjectSubOrders.value = normalized
-  allData.value = allData.value.map((item) => item.id === projectId ? { ...item, subOrders: normalized } : item)
-  applyPagination()
+  tableData.value = tableData.value.map((item) => item.id === projectId ? { ...item, subOrders: normalized } : item)
 }
+
 const handleSearch = () => { pagination.page = 1; fetchData() }
 const resetSearch = () => { searchForm.projectName = ''; searchForm.orderNo = ''; searchForm.clientShortName = ''; searchForm.projectStatus = ''; handleSearch() }
 const resetProjectForm = () => assignReactive(form, createEmptyProjectForm())

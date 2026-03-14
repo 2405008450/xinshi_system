@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from database import get_db
 from crud import (
-    get_translation_project, get_translation_project_by_no, get_translation_projects,
+    count_translation_projects, get_translation_project, get_translation_project_by_no, get_translation_projects,
     create_translation_project, update_translation_project, delete_translation_project
 )
 from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
@@ -59,6 +59,27 @@ def create_project_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error: {str(e)}"
         )
+
+
+@router.get("/count")
+def read_project_count(
+    created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    return {
+        "total": count_translation_projects(
+            db,
+            created_by=created_by,
+            project_name=project_name,
+            order_no=order_no,
+            project_status=project_status,
+            client_short_name=client_short_name,
+        )
+    }
 
 
 @router.get("/", response_model=List[TranslationProjectResponse])

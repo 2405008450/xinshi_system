@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from database import get_db
-from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, translators, workflow, schedule, leave, consultations, finance, sub_orders
+from database import engine, get_db
+from models import ClientContact
+from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders
 
 app = FastAPI()
 
@@ -24,6 +25,7 @@ app.include_router(translation_projects.router)
 app.include_router(user_roles.router)
 app.include_router(project_files.router)
 app.include_router(clients.router)
+app.include_router(client_contacts.router)
 app.include_router(translators.router)
 app.include_router(workflow.router)
 app.include_router(schedule.router)
@@ -31,6 +33,11 @@ app.include_router(leave.router)
 app.include_router(consultations.router)
 app.include_router(finance.router)
 app.include_router(sub_orders.router)
+
+
+@app.on_event("startup")
+def ensure_runtime_tables():
+    ClientContact.__table__.create(bind=engine, checkfirst=True)
 
 
 @app.get("/")

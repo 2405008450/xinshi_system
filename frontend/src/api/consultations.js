@@ -4,6 +4,10 @@ export const getConsultations = (params) => {
   return api.get('/consultations/', { params })
 }
 
+export const getConsultationCount = (params) => {
+  return api.get('/consultations/count', { params })
+}
+
 export const getConsultation = (id) => {
   return api.get(`/consultations/${id}`)
 }

@@ -588,10 +588,17 @@ const fetchData = async () => {
     if (searchForm.client_name) params.client_name = searchForm.client_name
     if (searchForm.status) params.status = searchForm.status
 
-    const res = await consultationApi.getConsultations(params)
+    const [res, countRes] = await Promise.all([
+      consultationApi.getConsultations(params),
+      consultationApi.getConsultationCount({
+        consultation_code: params.consultation_code,
+        client_name: params.client_name,
+        status: params.status,
+      })
+    ])
     const list = Array.isArray(res) ? res.map(enrichClientFields) : []
     tableData.value = list
-    pagination.total = list.length
+    pagination.total = countRes?.total || list.length
   } catch {
     tableData.value = []
     pagination.total = 0
@@ -748,14 +755,19 @@ const handleCreateProject = async () => {
   if (!valid) return
   createProjectLoading.value = true
   try {
-    await consultationApi.createProjectFromConsultation(
+    const project = await consultationApi.createProjectFromConsultation(
       createProjectConsultationId.value,
       createProjectForm.projectName
     )
-    ElMessage.success('翻译项目已成功创建！')
+    ElMessage.success('Project created. Opening workflow...')
     createProjectDialogVisible.value = false
+    createProjectConsultationId.value = null
+    createProjectForm.projectName = ''
+    if (project?.id) {
+      router.push({ path: '/translation', query: { projectId: project.id } })
+    }
   } catch (err) {
-    ElMessage.error(err?.response?.data?.detail || '创建翻译项目失败')
+    ElMessage.error(err?.response?.data?.detail || 'Failed to create project')
   } finally {
     createProjectLoading.value = false
   }

@@ -75,7 +75,37 @@ class Client(Base):
 
     projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='client')
     consultations: Mapped[list['Consultation']] = relationship('Consultation', back_populates='client')
+    contact_records: Mapped[list['ClientContact']] = relationship('ClientContact', back_populates='client')
     sub_clients: Mapped[list['SubClient']] = relationship('SubClient', back_populates='parent_client', cascade='all, delete-orphan')
+
+
+class ClientContact(Base):
+    __tablename__ = 'client_contact'
+    __table_args__ = (
+        ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='SET NULL', name='fk_client_contact_client'),
+        PrimaryKeyConstraint('id', name='client_contact_pkey'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    client_code: Mapped[Optional[str]] = mapped_column(String(50))
+    client_name: Mapped[Optional[str]] = mapped_column(String(255))
+    client_short_name: Mapped[Optional[str]] = mapped_column(String(100))
+    client_manager: Mapped[Optional[str]] = mapped_column(String(100))
+    manager_contact: Mapped[Optional[str]] = mapped_column(String(100))
+    visit_count: Mapped[Optional[int]] = mapped_column(Integer, server_default=text('0'))
+    visit_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    visit_type: Mapped[Optional[str]] = mapped_column(String(50))
+    client_attitude: Mapped[Optional[str]] = mapped_column(String(50))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    follow_up_count: Mapped[Optional[int]] = mapped_column(Integer, server_default=text('0'))
+    follow_up_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    follow_up_status: Mapped[Optional[str]] = mapped_column(Text)
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    client: Mapped[Optional['Client']] = relationship('Client', back_populates='contact_records')
 
 
 class SubClient(Base):

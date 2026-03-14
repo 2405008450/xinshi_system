@@ -121,6 +121,55 @@ class ClientResponse(ClientBase):
         from_attributes = True
 
 
+class ClientContactBase(BaseModel):
+    client_id: Optional[UUID] = None
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    visit_count: Optional[int] = 0
+    visit_date: Optional[date] = None
+    visit_type: Optional[str] = None
+    client_attitude: Optional[str] = None
+    description: Optional[str] = None
+    follow_up_count: Optional[int] = 0
+    follow_up_date: Optional[date] = None
+    follow_up_status: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class ClientContactCreate(ClientContactBase):
+    pass
+
+
+class ClientContactUpdate(BaseModel):
+    client_id: Optional[UUID] = None
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    visit_count: Optional[int] = None
+    visit_date: Optional[date] = None
+    visit_type: Optional[str] = None
+    client_attitude: Optional[str] = None
+    description: Optional[str] = None
+    follow_up_count: Optional[int] = None
+    follow_up_date: Optional[date] = None
+    follow_up_status: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class ClientContactResponse(ClientContactBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # SubClient Schemas
 class SubClientBase(BaseModel):
     sub_client_code: Optional[str] = None

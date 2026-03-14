@@ -14,9 +14,13 @@
         <span class="page-title">笔译项目流程</span>
         <el-select
           v-model="currentProjectId"
-          placeholder="选择项目（选后可在下方设定难度并推进流程）"
+          placeholder="Search projects by name or order no."
           filterable
+          remote
+          reserve-keyword
           clearable
+          :loading="projectOptionsLoading"
+          :remote-method="searchProjectOptions"
           style="width: 380px"
           @change="onProjectChange"
         >
@@ -440,14 +444,14 @@
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
 
-      <el-tab-pane label="文件管理" name="files">
-        <el-table :data="fileList" border size="small" style="width: 100%">
-          <el-table-column type="index" label="序号" width="60" />
-          <el-table-column prop="name" label="文件名" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="type" label="类型" width="100" />
-          <el-table-column prop="updatedAt" label="更新时间" width="160" />
+      <el-tab-pane label="Files" name="files">
+        <el-table :data="fileList" v-loading="fileListLoading" border size="small" style="width: 100%">
+          <el-table-column type="index" label="??" width="60" />
+          <el-table-column prop="name" label="File Name" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="type" label="??" width="120" />
+          <el-table-column prop="updatedAt" label="Created At" width="180" />
         </el-table>
-        <el-empty v-if="!fileList.length" description="暂无文件（接口未实现）" />
+        <el-empty v-if="!fileListLoading && !fileList.length" description="No files for this project" />
       </el-tab-pane>
 
       <el-tab-pane label="翻译/审核进度" name="progress">
@@ -466,10 +470,38 @@
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
 
-      <el-tab-pane label="操作日志" name="logs">
-        <el-timeline v-if="transitionLog.length" reverse>
+      <el-tab-pane label="????" name="logs">
+        <el-form :inline="true" :model="logFilters" size="small" class="log-filter-bar">
+          <el-form-item label="Type">
+            <el-select v-model="logFilters.direction" clearable placeholder="All" style="width: 120px">
+              <el-option label="Forward" value="forward" />
+              <el-option label="Rollback" value="rollback" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Stage">
+            <el-select v-model="logFilters.stage" clearable placeholder="All" style="width: 180px">
+              <el-option v-for="item in logStageOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Operator">
+            <el-select v-model="logFilters.operator" clearable placeholder="All" style="width: 180px">
+              <el-option v-for="item in logOperatorOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="Date">
+            <el-date-picker
+              v-model="logFilters.dateRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              range-separator="to"
+              start-placeholder="Start"
+              end-placeholder="End"
+            />
+          </el-form-item>
+        </el-form>
+        <el-timeline v-if="filteredTransitionLog.length" reverse>
           <el-timeline-item
-            v-for="(entry, i) in transitionLog"
+            v-for="(entry, i) in filteredTransitionLog"
             :key="i"
             :timestamp="entry.at"
             placement="top"
@@ -477,17 +509,17 @@
           >
             <el-card shadow="never" :class="{ 'log-rollback': entry.direction === 'rollback' }">
               <p class="log-action">
-                <el-tag v-if="entry.direction === 'rollback'" type="danger" size="small">打回</el-tag>
-                <el-tag v-else type="success" size="small">推进</el-tag>
+                <el-tag v-if="entry.direction === 'rollback'" type="danger" size="small">Rollback</el-tag>
+                <el-tag v-else type="success" size="small">Forward</el-tag>
                 {{ entry.description }}
               </p>
               <p v-if="entry.note" class="log-note">{{ entry.note }}</p>
-              <p v-if="entry.nextAssigneeUserName" class="log-operator">指定下一环节负责人：{{ entry.nextAssigneeUserName }}</p>
-              <p v-else-if="entry.operator" class="log-operator">操作人：{{ entry.operator }}</p>
+              <p v-if="entry.nextAssigneeUserName" class="log-operator">Next assignee: {{ entry.nextAssigneeUserName }}</p>
+              <p v-if="entry.operator" class="log-operator">Operator: {{ entry.operator }}</p>
             </el-card>
           </el-timeline-item>
         </el-timeline>
-        <el-empty v-else description="暂无操作记录" />
+        <el-empty v-else description="No log entries match the current filters" />
       </el-tab-pane>
     </el-tabs>
   </el-card>
@@ -515,6 +547,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getProject, getProjects } from '@/api/projects'
+import { getProjectFilesByProject } from '@/api/projectFiles'
 import { getUsersByRoleName, getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI } from '@/api/workflow'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getStoredRoles } from '@/utils/permission'
@@ -737,6 +770,8 @@ const projectList = ref([])
 const handoverNote = ref('')
 const activeTab = ref('my_tasks')
 const fileList = ref([])
+const projectOptionsLoading = ref(false)
+const fileListLoading = ref(false)
 
 const rollbackDialogVisible = ref(false)
 const rollbackSteps = ref(1)
@@ -751,6 +786,65 @@ const pendingFileEditable = ref(null)
 const nextStageUsers = ref([])
 const nextStageUsersLoading = ref(false)
 const stageCardRef = ref(null)
+
+const normalizeProjectFile = (file) => ({
+  ...file,
+  name: file?.file_name || '-',
+  type: file?.file_type || file?.file_ext || '-',
+  updatedAt: file?.created_at ? String(file.created_at).replace('T', ' ').substring(0, 19) : '-'
+})
+
+function mergeProjectOptions(list) {
+  const merged = Array.isArray(list) ? [...list] : []
+  const current = selectedProjectRow.value || projectList.value.find((item) => String(item.id) === String(currentProjectId.value))
+  if (current && !merged.some((item) => String(item.id) === String(current.id))) {
+    merged.unshift(current)
+  }
+  return merged
+}
+
+async function loadProjectOptions(query = '') {
+  projectOptionsLoading.value = true
+  try {
+    const params = { skip: 0, limit: 100 }
+    if (query) {
+      if (/^TP[-\w]/i.test(query)) {
+        params.order_no = query
+      } else {
+        params.project_name = query
+      }
+    }
+    const res = await getProjects(params)
+    projectList.value = mergeProjectOptions(Array.isArray(res) ? res : [])
+  } catch (e) {
+    console.error('Failed to load project options', e)
+    projectList.value = mergeProjectOptions([])
+  } finally {
+    projectOptionsLoading.value = false
+  }
+}
+
+function searchProjectOptions(query) {
+  loadProjectOptions((query || '').trim())
+}
+
+async function loadProjectFiles() {
+  if (!currentProjectId.value) {
+    fileList.value = []
+    return
+  }
+
+  fileListLoading.value = true
+  try {
+    const res = await getProjectFilesByProject(currentProjectId.value, { skip: 0, limit: 100 })
+    fileList.value = (Array.isArray(res) ? res : []).map(normalizeProjectFile)
+  } catch (e) {
+    console.error('Failed to load project files', e)
+    fileList.value = []
+  } finally {
+    fileListLoading.value = false
+  }
+}
 /** 从「待我处理」点「进入」时保存的行对象，保证阶段卡片一定能显示（避免 id 匹配不到） */
 const selectedProjectRow = ref(null)
 
@@ -792,6 +886,31 @@ const currentStageConfig = computed(
 const currentStageEditableFields = computed(() => currentStageConfig.value.editable || [])
 
 const transitionLog = computed(() => workflowState.value.transitionLog || [])
+const logFilters = reactive({ direction: '', stage: '', operator: '', dateRange: [] })
+const logStageOptions = computed(() => {
+  const seen = new Set()
+  return transitionLog.value
+    .flatMap(entry => [entry.fromStage, entry.toStage])
+    .filter(stage => stage && !seen.has(stage) && seen.add(stage))
+    .map(stage => ({ value: stage, label: stageByKey[stage]?.title || stage }))
+})
+const logOperatorOptions = computed(() => {
+  const seen = new Set()
+  return transitionLog.value
+    .map(entry => entry.operator)
+    .filter(name => name && !seen.has(name) && seen.add(name))
+})
+const filteredTransitionLog = computed(() => transitionLog.value.filter((entry) => {
+  if (logFilters.direction && entry.direction !== logFilters.direction) return false
+  if (logFilters.stage && entry.fromStage !== logFilters.stage && entry.toStage !== logFilters.stage) return false
+  if (logFilters.operator && entry.operator !== logFilters.operator) return false
+  if (Array.isArray(logFilters.dateRange) && logFilters.dateRange.length === 2) {
+    const [start, end] = logFilters.dateRange
+    const entryDate = entry.at ? entry.at.slice(0, 10) : ''
+    if (entryDate && (entryDate < start || entryDate > end)) return false
+  }
+  return true
+}))
 
 const canRollbackOne = computed(() => {
   const steps = effectiveSteps.value
@@ -1264,8 +1383,7 @@ async function loadProjects() {
   }
 
   try {
-    const res = await getProjects({ page: 1, limit: 100 })
-    projectList.value = Array.isArray(res) ? res : []
+    await loadProjectOptions()
     if (currentProjectId.value) {
       await ensureProjectLoaded(currentProjectId.value)
     } else if (projectList.value.length) {
@@ -1361,6 +1479,18 @@ function onMyTaskRowClick(row) {
     selectProject(row.id)
   }
 }
+
+watch(
+  () => [activeTab.value, currentProjectId.value],
+  ([tab, projectId]) => {
+    if (tab === 'files' && projectId) {
+      loadProjectFiles()
+    }
+    if (tab === 'files' && !projectId) {
+      fileList.value = []
+    }
+  }
+)
 
 watch(
   () => route.query.projectId,
@@ -1536,6 +1666,10 @@ onMounted(() => {
 
 .detail-tabs {
   margin-top: 8px;
+}
+
+.log-filter-bar {
+  margin-bottom: 12px;
 }
 
 .log-action {

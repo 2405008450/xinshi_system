@@ -27,6 +27,10 @@ export const getProjects = (params) => {
     return api.get('/projects/translation/', { params }).then(res => convertKeys(res, toCamelCase))
 }
 
+export const getProjectCount = (params) => {
+    return api.get('/projects/translation/count', { params })
+}
+
 export const getProject = (id) => {
     return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))
 }

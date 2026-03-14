@@ -218,12 +218,16 @@ const rules = {
 const fetchData = async () => {
   loading.value = true
   try {
-    const res = await clientContactApi.getClientContacts({
+    const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
-    })
-    tableData.value = res || []
-    pagination.total = res?.length || 0
+    }
+    const [res, countRes] = await Promise.all([
+      clientContactApi.getClientContacts(params),
+      clientContactApi.getClientContactCount()
+    ])
+    tableData.value = Array.isArray(res) ? res : []
+    pagination.total = countRes?.total || tableData.value.length
   } catch (error) {
     tableData.value = []
     pagination.total = 0

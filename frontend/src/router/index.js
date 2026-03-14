@@ -85,6 +85,12 @@ const routes = [
         meta: { title: '其他项目管理' }
       },
       {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: () => import('../views/dashboard/Dashboard.vue'),
+        meta: { title: 'Dashboard', roles: ['*'] }
+      },
+      {
         path: 'workbench',
         name: 'WorkDashboard',
         component: () => import('../views/schedule/WorkDashboard.vue'),
