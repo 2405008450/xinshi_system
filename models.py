@@ -30,6 +30,7 @@ class AppUser(Base):
 
     user_role: Mapped[list['UserRole']] = relationship('UserRole', back_populates='user')
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='app_user')
+    notifications: Mapped[list['AppNotification']] = relationship('AppNotification', back_populates='recipient', cascade='all, delete-orphan')
 
 
 class Role(Base):
@@ -283,6 +284,7 @@ class TranslationProject(Base):
     
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='translation_project', cascade='all, delete-orphan')
     workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='translation_project', uselist=False, cascade='all, delete-orphan')
+    notifications: Mapped[list['AppNotification']] = relationship('AppNotification', back_populates='project')
     sub_orders: Mapped[list['TranslationSubOrder']] = relationship('TranslationSubOrder', back_populates='parent_project', cascade='all, delete-orphan')
 
 
@@ -382,6 +384,28 @@ class ProjectFile(Base):
 
     translation_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='project_file')
     app_user: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='project_file')
+
+
+class AppNotification(Base):
+    __tablename__ = 'app_notification'
+    __table_args__ = (
+        ForeignKeyConstraint(['recipient_user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_app_notification_recipient'),
+        ForeignKeyConstraint(['related_project_id'], ['translation_project.id'], ondelete='SET NULL', name='fk_app_notification_project'),
+        PrimaryKeyConstraint('id', name='app_notification_pkey'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(50), nullable=False, server_default=text("'workflow'"))
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    read_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    related_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    recipient: Mapped['AppUser'] = relationship('AppUser', back_populates='notifications')
+    project: Mapped[Optional['TranslationProject']] = relationship('TranslationProject', back_populates='notifications')
 
 
 class WorkSchedule(Base):

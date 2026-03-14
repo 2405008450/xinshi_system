@@ -175,6 +175,7 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <NotificationBell />
           <el-dropdown @command="handleCommand">
             <span class="user-info">
               <el-avatar :size="32" :icon="User" />
@@ -208,6 +209,7 @@ import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, DataAnalysis } from '@element-plus/icons-vue'
 import { isSuperAdmin, getStoredRoles } from '../utils/permission'
+import NotificationBell from '../components/NotificationBell.vue'
 
 const route = useRoute()
 const router = useRouter()

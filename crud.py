@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_
 
-from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord
+from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
@@ -616,6 +616,150 @@ def delete_user_role_by_user_and_role(db: Session, user_id: UUID, role_id: UUID)
     db.delete(db_user_role)
     db.commit()
     return True
+
+
+
+def get_users_by_role_names(db: Session, role_names: List[str]) -> List[AppUser]:
+    normalized = [name for name in role_names if name]
+    if not normalized:
+        return []
+    return (
+        db.query(AppUser)
+        .join(UserRole, UserRole.user_id == AppUser.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(Role.role_name.in_(normalized), AppUser.is_active == True)
+        .distinct(AppUser.id)
+        .all()
+    )
+
+
+def get_notification(db: Session, notification_id: UUID) -> Optional[AppNotification]:
+    return db.query(AppNotification).filter(AppNotification.id == notification_id).first()
+
+
+def get_notifications(
+    db: Session,
+    recipient_user_id: UUID,
+    skip: int = 0,
+    limit: int = 20,
+    unread_only: bool = False,
+) -> List[AppNotification]:
+    query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
+    if unread_only:
+        query = query.filter(AppNotification.is_read == False)
+    return query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
+
+
+def count_unread_notifications(db: Session, recipient_user_id: UUID) -> int:
+    return (
+        db.query(AppNotification.id)
+        .filter(
+            AppNotification.recipient_user_id == recipient_user_id,
+            AppNotification.is_read == False,
+        )
+        .count()
+    )
+
+
+def create_notification(
+    db: Session,
+    recipient_user_id: UUID,
+    title: str,
+    content: str,
+    notification_type: str = 'workflow',
+    related_project_id: Optional[UUID] = None,
+    commit: bool = True,
+) -> AppNotification:
+    notification = AppNotification(
+        recipient_user_id=recipient_user_id,
+        title=title,
+        content=content,
+        notification_type=notification_type,
+        related_project_id=related_project_id,
+    )
+    db.add(notification)
+    if commit:
+        db.commit()
+        db.refresh(notification)
+    else:
+        db.flush()
+    return notification
+
+
+def create_notifications_for_users(
+    db: Session,
+    recipient_user_ids: List[UUID],
+    title: str,
+    content: str,
+    notification_type: str = 'workflow',
+    related_project_id: Optional[UUID] = None,
+    commit: bool = True,
+) -> List[AppNotification]:
+    unique_user_ids = []
+    seen = set()
+    for user_id in recipient_user_ids:
+        if not user_id or user_id in seen:
+            continue
+        seen.add(user_id)
+        unique_user_ids.append(user_id)
+
+    notifications = [
+        AppNotification(
+            recipient_user_id=user_id,
+            title=title,
+            content=content,
+            notification_type=notification_type,
+            related_project_id=related_project_id,
+        )
+        for user_id in unique_user_ids
+    ]
+    if notifications:
+        db.add_all(notifications)
+        if commit:
+            db.commit()
+            for notification in notifications:
+                db.refresh(notification)
+        else:
+            db.flush()
+    return notifications
+
+
+def mark_notification_read(db: Session, notification_id: UUID, recipient_user_id: UUID) -> Optional[AppNotification]:
+    notification = (
+        db.query(AppNotification)
+        .filter(
+            AppNotification.id == notification_id,
+            AppNotification.recipient_user_id == recipient_user_id,
+        )
+        .first()
+    )
+    if not notification:
+        return None
+    if not notification.is_read:
+        notification.is_read = True
+        notification.read_at = dt.datetime.utcnow()
+        db.commit()
+        db.refresh(notification)
+    return notification
+
+
+def mark_all_notifications_read(db: Session, recipient_user_id: UUID) -> int:
+    notifications = (
+        db.query(AppNotification)
+        .filter(
+            AppNotification.recipient_user_id == recipient_user_id,
+            AppNotification.is_read == False,
+        )
+        .all()
+    )
+    if not notifications:
+        return 0
+    now = dt.datetime.utcnow()
+    for notification in notifications:
+        notification.is_read = True
+        notification.read_at = now
+    db.commit()
+    return len(notifications)
 
 
 # ProjectFile CRUD

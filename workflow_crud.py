@@ -2,9 +2,12 @@
 工作流 CRUD 操作
 包含阶段定义、难度过滤逻辑、推进/打回/初始化等核心业务方法
 """
+from decimal import Decimal
 from typing import Optional, List
+import uuid as _uuid
 from uuid import UUID
 
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, or_
 from sqlalchemy.orm import Session
 
 from workflow_models import WorkflowInstance, WorkflowLog
@@ -64,8 +67,13 @@ def get_workflow_by_id(db: Session, instance_id: UUID) -> Optional[WorkflowInsta
         .first()
 
 
-from sqlalchemy import or_
-from crud import ensure_finance_record_for_project, get_user_roles_with_role_names
+from crud import (
+    create_notifications_for_users,
+    ensure_finance_record_for_project,
+    get_user_roles_with_role_names,
+    get_users_by_role_names,
+)
+from notification_ws import dispatch_personal_message
 
 def get_my_tasks(db: Session, user_id: UUID) -> list:
     """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，返回带项目信息的列表"""
@@ -121,8 +129,76 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
 
 # ========== 初始化 ==========
 
+def _serialize_notification(notification) -> dict:
+    return {
+        'id': str(notification.id),
+        'title': notification.title,
+        'content': notification.content,
+        'notification_type': notification.notification_type,
+        'is_read': notification.is_read,
+        'related_project_id': str(notification.related_project_id) if notification.related_project_id else None,
+        'created_at': notification.created_at.isoformat() if notification.created_at else None,
+    }
+
+
+def _push_notifications(notifications: list) -> None:
+    for notification in notifications:
+        dispatch_personal_message(
+            notification.recipient_user_id,
+            {
+                'type': 'notification',
+                'notification': _serialize_notification(notification),
+            },
+        )
+
+
+def _get_assignment_recipients(db: Session, next_assignee_id: Optional[UUID], group_assign_role: Optional[str]) -> list[UUID]:
+    if next_assignee_id:
+        return [next_assignee_id]
+    if group_assign_role:
+        return [user.id for user in get_users_by_role_names(db, [group_assign_role])]
+    return []
+
+
+def _notify_assignment(
+    db: Session,
+    project_id: UUID,
+    stage_key: str,
+    next_assignee_id: Optional[UUID],
+    group_assign_role: Optional[str],
+    action: str,
+) -> None:
+    recipients = _get_assignment_recipients(db, next_assignee_id, group_assign_role)
+    if not recipients:
+        return
+
+    project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+    if not project:
+        return
+
+    stage_info = STAGE_BY_KEY.get(stage_key, {})
+    stage_title = stage_info.get('title') or stage_key
+    title = 'Workflow Task Updated'
+    if action == 'assigned':
+        content = f'Project {project.order_no} / {project.project_name} has entered {stage_title}. Please handle it.'
+        notification_type = 'workflow_assign'
+    else:
+        content = f'Project {project.order_no} / {project.project_name} was rolled back to {stage_title}. Please review it.'
+        notification_type = 'workflow_rollback'
+
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=recipients,
+        title=title,
+        content=content,
+        notification_type=notification_type,
+        related_project_id=project.id,
+        commit=True,
+    )
+    _push_notifications(notifications)
+
+
 def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
-    """为项目创建工作流实例，并写入"进入接稿"的初始日志"""
     existing = get_workflow_by_project(db, project_id)
     if existing:
         return existing
@@ -142,8 +218,8 @@ def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
         from_stage='',
         to_stage='reception',
         direction='forward',
-        description='进入接稿（客户专员）',
-        note='系统自动初始化',
+        description='Workflow initialized at reception stage.',
+        note='System initialization',
     )
     db.add(log)
     db.commit()
@@ -151,13 +227,10 @@ def init_workflow(db: Session, project_id: UUID) -> WorkflowInstance:
     return instance
 
 
-# ========== 请假校验 ==========
-
 import datetime as _dt
 
 
 def _check_on_leave(db: Session, user_id: UUID):
-    """检查用户当前是否在请假，是则抛出 ValueError 阻止派发"""
     now = _dt.datetime.now()
     leave = db.query(EmployeeLeave).filter(
         EmployeeLeave.employee_id == user_id,
@@ -166,12 +239,10 @@ def _check_on_leave(db: Session, user_id: UUID):
     ).first()
     if leave:
         raise ValueError(
-            f"该用户（{leave.employee_name}）当前处于请假中"
-            f"（{leave.start_date.strftime('%Y-%m-%d %H:%M')} ~ {leave.end_date.strftime('%Y-%m-%d %H:%M')}），无法指派任务"
+            f"The selected user {leave.employee_name} is currently on leave "
+            f"({leave.start_date.strftime('%Y-%m-%d %H:%M')} ~ {leave.end_date.strftime('%Y-%m-%d %H:%M')})."
         )
 
-
-# ========== 设定难度 ==========
 
 import re
 
@@ -181,18 +252,56 @@ def _sync_stage_data_to_project(db: Session, project_id: UUID, stage_data: dict)
     project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
     if not project:
         return
-    
+
     def to_snake(name):
         return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
 
-    for k, v in stage_data.items():
-        snake_k = to_snake(k)
-        if hasattr(project, snake_k):
-            if isinstance(v, str) and v.strip() == '':
-                if 'time' in snake_k or 'date' in snake_k:
-                    setattr(project, snake_k, None)
-                    continue
-            setattr(project, snake_k, v)
+    def parse_datetime(value: str):
+        normalized = value.replace('Z', '+00:00')
+        return _dt.datetime.fromisoformat(normalized)
+
+    def parse_date(value: str):
+        return _dt.date.fromisoformat(value)
+
+    for key, value in stage_data.items():
+        field_name = to_snake(key)
+        if not hasattr(project, field_name):
+            continue
+
+        column = project.__table__.columns.get(field_name)
+        column_type = type(column.type) if column is not None else None
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == '':
+                if column is None or column.nullable:
+                    setattr(project, field_name, None)
+                continue
+            value = stripped
+
+        try:
+            if column_type in (BigInteger, Integer):
+                value = int(value)
+            elif column_type is Numeric:
+                value = Decimal(str(value))
+            elif column_type is Boolean:
+                if isinstance(value, str):
+                    value = value.lower() in ('1', 'true', 'yes', 'on')
+                else:
+                    value = bool(value)
+            elif column_type is Uuid and isinstance(value, str):
+                value = _uuid.UUID(value)
+            elif column_type is DateTime and isinstance(value, str):
+                value = parse_datetime(value)
+            elif column_type is Date and isinstance(value, str):
+                value = parse_date(value)
+        except (ValueError, TypeError):
+            if column is not None and column.nullable:
+                value = None
+            else:
+                continue
+
+        setattr(project, field_name, value)
 
 
 def set_difficulty(
@@ -206,7 +315,6 @@ def set_difficulty(
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
 ) -> WorkflowInstance:
-    """客户专员设定难度，推进到下一阶段（支持指定个人或同组指派）"""
     if not next_assignee_id and not group_assign_role:
         raise ValueError("Must specify either next_assignee_id or group_assign_role")
 
@@ -216,9 +324,8 @@ def set_difficulty(
     if instance.current_stage_key != 'reception':
         raise ValueError("Can only set difficulty at reception stage")
 
-    # 保存当前阶段数据
     current_notes = dict(instance.stage_notes or {})
-    current_notes['reception'] = note or '（无备注）'
+    current_notes['reception'] = note or ''
     instance.stage_notes = current_notes
 
     current_data = dict(instance.stage_data or {})
@@ -227,54 +334,46 @@ def set_difficulty(
         _sync_stage_data_to_project(db, project_id, stage_data)
     instance.stage_data = current_data
 
-    # 设置难度
     instance.difficulty = difficulty
     instance.file_editable = file_editable
 
-    # 确定下一阶段
     steps = get_effective_stages(difficulty, file_editable)
     if len(steps) < 2:
         raise ValueError("No next stage available")
     next_stage = steps[1]
 
     if next_assignee_id:
-        # 指定个人：校验是否请假
         _check_on_leave(db, next_assignee_id)
         next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
-        next_user_name = (next_user.full_name or next_user.username) if next_user else ''
-        assign_desc = f"指定负责人：{next_user_name}"
+        next_user_name = (next_user.full_name or next_user.username) if next_user else str(next_assignee_id)
+        assign_desc = f"Assigned to {next_user_name}"
         instance.current_assignee_id = next_assignee_id
         instance.group_assign_role = None
     else:
-        # 同组指派
-        assign_desc = f"同组指派给「{group_assign_role}」组"
-        next_assignee_id = None
+        assign_desc = f"Assigned to role group {group_assign_role}"
         instance.current_assignee_id = None
         instance.group_assign_role = group_assign_role
 
-    # 写入日志
     log = WorkflowLog(
         workflow_instance_id=instance.id,
         operator_id=operator_id,
         from_stage='reception',
         to_stage=next_stage['key'],
         direction='forward',
-        description=f"确认难度为「{difficulty}」，进入{next_stage['title']}，{assign_desc}",
+        description=f"Difficulty set to {difficulty}; moved to {next_stage['key']}. {assign_desc}.",
         note=note,
         next_assignee_id=next_assignee_id,
     )
     db.add(log)
 
-    # 推进
     instance.current_stage_key = next_stage['key']
     instance.project_status = 'in_progress'
 
     db.commit()
     db.refresh(instance)
+    _notify_assignment(db, project_id, next_stage['key'], next_assignee_id, group_assign_role, 'assigned')
     return instance
 
-
-# ========== 阶段推进 ==========
 
 def transition_forward(
     db: Session,
@@ -285,7 +384,6 @@ def transition_forward(
     note: Optional[str] = None,
     stage_data: Optional[dict] = None,
 ) -> WorkflowInstance:
-    """完成当前阶段，推进到下一阶段（支持指定个人或同组指派）"""
     instance = get_workflow_by_project(db, project_id)
     if not instance:
         raise ValueError("Workflow not initialized for this project")
@@ -295,86 +393,91 @@ def transition_forward(
     if current_idx < 0:
         raise ValueError(f"Current stage '{instance.current_stage_key}' not found in effective stages")
 
-    # 保存当前阶段数据
+    current_stage_key = instance.current_stage_key
     current_notes = dict(instance.stage_notes or {})
-    current_notes[instance.current_stage_key] = note or '（无备注）'
+    current_notes[current_stage_key] = note or ''
     instance.stage_notes = current_notes
 
     current_data = dict(instance.stage_data or {})
     if stage_data:
-        current_data[instance.current_stage_key] = stage_data
+        current_data[current_stage_key] = stage_data
         _sync_stage_data_to_project(db, project_id, stage_data)
     instance.stage_data = current_data
 
-    current_stage_info = STAGE_BY_KEY.get(instance.current_stage_key, {})
+    current_stage_info = STAGE_BY_KEY.get(current_stage_key, {})
     next_idx = current_idx + 1
+    notify_stage_key = None
+    notify_next_assignee_id = None
+    notify_group_assign_role = None
 
     if next_idx >= len(steps):
-        # 已是最后一步 → 完成
         instance.current_stage_key = 'completed'
         instance.current_assignee_id = None
         instance.group_assign_role = None
         instance.project_status = 'completed'
-
         log = WorkflowLog(
             workflow_instance_id=instance.id,
             operator_id=operator_id,
-            from_stage=current_stage_info.get('key', ''),
+            from_stage=current_stage_key,
             to_stage='completed',
             direction='forward',
-            description=f"从「{current_stage_info.get('title', '')}」进入「完成」",
+            description=f"Moved from {current_stage_info.get('key', current_stage_key)} to completed.",
             note=note,
         )
         db.add(log)
+        db.commit()
         ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
+        db.refresh(instance)
+        return instance
+
+    next_stage = steps[next_idx]
+    if next_stage['key'] == 'completed':
+        description = f"Moved from {current_stage_info.get('key', current_stage_key)} to completed."
+        instance.project_status = 'completed'
+        instance.current_assignee_id = None
+        instance.group_assign_role = None
+        log_next_assignee_id = None
+    elif next_assignee_id:
+        _check_on_leave(db, next_assignee_id)
+        next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
+        next_user_name = (next_user.full_name or next_user.username) if next_user else str(next_assignee_id)
+        description = f"Moved from {current_stage_info.get('key', current_stage_key)} to {next_stage['key']}, assigned to {next_user_name}."
+        instance.current_assignee_id = next_assignee_id
+        instance.group_assign_role = None
+        log_next_assignee_id = next_assignee_id
+        notify_stage_key = next_stage['key']
+        notify_next_assignee_id = next_assignee_id
+    elif group_assign_role:
+        description = f"Moved from {current_stage_info.get('key', current_stage_key)} to {next_stage['key']}, assigned to role group {group_assign_role}."
+        instance.current_assignee_id = None
+        instance.group_assign_role = group_assign_role
+        log_next_assignee_id = None
+        notify_stage_key = next_stage['key']
+        notify_group_assign_role = group_assign_role
     else:
-        next_stage = steps[next_idx]
+        raise ValueError("Must specify next_assignee_id or group_assign_role for non-completed stages")
 
-        if next_stage['key'] == 'completed':
-            description = f"从「{current_stage_info.get('title', '')}」进入「完成」"
-            instance.project_status = 'completed'
-            instance.current_assignee_id = None
-            instance.group_assign_role = None
-            log_next_assignee_id = None
-        elif next_assignee_id:
-            # 指定个人
-            _check_on_leave(db, next_assignee_id)
-            next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
-            next_user_name = (next_user.full_name or next_user.username) if next_user else ''
-            description = f"从「{current_stage_info.get('title', '')}」进入「{next_stage['title']}」，指定负责人：{next_user_name}"
-            instance.current_assignee_id = next_assignee_id
-            instance.group_assign_role = None
-            log_next_assignee_id = next_assignee_id
-        elif group_assign_role:
-            # 同组指派
-            description = f"从「{current_stage_info.get('title', '')}」进入「{next_stage['title']}」，同组指派给「{group_assign_role}」组"
-            instance.current_assignee_id = None
-            instance.group_assign_role = group_assign_role
-            log_next_assignee_id = None
-        else:
-            raise ValueError("Must specify next_assignee_id or group_assign_role for non-completed stages")
-
-        log = WorkflowLog(
-            workflow_instance_id=instance.id,
-            operator_id=operator_id,
-            from_stage=instance.current_stage_key,
-            to_stage=next_stage['key'],
-            direction='forward',
-            description=description,
-            note=note,
-            next_assignee_id=log_next_assignee_id,
-        )
-        db.add(log)
-        instance.current_stage_key = next_stage['key']
-        if next_stage['key'] == 'completed':
-            ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
+    log = WorkflowLog(
+        workflow_instance_id=instance.id,
+        operator_id=operator_id,
+        from_stage=current_stage_key,
+        to_stage=next_stage['key'],
+        direction='forward',
+        description=description,
+        note=note,
+        next_assignee_id=log_next_assignee_id,
+    )
+    db.add(log)
+    instance.current_stage_key = next_stage['key']
 
     db.commit()
+    if next_stage['key'] == 'completed':
+        ensure_finance_record_for_project(db, project_id=project_id, edited_by=operator_id)
     db.refresh(instance)
+    if notify_stage_key:
+        _notify_assignment(db, project_id, notify_stage_key, notify_next_assignee_id, notify_group_assign_role, 'assigned')
     return instance
 
-
-# ========== 打回 ==========
 
 def rollback(
     db: Session,
@@ -384,7 +487,6 @@ def rollback(
     note: str = '',
     operator_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
-    """打回操作"""
     instance = get_workflow_by_project(db, project_id)
     if not instance:
         raise ValueError("Workflow not initialized for this project")
@@ -396,11 +498,9 @@ def rollback(
 
     target_idx = 0 if to_start else max(0, current_idx - steps)
     target = effective[target_idx]
-    current_stage_info = STAGE_BY_KEY.get(instance.current_stage_key, {})
-
     description = (
-        f"打回至初始节点「{target['title']}」" if to_start
-        else f"打回至「{target['title']}」"
+        f"Rolled back to start stage {target['key']}." if to_start
+        else f"Rolled back to {target['key']}."
     )
 
     log = WorkflowLog(
@@ -415,7 +515,6 @@ def rollback(
     db.add(log)
 
     instance.current_stage_key = target['key']
-
     if target['key'] == 'reception':
         instance.current_assignee_id = None
         instance.group_assign_role = None
@@ -423,11 +522,9 @@ def rollback(
         instance.difficulty = None
         instance.file_editable = None
     else:
-        # 打回到中间环节时，清除指派信息，让重新指派
         instance.current_assignee_id = None
         instance.group_assign_role = None
 
-    # 清除目标阶段的旧备注和数据，允许重新填写
     current_notes = dict(instance.stage_notes or {})
     current_notes.pop(target['key'], None)
     instance.stage_notes = current_notes
@@ -438,10 +535,12 @@ def rollback(
 
     db.commit()
     db.refresh(instance)
+
+    target_role = STAGE_BY_KEY.get(target['key'], {}).get('role')
+    if target_role and target_role != '-':
+        _notify_assignment(db, project_id, target['key'], None, target_role, 'rollback')
     return instance
 
-
-# ========== 更新阶段进度数据 ==========
 
 def update_stage_data(
     db: Session,

@@ -776,3 +776,19 @@ class FinanceRecordDisplayResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+
+
+class NotificationResponse(BaseModel):
+    id: UUID
+    recipient_user_id: UUID
+    title: str
+    content: str
+    notification_type: str
+    is_read: bool
+    read_at: Optional[datetime] = None
+    related_project_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
