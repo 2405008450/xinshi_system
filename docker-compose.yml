@@ -7,7 +7,7 @@ services:
     container_name: xinshi_postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: XinShi@2026#PgS3cure!
+      POSTGRES_PASSWORD: "XinShi@2026#PgS3cure!"
       POSTGRES_DB: xinshi_system
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -31,7 +31,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: XinShi@2026#PgS3cure!
+      DB_PASSWORD: "XinShi@2026#PgS3cure!"
       DB_NAME: xinshi_system
     ports:
       - "8000:8000"
