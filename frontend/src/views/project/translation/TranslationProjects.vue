@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!--
     流程说明：
     - 完整流程：客户专员 → 项目经理 → 项目专员 → 项目助理 → 译审 → 专检 → 排版 → 完成
@@ -12,35 +12,46 @@
     <template #header>
       <div class="card-header">
         <span class="page-title">笔译项目流程</span>
-        <el-select
-          v-model="currentEntityKey"
-          placeholder="搜索母订单或子订单号/名称"
-          filterable
-          remote
-          reserve-keyword
-          clearable
-          :loading="projectOptionsLoading"
-          :remote-method="searchMixedOptions"
-          style="width: 420px"
-          @change="onEntityKeyChange"
-        >
-          <el-option-group label="母订单">
-            <el-option
-              v-for="p in mixedEntityList.filter(e => e._type === 'project')"
-              :key="`project:${p.id}`"
-              :label="`[母] ${p.orderNo} · ${p.projectName}`"
-              :value="`project:${p.id}`"
-            />
-          </el-option-group>
-          <el-option-group label="子订单">
-            <el-option
-              v-for="s in mixedEntityList.filter(e => e._type === 'suborder')"
-              :key="`suborder:${s.id}`"
-              :label="`[子] ${s.subOrderNo || s.sub_order_no} · ${s.subProjectName || s.sub_project_name || ''}`"
-              :value="`suborder:${s.id}`"
-            />
-          </el-option-group>
-        </el-select>
+        <div class="card-header__actions">
+          <el-select
+            v-model="currentEntityKey"
+            placeholder="搜索母订单或子订单号/名称"
+            filterable
+            remote
+            reserve-keyword
+            clearable
+            :loading="projectOptionsLoading"
+            :remote-method="searchMixedOptions"
+            style="width: 420px"
+            @change="onEntityKeyChange"
+          >
+            <el-option-group label="母订单">
+              <el-option
+                v-for="p in mixedEntityList.filter(e => e._type === 'project')"
+                :key="`project:${p.id}`"
+                :label="`[母] ${p.orderNo} · ${p.projectName}`"
+                :value="`project:${p.id}`"
+              />
+            </el-option-group>
+            <el-option-group label="子订单">
+              <el-option
+                v-for="s in mixedEntityList.filter(e => e._type === 'suborder')"
+                :key="`suborder:${s.id}`"
+                :label="`[子] ${s.subOrderNo || s.sub_order_no} · ${s.subProjectName || s.sub_project_name || ''}`"
+                :value="`suborder:${s.id}`"
+              />
+            </el-option-group>
+          </el-select>
+          <el-button
+            v-if="canOpenProjectChat"
+            class="chat-entry-button"
+            type="primary"
+            plain
+            @click="openProjectChatDrawer"
+          >
+            项目沟通
+          </el-button>
+        </div>
       </div>
     </template>
 
@@ -88,8 +99,8 @@
         <div class="section-label">文件是否可编辑</div>
         <p class="handover-hint">不可编辑文件将自动增加「预处理」阶段（由排版专员承接）。</p>
         <el-radio-group v-model="pendingFileEditable" class="difficulty-radio">
-          <el-radio :label="true">无需排版专员</el-radio>
-          <el-radio :label="false">需要排版专员</el-radio>
+          <el-radio :label="true">无需预处理</el-radio>
+          <el-radio :label="false">需要预处理</el-radio>
         </el-radio-group>
         <div v-if="currentStageEditableFields.length" class="stage-progress">
           <div class="section-label">本阶段进度填写</div>
@@ -493,8 +504,7 @@
         </el-descriptions>
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
-
-      <el-tab-pane label="&#x65E5;&#x5FD7;&#x8BB0;&#x5F55;" name="logs">
+<el-tab-pane label="&#x65E5;&#x5FD7;&#x8BB0;&#x5F55;" name="logs">
         <el-form :inline="true" :model="logFilters" size="small" class="log-filter-bar">
           <el-form-item label="Type">
             <el-select v-model="logFilters.direction" clearable placeholder="All" style="width: 120px">
@@ -546,6 +556,30 @@
         <el-empty v-else description="No log entries match the current filters" />
       </el-tab-pane>
     </el-tabs>
+
+    <el-drawer
+      v-model="chatDrawerVisible"
+      class="project-chat-drawer"
+      direction="rtl"
+      size="560px"
+      :modal="false"
+      :lock-scroll="false"
+      @close="handleChatDrawerClose"
+    >
+      <template #header>
+        <div class="project-chat-drawer__header">
+          <div class="project-chat-drawer__title">项目沟通</div>
+          <div class="project-chat-drawer__subtitle">
+            {{ currentProject?.orderNo || '-' }} · {{ currentProject?.projectName || '未选择母订单' }}
+          </div>
+        </div>
+      </template>
+      <ProjectChatPanel
+        :project-id="currentProjectId"
+        :active="chatDrawerVisible && currentEntityType === 'project'"
+        :drawer-mode="true"
+      />
+    </el-drawer>
   </el-card>
 </template>
 
@@ -568,7 +602,7 @@
  * 待我处理：筛选 currentAssigneeUserName === 当前登录用户 且 currentStageKey !== 'completed'。
  */
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getProject, getProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
@@ -580,8 +614,10 @@ import {
 import { getSubOrdersByProject, getSubOrders } from '@/api/subOrders'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getStoredRoles } from '@/utils/permission'
+import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
@@ -806,6 +842,8 @@ const mixedEntityList = ref([])
 const currentEntityKey = ref('')
 const handoverNote = ref('')
 const activeTab = ref('my_tasks')
+const chatDrawerVisible = ref(false)
+const canOpenProjectChat = computed(() => currentEntityType.value === 'project' && !!currentProjectId.value)
 const fileList = ref([])
 const projectOptionsLoading = ref(false)
 const fileListLoading = ref(false)
@@ -1542,6 +1580,30 @@ function getRouteProjectId() {
   return value || ''
 }
 
+
+function getRouteTab() {
+  const value = route.query.tab
+  if (Array.isArray(value)) return value[0] || ''
+  return value || ''
+}
+
+function openProjectChatDrawer() {
+  if (!canOpenProjectChat.value) return
+  chatDrawerVisible.value = true
+}
+
+function clearChatTabFromRoute() {
+  if (getRouteTab() !== 'chat') return
+  const nextQuery = { ...route.query }
+  delete nextQuery.tab
+  router.replace({ path: route.path, query: nextQuery }).catch(() => {})
+}
+
+function handleChatDrawerClose() {
+  chatDrawerVisible.value = false
+  clearChatTabFromRoute()
+}
+
 async function ensureProjectLoaded(projectId) {
   if (!projectId) return
   const projectIdText = String(projectId)
@@ -1609,6 +1671,7 @@ function onProjectChange() {
   assignMode.value = 'personal'
   pendingDifficulty.value = null
   pendingFileEditable.value = null
+  if (currentEntityType.value === 'suborder') chatDrawerVisible.value = false
   fetchWorkflowState()
 }
 
@@ -1651,6 +1714,7 @@ function onMyTaskRowClick(row) {
     groupAssignRole.value = ''
     assignMode.value = 'personal'
     pendingDifficulty.value = null
+    chatDrawerVisible.value = false
     pendingFileEditable.value = null
     fetchWorkflowState()
     activeTab.value = 'overview'
@@ -1677,10 +1741,16 @@ watch(
 )
 
 watch(
-  () => route.query.projectId,
+  () => [route.query.projectId, route.query.tab],
   async () => {
     const routeProjectId = getRouteProjectId()
+    const routeTab = getRouteTab()
+    chatDrawerVisible.value = routeTab === 'chat'
     if (!routeProjectId) return
+
+    const projectChanged = currentEntityType.value !== 'project' || String(currentProjectId.value || '') !== String(routeProjectId)
+    if (!projectChanged) return
+
     selectedProjectRow.value = null
     handoverNote.value = ''
     nextAssigneeUserId.value = ''
@@ -1720,6 +1790,19 @@ onMounted(() => {
 .page-title {
   font-size: 16px;
   font-weight: 600;
+}
+
+.card-header__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.chat-entry-button {
+  flex-shrink: 0;
 }
 
 .workflow-steps {
@@ -1855,6 +1938,25 @@ onMounted(() => {
   margin-top: 8px;
 }
 
+.project-chat-drawer :deep(.el-drawer__header) {
+  margin-bottom: 8px;
+}
+
+.project-chat-drawer :deep(.el-drawer__body) {
+  padding-top: 0;
+}
+
+.project-chat-drawer__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.project-chat-drawer__subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 .log-filter-bar {
   margin-bottom: 12px;
 }
@@ -1885,3 +1987,8 @@ onMounted(() => {
   border-left: 3px solid var(--el-color-danger);
 }
 </style>
+
+
+
+
+

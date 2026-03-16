@@ -4,8 +4,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
-from models import AppNotification, ClientContact
-from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications
+from models import AppNotification, ChatProjectEnabled, ChatProjectMention, ChatProjectMessage, ClientContact
+from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat
 
 app = FastAPI()
 
@@ -34,12 +34,16 @@ app.include_router(consultations.router)
 app.include_router(finance.router)
 app.include_router(sub_orders.router)
 app.include_router(notifications.router)
+app.include_router(project_chat.router)
 
 
 @app.on_event("startup")
 def ensure_runtime_tables():
     ClientContact.__table__.create(bind=engine, checkfirst=True)
     AppNotification.__table__.create(bind=engine, checkfirst=True)
+    ChatProjectEnabled.__table__.create(bind=engine, checkfirst=True)
+    ChatProjectMessage.__table__.create(bind=engine, checkfirst=True)
+    ChatProjectMention.__table__.create(bind=engine, checkfirst=True)
 
 
 @app.get("/")

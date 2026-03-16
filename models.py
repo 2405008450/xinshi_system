@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Integer, Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -31,6 +31,9 @@ class AppUser(Base):
     user_role: Mapped[list['UserRole']] = relationship('UserRole', back_populates='user')
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='app_user')
     notifications: Mapped[list['AppNotification']] = relationship('AppNotification', back_populates='recipient', cascade='all, delete-orphan')
+    chat_enabled_actions: Mapped[list['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='operator')
+    chat_sent_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='sender')
+    chat_mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='mentioned_user')
 
 
 class Role(Base):
@@ -285,6 +288,8 @@ class TranslationProject(Base):
     project_file: Mapped[list['ProjectFile']] = relationship('ProjectFile', back_populates='translation_project', cascade='all, delete-orphan')
     workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='translation_project', uselist=False, cascade='all, delete-orphan')
     notifications: Mapped[list['AppNotification']] = relationship('AppNotification', back_populates='project')
+    chat_setting: Mapped[Optional['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='project', uselist=False, cascade='all, delete-orphan')
+    chat_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='project', cascade='all, delete-orphan')
     sub_orders: Mapped[list['TranslationSubOrder']] = relationship('TranslationSubOrder', back_populates='parent_project', cascade='all, delete-orphan')
 
 
@@ -375,7 +380,10 @@ class ProjectFile(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)          # 原文路径
+    dispatch_path: Mapped[Optional[str]] = mapped_column(Text)               # 派稿文路径
+    translation_path: Mapped[Optional[str]] = mapped_column(Text)            # 译文路径
+    client_delivery_path: Mapped[Optional[str]] = mapped_column(Text)        # 发客户路径
     file_type: Mapped[Optional[str]] = mapped_column(String(50))
     file_ext: Mapped[Optional[str]] = mapped_column(String(20))
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger)
@@ -398,6 +406,69 @@ class ProjectFile(Base):
     def project_status(self):
         return self.translation_project.project_status if self.translation_project else None
 
+
+
+class ChatProjectEnabled(Base):
+    __tablename__ = 'chat_project_enabled'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_chat_project_enabled_project'),
+        ForeignKeyConstraint(['enabled_by'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_project_enabled_operator'),
+        PrimaryKeyConstraint('id', name='chat_project_enabled_pkey'),
+        UniqueConstraint('project_id', name='uq_chat_project_enabled_project'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    enabled_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    enabled_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='chat_setting')
+    operator: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_enabled_actions')
+
+
+class ChatProjectMessage(Base):
+    __tablename__ = 'chat_project_message'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_chat_project_message_project'),
+        ForeignKeyConstraint(['sender_user_id'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_project_message_sender'),
+        PrimaryKeyConstraint('id', name='chat_project_message_pkey'),
+        Index('ix_chat_project_message_project_created_at', 'project_id', 'created_at'),
+        Index('ix_chat_project_message_sender_user_id', 'sender_user_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sender_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sender_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='chat_messages')
+    sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
+    mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')
+
+
+class ChatProjectMention(Base):
+    __tablename__ = 'chat_project_mention'
+    __table_args__ = (
+        ForeignKeyConstraint(['message_id'], ['chat_project_message.id'], ondelete='CASCADE', name='fk_chat_project_mention_message'),
+        ForeignKeyConstraint(['mentioned_user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_chat_project_mention_user'),
+        PrimaryKeyConstraint('id', name='chat_project_mention_pkey'),
+        UniqueConstraint('message_id', 'mentioned_user_id', name='uq_chat_project_mention_message_user'),
+        Index('ix_chat_project_mention_user_id', 'mentioned_user_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    mentioned_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    mentioned_user_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='mentions')
+    mentioned_user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_mentions')
 
 class AppNotification(Base):
     __tablename__ = 'app_notification'

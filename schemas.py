@@ -542,6 +542,9 @@ class ProjectFileBase(BaseModel):
     translation_project_id: UUID
     file_name: str
     storage_path: str
+    dispatch_path: Optional[str] = None
+    translation_path: Optional[str] = None
+    client_delivery_path: Optional[str] = None
     file_type: Optional[str] = None
     file_ext: Optional[str] = None
     file_size: Optional[int] = None
@@ -555,6 +558,9 @@ class ProjectFileCreate(ProjectFileBase):
 class ProjectFileUpdate(BaseModel):
     file_name: Optional[str] = None
     storage_path: Optional[str] = None
+    dispatch_path: Optional[str] = None
+    translation_path: Optional[str] = None
+    client_delivery_path: Optional[str] = None
     file_type: Optional[str] = None
     file_ext: Optional[str] = None
     file_size: Optional[int] = None
@@ -795,3 +801,39 @@ class NotificationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ProjectChatSettingsUpdateRequest(BaseModel):
+    enabled: bool
+
+
+class ProjectChatSettingsResponse(BaseModel):
+    project_id: UUID
+    enabled: bool
+    enabled_by: Optional[UUID] = None
+    enabled_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    can_manage: bool = False
+
+
+class ProjectChatMessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+    mentioned_user_id: Optional[UUID] = None
+
+
+class ProjectChatMessageResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    sender_user_id: Optional[UUID] = None
+    sender_name: str
+    content: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    mentioned_user_id: Optional[UUID] = None
+    mentioned_user_name: Optional[str] = None
+
+
+class ProjectChatMessageQueryResponse(BaseModel):
+    items: list[ProjectChatMessageResponse] = Field(default_factory=list)
+    total: int = 0
+    enabled: bool = False
+    can_manage: bool = False

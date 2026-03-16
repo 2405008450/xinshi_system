@@ -44,23 +44,25 @@
           <span v-else style="color: #c0c4cc;">—</span>
         </template>
       </el-table-column>
-      <el-table-column prop="file_name" label="文件名" min-width="200" show-overflow-tooltip />
-      <el-table-column label="网络路径" min-width="280">
+      <el-table-column prop="file_name" label="文件名" min-width="180" show-overflow-tooltip />
+      <el-table-column label="原文路径" min-width="240">
         <template #default="{ row }">
-          <template v-if="row.storage_path">
-            <a
-              :href="getOpenPathHref(row.storage_path)"
-              style="word-break: break-all; color: #409eff; text-decoration: none; font-size: 12px;"
-            >{{ row.storage_path }}</a>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              style="margin-left: 6px;"
-              @click.prevent="copyPath(row.storage_path)"
-            >复制</el-button>
-          </template>
-          <span v-else style="color: #c0c4cc;">—</span>
+          <PathCell :path="row.storage_path" @copy="copyPath" />
+        </template>
+      </el-table-column>
+      <el-table-column label="派稿文路径" min-width="240">
+        <template #default="{ row }">
+          <PathCell :path="row.dispatch_path" @copy="copyPath" />
+        </template>
+      </el-table-column>
+      <el-table-column label="译文路径" min-width="240">
+        <template #default="{ row }">
+          <PathCell :path="row.translation_path" @copy="copyPath" />
+        </template>
+      </el-table-column>
+      <el-table-column label="发客户路径" min-width="240">
+        <template #default="{ row }">
+          <PathCell :path="row.client_delivery_path" @copy="copyPath" />
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
@@ -83,7 +85,7 @@
       style="margin-top: 20px"
     />
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="580px" @close="resetForm">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="620px" @close="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="关联项目" prop="translation_project_id">
           <el-select
@@ -108,11 +110,17 @@
         <el-form-item label="文件名" prop="file_name">
           <el-input v-model="form.file_name" placeholder="请输入文件名" />
         </el-form-item>
-        <el-form-item label="网络共享路径" prop="storage_path">
-          <el-input
-            v-model="form.storage_path"
-            placeholder="请输入 UNC 路径，如 \\win-server\share"
-          />
+        <el-form-item label="原文路径" prop="storage_path">
+          <el-input v-model="form.storage_path" placeholder="如 \\win-server\原文" />
+        </el-form-item>
+        <el-form-item label="派稿文路径">
+          <el-input v-model="form.dispatch_path" placeholder="如 \\win-server\派稿" />
+        </el-form-item>
+        <el-form-item label="译文路径">
+          <el-input v-model="form.translation_path" placeholder="如 \\win-server\译文" />
+        </el-form-item>
+        <el-form-item label="发客户路径">
+          <el-input v-model="form.client_delivery_path" placeholder="如 \\win-server\发客户" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -124,11 +132,35 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { defineComponent, h, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElButton, ElMessage, ElMessageBox } from 'element-plus'
 import * as projectFileApi from '@/api/projectFiles'
 import { getProjects } from '@/api/projects'
+
+// ---- 路径单元格组件（复用 4 列） ----
+const PathCell = defineComponent({
+  props: { path: { type: String, default: '' } },
+  emits: ['copy'],
+  setup(props, { emit }) {
+    return () => {
+      if (!props.path) return h('span', { style: 'color:#c0c4cc' }, '—')
+      const href = 'openpath://' + props.path.replace(/^\\\\/, '').replace(/\\/g, '/')
+      return h('span', { style: 'display:flex;align-items:center;gap:4px;flex-wrap:wrap' }, [
+        h('a', {
+          href,
+          style: 'word-break:break-all;color:#409eff;text-decoration:none;font-size:12px;flex:1;min-width:0'
+        }, props.path),
+        h(ElButton, {
+          link: true,
+          type: 'primary',
+          size: 'small',
+          onClick: (e) => { e.preventDefault(); emit('copy', props.path) }
+        }, () => '复制')
+      ])
+    }
+  }
+})
 
 const route = useRoute()
 const loading = ref(false)
@@ -145,13 +177,16 @@ const form = reactive({
   translation_project_id: '',
   file_name: '',
   storage_path: '',
+  dispatch_path: '',
+  translation_path: '',
+  client_delivery_path: '',
   uploaded_by: null
 })
 
 const rules = {
   translation_project_id: [{ required: true, message: '请选择关联项目', trigger: 'change' }],
   file_name: [{ required: true, message: '请输入文件名', trigger: 'blur' }],
-  storage_path: [{ required: true, message: '请输入网络共享路径', trigger: 'blur' }]
+  storage_path: [{ required: true, message: '请输入原文路径', trigger: 'blur' }]
 }
 
 // ---- 关联项目下拉（新增时过滤已占用项目） ----
@@ -184,10 +219,7 @@ const fetchProjectOptions = async (query = '') => {
       const res2 = await getProjects({ limit: 50, project_name: query })
       list = Array.isArray(res2) ? res2 : []
     }
-    // 新增模式：过滤掉已有文件记录的项目
-    if (!form.id) {
-      list = list.filter(p => !usedProjectIds.value.has(p.id))
-    }
+    if (!form.id) list = list.filter(p => !usedProjectIds.value.has(p.id))
     projectOptions.value = toOptions(list)
   } catch {
     projectOptions.value = []
@@ -220,12 +252,6 @@ const getStatusLabel = (status) =>
 const getStatusType = (status) =>
   ({ pending: 'info', in_progress: 'warning', completed: 'success', paused: 'danger', terminated: 'info' }[status] || 'info')
 
-// ---- 网络路径工具 ----
-const getOpenPathHref = (path) => {
-  if (!path) return '#'
-  return 'openpath://' + path.replace(/^\\\\/, '').replace(/\\/g, '/')
-}
-
 const copyPath = (path) => {
   navigator.clipboard.writeText(path)
   ElMessage.success('路径已复制')
@@ -240,7 +266,6 @@ const fetchData = async () => {
       limit: pagination.limit
     }
     if (orderNoFilter.value) params.order_no = orderNoFilter.value
-
     const [res, countRes] = await Promise.all([
       projectFileApi.getProjectFiles(params),
       projectFileApi.getProjectFileCount(orderNoFilter.value ? { order_no: orderNoFilter.value } : {})
@@ -272,7 +297,10 @@ const handleEdit = (row) => {
     id: row.id,
     translation_project_id: row.translation_project_id,
     file_name: row.file_name,
-    storage_path: row.storage_path,
+    storage_path: row.storage_path || '',
+    dispatch_path: row.dispatch_path || '',
+    translation_path: row.translation_path || '',
+    client_delivery_path: row.client_delivery_path || '',
     uploaded_by: row.uploaded_by
   })
   ensureCurrentProjectOption(row)
@@ -297,6 +325,10 @@ const handleSubmit = async () => {
     try {
       const submitData = { ...form }
       delete submitData.id
+      // 空字符串转 null，避免后端写入空串
+      ;['dispatch_path', 'translation_path', 'client_delivery_path'].forEach(k => {
+        if (!submitData[k]) submitData[k] = null
+      })
       if (form.id) {
         await projectFileApi.updateProjectFile(form.id, submitData)
         ElMessage.success('更新成功')
@@ -318,6 +350,9 @@ const resetForm = () => {
     translation_project_id: '',
     file_name: '',
     storage_path: '',
+    dispatch_path: '',
+    translation_path: '',
+    client_delivery_path: '',
     uploaded_by: null
   })
   formRef.value?.resetFields()
@@ -328,7 +363,6 @@ onMounted(() => {
     ? route.query.projectId[0]
     : route.query.projectId
   if (routeProjectId) {
-    // 路由传入的是 UUID，用于初始化搜索（按项目 ID 预筛选时沿用原逻辑）
     orderNoFilter.value = route.query.orderNo || ''
   }
   fetchData()

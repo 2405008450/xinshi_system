@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-popover
     placement="bottom-end"
     :width="360"
@@ -191,12 +191,14 @@ const handleNotificationClick = async (item) => {
       unreadCount.value = Math.max(0, unreadCount.value - 1)
     }
     if (item.related_project_id) {
-      router.push({ path: '/translation', query: { projectId: item.related_project_id } })
+      const targetTab = String(item.notification_type || '').startsWith('project_chat') ? 'chat' : 'overview'
+      router.push({ path: '/translation', query: { projectId: item.related_project_id, tab: targetTab } })
     }
   } catch (error) {
     ElMessage.error(error?.detail || error?.message || '更新通知失败')
   }
 }
+
 
 const handleMarkAllRead = async () => {
   try {
