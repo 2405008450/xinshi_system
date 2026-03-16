@@ -565,6 +565,9 @@ class ProjectFileResponse(ProjectFileBase):
     id: UUID
     uploaded_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
+    order_no: Optional[str] = None
+    project_name: Optional[str] = None
+    project_status: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -386,6 +386,18 @@ class ProjectFile(Base):
     translation_project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='project_file')
     app_user: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='project_file')
 
+    @property
+    def order_no(self):
+        return self.translation_project.order_no if self.translation_project else None
+
+    @property
+    def project_name(self):
+        return self.translation_project.project_name if self.translation_project else None
+
+    @property
+    def project_status(self):
+        return self.translation_project.project_status if self.translation_project else None
+
 
 class AppNotification(Base):
     __tablename__ = 'app_notification'

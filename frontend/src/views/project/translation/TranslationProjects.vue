@@ -86,7 +86,7 @@
           <el-radio label="complex">复杂（全流程）</el-radio>
         </el-radio-group>
         <div class="section-label">文件是否可编辑</div>
-        <p class="handover-hint">不可编辑文件将自动增加「排版指派」阶段（由排版专员承接）。</p>
+        <p class="handover-hint">不可编辑文件将自动增加「预处理」阶段（由排版专员承接）。</p>
         <el-radio-group v-model="pendingFileEditable" class="difficulty-radio">
           <el-radio :label="true">无需排版专员</el-radio>
           <el-radio :label="false">需要排版专员</el-radio>
@@ -94,7 +94,7 @@
         <div v-if="currentStageEditableFields.length" class="stage-progress">
           <div class="section-label">本阶段进度填写</div>
           <p class="handover-hint">请填写接稿阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
-          <el-form label-width="130px" size="small" class="stage-form">
+          <el-form :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
             <template v-for="field in currentStageEditableFields" :key="field.key">
               <el-form-item :label="field.label">
                 <el-date-picker
@@ -129,7 +129,7 @@
             </template>
           </el-form>
           <div class="stage-actions">
-            <el-button type="info" plain @click="saveCurrentStageProgress">
+            <el-button type="info" plain :disabled="!canOperateCurrentStage" @click="saveCurrentStageProgress">
               更新本阶段进度
             </el-button>
           </div>
@@ -211,7 +211,7 @@
         <div v-if="currentStageEditableFields.length && !isCurrentStageDone" class="stage-progress">
           <div class="section-label">本阶段进度填写</div>
           <p class="handover-hint">请填写本阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
-          <el-form label-width="130px" size="small" class="stage-form">
+          <el-form :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
             <template v-for="field in currentStageEditableFields" :key="field.key">
               <el-form-item :label="field.label">
                 <el-date-picker
@@ -246,7 +246,7 @@
             </template>
           </el-form>
           <div class="stage-actions">
-            <el-button type="info" plain @click="saveCurrentStageProgress">
+            <el-button type="info" plain :disabled="!canOperateCurrentStage" @click="saveCurrentStageProgress">
               更新本阶段进度
             </el-button>
           </div>
@@ -574,7 +574,7 @@ import { getProject, getProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import {
   getUsersByRoleName,
-  getMyTasksAPI, getWorkflowStateAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI,
+  getMyTasksAPI, getWorkflowStateAPI, initWorkflowAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI,
   getSubOrderWorkflowStateAPI, initSubOrderWorkflowAPI, setSubOrderDifficultyAPI, transitionSubOrderWorkflowAPI, rollbackSubOrderWorkflowAPI, updateSubOrderStageDataAPI,
 } from '@/api/workflow'
 import { getSubOrdersByProject, getSubOrders } from '@/api/subOrders'
@@ -586,7 +586,7 @@ const route = useRoute()
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
   { key: 'reception', title: '客户专员', role: '客户专员' },
-  { key: 'layout_assign', title: '排版指派', role: '排版专员', assignRoles: ['排版专员'] },
+  { key: 'layout_assign', title: '预处理', role: '排版专员', assignRoles: ['排版专员'] },
   { key: 'project_manager', title: '项目经理', role: '项目经理' },
   { key: 'project_specialist', title: '项目专员', role: '项目专员' },
   { key: 'project_assistant', title: '项目助理', role: '项目助理' },
@@ -655,7 +655,7 @@ const stageProgressMap = {
       { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
       { key: 'estimatedTime', label: '预计处理耗时' },
       { key: 'actualTime', label: '实际处理耗时' },
-      { key: 'layoutAssignNote', label: '排版指派说明' }
+      { key: 'layoutAssignNote', label: '预处理说明' }
     ],
     readonly: [
       { key: 'customerDeadlineTime', label: '客户交稿时间' },
@@ -1394,6 +1394,7 @@ async function confirmDifficulty() {
 async function saveCurrentStageProgress() {
   const state = getWorkflowState(currentProjectId.value)
   if (!state) return
+  if (!canOperateCurrentStage.value) return
   try {
     const apiFn = currentEntityType.value === 'suborder' ? updateSubOrderStageDataAPI : updateStageDataAPI
     const res = await apiFn(currentProjectId.value, {
@@ -1582,7 +1583,16 @@ async function fetchWorkflowState() {
       initStageFormData()
     } else {
       await ensureProjectLoaded(currentProjectId.value)
-      const state = await getWorkflowStateAPI(currentProjectId.value)
+      let state
+      try {
+        state = await getWorkflowStateAPI(currentProjectId.value)
+      } catch (err) {
+        if (err?.response?.status === 404 || err?.status === 404) {
+          state = await initWorkflowAPI(currentProjectId.value)
+        } else {
+          throw err
+        }
+      }
       setWorkflowState(currentProjectId.value, state)
       initStageFormData()
     }

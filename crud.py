@@ -1,6 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import and_
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
@@ -768,19 +768,34 @@ def get_project_file(db: Session, file_id: UUID) -> Optional[ProjectFile]:
 
 
 def get_project_files_by_project(db: Session, translation_project_id: UUID, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
-    return db.query(ProjectFile).filter(ProjectFile.translation_project_id == translation_project_id).offset(skip).limit(limit).all()
+    return (
+        db.query(ProjectFile)
+        .options(joinedload(ProjectFile.translation_project))
+        .filter(ProjectFile.translation_project_id == translation_project_id)
+        .offset(skip).limit(limit).all()
+    )
 
 
 def count_project_files_by_project(db: Session, translation_project_id: UUID) -> int:
     return db.query(ProjectFile.id).filter(ProjectFile.translation_project_id == translation_project_id).count()
 
 
-def get_project_files(db: Session, skip: int = 0, limit: int = 100) -> List[ProjectFile]:
-    return db.query(ProjectFile).offset(skip).limit(limit).all()
+def get_project_files(db: Session, skip: int = 0, limit: int = 100, order_no: Optional[str] = None) -> List[ProjectFile]:
+    q = db.query(ProjectFile).options(joinedload(ProjectFile.translation_project))
+    if order_no:
+        q = q.join(ProjectFile.translation_project).filter(
+            TranslationProject.order_no.ilike(f'%{order_no}%')
+        )
+    return q.offset(skip).limit(limit).all()
 
 
-def count_project_files(db: Session) -> int:
-    return db.query(ProjectFile.id).count()
+def count_project_files(db: Session, order_no: Optional[str] = None) -> int:
+    q = db.query(ProjectFile.id)
+    if order_no:
+        q = q.join(ProjectFile.translation_project).filter(
+            TranslationProject.order_no.ilike(f'%{order_no}%')
+        )
+    return q.count()
 
 
 def create_project_file(db: Session, project_file: ProjectFileCreate) -> ProjectFile:

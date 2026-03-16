@@ -132,7 +132,7 @@ import { ArrowDown } from '@element-plus/icons-vue'
 
 const STAGE_LABELS = {
   reception: '客户专员',
-  layout_assign: '排版指派',
+  layout_assign: '预处理',
   project_manager: '项目经理',
   project_specialist: '项目专员',
   project_assistant: '项目助理',
