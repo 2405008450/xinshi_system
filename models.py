@@ -224,6 +224,16 @@ class Translator(Base):
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
     first_contact_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
+    # 可用性与产能字段（项目助理周一/五更新）
+    status: Mapped[Optional[str]] = mapped_column(String(20), server_default=text("'standby'"))
+    available_time_slot: Mapped[Optional[str]] = mapped_column(String(100))
+    daily_accept_count: Mapped[Optional[int]] = mapped_column(Integer)
+    hourly_speed: Mapped[Optional[int]] = mapped_column(Integer)
+    daily_word_capacity: Mapped[Optional[int]] = mapped_column(Integer)
+    can_cloud_edit: Mapped[Optional[bool]] = mapped_column(Boolean)
+    can_revision: Mapped[Optional[bool]] = mapped_column(Boolean)
+    domain_skills: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    availability_updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 

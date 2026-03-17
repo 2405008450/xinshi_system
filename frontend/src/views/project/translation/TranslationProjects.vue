@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <!--
     流程说明：
     - 完整流程：客户专员 → 项目经理 → 项目专员 → 项目助理 → 译审 → 专检 → 排版 → 完成
@@ -92,7 +92,7 @@
         <div class="section-label">来稿难度评级（客户专员初步判断）</div>
         <p class="handover-hint">请根据来稿情况选择难度，将决定后续流程是否经过「项目经理」「译审」环节。</p>
         <el-radio-group v-model="pendingDifficulty" class="difficulty-radio">
-          <el-radio label="simple">简单（跳过项目经理、项目专员、译审）</el-radio>
+          <el-radio label="simple">简单（直接指派HR）</el-radio>
           <el-radio label="normal">普通（跳过译审）</el-radio>
           <el-radio label="complex">复杂（全流程）</el-radio>
         </el-radio-group>
@@ -479,14 +479,46 @@
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
 
-      <el-tab-pane label="Files" name="files">
+      <el-tab-pane label="项目文件" name="files">
         <el-table :data="fileList" v-loading="fileListLoading" border size="small" style="width: 100%">
-          <el-table-column type="index" label="&#x5E8F;&#x53F7;" width="60" />
-          <el-table-column prop="name" label="File Name" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="type" label="&#x7C7B;&#x578B;" width="120" />
-          <el-table-column prop="updatedAt" label="Created At" width="180" />
+          <el-table-column type="index" label="序号" width="60" />
+          <el-table-column prop="name" label="文件名" min-width="160" show-overflow-tooltip />
+          <el-table-column label="原文路径" min-width="220">
+            <template #default="{ row }">
+              <template v-if="row.storage_path">
+                <a :href="toOpenPathHref(row.storage_path)" style="word-break:break-all;color:#409eff;text-decoration:none;font-size:12px;">{{ row.storage_path }}</a>
+                <el-button link type="primary" size="small" style="margin-left:4px" @click.prevent="copyFilePath(row.storage_path)">复制</el-button>
+              </template>
+              <span v-else style="color:#c0c4cc">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="派稿文路径" min-width="220">
+            <template #default="{ row }">
+              <template v-if="row.dispatch_path">
+                <a :href="toOpenPathHref(row.dispatch_path)" style="word-break:break-all;color:#409eff;text-decoration:none;font-size:12px;">{{ row.dispatch_path }}</a>
+                <el-button link type="primary" size="small" style="margin-left:4px" @click.prevent="copyFilePath(row.dispatch_path)">复制</el-button>
+              </template>
+              <span v-else style="color:#c0c4cc">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="发客户路径" min-width="220">
+            <template #default="{ row }">
+              <template v-if="row.client_delivery_path">
+                <a :href="toOpenPathHref(row.client_delivery_path)" style="word-break:break-all;color:#409eff;text-decoration:none;font-size:12px;">{{ row.client_delivery_path }}</a>
+                <el-button link type="primary" size="small" style="margin-left:4px" @click.prevent="copyFilePath(row.client_delivery_path)">复制</el-button>
+              </template>
+              <span v-else style="color:#c0c4cc">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="updatedAt" label="创建时间" width="170" />
+          <el-table-column label="操作" width="130" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" size="small" link @click="handleFileEdit(row)">编辑</el-button>
+              <el-button type="danger" size="small" link @click="handleFileDelete(row)">删除</el-button>
+            </template>
+          </el-table-column>
         </el-table>
-        <el-empty v-if="!fileListLoading && !fileList.length" description="No files for this project" />
+        <el-empty v-if="!fileListLoading && !fileList.length" description="该项目暂无文件记录" />
       </el-tab-pane>
 
       <el-tab-pane label="翻译/审核进度" name="progress">
@@ -506,30 +538,30 @@
       </el-tab-pane>
 <el-tab-pane label="&#x65E5;&#x5FD7;&#x8BB0;&#x5F55;" name="logs">
         <el-form :inline="true" :model="logFilters" size="small" class="log-filter-bar">
-          <el-form-item label="Type">
-            <el-select v-model="logFilters.direction" clearable placeholder="All" style="width: 120px">
-              <el-option label="Forward" value="forward" />
-              <el-option label="Rollback" value="rollback" />
+          <el-form-item label="类型">
+            <el-select v-model="logFilters.direction" clearable placeholder="全部" style="width: 120px">
+              <el-option label="推进" value="forward" />
+              <el-option label="回退" value="rollback" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Stage">
-            <el-select v-model="logFilters.stage" clearable placeholder="All" style="width: 180px">
+          <el-form-item label="环节">
+            <el-select v-model="logFilters.stage" clearable placeholder="全部" style="width: 180px">
               <el-option v-for="item in logStageOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Operator">
-            <el-select v-model="logFilters.operator" clearable placeholder="All" style="width: 180px">
+          <el-form-item label="操作人">
+            <el-select v-model="logFilters.operator" clearable placeholder="全部" style="width: 180px">
               <el-option v-for="item in logOperatorOptions" :key="item" :label="item" :value="item" />
             </el-select>
           </el-form-item>
-          <el-form-item label="Date">
+          <el-form-item label="日期">
             <el-date-picker
               v-model="logFilters.dateRange"
               type="daterange"
               value-format="YYYY-MM-DD"
-              range-separator="to"
-              start-placeholder="Start"
-              end-placeholder="End"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
             />
           </el-form-item>
         </el-form>
@@ -543,17 +575,17 @@
           >
             <el-card shadow="never" :class="{ 'log-rollback': entry.direction === 'rollback' }">
               <p class="log-action">
-                <el-tag v-if="entry.direction === 'rollback'" type="danger" size="small">Rollback</el-tag>
-                <el-tag v-else type="success" size="small">Forward</el-tag>
+                <el-tag v-if="entry.direction === 'rollback'" type="danger" size="small">回退</el-tag>
+                <el-tag v-else type="success" size="small">推进</el-tag>
                 {{ entry.description }}
               </p>
               <p v-if="entry.note" class="log-note">{{ entry.note }}</p>
-              <p v-if="entry.nextAssigneeUserName" class="log-operator">Next assignee: {{ entry.nextAssigneeUserName }}</p>
-              <p v-if="entry.operator" class="log-operator">Operator: {{ entry.operator }}</p>
+              <p v-if="entry.nextAssigneeUserName" class="log-operator">下一负责人：{{ entry.nextAssigneeUserName }}</p>
+              <p v-if="entry.operator" class="log-operator">操作人：{{ entry.operator }}</p>
             </el-card>
           </el-timeline-item>
         </el-timeline>
-        <el-empty v-else description="No log entries match the current filters" />
+        <el-empty v-else description="暂无符合条件的日志记录" />
       </el-tab-pane>
     </el-tabs>
 
@@ -580,6 +612,31 @@
         :drawer-mode="true"
       />
     </el-drawer>
+
+  <!-- 项目文件编辑对话框 -->
+  <el-dialog v-model="fileEditDialogVisible" title="编辑项目文件" width="560px" @close="resetFileEditForm">
+    <el-form ref="fileEditFormRef" :model="fileEditForm" :rules="fileEditRules" label-width="110px">
+      <el-form-item label="文件名" prop="file_name">
+        <el-input v-model="fileEditForm.file_name" placeholder="请输入文件名" />
+      </el-form-item>
+      <el-form-item label="原文路径" prop="storage_path">
+        <el-input v-model="fileEditForm.storage_path" placeholder="如 \\win-server\原文" />
+      </el-form-item>
+      <el-form-item label="派稿文路径">
+        <el-input v-model="fileEditForm.dispatch_path" placeholder="如 \\win-server\派稿" />
+      </el-form-item>
+      <el-form-item label="译文路径">
+        <el-input v-model="fileEditForm.translation_path" placeholder="如 \\win-server\译文" />
+      </el-form-item>
+      <el-form-item label="发客户路径">
+        <el-input v-model="fileEditForm.client_delivery_path" placeholder="如 \\win-server\发客户" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="fileEditDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="fileEditSaving" @click="handleFileEditSubmit">保存</el-button>
+    </template>
+  </el-dialog>
   </el-card>
 </template>
 
@@ -603,9 +660,9 @@
  */
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProject, getProjects } from '@/api/projects'
-import { getProjectFilesByProject } from '@/api/projectFiles'
+import { getProjectFilesByProject, updateProjectFile, deleteProjectFile } from '@/api/projectFiles'
 import {
   getUsersByRoleName,
   getMyTasksAPI, getWorkflowStateAPI, initWorkflowAPI, setDifficultyAPI, transitionWorkflowAPI, rollbackWorkflowAPI, updateStageDataAPI,
@@ -678,7 +735,7 @@ const stageProgressMap = {
       { key: 'projectStatus', label: '项目状态', type: 'select', options: PROJECT_STATUS_OPTIONS },
       { key: 'customerReceptionTime', label: '客户来稿时间', type: 'date' },
       { key: 'customerDeadlineTime', label: '交稿客户时间', type: 'date' },
-      { key: 'fileTypeSecondary', label: '文件类型' },
+      { key: 'fileTypeSecondary', label: '文本类型' },
       { key: 'languagePair', label: '翻译方向' },
       { key: 'wordCount', label: '字数统计' }
     ],
@@ -718,7 +775,7 @@ const stageProgressMap = {
       { key: 'estimatedTime', label: '预计处理耗时' },
       { key: 'actualTime', label: '实际处理耗时' },
       { key: 'languagePair', label: '语言方向' },
-      { key: 'fileTypeSecondary', label: '文件类型' }
+      { key: 'fileTypeSecondary', label: '文本类型' }
     ],
     readonly: [
       { key: 'customerDeadlineTime', label: '客户交稿时间' },
@@ -737,7 +794,7 @@ const stageProgressMap = {
     ],
     readonly: [
       { key: 'customerDeadlineTime', label: '客户交稿时间' },
-      { key: 'languagePair', label: '语言对' },
+      { key: 'languagePair', label: '翻译方向' },
       { key: 'priority', label: '优先级' }
     ]
   },
@@ -869,6 +926,93 @@ const normalizeProjectFile = (file) => ({
   updatedAt: file?.created_at ? String(file.created_at).replace('T', ' ').substring(0, 19) : '-'
 })
 
+function toOpenPathHref(path) {
+  if (!path) return '#'
+  const stripped = path.replace(/^\\\\/,'')
+  return 'openpath://' + encodeURIComponent(stripped).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')
+}
+
+async function copyFilePath(path) {
+  if (!path) return
+  try {
+    await navigator.clipboard.writeText(path)
+    ElMessage.success('路径已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+// ---- 项目文件编辑 ----
+const fileEditDialogVisible = ref(false)
+const fileEditSaving = ref(false)
+const fileEditFormRef = ref(null)
+const fileEditForm = reactive({
+  id: null,
+  file_name: '',
+  storage_path: '',
+  dispatch_path: '',
+  translation_path: '',
+  client_delivery_path: ''
+})
+const fileEditRules = {
+  file_name: [{ required: true, message: '请输入文件名', trigger: 'blur' }],
+  storage_path: [{ required: true, message: '请输入原文路径', trigger: 'blur' }]
+}
+
+function handleFileEdit(row) {
+  Object.assign(fileEditForm, {
+    id: row.id,
+    file_name: row.file_name || '',
+    storage_path: row.storage_path || '',
+    dispatch_path: row.dispatch_path || '',
+    translation_path: row.translation_path || '',
+    client_delivery_path: row.client_delivery_path || ''
+  })
+  fileEditDialogVisible.value = true
+}
+
+async function handleFileDelete(row) {
+  try {
+    await ElMessageBox.confirm('确认删除该文件记录？', '提示', { type: 'warning' })
+    await deleteProjectFile(row.id)
+    ElMessage.success('删除成功')
+    loadProjectFiles()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err?.detail || '删除失败')
+  }
+}
+
+async function handleFileEditSubmit() {
+  if (!fileEditFormRef.value) return
+  await fileEditFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    fileEditSaving.value = true
+    try {
+      const payload = { ...fileEditForm }
+      delete payload.id
+      ;['dispatch_path', 'translation_path', 'client_delivery_path'].forEach(k => {
+        if (!payload[k]) payload[k] = null
+      })
+      await updateProjectFile(fileEditForm.id, payload)
+      ElMessage.success('更新成功')
+      fileEditDialogVisible.value = false
+      loadProjectFiles()
+    } catch (err) {
+      ElMessage.error(err?.detail || '保存失败')
+    } finally {
+      fileEditSaving.value = false
+    }
+  })
+}
+
+function resetFileEditForm() {
+  Object.assign(fileEditForm, {
+    id: null, file_name: '', storage_path: '',
+    dispatch_path: '', translation_path: '', client_delivery_path: ''
+  })
+  fileEditFormRef.value?.resetFields()
+}
+
 function mergeProjectOptions(list) {
   const merged = Array.isArray(list) ? [...list] : []
   const current = selectedProjectRow.value || projectList.value.find((item) => String(item.id) === String(currentProjectId.value))
@@ -927,11 +1071,24 @@ async function loadMixedOptions(query = '') {
       getSubOrders(subOrderParams)
     ])
 
+    // 解析订单号各段用于排序（格式：TP-260228-0016 → [260228, 16]）
+    const parseOrderNo = (no) => {
+      const m = String(no || '').match(/^[A-Z]+-(\d{6})-(\d+)$/i)
+      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [0, 0]
+    }
+    const orderNoComparator = (getNo) => (a, b) => {
+      const [dateA, seqA] = parseOrderNo(getNo(a))
+      const [dateB, seqB] = parseOrderNo(getNo(b))
+      return dateA !== dateB ? dateA - dateB : seqA - seqB
+    }
+
     const projects = (projectsRes.status === 'fulfilled' ? (Array.isArray(projectsRes.value) ? projectsRes.value : []) : [])
       .map(p => ({ ...p, _type: 'project' }))
+      .sort(orderNoComparator(p => p.orderNo || p.order_no))
 
     const subOrders = (subOrdersRes.status === 'fulfilled' ? (Array.isArray(subOrdersRes.value) ? subOrdersRes.value : []) : [])
       .map(s => ({ ...s, _type: 'suborder' }))
+      .sort(orderNoComparator(s => s.subOrderNo || s.sub_order_no))
 
     projectList.value = mergeProjectOptions(projects.map(p => ({ ...p })))
 

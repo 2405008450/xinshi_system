@@ -111,8 +111,8 @@
           <el-col :span="12"><el-form-item label="客户编号"><el-input v-model="form.clientCode" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="文件二级类型"><el-input v-model="form.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="语言对"><el-input v-model="form.languagePair" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="文本类型"><el-input v-model="form.fileTypeSecondary" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="翻译方向"><el-input v-model="form.languagePair" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="form.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
@@ -214,8 +214,8 @@
           <el-col :span="12"><el-form-item label="状态"><el-select v-model="subOrderForm.status" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="文件二级类型"><el-input v-model="subOrderForm.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="语言对"><el-input v-model="subOrderForm.languagePair" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="文本类型"><el-input v-model="subOrderForm.fileTypeSecondary" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="翻译方向"><el-input v-model="subOrderForm.languagePair" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
@@ -275,8 +275,8 @@
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="batchForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="文件二级类型"><el-input v-model="batchForm.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="语言对"><el-input v-model="batchForm.languagePair" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="文本类型"><el-input v-model="batchForm.fileTypeSecondary" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="翻译方向"><el-input v-model="batchForm.languagePair" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="字数"><el-input-number v-model="batchForm.wordCount" :min="0" style="width: 100%" /></el-form-item></el-col>
@@ -323,8 +323,8 @@ const projectDetailItems = [
   { label: '客户简称', key: 'clientShortName' },
   { label: '客户编号', key: 'clientCode' },
   { label: '状态', key: 'projectStatus', type: 'status' },
-  { label: '文件二级类型', key: 'fileTypeSecondary' },
-  { label: '语言对', key: 'languagePair' },
+  { label: '文本类型', key: 'fileTypeSecondary' },
+  { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
   { label: '字数', key: 'wordCount' },
   { label: '客户接单时间', key: 'customerReceptionTime' },
@@ -352,8 +352,8 @@ const subOrderDetailItems = [
   { label: '子订单号', key: 'subOrderNo' },
   { label: '子项目名称', key: 'subProjectName' },
   { label: '状态', key: 'status', type: 'status' },
-  { label: '文件二级类型', key: 'fileTypeSecondary' },
-  { label: '语言对', key: 'languagePair' },
+  { label: '文本类型', key: 'fileTypeSecondary' },
+  { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
   { label: '字数', key: 'wordCount' },
   { label: '客户交稿时间', key: 'customerDeadlineTime' },

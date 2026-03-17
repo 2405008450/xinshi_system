@@ -306,6 +306,15 @@ class TranslatorBase(BaseModel):
     overall_rating: Optional[str] = None
     first_contact_date: Optional[date] = None
     remarks: Optional[str] = None
+    status: Optional[str] = "standby"
+    available_time_slot: Optional[str] = None
+    daily_accept_count: Optional[int] = None
+    hourly_speed: Optional[int] = None
+    daily_word_capacity: Optional[int] = None
+    can_cloud_edit: Optional[bool] = None
+    can_revision: Optional[bool] = None
+    domain_skills: Optional[list] = []
+    availability_updated_at: Optional[datetime] = None
 
 class TranslatorCreate(TranslatorBase):
     pass
@@ -338,6 +347,15 @@ class TranslatorUpdate(BaseModel):
     overall_rating: Optional[str] = None
     first_contact_date: Optional[date] = None
     remarks: Optional[str] = None
+    status: Optional[str] = None
+    available_time_slot: Optional[str] = None
+    daily_accept_count: Optional[int] = None
+    hourly_speed: Optional[int] = None
+    daily_word_capacity: Optional[int] = None
+    can_cloud_edit: Optional[bool] = None
+    can_revision: Optional[bool] = None
+    domain_skills: Optional[list] = None
+    availability_updated_at: Optional[datetime] = None
 
 class TranslatorResponse(TranslatorBase):
     id: UUID

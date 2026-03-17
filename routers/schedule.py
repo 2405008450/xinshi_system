@@ -111,6 +111,7 @@ def get_staff_list(db: Session = Depends(get_db)):
 @router.get("/translators/list")
 def get_translator_list(
     direction: Optional[str] = Query(None, description="翻译方向: zh_en / en_zh / both"),
+    active_only: bool = Query(False, description="仅返回活跃译员"),
     db: Session = Depends(get_db),
 ):
     """获取所有译员列表（含排班属性），用于译员优先次序表初始化"""
@@ -119,6 +120,9 @@ def get_translator_list(
         query = query.filter(
             (Translator.direction == direction) | (Translator.direction == "both") | (Translator.direction == None)
         )
+    if active_only:
+        query = query.filter(Translator.status == "active")
+    query = query.order_by(Translator.default_priority.asc())
     translators = query.all()
     result = []
     for t in translators:
@@ -132,6 +136,14 @@ def get_translator_list(
             "direction": t.direction or "",
             "order": str(t.default_priority) if t.default_priority else "N/A",
             "remarks": t.schedule_remarks or "",
+            "status": t.status or "standby",
+            "availableTimeSlot": t.available_time_slot or "",
+            "dailyAcceptCount": t.daily_accept_count,
+            "hourlySpeed": t.hourly_speed,
+            "dailyWordCapacity": t.daily_word_capacity,
+            "canCloudEdit": t.can_cloud_edit,
+            "canRevision": t.can_revision,
+            "domainSkills": t.domain_skills or [],
         })
     return result
 

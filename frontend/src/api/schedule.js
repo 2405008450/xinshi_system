@@ -38,11 +38,16 @@ export const deleteSchedule = (date) => api.delete(`/schedules/${date}`)
 export const getStaffList = () => api.get('/schedules/staff/list')
 
 /**
- * 获取所有译员列表（含排班属性）
- * @param {string} [direction] 翻译方向: zh_en / en_zh / both
- * 返回 [{ id, name, type, quality, cloudRev, dailyRate, direction, order, remarks }]
+ * 获取所有译员列表（含排班属性及可用性信息）
+ * @param {object} [options] { direction, active_only }
  */
-export const getTranslatorList = (direction) => {
-    const params = direction ? { direction } : {}
+export const getTranslatorList = (options) => {
+    const params = {}
+    if (typeof options === 'string') {
+        params.direction = options
+    } else if (options) {
+        if (options.direction) params.direction = options.direction
+        if (options.active_only) params.active_only = true
+    }
     return api.get('/schedules/translators/list', { params })
 }

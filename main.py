@@ -1,6 +1,6 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
@@ -37,6 +37,23 @@ app.include_router(notifications.router)
 app.include_router(project_chat.router)
 
 
+PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
+    "ALTER TABLE project_file ADD COLUMN IF NOT EXISTS dispatch_path TEXT",
+    "ALTER TABLE project_file ADD COLUMN IF NOT EXISTS translation_path TEXT",
+    "ALTER TABLE project_file ADD COLUMN IF NOT EXISTS client_delivery_path TEXT",
+)
+
+
+def ensure_project_file_path_columns():
+    inspector = inspect(engine)
+    if "project_file" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        for statement in PROJECT_FILE_PATH_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
 @app.on_event("startup")
 def ensure_runtime_tables():
     ClientContact.__table__.create(bind=engine, checkfirst=True)
@@ -44,6 +61,7 @@ def ensure_runtime_tables():
     ChatProjectEnabled.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMessage.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMention.__table__.create(bind=engine, checkfirst=True)
+    ensure_project_file_path_columns()
 
 
 @app.get("/")

@@ -1,4 +1,15 @@
 ﻿# 标准化迭代发布手册
+--开发环境导出数据库
+New-Item -ItemType Directory -Force -Path .\backups | Out-Null
+$env:PGPASSWORD="XinShi@2026#PgS3cure!"
+pg_dump -h localhost -p 5432 -U postgres -d xinshi_system -f ".\backups\xinshi_system_$(Get-Date -Format 'yyyy-MM-dd_HHmmss').sql"
+
+
+--删除创建和导入数据库
+docker exec -it xinshi_postgres psql -U postgres -c "DROP DATABASE IF EXISTS xinshi_system WITH (FORCE);"
+docker exec -it xinshi_postgres psql -U postgres -c "CREATE DATABASE xinshi_system;"
+docker exec -i xinshi_postgres psql -U postgres -d xinshi_system < /home/ubuntu/xinshi_system/backups/xinshi_system_2026-03-16_192847.sql
+
 
 适用范围：
 - 后端代码更新

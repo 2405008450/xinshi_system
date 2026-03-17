@@ -27,6 +27,7 @@ def read_translators(
     languages: Optional[str] = Query(None),
     translation_type: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return get_translators(
@@ -38,7 +39,8 @@ def read_translators(
         cooperation_type=cooperation_type,
         languages=languages,
         translation_type=translation_type,
-        direction=direction
+        direction=direction,
+        status=status,
     )
 
 @router.get("/{translator_id}", response_model=TranslatorResponse)

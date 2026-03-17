@@ -351,7 +351,8 @@ def get_translators(
     cooperation_type: Optional[str] = None,
     languages: Optional[str] = None,
     translation_type: Optional[str] = None,
-    direction: Optional[str] = None
+    direction: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> List[Translator]:
     query = db.query(Translator)
     if translator_code:
@@ -366,6 +367,8 @@ def get_translators(
         query = query.filter(Translator.translation_type == translation_type)
     if direction:
         query = query.filter(Translator.direction == direction)
+    if status:
+        query = query.filter(Translator.status == status)
     return query.offset(skip).limit(limit).all()
 
 def create_translator(db: Session, translator: TranslatorCreate) -> Translator:

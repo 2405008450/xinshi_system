@@ -139,6 +139,10 @@
       <!-- ====== Tab: 译员安排（中英/英中） ====== -->
       <el-tab-pane label="译员安排" name="translator">
         <div class="section-block">
+          <div style="margin-bottom: 12px; text-align: right;">
+            <el-button v-if="canEdit" type="warning" size="small" @click="syncFromTranslatorDb('zhEn')">从资源库同步中英</el-button>
+            <el-button v-if="canEdit" type="warning" size="small" @click="syncFromTranslatorDb('enZh')">从资源库同步英中</el-button>
+          </div>
           <div class="sub-section">
             <div class="section-title-row">
               <h4>中英 今日优先次序</h4>
@@ -152,6 +156,7 @@
               <el-table-column prop="quality" label="质量" width="60" />
               <el-table-column prop="cloudRev" label="云端/修订" width="100" />
               <el-table-column prop="dailyRate" label="日均接/速度/字数" width="140" />
+              <el-table-column prop="availableTimeSlot" label="可接时段" width="100" show-overflow-tooltip />
               <el-table-column prop="remarks" label="备注" min-width="200" show-overflow-tooltip />
             </el-table>
           </div>
@@ -168,6 +173,7 @@
               <el-table-column prop="quality" label="质量" width="60" />
               <el-table-column prop="cloudRev" label="云端/修订" width="100" />
               <el-table-column prop="dailyRate" label="日均接/速度/字数" width="140" />
+              <el-table-column prop="availableTimeSlot" label="可接时段" width="100" show-overflow-tooltip />
               <el-table-column prop="remarks" label="备注" min-width="180" show-overflow-tooltip />
             </el-table>
           </div>
@@ -487,7 +493,7 @@
     </el-dialog>
 
     <!-- 译员安排表编辑（中英/英中） -->
-    <el-dialog v-model="translatorEditVisible" :title="translatorEditTitle" width="920px" @close="closeTranslatorTableEdit">
+    <el-dialog v-model="translatorEditVisible" :title="translatorEditTitle" width="1050px" @close="closeTranslatorTableEdit">
       <p class="section-desc hint">可增删行、修改各列。保存后仅影响当日安排数据。</p>
       <el-table :data="translatorEditData" border size="small" class="data-table">
         <el-table-column label="优先次序" width="120">
@@ -500,7 +506,7 @@
             <el-input v-model="row.name" size="small" />
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="140">
+        <el-table-column label="类型" width="100">
           <template #default="{ row }">
             <el-input v-model="row.type" placeholder="如 全部" size="small" />
           </template>
@@ -518,6 +524,11 @@
         <el-table-column label="日均接/速度/字数" width="150">
           <template #default="{ row }">
             <el-input v-model="row.dailyRate" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="可接时段" width="110">
+          <template #default="{ row }">
+            <el-input v-model="row.availableTimeSlot" size="small" placeholder="如 中午12点后" />
           </template>
         </el-table-column>
         <el-table-column label="备注" min-width="180">
@@ -987,6 +998,7 @@ const TRANSLATOR_ROW_TEMPLATE = () => ({
   quality: '',
   cloudRev: '',
   dailyRate: '',
+  availableTimeSlot: '',
   remarks: ''
 })
 
@@ -1017,6 +1029,7 @@ function submitTranslatorTableEdit() {
     quality: r.quality || '',
     cloudRev: r.cloudRev || '',
     dailyRate: r.dailyRate || '',
+    availableTimeSlot: r.availableTimeSlot || '',
     remarks: r.remarks || ''
   }))
   if (translatorEditType.value === 'zhEn') {
@@ -1027,6 +1040,45 @@ function submitTranslatorTableEdit() {
   saveScheduleForDate()
   translatorEditVisible.value = false
   ElMessage.success(translatorEditType.value === 'zhEn' ? '中英译员安排已保存' : '英中译员安排已保存')
+}
+
+async function syncFromTranslatorDb(type) {
+  try {
+    const list = await getTranslatorList({ active_only: true })
+    if (!list || !list.length) {
+      ElMessage.warning('资源库中没有活跃译员')
+      return
+    }
+    const rows = list.map((t) => {
+      const cloudParts = []
+      if (t.canCloudEdit) cloudParts.push('可')
+      if (t.canRevision) cloudParts.push('可')
+      const cloudRev = cloudParts.length ? cloudParts.join('/') : (t.cloudRev || '')
+      const dailyRate = [t.dailyAcceptCount, t.hourlySpeed, t.dailyWordCapacity]
+        .map(v => v ?? '-').join('/')
+      const domainStr = (t.domainSkills || []).map(s => `${s.domain}:${s.level}`).join('；')
+      const remarkParts = [domainStr, t.remarks].filter(Boolean).join('。')
+      return {
+        order: t.order || 'N/A',
+        name: t.name,
+        type: t.type || '',
+        quality: t.quality || '',
+        cloudRev,
+        dailyRate: dailyRate !== '-/-/-' ? dailyRate : (t.dailyRate || ''),
+        availableTimeSlot: t.availableTimeSlot || '',
+        remarks: remarkParts
+      }
+    })
+    if (type === 'zhEn') {
+      urgentTableZhEn.value = rows
+    } else {
+      urgentTableEnZh.value = rows
+    }
+    saveScheduleForDate()
+    ElMessage.success(type === 'zhEn' ? '中英译员已从资源库同步' : '英中译员已从资源库同步')
+  } catch {
+    ElMessage.error('同步失败，请检查网络')
+  }
 }
 
 // ==================== 暂不安排 ====================
