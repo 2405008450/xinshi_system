@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import and_
+from sqlalchemy import String, and_
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
 from schemas import (
@@ -342,10 +342,8 @@ def delete_sub_client(db: Session, sub_id: UUID) -> bool:
 def get_translator(db: Session, translator_id: UUID) -> Optional[Translator]:
     return db.query(Translator).filter(Translator.id == translator_id).first()
 
-def get_translators(
-    db: Session,
-    skip: int = 0,
-    limit: int = 100,
+def _apply_translator_filters(
+    query,
     translator_code: Optional[str] = None,
     translator_name: Optional[str] = None,
     cooperation_type: Optional[str] = None,
@@ -353,8 +351,11 @@ def get_translators(
     translation_type: Optional[str] = None,
     direction: Optional[str] = None,
     status: Optional[str] = None,
-) -> List[Translator]:
-    query = db.query(Translator)
+    available_time_slot: Optional[str] = None,
+    domain_keyword: Optional[str] = None,
+    stale_only: bool = False,
+    stale_days: int = 4,
+):
     if translator_code:
         query = query.filter(Translator.translator_code.ilike(f"%{translator_code}%"))
     if translator_name:
@@ -369,7 +370,87 @@ def get_translators(
         query = query.filter(Translator.direction == direction)
     if status:
         query = query.filter(Translator.status == status)
-    return query.offset(skip).limit(limit).all()
+    if available_time_slot:
+        query = query.filter(Translator.available_time_slot.ilike(f"%{available_time_slot}%"))
+    if domain_keyword:
+        query = query.filter(Translator.domain_skills.cast(String).ilike(f"%{domain_keyword}%"))
+    if stale_only:
+        stale_before = dt.datetime.utcnow() - dt.timedelta(days=max(stale_days, 1))
+        query = query.filter(
+            (Translator.availability_updated_at.is_(None)) |
+            (Translator.availability_updated_at < stale_before)
+        )
+    return query
+
+def get_translators(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    translator_code: Optional[str] = None,
+    translator_name: Optional[str] = None,
+    cooperation_type: Optional[str] = None,
+    languages: Optional[str] = None,
+    translation_type: Optional[str] = None,
+    direction: Optional[str] = None,
+    status: Optional[str] = None,
+    available_time_slot: Optional[str] = None,
+    domain_keyword: Optional[str] = None,
+    stale_only: bool = False,
+    stale_days: int = 4,
+) -> List[Translator]:
+    query = db.query(Translator)
+    query = _apply_translator_filters(
+        query,
+        translator_code=translator_code,
+        translator_name=translator_name,
+        cooperation_type=cooperation_type,
+        languages=languages,
+        translation_type=translation_type,
+        direction=direction,
+        status=status,
+        available_time_slot=available_time_slot,
+        domain_keyword=domain_keyword,
+        stale_only=stale_only,
+        stale_days=stale_days,
+    )
+    return (
+        query
+        .order_by(Translator.default_priority.asc(), Translator.translator_name.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+def count_translators(
+    db: Session,
+    translator_code: Optional[str] = None,
+    translator_name: Optional[str] = None,
+    cooperation_type: Optional[str] = None,
+    languages: Optional[str] = None,
+    translation_type: Optional[str] = None,
+    direction: Optional[str] = None,
+    status: Optional[str] = None,
+    available_time_slot: Optional[str] = None,
+    domain_keyword: Optional[str] = None,
+    stale_only: bool = False,
+    stale_days: int = 4,
+) -> int:
+    query = db.query(Translator.id)
+    query = _apply_translator_filters(
+        query,
+        translator_code=translator_code,
+        translator_name=translator_name,
+        cooperation_type=cooperation_type,
+        languages=languages,
+        translation_type=translation_type,
+        direction=direction,
+        status=status,
+        available_time_slot=available_time_slot,
+        domain_keyword=domain_keyword,
+        stale_only=stale_only,
+        stale_days=stale_days,
+    )
+    return query.count()
 
 def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
     db_translator = Translator(**translator.model_dump())
@@ -1055,4 +1136,3 @@ def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:
     db.delete(db_sub)
     db.commit()
     return True
-

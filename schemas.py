@@ -366,6 +366,39 @@ class TranslatorResponse(TranslatorBase):
         from_attributes = True
 
 
+class TranslatorScheduleBase(BaseModel):
+    translator_id: UUID
+    schedule_date: date
+    available_time_slot: Optional[str] = None
+    remaining_capacity: Optional[int] = None
+    source_type: Optional[str] = "manual"
+    source_ref: Optional[str] = None
+    last_confirmed_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+class TranslatorScheduleCreate(TranslatorScheduleBase):
+    pass
+
+
+class TranslatorScheduleUpdate(BaseModel):
+    available_time_slot: Optional[str] = None
+    remaining_capacity: Optional[int] = None
+    source_type: Optional[str] = None
+    source_ref: Optional[str] = None
+    last_confirmed_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+class TranslatorScheduleResponse(TranslatorScheduleBase):
+    id: UUID
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # Translation Project Schemas
 class TranslationProjectBase(BaseModel):
     project_name: str

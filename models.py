@@ -238,6 +238,34 @@ class Translator(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     projects: Mapped[list['TranslationProject']] = relationship('TranslationProject', back_populates='translator')
+    schedules: Mapped[list['TranslatorSchedule']] = relationship(
+        'TranslatorSchedule',
+        back_populates='translator',
+        cascade='all, delete-orphan'
+    )
+
+
+class TranslatorSchedule(Base):
+    __tablename__ = 'translator_schedule'
+    __table_args__ = (
+        ForeignKeyConstraint(['translator_id'], ['translator.id'], ondelete='CASCADE', name='fk_translator_schedule_translator'),
+        PrimaryKeyConstraint('id', name='translator_schedule_pkey'),
+        UniqueConstraint('translator_id', 'schedule_date', name='uq_translator_schedule_date')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    translator_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    schedule_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    available_time_slot: Mapped[Optional[str]] = mapped_column(String(100))
+    remaining_capacity: Mapped[Optional[int]] = mapped_column(Integer)
+    source_type: Mapped[Optional[str]] = mapped_column(String(30), server_default=text("'manual'"))
+    source_ref: Mapped[Optional[str]] = mapped_column(String(100))
+    last_confirmed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    translator: Mapped['Translator'] = relationship('Translator', back_populates='schedules')
 
 
 class TranslationProject(Base):

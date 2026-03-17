@@ -2,19 +2,195 @@
 排班管理 API 路由
 支持按日期 CRUD 操作，项目经理每日微调排班数据
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from io import BytesIO
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from openpyxl import load_workbook
 
 from database import get_db
-from models import WorkSchedule, AppUser, Translator
-from schemas import WorkScheduleCreate, WorkScheduleUpdate, WorkScheduleResponse
+from models import WorkSchedule, AppUser, Translator, TranslatorSchedule
+from schemas import (
+    WorkScheduleCreate, WorkScheduleUpdate, WorkScheduleResponse,
+    TranslatorScheduleCreate, TranslatorScheduleUpdate, TranslatorScheduleResponse
+)
 from routers.auth import get_current_user
 
 router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(get_current_user)])
+
+WEEKDAY_HEADER_MAP = {
+    "星期一": 0,
+    "星期二": 1,
+    "星期三": 2,
+    "星期四": 3,
+    "星期五": 4,
+}
+
+
+def _normalize_text(value) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_person_name(value) -> str:
+    return _normalize_text(value).replace(" ", "")
+
+
+def _parse_excel_datetime(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    text = _normalize_text(value).replace(".", "/")
+    for fmt in ("%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_excel_date(value):
+    dt = _parse_excel_datetime(value)
+    if dt:
+        return dt.date()
+    text = _normalize_text(value).replace(".", "/")
+    for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _cell_to_slot_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        if float(value) <= 0:
+            return ""
+        if float(value).is_integer() and int(value) == 1:
+            return "可接稿"
+        return str(int(value) if float(value).is_integer() else value)
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    normalized = text.lower()
+    if normalized in {"1", "y", "yes", "true", "可", "可以"}:
+        return "可接稿"
+    if normalized in {"0", "n", "no", "false", "否"}:
+        return ""
+    return text
+
+
+def _parse_translator_schedule_demo_rows(content: bytes, filename: str, db: Session):
+    try:
+        workbook = load_workbook(filename=BytesIO(content), data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"暂时只支持 Excel xlsx 文件导入：{exc}") from exc
+
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if len(rows) < 2:
+        raise HTTPException(status_code=400, detail="Excel 内容不足，至少需要表头和一行数据")
+
+    headers = [_normalize_text(cell) for cell in rows[0]]
+    name_idx = next((i for i, h in enumerate(headers) if "姓名" in h), None)
+    submit_time_idx = next((i for i, h in enumerate(headers) if "提交" in h and "时间" in h), None)
+    fill_date_idx = next((i for i, h in enumerate(headers) if ("填写" in h and "日期" in h) or ("本周总" in h and "日期" in h)), None)
+    remarks_idx = next((i for i, h in enumerate(headers) if "备注" in h), None)
+    weekday_columns = {}
+    for idx, header in enumerate(headers):
+        for weekday, offset in WEEKDAY_HEADER_MAP.items():
+            if weekday in header:
+                weekday_columns[idx] = offset
+                break
+
+    if name_idx is None or not weekday_columns:
+        raise HTTPException(status_code=400, detail="未识别到姓名列或星期列，请先保持当前导出模板格式")
+
+    translators = db.query(Translator).all()
+    translator_map = {}
+    for translator in translators:
+        translator_map.setdefault(_normalize_person_name(translator.translator_name), translator)
+
+    preview_items = []
+    matched_translators = set()
+    unmatched_names = []
+
+    for row_index, row in enumerate(rows[1:], start=2):
+        if not row or all(cell in (None, "") for cell in row):
+            continue
+        raw_name = row[name_idx] if name_idx < len(row) else None
+        normalized_name = _normalize_person_name(raw_name)
+        if not normalized_name:
+            continue
+
+        translator = translator_map.get(normalized_name)
+        if not translator:
+            unmatched_names.append(_normalize_text(raw_name))
+            continue
+
+        base_date = None
+        if fill_date_idx is not None and fill_date_idx < len(row):
+            base_date = _parse_excel_date(row[fill_date_idx])
+        if base_date is None and submit_time_idx is not None and submit_time_idx < len(row):
+            submit_dt = _parse_excel_datetime(row[submit_time_idx])
+            if submit_dt:
+                base_date = submit_dt.date()
+        if base_date is None:
+            continue
+
+        week_monday = base_date - timedelta(days=base_date.weekday())
+        remarks = _normalize_text(row[remarks_idx]) if remarks_idx is not None and remarks_idx < len(row) else ""
+        submitted_at = None
+        if submit_time_idx is not None and submit_time_idx < len(row):
+            submitted_at = _parse_excel_datetime(row[submit_time_idx])
+
+        for col_idx, weekday_offset in weekday_columns.items():
+            if col_idx >= len(row):
+                continue
+            slot_text = _cell_to_slot_text(row[col_idx])
+            if not slot_text:
+                continue
+
+            schedule_day = week_monday + timedelta(days=weekday_offset)
+            existing = (
+                db.query(TranslatorSchedule)
+                .filter(
+                    TranslatorSchedule.translator_id == translator.id,
+                    TranslatorSchedule.schedule_date == schedule_day,
+                )
+                .first()
+            )
+            preview_items.append({
+                "row_no": row_index,
+                "translator_id": str(translator.id),
+                "translator_name": translator.translator_name,
+                "schedule_date": schedule_day.isoformat(),
+                "available_time_slot": slot_text,
+                "remarks": remarks,
+                "last_confirmed_at": submitted_at.isoformat() if submitted_at else None,
+                "source_type": "excel_demo",
+                "source_ref": filename,
+                "action": "update" if existing else "create",
+                "existing": bool(existing),
+                "existing_available_time_slot": existing.available_time_slot if existing else None,
+            })
+            matched_translators.add(translator.translator_name)
+
+    return {
+        "file_name": filename,
+        "sheet_name": sheet.title,
+        "headers": headers,
+        "preview_items": preview_items,
+        "matched_translators": len(matched_translators),
+        "unmatched_names": unmatched_names,
+    }
 
 
 def _normalize_task(task):
@@ -146,6 +322,271 @@ def get_translator_list(
             "domainSkills": t.domain_skills or [],
         })
     return result
+
+
+@router.get("/translators/{translator_id}/availability", response_model=List[TranslatorScheduleResponse])
+def get_translator_availability(
+    translator_id: UUID,
+    date_from: date = Query(..., description="开始日期"),
+    date_to: date = Query(..., description="结束日期"),
+    db: Session = Depends(get_db),
+):
+    translator = db.query(Translator).filter(Translator.id == translator_id).first()
+    if not translator:
+        raise HTTPException(status_code=404, detail="译员不存在")
+    if date_from > date_to:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+    return (
+        db.query(TranslatorSchedule)
+        .filter(
+            TranslatorSchedule.translator_id == translator_id,
+            TranslatorSchedule.schedule_date >= date_from,
+            TranslatorSchedule.schedule_date <= date_to,
+        )
+        .order_by(TranslatorSchedule.schedule_date.asc())
+        .all()
+    )
+
+
+@router.put("/translators/{translator_id}/availability/{schedule_date}", response_model=TranslatorScheduleResponse)
+def upsert_translator_availability(
+    translator_id: UUID,
+    schedule_date: date,
+    data: TranslatorScheduleUpdate,
+    db: Session = Depends(get_db),
+):
+    translator = db.query(Translator).filter(Translator.id == translator_id).first()
+    if not translator:
+        raise HTTPException(status_code=404, detail="译员不存在")
+
+    record = (
+        db.query(TranslatorSchedule)
+        .filter(
+            TranslatorSchedule.translator_id == translator_id,
+            TranslatorSchedule.schedule_date == schedule_date,
+        )
+        .first()
+    )
+    payload = data.model_dump(exclude_unset=True)
+
+    if record:
+        for key, value in payload.items():
+            setattr(record, key, value)
+        record.updated_at = datetime.utcnow()
+    else:
+        record = TranslatorSchedule(
+            translator_id=translator_id,
+            schedule_date=schedule_date,
+            **payload,
+        )
+        db.add(record)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.post("/translators/{translator_id}/availability", response_model=TranslatorScheduleResponse, status_code=status.HTTP_201_CREATED)
+def create_translator_availability(
+    translator_id: UUID,
+    data: TranslatorScheduleCreate,
+    db: Session = Depends(get_db),
+):
+    translator = db.query(Translator).filter(Translator.id == translator_id).first()
+    if not translator:
+        raise HTTPException(status_code=404, detail="译员不存在")
+    if data.translator_id != translator_id:
+        raise HTTPException(status_code=400, detail="路径中的译员ID与请求体不一致")
+
+    existing = (
+        db.query(TranslatorSchedule)
+        .filter(
+            TranslatorSchedule.translator_id == translator_id,
+            TranslatorSchedule.schedule_date == data.schedule_date,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="该日期排期已存在，请改用更新接口")
+
+    record = TranslatorSchedule(**data.model_dump())
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.delete("/translators/{translator_id}/availability/{schedule_date}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_translator_availability(
+    translator_id: UUID,
+    schedule_date: date,
+    db: Session = Depends(get_db),
+):
+    record = (
+        db.query(TranslatorSchedule)
+        .filter(
+            TranslatorSchedule.translator_id == translator_id,
+            TranslatorSchedule.schedule_date == schedule_date,
+        )
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="该日期排期不存在")
+    db.delete(record)
+    db.commit()
+
+
+@router.post("/translators/import-demo")
+async def import_translator_schedule_demo(
+    file: UploadFile = File(...),
+    overwrite: bool = Form(True),
+    db: Session = Depends(get_db),
+):
+    filename = file.filename or "translator_schedule_demo.xlsx"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+
+    try:
+        workbook = load_workbook(filename=BytesIO(content), data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"暂时只支持 Excel xlsx 文件导入：{exc}") from exc
+
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if len(rows) < 2:
+        raise HTTPException(status_code=400, detail="Excel 内容不足，至少需要表头和一行数据")
+
+    headers = [_normalize_text(cell) for cell in rows[0]]
+    name_idx = next((i for i, h in enumerate(headers) if "姓名" in h), None)
+    submit_time_idx = next((i for i, h in enumerate(headers) if "提交" in h and "时间" in h), None)
+    fill_date_idx = next((i for i, h in enumerate(headers) if ("填写" in h and "日期" in h) or ("本周总" in h and "日期" in h)), None)
+    remarks_idx = next((i for i, h in enumerate(headers) if "备注" in h), None)
+    weekday_columns = {}
+    for idx, header in enumerate(headers):
+        for weekday, offset in WEEKDAY_HEADER_MAP.items():
+            if weekday in header:
+                weekday_columns[idx] = offset
+                break
+
+    if name_idx is None or not weekday_columns:
+        raise HTTPException(status_code=400, detail="未识别到姓名列或星期列，请先保持当前导出模板格式")
+
+    translators = db.query(Translator).all()
+    translator_map = {}
+    for translator in translators:
+        translator_map.setdefault(_normalize_person_name(translator.translator_name), translator)
+
+    created_count = 0
+    updated_count = 0
+    imported_rows = 0
+    matched_translators = set()
+    unmatched_names = []
+
+    for row in rows[1:]:
+        if not row or all(cell in (None, "") for cell in row):
+            continue
+        raw_name = row[name_idx] if name_idx < len(row) else None
+        normalized_name = _normalize_person_name(raw_name)
+        if not normalized_name:
+            continue
+
+        translator = translator_map.get(normalized_name)
+        if not translator:
+            unmatched_names.append(_normalize_text(raw_name))
+            continue
+
+        base_date = None
+        if fill_date_idx is not None and fill_date_idx < len(row):
+            base_date = _parse_excel_date(row[fill_date_idx])
+        if base_date is None and submit_time_idx is not None and submit_time_idx < len(row):
+            submit_dt = _parse_excel_datetime(row[submit_time_idx])
+            if submit_dt:
+                base_date = submit_dt.date()
+        if base_date is None:
+            continue
+
+        week_monday = base_date - timedelta(days=base_date.weekday())
+        remarks = _normalize_text(row[remarks_idx]) if remarks_idx is not None and remarks_idx < len(row) else ""
+        submitted_at = None
+        if submit_time_idx is not None and submit_time_idx < len(row):
+            submitted_at = _parse_excel_datetime(row[submit_time_idx])
+
+        row_imported = False
+        for col_idx, weekday_offset in weekday_columns.items():
+            if col_idx >= len(row):
+                continue
+            slot_text = _cell_to_slot_text(row[col_idx])
+            if not slot_text:
+                continue
+
+            schedule_day = week_monday + timedelta(days=weekday_offset)
+            record = (
+                db.query(TranslatorSchedule)
+                .filter(
+                    TranslatorSchedule.translator_id == translator.id,
+                    TranslatorSchedule.schedule_date == schedule_day,
+                )
+                .first()
+            )
+            payload = {
+                "available_time_slot": slot_text,
+                "source_type": "excel_demo",
+                "source_ref": filename,
+                "last_confirmed_at": submitted_at,
+                "remarks": remarks or None,
+            }
+            if record:
+                if overwrite:
+                    for key, value in payload.items():
+                        setattr(record, key, value)
+                    record.updated_at = datetime.utcnow()
+                    updated_count += 1
+                    row_imported = True
+            else:
+                db.add(TranslatorSchedule(
+                    translator_id=translator.id,
+                    schedule_date=schedule_day,
+                    **payload,
+                ))
+                created_count += 1
+                row_imported = True
+
+        if row_imported:
+            matched_translators.add(translator.translator_name)
+            imported_rows += 1
+
+    db.commit()
+    return {
+        "file_name": filename,
+        "sheet_name": sheet.title,
+        "imported_rows": imported_rows,
+        "matched_translators": len(matched_translators),
+        "created_records": created_count,
+        "updated_records": updated_count,
+        "unmatched_names": unmatched_names,
+    }
+
+
+@router.post("/translators/import-demo/preview")
+async def preview_translator_schedule_demo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    filename = file.filename or "translator_schedule_demo.xlsx"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    parsed = _parse_translator_schedule_demo_rows(content, filename, db)
+    return {
+        "file_name": parsed["file_name"],
+        "sheet_name": parsed["sheet_name"],
+        "headers": parsed["headers"],
+        "matched_translators": parsed["matched_translators"],
+        "unmatched_names": parsed["unmatched_names"],
+        "preview_count": len(parsed["preview_items"]),
+        "preview_items": parsed["preview_items"][:200],
+    }
 
 
 @router.get("/{schedule_date}", response_model=WorkScheduleResponse)

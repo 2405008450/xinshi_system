@@ -3,7 +3,10 @@
     <template #header>
       <div class="card-header">
         <span>译员资源库</span>
-        <el-button type="primary" @click="handleAdd">新增译员</el-button>
+        <div class="header-actions">
+          <el-button @click="demoImportVisible = true">导入排期Demo</el-button>
+          <el-button type="primary" @click="handleAdd">新增译员</el-button>
+        </div>
       </div>
     </template>
 
@@ -22,6 +25,12 @@
         </el-form-item>
         <el-form-item label="语种">
           <el-input v-model="searchForm.languages" placeholder="请输入" clearable style="width: 100px" />
+        </el-form-item>
+        <el-form-item label="可接稿时段">
+          <el-input v-model="searchForm.available_time_slot" placeholder="如上午/全天" clearable style="width: 120px" />
+        </el-form-item>
+        <el-form-item label="领域">
+          <el-input v-model="searchForm.domain_keyword" placeholder="如法律/银行" clearable style="width: 120px" />
         </el-form-item>
         <el-form-item label="方向">
           <el-select v-model="searchForm.direction" placeholder="请选择" clearable style="width: 100px">
@@ -47,6 +56,9 @@
           </el-select>
         </el-form-item>
         <el-form-item>
+          <el-checkbox v-model="searchForm.stale_only">仅看待更新</el-checkbox>
+        </el-form-item>
+        <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
@@ -70,16 +82,19 @@
       <el-table-column prop="translator_name" label="姓名" width="100" />
       <el-table-column prop="translation_type" label="类型" width="80" />
       <el-table-column prop="quality_score" label="质量" width="70" />
-      <el-table-column label="云端/修订" width="100">
+      <el-table-column label="云端编辑" width="90" align="center">
         <template #default="{ row }">
-          <span>{{ boolLabel(row.can_cloud_edit) }}/{{ boolLabel(row.can_revision) }}</span>
+          <span>{{ boolLabel(row.can_cloud_edit) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="产能(接/速/字)" width="130">
+      <el-table-column label="可修订" width="90" align="center">
         <template #default="{ row }">
-          {{ row.daily_accept_count ?? '-' }}/{{ row.hourly_speed ?? '-' }}/{{ row.daily_word_capacity ?? '-' }}
+          <span>{{ boolLabel(row.can_revision) }}</span>
         </template>
       </el-table-column>
+      <el-table-column prop="daily_accept_count" label="日均接单" width="90" sortable />
+      <el-table-column prop="hourly_speed" label="小时速度" width="90" sortable />
+      <el-table-column prop="daily_word_capacity" label="日均字数" width="100" sortable />
       <el-table-column prop="available_time_slot" label="可接时段" width="110" show-overflow-tooltip />
       <el-table-column prop="languages" label="语种" width="80" />
       <el-table-column prop="direction" label="方向" width="70" />
@@ -107,8 +122,9 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="230" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
+          <DetailPopover :row="row" title="译员详情" :items="detailItems" />
           <el-button type="success" size="small" @click="handleQuickUpdate(row)">更新可用性</el-button>
           <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
           <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
@@ -127,21 +143,19 @@
       style="margin-top: 20px"
     />
 
-    <!-- ========== 完整编辑弹窗 ========== -->
+    <!-- ========== 编辑弹窗 ========== -->
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="950px"
+      width="760px"
       @close="resetForm"
     >
       <el-form
         ref="formRef"
         :model="form"
         :rules="rules"
-        label-width="140px"
+        label-width="110px"
       >
-        <!-- 基本信息 -->
-        <el-divider content-position="left">基本信息</el-divider>
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="姓名" prop="translator_name">
@@ -192,77 +206,21 @@
         </el-row>
         <el-row :gutter="20">
           <el-col :span="8">
-            <el-form-item label="性别" prop="gender">
-              <el-select v-model="form.gender" placeholder="请选择" style="width: 100%">
-                <el-option label="男" value="男" />
-                <el-option label="女" value="女" />
-                <el-option label="其他" value="其他" />
-              </el-select>
+            <el-form-item label="质量评分" prop="quality_score">
+              <el-input v-model="form.quality_score" placeholder="如 73 / 80 / A" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="国籍" prop="nationality">
-              <el-input v-model="form.nationality" />
+            <el-form-item label="默认优先级" prop="default_priority">
+              <el-input-number v-model="form.default_priority" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="民族" prop="ethnicity">
-              <el-input v-model="form.ethnicity" />
+            <el-form-item label="日费率" prop="daily_rate">
+              <el-input v-model="form.daily_rate" />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <el-form-item label="身高" prop="height">
-              <el-input v-model="form.height" placeholder="cm" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="形象" prop="appearance">
-              <el-input v-model="form.appearance" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <!-- 联系方式 -->
-        <el-divider content-position="left">联系方式</el-divider>
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <el-form-item label="联系电话" prop="phone">
-              <el-input v-model="form.phone" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="联系电话2" prop="phone2">
-              <el-input v-model="form.phone2" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="其他联系方式" prop="other_contact">
-              <el-input v-model="form.other_contact" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <el-form-item label="邮箱1" prop="email1">
-              <el-input v-model="form.email1" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="邮箱2" prop="email2">
-              <el-input v-model="form.email2" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="联系信息(综合)" prop="contact_info">
-              <el-input v-model="form.contact_info" placeholder="综合联系方式备注" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <!-- 专业能力与产能 -->
-        <el-divider content-position="left">专业能力与产能</el-divider>
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="方向" prop="direction">
@@ -274,41 +232,28 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="质量评分" prop="quality_score">
-              <el-input v-model="form.quality_score" placeholder="如 73 / 80 / A" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="默认优先级" prop="default_priority">
-              <el-input-number v-model="form.default_priority" :min="0" style="width: 100%" />
+            <el-form-item label="联系信息" prop="contact_info">
+              <el-input v-model="form.contact_info" placeholder="常用联系方式备注" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="20">
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="云端编辑">
               <el-switch v-model="form.can_cloud_edit" />
             </el-form-item>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="修订模式">
               <el-switch v-model="form.can_revision" />
             </el-form-item>
           </el-col>
-          <el-col :span="6">
-            <el-form-item label="日费率" prop="daily_rate">
-              <el-input v-model="form.daily_rate" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <el-form-item label="回稿超时次数" prop="overdue_count">
               <el-input-number v-model="form.overdue_count" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
-
-        <!-- 可用性（项目助理定期更新） -->
-        <el-divider content-position="left">可用性（项目助理定期更新）</el-divider>
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="可接稿时段">
@@ -331,9 +276,12 @@
             </el-form-item>
           </el-col>
         </el-row>
-
-        <!-- 领域能力 -->
-        <el-divider content-position="left">领域能力</el-divider>
+        <el-form-item label="排班备注" prop="schedule_remarks">
+          <el-input v-model="form.schedule_remarks" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="备注" prop="remarks">
+          <el-input v-model="form.remarks" type="textarea" :rows="2" />
+        </el-form-item>
         <div class="domain-skills-editor">
           <el-table :data="form.domain_skills" border size="small" style="margin-bottom: 10px">
             <el-table-column label="领域" min-width="160">
@@ -354,30 +302,6 @@
           </el-table>
           <el-button type="primary" link @click="addDomainSkill">+ 新增领域</el-button>
         </div>
-
-        <!-- 其他 -->
-        <el-divider content-position="left">其他信息</el-divider>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="简历路径" prop="resume_path">
-              <el-input v-model="form.resume_path" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="初次沟通时间" prop="first_contact_date">
-              <el-date-picker v-model="form.first_contact_date" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DD" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="排班备注" prop="schedule_remarks">
-          <el-input v-model="form.schedule_remarks" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="总评" prop="overall_rating">
-          <el-input v-model="form.overall_rating" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="备注" prop="remarks">
-          <el-input v-model="form.remarks" type="textarea" :rows="2" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -420,13 +344,87 @@
         <el-button type="primary" @click="submitQuickUpdate">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="demoImportVisible" title="导入排期 Demo" width="860px">
+      <div class="demo-import-panel">
+        <p class="demo-import-tip">
+          先按当前平台导出的 Excel 做宽松识别。Demo 版会优先识别姓名、提交时间、填写日期、星期一到星期五、备注。
+        </p>
+        <input
+          ref="demoImportInput"
+          type="file"
+          accept=".xlsx"
+          @change="handleDemoFileChange"
+        />
+        <div class="demo-import-actions">
+          <span class="demo-file-name">{{ demoImportFileName || '未选择文件' }}</span>
+          <el-checkbox v-model="demoImportOverwrite">覆盖同日期已有排期</el-checkbox>
+        </div>
+        <div class="demo-import-toolbar">
+          <el-button :loading="demoPreviewLoading" @click="previewDemoImport">生成预览</el-button>
+          <span v-if="demoImportPreview" class="demo-preview-summary">
+            预览 {{ demoImportPreview.preview_count || 0 }} 条，匹配 {{ demoImportPreview.matched_translators || 0 }} 位译员
+          </span>
+        </div>
+        <el-table
+          v-if="demoImportPreview?.preview_items?.length"
+          :data="demoImportPreview.preview_items"
+          border
+          size="small"
+          max-height="320"
+        >
+          <el-table-column prop="translator_name" label="译员" min-width="120" />
+          <el-table-column prop="schedule_date" label="日期" width="110" />
+          <el-table-column prop="available_time_slot" label="时段/结果" min-width="150" />
+          <el-table-column label="动作" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'update' ? 'warning' : 'success'" size="small">
+                {{ row.action === 'update' ? '覆盖' : '新增' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="existing_available_time_slot" label="原排期" min-width="120" />
+          <el-table-column prop="remarks" label="备注" min-width="160" show-overflow-tooltip />
+        </el-table>
+        <el-alert
+          v-if="demoImportResult"
+          type="success"
+          :closable="false"
+          show-icon
+          style="margin-top: 16px"
+        >
+          <template #title>
+            已处理 {{ demoImportResult.imported_rows || 0 }} 行，匹配 {{ demoImportResult.matched_translators || 0 }} 位译员，
+            新增 {{ demoImportResult.created_records || 0 }} 条，更新 {{ demoImportResult.updated_records || 0 }} 条。
+          </template>
+          <div v-if="demoImportResult.unmatched_names?.length" class="demo-unmatched">
+            未匹配姓名：{{ demoImportResult.unmatched_names.join('，') }}
+          </div>
+        </el-alert>
+        <el-alert
+          v-else-if="demoImportPreview?.unmatched_names?.length"
+          type="warning"
+          :closable="false"
+          show-icon
+        >
+          <template #title>
+            预览阶段发现未匹配姓名：{{ demoImportPreview.unmatched_names.join('，') }}
+          </template>
+        </el-alert>
+      </div>
+      <template #footer>
+        <el-button @click="demoImportVisible = false">取消</el-button>
+        <el-button type="primary" :loading="demoImportLoading" :disabled="!demoImportPreview?.preview_items?.length" @click="submitDemoImport">确认导入</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { defineComponent, h, onMounted, reactive, ref } from 'vue'
+import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
 import * as translatorApi from '@/api/translators'
+import * as scheduleApi from '@/api/schedule'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -436,15 +434,20 @@ const formRef = ref(null)
 const tableData = ref([])
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 
-const searchForm = reactive({
+const defaultSearchForm = {
   translator_code: '',
   translator_name: '',
   cooperation_type: '',
   languages: '',
+  available_time_slot: '',
+  domain_keyword: '',
   translation_type: '',
   direction: '',
-  status: ''
-})
+  status: '',
+  stale_only: false
+}
+
+const searchForm = reactive({ ...defaultSearchForm })
 
 const statusLabel = (s) => ({ active: '活跃', standby: '备用', inactive: '停用' }[s] || '备用')
 const statusTagType = (s) => ({ active: 'success', standby: 'info', inactive: 'danger' }[s] || 'info')
@@ -462,6 +465,76 @@ const domainTagType = (level) => {
   return 'info'
 }
 
+const displayValue = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  if (Array.isArray(value)) {
+    if (!value.length) return '-'
+    return value.map((item) => {
+      if (typeof item === 'object') {
+        return [item.domain, item.level].filter(Boolean).join(':')
+      }
+      return String(item)
+    }).join('；')
+  }
+  return String(value)
+}
+
+const detailItems = [
+  { label: '联系电话', key: 'phone' },
+  { label: '联系电话2', key: 'phone2' },
+  { label: '邮箱1', key: 'email1' },
+  { label: '邮箱2', key: 'email2' },
+  { label: '其他联系方式', key: 'other_contact' },
+  { label: '联系信息', key: 'contact_info' },
+  { label: '性别', key: 'gender' },
+  { label: '国籍', key: 'nationality' },
+  { label: '民族', key: 'ethnicity' },
+  { label: '身高', key: 'height' },
+  { label: '形象', key: 'appearance' },
+  { label: '简历路径', key: 'resume_path', span: 2 },
+  { label: '初次沟通时间', key: 'first_contact_date' },
+  { label: '总评', key: 'overall_rating', span: 2 },
+  { label: '排班备注', key: 'schedule_remarks', span: 2 },
+  { label: '备注', key: 'remarks', span: 2 }
+]
+
+const DetailPopover = defineComponent({
+  name: 'DetailPopover',
+  props: {
+    row: { type: Object, required: true },
+    title: { type: String, default: '详情' },
+    items: { type: Array, default: () => [] }
+  },
+  setup(props) {
+    return () => h(
+      ElPopover,
+      { placement: 'left', width: 640, trigger: 'click', title: props.title },
+      {
+        reference: () => h(ElButton, { type: 'info', size: 'small', link: true }, () => '查看详情'),
+        default: () => h(
+          'div',
+          { class: 'detail-popover' },
+          h(
+            ElDescriptions,
+            { column: 2, border: true },
+            () => props.items.map((item) => h(
+              ElDescriptionsItem,
+              { key: item.key, label: item.label, span: item.span || 1 },
+              () => {
+                const value = props.row[item.key]
+                if (item.key === 'status') {
+                  return h(ElTag, { type: statusTagType(value) }, () => statusLabel(value))
+                }
+                return h('span', { class: 'detail-value' }, displayValue(value))
+              }
+            ))
+          )
+        )
+      }
+    )
+  }
+})
+
 const formatDate = (dt) => {
   if (!dt) return '-'
   return dt.substring(0, 10)
@@ -474,10 +547,27 @@ const isStale = (dt) => {
   return (now - d) > 4 * 24 * 60 * 60 * 1000
 }
 
+const buildSearchParams = () => {
+  const params = {
+    skip: (pagination.page - 1) * pagination.limit,
+    limit: pagination.limit
+  }
+  const trimFields = ['translator_code', 'translator_name', 'languages', 'available_time_slot', 'domain_keyword']
+  trimFields.forEach(f => {
+    if (searchForm[f]?.trim()) params[f] = searchForm[f].trim()
+  })
+  const selectFields = ['cooperation_type', 'translation_type', 'direction', 'status']
+  selectFields.forEach(f => {
+    if (searchForm[f]) params[f] = searchForm[f]
+  })
+  if (searchForm.stale_only) params.stale_only = true
+  return params
+}
+
 const handleSearch = () => { pagination.page = 1; fetchData() }
 
 const handleReset = () => {
-  Object.keys(searchForm).forEach(k => { searchForm[k] = '' })
+  Object.assign(searchForm, defaultSearchForm)
   pagination.page = 1
   fetchData()
 }
@@ -552,18 +642,13 @@ const removeDomainSkill = (index) => {
 const fetchData = async () => {
   loading.value = true
   try {
-    const params = {
-      skip: (pagination.page - 1) * pagination.limit,
-      limit: pagination.limit
-    }
-    const trimFields = ['translator_code', 'translator_name', 'languages']
-    trimFields.forEach(f => { if (searchForm[f]?.trim()) params[f] = searchForm[f].trim() })
-    const selectFields = ['cooperation_type', 'translation_type', 'direction', 'status']
-    selectFields.forEach(f => { if (searchForm[f]) params[f] = searchForm[f] })
-
-    const res = await translatorApi.getTranslators(params)
+    const params = buildSearchParams()
+    const [res, countRes] = await Promise.all([
+      translatorApi.getTranslators(params),
+      translatorApi.getTranslatorCount(params)
+    ])
     tableData.value = res || []
-    pagination.total = res?.length || 0
+    pagination.total = countRes?.total || 0
   } catch {
     tableData.value = []
     pagination.total = 0
@@ -684,6 +769,60 @@ const submitQuickUpdate = async () => {
   }
 }
 
+const demoImportVisible = ref(false)
+const demoImportLoading = ref(false)
+const demoPreviewLoading = ref(false)
+const demoImportInput = ref(null)
+const demoImportFile = ref(null)
+const demoImportFileName = ref('')
+const demoImportOverwrite = ref(true)
+const demoImportPreview = ref(null)
+const demoImportResult = ref(null)
+
+const handleDemoFileChange = (event) => {
+  const [file] = event.target.files || []
+  demoImportFile.value = file || null
+  demoImportFileName.value = file?.name || ''
+  demoImportPreview.value = null
+  demoImportResult.value = null
+}
+
+const previewDemoImport = async () => {
+  if (!demoImportFile.value) {
+    ElMessage.warning('请先选择 Excel 文件')
+    return
+  }
+  demoPreviewLoading.value = true
+  try {
+    demoImportPreview.value = await scheduleApi.previewTranslatorScheduleDemo(demoImportFile.value)
+    demoImportResult.value = null
+    ElMessage.success('预览已生成')
+  } catch (error) {
+    ElMessage.error(error.detail || '预览失败')
+  } finally {
+    demoPreviewLoading.value = false
+  }
+}
+
+const submitDemoImport = async () => {
+  if (!demoImportPreview.value?.preview_items?.length) {
+    ElMessage.warning('请先生成预览')
+    return
+  }
+  demoImportLoading.value = true
+  try {
+    demoImportResult.value = await scheduleApi.importTranslatorScheduleDemo(
+      demoImportFile.value,
+      demoImportOverwrite.value
+    )
+    ElMessage.success('Demo 导入完成')
+  } catch (error) {
+    ElMessage.error(error.detail || '导入失败')
+  } finally {
+    demoImportLoading.value = false
+  }
+}
+
 onMounted(() => { fetchData() })
 </script>
 
@@ -692,6 +831,10 @@ onMounted(() => { fetchData() })
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.header-actions {
+  display: flex;
+  gap: 12px;
 }
 .search-area {
   margin-bottom: 16px;
@@ -715,5 +858,38 @@ onMounted(() => { fetchData() })
 }
 .domain-skills-editor {
   padding: 0 20px;
+}
+.demo-import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.demo-import-tip {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  line-height: 1.6;
+}
+.demo-import-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.demo-import-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.demo-preview-summary {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.demo-file-name {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.demo-unmatched {
+  margin-top: 8px;
+  color: var(--el-color-warning-dark-2);
 }
 </style>

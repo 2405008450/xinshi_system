@@ -4,6 +4,10 @@ export const getTranslators = (params) => {
   return api.get('/translators/', { params })
 }
 
+export const getTranslatorCount = (params) => {
+  return api.get('/translators/count', { params })
+}
+
 export const getTranslator = (id) => {
   return api.get(`/translators/${id}`)
 }

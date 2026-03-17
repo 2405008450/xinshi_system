@@ -4,7 +4,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
-from models import AppNotification, ChatProjectEnabled, ChatProjectMention, ChatProjectMessage, ClientContact
+from models import AppNotification, ChatProjectEnabled, ChatProjectMention, ChatProjectMessage, ClientContact, TranslatorSchedule
 from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat
 
 app = FastAPI()
@@ -61,6 +61,7 @@ def ensure_runtime_tables():
     ChatProjectEnabled.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMessage.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMention.__table__.create(bind=engine, checkfirst=True)
+    TranslatorSchedule.__table__.create(bind=engine, checkfirst=True)
     ensure_project_file_path_columns()
 
 

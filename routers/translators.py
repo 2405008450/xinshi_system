@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import (
-    get_translator, get_translators,
+    count_translators, get_translator, get_translators,
     create_translator, update_translator, delete_translator
 )
 from schemas import TranslatorCreate, TranslatorUpdate, TranslatorResponse
@@ -28,6 +28,10 @@ def read_translators(
     translation_type: Optional[str] = Query(None),
     direction: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    available_time_slot: Optional[str] = Query(None),
+    domain_keyword: Optional[str] = Query(None),
+    stale_only: bool = Query(False),
+    stale_days: int = Query(4, ge=1, le=30),
     db: Session = Depends(get_db)
 ):
     return get_translators(
@@ -41,7 +45,43 @@ def read_translators(
         translation_type=translation_type,
         direction=direction,
         status=status,
+        available_time_slot=available_time_slot,
+        domain_keyword=domain_keyword,
+        stale_only=stale_only,
+        stale_days=stale_days,
     )
+
+@router.get("/count")
+def read_translator_count(
+    translator_code: Optional[str] = Query(None),
+    translator_name: Optional[str] = Query(None),
+    cooperation_type: Optional[str] = Query(None),
+    languages: Optional[str] = Query(None),
+    translation_type: Optional[str] = Query(None),
+    direction: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    available_time_slot: Optional[str] = Query(None),
+    domain_keyword: Optional[str] = Query(None),
+    stale_only: bool = Query(False),
+    stale_days: int = Query(4, ge=1, le=30),
+    db: Session = Depends(get_db)
+):
+    return {
+        "total": count_translators(
+            db,
+            translator_code=translator_code,
+            translator_name=translator_name,
+            cooperation_type=cooperation_type,
+            languages=languages,
+            translation_type=translation_type,
+            direction=direction,
+            status=status,
+            available_time_slot=available_time_slot,
+            domain_keyword=domain_keyword,
+            stale_only=stale_only,
+            stale_days=stale_days,
+        )
+    }
 
 @router.get("/{translator_id}", response_model=TranslatorResponse)
 def read_translator(translator_id: UUID, db: Session = Depends(get_db)):

@@ -51,3 +51,20 @@ export const getTranslatorList = (options) => {
     }
     return api.get('/schedules/translators/list', { params })
 }
+
+export const importTranslatorScheduleDemo = (file, overwrite = true) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('overwrite', String(overwrite))
+    return api.post('/schedules/translators/import-demo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    })
+}
+
+export const previewTranslatorScheduleDemo = (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/schedules/translators/import-demo/preview', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    })
+}
