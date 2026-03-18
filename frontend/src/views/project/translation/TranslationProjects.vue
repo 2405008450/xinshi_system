@@ -13,35 +13,18 @@
       <div class="card-header">
         <span class="page-title">笔译项目流程</span>
         <div class="card-header__actions">
-          <el-select
-            v-model="currentEntityKey"
-            placeholder="搜索母订单或子订单号/名称"
-            filterable
-            remote
-            reserve-keyword
-            clearable
-            :loading="projectOptionsLoading"
-            :remote-method="searchMixedOptions"
-            style="width: 420px"
-            @change="onEntityKeyChange"
-          >
-            <el-option-group label="母订单">
-              <el-option
-                v-for="p in mixedEntityList.filter(e => e._type === 'project')"
-                :key="`project:${p.id}`"
-                :label="`[母] ${p.orderNo} · ${p.projectName}`"
-                :value="`project:${p.id}`"
-              />
-            </el-option-group>
-            <el-option-group label="子订单">
-              <el-option
-                v-for="s in mixedEntityList.filter(e => e._type === 'suborder')"
-                :key="`suborder:${s.id}`"
-                :label="`[子] ${s.subOrderNo || s.sub_order_no} · ${s.subProjectName || s.sub_project_name || ''}`"
-                :value="`suborder:${s.id}`"
-              />
-            </el-option-group>
-          </el-select>
+          <div class="entity-picker-trigger">
+            <el-input
+              :model-value="currentEntityDisplayText"
+              readonly
+              clearable
+              placeholder="请选择母订单或子订单"
+              class="entity-picker-input"
+              @click="openEntityPicker"
+              @clear="clearCurrentEntity"
+            />
+            <el-button type="primary" @click="openEntityPicker">选择订单</el-button>
+          </div>
           <el-button
             v-if="canOpenProjectChat"
             class="chat-entry-button"
@@ -420,6 +403,120 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="entityPickerVisible"
+      title="选择订单"
+      width="1120px"
+      top="6vh"
+      destroy-on-close
+    >
+      <div class="entity-picker-toolbar">
+        <el-input
+          v-model="entityPickerFilters.keyword"
+          clearable
+          placeholder="搜索订单号、项目名称"
+          style="width: 260px"
+          @keyup.enter="loadEntityPickerOptions"
+        />
+        <el-select v-model="entityPickerFilters.entityType" clearable placeholder="订单类型" style="width: 120px">
+          <el-option label="母订单" value="project" />
+          <el-option label="子订单" value="suborder" />
+        </el-select>
+        <el-input
+          v-model="entityPickerFilters.clientShortName"
+          clearable
+          placeholder="客户简称"
+          style="width: 140px"
+        />
+        <el-select v-model="entityPickerFilters.projectStatus" clearable placeholder="项目状态" style="width: 140px">
+          <el-option
+            v-for="status in pickerStatusOptions"
+            :key="status.value"
+            :label="status.label"
+            :value="status.value"
+          />
+        </el-select>
+        <el-select v-model="entityPickerFilters.dateType" placeholder="日期类型" style="width: 140px">
+          <el-option label="创建时间" value="createdAt" />
+          <el-option label="交稿时间" value="customerDeadlineTime" />
+        </el-select>
+        <el-date-picker
+          v-model="entityPickerFilters.dateRange"
+          type="daterange"
+          unlink-panels
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          style="width: 260px"
+        />
+        <el-button type="primary" :loading="entityPickerLoading" @click="loadEntityPickerOptions">查询</el-button>
+        <el-button @click="resetEntityPickerFilters">重置</el-button>
+      </div>
+
+      <el-alert
+        type="info"
+        :closable="false"
+        class="entity-picker-tip"
+        title="支持按订单号、项目名称快速搜索，也可以结合客户、项目状态和日期范围缩小范围。双击行可直接进入。"
+      />
+
+      <el-table
+        ref="entityPickerTableRef"
+        v-loading="entityPickerLoading"
+        :data="entityPickerPagedRows"
+        border
+        highlight-current-row
+        row-key="entityKey"
+        class="entity-picker-table"
+        @current-change="handleEntityPickerCurrentChange"
+        @row-dblclick="confirmEntityPickerSelection"
+      >
+        <el-table-column label="类型" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row._type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
+              {{ row._type === 'suborder' ? '子订单' : '母订单' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="orderNoDisplay" label="订单号" width="180" />
+        <el-table-column prop="projectNameDisplay" label="项目名称" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="clientShortName" label="客户简称" width="140" show-overflow-tooltip />
+        <el-table-column label="项目状态" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" :type="getStatusType(row.projectStatus)">
+              {{ getStatusLabel(row.projectStatus) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="customerDeadlineTime" label="交稿时间" width="180" />
+        <el-table-column prop="createdAt" label="创建时间" width="180" />
+        <el-table-column label="操作" width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="selectEntityFromPicker(row)">选择</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="entity-picker-pagination">
+        <el-pagination
+          v-model:current-page="entityPickerPagination.page"
+          v-model:page-size="entityPickerPagination.pageSize"
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="entityPickerTotal"
+          :page-sizes="[10, 20, 50]"
+        />
+      </div>
+
+      <template #footer>
+        <el-button @click="entityPickerVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!entityPickerCurrentRow" @click="confirmEntityPickerSelection()">
+          确认选择
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 下方 Tabs -->
     <el-tabs v-model="activeTab" type="border-card" class="detail-tabs">
       <el-tab-pane label="待我处理" name="my_tasks">
@@ -676,6 +773,8 @@ import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 const route = useRoute()
 const router = useRouter()
 
+const DEFAULT_PICKER_PAGE_SIZE = 10
+
 // ---------- 全流程阶段定义（顺序固定） ----------
 const ALL_STAGES = [
   { key: 'reception', title: '客户专员', role: '客户专员' },
@@ -904,6 +1003,30 @@ const canOpenProjectChat = computed(() => currentEntityType.value === 'project' 
 const fileList = ref([])
 const projectOptionsLoading = ref(false)
 const fileListLoading = ref(false)
+const entityPickerVisible = ref(false)
+const entityPickerLoading = ref(false)
+const entityPickerTableRef = ref(null)
+const entityPickerRows = ref([])
+const entityPickerCurrentRow = ref(null)
+const entityPickerFilters = reactive({
+  keyword: '',
+  entityType: '',
+  clientShortName: '',
+  projectStatus: '',
+  dateType: 'createdAt',
+  dateRange: []
+})
+const entityPickerPagination = reactive({
+  page: 1,
+  pageSize: DEFAULT_PICKER_PAGE_SIZE
+})
+const pickerStatusOptions = [
+  { label: '待启动', value: 'pending' },
+  { label: '进行中', value: 'in_progress' },
+  { label: '已完成', value: 'completed' },
+  { label: '已暂停', value: 'paused' },
+  { label: '已终止', value: 'terminated' }
+]
 
 const rollbackDialogVisible = ref(false)
 const rollbackSteps = ref(1)
@@ -918,6 +1041,53 @@ const pendingFileEditable = ref(null)
 const nextStageUsers = ref([])
 const nextStageUsersLoading = ref(false)
 const stageCardRef = ref(null)
+
+function parseOrderNoParts(no) {
+  const m = String(no || '').match(/^[A-Z]+-(\d{6})-(\d+)$/i)
+  return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [0, 0]
+}
+
+function orderNoComparator(getNo) {
+  return (a, b) => {
+    const [dateA, seqA] = parseOrderNoParts(getNo(a))
+    const [dateB, seqB] = parseOrderNoParts(getNo(b))
+    return dateA !== dateB ? dateA - dateB : seqA - seqB
+  }
+}
+
+function buildEntityKey(entity) {
+  return entity?._type && entity?.id ? `${entity._type}:${entity.id}` : ''
+}
+
+function getEntityDisplayText(entity) {
+  if (!entity) return ''
+  if (entity._type === 'suborder') {
+    const orderNo = entity.subOrderNo || entity.sub_order_no || '-'
+    const name = entity.subProjectName || entity.sub_project_name || entity.projectName || entity.project_name || ''
+    return `[子订单] ${orderNo}${name ? ` · ${name}` : ''}`
+  }
+  const orderNo = entity.orderNo || entity.order_no || '-'
+  const name = entity.projectName || entity.project_name || ''
+  return `[母订单] ${orderNo}${name ? ` · ${name}` : ''}`
+}
+
+function normalizeEntityRow(entity, type) {
+  const row = { ...entity, _type: type }
+  return {
+    ...row,
+    entityKey: `${type}:${row.id}`,
+    orderNoDisplay: type === 'suborder'
+      ? (row.subOrderNo || row.sub_order_no || row.orderNo || row.order_no || '-')
+      : (row.orderNo || row.order_no || '-'),
+    projectNameDisplay: type === 'suborder'
+      ? (row.subProjectName || row.sub_project_name || row.projectName || row.project_name || '-')
+      : (row.projectName || row.project_name || '-'),
+    clientShortName: row.clientShortName || row.client_short_name || '-',
+    projectStatus: row.projectStatus || row.project_status || 'pending',
+    createdAt: row.createdAt ? String(row.createdAt).replace('T', ' ').substring(0, 19) : '-',
+    customerDeadlineTime: row.customerDeadlineTime ? String(row.customerDeadlineTime).replace('T', ' ').substring(0, 19) : '-'
+  }
+}
 
 const normalizeProjectFile = (file) => ({
   ...file,
@@ -1071,17 +1241,6 @@ async function loadMixedOptions(query = '') {
       getSubOrders(subOrderParams)
     ])
 
-    // 解析订单号各段用于排序（格式：TP-260228-0016 → [260228, 16]）
-    const parseOrderNo = (no) => {
-      const m = String(no || '').match(/^[A-Z]+-(\d{6})-(\d+)$/i)
-      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [0, 0]
-    }
-    const orderNoComparator = (getNo) => (a, b) => {
-      const [dateA, seqA] = parseOrderNo(getNo(a))
-      const [dateB, seqB] = parseOrderNo(getNo(b))
-      return dateA !== dateB ? dateA - dateB : seqA - seqB
-    }
-
     const projects = (projectsRes.status === 'fulfilled' ? (Array.isArray(projectsRes.value) ? projectsRes.value : []) : [])
       .map(p => ({ ...p, _type: 'project' }))
       .sort(orderNoComparator(p => p.orderNo || p.order_no))
@@ -1116,6 +1275,125 @@ function searchMixedOptions(query) {
   loadMixedOptions((query || '').trim())
 }
 
+async function loadEntityPickerOptions() {
+  entityPickerLoading.value = true
+  try {
+    const keyword = (entityPickerFilters.keyword || '').trim()
+    const projectParams = { skip: 0, limit: 200 }
+    const subOrderParams = { skip: 0, limit: 200 }
+
+    if (keyword) {
+      if (/^TP[-\w]/i.test(keyword)) {
+        projectParams.order_no = keyword
+      } else {
+        projectParams.project_name = keyword
+      }
+
+      if (/^SO[-\w]/i.test(keyword)) {
+        subOrderParams.sub_order_no = keyword
+      } else {
+        subOrderParams.project_name = keyword
+      }
+    }
+
+    if (entityPickerFilters.clientShortName) {
+      projectParams.client_short_name = entityPickerFilters.clientShortName.trim()
+    }
+
+    if (entityPickerFilters.projectStatus) {
+      projectParams.project_status = entityPickerFilters.projectStatus
+    }
+
+    const [projectsRes, subOrdersRes] = await Promise.allSettled([
+      getProjects(projectParams),
+      getSubOrders(subOrderParams)
+    ])
+
+    const projects = (projectsRes.status === 'fulfilled' ? (Array.isArray(projectsRes.value) ? projectsRes.value : []) : [])
+      .map(item => normalizeEntityRow(item, 'project'))
+      .sort(orderNoComparator(item => item.orderNoDisplay))
+
+    const subOrders = (subOrdersRes.status === 'fulfilled' ? (Array.isArray(subOrdersRes.value) ? subOrdersRes.value : []) : [])
+      .map(item => normalizeEntityRow(item, 'suborder'))
+      .sort(orderNoComparator(item => item.orderNoDisplay))
+
+    entityPickerRows.value = [...projects, ...subOrders]
+    entityPickerPagination.page = 1
+
+    const currentKey = currentEntityKey.value
+    entityPickerCurrentRow.value = entityPickerRows.value.find(item => item.entityKey === currentKey) || null
+  } catch (e) {
+    console.error('Failed to load entity picker options', e)
+    entityPickerRows.value = []
+    entityPickerCurrentRow.value = null
+  } finally {
+    entityPickerLoading.value = false
+  }
+}
+
+function handleEntityPickerCurrentChange(row) {
+  entityPickerCurrentRow.value = row || null
+}
+
+function resetEntityPickerFilters() {
+  entityPickerFilters.keyword = ''
+  entityPickerFilters.entityType = ''
+  entityPickerFilters.clientShortName = ''
+  entityPickerFilters.projectStatus = ''
+  entityPickerFilters.dateType = 'createdAt'
+  entityPickerFilters.dateRange = []
+  entityPickerPagination.page = 1
+  loadEntityPickerOptions()
+}
+
+async function openEntityPicker() {
+  entityPickerVisible.value = true
+  if (!entityPickerRows.value.length) {
+    await loadEntityPickerOptions()
+  } else {
+    entityPickerCurrentRow.value = entityPickerRows.value.find(item => item.entityKey === currentEntityKey.value) || null
+  }
+}
+
+function clearCurrentEntity() {
+  currentEntityKey.value = ''
+  onEntityKeyChange('')
+}
+
+function applyEntitySelection(entity) {
+  if (!entity) {
+    clearCurrentEntity()
+    return
+  }
+  currentEntityKey.value = buildEntityKey(entity)
+  if (entity._type === 'project') {
+    currentEntityType.value = 'project'
+    currentSubOrder.value = null
+    currentProjectId.value = entity.id
+    selectedProjectRow.value = entity
+    onProjectChange()
+    return
+  }
+
+  currentEntityType.value = 'suborder'
+  currentSubOrder.value = { ...entity }
+  currentProjectId.value = entity.id
+  selectedProjectRow.value = null
+  onProjectChange()
+}
+
+function selectEntityFromPicker(row) {
+  entityPickerCurrentRow.value = row
+  applyEntitySelection(row)
+  entityPickerVisible.value = false
+  activeTab.value = 'overview'
+}
+
+function confirmEntityPickerSelection(row = entityPickerCurrentRow.value) {
+  if (!row) return
+  selectEntityFromPicker(row)
+}
+
 /** 下拉选中某项 */
 function onEntityKeyChange(val) {
   if (!val) {
@@ -1129,18 +1407,11 @@ function onEntityKeyChange(val) {
   }
   const [type, id] = val.split(':')
   if (type === 'project') {
-    currentEntityType.value = 'project'
-    currentSubOrder.value = null
-    currentProjectId.value = id
-    selectedProjectRow.value = projectList.value.find(p => String(p.id) === id) || null
-    onProjectChange()
+    const project = projectList.value.find(p => String(p.id) === id) || mixedEntityList.value.find(e => e._type === 'project' && String(e.id) === id)
+    applyEntitySelection({ ...(project || { id }), _type: 'project' })
   } else if (type === 'suborder') {
     const so = mixedEntityList.value.find(e => e._type === 'suborder' && String(e.id) === id)
-    currentEntityType.value = 'suborder'
-    currentSubOrder.value = so || { id }
-    currentProjectId.value = id  // 复用 currentProjectId 存放当前 id，工作流 API 按 entityType 分支
-    selectedProjectRow.value = null
-    onProjectChange()
+    applyEntitySelection(so || { id, _type: 'suborder' })
   }
 }
 
@@ -1173,6 +1444,49 @@ const currentProject = computed(() => {
   const id = currentProjectId.value
   if (id === undefined || id === null || id === '') return undefined
   return projectList.value.find((p) => String(p.id) === String(id))
+})
+
+const currentEntityDisplayText = computed(() => {
+  if (currentEntityType.value === 'suborder') {
+    return getEntityDisplayText(currentSubOrder.value)
+  }
+  return getEntityDisplayText(currentProject.value ? { ...currentProject.value, _type: 'project' } : null)
+})
+
+const entityPickerFilteredRows = computed(() => {
+  const keyword = (entityPickerFilters.keyword || '').trim().toLowerCase()
+  const clientShortName = (entityPickerFilters.clientShortName || '').trim().toLowerCase()
+  const projectStatus = entityPickerFilters.projectStatus
+  const entityType = entityPickerFilters.entityType
+  const [startDate, endDate] = Array.isArray(entityPickerFilters.dateRange) ? entityPickerFilters.dateRange : []
+  const dateField = entityPickerFilters.dateType || 'createdAt'
+
+  return entityPickerRows.value.filter((row) => {
+    if (entityType && row._type !== entityType) return false
+    if (keyword) {
+      const haystack = [
+        row.orderNoDisplay,
+        row.projectNameDisplay,
+        row.clientShortName
+      ].join(' ').toLowerCase()
+      if (!haystack.includes(keyword)) return false
+    }
+    if (clientShortName && !String(row.clientShortName || '').toLowerCase().includes(clientShortName)) return false
+    if (projectStatus && row.projectStatus !== projectStatus) return false
+    if (startDate && endDate) {
+      const value = String(row[dateField] || '')
+      const dateOnly = value && value !== '-' ? value.slice(0, 10) : ''
+      if (!dateOnly || dateOnly < startDate || dateOnly > endDate) return false
+    }
+    return true
+  })
+})
+
+const entityPickerTotal = computed(() => entityPickerFilteredRows.value.length)
+
+const entityPickerPagedRows = computed(() => {
+  const start = (entityPickerPagination.page - 1) * entityPickerPagination.pageSize
+  return entityPickerFilteredRows.value.slice(start, start + entityPickerPagination.pageSize)
 })
 
 const workflowState = computed(() => getWorkflowState(currentProjectId.value) || {})
@@ -1898,6 +2212,36 @@ watch(
 )
 
 watch(
+  () => [
+    entityPickerFilters.keyword,
+    entityPickerFilters.entityType,
+    entityPickerFilters.clientShortName,
+    entityPickerFilters.projectStatus,
+    entityPickerFilters.dateType,
+    Array.isArray(entityPickerFilters.dateRange) ? entityPickerFilters.dateRange.join('|') : ''
+  ],
+  () => {
+    entityPickerPagination.page = 1
+  }
+)
+
+watch(
+  () => entityPickerPagination.pageSize,
+  () => {
+    entityPickerPagination.page = 1
+  }
+)
+
+watch(
+  () => [entityPickerVisible.value, entityPickerPagedRows.value.length, entityPickerCurrentRow.value?.entityKey],
+  async ([visible]) => {
+    if (!visible || !entityPickerCurrentRow.value) return
+    await nextTick()
+    entityPickerTableRef.value?.setCurrentRow?.(entityPickerCurrentRow.value)
+  }
+)
+
+watch(
   () => [route.query.projectId, route.query.tab],
   async () => {
     const routeProjectId = getRouteProjectId()
@@ -1956,6 +2300,21 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 12px;
   margin-left: auto;
+}
+
+.entity-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(100%, 560px);
+}
+
+.entity-picker-input {
+  min-width: 320px;
+}
+
+.entity-picker-input :deep(.el-input__wrapper) {
+  cursor: pointer;
 }
 
 .chat-entry-button {
@@ -2093,6 +2452,26 @@ onMounted(() => {
 
 .detail-tabs {
   margin-top: 8px;
+}
+
+.entity-picker-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.entity-picker-tip {
+  margin-bottom: 12px;
+}
+
+.entity-picker-table {
+  margin-bottom: 16px;
+}
+
+.entity-picker-pagination {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .project-chat-drawer :deep(.el-drawer__header) {

@@ -70,7 +70,7 @@
       :data="tableData"
       v-loading="loading"
       border
-      :default-sort="{ prop: 'default_priority', order: 'ascending' }"
+      :default-sort="{ prop: 'availability_updated_at', order: 'descending' }"
       @sort-change="handleSortChange"
     >
       <el-table-column prop="default_priority" label="优先级" width="80" sortable />
@@ -82,20 +82,6 @@
       <el-table-column prop="translator_name" label="姓名" width="100" />
       <el-table-column prop="translation_type" label="类型" width="80" />
       <el-table-column prop="quality_score" label="质量" width="70" />
-      <el-table-column label="云端编辑" width="90" align="center">
-        <template #default="{ row }">
-          <span>{{ boolLabel(row.can_cloud_edit) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="可修订" width="90" align="center">
-        <template #default="{ row }">
-          <span>{{ boolLabel(row.can_revision) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="daily_accept_count" label="日均接单" width="90" sortable />
-      <el-table-column prop="hourly_speed" label="小时速度" width="90" sortable />
-      <el-table-column prop="daily_word_capacity" label="日均字数" width="100" sortable />
-      <el-table-column prop="available_time_slot" label="可接时段" width="110" show-overflow-tooltip />
       <el-table-column prop="languages" label="语种" width="80" />
       <el-table-column prop="direction" label="方向" width="70" />
       <el-table-column label="领域能力" min-width="180">
@@ -115,17 +101,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="remarks" label="备注" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="availability_updated_at" label="可用性更新" width="110">
-        <template #default="{ row }">
-          <span :class="{ 'text-stale': isStale(row.availability_updated_at) }">
-            {{ formatDate(row.availability_updated_at) }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <DetailPopover :row="row" title="译员详情" :items="detailItems" />
-          <el-button type="success" size="small" @click="handleQuickUpdate(row)">更新可用性</el-button>
           <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
           <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
@@ -147,15 +125,17 @@
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="760px"
+      width="960px"
       @close="resetForm"
     >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="110px"
-      >
+      <el-scrollbar max-height="70vh">
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-width="110px"
+        >
+        <div class="form-section-title">基础信息</div>
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="姓名" prop="translator_name">
@@ -216,8 +196,8 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="日费率" prop="daily_rate">
-              <el-input v-model="form.daily_rate" />
+            <el-form-item label="联系信息" prop="contact_info">
+              <el-input v-model="form.contact_info" placeholder="常用联系方式备注" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -231,57 +211,11 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
-            <el-form-item label="联系信息" prop="contact_info">
-              <el-input v-model="form.contact_info" placeholder="常用联系方式备注" />
-            </el-form-item>
-          </el-col>
         </el-row>
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <el-form-item label="云端编辑">
-              <el-switch v-model="form.can_cloud_edit" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="修订模式">
-              <el-switch v-model="form.can_revision" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="回稿超时次数" prop="overdue_count">
-              <el-input-number v-model="form.overdue_count" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="8">
-            <el-form-item label="可接稿时段">
-              <el-input v-model="form.available_time_slot" placeholder="如：中午12点后" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="5">
-            <el-form-item label="日均可接次数">
-              <el-input-number v-model="form.daily_accept_count" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="5">
-            <el-form-item label="小时速度(字)">
-              <el-input-number v-model="form.hourly_speed" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="6">
-            <el-form-item label="日均总字数">
-              <el-input-number v-model="form.daily_word_capacity" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="排班备注" prop="schedule_remarks">
-          <el-input v-model="form.schedule_remarks" type="textarea" :rows="2" />
-        </el-form-item>
         <el-form-item label="备注" prop="remarks">
           <el-input v-model="form.remarks" type="textarea" :rows="2" />
         </el-form-item>
+        <div class="form-section-title">领域能力</div>
         <div class="domain-skills-editor">
           <el-table :data="form.domain_skills" border size="small" style="margin-bottom: 10px">
             <el-table-column label="领域" min-width="160">
@@ -302,53 +236,97 @@
           </el-table>
           <el-button type="primary" link @click="addDomainSkill">+ 新增领域</el-button>
         </div>
-      </el-form>
+        <div class="form-section-title">补充信息</div>
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <el-form-item label="联系电话" prop="phone">
+              <el-input v-model="form.phone" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="联系电话2" prop="phone2">
+              <el-input v-model="form.phone2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="其他联系方式" prop="other_contact">
+              <el-input v-model="form.other_contact" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <el-form-item label="邮箱1" prop="email1">
+              <el-input v-model="form.email1" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="邮箱2" prop="email2">
+              <el-input v-model="form.email2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="初次沟通时间" prop="first_contact_date">
+              <el-date-picker
+                v-model="form.first_contact_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="请选择日期"
+                clearable
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <el-form-item label="性别" prop="gender">
+              <el-input v-model="form.gender" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="国籍" prop="nationality">
+              <el-input v-model="form.nationality" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="民族" prop="ethnicity">
+              <el-input v-model="form.ethnicity" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <el-form-item label="身高" prop="height">
+              <el-input v-model="form.height" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="形象" prop="appearance">
+              <el-input v-model="form.appearance" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="简历路径" prop="resume_path">
+              <el-input v-model="form.resume_path" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="总评" prop="overall_rating">
+          <el-input v-model="form.overall_rating" type="textarea" :rows="2" />
+        </el-form-item>
+        </el-form>
+      </el-scrollbar>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
 
-    <!-- ========== 快速更新可用性弹窗 ========== -->
-    <el-dialog
-      v-model="quickUpdateVisible"
-      :title="`更新可用性 - ${quickForm.translator_name}`"
-      width="520px"
-    >
-      <el-form :model="quickForm" label-width="120px">
-        <el-form-item label="状态">
-          <el-select v-model="quickForm.status" style="width: 100%">
-            <el-option label="活跃" value="active" />
-            <el-option label="备用" value="standby" />
-            <el-option label="停用" value="inactive" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="可接稿时段">
-          <el-input v-model="quickForm.available_time_slot" placeholder="如：中午12点后、全天、傍晚5点后" />
-        </el-form-item>
-        <el-form-item label="日均可接次数">
-          <el-input-number v-model="quickForm.daily_accept_count" :min="0" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="小时速度(字)">
-          <el-input-number v-model="quickForm.hourly_speed" :min="0" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="日均总字数">
-          <el-input-number v-model="quickForm.daily_word_capacity" :min="0" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="quickForm.remarks" type="textarea" :rows="2" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="quickUpdateVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitQuickUpdate">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="demoImportVisible" title="导入排期 Demo" width="860px">
+    <el-dialog v-model="demoImportVisible" title="导入排期 Demo" width="860px" @closed="resetDemoImportState">
       <div class="demo-import-panel">
         <p class="demo-import-tip">
-          先按当前平台导出的 Excel 做宽松识别。Demo 版会优先识别姓名、提交时间、填写日期、星期一到星期五、备注。
+          现按这版完整导出结构固定识别 `G/H/I/J/K/L/M/N/O/P`。其中 `I=1` 表示进入按日判断，实际是否可接稿仍以 `K-O` 的 `0/1` 为准；`I=2` 表示未来一个排期周期都不可接稿。`K` 与 `H` 为同一天，`L/M/N/O` 依次表示 `n+1/n+2/n+3/n+4` 天，且 `0=不能接稿`、`1=能接稿`；`J` 作为时段原值保留，`P` 作为备注原值保留。
         </p>
         <input
           ref="demoImportInput"
@@ -374,8 +352,11 @@
           max-height="320"
         >
           <el-table-column prop="translator_name" label="译员" min-width="120" />
+          <el-table-column prop="fill_date" label="填报日期" width="110" />
           <el-table-column prop="schedule_date" label="日期" width="110" />
-          <el-table-column prop="available_time_slot" label="时段/结果" min-width="150" />
+          <el-table-column prop="acceptance_status" label="接稿状态" width="120" />
+          <el-table-column prop="available_time_slot" label="导入结果" min-width="150" />
+          <el-table-column prop="time_slot" label="时段" min-width="140" show-overflow-tooltip />
           <el-table-column label="动作" width="90">
             <template #default="{ row }">
               <el-tag :type="row.action === 'update' ? 'warning' : 'success'" size="small">
@@ -384,7 +365,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="existing_available_time_slot" label="原排期" min-width="120" />
-          <el-table-column prop="remarks" label="备注" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="note" label="备注" min-width="140" show-overflow-tooltip />
         </el-table>
         <el-alert
           v-if="demoImportResult"
@@ -413,7 +394,7 @@
         </el-alert>
       </div>
       <template #footer>
-        <el-button @click="demoImportVisible = false">取消</el-button>
+        <el-button @click="closeDemoImportDialog">取消</el-button>
         <el-button type="primary" :loading="demoImportLoading" :disabled="!demoImportPreview?.preview_items?.length" @click="submitDemoImport">确认导入</el-button>
       </template>
     </el-dialog>
@@ -452,12 +433,6 @@ const searchForm = reactive({ ...defaultSearchForm })
 const statusLabel = (s) => ({ active: '活跃', standby: '备用', inactive: '停用' }[s] || '备用')
 const statusTagType = (s) => ({ active: 'success', standby: 'info', inactive: 'danger' }[s] || 'info')
 
-const boolLabel = (v) => {
-  if (v === true) return '可'
-  if (v === false) return '否'
-  return '-'
-}
-
 const domainTagType = (level) => {
   if (!level) return 'info'
   if (level.includes('擅长')) return 'success'
@@ -494,7 +469,6 @@ const detailItems = [
   { label: '简历路径', key: 'resume_path', span: 2 },
   { label: '初次沟通时间', key: 'first_contact_date' },
   { label: '总评', key: 'overall_rating', span: 2 },
-  { label: '排班备注', key: 'schedule_remarks', span: 2 },
   { label: '备注', key: 'remarks', span: 2 }
 ]
 
@@ -535,18 +509,6 @@ const DetailPopover = defineComponent({
   }
 })
 
-const formatDate = (dt) => {
-  if (!dt) return '-'
-  return dt.substring(0, 10)
-}
-
-const isStale = (dt) => {
-  if (!dt) return true
-  const d = new Date(dt)
-  const now = new Date()
-  return (now - d) > 4 * 24 * 60 * 60 * 1000
-}
-
 const buildSearchParams = () => {
   const params = {
     skip: (pagination.page - 1) * pagination.limit,
@@ -575,9 +537,25 @@ const handleReset = () => {
 const handleSortChange = ({ prop, order }) => {
   if (!prop) return
   const sorted = [...tableData.value]
+  const normalizeSortValue = (value) => {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'number') return value
+    const parsedDate = Date.parse(value)
+    if (!Number.isNaN(parsedDate)) return parsedDate
+    const parsedNumber = Number(value)
+    if (!Number.isNaN(parsedNumber) && String(value).trim() !== '') return parsedNumber
+    return String(value)
+  }
   sorted.sort((a, b) => {
-    const va = a[prop] ?? 999
-    const vb = b[prop] ?? 999
+    const va = normalizeSortValue(a[prop])
+    const vb = normalizeSortValue(b[prop])
+    if (va === null && vb === null) return 0
+    if (va === null) return 1
+    if (vb === null) return -1
+    if (typeof va === 'string' || typeof vb === 'string') {
+      const result = String(va).localeCompare(String(vb), 'zh-CN')
+      return order === 'ascending' ? result : -result
+    }
     return order === 'ascending' ? va - vb : vb - va
   })
   tableData.value = sorted
@@ -591,8 +569,6 @@ const defaultForm = {
   contact_info: '',
   translation_type: '',
   quality_score: '',
-  cloud_revision: '',
-  daily_rate: '',
   direction: '',
   default_priority: 0,
   schedule_remarks: '',
@@ -610,7 +586,7 @@ const defaultForm = {
   other_contact: '',
   overdue_count: 0,
   overall_rating: '',
-  first_contact_date: '',
+  first_contact_date: null,
   remarks: '',
   status: 'standby',
   available_time_slot: '',
@@ -624,7 +600,6 @@ const defaultForm = {
 }
 
 const form = reactive({ ...defaultForm })
-
 const rules = {
   translator_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   email1: [{ type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }],
@@ -674,6 +649,8 @@ const handleEdit = (row) => {
       data[key] = JSON.parse(JSON.stringify(row[key] || []))
     } else if (key === 'can_cloud_edit' || key === 'can_revision') {
       data[key] = row[key] ?? null
+    } else if (key === 'first_contact_date') {
+      data[key] = row[key] || null
     } else {
       data[key] = row[key] ?? ''
     }
@@ -702,6 +679,7 @@ const handleSubmit = async () => {
         const submitData = { ...form }
         submitData.domain_skills = (form.domain_skills || []).filter(s => s.domain)
         delete submitData.id
+        if (!submitData.first_contact_date) submitData.first_contact_date = null
         if (form.id) {
           await translatorApi.updateTranslator(form.id, submitData)
           ElMessage.success('更新成功')
@@ -724,51 +702,6 @@ const resetForm = () => {
   formRef.value?.resetFields()
 }
 
-// ========== 快速更新可用性 ==========
-const quickUpdateVisible = ref(false)
-const quickForm = reactive({
-  id: null,
-  translator_name: '',
-  status: 'active',
-  available_time_slot: '',
-  daily_accept_count: null,
-  hourly_speed: null,
-  daily_word_capacity: null,
-  remarks: ''
-})
-
-const handleQuickUpdate = (row) => {
-  quickForm.id = row.id
-  quickForm.translator_name = row.translator_name
-  quickForm.status = row.status || 'standby'
-  quickForm.available_time_slot = row.available_time_slot || ''
-  quickForm.daily_accept_count = row.daily_accept_count ?? null
-  quickForm.hourly_speed = row.hourly_speed ?? null
-  quickForm.daily_word_capacity = row.daily_word_capacity ?? null
-  quickForm.remarks = row.remarks || ''
-  quickUpdateVisible.value = true
-}
-
-const submitQuickUpdate = async () => {
-  try {
-    const updateData = {
-      status: quickForm.status,
-      available_time_slot: quickForm.available_time_slot,
-      daily_accept_count: quickForm.daily_accept_count,
-      hourly_speed: quickForm.hourly_speed,
-      daily_word_capacity: quickForm.daily_word_capacity,
-      remarks: quickForm.remarks,
-      availability_updated_at: new Date().toISOString()
-    }
-    await translatorApi.updateTranslator(quickForm.id, updateData)
-    ElMessage.success('可用性已更新')
-    quickUpdateVisible.value = false
-    fetchData()
-  } catch {
-    ElMessage.error('更新失败')
-  }
-}
-
 const demoImportVisible = ref(false)
 const demoImportLoading = ref(false)
 const demoPreviewLoading = ref(false)
@@ -785,6 +718,21 @@ const handleDemoFileChange = (event) => {
   demoImportFileName.value = file?.name || ''
   demoImportPreview.value = null
   demoImportResult.value = null
+}
+
+const resetDemoImportState = () => {
+  demoImportFile.value = null
+  demoImportFileName.value = ''
+  demoImportPreview.value = null
+  demoImportResult.value = null
+  demoImportOverwrite.value = true
+  if (demoImportInput.value) {
+    demoImportInput.value.value = ''
+  }
+}
+
+const closeDemoImportDialog = () => {
+  demoImportVisible.value = false
 }
 
 const previewDemoImport = async () => {
@@ -844,6 +792,14 @@ onMounted(() => { fetchData() })
 }
 .search-form {
   margin-bottom: 0;
+}
+.form-section-title {
+  margin: 8px 0 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  font-weight: 600;
 }
 .domain-tag {
   margin-right: 4px;

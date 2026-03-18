@@ -415,7 +415,11 @@ def get_translators(
     )
     return (
         query
-        .order_by(Translator.default_priority.asc(), Translator.translator_name.asc())
+        .order_by(
+            Translator.availability_updated_at.desc().nullslast(),
+            Translator.default_priority.asc(),
+            Translator.translator_name.asc(),
+        )
         .offset(skip)
         .limit(limit)
         .all()
@@ -452,8 +456,71 @@ def count_translators(
     )
     return query.count()
 
+
+def _parse_legacy_cloud_revision(value: Optional[str]) -> tuple[Optional[bool], Optional[bool]]:
+    text = (value or "").strip()
+    if not text:
+        return None, None
+    parts = [part.strip() for part in text.split("/")]
+    while len(parts) < 2:
+        parts.append("")
+
+    def parse_bool(part: str) -> Optional[bool]:
+        if part in {"可", "是", "true", "True", "1"}:
+            return True
+        if part in {"否", "不可", "不可以", "false", "False", "0"}:
+            return False
+        return None
+
+    return parse_bool(parts[0]), parse_bool(parts[1])
+
+
+def _parse_legacy_daily_rate(value: Optional[str]) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    text = (value or "").strip()
+    if not text:
+        return None, None, None
+    parts = [part.strip() for part in text.split("/")]
+    while len(parts) < 3:
+        parts.append("")
+
+    def parse_int(part: str) -> Optional[int]:
+        if not part:
+            return None
+        try:
+            return int(float(part))
+        except (TypeError, ValueError):
+            return None
+
+    return parse_int(parts[0]), parse_int(parts[1]), parse_int(parts[2])
+
+
+def _normalize_translator_payload(payload: dict, current: Optional[Translator] = None) -> dict:
+    data = dict(payload)
+
+    if "cloud_revision" in data and "can_cloud_edit" not in data and "can_revision" not in data:
+        parsed_cloud_edit, parsed_revision = _parse_legacy_cloud_revision(data.get("cloud_revision"))
+        if parsed_cloud_edit is not None:
+            data["can_cloud_edit"] = parsed_cloud_edit
+        if parsed_revision is not None:
+            data["can_revision"] = parsed_revision
+    data.pop("cloud_revision", None)
+
+    if "daily_rate" in data and not {"daily_accept_count", "hourly_speed", "daily_word_capacity"} & data.keys():
+        parsed_accept_count, parsed_hourly_speed, parsed_daily_capacity = _parse_legacy_daily_rate(data.get("daily_rate"))
+        if parsed_accept_count is not None:
+            data["daily_accept_count"] = parsed_accept_count
+        if parsed_hourly_speed is not None:
+            data["hourly_speed"] = parsed_hourly_speed
+        if parsed_daily_capacity is not None:
+            data["daily_word_capacity"] = parsed_daily_capacity
+    data.pop("daily_rate", None)
+
+    return data
+
+
 def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
-    db_translator = Translator(**translator.model_dump())
+    payload = _normalize_translator_payload(translator.model_dump())
+    db_translator = Translator(**payload)
     db.add(db_translator)
     db.commit()
     db.refresh(db_translator)
@@ -463,7 +530,8 @@ def update_translator(db: Session, translator_id: UUID, translator_update: Trans
     db_translator = get_translator(db, translator_id)
     if not db_translator:
         return None
-    for field, value in translator_update.model_dump(exclude_unset=True).items():
+    payload = _normalize_translator_payload(translator_update.model_dump(exclude_unset=True), current=db_translator)
+    for field, value in payload.items():
         setattr(db_translator, field, value)
     db.commit()
     db.refresh(db_translator)

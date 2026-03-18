@@ -56,7 +56,7 @@ export const importTranslatorScheduleDemo = (file, overwrite = true) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('overwrite', String(overwrite))
-    return api.post('/schedules/translators/import-demo', formData, {
+    return api.post('/schedules/translators/import-demo-v2', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     })
 }
@@ -64,7 +64,7 @@ export const importTranslatorScheduleDemo = (file, overwrite = true) => {
 export const previewTranslatorScheduleDemo = (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post('/schedules/translators/import-demo/preview', formData, {
+    return api.post('/schedules/translators/import-demo-v2/preview', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     })
 }

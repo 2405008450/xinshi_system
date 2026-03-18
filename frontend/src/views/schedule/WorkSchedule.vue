@@ -178,6 +178,7 @@
             </el-table>
           </div>
         </div>
+
       </el-tab-pane>
 
       <!-- ====== Tab: 各部门工作安排 ====== -->
@@ -493,8 +494,8 @@
     </el-dialog>
 
     <!-- 译员安排表编辑（中英/英中） -->
-    <el-dialog v-model="translatorEditVisible" :title="translatorEditTitle" width="1050px" @close="closeTranslatorTableEdit">
-      <p class="section-desc hint">可增删行、修改各列。保存后仅影响当日安排数据。</p>
+    <el-dialog v-model="translatorEditVisible" :title="translatorEditTitle" width="1280px" @close="closeTranslatorTableEdit">
+      <p class="section-desc hint">这里统一维护译员安排和资源更新信息。保存后会同时更新当日安排，以及已关联译员的资源库字段。</p>
       <el-table :data="translatorEditData" border size="small" class="data-table">
         <el-table-column label="优先次序" width="120">
           <template #default="{ row }">
@@ -516,22 +517,42 @@
             <el-input v-model="row.quality" size="small" />
           </template>
         </el-table-column>
-        <el-table-column label="云端/修订" width="100">
+        <el-table-column label="云端编辑" width="90" align="center">
           <template #default="{ row }">
-            <el-input v-model="row.cloudRev" size="small" />
+            <el-switch v-model="row.canCloudEdit" size="small" />
           </template>
         </el-table-column>
-        <el-table-column label="日均接/速度/字数" width="150">
+        <el-table-column label="可修订" width="90" align="center">
           <template #default="{ row }">
-            <el-input v-model="row.dailyRate" size="small" />
+            <el-switch v-model="row.canRevision" size="small" />
           </template>
         </el-table-column>
-        <el-table-column label="可接时段" width="110">
+        <el-table-column label="日均接单" width="100">
+          <template #default="{ row }">
+            <el-input-number v-model="row.dailyAcceptCount" :min="0" size="small" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="小时速度" width="100">
+          <template #default="{ row }">
+            <el-input-number v-model="row.hourlySpeed" :min="0" size="small" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="日均字数" width="110">
+          <template #default="{ row }">
+            <el-input-number v-model="row.dailyWordCapacity" :min="0" size="small" style="width: 100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="可接时段" width="130">
           <template #default="{ row }">
             <el-input v-model="row.availableTimeSlot" size="small" placeholder="如 中午12点后" />
           </template>
         </el-table-column>
-        <el-table-column label="备注" min-width="180">
+        <el-table-column label="排班备注" min-width="180">
+          <template #default="{ row }">
+            <el-input v-model="row.scheduleRemarks" type="textarea" :rows="1" size="small" />
+          </template>
+        </el-table-column>
+        <el-table-column label="资源备注" min-width="220">
           <template #default="{ row }">
             <el-input v-model="row.remarks" type="textarea" :rows="1" size="small" />
           </template>
@@ -560,6 +581,7 @@ import { getProjects } from '@/api/projects'
 import { canEditSchedule } from '@/utils/permission'
 import { getSchedule, saveSchedule, copySchedule, getStaffList, getTranslatorList } from '@/api/schedule'
 import { getLeaveRecords, createLeave, deleteLeave, updateLeave } from '@/api/leave'
+import { updateTranslator } from '@/api/translators'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -992,20 +1014,66 @@ function submitShiftRowEdit() {
 
 // ==================== 译员安排表编辑（中英/英中） ====================
 const TRANSLATOR_ROW_TEMPLATE = () => ({
+  id: '',
   order: '',
   name: '',
   type: '',
   quality: '',
   cloudRev: '',
   dailyRate: '',
+  canCloudEdit: null,
+  canRevision: null,
+  dailyAcceptCount: null,
+  hourlySpeed: null,
+  dailyWordCapacity: null,
   availableTimeSlot: '',
+  scheduleRemarks: '',
+  availabilityUpdatedAt: '',
   remarks: ''
 })
+
+function formatTranslatorCloudRev(row) {
+  const values = []
+  if (row.canCloudEdit === true) values.push('可')
+  else if (row.canCloudEdit === false) values.push('否')
+  if (row.canRevision === true) values.push('可')
+  else if (row.canRevision === false) values.push('否')
+  return values.length ? values.join('/') : (row.cloudRev || '')
+}
+
+function formatTranslatorDailyRate(row) {
+  const values = [row.dailyAcceptCount, row.hourlySpeed, row.dailyWordCapacity]
+  if (values.some(value => value !== null && value !== undefined && value !== '')) {
+    return values.map(value => (value ?? '')).join('/')
+  }
+  return row.dailyRate || ''
+}
+
+function buildTranslatorRow(source = {}) {
+  return {
+    id: source.id || '',
+    order: source.order || '',
+    name: source.name || '',
+    type: source.type || '',
+    quality: source.quality || '',
+    cloudRev: source.cloudRev || '',
+    dailyRate: source.dailyRate || '',
+    canCloudEdit: source.canCloudEdit ?? null,
+    canRevision: source.canRevision ?? null,
+    dailyAcceptCount: source.dailyAcceptCount ?? null,
+    hourlySpeed: source.hourlySpeed ?? null,
+    dailyWordCapacity: source.dailyWordCapacity ?? null,
+    availableTimeSlot: source.availableTimeSlot || '',
+    scheduleRemarks: source.scheduleRemarks || '',
+    availabilityUpdatedAt: source.availabilityUpdatedAt || '',
+    remarks: source.remarks || ''
+  }
+}
 
 function openTranslatorTableEdit(type) {
   translatorEditType.value = type
   const source = type === 'zhEn' ? urgentTableZhEn.value : urgentTableEnZh.value
-  translatorEditData.value = JSON.parse(JSON.stringify(source.length ? source : [TRANSLATOR_ROW_TEMPLATE()]))
+  translatorEditData.value = (source.length ? source : [TRANSLATOR_ROW_TEMPLATE()]).map((row) => buildTranslatorRow(row))
   translatorEditVisible.value = true
 }
 
@@ -1021,15 +1089,57 @@ function removeTranslatorRow(index) {
   translatorEditData.value.splice(index, 1)
 }
 
-function submitTranslatorTableEdit() {
-  const data = translatorEditData.value.map((r) => ({
+async function submitTranslatorTableEdit() {
+  const now = new Date().toISOString()
+  const rows = translatorEditData.value.map((row) => {
+    const normalized = buildTranslatorRow(row)
+    normalized.cloudRev = formatTranslatorCloudRev(normalized)
+    normalized.dailyRate = formatTranslatorDailyRate(normalized)
+    normalized.availabilityUpdatedAt = now
+    return normalized
+  })
+
+  const updates = rows
+    .filter((row) => row.id)
+    .map((row) => {
+      const parsedOrder = Number(row.order)
+      return updateTranslator(row.id, {
+        translator_name: row.name || null,
+        translation_type: row.type || null,
+        quality_score: row.quality || null,
+        default_priority: Number.isFinite(parsedOrder) ? parsedOrder : undefined,
+        can_cloud_edit: row.canCloudEdit,
+        can_revision: row.canRevision,
+        daily_accept_count: row.dailyAcceptCount,
+        hourly_speed: row.hourlySpeed,
+        daily_word_capacity: row.dailyWordCapacity,
+        available_time_slot: row.availableTimeSlot || null,
+        schedule_remarks: row.scheduleRemarks || null,
+        remarks: row.remarks || null,
+        availability_updated_at: now
+      })
+    })
+
+  if (updates.length) {
+    await Promise.all(updates)
+  }
+
+  const data = rows.map((r) => ({
+    id: r.id || '',
     order: r.order || '',
     name: r.name || '',
     type: r.type || '',
     quality: r.quality || '',
     cloudRev: r.cloudRev || '',
     dailyRate: r.dailyRate || '',
+    canCloudEdit: r.canCloudEdit,
+    canRevision: r.canRevision,
+    dailyAcceptCount: r.dailyAcceptCount,
+    hourlySpeed: r.hourlySpeed,
+    dailyWordCapacity: r.dailyWordCapacity,
     availableTimeSlot: r.availableTimeSlot || '',
+    scheduleRemarks: r.scheduleRemarks || '',
+    availabilityUpdatedAt: r.availabilityUpdatedAt || '',
     remarks: r.remarks || ''
   }))
   if (translatorEditType.value === 'zhEn') {
@@ -1037,7 +1147,7 @@ function submitTranslatorTableEdit() {
   } else {
     urgentTableEnZh.value = data
   }
-  saveScheduleForDate()
+  await saveScheduleForDate()
   translatorEditVisible.value = false
   ElMessage.success(translatorEditType.value === 'zhEn' ? '中英译员安排已保存' : '英中译员安排已保存')
 }
@@ -1058,16 +1168,24 @@ async function syncFromTranslatorDb(type) {
         .map(v => v ?? '-').join('/')
       const domainStr = (t.domainSkills || []).map(s => `${s.domain}:${s.level}`).join('；')
       const remarkParts = [domainStr, t.remarks].filter(Boolean).join('。')
-      return {
+      return buildTranslatorRow({
+        id: t.id || '',
         order: t.order || 'N/A',
         name: t.name,
         type: t.type || '',
         quality: t.quality || '',
         cloudRev,
         dailyRate: dailyRate !== '-/-/-' ? dailyRate : (t.dailyRate || ''),
+        canCloudEdit: t.canCloudEdit ?? null,
+        canRevision: t.canRevision ?? null,
+        dailyAcceptCount: t.dailyAcceptCount ?? null,
+        hourlySpeed: t.hourlySpeed ?? null,
+        dailyWordCapacity: t.dailyWordCapacity ?? null,
         availableTimeSlot: t.availableTimeSlot || '',
+        scheduleRemarks: t.scheduleRemarks || '',
+        availabilityUpdatedAt: t.availabilityUpdatedAt || '',
         remarks: remarkParts
-      }
+      })
     })
     if (type === 'zhEn') {
       urgentTableZhEn.value = rows
@@ -1362,7 +1480,6 @@ async function copyFromYesterday() {
 onMounted(async () => {
   const today = new Date()
   scheduleDate.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
-  // 三组请求全部并行，互不等待；getStaffList 与 loadScheduleForDate 内部的 staff/list 合并为一次
   const [, , staffResult] = await Promise.allSettled([
     loadScheduleForDate(scheduleDate.value),
     loadLeaveRecords(),
@@ -1584,4 +1701,5 @@ onMounted(async () => {
   margin-top: 12px;
   justify-content: flex-end;
 }
+
 </style>

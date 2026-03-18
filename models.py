@@ -202,8 +202,6 @@ class Translator(Base):
     contact_info: Mapped[Optional[str]] = mapped_column(String(255))
     translation_type: Mapped[Optional[str]] = mapped_column(String(255))
     quality_score: Mapped[Optional[str]] = mapped_column(String(10))
-    cloud_revision: Mapped[Optional[str]] = mapped_column(String(50))
-    daily_rate: Mapped[Optional[str]] = mapped_column(String(100))
     direction: Mapped[Optional[str]] = mapped_column(String(20))
     default_priority: Mapped[Optional[int]] = mapped_column(server_default=text('0'))
     schedule_remarks: Mapped[Optional[str]] = mapped_column(Text)

@@ -4,6 +4,7 @@
 """
 from datetime import date, datetime, timedelta
 from io import BytesIO
+import json
 from typing import Optional, List
 from uuid import UUID
 
@@ -85,6 +86,33 @@ def _cell_to_slot_text(value) -> str:
     if normalized in {"0", "n", "no", "false", "否"}:
         return ""
     return text
+
+
+def _parse_acceptance_status(value: str) -> tuple[str, str]:
+    normalized = _normalize_text(value)
+    if normalized in {"2", "本周期不可接稿", "不能接稿"}:
+        return "本周期不可接稿", "cycle_blocked"
+    if normalized in {"1", "可接稿"}:
+        return "可接稿（按日）", "day_by_day"
+    return "可接稿（按日）", "day_by_day"
+
+
+def _parse_schedule_day_available(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value) == 1
+    return _normalize_text(value) == "1"
+
+
+def _resolve_schedule_slot(acceptance_mode: str, day_available: bool, raw_window_value: str) -> str:
+    if acceptance_mode == "cycle_blocked":
+        return "本周期不可接稿"
+    if not day_available:
+        return ""
+    return raw_window_value or "可接稿"
 
 
 def _parse_translator_schedule_demo_rows(content: bytes, filename: str, db: Session):
@@ -193,6 +221,105 @@ def _parse_translator_schedule_demo_rows(content: bytes, filename: str, db: Sess
     }
 
 
+def _parse_translator_schedule_demo_rows_v2(content: bytes, filename: str, db: Session):
+    try:
+        workbook = load_workbook(filename=BytesIO(content), data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"暂时只支持 Excel xlsx 文件导入：{exc}") from exc
+
+    sheet = workbook.active
+    rows = list(sheet.iter_rows(values_only=True))
+    if len(rows) < 2:
+        raise HTTPException(status_code=400, detail="Excel 内容不足，至少需要表头和一行数据")
+
+    translators = db.query(Translator).all()
+    translator_map = {}
+    for translator in translators:
+        translator_map.setdefault(_normalize_person_name(translator.translator_name), translator)
+
+    preview_items = []
+    matched_translators = set()
+    unmatched_names = []
+
+    for row_index, row in enumerate(rows[1:], start=2):
+        if not row or all(cell in (None, "") for cell in row):
+            continue
+
+        raw_name = row[6] if len(row) > 6 else None
+        normalized_name = _normalize_person_name(raw_name)
+        if not normalized_name:
+            continue
+
+        translator = translator_map.get(normalized_name)
+        if not translator:
+            unmatched_names.append(_normalize_text(raw_name))
+            continue
+
+        fill_date = _parse_excel_date(row[7] if len(row) > 7 else None)
+        if fill_date is None:
+            continue
+
+        submitted_at = _parse_excel_datetime(row[1] if len(row) > 1 else None)
+        acceptance_raw = _normalize_text(row[8] if len(row) > 8 else None)
+        acceptance_status, acceptance_mode = _parse_acceptance_status(acceptance_raw)
+        raw_window_value = _normalize_text(row[9] if len(row) > 9 else None)
+        raw_remark_value = _normalize_text(row[15] if len(row) > 15 else None)
+        raw_payload = {
+            "acceptance_raw": acceptance_raw,
+            "acceptance_status": acceptance_status,
+            "acceptance_mode": acceptance_mode,
+            "time_slot": raw_window_value,
+            "note": raw_remark_value,
+        }
+
+        for day_offset, col_idx in enumerate(range(10, 15)):
+            day_available = _parse_schedule_day_available(row[col_idx] if len(row) > col_idx else None)
+            slot_text = _resolve_schedule_slot(acceptance_mode, day_available, raw_window_value)
+            if not slot_text:
+                continue
+
+            schedule_day = fill_date + timedelta(days=day_offset)
+            existing = (
+                db.query(TranslatorSchedule)
+                .filter(
+                    TranslatorSchedule.translator_id == translator.id,
+                    TranslatorSchedule.schedule_date == schedule_day,
+                )
+                .first()
+            )
+            preview_items.append({
+                "row_no": row_index,
+                "translator_id": str(translator.id),
+                "translator_name": translator.translator_name,
+                "fill_date": fill_date.isoformat(),
+                "schedule_date": schedule_day.isoformat(),
+                "available_time_slot": slot_text,
+                "acceptance_raw": acceptance_raw,
+                "acceptance_status": acceptance_status,
+                "acceptance_mode": acceptance_mode,
+                "day_available": day_available,
+                "time_slot": raw_window_value,
+                "note": raw_remark_value,
+                "remarks": json.dumps(raw_payload, ensure_ascii=False),
+                "last_confirmed_at": submitted_at.isoformat() if submitted_at else None,
+                "source_type": "excel_demo_v2",
+                "source_ref": filename,
+                "action": "update" if existing else "create",
+                "existing": bool(existing),
+                "existing_available_time_slot": existing.available_time_slot if existing else None,
+            })
+            matched_translators.add(translator.translator_name)
+
+    return {
+        "file_name": filename,
+        "sheet_name": sheet.title,
+        "headers": [_normalize_text(cell) for cell in rows[0]],
+        "preview_items": preview_items,
+        "matched_translators": len(matched_translators),
+        "unmatched_names": unmatched_names,
+    }
+
+
 def _normalize_task(task):
     task = task or {}
     return {
@@ -217,6 +344,25 @@ def _normalize_task(task):
         or task.get("status")
         or "",
     }
+
+
+def _format_cloud_revision(can_cloud_edit, can_revision) -> str:
+    values = []
+    for value in (can_cloud_edit, can_revision):
+        if value is True:
+            values.append("可")
+        elif value is False:
+            values.append("否")
+        else:
+            values.append("")
+    return "/".join(values).strip("/")
+
+
+def _format_daily_rate(daily_accept_count, hourly_speed, daily_word_capacity) -> str:
+    values = [daily_accept_count, hourly_speed, daily_word_capacity]
+    if all(value in (None, "") for value in values):
+        return ""
+    return "/".join("" if value in (None, "") else str(value) for value in values)
 
 
 def _normalize_dept_person(person):
@@ -307,8 +453,8 @@ def get_translator_list(
             "name": t.translator_name,
             "type": t.translation_type or "",
             "quality": t.quality_score or "",
-            "cloudRev": t.cloud_revision or "",
-            "dailyRate": t.daily_rate or "",
+            "cloudRev": _format_cloud_revision(t.can_cloud_edit, t.can_revision),
+            "dailyRate": _format_daily_rate(t.daily_accept_count, t.hourly_speed, t.daily_word_capacity),
             "direction": t.direction or "",
             "order": str(t.default_priority) if t.default_priority else "N/A",
             "remarks": t.schedule_remarks or "",
@@ -586,6 +732,84 @@ async def preview_translator_schedule_demo(
         "unmatched_names": parsed["unmatched_names"],
         "preview_count": len(parsed["preview_items"]),
         "preview_items": parsed["preview_items"][:200],
+    }
+
+
+@router.post("/translators/import-demo-v2/preview")
+async def preview_translator_schedule_demo_v2(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    filename = file.filename or "translator_schedule_demo.xlsx"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    parsed = _parse_translator_schedule_demo_rows_v2(content, filename, db)
+    return {
+        "file_name": parsed["file_name"],
+        "sheet_name": parsed["sheet_name"],
+        "headers": parsed["headers"],
+        "matched_translators": parsed["matched_translators"],
+        "unmatched_names": parsed["unmatched_names"],
+        "preview_count": len(parsed["preview_items"]),
+        "preview_items": parsed["preview_items"][:200],
+    }
+
+
+@router.post("/translators/import-demo-v2")
+async def import_translator_schedule_demo_v2(
+    file: UploadFile = File(...),
+    overwrite: bool = Form(True),
+    db: Session = Depends(get_db),
+):
+    filename = file.filename or "translator_schedule_demo.xlsx"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    parsed = _parse_translator_schedule_demo_rows_v2(content, filename, db)
+    created_count = 0
+    updated_count = 0
+
+    for item in parsed["preview_items"]:
+        schedule_day = date.fromisoformat(item["schedule_date"])
+        payload = {
+            "available_time_slot": item["available_time_slot"],
+            "source_type": item["source_type"],
+            "source_ref": item["source_ref"],
+            "last_confirmed_at": datetime.fromisoformat(item["last_confirmed_at"]) if item["last_confirmed_at"] else None,
+            "remarks": item["remarks"],
+        }
+        record = (
+            db.query(TranslatorSchedule)
+            .filter(
+                TranslatorSchedule.translator_id == item["translator_id"],
+                TranslatorSchedule.schedule_date == schedule_day,
+            )
+            .first()
+        )
+        if record:
+            if overwrite:
+                for key, value in payload.items():
+                    setattr(record, key, value)
+                record.updated_at = datetime.utcnow()
+                updated_count += 1
+        else:
+            db.add(TranslatorSchedule(
+                translator_id=item["translator_id"],
+                schedule_date=schedule_day,
+                **payload,
+            ))
+            created_count += 1
+
+    db.commit()
+    return {
+        "file_name": parsed["file_name"],
+        "sheet_name": parsed["sheet_name"],
+        "imported_rows": len({item["row_no"] for item in parsed["preview_items"]}),
+        "matched_translators": parsed["matched_translators"],
+        "created_records": created_count,
+        "updated_records": updated_count,
+        "unmatched_names": parsed["unmatched_names"],
     }
 
 

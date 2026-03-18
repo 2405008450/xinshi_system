@@ -278,15 +278,13 @@ class ConsultationResponse(ConsultationBase):
 
 
 # Translator Schemas
-class TranslatorBase(BaseModel):
+class TranslatorFieldsBase(BaseModel):
     translator_code: Optional[str] = None
     translator_name: str
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
     translation_type: Optional[str] = None
     quality_score: Optional[str] = None
-    cloud_revision: Optional[str] = None
-    daily_rate: Optional[str] = None
     direction: Optional[str] = None
     default_priority: Optional[int] = 0
     schedule_remarks: Optional[str] = None
@@ -316,7 +314,9 @@ class TranslatorBase(BaseModel):
     domain_skills: Optional[list] = []
     availability_updated_at: Optional[datetime] = None
 
-class TranslatorCreate(TranslatorBase):
+class TranslatorCreate(TranslatorFieldsBase):
+    cloud_revision: Optional[str] = None
+    daily_rate: Optional[str] = None
     pass
 
 class TranslatorUpdate(BaseModel):
@@ -357,7 +357,7 @@ class TranslatorUpdate(BaseModel):
     domain_skills: Optional[list] = None
     availability_updated_at: Optional[datetime] = None
 
-class TranslatorResponse(TranslatorBase):
+class TranslatorResponse(TranslatorFieldsBase):
     id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
