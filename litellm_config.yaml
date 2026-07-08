@@ -1,0 +1,16 @@
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: claude-opus-4-6
+      api_base: https://api.ai.cc/v1
+      api_key: sk-tZfwepNQMfU5JJZllDR4esqgncChtw3f5mcm2n2whet4WK5G
+litellm_settings:
+  drop_params: true
+  set_verbose: true
+  modify_params: true
+
+
+
+
+
+

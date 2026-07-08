@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from workflow_crud import (
+    ALL_STAGES,
     get_workflow_by_project,
     get_workflow_by_sub_order,
+    get_effective_stages,
     get_my_tasks,
     init_workflow,
     set_difficulty,
@@ -23,8 +25,10 @@ from workflow_schemas import (
     TransitionRequest,
     RollbackRequest,
     StageDataUpdateRequest,
+    WorkflowConfigResponse,
     WorkflowStateResponse,
     WorkflowLogResponse,
+    WorkflowStageResponse,
     MyTaskItem,
 )
 from models import AppUser
@@ -66,6 +70,11 @@ def _build_state_response(instance) -> WorkflowStateResponse:
     if instance.sub_order_id and instance.sub_order:
         sub_order_no = instance.sub_order.sub_order_no
 
+    effective_stages = [
+        WorkflowStageResponse(**stage)
+        for stage in get_effective_stages(instance.difficulty, instance.file_editable)
+    ]
+
     return WorkflowStateResponse(
         id=instance.id,
         translation_project_id=instance.translation_project_id,
@@ -80,6 +89,7 @@ def _build_state_response(instance) -> WorkflowStateResponse:
         project_status=instance.project_status,
         stage_notes=instance.stage_notes,
         stage_data=instance.stage_data,
+        effective_stages=effective_stages,
         logs=logs,
         created_at=instance.created_at,
         updated_at=instance.updated_at,
@@ -96,6 +106,14 @@ def get_my_tasks_endpoint(
     """Return tasks assigned to the current authenticated user."""
     tasks = get_my_tasks(db, current_user.id)
     return tasks
+
+
+@router.get("/config", response_model=WorkflowConfigResponse)
+def get_workflow_config():
+    """返回基础工作流阶段定义，供前端展示或兜底使用"""
+    return WorkflowConfigResponse(
+        all_stages=[WorkflowStageResponse(**stage) for stage in ALL_STAGES]
+    )
 
 
 @router.get("/{project_id}", response_model=WorkflowStateResponse)

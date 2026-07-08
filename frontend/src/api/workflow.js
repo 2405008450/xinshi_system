@@ -8,6 +8,7 @@ import { getUsers } from './users'
 import api from './index'
 
 // ===== 母订单工作流 =====
+export const getWorkflowConfigAPI = () => api.get('/workflow/config')
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getWorkflowStateAPI = (projectId) => api.get(`/workflow/${projectId}`)
 export const initWorkflowAPI = (projectId) => api.post(`/workflow/${projectId}/init`)

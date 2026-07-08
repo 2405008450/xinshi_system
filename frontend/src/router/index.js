@@ -1,10 +1,7 @@
 ﻿import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
-import { SCHEDULE_ADMIN_ROLES, canAccessRoute, isSuperAdmin, getStoredRoles, hasRole } from '../utils/permission'
-
-/** 排班管理编辑权限（仅项目总监与超级管理员）*/
-const scheduleAdminRoles = SCHEDULE_ADMIN_ROLES
+import { canAccessRoute, isSuperAdmin } from '../utils/permission'
 
 const routes = [
   {
@@ -267,12 +264,6 @@ router.beforeEach((to, from, next) => {
   }
 
   if (!token) {
-    next('/login')
-    return
-  }
-
-  const userRoles = getStoredRoles()
-  if (userRoles.length === 0) {
     next('/login')
     return
   }
