@@ -29,7 +29,7 @@
     </div>
 
     <el-collapse-transition>
-      <div v-show="expanded" class="collapsible-section__body">
+      <div v-if="hasBeenExpanded" v-show="expanded" class="collapsible-section__body">
         <slot />
       </div>
     </el-collapse-transition>
@@ -58,12 +58,14 @@ function readInitialState() {
 }
 
 const expanded = ref(readInitialState())
+const hasBeenExpanded = ref(expanded.value)
 
 function toggle() {
   expanded.value = !expanded.value
 }
 
 watch(expanded, (value) => {
+  if (value) hasBeenExpanded.value = true
   try {
     localStorage.setItem(`${STORAGE_PREFIX}${props.storageKey}`, value ? '1' : '0')
   } catch {}

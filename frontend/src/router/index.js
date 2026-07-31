@@ -1,7 +1,7 @@
 ﻿import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
-import { canAccessRoute, hasPermission, isSuperAdmin } from '../utils/permission'
+import { canAccessRoute, getDefaultRoute } from '../utils/permission'
 
 const routes = [
   {
@@ -255,16 +255,6 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 })
-
-function getDefaultRoute() {
-  if (isSuperAdmin() || hasPermission('system:users:read')) return '/users'
-  if (hasPermission('projects:read')) return '/translation'
-  if (hasPermission('schedule:read')) return '/work-schedule'
-  if (hasPermission('clients:read')) return '/clients'
-  if (hasPermission('translators:read')) return '/resource-management/translators'
-  if (hasPermission('finance:read')) return '/finance'
-  return '/dashboard'
-}
 
 // 路由守卫：认证 + 角色权限
 router.beforeEach((to, from, next) => {

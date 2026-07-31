@@ -80,6 +80,20 @@ export function hasPermission(permissionOrPermissions, userPermissions) {
 }
 
 /**
+ * 登录后和访问根路径时使用的默认页面。
+ * 优先进入工作台，避免先跳固定地址后再由路由守卫二次重定向。
+ */
+export function getDefaultRoute() {
+  if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
+  if (hasPermission('system:users:read')) return '/users'
+  if (hasPermission('schedule:read')) return '/work-schedule'
+  if (hasPermission('clients:read')) return '/clients'
+  if (hasPermission('translators:read')) return '/resource-management/translators'
+  if (hasPermission('finance:read')) return '/finance'
+  return '/dashboard'
+}
+
+/**
  * 路由 meta.roles：未配置或空数组表示仅超级管理员可访问
  * 配置了角色列表表示：超级管理员 或 拥有列表中任一角色的用户 可访问
  * @param {import('vue-router').RouteLocationNormalized} route

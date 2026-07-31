@@ -76,6 +76,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, OfficeBuilding } from '@element-plus/icons-vue'
 import api from '@/api/index'
+import { getDefaultRoute } from '@/utils/permission'
 
 const router = useRouter()
 const loginFormRef = ref(null)
@@ -97,33 +98,36 @@ const rules = {
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
-  
-  await loginFormRef.value.validate(async (valid) => {
-    if (valid) {
-      loading.value = true
-      try {
-        const { login } = await import('@/api/auth')
-        const res = await login(loginForm)
-        localStorage.setItem('token', res.access_token)
-        localStorage.setItem('user_id', res.user_id)
-        const raw = Array.isArray(res.roles) ? res.roles : []
-        const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
-        localStorage.setItem('user_roles', JSON.stringify(roles))
-        localStorage.setItem(
-          'user_permissions',
-          JSON.stringify(Array.isArray(res.permissions) ? res.permissions : [])
-        )
-        localStorage.setItem('user_name', loginForm.username || '')
-        localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
-        ElMessage.success('登录成功')
-        router.push('/workbench')
-      } catch (error) {
-        ElMessage.error(error.detail || error.message || '登录失败')
-      } finally {
-        loading.value = false
-      }
-    }
-  })
+
+  try {
+    await loginFormRef.value.validate()
+  } catch {
+    return
+  }
+
+  loading.value = true
+  try {
+    const { login } = await import('@/api/auth')
+    const res = await login(loginForm)
+    localStorage.setItem('token', res.access_token)
+    localStorage.setItem('user_id', res.user_id)
+    const raw = Array.isArray(res.roles) ? res.roles : []
+    const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
+    localStorage.setItem('user_roles', JSON.stringify(roles))
+    localStorage.setItem(
+      'user_permissions',
+      JSON.stringify(Array.isArray(res.permissions) ? res.permissions : [])
+    )
+    localStorage.setItem('user_name', loginForm.username || '')
+    localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
+
+    await router.replace(getDefaultRoute())
+    ElMessage.success('登录成功')
+  } catch (error) {
+    ElMessage.error(error.detail || error.message || '登录或页面加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
