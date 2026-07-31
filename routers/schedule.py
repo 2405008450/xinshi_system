@@ -18,9 +18,9 @@ from schemas import (
     WorkScheduleCreate, WorkScheduleUpdate, WorkScheduleResponse,
     TranslatorScheduleCreate, TranslatorScheduleUpdate, TranslatorScheduleResponse
 )
-from routers.auth import get_current_user
+from routers.auth import require_module_access
 
-router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(require_module_access("schedule:read", "schedule:write"))])
 
 WEEKDAY_HEADER_MAP = {
     "星期一": 0,

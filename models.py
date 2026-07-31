@@ -48,6 +48,17 @@ class Role(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
 
     user_role: Mapped[list['UserRole']] = relationship('UserRole', back_populates='role')
+    role_permissions: Mapped[list['RolePermission']] = relationship(
+        'RolePermission',
+        back_populates='role',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def permissions(self) -> list[str]:
+        if self.role_name in ('admin', '超级管理员'):
+            return ['*']
+        return sorted(item.permission_code for item in self.role_permissions)
 
 
 class Client(Base):
@@ -186,6 +197,11 @@ class Consultation(Base):
     sales_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[sales_person_id])
     editor: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[editor_id])
     follow_up_person: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[follow_up_person_id])
+    translation_project: Mapped[Optional['TranslationProject']] = relationship(
+        'TranslationProject',
+        back_populates='consultation',
+        uselist=False,
+    )
 
 
 class Translator(Base):
@@ -270,30 +286,60 @@ class TranslationProject(Base):
     __tablename__ = 'translation_project'
     __table_args__ = (
         ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='RESTRICT', name='fk_translation_project_client'),
+        ForeignKeyConstraint(['sub_client_id'], ['sub_client.id'], ondelete='SET NULL', name='fk_translation_project_sub_client'),
+        ForeignKeyConstraint(['consultation_id'], ['consultation.id'], ondelete='SET NULL', name='fk_translation_project_consultation'),
         ForeignKeyConstraint(['translator_id'], ['translator.id'], ondelete='SET NULL', name='fk_translation_project_translator'),
+        ForeignKeyConstraint(['project_manager_id'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_manager'),
         ForeignKeyConstraint(['pm_confirmed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_pm'),
         ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_creator'),
         PrimaryKeyConstraint('id', name='translation_project_pkey'),
-        UniqueConstraint('order_no', name='translation_project_order_no_key')
+        UniqueConstraint('order_no', name='translation_project_order_no_key'),
+        UniqueConstraint('consultation_id', name='uq_translation_project_consultation')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_type: Mapped[Optional[str]] = mapped_column(String(50))
+    consultation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     file_type_secondary: Mapped[Optional[str]] = mapped_column(String(100))
+    project_contract_type: Mapped[Optional[str]] = mapped_column(String(100))
+    project_contract_status: Mapped[Optional[str]] = mapped_column(String(100))
+    quotation_required: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text('false'),
+    )
+    quotation_status: Mapped[Optional[str]] = mapped_column(String(100))
+    quotation_path: Mapped[Optional[str]] = mapped_column(Text)
+    customer_requirement_professional: Mapped[Optional[str]] = mapped_column(Text)
+    customer_requirement_special: Mapped[Optional[str]] = mapped_column(Text)
     
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    # 客户公司内部用于追踪外包项目的单号。
+    customer_order_no: Mapped[Optional[str]] = mapped_column(String(100))
+    service_content: Mapped[Optional[str]] = mapped_column(String(255))
     customer_reception_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     sent_to_client_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     client_feedback: Mapped[Optional[str]] = mapped_column(Text)
     
-    language_pair: Mapped[Optional[str]] = mapped_column(String(100))
+    language_pair: Mapped[Optional[str]] = mapped_column(String(500))
     priority: Mapped[Optional[str]] = mapped_column(String(50))
     word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    # 按统计来源拆分字数；word_count 继续作为旧数据兼容字段。
+    customer_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    customer_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
+    internal_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    internal_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
     
     project_status: Mapped[Optional[str]] = mapped_column(String(50))
+    # 管理层主负责人；与工作流当前处理人分离。
+    project_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     pm_confirmed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    major_project_manager_confirmation: Mapped[Optional[str]] = mapped_column(String(255))
     
     translator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     translator_assignment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -314,10 +360,18 @@ class TranslationProject(Base):
 
     # 网络文件路径（如 \\win-server\xxx）
     network_file_path: Mapped[Optional[str]] = mapped_column(String(500))
+    # 老系统稿件安排中的“参考文件路径一”，稿件安排通过 translation_project_id 读取。
+    reference_file_path_one: Mapped[Optional[str]] = mapped_column(String(500))
 
     # Relationships
     client: Mapped[Optional['Client']] = relationship('Client', back_populates='projects')
+    sub_client: Mapped[Optional['SubClient']] = relationship('SubClient', foreign_keys=[sub_client_id])
+    consultation: Mapped[Optional['Consultation']] = relationship(
+        'Consultation',
+        back_populates='translation_project',
+    )
     translator: Mapped[Optional['Translator']] = relationship('Translator', back_populates='projects')
+    project_manager: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[project_manager_id])
     pm_user: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[pm_confirmed_by])
     creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
     
@@ -327,6 +381,18 @@ class TranslationProject(Base):
     chat_setting: Mapped[Optional['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='project', uselist=False, cascade='all, delete-orphan')
     chat_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='project', cascade='all, delete-orphan')
     sub_orders: Mapped[list['TranslationSubOrder']] = relationship('TranslationSubOrder', back_populates='parent_project', cascade='all, delete-orphan')
+
+    @property
+    def translator_name(self) -> Optional[str]:
+        """通过译员外键返回姓名，供项目详情接口直接展示。"""
+        return self.translator.translator_name if self.translator else None
+
+    @property
+    def project_manager_name(self) -> Optional[str]:
+        """返回项目管理层主负责人的显示名称。"""
+        if not self.project_manager:
+            return None
+        return self.project_manager.full_name or self.project_manager.username
 
 
 class TranslationSubOrder(Base):
@@ -342,14 +408,19 @@ class TranslationSubOrder(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     parent_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    sub_order_no: Mapped[str] = mapped_column(String(60), nullable=False)  # 如 TP-20260302-0014.0001
+    sub_order_no: Mapped[str] = mapped_column(String(60), nullable=False)  # 如 TP-260302-014.001
     sub_project_name: Mapped[Optional[str]] = mapped_column(String(255))
 
     # 文件/语言/字数
     file_type_secondary: Mapped[Optional[str]] = mapped_column(String(100))
-    language_pair: Mapped[Optional[str]] = mapped_column(String(100))
+    language_pair: Mapped[Optional[str]] = mapped_column(String(500))
     priority: Mapped[Optional[str]] = mapped_column(String(50))
     word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    # 子订单可覆盖母项目的客户统计和内部统计。
+    customer_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    customer_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
+    internal_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
+    internal_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
 
     # 时间节点（子订单独立的时间）
     customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -366,6 +437,7 @@ class TranslationSubOrder(Base):
     status: Mapped[Optional[str]] = mapped_column(String(50), server_default=text("'pending'"))
     translator_delivery_progress: Mapped[Optional[str]] = mapped_column(String(20))
     pre_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
+    review_progress: Mapped[Optional[str]] = mapped_column(String(20))
     review1_progress: Mapped[Optional[str]] = mapped_column(String(20))
     review2_progress: Mapped[Optional[str]] = mapped_column(String(20))
     post_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
@@ -386,6 +458,11 @@ class TranslationSubOrder(Base):
     creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
     workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='sub_order', uselist=False, cascade='all, delete-orphan')
 
+    @property
+    def translator_name(self) -> Optional[str]:
+        """通过译员外键返回姓名，供子订单详情接口直接展示。"""
+        return self.translator.translator_name if self.translator else None
+
 
 class UserRole(Base):
     __tablename__ = 'user_role'
@@ -405,6 +482,22 @@ class UserRole(Base):
     user: Mapped['AppUser'] = relationship('AppUser', back_populates='user_role')
 
 
+class RolePermission(Base):
+    __tablename__ = 'role_permission'
+    __table_args__ = (
+        ForeignKeyConstraint(['role_id'], ['role.id'], ondelete='CASCADE', name='fk_role_permission_role'),
+        PrimaryKeyConstraint('id', name='role_permission_pkey'),
+        UniqueConstraint('role_id', 'permission_code', name='uq_role_permission')
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    role_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    permission_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    role: Mapped['Role'] = relationship('Role', back_populates='role_permissions')
+
+
 class ProjectFile(Base):
     __tablename__ = 'project_file'
     __table_args__ = (
@@ -419,8 +512,19 @@ class ProjectFile(Base):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)          # 原文路径
     dispatch_path: Mapped[Optional[str]] = mapped_column(Text)               # 派稿文路径
     translation_path: Mapped[Optional[str]] = mapped_column(Text)            # 译文路径
+    translator_return_path: Mapped[Optional[str]] = mapped_column(Text)       # 译员发回路径
     client_delivery_path: Mapped[Optional[str]] = mapped_column(Text)        # 发客户路径
-    file_type: Mapped[Optional[str]] = mapped_column(String(50))
+    project_feedback_path: Mapped[Optional[str]] = mapped_column(Text)        # 项目反馈路径
+    feedback_delivery_path: Mapped[Optional[str]] = mapped_column(Text)       # 反馈后发客户路径
+    translation_domain_level1: Mapped[Optional[str]] = mapped_column(String(255))  # 翻译文本领域一级
+    translation_domain_level2: Mapped[Optional[str]] = mapped_column(String(255))  # 翻译文本领域二级
+    file_type: Mapped[Optional[str]] = mapped_column(String(255))             # 文件类型一级（兼容原字段）
+    file_type_secondary: Mapped[Optional[str]] = mapped_column(String(255))   # 文件类型二级
+    file_format: Mapped[Optional[str]] = mapped_column(String(100))           # 文件格式
+    file_attribute_level1: Mapped[Optional[str]] = mapped_column(String(255)) # 文件属性一级
+    file_attribute_level2: Mapped[Optional[str]] = mapped_column(String(255)) # 文件属性二级
+    file_attribute_level3: Mapped[Optional[str]] = mapped_column(String(255)) # 文件属性三级
+    file_difficulty: Mapped[Optional[str]] = mapped_column(String(100))       # 文件难度
     file_ext: Mapped[Optional[str]] = mapped_column(String(20))
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger)
     storage_type: Mapped[Optional[str]] = mapped_column(String(50))
@@ -479,12 +583,20 @@ class ChatProjectMessage(Base):
     sender_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sender_name: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    message_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'user'"))
+    content_json: Mapped[Optional[dict]] = mapped_column(JSONB)
+    event_data: Mapped[Optional[dict]] = mapped_column('metadata', JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='chat_messages')
     sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
     mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')
+    attachment_links: Mapped[list['ChatProjectMessageAttachment']] = relationship(
+        'ChatProjectMessageAttachment',
+        back_populates='message',
+        cascade='all, delete-orphan',
+    )
 
 
 class ChatProjectMention(Base):
@@ -505,6 +617,49 @@ class ChatProjectMention(Base):
 
     message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='mentions')
     mentioned_user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_mentions')
+
+
+class ChatProjectAttachment(Base):
+    __tablename__ = 'chat_project_attachment'
+    __table_args__ = (
+        ForeignKeyConstraint(['uploaded_by'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_attachment_uploader'),
+        PrimaryKeyConstraint('id', name='chat_project_attachment_pkey'),
+        Index('ix_chat_project_attachment_created_at', 'created_at'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    message_links: Mapped[list['ChatProjectMessageAttachment']] = relationship(
+        'ChatProjectMessageAttachment',
+        back_populates='attachment',
+        cascade='all, delete-orphan',
+    )
+
+
+class ChatProjectMessageAttachment(Base):
+    __tablename__ = 'chat_project_message_attachment'
+    __table_args__ = (
+        ForeignKeyConstraint(['message_id'], ['chat_project_message.id'], ondelete='CASCADE', name='fk_chat_message_attachment_message'),
+        ForeignKeyConstraint(['attachment_id'], ['chat_project_attachment.id'], ondelete='CASCADE', name='fk_chat_message_attachment_attachment'),
+        PrimaryKeyConstraint('id', name='chat_project_message_attachment_pkey'),
+        UniqueConstraint('message_id', 'attachment_id', name='uq_chat_message_attachment'),
+        Index('ix_chat_message_attachment_attachment_id', 'attachment_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    attachment_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='attachment_links')
+    attachment: Mapped['ChatProjectAttachment'] = relationship('ChatProjectAttachment', back_populates='message_links')
+
 
 class AppNotification(Base):
     __tablename__ = 'app_notification'

@@ -9,9 +9,9 @@ from crud import (
     create_translator, update_translator, delete_translator
 )
 from schemas import TranslatorCreate, TranslatorUpdate, TranslatorResponse
-from routers.auth import get_current_user
+from routers.auth import require_module_access
 
-router = APIRouter(prefix="/translators", tags=["translators"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/translators", tags=["translators"], dependencies=[Depends(require_module_access("translators:read", "translators:write"))])
 
 @router.post("/", response_model=TranslatorResponse, status_code=status.HTTP_201_CREATED)
 def create_translator_endpoint(translator: TranslatorCreate, db: Session = Depends(get_db)):

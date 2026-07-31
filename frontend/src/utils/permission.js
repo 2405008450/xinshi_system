@@ -31,6 +31,17 @@ export function getStoredRoles() {
   }
 }
 
+export function getStoredPermissions() {
+  try {
+    const raw = localStorage.getItem('user_permissions')
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * 是否为超级管理员（拥有全部权限）
  * @param {string[]} [roles] 不传则从 localStorage 读
@@ -53,6 +64,22 @@ export function hasRole(roleOrRoles, userRoles) {
 }
 
 /**
+ * 判断当前用户是否拥有指定权限之一。
+ * `*` 由后端仅授予超级管理员。
+ */
+export function hasPermission(permissionOrPermissions, userPermissions) {
+  // 兼容 RBAC 升级前已登录的超级管理员会话：
+  // 旧会话没有 user_permissions，但已有超级管理员角色。
+  if (isSuperAdmin()) return true
+  const permissions = userPermissions ?? getStoredPermissions()
+  if (permissions.includes('*')) return true
+  const required = Array.isArray(permissionOrPermissions)
+    ? permissionOrPermissions
+    : [permissionOrPermissions]
+  return required.some((permission) => permissions.includes(permission))
+}
+
+/**
  * 路由 meta.roles：未配置或空数组表示仅超级管理员可访问
  * 配置了角色列表表示：超级管理员 或 拥有列表中任一角色的用户 可访问
  * @param {import('vue-router').RouteLocationNormalized} route
@@ -61,6 +88,11 @@ export function hasRole(roleOrRoles, userRoles) {
 export function canAccessRoute(route) {
   const userRoles = getStoredRoles()
   if (isSuperAdmin(userRoles)) return true
+
+  const metaPermissions = route.meta?.permissions
+  if (metaPermissions?.length) {
+    return hasPermission(metaPermissions)
+  }
 
   const metaRoles = route.meta?.roles
   if (!metaRoles || metaRoles.length === 0) return false
@@ -75,8 +107,7 @@ export function canAccessRoute(route) {
  */
 export const TRANSLATION_PROJECT_PATHS = [
   '/translation',
-  '/translation-details',
-  '/translation-files'
+  '/translation-details'
 ]
 
 /** 排班管理编辑权限：仅项目经理与超级管理员可以编辑 */
@@ -91,5 +122,5 @@ export const SCHEDULE_ADMIN_ROLES = [
  * @returns {boolean}
  */
 export function canEditSchedule() {
-  return isSuperAdmin() || hasRole(SCHEDULE_ADMIN_ROLES)
+  return hasPermission('schedule:write')
 }

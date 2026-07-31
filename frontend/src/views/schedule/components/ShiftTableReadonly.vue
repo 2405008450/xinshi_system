@@ -1,6 +1,5 @@
 <template>
-  <div class="section-block">
-    <h3 class="section-title">今日班次</h3>
+  <div>
     <el-table :data="data" border size="small" class="data-table">
       <el-table-column prop="shift" label="班次" width="160" show-overflow-tooltip />
       <el-table-column prop="layoutIt" label="排版" min-width="140" show-overflow-tooltip />
@@ -18,13 +17,5 @@ defineProps({
 </script>
 
 <style scoped>
-.section-block { margin-bottom: 28px; }
-.section-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--el-color-primary-light-7);
-}
 .data-table { margin-bottom: 12px; }
 </style>

@@ -31,6 +31,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('user_roles')
+      localStorage.removeItem('user_permissions')
       localStorage.removeItem('user_name')
       localStorage.removeItem('user_id')
       localStorage.removeItem('user_full_name')

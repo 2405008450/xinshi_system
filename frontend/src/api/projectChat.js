@@ -36,3 +36,14 @@ export const getProjectChatMessages = (projectId, params = {}) => {
 export const createProjectChatMessage = (projectId, data) => {
   return api.post(`/project-chat/${projectId}/messages`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
+
+export const uploadProjectChatAttachment = (file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/project-chat/attachments', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }).then(res => convertKeys(res, toCamelCase))
+}
+
+export const getProjectChatAttachmentBlob = (attachmentId) =>
+  api.get(`/project-chat/attachments/${attachmentId}`, { responseType: 'blob' })

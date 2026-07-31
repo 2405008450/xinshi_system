@@ -12,9 +12,9 @@ from crud import (
 )
 from models import ProjectFile
 from schemas import ProjectFileCreate, ProjectFileUpdate, ProjectFileResponse
-from routers.auth import get_current_user
+from routers.auth import require_module_access
 
-router = APIRouter(prefix="/project-files", tags=["project-files"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/project-files", tags=["project-files"], dependencies=[Depends(require_module_access("project_files:read", "project_files:write"))])
 
 
 @router.post("/", response_model=ProjectFileResponse, status_code=status.HTTP_201_CREATED)
@@ -31,6 +31,9 @@ def create_project_file_endpoint(project_file: ProjectFileCreate, db: Session = 
         return create_project_file(db=db, project_file=project_file)
     except HTTPException:
         raise
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except IntegrityError as e:
         db.rollback()
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
@@ -96,10 +99,24 @@ def update_project_file_endpoint(
     file_update: ProjectFileUpdate,
     db: Session = Depends(get_db)
 ):
-    db_file = update_project_file(db, file_id=file_id, file_update=file_update)
-    if db_file is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件记录不存在")
-    return db_file
+    try:
+        db_file = update_project_file(db, file_id=file_id, file_update=file_update)
+        if db_file is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件记录不存在")
+        return db_file
+    except HTTPException:
+        raise
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except IntegrityError as e:
+        db.rollback()
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误：{error_msg}")
+    except DatabaseError as e:
+        db.rollback()
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误：{error_msg}")
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

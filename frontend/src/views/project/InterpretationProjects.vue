@@ -10,7 +10,7 @@
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="project_no" label="项目编号" width="150" />
-      <el-table-column prop="client_name" label="客户名称" width="200" />
+      <el-table-column prop="client_name" label="客户全称" width="200" />
       <el-table-column prop="interpretation_type" label="口译类型" width="120" />
       <el-table-column prop="source_language" label="源语言" width="100" />
       <el-table-column prop="target_language" label="目标语言" width="100" />
@@ -61,7 +61,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <el-input v-model="form.client_name" />
             </el-form-item>
           </el-col>
@@ -165,7 +165,7 @@ const form = reactive({
 
 const rules = {
   project_no: [{ required: true, message: '请输入项目编号', trigger: 'blur' }],
-  client_name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }]
+  client_name: [{ required: true, message: '请输入客户全称', trigger: 'blur' }]
 }
 
 const getStatusType = (status) => {

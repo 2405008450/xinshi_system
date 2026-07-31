@@ -19,7 +19,7 @@
           @change="handleToggle"
         />
       </div>
-      <div class="chat-toolbar__hint">所有系统账号均可查看和发送消息；仅管理员或项目经理可开启/关闭项目沟通。</div>
+      <div class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
 
       <el-alert
         v-if="!settings.enabled"
@@ -29,7 +29,7 @@
         :title="settings.canManage ? '当前项目沟通未开启，可在右上角打开。' : '当前项目沟通未开启。'"
       />
 
-      <template v-else>
+      <template>
         <el-form :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词">
             <el-input v-model="filters.keyword" clearable placeholder="搜消息内容" style="width: 180px" @keyup.enter="handleSearch" />
@@ -61,11 +61,34 @@
               <div class="chat-message-card__meta">
                 <div class="chat-message-card__author">
                   <strong>{{ message.senderName || '未知用户' }}</strong>
+                  <el-tag v-if="message.messageType !== 'user'" size="small" :type="message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
+                    {{ message.messageType === 'claim' ? '继承记录' : '交接记录' }}
+                  </el-tag>
                   <el-tag v-if="message.mentionedUserName" size="small" type="warning" effect="plain">@{{ message.mentionedUserName }}</el-tag>
                 </div>
                 <span>{{ formatDateTime(message.createdAt) }}</span>
               </div>
-              <div class="chat-message-card__content">{{ message.content }}</div>
+              <RichTextContent :document="message.contentJson" :fallback="message.content" />
+              <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
+                <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
+                  <strong>{{ task.orderNo }}</strong>
+                  <span>{{ task.taskName }}</span>
+                  <span>{{ task.fromUserName }} → {{ task.toUserName }}</span>
+                </div>
+              </div>
+              <div v-if="message.attachments?.length" class="message-attachments">
+                <a
+                  v-for="attachment in message.attachments"
+                  :key="attachment.id"
+                  :href="attachmentUrls[attachment.id] || undefined"
+                  target="_blank"
+                  rel="noopener"
+                  class="message-attachment"
+                >
+                  <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                  <span>{{ attachment.originalName }}</span>
+                </a>
+              </div>
             </div>
           </div>
           <el-empty v-else description="暂无沟通记录" :image-size="72" />
@@ -84,7 +107,7 @@
           />
         </div>
 
-        <div class="chat-composer">
+        <div v-if="settings.enabled" class="chat-composer">
           <div class="chat-composer__header">发送消息</div>
           <el-select
             v-model="composer.mentionedUserId"
@@ -95,16 +118,38 @@
           >
             <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
           </el-select>
-          <el-input
-            v-model="composer.content"
-            type="textarea"
-            :rows="4"
-            maxlength="2000"
-            show-word-limit
-            placeholder="输入项目沟通内容..."
+          <RichTextComposer
+            v-model="composer.contentJson"
+            placeholder="输入项目沟通内容…"
+            @update:plain-text="composer.content = $event"
           />
+          <div class="composer-attachments">
+            <el-upload
+              :show-file-list="false"
+              :http-request="handleAttachmentUpload"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+            >
+              <el-button :loading="uploading" :disabled="composer.attachments.length >= 9">添加图片</el-button>
+            </el-upload>
+            <el-tag
+              v-for="attachment in composer.attachments"
+              :key="attachment.id"
+              closable
+              @close="removeComposerAttachment(attachment.id)"
+            >
+              {{ attachment.originalName }}
+            </el-tag>
+          </div>
           <div class="chat-composer__actions">
-            <el-button type="primary" :loading="sending" :disabled="!composer.content.trim()" @click="handleSend">发送消息</el-button>
+            <el-button
+              type="primary"
+              :loading="sending"
+              :disabled="!composer.content.trim() && !composer.attachments.length"
+              @click="handleSend"
+            >
+              发送消息
+            </el-button>
           </div>
         </div>
       </template>
@@ -116,7 +161,16 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getUsers } from '@/api/users'
-import { createProjectChatMessage, getProjectChatMessages, getProjectChatSettings, updateProjectChatSettings } from '@/api/projectChat'
+import {
+  createProjectChatMessage,
+  getProjectChatAttachmentBlob,
+  getProjectChatMessages,
+  getProjectChatSettings,
+  updateProjectChatSettings,
+  uploadProjectChatAttachment
+} from '@/api/projectChat'
+import RichTextComposer from '@/components/RichTextComposer.vue'
+import RichTextContent from '@/components/RichTextContent.vue'
 
 const props = defineProps({
   projectId: { type: [String, Number], default: '' },
@@ -129,11 +183,19 @@ const settingsLoading = ref(false)
 const toggleLoading = ref(false)
 const messagesLoading = ref(false)
 const sending = ref(false)
+const uploading = ref(false)
 const userOptions = ref([])
 const messages = ref([])
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [] })
-const composer = reactive({ content: '', mentionedUserId: '' })
+const composer = reactive({
+  content: '',
+  contentJson: { type: 'doc', content: [{ type: 'paragraph' }] },
+  mentionedUserId: '',
+  attachments: []
+})
+const attachmentUrls = reactive({})
+const attachmentObjectUrls = new Set()
 const chatListMaxHeight = computed(() => (props.drawerMode ? 'calc(100vh - 360px)' : '420px'))
 let pollTimer = null
 
@@ -142,6 +204,27 @@ const clearPolling = () => {
     window.clearInterval(pollTimer)
     pollTimer = null
   }
+}
+
+const clearAttachmentUrls = () => {
+  attachmentObjectUrls.forEach(url => URL.revokeObjectURL(url))
+  attachmentObjectUrls.clear()
+  Object.keys(attachmentUrls).forEach(key => delete attachmentUrls[key])
+}
+
+const ensureAttachmentUrls = async (items) => {
+  const attachments = items.flatMap(item => item.attachments || [])
+  await Promise.all(attachments.map(async (attachment) => {
+    if (attachmentUrls[attachment.id]) return
+    try {
+      const blob = await getProjectChatAttachmentBlob(attachment.id)
+      const url = URL.createObjectURL(blob)
+      attachmentUrls[attachment.id] = url
+      attachmentObjectUrls.add(url)
+    } catch (error) {
+      console.error('加载留言图片失败', error)
+    }
+  }))
 }
 
 const formatDateTime = (value) => {
@@ -162,7 +245,10 @@ const resetChatState = () => {
   filters.senderUserId = ''
   filters.dateRange = []
   composer.content = ''
+  composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserId = ''
+  composer.attachments = []
+  clearAttachmentUrls()
   clearPolling()
 }
 
@@ -193,7 +279,7 @@ const loadSettings = async () => {
 }
 
 const loadMessages = async () => {
-  if (!props.projectId || !settings.enabled) {
+  if (!props.projectId) {
     messages.value = []
     pagination.total = 0
     return
@@ -213,6 +299,7 @@ const loadMessages = async () => {
     if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     messages.value = Array.isArray(res?.items) ? res.items : []
     pagination.total = Number(res?.total || 0)
+    await ensureAttachmentUrls(messages.value)
   } catch (error) {
     messages.value = []
     pagination.total = 0
@@ -225,12 +312,7 @@ const loadMessages = async () => {
 const refreshChat = async () => {
   if (!props.projectId) return
   await Promise.all([loadSettings(), ensureUsersLoaded()])
-  if (settings.enabled) {
-    await loadMessages()
-  } else {
-    messages.value = []
-    pagination.total = 0
-  }
+  await loadMessages()
 }
 
 const handleToggle = async (enabled) => {
@@ -244,8 +326,8 @@ const handleToggle = async (enabled) => {
       pagination.page = 1
       await loadMessages()
     } else {
-      messages.value = []
-      pagination.total = 0
+      pagination.page = 1
+      await loadMessages()
     }
     ElMessage.success(settings.enabled ? '已开启项目沟通' : '已关闭项目沟通')
   } catch (error) {
@@ -276,15 +358,19 @@ const handlePageSizeChange = () => {
 }
 
 const handleSend = async () => {
-  if (!props.projectId || !composer.content.trim()) return
+  if (!props.projectId || (!composer.content.trim() && !composer.attachments.length)) return
   sending.value = true
   try {
     await createProjectChatMessage(props.projectId, {
       content: composer.content.trim(),
-      mentionedUserId: composer.mentionedUserId || undefined
+      contentJson: composer.contentJson,
+      mentionedUserId: composer.mentionedUserId || undefined,
+      attachmentIds: composer.attachments.map(item => item.id)
     })
     composer.content = ''
+    composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserId = ''
+    composer.attachments = []
     pagination.page = 1
     await loadMessages()
     ElMessage.success('消息已发送')
@@ -295,9 +381,29 @@ const handleSend = async () => {
   }
 }
 
+const handleAttachmentUpload = async ({ file }) => {
+  if (composer.attachments.length >= 9) {
+    ElMessage.warning('每条留言最多添加 9 张图片')
+    return
+  }
+  uploading.value = true
+  try {
+    const attachment = await uploadProjectChatAttachment(file)
+    composer.attachments.push(attachment)
+  } catch (error) {
+    ElMessage.error(error?.detail || error?.message || '图片上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+const removeComposerAttachment = (attachmentId) => {
+  composer.attachments = composer.attachments.filter(item => item.id !== attachmentId)
+}
+
 const setupPolling = () => {
   clearPolling()
-  if (!props.active || !props.projectId || !settings.enabled) return
+  if (!props.active || !props.projectId) return
   pollTimer = window.setInterval(() => {
     loadMessages()
   }, 15000)
@@ -313,7 +419,7 @@ watch(() => props.projectId, async () => {
 
 watch(() => props.active, () => {
   setupPolling()
-  if (props.active && props.projectId && settings.enabled) {
+  if (props.active && props.projectId) {
     loadMessages()
   }
 })
@@ -328,6 +434,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearPolling()
+  clearAttachmentUrls()
 })
 </script>
 
@@ -411,6 +518,47 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
+.handover-task-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+}
+
+.handover-task-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr) minmax(140px, 1fr);
+  gap: 10px;
+}
+
+.message-attachments {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.message-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 132px;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.message-attachment img {
+  width: 132px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+
 .chat-pagination {
   display: flex;
   justify-content: flex-end;
@@ -432,6 +580,21 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+
+.composer-attachments {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .handover-task-list > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
 </style>
 

@@ -455,6 +455,7 @@ const displayValue = (value) => {
 }
 
 const detailItems = [
+  { label: '合作形式', key: 'cooperation_type' },
   { label: '联系电话', key: 'phone' },
   { label: '联系电话2', key: 'phone2' },
   { label: '邮箱1', key: 'email1' },

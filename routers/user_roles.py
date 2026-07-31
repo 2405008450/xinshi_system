@@ -6,14 +6,35 @@ from sqlalchemy.exc import IntegrityError, DatabaseError
 
 from database import get_db
 from crud import (
-    get_user_role, get_user_roles_by_user, get_user_roles_by_role,
+    get_user_role, get_user_roles, get_user_roles_by_user, get_user_roles_by_role,
     get_user_role_by_user_and_role, create_user_role,
     delete_user_role, delete_user_role_by_user_and_role
 )
-from schemas import UserRoleCreate, UserRoleResponse
-from routers.auth import get_current_user
+from schemas import UserRoleCreate, UserRoleDetailResponse, UserRoleResponse
+from routers.auth import require_permission
 
-router = APIRouter(prefix="/user-roles", tags=["user-roles"], dependencies=[Depends(get_current_user)])
+router = APIRouter(
+    prefix="/user-roles",
+    tags=["user-roles"],
+    dependencies=[Depends(require_permission("system:user_roles:write"))],
+)
+
+
+@router.get("/", response_model=List[UserRoleDetailResponse])
+def read_user_roles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    rows = get_user_roles(db, skip=skip, limit=limit)
+    return [
+        {
+            "id": row.id,
+            "user_id": row.user_id,
+            "role_id": row.role_id,
+            "created_at": row.created_at,
+            "username": row.user.username,
+            "user_full_name": row.user.full_name,
+            "role_name": row.role.role_name,
+        }
+        for row in rows
+    ]
 
 
 @router.post("/", response_model=UserRoleResponse, status_code=status.HTTP_201_CREATED)

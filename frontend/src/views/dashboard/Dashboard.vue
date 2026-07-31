@@ -181,8 +181,8 @@ onMounted(refreshDashboard)
   align-items: flex-end;
   gap: 20px;
   padding: 24px 28px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 55%, #60a5fa 100%);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--color-sidebar-deep) 0%, var(--color-primary) 100%);
   color: #fff;
 }
 
@@ -213,16 +213,16 @@ onMounted(refreshDashboard)
 
 .stat-card {
   padding: 20px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
 }
 
 .stat-card span {
   display: block;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -232,15 +232,16 @@ onMounted(refreshDashboard)
   margin: 10px 0 6px;
   font-size: 32px;
   line-height: 1;
+  color: var(--color-text-primary);
 }
 
 .stat-card small {
-  color: #4b5563;
+  color: var(--color-text-secondary);
 }
 
-.accent-warning { border-top: 4px solid #f59e0b; }
-.accent-success { border-top: 4px solid #10b981; }
-.accent-info { border-top: 4px solid #3b82f6; }
+.accent-warning { border-top: 4px solid var(--color-warning); }
+.accent-success { border-top: 4px solid var(--color-success); }
+.accent-info { border-top: 4px solid var(--color-info); }
 
 .content-grid {
   display: grid;
@@ -261,6 +262,20 @@ onMounted(refreshDashboard)
   }
 
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: 20px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 }

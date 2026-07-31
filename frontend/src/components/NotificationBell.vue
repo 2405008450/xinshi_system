@@ -141,6 +141,12 @@ const connectSocket = () => {
       if (payload?.type === 'notification' && payload.notification) {
         upsertNotification(payload.notification)
         unreadCount.value += payload.notification.is_read ? 0 : 1
+        if (payload.notification.notification_type === 'workflow_handover_pending') {
+          window.dispatchEvent(new CustomEvent('workflow-handover-pending'))
+        }
+        if (payload.notification.notification_type === 'project_manager_handover_pending') {
+          window.dispatchEvent(new CustomEvent('project-manager-handover-pending'))
+        }
         ElNotification({
           title: payload.notification.title,
           message: payload.notification.content,
@@ -190,7 +196,9 @@ const handleNotificationClick = async (item) => {
       item.is_read = true
       unreadCount.value = Math.max(0, unreadCount.value - 1)
     }
-    if (item.related_project_id) {
+    if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
+      router.push('/workbench')
+    } else if (item.related_project_id) {
       const targetTab = String(item.notification_type || '').startsWith('project_chat') ? 'chat' : 'overview'
       router.push({ path: '/translation', query: { projectId: item.related_project_id, tab: targetTab } })
     }
@@ -230,7 +238,7 @@ const formatTime = (value) => {
 
 <style scoped>
 .notification-trigger {
-  color: #4a5568;
+  color: var(--color-text-secondary);
 }
 
 .notification-panel {
@@ -255,9 +263,9 @@ const formatTime = (value) => {
 
 .notification-item {
   width: 100%;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
   padding: 12px;
   text-align: left;
   cursor: pointer;
@@ -265,26 +273,26 @@ const formatTime = (value) => {
 }
 
 .notification-item:hover {
-  border-color: #93c5fd;
-  background: #f8fbff;
+  border-color: #cbd5e1;
+  background: var(--color-page-bg);
 }
 
 .notification-item--unread {
-  border-color: #60a5fa;
-  background: #eff6ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .notification-item__title {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--color-text-primary);
 }
 
 .notification-item__content {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
-  color: #4b5563;
+  color: var(--color-text-secondary);
 }
 
 .notification-item__meta {
@@ -292,6 +300,6 @@ const formatTime = (value) => {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 </style>

@@ -11,16 +11,23 @@ from crud import (
 )
 from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
 from utils import generate_order_no
-from routers.auth import get_current_user
+from language_catalog import get_searchable_language_variants
+from routers.auth import get_current_user, require_module_access
 from models import AppUser
 
-router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 
 
 @router.get("/next-order-no")
 def get_next_order_no(db: Session = Depends(get_db)):
     """获取下一个订单号"""
     return {"orderNo": generate_order_no(db)}
+
+
+@router.get("/language-variants")
+def get_language_variants():
+    """返回可搜索的受控语种及地区变体。"""
+    return get_searchable_language_variants()
 
 
 @router.post("/", response_model=TranslationProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -52,6 +59,12 @@ def create_project_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {error_msg}"
+        )
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         )
     except Exception as e:
         db.rollback()
@@ -123,7 +136,14 @@ def update_project_endpoint(
     project_update: TranslationProjectUpdate,
     db: Session = Depends(get_db)
 ):
-    db_project = update_translation_project(db, project_id=project_id, project_update=project_update)
+    try:
+        db_project = update_translation_project(db, project_id=project_id, project_update=project_update)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     if db_project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

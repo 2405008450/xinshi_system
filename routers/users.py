@@ -1,20 +1,20 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import (
-    get_user, get_user_by_username, get_users,
+    get_user, get_user_by_username, get_users, count_users,
     create_user, update_user, delete_user
 )
 from schemas import AppUserCreate, AppUserUpdate, AppUserResponse
-from routers.auth import get_current_user
+from routers.auth import require_any_permission, require_permission
 
-router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("system:users:write"))])
 def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     # 检查用户名是否已存在
     db_user = get_user_by_username(db, username=user.username)
@@ -26,13 +26,40 @@ def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     return create_user(db=db, user=user)
 
 
-@router.get("/", response_model=List[AppUserResponse])
-def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    users = get_users(db, skip=skip, limit=limit)
+@router.get("/", response_model=List[AppUserResponse], dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
+def read_users(
+    skip: int = 0,
+    limit: int = 100,
+    username: Optional[str] = Query(None),
+    full_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    users = get_users(
+        db,
+        skip=skip,
+        limit=limit,
+        username=username,
+        full_name=full_name
+    )
     return users
 
 
-@router.get("/{user_id}", response_model=AppUserResponse)
+@router.get("/count", dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
+def read_user_count(
+    username: Optional[str] = Query(None),
+    full_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return {
+        "total": count_users(
+            db,
+            username=username,
+            full_name=full_name
+        )
+    }
+
+
+@router.get("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_user(user_id: UUID, db: Session = Depends(get_db)):
     db_user = get_user(db, user_id=user_id)
     if db_user is None:
@@ -43,7 +70,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
     return db_user
 
 
-@router.put("/{user_id}", response_model=AppUserResponse)
+@router.put("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_permission("system:users:write"))])
 def update_user_endpoint(
     user_id: UUID,
     user_update: AppUserUpdate,
@@ -58,7 +85,7 @@ def update_user_endpoint(
     return db_user
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("system:users:write"))])
 def delete_user_endpoint(user_id: UUID, db: Session = Depends(get_db)):
     success = delete_user(db, user_id=user_id)
     if not success:

@@ -3,9 +3,9 @@
 """
 from datetime import datetime
 from uuid import UUID
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- 请求模型 ---
@@ -113,8 +113,13 @@ class MyTaskItem(BaseModel):
     sub_order_id: Optional[UUID] = None
     order_no: str
     project_name: str
+    sub_project_name: Optional[str] = None
+    client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     current_stage_key: str
+    current_assignee_id: Optional[UUID] = None
+    current_assignee_name: Optional[str] = None
+    assignment_type: str = 'direct'
     difficulty: Optional[str] = None
     project_status: Optional[str] = None
     customer_deadline_time: Optional[datetime] = None
@@ -123,3 +128,141 @@ class MyTaskItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ActiveProjectItem(BaseModel):
+    """工作台中的进行中母订单或子订单。"""
+
+    workflow_instance_id: UUID
+    entity_type: Literal['project', 'suborder']
+    translation_project_id: UUID
+    sub_order_id: Optional[UUID] = None
+    order_no: str
+    project_name: str
+    sub_project_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    current_stage_key: str
+    current_assignee_id: Optional[UUID] = None
+    current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None
+    project_manager_id: Optional[UUID] = None
+    project_manager_name: Optional[str] = None
+    project_status: Optional[str] = None
+    customer_deadline_time: Optional[datetime] = None
+    language_pair: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    priority: Optional[str] = None
+    word_count: Optional[int] = None
+    expected_translator_stats_method: Optional[str] = None
+    expected_translator_word_count: Optional[int] = None
+    network_file_path: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ActiveProjectListResponse(BaseModel):
+    items: list[ActiveProjectItem] = Field(default_factory=list)
+    total: int = 0
+    overdue_total: int = 0
+    due_soon_total: int = 0
+
+
+class ManagedProjectItem(BaseModel):
+    """项目经理在管理层负责的母项目。"""
+
+    translation_project_id: UUID
+    order_no: str
+    project_name: str
+    client_short_name: Optional[str] = None
+    project_status: Optional[str] = None
+    customer_deadline_time: Optional[datetime] = None
+    project_manager_id: Optional[UUID] = None
+    project_manager_name: Optional[str] = None
+
+
+class ProjectManagerHandoverCreate(BaseModel):
+    translation_project_ids: list[UUID] = Field(min_length=1, max_length=100)
+    target_manager_id: UUID
+    reason: Optional[str] = Field(default=None, max_length=500)
+    note: Optional[str] = Field(default=None, max_length=5000)
+
+
+class ProjectManagerHandoverDecisionRequest(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class ProjectManagerHandoverResponse(BaseModel):
+    id: UUID
+    requester_id: Optional[UUID] = None
+    requester_name: Optional[str] = None
+    target_manager_id: UUID
+    target_manager_name: Optional[str] = None
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    status: str
+    decision_note: Optional[str] = None
+    created_at: Optional[datetime] = None
+    decided_at: Optional[datetime] = None
+    projects: list[ManagedProjectItem] = Field(default_factory=list)
+
+
+class WorkflowTransferContent(BaseModel):
+    content: str = Field(default='', max_length=10000)
+    content_json: Optional[dict] = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
+
+
+class WorkflowHandoverRequest(WorkflowTransferContent):
+    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    target_user_id: UUID
+    handover_type: Literal['daily_shift', 'weekend_holiday', 'leave_time_off', 'other']
+    reason_detail: Optional[str] = Field(default=None, max_length=500)
+
+
+class WorkflowClaimRequest(WorkflowTransferContent):
+    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    expected_assignee_ids: dict[UUID, UUID]
+
+
+class WorkflowTransferUser(BaseModel):
+    id: UUID
+    username: str
+    full_name: Optional[str] = None
+
+
+class WorkflowEligibleUsersRequest(BaseModel):
+    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+class WorkflowTransferResult(BaseModel):
+    action: str
+    transferred_count: int
+    workflow_instance_ids: list[UUID]
+
+
+class WorkflowHandoverAttachmentResponse(BaseModel):
+    id: UUID
+    original_name: str
+    content_type: str
+    file_size: int
+
+
+class WorkflowHandoverRequestResponse(BaseModel):
+    id: UUID
+    requester_id: Optional[UUID] = None
+    requester_name: Optional[str] = None
+    target_user_id: UUID
+    target_user_name: Optional[str] = None
+    handover_type: str
+    reason_detail: Optional[str] = None
+    content: str
+    content_json: Optional[dict] = None
+    status: str
+    decision_note: Optional[str] = None
+    created_at: Optional[datetime] = None
+    decided_at: Optional[datetime] = None
+    tasks: list[MyTaskItem] = Field(default_factory=list)
+    attachments: list[WorkflowHandoverAttachmentResponse] = Field(default_factory=list)
+
+
+class WorkflowHandoverDecisionRequest(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)

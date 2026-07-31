@@ -10,7 +10,7 @@
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="client_code" label="客户编号" width="150" />
-      <el-table-column prop="client_name" label="客户名称" width="200" />
+      <el-table-column prop="client_name" label="客户全称" width="200" />
       <el-table-column prop="client_short_name" label="客户简称" width="150" />
       <el-table-column prop="client_manager" label="客户负责人" width="150" />
       <el-table-column prop="manager_contact" label="负责人联系方式" width="150" />
@@ -72,7 +72,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <el-input v-model="form.client_name" :disabled="true" />
             </el-form-item>
           </el-col>

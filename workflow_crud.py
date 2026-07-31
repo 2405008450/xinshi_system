@@ -3,15 +3,24 @@
 包含阶段定义、难度过滤逻辑、推进/打回/初始化等核心业务方法
 """
 from decimal import Decimal
+import datetime
 from typing import Optional, List
 import uuid as _uuid
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, or_
-from sqlalchemy.orm import Session
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, func, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from workflow_models import WorkflowInstance, WorkflowLog
-from models import TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave
+from workflow_models import (
+    ProjectManagerHandoverItem,
+    ProjectManagerHandoverRequest,
+    WorkflowHandoverAttachment,
+    WorkflowHandoverItem,
+    WorkflowHandoverRequest,
+    WorkflowInstance,
+    WorkflowLog,
+)
+from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -73,6 +82,199 @@ def get_workflow_by_id(db: Session, instance_id: UUID) -> Optional[WorkflowInsta
         .first()
 
 
+def get_active_projects(
+    db: Session,
+    skip: int = 0,
+    limit: int = 20,
+    keyword: Optional[str] = None,
+) -> dict:
+    """查询仍在流转中的母订单和子订单，供团队工作台使用。"""
+    deadline = func.coalesce(
+        TranslationSubOrder.customer_deadline_time,
+        TranslationProject.customer_deadline_time,
+    )
+    query = (
+        db.query(
+            WorkflowInstance,
+            TranslationProject,
+            TranslationSubOrder,
+            Client.client_short_name,
+            AppUser.full_name,
+            AppUser.username,
+        )
+        .outerjoin(
+            TranslationSubOrder,
+            WorkflowInstance.sub_order_id == TranslationSubOrder.id,
+        )
+        .join(
+            TranslationProject,
+            or_(
+                WorkflowInstance.translation_project_id == TranslationProject.id,
+                TranslationSubOrder.parent_project_id == TranslationProject.id,
+            ),
+        )
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .outerjoin(AppUser, WorkflowInstance.current_assignee_id == AppUser.id)
+        .filter(WorkflowInstance.current_stage_key != 'completed')
+        .filter(
+            func.coalesce(WorkflowInstance.project_status, '').notin_(
+                ['completed', 'terminated', 'cancelled']
+            )
+        )
+        .filter(
+            func.coalesce(TranslationProject.project_status, '').notin_(
+                ['completed', 'terminated', 'cancelled', 'partially_cancelled']
+            )
+        )
+    )
+
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(
+            or_(
+                TranslationProject.order_no.ilike(pattern),
+                TranslationProject.project_name.ilike(pattern),
+                TranslationSubOrder.sub_order_no.ilike(pattern),
+                TranslationSubOrder.sub_project_name.ilike(pattern),
+                Client.client_short_name.ilike(pattern),
+                AppUser.full_name.ilike(pattern),
+                AppUser.username.ilike(pattern),
+            )
+        )
+
+    now = datetime.datetime.now()
+    due_soon = now + datetime.timedelta(hours=24)
+    total = query.count()
+    overdue_total = query.filter(deadline.is_not(None), deadline < now).count()
+    due_soon_total = query.filter(
+        deadline.is_not(None),
+        deadline >= now,
+        deadline <= due_soon,
+    ).count()
+    rows = (
+        query.order_by(deadline.asc().nullslast(), WorkflowInstance.updated_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for workflow, project, sub_order, client_short_name, full_name, username in rows:
+        is_sub_order = workflow.sub_order_id is not None
+        items.append(
+            {
+                'workflow_instance_id': workflow.id,
+                'entity_type': 'suborder' if is_sub_order else 'project',
+                'translation_project_id': project.id,
+                'sub_order_id': sub_order.id if is_sub_order and sub_order else None,
+                'order_no': (
+                    sub_order.sub_order_no
+                    if is_sub_order and sub_order
+                    else project.order_no
+                ),
+                'project_name': project.project_name,
+                'sub_project_name': (
+                    sub_order.sub_project_name
+                    if is_sub_order and sub_order
+                    else None
+                ),
+                'client_short_name': client_short_name,
+                'current_stage_key': workflow.current_stage_key,
+                'current_assignee_id': workflow.current_assignee_id,
+                'current_assignee_name': full_name or username,
+                'group_assign_role': workflow.group_assign_role,
+                'project_manager_id': project.project_manager_id,
+                'project_manager_name': project.project_manager_name,
+                'project_status': workflow.project_status,
+                'customer_deadline_time': (
+                    sub_order.customer_deadline_time
+                    if is_sub_order and sub_order
+                    else project.customer_deadline_time
+                ),
+                'language_pair': (
+                    sub_order.language_pair or project.language_pair
+                    if is_sub_order and sub_order
+                    else project.language_pair
+                ),
+                'file_type_secondary': (
+                    sub_order.file_type_secondary or project.file_type_secondary
+                    if is_sub_order and sub_order
+                    else project.file_type_secondary
+                ),
+                'priority': (
+                    sub_order.priority or project.priority
+                    if is_sub_order and sub_order
+                    else project.priority
+                ),
+                'word_count': (
+                    sub_order.word_count
+                    if is_sub_order and sub_order and sub_order.word_count is not None
+                    else project.word_count
+                ),
+                'customer_word_count': (
+                    sub_order.customer_word_count
+                    if (
+                        is_sub_order
+                        and sub_order
+                        and sub_order.customer_word_count is not None
+                    )
+                    else project.customer_word_count
+                ),
+                'customer_word_count_type': (
+                    sub_order.customer_word_count_type
+                    or project.customer_word_count_type
+                    if is_sub_order and sub_order
+                    else project.customer_word_count_type
+                ),
+                'internal_word_count': (
+                    sub_order.internal_word_count
+                    if (
+                        is_sub_order
+                        and sub_order
+                        and sub_order.internal_word_count is not None
+                    )
+                    else project.internal_word_count
+                ),
+                'internal_word_count_type': (
+                    sub_order.internal_word_count_type
+                    or project.internal_word_count_type
+                    if is_sub_order and sub_order
+                    else project.internal_word_count_type
+                ),
+                'expected_translator_stats_method': (
+                    sub_order.expected_translator_stats_method
+                    or project.expected_translator_stats_method
+                    if is_sub_order and sub_order
+                    else project.expected_translator_stats_method
+                ),
+                'expected_translator_word_count': (
+                    sub_order.expected_translator_word_count
+                    if (
+                        is_sub_order
+                        and sub_order
+                        and sub_order.expected_translator_word_count is not None
+                    )
+                    else project.expected_translator_word_count
+                ),
+                'network_file_path': (
+                    sub_order.network_file_path or project.network_file_path
+                    if is_sub_order and sub_order
+                    else project.network_file_path
+                ),
+                # 子订单稿件安排仍通过母项目外键读取公共参考文件。
+                'reference_file_path_one': project.reference_file_path_one,
+                'updated_at': workflow.updated_at,
+            }
+        )
+
+    return {
+        'items': items,
+        'total': total,
+        'overdue_total': overdue_total,
+        'due_soon_total': due_soon_total,
+    }
+
+
 def _get_instance(db: Session, project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None) -> Optional[WorkflowInstance]:
     """统一查询：按 project_id 或 sub_order_id 获取工作流实例"""
     if project_id:
@@ -115,9 +317,10 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
     proj_results = proj_query.all()
 
     # 查询子订单工作流
-    sub_query = db.query(WorkflowInstance, TranslationSubOrder, TranslationProject)\
+    sub_query = db.query(WorkflowInstance, TranslationSubOrder, TranslationProject, Client)\
         .join(TranslationSubOrder, WorkflowInstance.sub_order_id == TranslationSubOrder.id)\
         .join(TranslationProject, TranslationSubOrder.parent_project_id == TranslationProject.id)\
+        .outerjoin(Client, TranslationProject.client_id == Client.id)\
         .filter(filter_cond, WorkflowInstance.current_stage_key != 'completed',
                 WorkflowInstance.sub_order_id != None)
     sub_results = sub_query.all()
@@ -130,8 +333,18 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             'sub_order_id': None,
             'order_no': proj.order_no,
             'project_name': proj.project_name,
+            'task_type': proj.task_type or '项目任务',
+            'consultation_id': proj.consultation_id,
+            'sub_project_name': None,
+            'client_name': client.client_name if client else '',
             'client_short_name': client.client_short_name if client else '',
             'current_stage_key': wf.current_stage_key,
+            'current_assignee_id': wf.current_assignee_id,
+            'current_assignee_name': (
+                (wf.current_assignee.full_name or wf.current_assignee.username)
+                if wf.current_assignee else None
+            ),
+            'assignment_type': 'direct' if wf.current_assignee_id == user_id else 'role_pool',
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
             'customer_deadline_time': proj.customer_deadline_time,
@@ -139,15 +352,25 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
             'entity_type': 'project',
         })
 
-    for wf, sub, proj in sub_results:
+    for wf, sub, proj, client in sub_results:
         tasks.append({
             'workflow_instance_id': wf.id,
             'translation_project_id': proj.id,
             'sub_order_id': sub.id,
             'order_no': sub.sub_order_no,
-            'project_name': sub.sub_project_name or proj.project_name,
-            'client_short_name': '',
+            'project_name': proj.project_name,
+            'task_type': proj.task_type or '项目任务',
+            'consultation_id': proj.consultation_id,
+            'sub_project_name': sub.sub_project_name,
+            'client_name': client.client_name if client else '',
+            'client_short_name': client.client_short_name if client else '',
             'current_stage_key': wf.current_stage_key,
+            'current_assignee_id': wf.current_assignee_id,
+            'current_assignee_name': (
+                (wf.current_assignee.full_name or wf.current_assignee.username)
+                if wf.current_assignee else None
+            ),
+            'assignment_type': 'direct' if wf.current_assignee_id == user_id else 'role_pool',
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
             'customer_deadline_time': sub.customer_deadline_time,
@@ -181,6 +404,886 @@ def _push_notifications(notifications: list) -> None:
                 'notification': _serialize_notification(notification),
             },
         )
+
+
+SUPER_TRANSFER_ROLES = {'admin', '超级管理员'}
+HANDOVER_TYPE_LABELS = {
+    'daily_shift': '每日班次交接',
+    'weekend_holiday': '周末/节假日交接',
+    'leave_time_off': '请假调休交接',
+    'other': '其他',
+}
+
+
+def _required_stage_roles(stage_key: str) -> set[str]:
+    stage = STAGE_BY_KEY.get(stage_key) or {}
+    roles = set(stage.get('assignRoles') or [])
+    role_label = str(stage.get('role') or '')
+    for separator in ('、', '／'):
+        role_label = role_label.replace(separator, '/')
+    roles.update(part.strip() for part in role_label.split('/') if part.strip() and part.strip() != '-')
+    return roles
+
+
+def _user_can_take_stage(user_roles: set[str], stage_key: str) -> bool:
+    if not user_roles.isdisjoint(SUPER_TRANSFER_ROLES):
+        return True
+    required = _required_stage_roles(stage_key)
+    return bool(required and not user_roles.isdisjoint(required))
+
+
+def _workflow_query_with_task_details(db: Session):
+    return db.query(WorkflowInstance).options(
+        joinedload(WorkflowInstance.current_assignee),
+        joinedload(WorkflowInstance.translation_project).joinedload(TranslationProject.client),
+        joinedload(WorkflowInstance.sub_order)
+        .joinedload(TranslationSubOrder.parent_project)
+        .joinedload(TranslationProject.client),
+    )
+
+
+def _serialize_transfer_task(instance: WorkflowInstance) -> dict:
+    assignee = instance.current_assignee
+    assignee_name = (assignee.full_name or assignee.username) if assignee else None
+    if instance.sub_order_id and instance.sub_order:
+        sub = instance.sub_order
+        project = sub.parent_project
+        client = project.client if project else None
+        return {
+            'workflow_instance_id': instance.id,
+            'translation_project_id': project.id if project else None,
+            'sub_order_id': sub.id,
+            'order_no': sub.sub_order_no,
+            'project_name': project.project_name if project else '',
+            'task_type': (project.task_type or '项目任务') if project else '项目任务',
+            'consultation_id': project.consultation_id if project else None,
+            'sub_project_name': sub.sub_project_name,
+            'client_name': client.client_name if client else '',
+            'client_short_name': client.client_short_name if client else '',
+            'current_stage_key': instance.current_stage_key,
+            'current_assignee_id': instance.current_assignee_id,
+            'current_assignee_name': assignee_name,
+            'assignment_type': 'direct',
+            'difficulty': instance.difficulty,
+            'project_status': instance.project_status,
+            'customer_deadline_time': sub.customer_deadline_time,
+            'language_pair': sub.language_pair,
+            'entity_type': 'suborder',
+        }
+    project = instance.translation_project
+    client = project.client if project else None
+    return {
+        'workflow_instance_id': instance.id,
+        'translation_project_id': project.id if project else None,
+        'sub_order_id': None,
+        'order_no': project.order_no if project else '',
+        'project_name': project.project_name if project else '',
+        'task_type': (project.task_type or '项目任务') if project else '项目任务',
+        'consultation_id': project.consultation_id if project else None,
+        'sub_project_name': None,
+        'client_name': client.client_name if client else '',
+        'client_short_name': client.client_short_name if client else '',
+        'current_stage_key': instance.current_stage_key,
+        'current_assignee_id': instance.current_assignee_id,
+        'current_assignee_name': assignee_name,
+        'assignment_type': 'direct',
+        'difficulty': instance.difficulty,
+        'project_status': instance.project_status,
+        'customer_deadline_time': project.customer_deadline_time if project else None,
+        'language_pair': project.language_pair if project else None,
+        'entity_type': 'project',
+    }
+
+
+def get_transferable_tasks(
+    db: Session,
+    user_id: UUID,
+    owner_user_id: Optional[UUID] = None,
+    keyword: Optional[str] = None,
+) -> list[dict]:
+    user_roles = set(get_user_roles_with_role_names(db, user_id))
+    query = _workflow_query_with_task_details(db).filter(
+        WorkflowInstance.current_assignee_id != None,
+        WorkflowInstance.current_assignee_id != user_id,
+        WorkflowInstance.current_stage_key != 'completed',
+        ~WorkflowInstance.id.in_(
+            db.query(WorkflowHandoverItem.workflow_instance_id)
+            .join(WorkflowHandoverRequest, WorkflowHandoverRequest.id == WorkflowHandoverItem.request_id)
+            .filter(WorkflowHandoverRequest.status == 'pending')
+        ),
+    )
+    if owner_user_id:
+        query = query.filter(WorkflowInstance.current_assignee_id == owner_user_id)
+
+    normalized_keyword = (keyword or '').strip().casefold()
+    result = []
+    for instance in query.all():
+        if not _user_can_take_stage(user_roles, instance.current_stage_key):
+            continue
+        item = _serialize_transfer_task(instance)
+        if normalized_keyword:
+            haystack = ' '.join(str(item.get(key) or '') for key in (
+                'order_no', 'project_name', 'sub_project_name', 'client_name',
+                'client_short_name', 'current_assignee_name',
+            )).casefold()
+            if normalized_keyword not in haystack:
+                continue
+        result.append(item)
+    return result
+
+
+def get_eligible_transfer_users(db: Session, workflow_instance_ids: list[UUID]) -> list[AppUser]:
+    unique_ids = list(dict.fromkeys(workflow_instance_ids))
+    instances = (
+        db.query(WorkflowInstance)
+        .filter(
+            WorkflowInstance.id.in_(unique_ids),
+            WorkflowInstance.current_assignee_id != None,
+            WorkflowInstance.current_stage_key != 'completed',
+        )
+        .all()
+    )
+    if len(instances) != len(unique_ids):
+        raise ValueError('部分任务不存在、已完成或不是直接分配任务')
+
+    eligible = []
+    for user in db.query(AppUser).filter(AppUser.is_active == True).order_by(AppUser.full_name, AppUser.username).all():
+        roles = set(get_user_roles_with_role_names(db, user.id))
+        if all(_user_can_take_stage(roles, instance.current_stage_key) for instance in instances):
+            eligible.append(user)
+    return eligible
+
+
+def create_handover_request(
+    db: Session,
+    requester: AppUser,
+    workflow_instance_ids: list[UUID],
+    target_user_id: UUID,
+    handover_type: str,
+    reason_detail: Optional[str] = None,
+    content: str = '',
+    content_json: Optional[dict] = None,
+    attachment_ids: Optional[list[UUID]] = None,
+) -> WorkflowHandoverRequest:
+    if handover_type == 'other' and not (reason_detail or '').strip():
+        raise ValueError('选择“其他”时必须填写交接原因')
+    unique_ids = list(dict.fromkeys(workflow_instance_ids))
+    instances = (
+        db.query(WorkflowInstance)
+        .filter(WorkflowInstance.id.in_(unique_ids))
+        .with_for_update()
+        .all()
+    )
+    if len(instances) != len(unique_ids):
+        raise LookupError('部分任务不存在')
+    if any(
+        instance.current_assignee_id != requester.id or instance.current_stage_key == 'completed'
+        for instance in instances
+    ):
+        raise PermissionError('只能交接当前用户直接负责的未完成任务')
+    if target_user_id == requester.id:
+        raise ValueError('请选择其他接收人')
+
+    target = db.query(AppUser).filter(AppUser.id == target_user_id, AppUser.is_active == True).first()
+    if target is None:
+        raise ValueError('接收用户不存在或已停用')
+    target_roles = set(get_user_roles_with_role_names(db, target.id))
+    if any(not _user_can_take_stage(target_roles, instance.current_stage_key) for instance in instances):
+        raise PermissionError('接收用户不具备部分任务当前阶段所需角色')
+
+    existing_pending = (
+        db.query(WorkflowHandoverItem.id)
+        .join(WorkflowHandoverRequest, WorkflowHandoverRequest.id == WorkflowHandoverItem.request_id)
+        .filter(
+            WorkflowHandoverItem.workflow_instance_id.in_(unique_ids),
+            WorkflowHandoverRequest.status == 'pending',
+        )
+        .first()
+    )
+    if existing_pending:
+        raise LookupError('部分任务已有待确认交接，请勿重复提交')
+
+    attachment_ids = list(dict.fromkeys(attachment_ids or []))
+    attachments = []
+    if attachment_ids:
+        attachments = (
+            db.query(ChatProjectAttachment)
+            .filter(
+                ChatProjectAttachment.id.in_(attachment_ids),
+                ChatProjectAttachment.uploaded_by == requester.id,
+            )
+            .all()
+        )
+        if len(attachments) != len(attachment_ids):
+            raise ValueError('部分图片不存在或不属于当前用户')
+
+    from project_chat_crud import normalize_rich_text_json, rich_text_to_plain
+    normalized_content_json = normalize_rich_text_json(content_json)
+    normalized_content = (content or '').strip()
+    if normalized_content_json:
+        normalized_content = rich_text_to_plain(normalized_content_json) or normalized_content
+
+    request = WorkflowHandoverRequest(
+        requester_id=requester.id,
+        target_user_id=target.id,
+        handover_type=handover_type,
+        reason_detail=(reason_detail or '').strip() or None,
+        content=normalized_content[:10000],
+        content_json=normalized_content_json,
+        status='pending',
+    )
+    db.add(request)
+    db.flush()
+    db.add_all(
+        WorkflowHandoverItem(
+            request_id=request.id,
+            workflow_instance_id=instance.id,
+            expected_assignee_id=requester.id,
+        )
+        for instance in instances
+    )
+    db.add_all(
+        WorkflowHandoverAttachment(request_id=request.id, attachment_id=attachment.id)
+        for attachment in attachments
+    )
+
+    first_instance = instances[0]
+    related_project_id = first_instance.translation_project_id
+    if first_instance.sub_order_id:
+        sub = db.query(TranslationSubOrder).filter(TranslationSubOrder.id == first_instance.sub_order_id).first()
+        related_project_id = sub.parent_project_id if sub else None
+    requester_name = requester.full_name or requester.username
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=[target.id],
+        title='待确认的项目交接',
+        content=f'{requester_name} 向你发起了 {len(instances)} 项任务交接，请进入“工作台”确认接收。',
+        notification_type='workflow_handover_pending',
+        related_project_id=related_project_id,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
+
+
+def list_incoming_handover_requests(
+    db: Session,
+    target_user_id: UUID,
+    status_filter: str = 'pending',
+) -> list[WorkflowHandoverRequest]:
+    return (
+        db.query(WorkflowHandoverRequest)
+        .options(
+            joinedload(WorkflowHandoverRequest.requester),
+            joinedload(WorkflowHandoverRequest.target_user),
+            selectinload(WorkflowHandoverRequest.items)
+            .selectinload(WorkflowHandoverItem.workflow_instance)
+            .joinedload(WorkflowInstance.current_assignee),
+            selectinload(WorkflowHandoverRequest.attachment_links)
+            .joinedload(WorkflowHandoverAttachment.attachment),
+        )
+        .filter(
+            WorkflowHandoverRequest.target_user_id == target_user_id,
+            WorkflowHandoverRequest.status == status_filter,
+        )
+        .order_by(WorkflowHandoverRequest.created_at.desc())
+        .all()
+    )
+
+
+def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
+    requester_name = (
+        request.requester.full_name or request.requester.username
+        if request.requester else None
+    )
+    target_name = (
+        request.target_user.full_name or request.target_user.username
+        if request.target_user else None
+    )
+    tasks = []
+    for item in request.items or []:
+        instance = item.workflow_instance
+        if instance is None:
+            continue
+        # 查询列表已加载负责人；项目关系在此按需加载，保持响应与“我的任务”一致。
+        tasks.append(_serialize_transfer_task(instance))
+    attachments = [
+        {
+            'id': link.attachment.id,
+            'original_name': link.attachment.original_name,
+            'content_type': link.attachment.content_type,
+            'file_size': link.attachment.file_size,
+        }
+        for link in (request.attachment_links or [])
+        if link.attachment
+    ]
+    return {
+        'id': request.id,
+        'requester_id': request.requester_id,
+        'requester_name': requester_name,
+        'target_user_id': request.target_user_id,
+        'target_user_name': target_name,
+        'handover_type': request.handover_type,
+        'reason_detail': request.reason_detail,
+        'content': request.content,
+        'content_json': request.content_json,
+        'status': request.status,
+        'decision_note': request.decision_note,
+        'created_at': request.created_at,
+        'decided_at': request.decided_at,
+        'tasks': tasks,
+        'attachments': attachments,
+    }
+
+
+def _serialize_managed_project(project: TranslationProject) -> dict:
+    selected_client = project.sub_client or project.client
+    return {
+        'translation_project_id': project.id,
+        'order_no': project.order_no,
+        'project_name': project.project_name,
+        'client_short_name': selected_client.client_short_name if selected_client else None,
+        'project_status': project.project_status,
+        'customer_deadline_time': project.customer_deadline_time,
+        'project_manager_id': project.project_manager_id,
+        'project_manager_name': project.project_manager_name,
+    }
+
+
+def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
+    """返回当前项目经理负责的项目；超级管理员可查看全部管理归属。"""
+    roles = set(get_user_roles_with_role_names(db, current_user.id))
+    is_super = bool(roles & SUPER_TRANSFER_ROLES)
+    if '项目经理' not in roles and not is_super:
+        return []
+
+    query = (
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.client),
+            selectinload(TranslationProject.sub_client),
+            selectinload(TranslationProject.project_manager),
+        )
+        .filter(
+            func.coalesce(TranslationProject.project_status, '').notin_(
+                ['completed', 'terminated', 'cancelled', 'partially_cancelled']
+            )
+        )
+    )
+    if not is_super:
+        query = query.filter(TranslationProject.project_manager_id == current_user.id)
+
+    return [
+        _serialize_managed_project(project)
+        for project in query.order_by(
+            TranslationProject.customer_deadline_time.asc().nullslast(),
+            TranslationProject.created_at.desc(),
+        ).all()
+    ]
+
+
+def get_project_manager_candidates(
+    db: Session,
+    current_user_id: UUID,
+    include_current: bool = False,
+) -> list[AppUser]:
+    """仅返回可作为管理主负责人的启用项目经理。"""
+    return sorted(
+        (
+            user for user in get_users_by_role_names(db, ['项目经理'])
+            if include_current or user.id != current_user_id
+        ),
+        key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()),
+    )
+
+
+def create_project_manager_handover(
+    db: Session,
+    requester: AppUser,
+    translation_project_ids: list[UUID],
+    target_manager_id: UUID,
+    reason: Optional[str] = None,
+    note: Optional[str] = None,
+) -> ProjectManagerHandoverRequest:
+    """发起管理层项目归属交接，不改变执行工作流当前处理人。"""
+    requester_roles = set(get_user_roles_with_role_names(db, requester.id))
+    is_super = bool(requester_roles & SUPER_TRANSFER_ROLES)
+    if '项目经理' not in requester_roles and not is_super:
+        raise PermissionError('只有项目经理或超级管理员可以发起管理层项目交接')
+    if target_manager_id == requester.id:
+        raise ValueError('请选择其他项目经理作为接收人')
+
+    target = db.query(AppUser).filter(
+        AppUser.id == target_manager_id,
+        AppUser.is_active == True,
+    ).first()
+    if not target or '项目经理' not in get_user_roles_with_role_names(db, target.id):
+        raise ValueError('接收人必须是启用中的项目经理')
+
+    unique_ids = list(dict.fromkeys(translation_project_ids))
+    if not unique_ids:
+        raise ValueError('请至少选择一个需要交接的管理项目')
+    projects = (
+        db.query(TranslationProject)
+        .filter(TranslationProject.id.in_(unique_ids))
+        .with_for_update()
+        .all()
+    )
+    if len(projects) != len(unique_ids):
+        raise LookupError('部分管理项目不存在')
+    if not is_super and any(project.project_manager_id != requester.id for project in projects):
+        raise PermissionError('只能交接当前用户作为管理主负责人的项目')
+
+    pending_project_ids = {
+        row.translation_project_id
+        for row in (
+            db.query(ProjectManagerHandoverItem.translation_project_id)
+            .join(
+                ProjectManagerHandoverRequest,
+                ProjectManagerHandoverRequest.id == ProjectManagerHandoverItem.request_id,
+            )
+            .filter(
+                ProjectManagerHandoverRequest.status == 'pending',
+                ProjectManagerHandoverItem.translation_project_id.in_(unique_ids),
+            )
+            .all()
+        )
+    }
+    if pending_project_ids:
+        raise LookupError('部分项目已有待确认的管理层交接，请勿重复提交')
+
+    request = ProjectManagerHandoverRequest(
+        requester_id=requester.id,
+        target_manager_id=target.id,
+        reason=(reason or '').strip() or None,
+        note=(note or '').strip() or None,
+    )
+    db.add(request)
+    db.flush()
+    db.add_all(
+        ProjectManagerHandoverItem(
+            request_id=request.id,
+            translation_project_id=project.id,
+            expected_manager_id=project.project_manager_id,
+        )
+        for project in projects
+    )
+
+    requester_name = requester.full_name or requester.username
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=[target.id],
+        title='待确认的管理层项目交接',
+        content=f'{requester_name} 向你发起了 {len(projects)} 个项目的管理主负责人交接。',
+        notification_type='project_manager_handover_pending',
+        related_project_id=projects[0].id if projects else None,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
+
+
+def list_incoming_project_manager_handovers(
+    db: Session,
+    target_manager_id: UUID,
+    status_filter: str = 'pending',
+) -> list[ProjectManagerHandoverRequest]:
+    return (
+        db.query(ProjectManagerHandoverRequest)
+        .options(
+            joinedload(ProjectManagerHandoverRequest.requester),
+            joinedload(ProjectManagerHandoverRequest.target_manager),
+            selectinload(ProjectManagerHandoverRequest.items)
+            .joinedload(ProjectManagerHandoverItem.project),
+        )
+        .filter(
+            ProjectManagerHandoverRequest.target_manager_id == target_manager_id,
+            ProjectManagerHandoverRequest.status == status_filter,
+        )
+        .order_by(ProjectManagerHandoverRequest.created_at.desc())
+        .all()
+    )
+
+
+def serialize_project_manager_handover(request: ProjectManagerHandoverRequest) -> dict:
+    requester_name = (
+        request.requester.full_name or request.requester.username
+        if request.requester else None
+    )
+    target_name = (
+        request.target_manager.full_name or request.target_manager.username
+        if request.target_manager else None
+    )
+    return {
+        'id': request.id,
+        'requester_id': request.requester_id,
+        'requester_name': requester_name,
+        'target_manager_id': request.target_manager_id,
+        'target_manager_name': target_name,
+        'reason': request.reason,
+        'note': request.note,
+        'status': request.status,
+        'decision_note': request.decision_note,
+        'created_at': request.created_at,
+        'decided_at': request.decided_at,
+        'projects': [
+            _serialize_managed_project(item.project)
+            for item in (request.items or [])
+            if item.project
+        ],
+    }
+
+
+def decide_project_manager_handover(
+    db: Session,
+    request_id: UUID,
+    current_user: AppUser,
+    decision: str,
+    decision_note: Optional[str] = None,
+) -> ProjectManagerHandoverRequest:
+    if decision not in {'accept', 'reject'}:
+        raise ValueError('不支持的管理层交接处理类型')
+    request = (
+        db.query(ProjectManagerHandoverRequest)
+        .options(
+            joinedload(ProjectManagerHandoverRequest.requester),
+            joinedload(ProjectManagerHandoverRequest.target_manager),
+            selectinload(ProjectManagerHandoverRequest.items)
+            .joinedload(ProjectManagerHandoverItem.project),
+        )
+        .filter(ProjectManagerHandoverRequest.id == request_id)
+        .with_for_update()
+        .first()
+    )
+    if not request:
+        raise LookupError('管理层交接申请不存在')
+    if request.target_manager_id != current_user.id:
+        raise PermissionError('只能处理发给当前用户的管理层交接')
+    if request.status != 'pending':
+        raise LookupError('该管理层交接申请已处理')
+
+    if decision == 'accept':
+        if '项目经理' not in get_user_roles_with_role_names(db, current_user.id):
+            raise PermissionError('当前用户已不具备项目经理角色，不能接收管理层项目归属')
+        item_project_ids = [
+            item.translation_project_id
+            for item in (request.items or [])
+        ]
+        locked_projects = {
+            project.id: project
+            for project in (
+                db.query(TranslationProject)
+                .filter(TranslationProject.id.in_(item_project_ids))
+                .with_for_update()
+                .all()
+            )
+        }
+        for item in request.items or []:
+            project = locked_projects.get(item.translation_project_id)
+            if not project:
+                raise LookupError('交接申请中的项目已不存在')
+            if project.project_manager_id != item.expected_manager_id:
+                raise LookupError('部分项目的管理主负责人已变化，请拒绝后重新发起')
+        for item in request.items or []:
+            locked_projects[item.translation_project_id].project_manager_id = current_user.id
+        request.status = 'accepted'
+    else:
+        request.status = 'rejected'
+
+    request.decision_note = (decision_note or '').strip() or None
+    request.decided_by = current_user.id
+    request.decided_at = datetime.datetime.now()
+
+    current_name = current_user.full_name or current_user.username
+    notifications = []
+    if request.requester_id:
+        notifications = create_notifications_for_users(
+            db,
+            recipient_user_ids=[request.requester_id],
+            title='管理层项目交接已确认' if decision == 'accept' else '管理层项目交接已拒绝',
+            content=(
+                f'{current_name} 已确认接收 {len(request.items or [])} 个项目的管理主负责人归属。'
+                if decision == 'accept'
+                else f'{current_name} 拒绝了管理层项目交接。'
+            ),
+            notification_type=f'project_manager_handover_{request.status}',
+            related_project_id=(
+                request.items[0].translation_project_id
+                if request.items else None
+            ),
+            commit=False,
+        )
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
+
+
+def transfer_workflow_tasks(
+    db: Session,
+    operator: AppUser,
+    workflow_instance_ids: list[UUID],
+    action: str,
+    target_user_id: Optional[UUID] = None,
+    content: str = '',
+    content_json: Optional[dict] = None,
+    attachment_ids: Optional[list[UUID]] = None,
+    expected_assignee_ids: Optional[dict[UUID, UUID]] = None,
+    commit: bool = True,
+) -> dict:
+    if action not in {'handover', 'claim'}:
+        raise ValueError('不支持的交接类型')
+    unique_ids = list(dict.fromkeys(workflow_instance_ids))
+    instances = (
+        db.query(WorkflowInstance)
+        .filter(WorkflowInstance.id.in_(unique_ids))
+        .with_for_update()
+        .all()
+    )
+    if len(instances) != len(unique_ids):
+        raise LookupError('部分任务不存在或已发生变化')
+
+    if action == 'handover':
+        if any(instance.current_assignee_id != operator.id for instance in instances):
+            raise PermissionError('只能交接当前用户直接负责的任务')
+        if not target_user_id or target_user_id == operator.id:
+            raise ValueError('请选择其他接收人')
+        target_id = target_user_id
+    else:
+        pending_handover = (
+            db.query(WorkflowHandoverItem.id)
+            .join(WorkflowHandoverRequest, WorkflowHandoverRequest.id == WorkflowHandoverItem.request_id)
+            .filter(
+                WorkflowHandoverItem.workflow_instance_id.in_(unique_ids),
+                WorkflowHandoverRequest.status == 'pending',
+            )
+            .first()
+        )
+        if pending_handover:
+            raise LookupError('部分任务正在等待交接确认，暂不能自行继承')
+        expected_assignee_ids = expected_assignee_ids or {}
+        if any(
+            expected_assignee_ids.get(instance.id) != instance.current_assignee_id
+            for instance in instances
+        ):
+            raise LookupError('部分任务负责人已发生变化，请刷新后重试')
+        if any(
+            not instance.current_assignee_id or instance.current_assignee_id == operator.id
+            for instance in instances
+        ):
+            raise PermissionError('只能继承其他用户直接负责的任务')
+        target_id = operator.id
+
+    if any(instance.current_stage_key == 'completed' for instance in instances):
+        raise LookupError('已完成任务不能交接或继承')
+
+    target = db.query(AppUser).filter(AppUser.id == target_id, AppUser.is_active == True).first()
+    if target is None:
+        raise ValueError('接收用户不存在或已停用')
+    target_roles = set(get_user_roles_with_role_names(db, target.id))
+    if any(not _user_can_take_stage(target_roles, instance.current_stage_key) for instance in instances):
+        raise PermissionError('接收用户不具备部分任务当前阶段所需角色')
+
+    operator_name = operator.full_name or operator.username
+    target_name = target.full_name or target.username
+    plain_note = (content or '').strip()
+    grouped: dict[UUID, dict] = {}
+
+    for instance in instances:
+        source = instance.current_assignee
+        source_name = (source.full_name or source.username) if source else '未知用户'
+        project = instance.translation_project
+        task_name = project.project_name if project else ''
+        order_no = project.order_no if project else ''
+        project_id = instance.translation_project_id
+        if instance.sub_order_id and instance.sub_order:
+            sub = instance.sub_order
+            project = sub.parent_project
+            project_id = sub.parent_project_id
+            order_no = sub.sub_order_no
+            task_name = sub.sub_project_name or project.project_name
+        if project_id is None:
+            raise LookupError('任务未关联有效项目')
+
+        description = (
+            f'{operator_name} 将任务从 {source_name} 交接给 {target_name}'
+            if action == 'handover'
+            else f'{target_name} 从 {source_name} 处继承任务'
+        )
+        db.add(WorkflowLog(
+            workflow_instance_id=instance.id,
+            operator_id=operator.id,
+            from_stage=instance.current_stage_key,
+            to_stage=instance.current_stage_key,
+            direction=action,
+            description=f'{description}：{order_no} / {task_name}',
+            note=plain_note,
+            next_assignee_id=target.id,
+        ))
+        instance.current_assignee_id = target.id
+        instance.group_assign_role = None
+        instance.updated_at = _dt.datetime.utcnow()
+        grouped.setdefault(project_id, {'project': project, 'tasks': [], 'sources': set()})
+        grouped[project_id]['tasks'].append({
+            'workflow_instance_id': str(instance.id),
+            'order_no': order_no,
+            'task_name': task_name,
+            'entity_type': 'suborder' if instance.sub_order_id else 'project',
+            'from_user_id': str(source.id) if source else None,
+            'from_user_name': source_name,
+            'to_user_id': str(target.id),
+            'to_user_name': target_name,
+        })
+        if source:
+            grouped[project_id]['sources'].add(source.id)
+
+    default_content = (
+        f'{operator_name} 已将所选任务交接给 {target_name}'
+        if action == 'handover'
+        else f'{target_name} 已自行继承所选任务'
+    )
+    message_content = plain_note or default_content
+    notifications = []
+    from project_chat_crud import create_project_chat_message
+
+    for project_id, group in grouped.items():
+        project = group['project']
+        task_summary = '、'.join(item['order_no'] for item in group['tasks'])
+        create_project_chat_message(
+            db,
+            project_id=project_id,
+            sender=operator,
+            content=message_content,
+            content_json=content_json,
+            attachment_ids=attachment_ids,
+            message_type=action,
+            event_data={
+                'action': action,
+                'operator_id': str(operator.id),
+                'operator_name': operator_name,
+                'tasks': group['tasks'],
+            },
+            bypass_enabled=True,
+            commit=False,
+            notify=False,
+        )
+        recipients = [target.id] if action == 'handover' else list(group['sources'])
+        recipients = [recipient for recipient in recipients if recipient != operator.id]
+        if recipients:
+            notifications.extend(create_notifications_for_users(
+                db,
+                recipient_user_ids=recipients,
+                title='项目任务交接' if action == 'handover' else '项目任务已被继承',
+                content=f'{project.order_no} / {project.project_name}：{task_summary}。{message_content[:120]}',
+                notification_type=f'workflow_{action}',
+                related_project_id=project_id,
+                commit=False,
+            ))
+
+    result = {
+        'action': action,
+        'transferred_count': len(instances),
+        'workflow_instance_ids': unique_ids,
+    }
+    if commit:
+        db.commit()
+        _push_notifications(notifications)
+    else:
+        db.flush()
+        result['_notifications'] = notifications
+    return result
+
+
+def decide_handover_request(
+    db: Session,
+    request_id: UUID,
+    target_user: AppUser,
+    decision: str,
+    note: Optional[str] = None,
+) -> WorkflowHandoverRequest:
+    if decision not in {'accept', 'reject'}:
+        raise ValueError('不支持的处理方式')
+    request = (
+        db.query(WorkflowHandoverRequest)
+        .filter(WorkflowHandoverRequest.id == request_id)
+        .with_for_update()
+        .first()
+    )
+    if request is None:
+        raise LookupError('交接申请不存在')
+    if request.target_user_id != target_user.id:
+        raise PermissionError('只能处理发给当前用户的交接申请')
+    if request.status != 'pending':
+        raise LookupError('该交接申请已处理')
+
+    notifications = []
+    if decision == 'accept':
+        items = db.query(WorkflowHandoverItem).filter(WorkflowHandoverItem.request_id == request.id).all()
+        if not items:
+            raise LookupError('交接申请中没有有效任务')
+        requester = db.query(AppUser).filter(AppUser.id == request.requester_id).first()
+        if requester is None:
+            raise LookupError('原负责人不存在，无法完成交接')
+        attachment_ids = [
+            row[0]
+            for row in db.query(WorkflowHandoverAttachment.attachment_id)
+            .filter(WorkflowHandoverAttachment.request_id == request.id)
+            .all()
+        ]
+        reason_label = HANDOVER_TYPE_LABELS.get(request.handover_type, request.handover_type)
+        if request.handover_type == 'other' and request.reason_detail:
+            reason_label = f'{reason_label}：{request.reason_detail}'
+        reason_text = f'交接类型：{reason_label}'
+        combined_content = f'{reason_text}\n{request.content}'.strip()
+        existing_nodes = list((request.content_json or {}).get('content') or [])
+        combined_content_json = {
+            'type': 'doc',
+            'content': [
+                {'type': 'paragraph', 'content': [{'type': 'text', 'text': reason_text, 'marks': [{'type': 'bold'}]}]},
+                *existing_nodes,
+            ],
+        }
+        result = transfer_workflow_tasks(
+            db,
+            operator=requester,
+            workflow_instance_ids=[item.workflow_instance_id for item in items],
+            action='handover',
+            target_user_id=target_user.id,
+            content=combined_content,
+            content_json=combined_content_json,
+            attachment_ids=attachment_ids,
+            commit=False,
+        )
+        notifications.extend(result.pop('_notifications', []))
+        request.status = 'accepted'
+    else:
+        request.status = 'rejected'
+
+    request.decision_note = (note or '').strip() or None
+    request.decided_by = target_user.id
+    request.decided_at = _dt.datetime.utcnow()
+    target_name = target_user.full_name or target_user.username
+    if request.requester_id:
+        notifications.extend(create_notifications_for_users(
+            db,
+            recipient_user_ids=[request.requester_id],
+            title='交接已确认' if decision == 'accept' else '交接已拒绝',
+            content=(
+                f'{target_name} 已确认接收你发起的任务交接。'
+                if decision == 'accept'
+                else f'{target_name} 拒绝了你发起的任务交接。'
+            ),
+            notification_type=f'workflow_handover_{request.status}',
+            commit=False,
+        ))
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
 
 
 def _get_assignment_recipients(db: Session, next_assignee_id: Optional[UUID], group_assign_role: Optional[str]) -> list[UUID]:
@@ -242,7 +1345,12 @@ def _notify_assignment(
     _push_notifications(notifications)
 
 
-def init_workflow(db: Session, project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None) -> WorkflowInstance:
+def init_workflow(
+    db: Session,
+    project_id: Optional[UUID] = None,
+    sub_order_id: Optional[UUID] = None,
+    commit: bool = True,
+) -> WorkflowInstance:
     if not project_id and not sub_order_id:
         raise ValueError("Must specify either project_id or sub_order_id")
 
@@ -270,8 +1378,11 @@ def init_workflow(db: Session, project_id: Optional[UUID] = None, sub_order_id: 
         note='System initialization',
     )
     db.add(log)
-    db.commit()
-    db.refresh(instance)
+    if commit:
+        db.commit()
+        db.refresh(instance)
+    else:
+        db.flush()
     return instance
 
 

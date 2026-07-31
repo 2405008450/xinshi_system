@@ -34,6 +34,20 @@ services:
       DB_USER: postgres
       DB_PASSWORD: "XinShi@2026#PgS3cure!"
       DB_NAME: xinshi_system
+      CHAT_UPLOAD_DIR: "/app/data/chat_uploads"
+      SMTP_MODE: "${SMTP_MODE:-disabled}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_SECURITY: "${SMTP_SECURITY:-starttls}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM_EMAIL: "${SMTP_FROM_EMAIL:-}"
+      SMTP_FROM_NAME: "${SMTP_FROM_NAME:-信实翻译}"
+      SMTP_REPLY_TO: "${SMTP_REPLY_TO:-}"
+      SMTP_TIMEOUT_SECONDS: "${SMTP_TIMEOUT_SECONDS:-15}"
+      SMTP_TEST_RECIPIENT: "${SMTP_TEST_RECIPIENT:-}"
+    volumes:
+      - chat_uploads:/app/data/chat_uploads
     ports:
       - "8000:8000"
     depends_on:
@@ -55,4 +69,6 @@ services:
 
 volumes:
   pgdata:
+    driver: local
+  chat_uploads:
     driver: local

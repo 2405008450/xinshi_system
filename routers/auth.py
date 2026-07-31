@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Callable, Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
@@ -10,6 +10,7 @@ import hashlib
 
 from database import get_db
 from crud import get_user_by_username, get_user_roles_with_role_names
+from permission_service import get_user_permission_codes, user_has_permission
 from schemas import Token, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -125,18 +126,70 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
+def require_permission(permission_code: str) -> Callable:
+    """创建权限依赖，供路由在后端强制执行 RBAC。"""
+    def permission_dependency(
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ):
+        if not user_has_permission(db, current_user.id, permission_code):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"缺少权限：{permission_code}",
+            )
+        return current_user
+
+    return permission_dependency
+
+
+def require_module_access(read_permission: str, write_permission: str) -> Callable:
+    """按 HTTP 方法区分模块的查看权限和管理权限。"""
+    def permission_dependency(
+        request: Request,
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ):
+        permission_code = read_permission if request.method in {"GET", "HEAD", "OPTIONS"} else write_permission
+        if not user_has_permission(db, current_user.id, permission_code):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"缺少权限：{permission_code}",
+            )
+        return current_user
+
+    return permission_dependency
+
+
+def require_any_permission(*permission_codes: str) -> Callable:
+    """要求至少拥有一个权限，适用于跨模块共享的基础数据接口。"""
+    def permission_dependency(
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ):
+        permissions = set(get_user_permission_codes(db, current_user.id))
+        if "*" not in permissions and permissions.isdisjoint(permission_codes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"至少需要以下权限之一：{', '.join(permission_codes)}",
+            )
+        return current_user
+
+    return permission_dependency
+
+
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """????(OAuth2 ??)??? token ???????"""
     user = authenticate_user(db, form_data.username, form_data.password)
 
     role_names = get_user_roles_with_role_names(db, user.id)
+    permissions = get_user_permission_codes(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
 
 
 @router.post("/login/json", response_model=Token)
@@ -145,9 +198,10 @@ def login_json(login_data: LoginRequest, db: Session = Depends(get_db)):
     user = authenticate_user(db, login_data.username, login_data.password)
 
     role_names = get_user_roles_with_role_names(db, user.id)
+    permissions = get_user_permission_codes(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "user_id": str(user.id)},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}

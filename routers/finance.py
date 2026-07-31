@@ -13,9 +13,10 @@ from schemas import (
     FinanceRecordDisplayResponse,
     FinanceEntryPayload, FinanceEntryResponse
 )
-from routers.auth import get_current_user
+from routers.auth import require_module_access
+from crud import generate_consultation_code
 
-router = APIRouter(prefix="/finance", tags=["财务管理"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/finance", tags=["财务管理"], dependencies=[Depends(require_module_access("finance:read", "finance:write"))])
 
 
 # ---------- 辅助函数 ---------- #
@@ -165,7 +166,7 @@ def finance_entry(payload: FinanceEntryPayload, db: Session = Depends(get_db)):
     elif payload.consultation:
         c_data = payload.consultation.model_dump()
         if not c_data.get("consultation_code"):
-            c_data["consultation_code"] = f"C{uuid_lib.uuid4().hex[:8].upper()}"
+            c_data["consultation_code"] = generate_consultation_code(db)
         db_c = Consultation(**c_data)
         db.add(db_c)
         db.flush()

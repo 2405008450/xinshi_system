@@ -248,7 +248,12 @@
       </el-tab-pane>
 
       <el-tab-pane label="项目文件" name="files">
-        <ProjectFilesTab :project-id="fileProjectId" :entity-type="currentEntityType" :active="activeTab === 'files'" />
+        <ProjectFilesTab
+          :project-id="fileProjectId"
+          :order-no="fileOrderNo"
+          :entity-type="currentEntityType"
+          :active="activeTab === 'files'"
+        />
       </el-tab-pane>
 
       <el-tab-pane label="翻译/审核进度" name="progress">
@@ -353,6 +358,7 @@ import { ElMessage } from 'element-plus'
 
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { getProject } from '@/api/projects'
+import { getSubOrder } from '@/api/subOrders'
 import { getStoredRoles } from '@/utils/permission'
 import { useEntityPicker } from '@/composables/useEntityPicker'
 import { buildPreviewEffectiveStages, difficultyLabel, getStatusLabel, getStatusType, useNextStageUsers, useWorkflow } from '@/composables/useWorkflow'
@@ -620,6 +626,12 @@ const fileProjectId = computed(() => {
   if (currentEntityType.value === 'project') return currentProjectId.value
   return workflowState.value.translationProjectId || ''
 })
+const fileOrderNo = computed(() => {
+  const parentProject = projectList.value.find(
+    (item) => String(item.id) === String(fileProjectId.value)
+  )
+  return parentProject?.orderNo || parentProject?.order_no || ''
+})
 
 function resetStageActionState() {
   stageUiState.handoverNote = ''
@@ -687,6 +699,12 @@ function getRouteProjectId() {
   return value || ''
 }
 
+function getRouteSubOrderId() {
+  const value = route.query.subOrderId
+  if (Array.isArray(value)) return value[0] || ''
+  return value || ''
+}
+
 function getRouteTab() {
   const value = route.query.tab
   if (Array.isArray(value)) return value[0] || ''
@@ -738,12 +756,33 @@ async function ensureProjectLoaded(projectId) {
   }
 }
 
+async function ensureSubOrderLoaded(subOrderId) {
+  if (!subOrderId) return
+  const existing = mixedEntityList.value.find(
+    (item) => item._type === 'suborder' && String(item.id) === String(subOrderId)
+  )
+  if (existing) {
+    currentSubOrder.value = existing
+    return
+  }
+
+  try {
+    const subOrder = await getSubOrder(String(subOrderId))
+    if (!subOrder?.id) return
+    currentSubOrder.value = { ...subOrder, _type: 'suborder' }
+  } catch (error) {
+    console.error('加载指定子订单失败', error)
+  }
+}
+
 async function fetchWorkflowState() {
   if (!currentProjectId.value) return
 
   try {
     if (currentEntityType.value === 'project') {
       await ensureProjectLoaded(currentProjectId.value)
+    } else {
+      await ensureSubOrderLoaded(currentProjectId.value)
     }
     await ensureWorkflowState(currentEntityType.value, currentProjectId.value)
     initStageFormData()
@@ -977,7 +1016,8 @@ async function loadProjects() {
     await loadMixedOptions()
 
     const routeProjectId = getRouteProjectId()
-    if (routeProjectId) return
+    const routeSubOrderId = getRouteSubOrderId()
+    if (routeProjectId || routeSubOrderId) return
 
     if (currentProjectId.value) {
       if (currentEntityType.value === 'project') {
@@ -1061,10 +1101,27 @@ watch(
 )
 
 watch(
-  () => [route.query.projectId, route.query.tab],
+  () => [route.query.projectId, route.query.subOrderId, route.query.tab],
   async () => {
     const routeProjectId = getRouteProjectId()
+    const routeSubOrderId = getRouteSubOrderId()
     chatDrawerVisible.value = getRouteTab() === 'chat'
+    if (routeSubOrderId) {
+      const subOrderChanged = currentEntityType.value !== 'suborder'
+        || String(currentProjectId.value || '') !== String(routeSubOrderId)
+      if (!subOrderChanged) return
+
+      currentEntityType.value = 'suborder'
+      currentProjectId.value = routeSubOrderId
+      currentSubOrder.value = { id: routeSubOrderId, _type: 'suborder' }
+      currentEntityKey.value = `suborder:${routeSubOrderId}`
+      selectedProjectRow.value = null
+      activeTab.value = 'overview'
+      resetStageActionState()
+      await fetchWorkflowState()
+      return
+    }
+
     if (!routeProjectId) return
 
     const projectChanged = currentEntityType.value !== 'project' || String(currentProjectId.value || '') !== String(routeProjectId)

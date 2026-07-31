@@ -1,7 +1,7 @@
 ﻿import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
-import { canAccessRoute, isSuperAdmin } from '../utils/permission'
+import { canAccessRoute, hasPermission, isSuperAdmin } from '../utils/permission'
 
 const routes = [
   {
@@ -17,44 +17,42 @@ const routes = [
         path: 'users',
         name: 'Users',
         component: () => import('../views/system/Users.vue'),
-        meta: { title: '用户管理' }
+        meta: { title: '用户管理', permissions: ['system:users:read'] }
       },
       {
         path: 'roles',
         name: 'Roles',
         component: () => import('../views/system/Roles.vue'),
-        meta: { title: '角色管理' }
-      },
-      {
-        path: 'user-roles',
-        name: 'UserRoles',
-        component: () => import('../views/system/UserRoles.vue'),
-        meta: { title: '用户角色关联' }
+        meta: { title: '角色管理', permissions: ['system:roles:read'] }
       },
       // 项目管理 - 翻译路由
       {
         path: 'translation',
         name: 'TranslationProjects',
         component: () => import('../views/project/translation/TranslationProjects.vue'),
-        meta: { title: '项目流程', roles: ['*'] }
+        meta: { title: '项目流程', permissions: ['projects:read'] }
       },
       {
         path: 'translation-details',
         name: 'TranslationProjectDetails',
         component: () => import('../views/project/translation/ProjectDetails.vue'),
-        meta: { title: '项目详情', roles: ['*'] }
+        meta: { title: '项目详情', permissions: ['projects:read'] }
+      },
+      {
+        path: 'manuscript-arrangements',
+        name: 'ManuscriptArrangements',
+        component: () => import('../views/manuscript/ManuscriptArrangements.vue'),
+        meta: { title: '稿件安排', permissions: ['projects:read'] }
       },
       {
         path: 'translation-files',
-        name: 'TranslationProjectFiles',
-        component: () => import('../views/project/translation/ProjectFiles.vue'),
-        meta: { title: '项目文件', roles: ['*'] }
+        redirect: '/translation-details'
       },
       {
         path: 'translation-sub-orders/:projectId',
         name: 'TranslationSubOrderManagement',
         component: () => import('../views/project/translation/SubOrderManagement.vue'),
-        meta: { title: '子订单管理', roles: ['*'] }
+        meta: { title: '子订单管理', permissions: ['projects:read'] }
       },
       // 项目管理 - 其他类型
       {
@@ -91,32 +89,32 @@ const routes = [
         path: 'workbench',
         name: 'WorkDashboard',
         component: () => import('../views/schedule/WorkDashboard.vue'),
-        meta: { title: '我的工作台', roles: ['*'] }
+        meta: { title: '工作台', permissions: ['projects:read', 'tasks:read'] }
       },
       {
         path: 'admin/schedule',
         name: 'WorkScheduleAdmin',
         component: () => import('../views/schedule/WorkSchedule.vue'),
-        meta: { title: '排班管理', roles: ['*'] }
+        meta: { title: '排班管理', permissions: ['schedule:read'] }
       },
       {
         path: 'work-schedule',
         name: 'WorkSchedule',
         component: () => import('../views/schedule/WorkSchedule.vue'),
-        meta: { title: '排班管理', roles: ['*'] }
+        meta: { title: '排班管理', permissions: ['schedule:read'] }
       },
       // 资源管理 - 翻译路由
       {
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
         redirect: '/resource-management/translators',
-        meta: { title: '资源管理', roles: ['*'] },
+        meta: { title: '资源管理', permissions: ['translators:read'] },
         children: [
           {
             path: 'translators',
             name: 'Translators',
             component: () => import('../views/resource/Translators.vue'),
-            meta: { title: '译者信息', roles: ['*'] }
+            meta: { title: '译者信息', permissions: ['translators:read'] }
           },
           {
             path: 'annotators',
@@ -137,32 +135,36 @@ const routes = [
         path: 'clients',
         name: 'Clients',
         component: () => import('../views/client/Clients.vue'),
-        meta: { title: '客户信息', roles: ['*'] }
+        meta: { title: '客户信息', permissions: ['clients:read'] }
       },
       {
         path: 'subsidiary-clients',
-        name: 'SubsidiaryClients',
-        component: () => import('../views/client/SubsidiaryClients.vue'),
-        meta: { title: '子公司客户信息' }
+        redirect: '/clients'
       },
       {
         path: 'client-contacts',
         name: 'ClientContacts',
         component: () => import('../views/client/ClientContacts.vue'),
-        meta: { title: '客户联系人及回复' }
+        meta: { title: '客户联系人及回复', permissions: ['clients:read'] }
       },
       {
         path: 'consultations',
         name: 'Consultations',
         component: () => import('../views/client/Consultations.vue'),
-        meta: { title: '新咨询管理', roles: ['*'] }
+        meta: { title: '新咨询管理', permissions: ['consultations:read'] }
       },
       // 财务管理
       {
         path: 'finance',
         name: 'FinanceManagement',
         component: () => import('../views/finance/FinanceManagement.vue'),
-        meta: { title: '财务管理', roles: ['*'] }
+        meta: { title: '财务管理', permissions: ['finance:read'] }
+      },
+      {
+        path: 'pending-modules',
+        name: 'PendingModules',
+        component: () => import('../views/PendingModules.vue'),
+        meta: { title: '待完善模块' }
       },
       // 营销管理
       {
@@ -254,6 +256,16 @@ const router = createRouter({
   routes
 })
 
+function getDefaultRoute() {
+  if (isSuperAdmin() || hasPermission('system:users:read')) return '/users'
+  if (hasPermission('projects:read')) return '/translation'
+  if (hasPermission('schedule:read')) return '/work-schedule'
+  if (hasPermission('clients:read')) return '/clients'
+  if (hasPermission('translators:read')) return '/resource-management/translators'
+  if (hasPermission('finance:read')) return '/finance'
+  return '/dashboard'
+}
+
 // 路由守卫：认证 + 角色权限
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
@@ -269,14 +281,12 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.path === '/') {
-    const homePath = isSuperAdmin() ? '/users' : '/translation'
-    next(homePath)
+    next(getDefaultRoute())
     return
   }
 
   if (!canAccessRoute(to)) {
-    const homePath = isSuperAdmin() ? '/users' : '/translation'
-    next(homePath)
+    next(getDefaultRoute())
     return
   }
 
@@ -285,7 +295,7 @@ router.beforeEach((to, from, next) => {
 
 router.afterEach((to) => {
   const title = to.meta?.title
-  document.title = title ? `${title} - 信实` : '信实翻译项目管理平台'
+  document.title = title ? `${title} - ` : '翻译项目管理平台'
 })
 
 export default router

@@ -11,15 +11,17 @@
       <el-form-item label="咨询编号">
         <el-input v-model="searchForm.consultation_code" placeholder="输入编号" clearable @keyup.enter="handleSearch" />
       </el-form-item>
-      <el-form-item label="客户名称">
+      <el-form-item label="客户全称">
         <el-input v-model="searchForm.client_name" placeholder="输入名称" clearable @keyup.enter="handleSearch" />
       </el-form-item>
       <el-form-item label="咨询状态">
         <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px" @change="handleSearch">
-          <el-option label="跟进中" value="following" />
-          <el-option label="重点跟进" value="emphasis" />
-          <el-option label="未成交" value="failed" />
-          <el-option label="已成交" value="success" />
+          <el-option
+            v-for="item in consultationStatusOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -39,7 +41,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="client_code" label="客户编号" width="150" />
-      <el-table-column prop="client_name" label="客户名称" width="200" show-overflow-tooltip />
+      <el-table-column prop="client_name" label="客户全称" width="200" show-overflow-tooltip />
       <el-table-column prop="client_short_name" label="客户简称" width="150" />
       <el-table-column prop="consultation_time" label="咨询时间" width="180">
         <template #default="{ row }">{{ formatDatetime(row.consultation_time) }}</template>
@@ -47,7 +49,9 @@
       <el-table-column prop="client_source" label="客户来源" width="120" />
       <el-table-column prop="source_keyword" label="来源关键词" width="150" />
       <el-table-column prop="consultation_method" label="咨询方式" width="120" />
-      <el-table-column prop="consultation_type" label="咨询类型" width="120" />
+      <el-table-column label="咨询类型" width="140">
+        <template #default="{ row }">{{ consultationTypeLabel(row.consultation_type) }}</template>
+      </el-table-column>
 
       <el-table-column label="详情" width="100" fixed="right">
         <template #default="{ row }">
@@ -77,7 +81,7 @@
                 <el-descriptions-item label="客户编号">
                   <span class="detail-value">{{ getDetailRow(row).client_code || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户名称">
+                <el-descriptions-item label="客户全称">
                   <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户简称">
@@ -100,7 +104,7 @@
                 </el-descriptions-item>
 
                 <el-descriptions-item label="咨询类型">
-                  <span class="detail-value">{{ getDetailRow(row).consultation_type || '-' }}</span>
+                  <span class="detail-value">{{ consultationTypeLabel(getDetailRow(row).consultation_type) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="处理方式">
                   <span class="detail-value">{{ getDetailRow(row).handling_method || '-' }}</span>
@@ -175,7 +179,7 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="140px">
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
                 <el-autocomplete
                   v-model="form.client_name"
@@ -238,21 +242,25 @@
           <el-col :span="12">
             <el-form-item label="咨询状态" prop="status">
               <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
-                <el-option label="跟进中" value="following" />
-                <el-option label="重点跟进" value="emphasis" />
-                <el-option label="未成交" value="failed" />
-                <el-option label="已成交" value="success" />
+                <el-option
+                  v-for="item in consultationStatusOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="咨询类型" prop="consultation_type">
-              <el-select v-model="form.consultation_type" placeholder="请选择" style="width: 100%">
-                <el-option label="笔译" value="translation" />
-                <el-option label="口译" value="interpretation" />
-                <el-option label="设备租赁" value="equipment_rental" />
-                <el-option label="招聘" value="recruitment" />
-                <el-option label="其他" value="other" />
+              <el-select
+                v-model="form.consultation_type"
+                filterable
+                allow-create
+                placeholder="请选择；其他项目可直接输入自定义类型"
+                style="width: 100%"
+              >
+                <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -415,12 +423,14 @@
     <!-- 创建翻译项目弹窗 -->
     <el-dialog
       v-model="createProjectDialogVisible"
-      title="🎉 咨询已成交 — 创建翻译项目"
+      title="咨询已确认 — 生成项目详情"
       width="500px"
       :close-on-click-modal="false"
-      @close="createProjectForm.projectName = ''"
+      @close="resetCreateProjectDraft"
     >
-      <p style="color: #606266; margin-bottom: 16px;">该咨询已标记为"已成交"，请输入翻译项目名称以自动建单：</p>
+      <p style="color: #606266; margin-bottom: 16px;">
+        咨询状态已调整为“已确认”。系统已按项目命名规则填入名称，请再次确认生成项目详情。
+      </p>
       <el-form :model="createProjectForm" ref="createProjectFormRef" @submit.prevent>
         <el-form-item
           label="项目名称"
@@ -429,18 +439,19 @@
         >
           <el-input
             v-model="createProjectForm.projectName"
-            placeholder="请输入翻译项目名称"
+            placeholder="按“客户简称-当前日期”自动生成"
             clearable
           />
+          <div class="project-name-hint">名称可在确认生成前手动修改。</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createProjectDialogVisible = false">跳过</el-button>
+        <el-button @click="createProjectDialogVisible = false">暂不生成</el-button>
         <el-button
           type="primary"
           :loading="createProjectLoading"
           @click="handleCreateProject"
-        >确认建单</el-button>
+        >确认生成</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -453,6 +464,7 @@ import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { useRouter } from 'vue-router'
+import { buildAutoProjectName } from '@/utils/projectNaming'
 
 const router = useRouter()
 const loading = ref(false)
@@ -470,6 +482,7 @@ const createProjectLoading = ref(false)
 const createProjectConsultationId = ref(null)
 const createProjectFormRef = ref(null)
 const createProjectForm = reactive({ projectName: '' })
+const CONFIRMED_CONSULTATION_STATUS = 'success'
 
 const tableData = ref([])
 const pagination = reactive({
@@ -522,12 +535,47 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const consultationTypeOptions = [
+  '笔译项目',
+  '口译项目',
+  '招聘项目',
+  '标注项目',
+  '配音项目',
+  '字幕项目',
+  '公证项目',
+  '认证项目',
+  '其他项目',
+  '非项目工作',
+]
+const consultationStatusOptions = [
+  { label: '跟进中', value: 'following' },
+  { label: '重点跟进', value: 'emphasis' },
+  { label: '未成交', value: 'failed' },
+  { label: '已确认', value: CONFIRMED_CONSULTATION_STATUS },
+]
+const legacyConsultationTypeLabels = {
+  translation: '笔译项目',
+  interpretation: '口译项目',
+  recruitment: '招聘项目',
+  annotation: '标注项目',
+  dubbing: '配音项目',
+  subtitle: '字幕项目',
+  notarization: '公证项目',
+  certification: '认证项目',
+  equipment_rental: '其他项目',
+  other: '其他项目',
+  笔译: '笔译项目',
+  口译: '口译项目',
+  招聘: '招聘项目',
+  其他: '其他项目',
+}
+const consultationTypeLabel = (value) => legacyConsultationTypeLabels[value] || value || '-'
 
-// 是否为新客户：没有关联的 client_id 但已填写客户名称
+// 是否为新客户：没有关联的 client_id 但已填写客户全称
 const isNewClient = computed(() => !form.client_id && !!form.client_name)
 
 const rules = {
-  client_name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
+  client_name: [{ required: true, message: '请输入客户全称', trigger: 'blur' }],
   client_short_name: [{
     validator: (_rule, value, callback) => {
       if (isNewClient.value && !value?.trim()) {
@@ -557,7 +605,7 @@ const getStatusText = (status) => {
     following: '跟进中',
     emphasis: '重点跟进',
     failed: '未成交',
-    success: '已成交',
+    success: '已确认',
   }
   return statusMap[status] || status || '-'
 }
@@ -708,7 +756,9 @@ const fillFormByRow = (row) => {
     source_keyword: row.source_keyword || '',
     consultation_description: row.consultation_description || '',
     status: row.status || 'following',
-    consultation_type: row.consultation_type || '',
+    consultation_type: consultationTypeLabel(row.consultation_type) === '-'
+      ? ''
+      : consultationTypeLabel(row.consultation_type),
     handling_method: row.handling_method || '',
     remarks: row.remarks || '',
     customer_service_id: row.customer_service_id || null,
@@ -763,7 +813,7 @@ const handleSubmit = async () => {
 
       const payload = buildPayload()
       const isUpdate = !!form.id
-      // 记录提交前咨询的旧状态（用于判断是否首次变为已成交）
+      // 记录提交前咨询的旧状态（用于判断是否首次变为已确认）
       const prevStatus = isUpdate
         ? (detailCache[form.id]?.status ?? tableData.value.find((r) => r.id === form.id)?.status)
         : null
@@ -775,21 +825,24 @@ const handleSubmit = async () => {
       } else {
         const created = await consultationApi.createConsultation(payload)
         ElMessage.success('创建成功')
-        // 新建咨询也支持立即成交触发建项目弹窗
-        if (payload.status === 'success' && created?.id) {
-          createProjectConsultationId.value = created.id
-          createProjectForm.projectName = ''
-          createProjectDialogVisible.value = true
+        // 新建咨询也支持立即确认并生成项目详情。
+        if (payload.status === CONFIRMED_CONSULTATION_STATUS && created?.id) {
+          openCreateProjectDialog(
+            created.id,
+            created.client_short_name || form.client_short_name
+          )
         }
       }
       dialogVisible.value = false
       fetchData()
 
-      // 若编辑时将状态改为「已成交」，则弹窗提示用户创建翻译项目
-      if (isUpdate && payload.status === 'success' && prevStatus !== 'success') {
-        createProjectConsultationId.value = consultationId
-        createProjectForm.projectName = ''
-        createProjectDialogVisible.value = true
+      // 若编辑时首次改为「已确认」，使用统一命名规则预填项目名称并二次确认。
+      if (
+        isUpdate &&
+        payload.status === CONFIRMED_CONSULTATION_STATUS &&
+        prevStatus !== CONFIRMED_CONSULTATION_STATUS
+      ) {
+        openCreateProjectDialog(consultationId, form.client_short_name)
       }
     } catch (error) {
       ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
@@ -807,18 +860,31 @@ const handleCreateProject = async () => {
       createProjectConsultationId.value,
       createProjectForm.projectName
     )
-    ElMessage.success('\u9879\u76EE\u5DF2\u521B\u5EFA\uFF0C\u6B63\u5728\u8FDB\u5165\u6D41\u7A0B\u9875\u9762')
+    ElMessage.success('项目详情已生成')
     createProjectDialogVisible.value = false
     createProjectConsultationId.value = null
     createProjectForm.projectName = ''
     if (project?.id) {
-      router.push({ path: '/translation', query: { projectId: project.id } })
+      router.push('/translation-details')
     }
   } catch (err) {
     ElMessage.error(err?.response?.data?.detail || '\u521B\u5EFA\u9879\u76EE\u5931\u8D25')
   } finally {
     createProjectLoading.value = false
   }
+}
+
+const openCreateProjectDialog = (consultationId, clientShortName) => {
+  createProjectConsultationId.value = consultationId
+  createProjectForm.projectName = buildAutoProjectName(clientShortName)
+  createProjectFormRef.value?.clearValidate()
+  createProjectDialogVisible.value = true
+}
+
+const resetCreateProjectDraft = () => {
+  createProjectConsultationId.value = null
+  createProjectForm.projectName = ''
+  createProjectFormRef.value?.clearValidate()
 }
 
 const resetForm = () => {
@@ -852,5 +918,13 @@ onMounted(async () => {
   word-break: break-all;
   color: #606266;
   font-size: 13px;
+}
+
+.project-name-hint {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 </style>

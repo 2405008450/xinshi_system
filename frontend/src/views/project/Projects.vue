@@ -15,7 +15,7 @@
         <el-form-item label="项目编号">
           <el-input v-model="searchForm.project_no" placeholder="支持模糊搜索" clearable />
         </el-form-item>
-        <el-form-item label="客户名称">
+        <el-form-item label="客户全称">
           <el-input v-model="searchForm.client_name" placeholder="支持模糊搜索" clearable />
         </el-form-item>
         <el-form-item>
@@ -27,7 +27,7 @@
 
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column prop="project_no" label="项目编号" width="150" />
-      <el-table-column prop="client_name" label="客户名称" width="150" />
+      <el-table-column prop="client_name" label="客户全称" width="150" />
       <el-table-column prop="project_type" label="项目类型" width="120" />
       <el-table-column prop="source_language" label="源语言" width="100" />
       <el-table-column prop="target_language" label="目标语言" width="100" />
@@ -73,7 +73,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <el-input v-model="form.client_name" />
             </el-form-item>
           </el-col>

@@ -5,7 +5,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import DateTime, ForeignKeyConstraint, Index, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -86,3 +86,132 @@ class WorkflowLog(Base):
     workflow_instance: Mapped['WorkflowInstance'] = relationship('WorkflowInstance', back_populates='logs')
     operator = relationship('AppUser', foreign_keys=[operator_id])
     next_assignee = relationship('AppUser', foreign_keys=[next_assignee_id])
+
+
+class WorkflowHandoverRequest(Base):
+    __tablename__ = 'workflow_handover_request'
+    __table_args__ = (
+        ForeignKeyConstraint(['requester_id'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_handover_requester'),
+        ForeignKeyConstraint(['target_user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_wf_handover_target'),
+        ForeignKeyConstraint(['decided_by'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_handover_decider'),
+        PrimaryKeyConstraint('id', name='workflow_handover_request_pkey'),
+        Index('ix_wf_handover_target_status', 'target_user_id', 'status'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    requester_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    target_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    handover_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason_detail: Mapped[Optional[str]] = mapped_column(String(500))
+    content: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    content_json: Mapped[Optional[dict]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))
+    decision_note: Mapped[Optional[str]] = mapped_column(String(500))
+    decided_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    decided_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+    requester = relationship('AppUser', foreign_keys=[requester_id])
+    target_user = relationship('AppUser', foreign_keys=[target_user_id])
+    decider = relationship('AppUser', foreign_keys=[decided_by])
+    items: Mapped[list['WorkflowHandoverItem']] = relationship(
+        'WorkflowHandoverItem',
+        back_populates='request',
+        cascade='all, delete-orphan',
+    )
+    attachment_links: Mapped[list['WorkflowHandoverAttachment']] = relationship(
+        'WorkflowHandoverAttachment',
+        back_populates='request',
+        cascade='all, delete-orphan',
+    )
+
+
+class WorkflowHandoverItem(Base):
+    __tablename__ = 'workflow_handover_item'
+    __table_args__ = (
+        ForeignKeyConstraint(['request_id'], ['workflow_handover_request.id'], ondelete='CASCADE', name='fk_wf_handover_item_request'),
+        ForeignKeyConstraint(['workflow_instance_id'], ['workflow_instance.id'], ondelete='CASCADE', name='fk_wf_handover_item_instance'),
+        ForeignKeyConstraint(['expected_assignee_id'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_handover_item_assignee'),
+        PrimaryKeyConstraint('id', name='workflow_handover_item_pkey'),
+        UniqueConstraint('request_id', 'workflow_instance_id', name='uq_wf_handover_item'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    workflow_instance_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    expected_assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+    request: Mapped['WorkflowHandoverRequest'] = relationship('WorkflowHandoverRequest', back_populates='items')
+    workflow_instance: Mapped['WorkflowInstance'] = relationship('WorkflowInstance')
+
+
+class WorkflowHandoverAttachment(Base):
+    __tablename__ = 'workflow_handover_attachment'
+    __table_args__ = (
+        ForeignKeyConstraint(['request_id'], ['workflow_handover_request.id'], ondelete='CASCADE', name='fk_wf_handover_attachment_request'),
+        ForeignKeyConstraint(['attachment_id'], ['chat_project_attachment.id'], ondelete='CASCADE', name='fk_wf_handover_attachment_file'),
+        PrimaryKeyConstraint('id', name='workflow_handover_attachment_pkey'),
+        UniqueConstraint('request_id', 'attachment_id', name='uq_wf_handover_attachment'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    attachment_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+
+    request: Mapped['WorkflowHandoverRequest'] = relationship('WorkflowHandoverRequest', back_populates='attachment_links')
+    attachment = relationship('ChatProjectAttachment')
+
+
+class ProjectManagerHandoverRequest(Base):
+    """项目管理主负责人交接；与执行阶段任务交接独立。"""
+    __tablename__ = 'project_manager_handover_request'
+    __table_args__ = (
+        ForeignKeyConstraint(['requester_id'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_requester'),
+        ForeignKeyConstraint(['target_manager_id'], ['app_user.id'], ondelete='CASCADE', name='fk_pm_handover_target'),
+        ForeignKeyConstraint(['decided_by'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_decider'),
+        PrimaryKeyConstraint('id', name='project_manager_handover_request_pkey'),
+        Index('ix_pm_handover_target_status', 'target_manager_id', 'status'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    requester_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    target_manager_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(500))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))
+    decision_note: Mapped[Optional[str]] = mapped_column(String(500))
+    decided_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    decided_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+    requester = relationship('AppUser', foreign_keys=[requester_id])
+    target_manager = relationship('AppUser', foreign_keys=[target_manager_id])
+    decider = relationship('AppUser', foreign_keys=[decided_by])
+    items: Mapped[list['ProjectManagerHandoverItem']] = relationship(
+        'ProjectManagerHandoverItem',
+        back_populates='request',
+        cascade='all, delete-orphan',
+    )
+
+
+class ProjectManagerHandoverItem(Base):
+    __tablename__ = 'project_manager_handover_item'
+    __table_args__ = (
+        ForeignKeyConstraint(['request_id'], ['project_manager_handover_request.id'], ondelete='CASCADE', name='fk_pm_handover_item_request'),
+        ForeignKeyConstraint(['translation_project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_pm_handover_item_project'),
+        ForeignKeyConstraint(['expected_manager_id'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_item_expected'),
+        PrimaryKeyConstraint('id', name='project_manager_handover_item_pkey'),
+        UniqueConstraint('request_id', 'translation_project_id', name='uq_pm_handover_item'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    expected_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+    request: Mapped['ProjectManagerHandoverRequest'] = relationship(
+        'ProjectManagerHandoverRequest',
+        back_populates='items',
+    )
+    project = relationship('TranslationProject')
+    expected_manager = relationship('AppUser', foreign_keys=[expected_manager_id])

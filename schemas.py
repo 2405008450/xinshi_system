@@ -2,7 +2,9 @@ from typing import Optional
 from datetime import datetime, date
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from language_catalog import normalize_language_pairs
 
 
 # Auth Schemas
@@ -13,6 +15,7 @@ class Token(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     roles: Optional[list[str]] = None
+    permissions: Optional[list[str]] = None
 
 
 class LoginRequest(BaseModel):
@@ -66,9 +69,24 @@ class RoleUpdate(BaseModel):
 
 class RoleResponse(RoleBase):
     id: UUID
+    permissions: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
+
+
+class RolePermissionsUpdate(BaseModel):
+    permissions: list[str] = Field(default_factory=list)
+
+
+class PermissionItem(BaseModel):
+    code: str
+    name: str
+
+
+class PermissionGroup(BaseModel):
+    group: str
+    permissions: list[PermissionItem]
 
 
 # Client Schemas
@@ -402,10 +420,22 @@ class TranslatorScheduleResponse(TranslatorScheduleBase):
 # Translation Project Schemas
 class TranslationProjectBase(BaseModel):
     project_name: str
+    task_type: Optional[str] = None
+    consultation_id: Optional[UUID] = None
     file_type_secondary: Optional[str] = None
+    project_contract_type: Optional[str] = None
+    project_contract_status: Optional[str] = None
+    quotation_required: bool = False
+    quotation_status: Optional[str] = None
+    quotation_path: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
     client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    customer_order_no: Optional[str] = None
+    service_content: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -413,8 +443,14 @@ class TranslationProjectBase(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count: Optional[int] = None
+    customer_word_count: Optional[int] = None
+    customer_word_count_type: Optional[str] = None
+    internal_word_count: Optional[int] = None
+    internal_word_count_type: Optional[str] = None
     project_status: Optional[str] = None
+    project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
+    major_project_manager_confirmation: Optional[str] = None
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
     expected_translator_stats_method: Optional[str] = None
@@ -427,16 +463,34 @@ class TranslationProjectBase(BaseModel):
     layout_progress: Optional[str] = None
     consolidation_progress: Optional[str] = None
     network_file_path: Optional[str] = None
+    reference_file_path_one: Optional[str] = None
+
+    @field_validator('language_pair')
+    @classmethod
+    def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_pairs(value)
 
 class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
 
 class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
+    task_type: Optional[str] = None
+    consultation_id: Optional[UUID] = None
     file_type_secondary: Optional[str] = None
+    project_contract_type: Optional[str] = None
+    project_contract_status: Optional[str] = None
+    quotation_required: bool = False
+    quotation_status: Optional[str] = None
+    quotation_path: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
     client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    customer_order_no: Optional[str] = None
+    service_content: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -444,8 +498,14 @@ class TranslationProjectUpdate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count: Optional[int] = None
+    customer_word_count: Optional[int] = None
+    customer_word_count_type: Optional[str] = None
+    internal_word_count: Optional[int] = None
+    internal_word_count_type: Optional[str] = None
     project_status: Optional[str] = None
+    project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
+    major_project_manager_confirmation: Optional[str] = None
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
     expected_translator_stats_method: Optional[str] = None
@@ -458,6 +518,25 @@ class TranslationProjectUpdate(BaseModel):
     layout_progress: Optional[str] = None
     consolidation_progress: Optional[str] = None
     network_file_path: Optional[str] = None
+    reference_file_path_one: Optional[str] = None
+
+    @field_validator('language_pair')
+    @classmethod
+    def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_pairs(value)
+
+class ProjectAssignedTranslatorResponse(BaseModel):
+    arrangement_id: UUID
+    dispatch_id: Optional[UUID] = None
+    translator_id: UUID
+    translator_name: str
+    cooperation_type: Optional[str] = None
+    status: Optional[str] = None
+    planned_word_count: Optional[int] = None
+    actual_word_count: Optional[int] = None
+    word_count_type: Optional[str] = None
+    translation_scope: Optional[str] = None
+
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
 class TranslationSubOrderResponse(BaseModel):
@@ -470,19 +549,26 @@ class TranslationSubOrderResponse(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count: Optional[int] = None
+    customer_word_count: Optional[int] = None
+    customer_word_count_type: Optional[str] = None
+    internal_word_count: Optional[int] = None
+    internal_word_count_type: Optional[str] = None
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None
     # 璇戝憳
     translator_id: Optional[UUID] = None
+    translator_name: Optional[str] = None
     translator_assignment_time: Optional[datetime] = None
     expected_translator_stats_method: Optional[str] = None
     expected_translator_word_count: Optional[int] = None
+    assigned_translators: list[ProjectAssignedTranslatorResponse] = Field(default_factory=list)
     # 杩涘害
     status: Optional[str] = None
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None
+    review_progress: Optional[str] = None
     review1_progress: Optional[str] = None
     review2_progress: Optional[str] = None
     post_review_qc_progress: Optional[str] = None
@@ -502,10 +588,25 @@ class TranslationSubOrderResponse(BaseModel):
 class TranslationProjectResponse(TranslationProjectBase):
     id: UUID
     order_no: str
+    client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
+    project_manager_name: Optional[str] = None
+    translator_name: Optional[str] = None
     created_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     sub_orders: list['TranslationSubOrderResponse'] = Field(default_factory=list)
+    assigned_translators: list[ProjectAssignedTranslatorResponse] = Field(default_factory=list)
+    project_file_name: Optional[str] = None
+    project_file_translation_domain_level1: Optional[str] = None
+    project_file_translation_domain_level2: Optional[str] = None
+    project_file_type_level1: Optional[str] = None
+    project_file_type_level2: Optional[str] = None
+    project_file_format: Optional[str] = None
+    project_file_attribute_level1: Optional[str] = None
+    project_file_attribute_level2: Optional[str] = None
+    project_file_attribute_level3: Optional[str] = None
+    project_file_difficulty: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -521,6 +622,10 @@ class TranslationSubOrderCreate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count: Optional[int] = None
+    customer_word_count: Optional[int] = None
+    customer_word_count_type: Optional[str] = None
+    internal_word_count: Optional[int] = None
+    internal_word_count_type: Optional[str] = None
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -534,6 +639,7 @@ class TranslationSubOrderCreate(BaseModel):
     status: Optional[str] = 'pending'
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None
+    review_progress: Optional[str] = None
     review1_progress: Optional[str] = None
     review2_progress: Optional[str] = None
     post_review_qc_progress: Optional[str] = None
@@ -544,6 +650,11 @@ class TranslationSubOrderCreate(BaseModel):
     remarks: Optional[str] = None
     created_by: Optional[UUID] = None
 
+    @field_validator('language_pair')
+    @classmethod
+    def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_pairs(value)
+
 
 class TranslationSubOrderUpdate(BaseModel):
     sub_project_name: Optional[str] = None
@@ -551,6 +662,10 @@ class TranslationSubOrderUpdate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count: Optional[int] = None
+    customer_word_count: Optional[int] = None
+    customer_word_count_type: Optional[str] = None
+    internal_word_count: Optional[int] = None
+    internal_word_count_type: Optional[str] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None
@@ -561,6 +676,7 @@ class TranslationSubOrderUpdate(BaseModel):
     status: Optional[str] = None
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None
+    review_progress: Optional[str] = None
     review1_progress: Optional[str] = None
     review2_progress: Optional[str] = None
     post_review_qc_progress: Optional[str] = None
@@ -568,6 +684,11 @@ class TranslationSubOrderUpdate(BaseModel):
     consolidation_progress: Optional[str] = None
     network_file_path: Optional[str] = None
     remarks: Optional[str] = None
+
+    @field_validator('language_pair')
+    @classmethod
+    def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_pairs(value)
 
 
 # UserRole Schemas
@@ -588,6 +709,12 @@ class UserRoleResponse(UserRoleBase):
         from_attributes = True
 
 
+class UserRoleDetailResponse(UserRoleResponse):
+    username: str
+    user_full_name: Optional[str] = None
+    role_name: str
+
+
 # ProjectFile Schemas
 class ProjectFileBase(BaseModel):
     translation_project_id: UUID
@@ -595,8 +722,19 @@ class ProjectFileBase(BaseModel):
     storage_path: str
     dispatch_path: Optional[str] = None
     translation_path: Optional[str] = None
+    translator_return_path: Optional[str] = None
     client_delivery_path: Optional[str] = None
+    project_feedback_path: Optional[str] = None
+    feedback_delivery_path: Optional[str] = None
+    translation_domain_level1: Optional[str] = None
+    translation_domain_level2: Optional[str] = None
     file_type: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    file_format: Optional[str] = None
+    file_attribute_level1: Optional[str] = None
+    file_attribute_level2: Optional[str] = None
+    file_attribute_level3: Optional[str] = None
+    file_difficulty: Optional[str] = None
     file_ext: Optional[str] = None
     file_size: Optional[int] = None
     storage_type: Optional[str] = None
@@ -611,8 +749,19 @@ class ProjectFileUpdate(BaseModel):
     storage_path: Optional[str] = None
     dispatch_path: Optional[str] = None
     translation_path: Optional[str] = None
+    translator_return_path: Optional[str] = None
     client_delivery_path: Optional[str] = None
+    project_feedback_path: Optional[str] = None
+    feedback_delivery_path: Optional[str] = None
+    translation_domain_level1: Optional[str] = None
+    translation_domain_level2: Optional[str] = None
     file_type: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    file_format: Optional[str] = None
+    file_attribute_level1: Optional[str] = None
+    file_attribute_level2: Optional[str] = None
+    file_attribute_level3: Optional[str] = None
+    file_difficulty: Optional[str] = None
     file_ext: Optional[str] = None
     file_size: Optional[int] = None
     storage_type: Optional[str] = None
@@ -867,8 +1016,18 @@ class ProjectChatSettingsResponse(BaseModel):
 
 
 class ProjectChatMessageCreate(BaseModel):
-    content: str = Field(min_length=1, max_length=2000)
+    content: str = Field(default='', max_length=10000)
+    content_json: Optional[dict] = None
     mentioned_user_id: Optional[UUID] = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
+
+
+class ProjectChatAttachmentResponse(BaseModel):
+    id: UUID
+    original_name: str
+    content_type: str
+    file_size: int
+    created_at: Optional[datetime] = None
 
 
 class ProjectChatMessageResponse(BaseModel):
@@ -877,10 +1036,14 @@ class ProjectChatMessageResponse(BaseModel):
     sender_user_id: Optional[UUID] = None
     sender_name: str
     content: str
+    content_json: Optional[dict] = None
+    message_type: str = 'user'
+    metadata: dict = Field(default_factory=dict)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_name: Optional[str] = None
+    attachments: list[ProjectChatAttachmentResponse] = Field(default_factory=list)
 
 
 class ProjectChatMessageQueryResponse(BaseModel):

@@ -5,14 +5,14 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import (
-    get_client, get_clients,
+    get_client, get_clients, count_clients,
     create_client, update_client, delete_client,
     get_sub_client, create_sub_client, update_sub_client, delete_sub_client
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
-from routers.auth import get_current_user
+from routers.auth import require_module_access
 
-router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 def create_client_endpoint(client: ClientCreate, db: Session = Depends(get_db)):
@@ -24,6 +24,8 @@ def read_clients(
     limit: int = 100,
     client_code: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
+    client_short_name: Optional[str] = Query(None),
+    frequent_first: bool = Query(False),
     db: Session = Depends(get_db)
 ):
     return get_clients(
@@ -31,8 +33,26 @@ def read_clients(
         skip=skip,
         limit=limit,
         client_code=client_code,
-        client_name=client_name
+        client_name=client_name,
+        client_short_name=client_short_name,
+        frequent_first=frequent_first
     )
+
+@router.get("/count")
+def read_client_count(
+    client_code: Optional[str] = Query(None),
+    client_name: Optional[str] = Query(None),
+    client_short_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return {
+        "total": count_clients(
+            db,
+            client_code=client_code,
+            client_name=client_name,
+            client_short_name=client_short_name
+        )
+    }
 
 @router.get("/{client_id}", response_model=ClientResponse)
 def read_client(client_id: UUID, db: Session = Depends(get_db)):

@@ -7,7 +7,7 @@
         </div>
         <transition name="logo-text">
           <div v-show="!isCollapse" class="logo-text">
-            <h2>信实翻译公司</h2>
+            <h2>翻译</h2>
             <span class="logo-subtitle">翻译项目管理平台</span>
           </div>
         </transition>
@@ -23,18 +23,14 @@
         :collapse-transition="false"
       >
         <!-- 仅超级管理员可见：用户/角色/用户角色关联 -->
-        <template v-if="showFullMenu">
-          <el-menu-item index="/users">
+        <template v-if="showSystemMenu">
+          <el-menu-item v-if="canViewUsers" index="/users">
             <el-icon><User /></el-icon>
             <template #title>用户管理</template>
           </el-menu-item>
-          <el-menu-item index="/roles">
+          <el-menu-item v-if="canViewRoles" index="/roles">
             <el-icon><Key /></el-icon>
             <template #title>角色管理</template>
-          </el-menu-item>
-          <el-menu-item index="/user-roles">
-            <el-icon><Connection /></el-icon>
-            <template #title>用户角色关联</template>
           </el-menu-item>
           <el-divider class="menu-divider" />
         </template>
@@ -45,7 +41,7 @@
         </el-menu-item>
         <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
-          <template #title>我的工作台</template>
+          <template #title>工作台</template>
         </el-menu-item>
         
         <!-- 项目管理：扁平菜单 -->
@@ -57,24 +53,10 @@
           <el-icon><Document /></el-icon>
           <template #title>项目详情</template>
         </el-menu-item>
-        <el-menu-item index="/translation-files">
-          <el-icon><Files /></el-icon>
-          <template #title>项目文件</template>
+        <el-menu-item v-if="showTranslationMenu" index="/manuscript-arrangements">
+          <el-icon><Tickets /></el-icon>
+          <template #title>稿件安排</template>
         </el-menu-item>
-        <template v-if="showFullMenu">
-          <el-menu-item index="/interpretation">
-            <template #title>口译项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/annotation">
-            <template #title>标注项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/recruitment">
-            <template #title>招聘项目管理</template>
-          </el-menu-item>
-          <el-menu-item index="/other">
-            <template #title>其他项目管理</template>
-          </el-menu-item>
-        </template>
         <!-- 排班管理：所有员工可查看（编辑权限在页面内控制） -->
         <el-menu-item v-if="showSchedule" index="/work-schedule">
           <el-icon><Calendar /></el-icon>
@@ -86,73 +68,19 @@
           <template #title>译员信息</template>
         </el-menu-item>
         <!-- 客户管理：所有员工可查看 -->
-        <el-menu-item v-if="showClientManagement" index="/clients">
+        <el-menu-item v-if="showClients" index="/clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
         </el-menu-item>
-        <el-menu-item v-if="showSubsidiaryClients" index="/subsidiary-clients">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>子公司客户信息</template>
-        </el-menu-item>
-        <el-menu-item v-if="showClientContacts" index="/client-contacts">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>客户联系人及回访</template>
-        </el-menu-item>
-        <el-menu-item v-if="showClientManagement" index="/consultations">
+        <el-menu-item v-if="showConsultations" index="/consultations">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>新咨询管理</template>
         </el-menu-item>
-        <!-- 财务管理：所有员工可查看 -->
-        <el-menu-item index="/finance">
-          <el-icon><Money /></el-icon>
-          <template #title>财务管理</template>
-        </el-menu-item>
-        <template v-if="showFullMenu">
+        <template v-if="showPendingModules">
           <el-divider class="menu-divider" />
-          <el-menu-item index="/technology-management">
+          <el-menu-item index="/pending-modules">
             <el-icon><QuestionFilled /></el-icon>
-            <template #title>技术管理</template>
-          </el-menu-item>
-          <el-menu-item index="/marketing">
-            <el-icon><Promotion /></el-icon>
-            <template #title>营销管理</template>
-          </el-menu-item>
-          <el-sub-menu index="/hr-management">
-            <template #title>
-              <el-icon><User /></el-icon>
-              <span>人力管理</span>
-            </template>
-            <el-menu-item index="/hr-management/attendance">
-              <template #title>考勤管理</template>
-            </el-menu-item>
-            <el-menu-item index="/hr-management/kpi">
-              <template #title>KPI管理</template>
-            </el-menu-item>
-            <el-menu-item index="/hr-management/salary">
-              <template #title>薪酬管理</template>
-            </el-menu-item>
-            <el-menu-item index="/hr-management/onboarding">
-              <template #title>入职管理</template>
-            </el-menu-item>
-            <el-menu-item index="/hr-management/offboarding">
-              <template #title>离职管理</template>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="/administration-management">
-            <template #title>
-              <el-icon><House /></el-icon>
-              <span>内务管理</span>
-            </template>
-            <el-menu-item index="/administration-management/office">
-              <template #title>办公室管理</template>
-            </el-menu-item>
-            <el-menu-item index="/administration-management/office-equipment">
-              <template #title>办公室设备管理</template>
-            </el-menu-item>
-          </el-sub-menu>
-          <el-menu-item index="/procurement">
-            <el-icon><ShoppingCart /></el-icon>
-            <template #title>采购管理</template>
+            <template #title>待完善模块</template>
           </el-menu-item>
         </template>
       </el-menu>
@@ -207,8 +135,8 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { User, Key, Folder, Document, Files, Connection, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Money, Promotion, House, ShoppingCart, Fold, Expand, DataAnalysis } from '@element-plus/icons-vue'
-import { isSuperAdmin, getStoredRoles } from '../utils/permission'
+import { User, Key, Folder, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand, DataAnalysis } from '@element-plus/icons-vue'
+import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 
 const route = useRoute()
@@ -238,23 +166,29 @@ onMounted(() => {
 
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
+const canViewUsers = computed(() => hasPermission('system:users:read'))
+const canViewRoles = computed(() => hasPermission('system:roles:read'))
+const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value)
 
-/** 是否显示「我的工作台」（所有员工） */
-const showWorkbench = computed(() => true)
+/** 是否显示「工作台」（所有员工） */
+const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
 /** 是否显示「排班管理」（所有员工可以查看） */
-const showSchedule = computed(() => true)
+const showSchedule = computed(() => hasPermission('schedule:read'))
 
 /** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
-const showTranslationMenu = computed(() => true)
+const showTranslationMenu = computed(() => hasPermission('projects:read'))
 
 /** 是否显示「客户管理」（所有员工） */
-const showClientManagement = computed(() => true)
-/** 是否显示「子公司客户信息」（仅超级管理员） */
-const showSubsidiaryClients = computed(() => isSuperAdmin())
+const showClients = computed(() => hasPermission('clients:read'))
+const showConsultations = computed(() => hasPermission('consultations:read'))
 /** 是否显示「客户联系人及回复」（仅超级管理员） */
-const showClientContacts = computed(() => isSuperAdmin())
+const showClientContacts = computed(() => hasPermission('clients:read'))
 /** 是否显示「资源管理」（所有员工） */
-const showResourceManagement = computed(() => true)
+const showResourceManagement = computed(() => hasPermission('translators:read'))
+const showFinance = computed(() => hasPermission('finance:read'))
+const showPendingModules = computed(() =>
+  showFullMenu.value || showClientContacts.value || showFinance.value
+)
 
 /** 当前用户名（优先显示真实姓名，其次用户名，最后回退到用户） */
 const displayName = computed(() => {
@@ -266,7 +200,26 @@ const displayName = computed(() => {
 })
 
 /** 当前激活的菜单项 */
-const activeMenu = ref(route.path)
+const pendingModulePaths = new Set([
+  '/interpretation',
+  '/annotation',
+  '/recruitment',
+  '/other',
+  '/client-contacts',
+  '/finance',
+  '/technology-management',
+  '/marketing',
+  '/hr-management/attendance',
+  '/hr-management/kpi',
+  '/hr-management/salary',
+  '/hr-management/onboarding',
+  '/hr-management/offboarding',
+  '/administration-management/office',
+  '/administration-management/office-equipment',
+  '/procurement',
+])
+const resolveActiveMenu = (path) => pendingModulePaths.has(path) ? '/pending-modules' : path
+const activeMenu = ref(resolveActiveMenu(route.path))
 
 /** 监听路由变化，更新激活菜单 */
 watch(
@@ -274,7 +227,7 @@ watch(
   (newPath) => {
     // 使用 nextTick 确保 DOM 更新后再设置激活菜单
     nextTick(() => {
-      activeMenu.value = newPath
+      activeMenu.value = resolveActiveMenu(newPath)
     })
   },
   { immediate: true }
@@ -305,6 +258,7 @@ const handleLogout = async () => {
     })
     localStorage.removeItem('token')
     localStorage.removeItem('user_roles')
+    localStorage.removeItem('user_permissions')
     localStorage.removeItem('user_name')
     localStorage.removeItem('user_id')
     localStorage.removeItem('user_full_name')
@@ -322,12 +276,12 @@ const handleLogout = async () => {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  background: linear-gradient(180deg, var(--color-sidebar) 0%, var(--color-sidebar-deep) 100%);
   color: #fff;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 2px 0 8px rgba(15, 23, 42, 0.08);
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.28s ease;
+  transition: width 220ms ease;
 }
 
 .sidebar--collapsed .logo {
@@ -391,12 +345,12 @@ const handleLogout = async () => {
 }
 
 .logo {
-  height: 70px;
+  height: 64px;
   display: flex;
   align-items: center;
   padding: 0 20px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--color-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .logo-icon {
@@ -406,7 +360,7 @@ const handleLogout = async () => {
   width: 40px;
   height: 40px;
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-right: 12px;
   flex-shrink: 0;
 }
@@ -443,23 +397,23 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-menu-item) {
-  color: #d1d5db;
-  height: 50px;
-  line-height: 50px;
+  color: rgba(255, 255, 255, 0.72);
+  height: 46px;
+  line-height: 46px;
   margin: 4px 12px;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  transition: color 180ms ease, background-color 180ms ease;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: var(--color-primary);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
 }
 
 .sidebar-menu :deep(.el-menu-item .el-icon) {
@@ -472,15 +426,15 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-sub-menu__title) {
-  color: #d1d5db;
-  height: 50px;
-  line-height: 50px;
+  color: rgba(255, 255, 255, 0.72);
+  height: 46px;
+  line-height: 46px;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  transition: color 180ms ease, background-color 180ms ease;
 }
 
 .sidebar-menu :deep(.el-sub-menu__title:hover) {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
@@ -521,13 +475,13 @@ const handleLogout = async () => {
 }
 
 .header {
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  height: 64px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   z-index: 10;
 }
 
@@ -540,11 +494,11 @@ const handleLogout = async () => {
 
 .collapse-btn {
   font-size: 18px;
-  color: #374151;
+  color: var(--color-text-secondary);
 }
 
 .collapse-btn:hover {
-  color: #2563eb;
+  color: var(--color-primary-hover);
 }
 
 .header-right {
@@ -560,21 +514,26 @@ const handleLogout = async () => {
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  transition: background-color 180ms ease;
 }
 
 .user-info:hover {
-  background: #f3f4f6;
+  background: var(--color-surface-muted);
 }
 
 .username {
   font-size: 14px;
-  color: #374151;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
+.user-info :deep(.el-avatar) {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
 .main-content {
-  background: #f9fafb;
+  background: var(--color-page-bg);
   padding: 24px;
   overflow-y: auto;
 }
@@ -585,29 +544,33 @@ const handleLogout = async () => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #3b82f6;
+  color: var(--color-primary);
 }
 
 /* 页面切换动画 */
 .fade-transform-leave-active,
 .fade-transform-enter-active {
-  transition: all 0.3s ease;
+  transition: opacity 220ms ease, transform 220ms ease;
 }
 
 .fade-transform-enter-from {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateY(6px);
 }
 
 .fade-transform-leave-to {
   opacity: 0;
-  transform: translateX(-20px);
+  transform: translateY(-4px);
 }
 
 /* 响应式 */
 @media (max-width: 768px) {
-  .sidebar {
+  .sidebar:not(.sidebar--collapsed) {
     width: 200px !important;
+  }
+
+  .sidebar--collapsed {
+    width: 64px !important;
   }
   
   .logo h2 {
@@ -620,6 +583,14 @@ const handleLogout = async () => {
   
   .main-content {
     padding: 16px;
+  }
+
+  .username {
+    display: none;
+  }
+
+  .user-info {
+    padding: 6px;
   }
 }
 </style>

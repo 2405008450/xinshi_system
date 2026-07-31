@@ -1,16 +1,81 @@
 import datetime as dt
+import json
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session, selectinload
 
 from crud import create_notifications_for_users, get_users_by_role_names
-from models import AppUser, ChatProjectEnabled, ChatProjectMention, ChatProjectMessage, TranslationProject
+from models import (
+    AppUser,
+    ChatProjectAttachment,
+    ChatProjectEnabled,
+    ChatProjectMention,
+    ChatProjectMessage,
+    ChatProjectMessageAttachment,
+    TranslationProject,
+)
 from notification_ws import dispatch_personal_message
 from workflow_crud import STAGE_BY_KEY
 
 
 CHAT_MANAGER_ROLES = {'admin', '超级管理员', '项目经理'}
+ALLOWED_RICH_TEXT_NODES = {
+    'doc', 'paragraph', 'text', 'heading', 'bulletList', 'orderedList',
+    'listItem', 'blockquote', 'codeBlock', 'hardBreak',
+}
+ALLOWED_RICH_TEXT_MARKS = {'bold', 'italic', 'strike', 'code'}
+
+
+def normalize_rich_text_json(value: Optional[dict]) -> Optional[dict]:
+    """只保留留言板支持的结构化节点，避免把任意 HTML 或危险属性写入数据库。"""
+    if not isinstance(value, dict):
+        return None
+
+    def clean_node(node):
+        if not isinstance(node, dict) or node.get('type') not in ALLOWED_RICH_TEXT_NODES:
+            return None
+        node_type = node['type']
+        cleaned = {'type': node_type}
+        if node_type == 'text':
+            cleaned['text'] = str(node.get('text') or '')[:10000]
+            marks = []
+            for mark in node.get('marks') or []:
+                if isinstance(mark, dict) and mark.get('type') in ALLOWED_RICH_TEXT_MARKS:
+                    marks.append({'type': mark['type']})
+            if marks:
+                cleaned['marks'] = marks
+        if node_type == 'heading':
+            level = int((node.get('attrs') or {}).get('level') or 2)
+            cleaned['attrs'] = {'level': min(3, max(1, level))}
+        children = []
+        for child in node.get('content') or []:
+            cleaned_child = clean_node(child)
+            if cleaned_child is not None:
+                children.append(cleaned_child)
+        if children:
+            cleaned['content'] = children
+        return cleaned
+
+    cleaned = clean_node(value)
+    return cleaned if cleaned and cleaned.get('type') == 'doc' else None
+
+
+def rich_text_to_plain(value: Optional[dict]) -> str:
+    parts: list[str] = []
+
+    def visit(node):
+        if not isinstance(node, dict):
+            return
+        if node.get('type') == 'text':
+            parts.append(str(node.get('text') or ''))
+        elif node.get('type') in {'paragraph', 'heading', 'listItem', 'blockquote', 'codeBlock'} and parts:
+            parts.append('\n')
+        for child in node.get('content') or []:
+            visit(child)
+
+    visit(value)
+    return ''.join(parts).strip()
 
 
 def _serialize_notification(notification) -> dict:
@@ -81,13 +146,19 @@ def list_project_chat_messages(
     sender_user_id: Optional[UUID] = None,
     date_from: Optional[dt.datetime] = None,
     date_to: Optional[dt.datetime] = None,
+    include_user_messages: bool = True,
 ) -> tuple[list[ChatProjectMessage], int]:
     query = (
         db.query(ChatProjectMessage)
-        .options(selectinload(ChatProjectMessage.mentions))
+        .options(
+            selectinload(ChatProjectMessage.mentions),
+            selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
+        )
         .filter(ChatProjectMessage.project_id == project_id)
     )
 
+    if not include_user_messages:
+        query = query.filter(ChatProjectMessage.message_type != 'user')
     if keyword:
         query = query.filter(ChatProjectMessage.content.ilike(f'%{keyword.strip()}%'))
     if sender_user_id:
@@ -154,9 +225,16 @@ def create_project_chat_message(
     sender: AppUser,
     content: str,
     mentioned_user_id: Optional[UUID] = None,
+    content_json: Optional[dict] = None,
+    attachment_ids: Optional[list[UUID]] = None,
+    message_type: str = 'user',
+    event_data: Optional[dict] = None,
+    bypass_enabled: bool = False,
+    commit: bool = True,
+    notify: bool = True,
 ) -> ChatProjectMessage:
     settings = get_project_chat_settings(db, project_id)
-    if settings is None or not settings.enabled:
+    if not bypass_enabled and (settings is None or not settings.enabled):
         raise ValueError('Project chat is disabled')
 
     project = (
@@ -168,17 +246,46 @@ def create_project_chat_message(
     if project is None:
         raise ValueError('Project not found')
 
+    normalized_json = normalize_rich_text_json(content_json)
+    if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
+        raise ValueError('Rich text content is too large')
+    plain_content = (content or '').strip()
+    if normalized_json:
+        plain_content = (rich_text_to_plain(normalized_json) or plain_content)[:10000]
+    attachment_ids = list(dict.fromkeys(attachment_ids or []))
+    if not plain_content and not attachment_ids:
+        raise ValueError('Message content or attachment is required')
+
     message = ChatProjectMessage(
         project_id=project_id,
         sender_user_id=sender.id,
         sender_name=(sender.full_name or sender.username),
-        content=(content or '').strip(),
+        content=plain_content,
+        content_json=normalized_json,
+        message_type=message_type,
+        event_data=event_data or {},
     )
     db.add(message)
     db.flush()
 
+    if attachment_ids:
+        attachments = (
+            db.query(ChatProjectAttachment)
+            .filter(
+                ChatProjectAttachment.id.in_(attachment_ids),
+                ChatProjectAttachment.uploaded_by == sender.id,
+            )
+            .all()
+        )
+        if len(attachments) != len(attachment_ids):
+            raise ValueError('Attachment not found or does not belong to current user')
+        db.add_all(
+            ChatProjectMessageAttachment(message_id=message.id, attachment_id=attachment.id)
+            for attachment in attachments
+        )
+
     mention_user = None
-    if mentioned_user_id and mentioned_user_id != sender.id:
+    if message_type == 'user' and mentioned_user_id and mentioned_user_id != sender.id:
         mention_user = (
             db.query(AppUser)
             .filter(AppUser.id == mentioned_user_id, AppUser.is_active == True)
@@ -192,20 +299,29 @@ def create_project_chat_message(
             mentioned_user_name=(mention_user.full_name or mention_user.username),
         ))
 
-    db.commit()
-
-    created = (
-        db.query(ChatProjectMessage)
-        .options(selectinload(ChatProjectMessage.mentions))
-        .filter(ChatProjectMessage.id == message.id)
-        .first()
-    )
-    if created is None:
-        raise ValueError('Failed to load created message')
+    if commit:
+        db.commit()
+        created = (
+            db.query(ChatProjectMessage)
+            .options(
+                selectinload(ChatProjectMessage.mentions),
+                selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
+            )
+            .filter(ChatProjectMessage.id == message.id)
+            .first()
+        )
+        if created is None:
+            raise ValueError('Failed to load created message')
+    else:
+        db.flush()
+        created = message
 
     preview = created.content.replace('\r', ' ').replace('\n', ' ').strip()
     if len(preview) > 60:
         preview = preview[:57] + '...'
+
+    if not notify:
+        return created
 
     default_recipients = set(get_default_chat_recipient_ids(db, project))
     default_recipients.discard(sender.id)

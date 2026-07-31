@@ -8,13 +8,14 @@ from crud import (
     get_role, get_role_by_name, get_roles,
     create_role, update_role, delete_role
 )
-from schemas import RoleCreate, RoleUpdate, RoleResponse
-from routers.auth import get_current_user
+from permission_service import set_role_permission_codes
+from schemas import RoleCreate, RolePermissionsUpdate, RoleUpdate, RoleResponse
+from routers.auth import require_any_permission, require_permission
 
-router = APIRouter(prefix="/roles", tags=["roles"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/roles", tags=["roles"])
 
 
-@router.post("/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("system:roles:write"))])
 def create_role_endpoint(role: RoleCreate, db: Session = Depends(get_db)):
     # 检查角色名是否已存在
     db_role = get_role_by_name(db, role_name=role.role_name)
@@ -26,13 +27,13 @@ def create_role_endpoint(role: RoleCreate, db: Session = Depends(get_db)):
     return create_role(db=db, role=role)
 
 
-@router.get("/", response_model=List[RoleResponse])
+@router.get("/", response_model=List[RoleResponse], dependencies=[Depends(require_any_permission("system:roles:read", "system:user_roles:write", "workflow:operate"))])
 def read_roles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     roles = get_roles(db, skip=skip, limit=limit)
     return roles
 
 
-@router.get("/{role_id}", response_model=RoleResponse)
+@router.get("/{role_id}", response_model=RoleResponse, dependencies=[Depends(require_any_permission("system:roles:read", "system:user_roles:write", "workflow:operate"))])
 def read_role(role_id: UUID, db: Session = Depends(get_db)):
     db_role = get_role(db, role_id=role_id)
     if db_role is None:
@@ -43,7 +44,7 @@ def read_role(role_id: UUID, db: Session = Depends(get_db)):
     return db_role
 
 
-@router.put("/{role_id}", response_model=RoleResponse)
+@router.put("/{role_id}", response_model=RoleResponse, dependencies=[Depends(require_permission("system:roles:write"))])
 def update_role_endpoint(
     role_id: UUID,
     role_update: RoleUpdate,
@@ -58,7 +59,22 @@ def update_role_endpoint(
     return db_role
 
 
-@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.put("/{role_id}/permissions", response_model=RoleResponse, dependencies=[Depends(require_permission("system:roles:write"))])
+def update_role_permissions(
+    role_id: UUID,
+    payload: RolePermissionsUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        set_role_permission_codes(db, role_id, payload.permissions)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return get_role(db, role_id)
+
+
+@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("system:roles:write"))])
 def delete_role_endpoint(role_id: UUID, db: Session = Depends(get_db)):
     success = delete_role(db, role_id=role_id)
     if not success:

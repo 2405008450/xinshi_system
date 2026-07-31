@@ -14,10 +14,10 @@ from crud import (
     update_client_contact,
 )
 from database import get_db
-from routers.auth import get_current_user
+from routers.auth import require_module_access
 from schemas import ClientContactCreate, ClientContactResponse, ClientContactUpdate
 
-router = APIRouter(prefix="/client-contacts", tags=["client-contacts"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/client-contacts", tags=["client-contacts"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 
 
 @router.post("/", response_model=ClientContactResponse, status_code=status.HTTP_201_CREATED)

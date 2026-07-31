@@ -1,7 +1,8 @@
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import String, and_
+from sqlalchemy import String, and_, func, or_
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
 from schemas import (
@@ -45,8 +46,38 @@ def get_user_by_username(db: Session, username: str) -> Optional[AppUser]:
     return db.query(AppUser).filter(AppUser.username == username).first()
 
 
-def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[AppUser]:
-    return db.query(AppUser).offset(skip).limit(limit).all()
+def get_users(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+) -> List[AppUser]:
+    query = db.query(AppUser)
+    if username:
+        query = query.filter(AppUser.username.ilike(f"%{username}%"))
+    if full_name:
+        query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+    return (
+        query
+        .order_by(AppUser.created_at.desc(), AppUser.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def count_users(
+    db: Session,
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+) -> int:
+    query = db.query(AppUser.id)
+    if username:
+        query = query.filter(AppUser.username.ilike(f"%{username}%"))
+    if full_name:
+        query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+    return query.count()
 
 
 def create_user(db: Session, user: AppUserCreate) -> AppUser:
@@ -92,7 +123,7 @@ def delete_user(db: Session, user_id: UUID) -> bool:
 
 # Role CRUD
 def get_role(db: Session, role_id: UUID) -> Optional[Role]:
-    return db.query(Role).filter(Role.id == role_id).first()
+    return db.query(Role).options(selectinload(Role.role_permissions)).filter(Role.id == role_id).first()
 
 
 def get_role_by_name(db: Session, role_name: str) -> Optional[Role]:
@@ -100,7 +131,7 @@ def get_role_by_name(db: Session, role_name: str) -> Optional[Role]:
 
 
 def get_roles(db: Session, skip: int = 0, limit: int = 100) -> List[Role]:
-    return db.query(Role).offset(skip).limit(limit).all()
+    return db.query(Role).options(selectinload(Role.role_permissions)).offset(skip).limit(limit).all()
 
 
 def create_role(db: Session, role: RoleCreate) -> Role:
@@ -162,7 +193,7 @@ def generate_client_code(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:04d}"
+    return f"{prefix}{new_seq:03d}"
 
 
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
@@ -173,14 +204,89 @@ def get_clients(
     skip: int = 0,
     limit: int = 100,
     client_code: Optional[str] = None,
-    client_name: Optional[str] = None
+    client_name: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    frequent_first: bool = False,
 ) -> List[Client]:
     query = db.query(Client).options(selectinload(Client.sub_clients))
     if client_code:
-        query = query.filter(Client.client_code.ilike(f"%{client_code}%"))
+        pattern = f"%{client_code}%"
+        query = query.filter(
+            or_(
+                Client.client_code.ilike(pattern),
+                Client.sub_clients.any(SubClient.sub_client_code.ilike(pattern)),
+            )
+        )
     if client_name:
-        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
+        pattern = f"%{client_name}%"
+        query = query.filter(
+            or_(
+                Client.client_name.ilike(pattern),
+                Client.sub_clients.any(SubClient.client_name.ilike(pattern)),
+            )
+        )
+    if client_short_name:
+        pattern = f"%{client_short_name}%"
+        query = query.filter(
+            or_(
+                Client.client_short_name.ilike(pattern),
+                Client.sub_clients.any(SubClient.client_short_name.ilike(pattern)),
+            )
+        )
+    if frequent_first:
+        cooperation_stats = (
+            db.query(
+                TranslationProject.client_id.label('client_id'),
+                func.count(TranslationProject.id).label('project_count'),
+            )
+            .filter(TranslationProject.client_id.isnot(None))
+            .group_by(TranslationProject.client_id)
+            .subquery()
+        )
+        query = (
+            query
+            .outerjoin(cooperation_stats, cooperation_stats.c.client_id == Client.id)
+            .order_by(
+                func.coalesce(cooperation_stats.c.project_count, 0).desc(),
+                Client.client_short_name.asc(),
+            )
+        )
     return query.offset(skip).limit(limit).all()
+
+
+def count_clients(
+    db: Session,
+    client_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+) -> int:
+    query = db.query(Client.id)
+    if client_code:
+        pattern = f"%{client_code}%"
+        query = query.filter(
+            or_(
+                Client.client_code.ilike(pattern),
+                Client.sub_clients.any(SubClient.sub_client_code.ilike(pattern)),
+            )
+        )
+    if client_name:
+        pattern = f"%{client_name}%"
+        query = query.filter(
+            or_(
+                Client.client_name.ilike(pattern),
+                Client.sub_clients.any(SubClient.client_name.ilike(pattern)),
+            )
+        )
+    if client_short_name:
+        pattern = f"%{client_short_name}%"
+        query = query.filter(
+            or_(
+                Client.client_short_name.ilike(pattern),
+                Client.sub_clients.any(SubClient.client_short_name.ilike(pattern)),
+            )
+        )
+    return query.count()
+
 
 def create_client(db: Session, client: ClientCreate) -> Client:
     data = client.model_dump()
@@ -284,7 +390,7 @@ def delete_client_contact(db: Session, contact_id: UUID) -> bool:
 
 # SubClient CRUD
 def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
-    """生成子客户流水号, 格式 CL-YY-MMDD-NNNN.MMMM"""
+    """生成子客户流水号，格式 CL-YY-MMDD-NNN.NNN"""
     parent = get_client(db, parent_id)
     if not parent:
         raise ValueError("母客户不存在")
@@ -306,7 +412,7 @@ def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
     else:
         new_seq = 1
 
-    return f"{base_no}.{new_seq:04d}"
+    return f"{base_no}.{new_seq:03d}"
 
 def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
     return db.query(SubClient).filter(SubClient.id == sub_client_id).first()
@@ -549,35 +655,293 @@ def delete_translator(db: Session, translator_id: UUID) -> bool:
 # Translation Project CRUD
 from models import Client
 
-def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
-    result = (
-        db.query(TranslationProject, Client.client_short_name, Client.client_code)
-        .options(selectinload(TranslationProject.sub_orders))
-        .outerjoin(Client, TranslationProject.client_id == Client.id)
+
+def _attach_manuscript_assignees(
+    db: Session,
+    *,
+    projects: Optional[List[TranslationProject]] = None,
+    sub_orders: Optional[List[TranslationSubOrder]] = None,
+) -> None:
+    """把有效派稿明细汇总到项目响应，不再依赖单一 translator_id。"""
+    projects = projects or []
+    sub_orders = sub_orders or []
+    project_ids = {project.id for project in projects}
+    project_ids.update(sub_order.parent_project_id for sub_order in sub_orders)
+    if not project_ids:
+        return
+
+    from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+
+    rows = (
+        db.query(ManuscriptArrangement)
+        .join(
+            ManuscriptDispatch,
+            ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+        )
+        .filter(
+            ManuscriptArrangement.translation_project_id.in_(project_ids),
+            ManuscriptArrangement.status != "cancelled",
+            ManuscriptDispatch.status != "cancelled",
+            ManuscriptDispatch.confirmed_at.is_not(None),
+        )
+        .order_by(ManuscriptArrangement.created_at.asc())
+        .all()
+    )
+    grouped = {}
+    for row in rows:
+        key = (row.translation_project_id, row.sub_order_id)
+        grouped.setdefault(key, {})[row.translator_id] = {
+            "arrangement_id": row.id,
+            "dispatch_id": row.dispatch_id,
+            "translator_id": row.translator_id,
+            "translator_name": row.translator_name_snapshot,
+            "cooperation_type": row.cooperation_type_snapshot,
+            "status": row.status,
+            "planned_word_count": row.planned_word_count,
+            "actual_word_count": row.actual_word_count,
+            "word_count_type": row.word_count_type,
+            "translation_scope": row.translation_scope,
+        }
+
+    for project in projects:
+        project.assigned_translators = list(
+            grouped.get((project.id, None), {}).values()
+        )
+        for sub_order in project.sub_orders:
+            sub_order.assigned_translators = list(
+                grouped.get((project.id, sub_order.id), {}).values()
+            )
+    for sub_order in sub_orders:
+        sub_order.assigned_translators = list(
+            grouped.get((sub_order.parent_project_id, sub_order.id), {}).values()
+        )
+
+
+def _attach_project_client_fields(project: TranslationProject) -> None:
+    """返回项目实际关联客户的信息；子客户缺失的负责人信息回退到母客户。"""
+    parent_client = project.client
+    sub_client = project.sub_client
+    selected_client = sub_client or parent_client
+
+    project.client_short_name = selected_client.client_short_name if selected_client else None
+    project.client_code = (
+        sub_client.sub_client_code
+        if sub_client
+        else (parent_client.client_code if parent_client else None)
+    )
+    project.client_manager = (
+        (sub_client.client_manager if sub_client else None)
+        or (parent_client.client_manager if parent_client else None)
+    )
+    project.manager_contact = (
+        (sub_client.manager_contact if sub_client else None)
+        or (parent_client.manager_contact if parent_client else None)
+    )
+
+
+def _attach_project_file_detail_fields(project: TranslationProject) -> None:
+    """将唯一项目文件的分类字段挂载到项目响应，供“查看详情”统一展示。"""
+    project_file = project.project_file[0] if project.project_file else None
+    field_mapping = {
+        'project_file_name': 'file_name',
+        'project_file_translation_domain_level1': 'translation_domain_level1',
+        'project_file_translation_domain_level2': 'translation_domain_level2',
+        'project_file_type_level1': 'file_type',
+        'project_file_type_level2': 'file_type_secondary',
+        'project_file_format': 'file_format',
+        'project_file_attribute_level1': 'file_attribute_level1',
+        'project_file_attribute_level2': 'file_attribute_level2',
+        'project_file_attribute_level3': 'file_attribute_level3',
+        'project_file_difficulty': 'file_difficulty',
+    }
+    for response_field, file_field in field_mapping.items():
+        setattr(
+            project,
+            response_field,
+            getattr(project_file, file_field, None) if project_file else None,
+        )
+
+
+def _normalize_project_business_details(
+    data: dict,
+    existing: Optional[TranslationProject] = None,
+) -> None:
+    """清理项目合同、报价单和客户要求字段，保持报价单布尔状态一致。"""
+    text_fields = (
+        'project_contract_type',
+        'project_contract_status',
+        'quotation_status',
+        'quotation_path',
+        'customer_requirement_professional',
+        'customer_requirement_special',
+    )
+    for field in text_fields:
+        if field in data and isinstance(data[field], str):
+            data[field] = data[field].strip() or None
+
+    quotation_required = data.get(
+        'quotation_required',
+        existing.quotation_required if existing else False,
+    )
+    if not quotation_required:
+        data['quotation_status'] = None
+        data['quotation_path'] = None
+
+
+def _resolve_project_client_link(
+    db: Session,
+    client_id: Optional[UUID],
+    sub_client_id: Optional[UUID],
+) -> Optional[UUID]:
+    """校验子客户归属，并返回应写入项目的母客户 ID。"""
+    if not sub_client_id:
+        return client_id
+
+    sub_client = db.query(SubClient).filter(SubClient.id == sub_client_id).first()
+    if not sub_client:
+        raise ValueError("所选子客户不存在")
+    if client_id and sub_client.parent_client_id != client_id:
+        raise ValueError("所选子客户不属于当前母客户")
+    return sub_client.parent_client_id
+
+
+def _validate_project_manager(db: Session, project_manager_id: Optional[UUID]) -> None:
+    """项目管理主负责人必须是启用中的“项目经理”角色用户。"""
+    if not project_manager_id:
+        return
+    manager = db.query(AppUser).filter(
+        AppUser.id == project_manager_id,
+        AppUser.is_active == True,
+    ).first()
+    if not manager:
+        raise ValueError("所选项目经理不存在或已停用")
+    if "项目经理" not in get_user_roles_with_role_names(db, manager.id):
+        raise ValueError("管理主负责人必须绑定“项目经理”角色用户")
+
+
+def build_auto_project_name(
+    client_short_name: Optional[str],
+    sub_order_count: int = 0,
+    current_time: Optional[datetime] = None,
+) -> str:
+    """按客户简称、当前日期和子订单数量生成项目名称。"""
+    normalized_short_name = (client_short_name or "").strip()
+    if not normalized_short_name:
+        return ""
+
+    date_text = (current_time or datetime.now()).strftime("%y%m%d")
+    base_name = f"{normalized_short_name}-{date_text}"
+    return f"{base_name}-{sub_order_count}批" if sub_order_count > 0 else base_name
+
+
+def _is_auto_project_name(
+    project_name: Optional[str],
+    client_short_name: Optional[str],
+) -> bool:
+    """判断当前名称是否仍遵循自动命名格式，避免覆盖人工修改。"""
+    normalized_project_name = (project_name or "").strip()
+    normalized_short_name = (client_short_name or "").strip()
+    prefix = f"{normalized_short_name}-"
+    if not normalized_short_name or not normalized_project_name.startswith(prefix):
+        return False
+
+    suffix = normalized_project_name[len(prefix):]
+    if len(suffix) == 6 and suffix.isdigit():
+        return True
+    if not suffix.endswith("批"):
+        return False
+
+    date_text, separator, batch_text = suffix[:-1].partition("-")
+    return (
+        separator == "-"
+        and len(date_text) == 6
+        and date_text.isdigit()
+        and batch_text.isdigit()
+        and int(batch_text) > 0
+    )
+
+
+def _sync_project_name_with_sub_order_count(
+    db: Session,
+    project_id: UUID,
+    current_time: Optional[datetime] = None,
+) -> None:
+    """子订单数量变化后，同步母项目名称中的批次。"""
+    project = (
+        db.query(TranslationProject)
+        .options(
+            joinedload(TranslationProject.client),
+            joinedload(TranslationProject.sub_client),
+        )
         .filter(TranslationProject.id == project_id)
         .first()
     )
-    if not result:
+    if not project:
+        return
+
+    selected_client = project.sub_client or project.client
+    client_short_name = selected_client.client_short_name if selected_client else None
+    sub_order_count = (
+        db.query(func.count(TranslationSubOrder.id))
+        .filter(TranslationSubOrder.parent_project_id == project_id)
+        .scalar()
+        or 0
+    )
+    generated_name = build_auto_project_name(
+        client_short_name,
+        sub_order_count,
+        current_time,
+    )
+    if generated_name and (
+        not project.project_name
+        or _is_auto_project_name(project.project_name, client_short_name)
+    ):
+        project.project_name = generated_name
+
+
+def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
+    project = (
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.client),
+            selectinload(TranslationProject.sub_client),
+            selectinload(TranslationProject.translator),
+            selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_file),
+            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
+        )
+        .filter(TranslationProject.id == project_id)
+        .first()
+    )
+    if not project:
         return None
-    project, short_name, code = result
-    project.client_short_name = short_name
-    project.client_code = code
+    _attach_project_client_fields(project)
+    _attach_project_file_detail_fields(project)
+    _attach_manuscript_assignees(db, projects=[project])
     return project
 
+
 def get_translation_project_by_no(db: Session, order_no: str) -> Optional[TranslationProject]:
-    result = (
-        db.query(TranslationProject, Client.client_short_name, Client.client_code)
-        .options(selectinload(TranslationProject.sub_orders))
-        .outerjoin(Client, TranslationProject.client_id == Client.id)
+    project = (
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.client),
+            selectinload(TranslationProject.sub_client),
+            selectinload(TranslationProject.translator),
+            selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_file),
+            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
+        )
         .filter(TranslationProject.order_no == order_no)
         .first()
     )
-    if not result:
+    if not project:
         return None
-    project, short_name, code = result
-    project.client_short_name = short_name
-    project.client_code = code
+    _attach_project_client_fields(project)
+    _attach_project_file_detail_fields(project)
+    _attach_manuscript_assignees(db, projects=[project])
     return project
+
 
 def get_translation_projects(
     db: Session,
@@ -590,9 +954,17 @@ def get_translation_projects(
     client_short_name: Optional[str] = None
 ) -> List[TranslationProject]:
     query = (
-        db.query(TranslationProject, Client.client_short_name, Client.client_code)
-        .options(selectinload(TranslationProject.sub_orders))
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.client),
+            selectinload(TranslationProject.sub_client),
+            selectinload(TranslationProject.translator),
+            selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_file),
+            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
+        )
         .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
     )
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
@@ -603,13 +975,24 @@ def get_translation_projects(
     if project_status:
         query = query.filter(TranslationProject.project_status == project_status)
     if client_short_name:
-        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
-    results = query.offset(skip).limit(limit).all()
-    projects = []
-    for project, short_name, code in results:
-        project.client_short_name = short_name
-        project.client_code = code
-        projects.append(project)
+        pattern = f"%{client_short_name}%"
+        query = query.filter(
+            or_(
+                Client.client_short_name.ilike(pattern),
+                SubClient.client_short_name.ilike(pattern),
+            )
+        )
+    projects = (
+        query
+        .order_by(TranslationProject.created_at.desc(), TranslationProject.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    for project in projects:
+        _attach_project_client_fields(project)
+        _attach_project_file_detail_fields(project)
+    _attach_manuscript_assignees(db, projects=projects)
     return projects
 
 
@@ -621,7 +1004,11 @@ def count_translation_projects(
     project_status: Optional[str] = None,
     client_short_name: Optional[str] = None
 ) -> int:
-    query = db.query(TranslationProject.id).outerjoin(Client, TranslationProject.client_id == Client.id)
+    query = (
+        db.query(TranslationProject.id)
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
+    )
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
     if project_name:
@@ -631,7 +1018,13 @@ def count_translation_projects(
     if project_status:
         query = query.filter(TranslationProject.project_status == project_status)
     if client_short_name:
-        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
+        pattern = f"%{client_short_name}%"
+        query = query.filter(
+            or_(
+                Client.client_short_name.ilike(pattern),
+                SubClient.client_short_name.ilike(pattern),
+            )
+        )
     return query.count()
 
 
@@ -650,6 +1043,14 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
         if client:
             project_data['client_id'] = client.id
 
+    project_data['client_id'] = _resolve_project_client_link(
+        db,
+        project_data.get('client_id'),
+        project_data.get('sub_client_id'),
+    )
+    _validate_project_manager(db, project_data.get('project_manager_id'))
+    _normalize_project_business_details(project_data)
+
     db_project = TranslationProject(
         order_no=order_no,
         **project_data
@@ -659,9 +1060,10 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
 
     from workflow_crud import init_workflow
 
-    init_workflow(db, db_project.id)
-    db.refresh(db_project)
-    return db_project
+    # 项目与初始工作流必须处于同一个事务中，避免接口失败但项目已单独落库。
+    init_workflow(db, db_project.id, commit=False)
+    db.commit()
+    return get_translation_project(db, db_project.id)
 
 
 def update_translation_project(db: Session, project_id: UUID, project_update: TranslationProjectUpdate) -> Optional[TranslationProject]:
@@ -671,15 +1073,30 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     
     update_data = project_update.model_dump(exclude_unset=True, exclude={'client_short_name', 'client_code'})
     
-    # Try looking up client_id by client_short_name if provided and client_id is not specifically being updated
-    if project_update.client_short_name and 'client_id' not in update_data:
+    # 未显式选择客户 ID 时，仍允许通过精确简称或客户编号补齐外键。
+    if project_update.client_short_name and not update_data.get('client_id'):
         client = db.query(Client).filter(Client.client_short_name == project_update.client_short_name).first()
         if client:
             update_data['client_id'] = client.id
-    elif project_update.client_code and 'client_id' not in update_data:
+    elif project_update.client_code and not update_data.get('client_id'):
         client = db.query(Client).filter(Client.client_code == project_update.client_code).first()
         if client:
             update_data['client_id'] = client.id
+
+    # 只切换母客户时，自动清除已不匹配的子客户；显式提交子客户时则严格校验归属。
+    if 'client_id' in update_data and 'sub_client_id' not in update_data and db_project.sub_client_id:
+        current_sub_client = db.query(SubClient).filter(SubClient.id == db_project.sub_client_id).first()
+        if not current_sub_client or current_sub_client.parent_client_id != update_data.get('client_id'):
+            update_data['sub_client_id'] = None
+
+    update_data['client_id'] = _resolve_project_client_link(
+        db,
+        update_data.get('client_id', db_project.client_id),
+        update_data.get('sub_client_id', db_project.sub_client_id),
+    )
+    if 'project_manager_id' in update_data:
+        _validate_project_manager(db, update_data.get('project_manager_id'))
+    _normalize_project_business_details(update_data, db_project)
 
     for field, value in update_data.items():
         setattr(db_project, field, value)
@@ -722,6 +1139,17 @@ def get_user_role_names(db: Session, user_id: UUID) -> List[str]:
 
 def get_user_roles_by_role(db: Session, role_id: UUID) -> List[UserRole]:
     return db.query(UserRole).filter(UserRole.role_id == role_id).all()
+
+
+def get_user_roles(db: Session, skip: int = 0, limit: int = 100) -> List[UserRole]:
+    return (
+        db.query(UserRole)
+        .options(joinedload(UserRole.user), joinedload(UserRole.role))
+        .order_by(UserRole.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 def get_user_roles_with_role_names(db: Session, user_id: UUID) -> List[str]:
@@ -915,6 +1343,116 @@ def mark_all_notifications_read(db: Session, recipient_user_id: UUID) -> int:
 
 
 # ProjectFile CRUD
+PROJECT_FILE_STATUS_SEQUENCE = {
+    'pending': 0,
+    'pending_confirmation': 0,
+    'in_progress': 1,
+    'confirmed': 1,
+    'organized': 2,
+    'translator_assigned': 3,
+    'sent_to_translator': 4,
+    'translator_returned': 5,
+    'special_checked': 6,
+    'typeset': 7,
+    'special_checked_typeset': 8,
+    'reviewed': 9,
+    'sent_to_client': 10,
+    'completed': 10,
+    'client_feedback': 11,
+    'feedback_sent_to_client': 12,
+}
+PROJECT_FILE_STATUS_LOCKED = {
+    'cancelled',
+    'partially_cancelled',
+    'terminated',
+    'paused',
+}
+
+
+def _has_project_file_path(value: Optional[str]) -> bool:
+    return bool((value or '').strip())
+
+
+def _normalize_optional_project_file_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _validate_project_file_details(db_file: ProjectFile) -> None:
+    """规范化文件详情扩展字段，并校验各分级字段的父子依赖。"""
+    detail_text_fields = (
+        'translation_domain_level1',
+        'translation_domain_level2',
+        'file_type',
+        'file_type_secondary',
+        'file_format',
+        'file_attribute_level1',
+        'file_attribute_level2',
+        'file_attribute_level3',
+        'file_difficulty',
+    )
+    for field in detail_text_fields:
+        setattr(
+            db_file,
+            field,
+            _normalize_optional_project_file_text(getattr(db_file, field, None)),
+        )
+
+    if db_file.translation_domain_level2 and not db_file.translation_domain_level1:
+        raise ValueError("翻译文本领域二级必须先选择一级")
+    if db_file.file_type_secondary and not db_file.file_type:
+        raise ValueError("文件类型二级必须先选择一级")
+    if db_file.file_attribute_level2 and not db_file.file_attribute_level1:
+        raise ValueError("文件属性二级必须先选择一级")
+    if db_file.file_attribute_level3 and not db_file.file_attribute_level2:
+        raise ValueError("文件属性三级必须先选择二级")
+
+def _sync_project_status_from_file_paths(
+    db: Session,
+    db_file: ProjectFile,
+    changed_paths: Optional[set[str]] = None,
+) -> Optional[str]:
+    """按本次填写的文件路径推进状态，并支持客户反馈与再次交付循环。"""
+    path_statuses = (
+        ('feedback_delivery_path', 'feedback_sent_to_client'),
+        ('project_feedback_path', 'client_feedback'),
+        ('client_delivery_path', 'sent_to_client'),
+        ('translator_return_path', 'translator_returned'),
+    )
+    target_status = next(
+        (
+            status
+            for field, status in path_statuses
+            if (changed_paths is None or field in changed_paths)
+            and _has_project_file_path(getattr(db_file, field))
+        ),
+        None,
+    )
+    if not target_status:
+        return None
+
+    project = (
+        db.query(TranslationProject)
+        .filter(TranslationProject.id == db_file.translation_project_id)
+        .first()
+    )
+    if not project or project.project_status in PROJECT_FILE_STATUS_LOCKED:
+        return project.project_status if project else None
+
+    current_rank = PROJECT_FILE_STATUS_SEQUENCE.get(project.project_status, -1)
+    target_rank = PROJECT_FILE_STATUS_SEQUENCE[target_status]
+    feedback_cycle_transition = (
+        project.project_status == 'feedback_sent_to_client'
+        and target_status == 'client_feedback'
+    )
+    if target_rank > current_rank or feedback_cycle_transition:
+        project.project_status = target_status
+        project.updated_at = dt.datetime.now()
+    return project.project_status
+
+
 def get_project_file(db: Session, file_id: UUID) -> Optional[ProjectFile]:
     return db.query(ProjectFile).filter(ProjectFile.id == file_id).first()
 
@@ -957,14 +1495,27 @@ def create_project_file(db: Session, project_file: ProjectFileCreate) -> Project
         storage_path=project_file.storage_path,
         dispatch_path=project_file.dispatch_path,
         translation_path=project_file.translation_path,
+        translator_return_path=project_file.translator_return_path,
         client_delivery_path=project_file.client_delivery_path,
+        project_feedback_path=project_file.project_feedback_path,
+        feedback_delivery_path=project_file.feedback_delivery_path,
+        translation_domain_level1=project_file.translation_domain_level1,
+        translation_domain_level2=project_file.translation_domain_level2,
         file_type=project_file.file_type,
+        file_type_secondary=project_file.file_type_secondary,
+        file_format=project_file.file_format,
+        file_attribute_level1=project_file.file_attribute_level1,
+        file_attribute_level2=project_file.file_attribute_level2,
+        file_attribute_level3=project_file.file_attribute_level3,
+        file_difficulty=project_file.file_difficulty,
         file_ext=project_file.file_ext,
         file_size=project_file.file_size,
         storage_type=project_file.storage_type,
         uploaded_by=project_file.uploaded_by
     )
     db.add(db_file)
+    _validate_project_file_details(db_file)
+    _sync_project_status_from_file_paths(db, db_file)
     db.commit()
     db.refresh(db_file)
     return db_file
@@ -976,9 +1527,23 @@ def update_project_file(db: Session, file_id: UUID, file_update: ProjectFileUpda
         return None
     
     update_data = file_update.model_dump(exclude_unset=True)
+    path_fields = {
+        'translator_return_path',
+        'client_delivery_path',
+        'project_feedback_path',
+        'feedback_delivery_path',
+    }
+    changed_paths = {
+        field
+        for field in path_fields.intersection(update_data)
+        if (getattr(db_file, field) or '').strip()
+        != (update_data.get(field) or '').strip()
+    }
     for field, value in update_data.items():
         setattr(db_file, field, value)
-    
+
+    _validate_project_file_details(db_file)
+    _sync_project_status_from_file_paths(db, db_file, changed_paths)
     db.commit()
     db.refresh(db_file)
     return db_file
@@ -1010,7 +1575,7 @@ import datetime as dt
 def generate_consultation_code(db: Session) -> str:
     """
     生成咨询流水号
-    格式: EQ-YYMMDD-NNNN (如 EQ-260309-0001)
+    格式：EQ-YYMMDD-NNN（如 EQ-260309-001）
     """
     today_str = dt.datetime.now().strftime("%y%m%d")
     prefix = f"EQ-{today_str}-"
@@ -1032,7 +1597,7 @@ def generate_consultation_code(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:04d}"
+    return f"{prefix}{new_seq:03d}"
 
 
 def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultation]:
@@ -1128,11 +1693,11 @@ def delete_consultation(db: Session, consultation_id: UUID) -> bool:
 # ============================================================
 
 def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
-    """根据母订单的 order_no 自动生成子订单号，如 TP-20260302-0014.0001"""
+    """根据母订单号生成三位子单流水号，如 TP-260302-014.001。"""
     parent = db.query(TranslationProject).filter(TranslationProject.id == parent_project_id).first()
     if not parent:
         raise ValueError("母订单不存在")
-    base_no = parent.order_no  # e.g. TP-20260302-0014
+    base_no = parent.order_no  # 例如 TP-260302-014
 
     # 查找当前最大子序号
     last = (
@@ -1151,29 +1716,42 @@ def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
     else:
         new_seq = 1
 
-    return f"{base_no}.{new_seq:04d}"
+    return f"{base_no}.{new_seq:03d}"
 
 
 def get_sub_order(db: Session, sub_order_id: UUID) -> Optional[TranslationSubOrder]:
-    return db.query(TranslationSubOrder).filter(TranslationSubOrder.id == sub_order_id).first()
+    sub_order = (
+        db.query(TranslationSubOrder)
+        .options(selectinload(TranslationSubOrder.translator))
+        .filter(TranslationSubOrder.id == sub_order_id)
+        .first()
+    )
+    if sub_order:
+        _attach_manuscript_assignees(db, sub_orders=[sub_order])
+    return sub_order
 
 
 def get_sub_orders_by_project(db: Session, parent_project_id: UUID) -> List[TranslationSubOrder]:
-    return (
+    sub_orders = (
         db.query(TranslationSubOrder)
+        .options(selectinload(TranslationSubOrder.translator))
         .filter(TranslationSubOrder.parent_project_id == parent_project_id)
         .order_by(TranslationSubOrder.sub_order_no)
         .all()
     )
+    _attach_manuscript_assignees(db, sub_orders=sub_orders)
+    return sub_orders
 
 
 def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_no: Optional[str] = None, project_name: Optional[str] = None) -> List[TranslationSubOrder]:
-    q = db.query(TranslationSubOrder)
+    q = db.query(TranslationSubOrder).options(selectinload(TranslationSubOrder.translator))
     if sub_order_no:
         q = q.filter(TranslationSubOrder.sub_order_no.ilike(f'%{sub_order_no}%'))
     if project_name:
         q = q.filter(TranslationSubOrder.sub_project_name.ilike(f'%{project_name}%'))
-    return q.offset(skip).limit(limit).all()
+    sub_orders = q.offset(skip).limit(limit).all()
+    _attach_manuscript_assignees(db, sub_orders=sub_orders)
+    return sub_orders
 
 
 def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
@@ -1181,9 +1759,10 @@ def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> Trans
     data = sub_order.model_dump(exclude={'sub_order_no'})
     db_sub = TranslationSubOrder(sub_order_no=sub_order_no, **data)
     db.add(db_sub)
+    db.flush()
+    _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
     db.commit()
-    db.refresh(db_sub)
-    return db_sub
+    return get_sub_order(db, db_sub.id)
 
 
 def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: TranslationSubOrderUpdate) -> Optional[TranslationSubOrder]:
@@ -1193,14 +1772,16 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     for field, value in sub_order_update.model_dump(exclude_unset=True).items():
         setattr(db_sub, field, value)
     db.commit()
-    db.refresh(db_sub)
-    return db_sub
+    return get_sub_order(db, db_sub.id)
 
 
 def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return False
+    parent_project_id = db_sub.parent_project_id
     db.delete(db_sub)
+    db.flush()
+    _sync_project_name_with_sub_order_count(db, parent_project_id)
     db.commit()
     return True

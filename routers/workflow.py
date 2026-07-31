@@ -12,7 +12,21 @@ from workflow_crud import (
     get_workflow_by_project,
     get_workflow_by_sub_order,
     get_effective_stages,
+    get_active_projects,
+    get_management_projects,
     get_my_tasks,
+    get_project_manager_candidates,
+    get_transferable_tasks,
+    get_eligible_transfer_users,
+    create_handover_request,
+    create_project_manager_handover,
+    decide_handover_request,
+    decide_project_manager_handover,
+    list_incoming_handover_requests,
+    list_incoming_project_manager_handovers,
+    serialize_project_manager_handover,
+    serialize_handover_request,
+    transfer_workflow_tasks,
     init_workflow,
     set_difficulty,
     transition_forward,
@@ -30,11 +44,23 @@ from workflow_schemas import (
     WorkflowLogResponse,
     WorkflowStageResponse,
     MyTaskItem,
+    ActiveProjectListResponse,
+    ManagedProjectItem,
+    ProjectManagerHandoverCreate,
+    ProjectManagerHandoverDecisionRequest,
+    ProjectManagerHandoverResponse,
+    WorkflowHandoverRequest,
+    WorkflowHandoverDecisionRequest,
+    WorkflowHandoverRequestResponse,
+    WorkflowClaimRequest,
+    WorkflowEligibleUsersRequest,
+    WorkflowTransferResult,
+    WorkflowTransferUser,
 )
 from models import AppUser
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_module_access
 
-router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
 
 
 def _build_state_response(instance) -> WorkflowStateResponse:
@@ -98,6 +124,22 @@ def _build_state_response(instance) -> WorkflowStateResponse:
 
 # ---------- 获取工作流状态 ----------
 
+@router.get("/active-projects", response_model=ActiveProjectListResponse)
+def get_active_projects_endpoint(
+    skip: int = 0,
+    limit: int = 20,
+    keyword: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """返回工作台使用的全部进行中母订单和子订单。"""
+    return get_active_projects(
+        db,
+        skip=max(skip, 0),
+        limit=min(max(limit, 1), 100),
+        keyword=keyword,
+    )
+
+
 @router.get("/my-tasks", response_model=list[MyTaskItem])
 def get_my_tasks_endpoint(
     db: Session = Depends(get_db),
@@ -106,6 +148,284 @@ def get_my_tasks_endpoint(
     """Return tasks assigned to the current authenticated user."""
     tasks = get_my_tasks(db, current_user.id)
     return tasks
+
+
+@router.get("/management-projects", response_model=list[ManagedProjectItem])
+def get_management_projects_endpoint(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    """管理层项目归属列表，与执行阶段任务列表分离。"""
+    return get_management_projects(db, current_user)
+
+
+@router.get("/project-manager-candidates", response_model=list[WorkflowTransferUser])
+def get_project_manager_candidates_endpoint(
+    include_current: bool = False,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return [
+        WorkflowTransferUser(id=user.id, username=user.username, full_name=user.full_name)
+        for user in get_project_manager_candidates(
+            db,
+            current_user.id,
+            include_current=include_current,
+        )
+    ]
+
+
+@router.post(
+    "/project-manager-handover",
+    response_model=ProjectManagerHandoverResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_project_manager_handover_endpoint(
+    payload: ProjectManagerHandoverCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        request = create_project_manager_handover(
+            db,
+            requester=current_user,
+            translation_project_ids=payload.translation_project_ids,
+            target_manager_id=payload.target_manager_id,
+            reason=payload.reason,
+            note=payload.note,
+        )
+        return serialize_project_manager_handover(request)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/project-manager-handover/incoming",
+    response_model=list[ProjectManagerHandoverResponse],
+)
+def list_incoming_project_manager_handovers_endpoint(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    requests = list_incoming_project_manager_handovers(db, current_user.id)
+    return [serialize_project_manager_handover(item) for item in requests]
+
+
+def _decide_project_manager_handover_endpoint(
+    request_id: UUID,
+    payload: ProjectManagerHandoverDecisionRequest,
+    decision: str,
+    db: Session,
+    current_user: AppUser,
+):
+    try:
+        request = decide_project_manager_handover(
+            db,
+            request_id,
+            current_user,
+            decision,
+            payload.note,
+        )
+        return serialize_project_manager_handover(request)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/project-manager-handover/{request_id}/accept",
+    response_model=ProjectManagerHandoverResponse,
+)
+def accept_project_manager_handover_endpoint(
+    request_id: UUID,
+    payload: ProjectManagerHandoverDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return _decide_project_manager_handover_endpoint(
+        request_id,
+        payload,
+        'accept',
+        db,
+        current_user,
+    )
+
+
+@router.post(
+    "/project-manager-handover/{request_id}/reject",
+    response_model=ProjectManagerHandoverResponse,
+)
+def reject_project_manager_handover_endpoint(
+    request_id: UUID,
+    payload: ProjectManagerHandoverDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return _decide_project_manager_handover_endpoint(
+        request_id,
+        payload,
+        'reject',
+        db,
+        current_user,
+    )
+
+
+@router.get("/transferable-tasks", response_model=list[MyTaskItem])
+def get_transferable_tasks_endpoint(
+    owner_user_id: Optional[UUID] = None,
+    keyword: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return get_transferable_tasks(db, current_user.id, owner_user_id=owner_user_id, keyword=keyword)
+
+
+@router.post("/eligible-users", response_model=list[WorkflowTransferUser])
+def get_eligible_transfer_users_endpoint(
+    payload: WorkflowEligibleUsersRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        users = get_eligible_transfer_users(db, payload.workflow_instance_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return [
+        WorkflowTransferUser(id=user.id, username=user.username, full_name=user.full_name)
+        for user in users
+    ]
+
+
+@router.post("/handover", response_model=WorkflowHandoverRequestResponse, status_code=status.HTTP_201_CREATED)
+def handover_tasks_endpoint(
+    payload: WorkflowHandoverRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        request = create_handover_request(
+            db,
+            requester=current_user,
+            workflow_instance_ids=payload.workflow_instance_ids,
+            target_user_id=payload.target_user_id,
+            handover_type=payload.handover_type,
+            reason_detail=payload.reason_detail,
+            content=payload.content,
+            content_json=payload.content_json,
+            attachment_ids=payload.attachment_ids,
+        )
+        db.expire_all()
+        created = next(
+            (
+                item for item in list_incoming_handover_requests(db, payload.target_user_id)
+                if item.id == request.id
+            ),
+            request,
+        )
+        return serialize_handover_request(created)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/handover-requests/incoming", response_model=list[WorkflowHandoverRequestResponse])
+def list_incoming_handover_requests_endpoint(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    requests = list_incoming_handover_requests(db, current_user.id)
+    return [serialize_handover_request(item) for item in requests]
+
+
+@router.post("/handover-requests/{request_id}/accept", response_model=WorkflowHandoverRequestResponse)
+def accept_handover_request_endpoint(
+    request_id: UUID,
+    payload: WorkflowHandoverDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        decided = decide_handover_request(db, request_id, current_user, 'accept', payload.note)
+        db.expire_all()
+        return serialize_handover_request(decided)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/handover-requests/{request_id}/reject", response_model=WorkflowHandoverRequestResponse)
+def reject_handover_request_endpoint(
+    request_id: UUID,
+    payload: WorkflowHandoverDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        decided = decide_handover_request(db, request_id, current_user, 'reject', payload.note)
+        db.expire_all()
+        return serialize_handover_request(decided)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/claim", response_model=WorkflowTransferResult)
+def claim_tasks_endpoint(
+    payload: WorkflowClaimRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return transfer_workflow_tasks(
+            db,
+            operator=current_user,
+            workflow_instance_ids=payload.workflow_instance_ids,
+            action='claim',
+            content=payload.content,
+            content_json=payload.content_json,
+            attachment_ids=payload.attachment_ids,
+            expected_assignee_ids=payload.expected_assignee_ids,
+        )
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/config", response_model=WorkflowConfigResponse)

@@ -9,7 +9,26 @@ import api from './index'
 
 // ===== 母订单工作流 =====
 export const getWorkflowConfigAPI = () => api.get('/workflow/config')
+export const getActiveProjectsAPI = (params = {}) => api.get('/workflow/active-projects', { params })
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
+export const getManagementProjectsAPI = () => api.get('/workflow/management-projects')
+export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })
+export const createProjectManagerHandoverAPI = (data) => api.post('/workflow/project-manager-handover', data)
+export const getIncomingProjectManagerHandoversAPI = () => api.get('/workflow/project-manager-handover/incoming')
+export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
+  api.post(`/workflow/project-manager-handover/${requestId}/accept`, data)
+export const rejectProjectManagerHandoverAPI = (requestId, data = {}) =>
+  api.post(`/workflow/project-manager-handover/${requestId}/reject`, data)
+export const getTransferableTasksAPI = (params = {}) => api.get('/workflow/transferable-tasks', { params })
+export const getEligibleTransferUsersAPI = (workflowInstanceIds) =>
+  api.post('/workflow/eligible-users', { workflow_instance_ids: workflowInstanceIds })
+export const handoverWorkflowTasksAPI = (data) => api.post('/workflow/handover', data)
+export const claimWorkflowTasksAPI = (data) => api.post('/workflow/claim', data)
+export const getIncomingHandoverRequestsAPI = () => api.get('/workflow/handover-requests/incoming')
+export const acceptHandoverRequestAPI = (requestId, data = {}) =>
+  api.post(`/workflow/handover-requests/${requestId}/accept`, data)
+export const rejectHandoverRequestAPI = (requestId, data = {}) =>
+  api.post(`/workflow/handover-requests/${requestId}/reject`, data)
 export const getWorkflowStateAPI = (projectId) => api.get(`/workflow/${projectId}`)
 export const initWorkflowAPI = (projectId) => api.post(`/workflow/${projectId}/init`)
 export const setDifficultyAPI = (projectId, data) => api.post(`/workflow/${projectId}/set-difficulty`, data)

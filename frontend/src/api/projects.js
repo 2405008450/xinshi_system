@@ -50,3 +50,17 @@ export const deleteProject = (id) => {
 export const getNextOrderNo = () => {
     return api.get('/projects/translation/next-order-no').then(res => res.orderNo)
 }
+
+let languageVariantsPromise
+
+export const getLanguageVariants = () => {
+    if (!languageVariantsPromise) {
+        languageVariantsPromise = api
+            .get('/projects/translation/language-variants')
+            .catch((error) => {
+                languageVariantsPromise = null
+                throw error
+            })
+    }
+    return languageVariantsPromise
+}

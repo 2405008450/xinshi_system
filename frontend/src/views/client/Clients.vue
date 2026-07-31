@@ -2,7 +2,10 @@
   <el-card>
     <template #header>
       <div class="card-header">
-        <span>客户信息</span>
+        <div>
+          <span>客户信息</span>
+          <small class="header-hint">母客户与子客户统一管理</small>
+        </div>
         <el-button type="primary" @click="handleAdd">新增客户</el-button>
       </div>
     </template>
@@ -10,10 +13,10 @@
     <div class="search-bar">
       <el-form :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户编号">
-          <el-input v-model="searchForm.client_code" placeholder="支持模糊搜索" clearable />
+          <el-input v-model="searchForm.client_code" placeholder="支持母客户或子客户编号" clearable />
         </el-form-item>
-        <el-form-item label="客户名称">
-          <el-input v-model="searchForm.client_name" placeholder="支持模糊搜索" clearable />
+        <el-form-item label="客户全称">
+          <el-input v-model="searchForm.client_name" placeholder="支持母客户或子客户名称" clearable />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">搜索</el-button>
@@ -28,7 +31,7 @@
           <div style="padding: 10px 40px" v-if="row.sub_clients && row.sub_clients.length > 0">
             <el-table :data="row.sub_clients" border size="small">
               <el-table-column prop="sub_client_code" label="子客户编号" width="180" />
-              <el-table-column prop="client_name" label="客户名称" />
+              <el-table-column prop="client_name" label="客户全称" />
               <el-table-column prop="client_short_name" label="客户简称" />
               <el-table-column prop="client_manager" label="客户负责人" />
               <el-table-column prop="manager_contact" label="负责人联系方式" />
@@ -47,7 +50,7 @@
       </el-table-column>
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="client_code" label="客户编号" width="150" />
-      <el-table-column prop="client_name" label="客户名称" width="200" />
+      <el-table-column prop="client_name" label="客户全称" width="200" />
       <el-table-column prop="client_short_name" label="客户简称" width="150" />
       <el-table-column prop="client_manager" label="客户负责人" width="150" />
       <el-table-column prop="manager_contact" label="负责人联系方式" width="150" />
@@ -65,8 +68,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="cooperation_start_date" label="开始合作时间" width="120" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="285" fixed="right">
         <template #default="{ row }">
+          <el-button type="success" size="small" @click="handleAddSubForParent(row)">新增子客户</el-button>
           <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
           <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
         </template>
@@ -79,8 +83,8 @@
       :total="pagination.total"
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
-      @size-change="fetchData"
-      @current-change="fetchData"
+      @size-change="handleSizeChange"
+      @current-change="handleCurrentChange"
       style="margin-top: 20px"
     />
 
@@ -105,7 +109,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <el-input v-model="form.client_name" />
             </el-form-item>
           </el-col>
@@ -196,7 +200,7 @@
           <el-button type="success" size="small" @click="handleAddSub">添加子客户</el-button>
           <el-table :data="form.sub_clients" border size="small" style="margin-top: 10px;">
             <el-table-column prop="sub_client_code" label="子客户编号" width="160" />
-            <el-table-column prop="client_name" label="客户名称" />
+            <el-table-column prop="client_name" label="客户全称" />
             <el-table-column prop="client_manager" label="负责人" />
             <el-table-column label="操作" width="120">
               <template #default="{ row: subRow }">
@@ -230,7 +234,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户名称" prop="client_name">
+            <el-form-item label="客户全称" prop="client_name">
               <el-input v-model="subForm.client_name" />
             </el-form-item>
           </el-col>
@@ -326,7 +330,6 @@ const subForm = reactive({
 })
 
 const rules = {
-  client_name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
   client_manager: [{ required: true, message: '请输入客户负责人', trigger: 'blur' }]
 }
@@ -351,6 +354,15 @@ const resetSearch = () => {
   handleSearch()
 }
 
+const handleSizeChange = () => {
+  pagination.page = 1
+  fetchData()
+}
+
+const handleCurrentChange = () => {
+  fetchData()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
@@ -361,9 +373,22 @@ const fetchData = async () => {
     if (searchForm.client_code) params.client_code = searchForm.client_code
     if (searchForm.client_name) params.client_name = searchForm.client_name
     
-    const res = await clientApi.getClients(params)
+    const countParams = {
+      client_code: params.client_code,
+      client_name: params.client_name
+    }
+    const [res, countRes] = await Promise.all([
+      clientApi.getClients(params),
+      clientApi.getClientCount(countParams)
+    ])
     tableData.value = res || []
-    pagination.total = res?.length || 0
+    pagination.total = countRes?.total || 0
+
+    const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.limit))
+    if (pagination.page > lastPage) {
+      pagination.page = lastPage
+      await fetchData()
+    }
   } catch (error) {
     tableData.value = []
     pagination.total = 0
@@ -426,6 +451,8 @@ const handleSubmit = async () => {
         const submitData = { ...form }
         delete submitData.id
         delete submitData.sub_clients
+        // 日期选择器未填写时会产生空字符串，后端 Optional[datetime] 需要 null。
+        submitData.cooperation_start_date = submitData.cooperation_start_date || null
         if (form.id) {
           await clientApi.updateClient(form.id, submitData)
           ElMessage.success('更新成功')
@@ -467,12 +494,20 @@ const resetForm = () => {
 }
 
 const handleAddSub = () => {
+  handleAddSubForParent(form)
+}
+
+const handleAddSubForParent = (parent) => {
+  if (!parent?.id) {
+    ElMessage.warning('请先保存母客户，再新增子客户')
+    return
+  }
   subDialogTitle.value = '新增子客户'
   resetSubForm()
-  subForm.parent_client_id = form.id
-  subForm.client_manager = form.client_manager
-  subForm.manager_contact = form.manager_contact
-  subForm.client_status = form.client_status
+  subForm.parent_client_id = parent.id
+  subForm.client_manager = parent.client_manager || ''
+  subForm.manager_contact = parent.manager_contact || ''
+  subForm.client_status = parent.client_status || 'pending'
   subDialogVisible.value = true
 }
 
@@ -553,6 +588,15 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.card-header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.header-hint {
+  color: var(--el-text-color-secondary);
+  font-weight: normal;
 }
 .search-bar {
   margin-bottom: 20px;

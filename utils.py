@@ -6,7 +6,7 @@ from models import TranslationProject
 def generate_order_no(db: Session) -> str:
     """
     生成主订单流水号
-    格式: TP-YYMMDD-NNNN (如 TP-260304-0007)
+    格式: TP-YYMMDD-NNN (如 TP-260304-007)
     """
     # 日期格式改为 YYMMDD (6位)
     today_str = datetime.datetime.now().strftime("%y%m%d")
@@ -23,7 +23,7 @@ def generate_order_no(db: Session) -> str:
 
     if last_project and last_project.order_no:
         try:
-            # 提取流水号部分（TP-YYMMDD-NNNN）
+            # 提取流水号部分；兼容历史四位流水号。
             seq_str = last_project.order_no.split("-")[-1]
             last_seq = int(seq_str)
             new_seq = last_seq + 1
@@ -32,13 +32,13 @@ def generate_order_no(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:04d}"
+    return f"{prefix}{new_seq:03d}"
 
 
 def generate_sub_order_no(db: Session, parent_order_no: str) -> str:
     """
     生成子订单流水号
-    格式: TP-YYMMDD-NNN.X (如 TP-260304-007.1)
+    格式: TP-YYMMDD-NNN.NNN (如 TP-260304-007.001)
 
     Args:
         db: 数据库会话
@@ -63,4 +63,4 @@ def generate_sub_order_no(db: Session, parent_order_no: str) -> str:
     else:
         new_seq = 1
 
-    return f"{parent_order_no}.{new_seq}"
+    return f"{parent_order_no}.{new_seq:03d}"
