@@ -101,12 +101,21 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
         return None
     
     update_data = user_update.model_dump(exclude_unset=True)
-    if "password" in update_data:
-        update_data["password_hash"] = hash_password(update_data.pop("password"))
-    
+
     for field, value in update_data.items():
         setattr(db_user, field, value)
     
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
+def reset_user_password(db: Session, user_id: UUID, new_password: str) -> Optional[AppUser]:
+    db_user = get_user(db, user_id)
+    if not db_user:
+        return None
+
+    db_user.password_hash = hash_password(new_password)
     db.commit()
     db.refresh(db_user)
     return db_user

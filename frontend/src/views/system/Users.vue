@@ -60,7 +60,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="290" fixed="right">
+      <el-table-column label="操作" width="380" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="canAssignRoles"
@@ -69,6 +69,14 @@
             @click="handleAssignRoles(row)"
           >
             分配角色
+          </el-button>
+          <el-button
+            v-if="canResetPassword"
+            type="warning"
+            size="small"
+            @click="handleResetPassword(row)"
+          >
+            修改密码
           </el-button>
           <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
           <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
@@ -123,6 +131,59 @@
     </el-dialog>
 
     <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改用户密码"
+      width="480px"
+      @closed="resetPasswordForm"
+    >
+      <el-alert
+        :title="`当前用户：${passwordTargetUser?.full_name || passwordTargetUser?.username || ''}`"
+        description="系统不会读取或展示该用户的旧密码。修改后请将新密码安全告知用户。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-width="100px"
+        class="password-form"
+      >
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="passwordForm.newPassword"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            maxlength="128"
+            placeholder="至少输入 8 个字符"
+          />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input
+            v-model="passwordForm.confirmPassword"
+            type="password"
+            show-password
+            autocomplete="new-password"
+            maxlength="128"
+            @keyup.enter="submitPasswordReset"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="passwordSubmitting"
+          @click="submitPasswordReset"
+        >
+          确认修改
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="roleDialogVisible"
       title="分配用户角色"
       width="520px"
@@ -171,7 +232,7 @@ import { User, Plus } from '@element-plus/icons-vue'
 import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
-import { hasPermission } from '@/utils/permission'
+import { hasPermission, isSuperAdmin } from '@/utils/permission'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -184,6 +245,37 @@ const selectedRoleIds = ref([])
 const availableRoles = ref([])
 const userRoleRows = ref([])
 const canAssignRoles = computed(() => hasPermission('system:user_roles:write'))
+const canResetPassword = computed(() => isSuperAdmin())
+const passwordDialogVisible = ref(false)
+const passwordSubmitting = ref(false)
+const passwordFormRef = ref(null)
+const passwordTargetUser = ref(null)
+const passwordForm = reactive({
+  newPassword: '',
+  confirmPassword: ''
+})
+
+const validateConfirmPassword = (_rule, value, callback) => {
+  if (!value) {
+    callback(new Error('请再次输入新密码'))
+    return
+  }
+  if (value !== passwordForm.newPassword) {
+    callback(new Error('两次输入的密码不一致'))
+    return
+  }
+  callback()
+}
+
+const passwordRules = {
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 8, max: 128, message: '密码长度应为 8 到 128 个字符', trigger: 'blur' }
+  ],
+  confirmPassword: [
+    { required: true, validator: validateConfirmPassword, trigger: 'blur' }
+  ]
+}
 
 const tableData = ref([])
 const pagination = reactive({
@@ -345,6 +437,43 @@ const handleEdit = (row) => {
   dialogVisible.value = true
 }
 
+const handleResetPassword = (row) => {
+  passwordTargetUser.value = row
+  passwordForm.newPassword = ''
+  passwordForm.confirmPassword = ''
+  passwordDialogVisible.value = true
+}
+
+const submitPasswordReset = async () => {
+  if (!passwordFormRef.value || !passwordTargetUser.value) return
+  try {
+    await passwordFormRef.value.validate()
+  } catch {
+    return
+  }
+
+  passwordSubmitting.value = true
+  try {
+    await userApi.resetUserPassword(
+      passwordTargetUser.value.id,
+      passwordForm.newPassword
+    )
+    ElMessage.success('密码修改成功')
+    passwordDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error.detail || '密码修改失败')
+  } finally {
+    passwordSubmitting.value = false
+  }
+}
+
+const resetPasswordForm = () => {
+  passwordTargetUser.value = null
+  passwordForm.newPassword = ''
+  passwordForm.confirmPassword = ''
+  passwordFormRef.value?.resetFields()
+}
+
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm('确定要删除该用户吗？', '提示', {
@@ -447,6 +576,10 @@ onMounted(() => {
 }
 
 .role-form {
+  margin-top: 20px;
+}
+
+.password-form {
   margin-top: 20px;
 }
 </style>

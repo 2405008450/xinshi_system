@@ -11,6 +11,7 @@ import hashlib
 from database import get_db
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
+from permission_registry import SUPER_ROLE_NAMES
 from schemas import Token, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -124,6 +125,20 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+def require_super_admin(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """仅允许 admin/超级管理员角色调用。"""
+    role_names = set(get_user_roles_with_role_names(db, current_user.id))
+    if SUPER_ROLE_NAMES.isdisjoint(role_names):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅超级管理员可以执行此操作",
+        )
+    return current_user
 
 
 def require_permission(permission_code: str) -> Callable:

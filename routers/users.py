@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 from database import get_db
 from crud import (
     get_user, get_user_by_username, get_users, count_users,
-    create_user, update_user, delete_user
+    create_user, update_user, reset_user_password, delete_user
 )
-from schemas import AppUserCreate, AppUserUpdate, AppUserResponse
-from routers.auth import require_any_permission, require_permission
+from schemas import AppUserCreate, AppUserUpdate, AppUserPasswordReset, AppUserResponse
+from routers.auth import require_any_permission, require_permission, require_super_admin
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -83,6 +83,22 @@ def update_user_endpoint(
             detail="User not found"
         )
     return db_user
+
+
+@router.put("/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_user_password_endpoint(
+    user_id: UUID,
+    payload: AppUserPasswordReset,
+    db: Session = Depends(get_db),
+    _current_admin=Depends(require_super_admin),
+):
+    db_user = reset_user_password(db, user_id=user_id, new_password=payload.new_password)
+    if db_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return None
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("system:users:write"))])

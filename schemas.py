@@ -37,10 +37,13 @@ class AppUserCreate(AppUserBase):
 
 class AppUserUpdate(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
+
+
+class AppUserPasswordReset(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class AppUserResponse(AppUserBase):
