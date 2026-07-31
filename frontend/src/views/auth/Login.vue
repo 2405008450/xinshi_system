@@ -57,7 +57,7 @@
                 size="large"
                 class="login-button"
               >
-                {{ loading ? '登录中...' : '登录' }}
+                {{ loading ? loginStatusText : '登录' }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -71,16 +71,43 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, OfficeBuilding } from '@element-plus/icons-vue'
-import api from '@/api/index'
+import { login } from '@/api/auth'
 import { getDefaultRoute } from '@/utils/permission'
 
 const router = useRouter()
 const loginFormRef = ref(null)
 const loading = ref(false)
+const loginStatusText = ref('正在验证账号...')
+let preloadHandle = null
+
+const preloadLandingViews = () => {
+  preloadHandle = null
+  Promise.allSettled([
+    import('@/views/schedule/WorkDashboard.vue'),
+    import('@/views/dashboard/Dashboard.vue')
+  ])
+}
+
+onMounted(() => {
+  if ('requestIdleCallback' in window) {
+    preloadHandle = window.requestIdleCallback(preloadLandingViews, { timeout: 1000 })
+  } else {
+    preloadHandle = window.setTimeout(preloadLandingViews, 150)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (preloadHandle === null) return
+  if ('cancelIdleCallback' in window) {
+    window.cancelIdleCallback(preloadHandle)
+  } else {
+    window.clearTimeout(preloadHandle)
+  }
+})
 
 const loginForm = reactive({
   username: '',
@@ -106,8 +133,8 @@ const handleLogin = async () => {
   }
 
   loading.value = true
+  loginStatusText.value = '正在验证账号...'
   try {
-    const { login } = await import('@/api/auth')
     const res = await login(loginForm)
     localStorage.setItem('token', res.access_token)
     localStorage.setItem('user_id', res.user_id)
@@ -121,12 +148,14 @@ const handleLogin = async () => {
     localStorage.setItem('user_name', loginForm.username || '')
     localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
 
+    loginStatusText.value = '正在进入系统...'
     await router.replace(getDefaultRoute())
     ElMessage.success('登录成功')
   } catch (error) {
     ElMessage.error(error.detail || error.message || '登录或页面加载失败')
   } finally {
     loading.value = false
+    loginStatusText.value = '正在验证账号...'
   }
 }
 </script>
