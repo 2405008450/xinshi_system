@@ -1,11 +1,11 @@
 import api from './index'
 
-export const getClients = (params) => {
-  return api.get('/clients/', { params })
+export const getClients = (params, config = {}) => {
+  return api.get('/clients/', { ...config, params })
 }
 
-export const getClientCount = (params) => {
-  return api.get('/clients/count', { params })
+export const getClientCount = (params, config = {}) => {
+  return api.get('/clients/count', { ...config, params })
 }
 
 export const getClient = (id) => {

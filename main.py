@@ -26,7 +26,7 @@ from models import (
     TranslatorSchedule,
 )
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements
+from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from task_models import DailyReport, DailyReportItem, NonProjectTask, NonProjectTaskEvent, NonProjectTaskRecurrence, WorkEntry
 from workflow_models import (
     ProjectManagerHandoverItem,
@@ -35,6 +35,7 @@ from workflow_models import (
     WorkflowHandoverItem,
     WorkflowHandoverRequest,
 )
+from word_count_models import WordCountMetric
 
 app = FastAPI()
 
@@ -70,6 +71,7 @@ app.include_router(tasks.tasks_router)
 app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
 app.include_router(manuscript_arrangements.router)
+app.include_router(word_counts.router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
@@ -102,10 +104,6 @@ TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS customer_order_no VARCHAR(100)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS service_content VARCHAR(255)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS project_manager_id UUID",
-    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS customer_word_count BIGINT",
-    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS customer_word_count_type VARCHAR(50)",
-    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS internal_word_count BIGINT",
-    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS internal_word_count_type VARCHAR(50)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS project_contract_type VARCHAR(100)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS project_contract_status VARCHAR(100)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS quotation_required BOOLEAN NOT NULL DEFAULT FALSE",
@@ -150,10 +148,6 @@ TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS ix_translation_project_manager_id ON translation_project(project_manager_id)",
 )
 TRANSLATION_SUB_ORDER_COLUMN_STATEMENTS = (
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS customer_word_count BIGINT",
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS customer_word_count_type VARCHAR(50)",
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS internal_word_count BIGINT",
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS internal_word_count_type VARCHAR(50)",
     "ALTER TABLE translation_sub_order ALTER COLUMN language_pair TYPE VARCHAR(500)",
 )
 MANUSCRIPT_DISPATCH_COLUMN_STATEMENTS = (
@@ -161,11 +155,9 @@ MANUSCRIPT_DISPATCH_COLUMN_STATEMENTS = (
 )
 MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS dispatch_id UUID",
-    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS planned_word_count BIGINT",
-    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS actual_word_count BIGINT",
-    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS word_count_type VARCHAR(50)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translation_scope TEXT",
-    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS settlement_method VARCHAR(30)",
+    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS settlement_method VARCHAR(100)",
+    "ALTER TABLE manuscript_arrangement ALTER COLUMN settlement_method TYPE VARCHAR(100)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS custom_settlement_method VARCHAR(100)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translator_unit_price NUMERIC(14, 4)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translator_total_price NUMERIC(14, 2)",
@@ -349,23 +341,6 @@ def ensure_manuscript_constraints():
                         UNIQUE (dispatch_id, translator_id);
                 END IF;
 
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'ck_manuscript_arrangement_planned_words'
-                ) THEN
-                    ALTER TABLE manuscript_arrangement
-                        ADD CONSTRAINT ck_manuscript_arrangement_planned_words
-                        CHECK (planned_word_count IS NULL OR planned_word_count >= 0);
-                END IF;
-
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'ck_manuscript_arrangement_actual_words'
-                ) THEN
-                    ALTER TABLE manuscript_arrangement
-                        ADD CONSTRAINT ck_manuscript_arrangement_actual_words
-                        CHECK (actual_word_count IS NULL OR actual_word_count >= 0);
-                END IF;
             END $$;
         """))
         conn.execute(text("""
@@ -466,6 +441,7 @@ def ensure_runtime_tables():
     ManuscriptArrangement.__table__.create(bind=engine, checkfirst=True)
     ensure_manuscript_arrangement_columns()
     ManuscriptDeliveryMilestone.__table__.create(bind=engine, checkfirst=True)
+    WordCountMetric.__table__.create(bind=engine, checkfirst=True)
     backfill_manuscript_dispatches()
     ensure_manuscript_constraints()
     cleanup_orphan_chat_attachments()

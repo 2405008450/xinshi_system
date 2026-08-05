@@ -35,20 +35,12 @@
           <el-divider class="menu-divider" />
         </template>
         <!-- 工作台 -->
-        <el-menu-item index="/dashboard">
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>&#x6570;&#x636E;&#x770B;&#x677F;</template>
-        </el-menu-item>
         <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
           <template #title>工作台</template>
         </el-menu-item>
         
         <!-- 项目管理：扁平菜单 -->
-        <el-menu-item v-if="showTranslationMenu" index="/translation">
-          <el-icon><Folder /></el-icon>
-          <template #title>项目流程</template>
-        </el-menu-item>
         <el-menu-item v-if="showTranslationMenu" index="/translation-details">
           <el-icon><Document /></el-icon>
           <template #title>项目详情</template>
@@ -135,7 +127,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { User, Key, Folder, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand, DataAnalysis } from '@element-plus/icons-vue'
+import { User, Key, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 
@@ -186,9 +178,8 @@ const showClientContacts = computed(() => hasPermission('clients:read'))
 /** 是否显示「资源管理」（所有员工） */
 const showResourceManagement = computed(() => hasPermission('translators:read'))
 const showFinance = computed(() => hasPermission('finance:read'))
-const showPendingModules = computed(() =>
-  showFullMenu.value || showClientContacts.value || showFinance.value
-)
+// 数据看板已移入待完善模块，因此所有登录用户都保留该入口。
+const showPendingModules = computed(() => true)
 
 /** 当前用户名（优先显示真实姓名，其次用户名，最后回退到用户） */
 const displayName = computed(() => {
@@ -201,6 +192,8 @@ const displayName = computed(() => {
 
 /** 当前激活的菜单项 */
 const pendingModulePaths = new Set([
+  '/dashboard',
+  '/translation',
   '/interpretation',
   '/annotation',
   '/recruitment',

@@ -16,6 +16,7 @@ from manuscript_schemas import (
     ManuscriptDispatchCreate,
     ManuscriptDispatchResponse,
     ManuscriptDispatchUpdate,
+    ManuscriptMailPreview,
     ManuscriptMailStatus,
     ManuscriptSettlementUpdate,
 )
@@ -27,6 +28,7 @@ from manuscript_service import (
     delete_arrangement,
     get_arrangement,
     get_arrangement_context,
+    get_arrangement_mail_preview,
     list_arrangements,
     list_dispatches,
     send_arrangement,
@@ -208,6 +210,25 @@ def send_dispatch_arrangement_endpoint(
     except Exception as exc:
         _raise_business_error(exc)
     return arrangement
+
+
+@router.get(
+    "/batches/{dispatch_id}/arrangements/{arrangement_id}/mail-preview",
+    response_model=ManuscriptMailPreview,
+)
+def read_arrangement_mail_preview(
+    dispatch_id: UUID,
+    arrangement_id: UUID,
+    db: Session = Depends(get_db),
+):
+    current = get_arrangement(db, arrangement_id)
+    if not current or current.dispatch_id != dispatch_id:
+        raise HTTPException(status_code=404, detail="译员派稿明细不存在")
+    try:
+        preview = get_arrangement_mail_preview(db, arrangement_id)
+    except Exception as exc:
+        _raise_business_error(exc)
+    return preview
 
 
 @router.patch(

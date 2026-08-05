@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,6 +26,18 @@ def read_clients(
     client_code: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
     client_short_name: Optional[str] = Query(None),
+    english_name: Optional[str] = Query(None),
+    client_manager: Optional[str] = Query(None),
+    manager_contact: Optional[str] = Query(None),
+    field_level1: Optional[str] = Query(None),
+    field_level2: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+    province: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    client_status: Optional[str] = Query(None),
+    cooperation_start_date_from: Optional[date] = Query(None),
+    cooperation_start_date_to: Optional[date] = Query(None),
     frequent_first: bool = Query(False),
     db: Session = Depends(get_db)
 ):
@@ -35,6 +48,18 @@ def read_clients(
         client_code=client_code,
         client_name=client_name,
         client_short_name=client_short_name,
+        english_name=english_name,
+        client_manager=client_manager,
+        manager_contact=manager_contact,
+        field_level1=field_level1,
+        field_level2=field_level2,
+        country=country,
+        province=province,
+        city=city,
+        district=district,
+        client_status=client_status,
+        cooperation_start_date_from=cooperation_start_date_from,
+        cooperation_start_date_to=cooperation_start_date_to,
         frequent_first=frequent_first
     )
 
@@ -43,6 +68,18 @@ def read_client_count(
     client_code: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
     client_short_name: Optional[str] = Query(None),
+    english_name: Optional[str] = Query(None),
+    client_manager: Optional[str] = Query(None),
+    manager_contact: Optional[str] = Query(None),
+    field_level1: Optional[str] = Query(None),
+    field_level2: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+    province: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    client_status: Optional[str] = Query(None),
+    cooperation_start_date_from: Optional[date] = Query(None),
+    cooperation_start_date_to: Optional[date] = Query(None),
     db: Session = Depends(get_db)
 ):
     return {
@@ -50,7 +87,19 @@ def read_client_count(
             db,
             client_code=client_code,
             client_name=client_name,
-            client_short_name=client_short_name
+            client_short_name=client_short_name,
+            english_name=english_name,
+            client_manager=client_manager,
+            manager_contact=manager_contact,
+            field_level1=field_level1,
+            field_level2=field_level2,
+            country=country,
+            province=province,
+            city=city,
+            district=district,
+            client_status=client_status,
+            cooperation_start_date_from=cooperation_start_date_from,
+            cooperation_start_date_to=cooperation_start_date_to,
         )
     }
 

@@ -30,6 +30,11 @@ export const sendManuscriptDispatch = (id) =>
 export const sendManuscriptAssignment = (dispatchId, arrangementId) =>
   api.post(`/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/send`)
 
+export const getManuscriptMailPreview = (dispatchId, arrangementId) =>
+  api.get(
+    `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/mail-preview`
+  )
+
 export const updateManuscriptSettlement = (dispatchId, arrangementId, data) =>
   api.patch(
     `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/settlement`,

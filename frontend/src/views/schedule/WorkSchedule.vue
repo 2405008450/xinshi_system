@@ -582,6 +582,7 @@ import { canEditSchedule } from '@/utils/permission'
 import { getSchedule, saveSchedule, copySchedule, getStaffList, getTranslatorList } from '@/api/schedule'
 import { getLeaveRecords, createLeave, deleteLeave, updateLeave } from '@/api/leave'
 import { updateTranslator } from '@/api/translators'
+import { formatWordCountMatrix } from '@/utils/wordCountMatrix'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -1251,7 +1252,7 @@ async function fetchTodayIncoming() {
         client_name: p.projectName || '',
         status: p.projectStatus || '',
         deadline: p.customerDeadlineTime || '',
-        word_count: p.expectedTranslatorWordCount ?? '',
+        word_count: formatWordCountMatrix(p.wordCountMatrix, { empty: '' }),
         remarks: p.clientFeedback || ''
       }))
     todayItems.sort((a, b) => {

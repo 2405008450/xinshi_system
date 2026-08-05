@@ -5,15 +5,13 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
-
-from workflow_schemas import ActiveProjectListResponse
-
+from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
 EntityType = Literal["project", "suborder"]
 ArrangementStatus = Literal["draft", "ready", "sent", "failed", "cancelled"]
 DispatchStatus = Literal["draft", "ready", "partially_sent", "sent", "cancelled"]
 MilestoneType = Literal["phase", "final"]
-SettlementMethod = Literal["single", "monthly", "prepaid", "other"]
+SettlementMethod = str
 
 
 class ManuscriptTranslatorItem(BaseModel):
@@ -36,8 +34,43 @@ class ManuscriptTranslatorItem(BaseModel):
     remarks: Optional[str] = None
 
 
+class ManuscriptActiveProjectItem(BaseModel):
+    """稿件安排页可选择的进行中母订单或子订单。"""
+
+    workflow_instance_id: UUID
+    entity_type: EntityType
+    translation_project_id: UUID
+    sub_order_id: Optional[UUID] = None
+    order_no: str
+    project_name: str
+    sub_project_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    current_stage_key: str
+    current_assignee_id: Optional[UUID] = None
+    current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None
+    project_manager_id: Optional[UUID] = None
+    project_manager_name: Optional[str] = None
+    project_status: Optional[str] = None
+    customer_deadline_time: Optional[datetime] = None
+    language_pair: Optional[str] = None
+    file_type_secondary: Optional[str] = None
+    priority: Optional[str] = None
+    word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    network_file_path: Optional[str] = None
+    reference_file_path_one: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ManuscriptActiveProjectListResponse(BaseModel):
+    items: list[ManuscriptActiveProjectItem] = Field(default_factory=list)
+    total: int = 0
+    overdue_total: int = 0
+    due_soon_total: int = 0
+
+
 class ManuscriptArrangementContext(BaseModel):
-    active_projects: ActiveProjectListResponse
+    active_projects: ManuscriptActiveProjectListResponse
     translators: list[ManuscriptTranslatorItem] = Field(default_factory=list)
 
 
@@ -60,11 +93,10 @@ class ManuscriptMilestoneResponse(ManuscriptMilestoneInput):
 
 class ManuscriptAssignmentInput(BaseModel):
     translator_id: UUID
-    planned_word_count: Optional[int] = Field(default=None, ge=0)
-    actual_word_count: Optional[int] = Field(default=None, ge=0)
-    word_count_type: Optional[str] = Field(default=None, max_length=50)
+    planned: WordCountValues = Field(default_factory=WordCountValues)
+    actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
-    settlement_method: Optional[SettlementMethod] = None
+    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(
         default=None,
@@ -85,12 +117,6 @@ class ManuscriptAssignmentInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_settlement_and_milestones(self):
-        custom = (self.custom_settlement_method or "").strip()
-        if self.settlement_method == "other" and not custom:
-            raise ValueError("结算方式选择“其他”时必须填写自定义结算方式")
-        if self.settlement_method != "other":
-            self.custom_settlement_method = None
-
         sequence_numbers = [item.sequence_no for item in self.milestones]
         if len(sequence_numbers) != len(set(sequence_numbers)):
             raise ValueError("同一译员的交稿节点顺序不能重复")
@@ -146,11 +172,10 @@ class ManuscriptArrangementCreate(BaseModel):
     sub_order_id: Optional[UUID] = None
     translator_id: UUID
     planned_delivery_at: Optional[datetime] = None
-    planned_word_count: Optional[int] = Field(default=None, ge=0)
-    actual_word_count: Optional[int] = Field(default=None, ge=0)
-    word_count_type: Optional[str] = Field(default=None, max_length=50)
+    planned: WordCountValues = Field(default_factory=WordCountValues)
+    actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
-    settlement_method: Optional[SettlementMethod] = None
+    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
@@ -164,18 +189,13 @@ class ManuscriptArrangementCreate(BaseModel):
             raise ValueError("子订单稿件安排必须提供子订单 ID")
         if self.entity_type == "project" and self.sub_order_id is not None:
             raise ValueError("母订单稿件安排不能提供子订单 ID")
-        if self.settlement_method == "other" and not (
-            self.custom_settlement_method or ""
-        ).strip():
-            raise ValueError("结算方式选择“其他”时必须填写自定义结算方式")
         return self
 
 
 class ManuscriptArrangementUpdate(BaseModel):
     planned_delivery_at: Optional[datetime] = None
-    actual_word_count: Optional[int] = Field(default=None, ge=0)
-    word_count_type: Optional[str] = Field(default=None, max_length=50)
-    settlement_method: Optional[SettlementMethod] = None
+    actual: Optional[WordCountValues] = None
+    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
@@ -185,22 +205,12 @@ class ManuscriptArrangementUpdate(BaseModel):
 
 
 class ManuscriptSettlementUpdate(BaseModel):
-    actual_word_count: Optional[int] = Field(default=None, ge=0)
-    word_count_type: Optional[str] = Field(default=None, max_length=50)
-    settlement_method: Optional[SettlementMethod] = None
+    actual: Optional[WordCountValues] = None
+    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
     remarks: Optional[str] = Field(default=None, max_length=5000)
-
-    @model_validator(mode="after")
-    def validate_custom_method(self):
-        if self.settlement_method == "other" and not (
-            self.custom_settlement_method or ""
-        ).strip():
-            raise ValueError("结算方式选择“其他”时必须填写自定义结算方式")
-        return self
-
 
 class ManuscriptArrangementResponse(BaseModel):
     id: UUID
@@ -214,9 +224,8 @@ class ManuscriptArrangementResponse(BaseModel):
     translator_name_snapshot: str
     cooperation_type_snapshot: Optional[str] = None
     recipient_email: Optional[str] = None
-    planned_word_count: Optional[int] = None
-    actual_word_count: Optional[int] = None
-    word_count_type: Optional[str] = None
+    planned: WordCountValues = Field(default_factory=WordCountValues)
+    actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = None
     settlement_method: Optional[str] = None
     custom_settlement_method: Optional[str] = None
@@ -271,6 +280,17 @@ class ManuscriptBatchSendResponse(BaseModel):
     sent_count: int = 0
     failed_count: int = 0
     skipped_count: int = 0
+
+
+class ManuscriptMailPreview(BaseModel):
+    """确认安排后展示，并与实际发送共用的邮件内容。"""
+
+    arrangement_id: UUID
+    recipient_email: Optional[str] = None
+    subject: str
+    body: str
+    manuscript_source_path: Optional[str] = None
+    reference_file_path_one: Optional[str] = None
 
 
 class ManuscriptMailStatus(BaseModel):

@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(pg_dump --help)"
+      "Bash(pg_dump --help)",
+      "Bash(git checkout *)",
+      "Bash(git fsck *)",
+      "Bash(cd \"$HOME/AppData/Roaming/Code/User/History\" && grep -rl \"Translators.vue\" . 2>/dev/null | head)",
+      "Read(//c/Users/Administrator/AppData/Roaming/Code/User/History/**)",
+      "Bash(npm i *)",
+      "Bash(playwright-cli --help)",
+      "Bash(playwright --help)",
+      "Bash(playwright-cli install *)",
+      "Bash(playwright-cli install-browser *)"
     ]
   }
 }

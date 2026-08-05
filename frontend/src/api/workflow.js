@@ -9,7 +9,6 @@ import api from './index'
 
 // ===== 母订单工作流 =====
 export const getWorkflowConfigAPI = () => api.get('/workflow/config')
-export const getActiveProjectsAPI = (params = {}) => api.get('/workflow/active-projects', { params })
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getManagementProjectsAPI = () => api.get('/workflow/management-projects')
 export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })

@@ -36,8 +36,15 @@ const router = useRouter()
 
 const moduleGroups = [
   {
+    title: '通用模块',
+    items: [
+      { name: '数据看板', path: '/dashboard', description: '暂时停用，待后续完善', public: true },
+    ],
+  },
+  {
     title: '项目类型',
     items: [
+      { name: '项目流程', path: '/translation', description: '功能持续完善中', permission: 'projects:read' },
       { name: '口译项目管理', path: '/interpretation', description: '模拟表单' },
       { name: '标注项目管理', path: '/annotation', description: '模拟表单' },
       { name: '招聘项目管理', path: '/recruitment', description: '模拟表单' },
@@ -77,7 +84,7 @@ const visibleModuleGroups = computed(() => moduleGroups
   .map(group => ({
     ...group,
     items: group.items.filter(item =>
-      isSuperAdmin() || (item.permission && hasPermission(item.permission))
+      isSuperAdmin() || item.public || (item.permission && hasPermission(item.permission))
     ),
   }))
   .filter(group => group.items.length))

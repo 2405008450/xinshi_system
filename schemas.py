@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from language_catalog import normalize_language_pairs
+from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
 
 # Auth Schemas
@@ -263,11 +264,16 @@ class ConsultationBase(BaseModel):
     follow_up_person_id: Optional[UUID] = None
 
 class ConsultationCreate(ConsultationBase):
-    pass
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
 
 class ConsultationUpdate(BaseModel):
     consultation_code: Optional[str] = None
     client_id: Optional[UUID] = None
+    client_code: Optional[str] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
     consultation_time: Optional[datetime] = None
     consultation_method: Optional[str] = None
     client_source: Optional[str] = None
@@ -323,7 +329,7 @@ class TranslatorFieldsBase(BaseModel):
     other_contact: Optional[str] = None
     overdue_count: Optional[int] = 0
     overall_rating: Optional[str] = None
-    first_contact_date: Optional[date] = None
+    first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
     status: Optional[str] = "standby"
     available_time_slot: Optional[str] = None
@@ -334,6 +340,14 @@ class TranslatorFieldsBase(BaseModel):
     can_revision: Optional[bool] = None
     domain_skills: Optional[list] = []
     availability_updated_at: Optional[datetime] = None
+
+    @field_validator('first_contact_date', 'availability_updated_at', mode='before')
+    @classmethod
+    def normalize_optional_datetime(cls, value):
+        """兼容旧客户端将空日期字段提交为空字符串的情况。"""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 class TranslatorCreate(TranslatorFieldsBase):
     cloud_revision: Optional[str] = None
@@ -366,7 +380,7 @@ class TranslatorUpdate(BaseModel):
     other_contact: Optional[str] = None
     overdue_count: Optional[int] = None
     overall_rating: Optional[str] = None
-    first_contact_date: Optional[date] = None
+    first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
     status: Optional[str] = None
     available_time_slot: Optional[str] = None
@@ -377,6 +391,14 @@ class TranslatorUpdate(BaseModel):
     can_revision: Optional[bool] = None
     domain_skills: Optional[list] = None
     availability_updated_at: Optional[datetime] = None
+
+    @field_validator('first_contact_date', 'availability_updated_at', mode='before')
+    @classmethod
+    def normalize_optional_datetime(cls, value):
+        """兼容旧客户端将空日期字段提交为空字符串的情况。"""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 class TranslatorResponse(TranslatorFieldsBase):
     id: UUID
@@ -445,19 +467,13 @@ class TranslationProjectBase(BaseModel):
     client_feedback: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
-    word_count: Optional[int] = None
-    customer_word_count: Optional[int] = None
-    customer_word_count_type: Optional[str] = None
-    internal_word_count: Optional[int] = None
-    internal_word_count_type: Optional[str] = None
+    word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
     project_status: Optional[str] = None
     project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
     major_project_manager_confirmation: Optional[str] = None
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None
     review1_progress: Optional[str] = None
@@ -500,19 +516,13 @@ class TranslationProjectUpdate(BaseModel):
     client_feedback: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
-    word_count: Optional[int] = None
-    customer_word_count: Optional[int] = None
-    customer_word_count_type: Optional[str] = None
-    internal_word_count: Optional[int] = None
-    internal_word_count_type: Optional[str] = None
+    word_count_matrix: Optional[WordCountCreateMatrix] = None
     project_status: Optional[str] = None
     project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
     major_project_manager_confirmation: Optional[str] = None
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None
     review1_progress: Optional[str] = None
@@ -535,9 +545,8 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     translator_name: str
     cooperation_type: Optional[str] = None
     status: Optional[str] = None
-    planned_word_count: Optional[int] = None
-    actual_word_count: Optional[int] = None
-    word_count_type: Optional[str] = None
+    planned: WordCountValues = Field(default_factory=WordCountValues)
+    actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = None
 
 
@@ -551,11 +560,7 @@ class TranslationSubOrderResponse(BaseModel):
     file_type_secondary: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
-    word_count: Optional[int] = None
-    customer_word_count: Optional[int] = None
-    customer_word_count_type: Optional[str] = None
-    internal_word_count: Optional[int] = None
-    internal_word_count_type: Optional[str] = None
+    word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -564,8 +569,6 @@ class TranslationSubOrderResponse(BaseModel):
     translator_id: Optional[UUID] = None
     translator_name: Optional[str] = None
     translator_assignment_time: Optional[datetime] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
     assigned_translators: list[ProjectAssignedTranslatorResponse] = Field(default_factory=list)
     # 杩涘害
     status: Optional[str] = None
@@ -624,11 +627,7 @@ class TranslationSubOrderCreate(BaseModel):
     file_type_secondary: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
-    word_count: Optional[int] = None
-    customer_word_count: Optional[int] = None
-    customer_word_count_type: Optional[str] = None
-    internal_word_count: Optional[int] = None
-    internal_word_count_type: Optional[str] = None
+    word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -636,8 +635,6 @@ class TranslationSubOrderCreate(BaseModel):
     # 璇戝憳
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
     # 杩涘害
     status: Optional[str] = 'pending'
     translator_delivery_progress: Optional[str] = None
@@ -664,18 +661,12 @@ class TranslationSubOrderUpdate(BaseModel):
     file_type_secondary: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
-    word_count: Optional[int] = None
-    customer_word_count: Optional[int] = None
-    customer_word_count_type: Optional[str] = None
-    internal_word_count: Optional[int] = None
-    internal_word_count_type: Optional[str] = None
+    word_count_matrix: Optional[WordCountCreateMatrix] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None
     translator_id: Optional[UUID] = None
     translator_assignment_time: Optional[datetime] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
     status: Optional[str] = None
     translator_delivery_progress: Optional[str] = None
     pre_review_qc_progress: Optional[str] = None

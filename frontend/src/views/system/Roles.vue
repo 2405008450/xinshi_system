@@ -32,25 +32,19 @@
           <el-text v-else type="info">尚未授权</el-text>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="250" fixed="right">
+      <el-table-column label="操作" width="124" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button
+          <TableActionButton
             v-if="canWrite && !isProtectedRole(row)"
-            type="success"
-            size="small"
+            action="permission"
             @click="handlePermission(row)"
-          >
-            配置权限
-          </el-button>
-          <el-button v-if="canWrite" type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-button
+          />
+          <TableActionButton v-if="canWrite" action="edit" @click="handleEdit(row)" />
+          <TableActionButton
             v-if="canWrite && !isProtectedRole(row)"
-            type="danger"
-            size="small"
+            action="delete"
             @click="handleDelete(row)"
-          >
-            删除
-          </el-button>
+          />
         </template>
       </el-table-column>
     </el-table>

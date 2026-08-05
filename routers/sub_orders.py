@@ -10,15 +10,23 @@ from crud import (
     create_sub_order, update_sub_order, delete_sub_order
 )
 from schemas import TranslationSubOrderCreate, TranslationSubOrderUpdate, TranslationSubOrderResponse
-from routers.auth import require_module_access
+from models import AppUser
+from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 
 
 @router.post("/", response_model=TranslationSubOrderResponse, status_code=status.HTTP_201_CREATED)
-def create_sub_order_endpoint(sub_order: TranslationSubOrderCreate, db: Session = Depends(get_db)):
+def create_sub_order_endpoint(
+    sub_order: TranslationSubOrderCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
     try:
-        return create_sub_order(db=db, sub_order=sub_order)
+        return create_sub_order(
+            db=db,
+            sub_order=sub_order.model_copy(update={"created_by": current_user.id}),
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except IntegrityError as e:

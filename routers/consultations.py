@@ -1,5 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -53,6 +54,15 @@ def read_consultation_count(
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     return {
@@ -61,6 +71,15 @@ def read_consultation_count(
             consultation_code=consultation_code,
             client_name=client_name,
             status=status,
+            consultation_date_start=consultation_date_start,
+            consultation_date_end=consultation_date_end,
+            consultation_method=consultation_method,
+            consultation_type=consultation_type,
+            client_source=client_source,
+            customer_service_id=customer_service_id,
+            sales_person_id=sales_person_id,
+            follow_up_person_id=follow_up_person_id,
+            follow_up_status=follow_up_status,
         )
     }
 
@@ -72,6 +91,15 @@ def read_consultations(
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     return get_consultations(
@@ -80,7 +108,16 @@ def read_consultations(
         limit=limit,
         consultation_code=consultation_code,
         client_name=client_name,
-        status=status
+        status=status,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        consultation_method=consultation_method,
+        consultation_type=consultation_type,
+        client_source=client_source,
+        customer_service_id=customer_service_id,
+        sales_person_id=sales_person_id,
+        follow_up_person_id=follow_up_person_id,
+        follow_up_status=follow_up_status,
     )
 
 

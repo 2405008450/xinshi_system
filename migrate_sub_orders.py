@@ -7,8 +7,6 @@
   - customer_deadline_time : TIMESTAMP
   - sent_to_client_time  : TIMESTAMP
   - client_feedback      : TEXT
-  - expected_translator_stats_method : VARCHAR(100)
-  - expected_translator_word_count   : BIGINT
   - pre_review_qc_progress : VARCHAR(20)
   - review1_progress     : VARCHAR(20)
   - review2_progress     : VARCHAR(20)
@@ -35,10 +33,6 @@ ALTER_STATEMENTS = [
     "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS customer_deadline_time TIMESTAMP;",
     "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS sent_to_client_time TIMESTAMP;",
     "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS client_feedback TEXT;",
-
-    # 译员扩展
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS expected_translator_stats_method VARCHAR(100);",
-    "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS expected_translator_word_count BIGINT;",
 
     # 进度字段（与母订单对齐，旧 review_progress 保留不删）
     "ALTER TABLE translation_sub_order ADD COLUMN IF NOT EXISTS pre_review_qc_progress VARCHAR(20);",

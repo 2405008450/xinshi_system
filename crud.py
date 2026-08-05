@@ -1,8 +1,8 @@
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import String, and_, func, or_
+from sqlalchemy import Integer, String, and_, case, cast, func, or_
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
 from schemas import (
@@ -208,6 +208,86 @@ def generate_client_code(db: Session) -> str:
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
     return db.query(Client).options(selectinload(Client.sub_clients)).filter(Client.id == client_id).first()
 
+
+def _apply_client_filters(
+    query,
+    *,
+    client_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    english_name: Optional[str] = None,
+    client_manager: Optional[str] = None,
+    manager_contact: Optional[str] = None,
+    field_level1: Optional[str] = None,
+    field_level2: Optional[str] = None,
+    country: Optional[str] = None,
+    province: Optional[str] = None,
+    city: Optional[str] = None,
+    district: Optional[str] = None,
+    client_status: Optional[str] = None,
+    cooperation_start_date_from: Optional[date] = None,
+    cooperation_start_date_to: Optional[date] = None,
+):
+    """为客户列表和总数查询复用完全一致的筛选条件。"""
+    text_filters = (
+        (client_code, Client.client_code, SubClient.sub_client_code),
+        (client_short_name, Client.client_short_name, SubClient.client_short_name),
+        (client_manager, Client.client_manager, SubClient.client_manager),
+        (manager_contact, Client.manager_contact, SubClient.manager_contact),
+        (field_level1, Client.field_level1, SubClient.field_level1),
+        (field_level2, Client.field_level2, SubClient.field_level2),
+        (country, Client.country, SubClient.country),
+        (province, Client.province, SubClient.province),
+        (city, Client.city, SubClient.city),
+        (district, Client.district, SubClient.district),
+    )
+    for value, client_column, sub_client_column in text_filters:
+        if value and value.strip():
+            pattern = f"%{value.strip()}%"
+            query = query.filter(or_(
+                client_column.ilike(pattern),
+                Client.sub_clients.any(sub_client_column.ilike(pattern)),
+            ))
+
+    if client_name and client_name.strip():
+        pattern = f"%{client_name.strip()}%"
+        query = query.filter(or_(
+            Client.client_name.ilike(pattern),
+            Client.client_short_name.ilike(pattern),
+            Client.sub_clients.any(or_(
+                SubClient.client_name.ilike(pattern),
+                SubClient.client_short_name.ilike(pattern),
+            )),
+        ))
+    if english_name and english_name.strip():
+        pattern = f"%{english_name.strip()}%"
+        query = query.filter(or_(
+            Client.english_name.ilike(pattern),
+            Client.english_short_name.ilike(pattern),
+            Client.sub_clients.any(or_(
+                SubClient.english_name.ilike(pattern),
+                SubClient.english_short_name.ilike(pattern),
+            )),
+        ))
+    if client_status:
+        query = query.filter(or_(
+            Client.client_status == client_status,
+            Client.sub_clients.any(SubClient.client_status == client_status),
+        ))
+    if cooperation_start_date_from:
+        start_at = datetime.combine(cooperation_start_date_from, time.min)
+        query = query.filter(or_(
+            Client.cooperation_start_date >= start_at,
+            Client.sub_clients.any(SubClient.cooperation_start_date >= start_at),
+        ))
+    if cooperation_start_date_to:
+        end_at = datetime.combine(cooperation_start_date_to, time.max)
+        query = query.filter(or_(
+            Client.cooperation_start_date <= end_at,
+            Client.sub_clients.any(SubClient.cooperation_start_date <= end_at),
+        ))
+    return query
+
 def get_clients(
     db: Session,
     skip: int = 0,
@@ -215,33 +295,39 @@ def get_clients(
     client_code: Optional[str] = None,
     client_name: Optional[str] = None,
     client_short_name: Optional[str] = None,
+    english_name: Optional[str] = None,
+    client_manager: Optional[str] = None,
+    manager_contact: Optional[str] = None,
+    field_level1: Optional[str] = None,
+    field_level2: Optional[str] = None,
+    country: Optional[str] = None,
+    province: Optional[str] = None,
+    city: Optional[str] = None,
+    district: Optional[str] = None,
+    client_status: Optional[str] = None,
+    cooperation_start_date_from: Optional[date] = None,
+    cooperation_start_date_to: Optional[date] = None,
     frequent_first: bool = False,
 ) -> List[Client]:
     query = db.query(Client).options(selectinload(Client.sub_clients))
-    if client_code:
-        pattern = f"%{client_code}%"
-        query = query.filter(
-            or_(
-                Client.client_code.ilike(pattern),
-                Client.sub_clients.any(SubClient.sub_client_code.ilike(pattern)),
-            )
-        )
-    if client_name:
-        pattern = f"%{client_name}%"
-        query = query.filter(
-            or_(
-                Client.client_name.ilike(pattern),
-                Client.sub_clients.any(SubClient.client_name.ilike(pattern)),
-            )
-        )
-    if client_short_name:
-        pattern = f"%{client_short_name}%"
-        query = query.filter(
-            or_(
-                Client.client_short_name.ilike(pattern),
-                Client.sub_clients.any(SubClient.client_short_name.ilike(pattern)),
-            )
-        )
+    query = _apply_client_filters(
+        query,
+        client_code=client_code,
+        client_name=client_name,
+        client_short_name=client_short_name,
+        english_name=english_name,
+        client_manager=client_manager,
+        manager_contact=manager_contact,
+        field_level1=field_level1,
+        field_level2=field_level2,
+        country=country,
+        province=province,
+        city=city,
+        district=district,
+        client_status=client_status,
+        cooperation_start_date_from=cooperation_start_date_from,
+        cooperation_start_date_to=cooperation_start_date_to,
+    )
     if frequent_first:
         cooperation_stats = (
             db.query(
@@ -268,32 +354,38 @@ def count_clients(
     client_code: Optional[str] = None,
     client_name: Optional[str] = None,
     client_short_name: Optional[str] = None,
+    english_name: Optional[str] = None,
+    client_manager: Optional[str] = None,
+    manager_contact: Optional[str] = None,
+    field_level1: Optional[str] = None,
+    field_level2: Optional[str] = None,
+    country: Optional[str] = None,
+    province: Optional[str] = None,
+    city: Optional[str] = None,
+    district: Optional[str] = None,
+    client_status: Optional[str] = None,
+    cooperation_start_date_from: Optional[date] = None,
+    cooperation_start_date_to: Optional[date] = None,
 ) -> int:
     query = db.query(Client.id)
-    if client_code:
-        pattern = f"%{client_code}%"
-        query = query.filter(
-            or_(
-                Client.client_code.ilike(pattern),
-                Client.sub_clients.any(SubClient.sub_client_code.ilike(pattern)),
-            )
-        )
-    if client_name:
-        pattern = f"%{client_name}%"
-        query = query.filter(
-            or_(
-                Client.client_name.ilike(pattern),
-                Client.sub_clients.any(SubClient.client_name.ilike(pattern)),
-            )
-        )
-    if client_short_name:
-        pattern = f"%{client_short_name}%"
-        query = query.filter(
-            or_(
-                Client.client_short_name.ilike(pattern),
-                Client.sub_clients.any(SubClient.client_short_name.ilike(pattern)),
-            )
-        )
+    query = _apply_client_filters(
+        query,
+        client_code=client_code,
+        client_name=client_name,
+        client_short_name=client_short_name,
+        english_name=english_name,
+        client_manager=client_manager,
+        manager_contact=manager_contact,
+        field_level1=field_level1,
+        field_level2=field_level2,
+        country=country,
+        province=province,
+        city=city,
+        district=district,
+        client_status=client_status,
+        cooperation_start_date_from=cooperation_start_date_from,
+        cooperation_start_date_to=cooperation_start_date_to,
+    )
     return query.count()
 
 
@@ -468,6 +560,16 @@ def _apply_translator_filters(
     status: Optional[str] = None,
     available_time_slot: Optional[str] = None,
     domain_keyword: Optional[str] = None,
+    contact_keyword: Optional[str] = None,
+    quality_score: Optional[str] = None,
+    gender: Optional[str] = None,
+    nationality: Optional[str] = None,
+    can_cloud_edit: Optional[bool] = None,
+    can_revision: Optional[bool] = None,
+    default_priority_min: Optional[int] = None,
+    default_priority_max: Optional[int] = None,
+    daily_word_capacity_min: Optional[int] = None,
+    daily_word_capacity_max: Optional[int] = None,
     stale_only: bool = False,
     stale_days: int = 4,
 ):
@@ -489,6 +591,34 @@ def _apply_translator_filters(
         query = query.filter(Translator.available_time_slot.ilike(f"%{available_time_slot}%"))
     if domain_keyword:
         query = query.filter(Translator.domain_skills.cast(String).ilike(f"%{domain_keyword}%"))
+    if contact_keyword and contact_keyword.strip():
+        pattern = f"%{contact_keyword.strip()}%"
+        query = query.filter(or_(
+            Translator.contact_info.ilike(pattern),
+            Translator.phone.ilike(pattern),
+            Translator.phone2.ilike(pattern),
+            Translator.email1.ilike(pattern),
+            Translator.email2.ilike(pattern),
+            Translator.other_contact.ilike(pattern),
+        ))
+    if quality_score and quality_score.strip():
+        query = query.filter(Translator.quality_score.ilike(f"%{quality_score.strip()}%"))
+    if gender and gender.strip():
+        query = query.filter(Translator.gender.ilike(f"%{gender.strip()}%"))
+    if nationality and nationality.strip():
+        query = query.filter(Translator.nationality.ilike(f"%{nationality.strip()}%"))
+    if can_cloud_edit is not None:
+        query = query.filter(Translator.can_cloud_edit == can_cloud_edit)
+    if can_revision is not None:
+        query = query.filter(Translator.can_revision == can_revision)
+    if default_priority_min is not None:
+        query = query.filter(Translator.default_priority >= default_priority_min)
+    if default_priority_max is not None:
+        query = query.filter(Translator.default_priority <= default_priority_max)
+    if daily_word_capacity_min is not None:
+        query = query.filter(Translator.daily_word_capacity >= daily_word_capacity_min)
+    if daily_word_capacity_max is not None:
+        query = query.filter(Translator.daily_word_capacity <= daily_word_capacity_max)
     if stale_only:
         stale_before = dt.datetime.utcnow() - dt.timedelta(days=max(stale_days, 1))
         query = query.filter(
@@ -510,6 +640,16 @@ def get_translators(
     status: Optional[str] = None,
     available_time_slot: Optional[str] = None,
     domain_keyword: Optional[str] = None,
+    contact_keyword: Optional[str] = None,
+    quality_score: Optional[str] = None,
+    gender: Optional[str] = None,
+    nationality: Optional[str] = None,
+    can_cloud_edit: Optional[bool] = None,
+    can_revision: Optional[bool] = None,
+    default_priority_min: Optional[int] = None,
+    default_priority_max: Optional[int] = None,
+    daily_word_capacity_min: Optional[int] = None,
+    daily_word_capacity_max: Optional[int] = None,
     stale_only: bool = False,
     stale_days: int = 4,
 ) -> List[Translator]:
@@ -525,6 +665,16 @@ def get_translators(
         status=status,
         available_time_slot=available_time_slot,
         domain_keyword=domain_keyword,
+        contact_keyword=contact_keyword,
+        quality_score=quality_score,
+        gender=gender,
+        nationality=nationality,
+        can_cloud_edit=can_cloud_edit,
+        can_revision=can_revision,
+        default_priority_min=default_priority_min,
+        default_priority_max=default_priority_max,
+        daily_word_capacity_min=daily_word_capacity_min,
+        daily_word_capacity_max=daily_word_capacity_max,
         stale_only=stale_only,
         stale_days=stale_days,
     )
@@ -551,6 +701,16 @@ def count_translators(
     status: Optional[str] = None,
     available_time_slot: Optional[str] = None,
     domain_keyword: Optional[str] = None,
+    contact_keyword: Optional[str] = None,
+    quality_score: Optional[str] = None,
+    gender: Optional[str] = None,
+    nationality: Optional[str] = None,
+    can_cloud_edit: Optional[bool] = None,
+    can_revision: Optional[bool] = None,
+    default_priority_min: Optional[int] = None,
+    default_priority_max: Optional[int] = None,
+    daily_word_capacity_min: Optional[int] = None,
+    daily_word_capacity_max: Optional[int] = None,
     stale_only: bool = False,
     stale_days: int = 4,
 ) -> int:
@@ -566,6 +726,16 @@ def count_translators(
         status=status,
         available_time_slot=available_time_slot,
         domain_keyword=domain_keyword,
+        contact_keyword=contact_keyword,
+        quality_score=quality_score,
+        gender=gender,
+        nationality=nationality,
+        can_cloud_edit=can_cloud_edit,
+        can_revision=can_revision,
+        default_priority_min=default_priority_min,
+        default_priority_max=default_priority_max,
+        daily_word_capacity_min=daily_word_capacity_min,
+        daily_word_capacity_max=daily_word_capacity_max,
         stale_only=stale_only,
         stale_days=stale_days,
     )
@@ -635,6 +805,13 @@ def _normalize_translator_payload(payload: dict, current: Optional[Translator] =
 
 def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
     payload = _normalize_translator_payload(translator.model_dump())
+    availability_fields = {
+        "available_time_slot", "schedule_remarks", "overdue_count",
+        "daily_accept_count", "hourly_speed", "daily_word_capacity",
+        "can_cloud_edit", "can_revision",
+    }
+    if any(payload.get(field) not in (None, "") for field in availability_fields):
+        payload["availability_updated_at"] = dt.datetime.utcnow()
     db_translator = Translator(**payload)
     db.add(db_translator)
     db.commit()
@@ -646,6 +823,13 @@ def update_translator(db: Session, translator_id: UUID, translator_update: Trans
     if not db_translator:
         return None
     payload = _normalize_translator_payload(translator_update.model_dump(exclude_unset=True), current=db_translator)
+    availability_fields = {
+        "available_time_slot", "schedule_remarks", "overdue_count",
+        "daily_accept_count", "hourly_speed", "daily_word_capacity",
+        "can_cloud_edit", "can_revision",
+    }
+    if any(field in payload and payload[field] != getattr(db_translator, field) for field in availability_fields):
+        payload["availability_updated_at"] = dt.datetime.utcnow()
     for field, value in payload.items():
         setattr(db_translator, field, value)
     db.commit()
@@ -706,9 +890,8 @@ def _attach_manuscript_assignees(
             "translator_name": row.translator_name_snapshot,
             "cooperation_type": row.cooperation_type_snapshot,
             "status": row.status,
-            "planned_word_count": row.planned_word_count,
-            "actual_word_count": row.actual_word_count,
-            "word_count_type": row.word_count_type,
+            "planned": {},
+            "actual": {},
             "translation_scope": row.translation_scope,
         }
 
@@ -724,6 +907,66 @@ def _attach_manuscript_assignees(
         sub_order.assigned_translators = list(
             grouped.get((sub_order.parent_project_id, sub_order.id), {}).values()
         )
+    _attach_word_count_matrices(db, projects=projects, sub_orders=sub_orders)
+
+
+def _attach_word_count_matrices(
+    db: Session,
+    *,
+    projects: Optional[List[TranslationProject]] = None,
+    sub_orders: Optional[List[TranslationSubOrder]] = None,
+) -> None:
+    """为项目响应批量挂载矩阵数据，并补齐每位译员的预定/实际矩阵。"""
+    from word_count_models import WordCountMetric
+
+    metric_types = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words")
+    dimensions = ("company", "customer", "translator_estimate")
+
+    def empty_values():
+        return {metric_type: None for metric_type in metric_types}
+
+    def empty_matrix():
+        return {dimension: empty_values() for dimension in dimensions}
+
+    projects = projects or []
+    explicit_sub_orders = sub_orders or []
+    all_sub_orders = list(explicit_sub_orders)
+    for project in projects:
+        all_sub_orders.extend(list(getattr(project, "sub_orders", []) or []))
+
+    project_map = {project.id: project for project in projects}
+    sub_order_map = {sub_order.id: sub_order for sub_order in all_sub_orders}
+    for project in project_map.values():
+        project.word_count_matrix = empty_matrix()
+    for sub_order in sub_order_map.values():
+        sub_order.word_count_matrix = empty_matrix()
+
+    arrangement_map = {}
+    for owner in [*project_map.values(), *sub_order_map.values()]:
+        for assignment in getattr(owner, "assigned_translators", []) or []:
+            assignment["planned"] = empty_values()
+            assignment["actual"] = empty_values()
+            arrangement_id = assignment.get("arrangement_id")
+            if arrangement_id:
+                arrangement_map[arrangement_id] = assignment
+
+    filters = []
+    if project_map:
+        filters.append(WordCountMetric.project_id.in_(project_map))
+    if sub_order_map:
+        filters.append(WordCountMetric.sub_order_id.in_(sub_order_map))
+    if arrangement_map:
+        filters.append(WordCountMetric.arrangement_id.in_(arrangement_map))
+    if not filters:
+        return
+
+    for metric in db.query(WordCountMetric).filter(or_(*filters)).all():
+        if metric.project_id in project_map and metric.dimension in dimensions:
+            project_map[metric.project_id].word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+        elif metric.sub_order_id in sub_order_map and metric.dimension in dimensions:
+            sub_order_map[metric.sub_order_id].word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+        elif metric.arrangement_id in arrangement_map and metric.dimension in {"planned", "actual"}:
+            arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = metric.count_value
 
 
 def _attach_project_client_fields(project: TranslationProject) -> None:
@@ -812,6 +1055,69 @@ def _resolve_project_client_link(
     if client_id and sub_client.parent_client_id != client_id:
         raise ValueError("所选子客户不属于当前母客户")
     return sub_client.parent_client_id
+
+
+def _resolve_or_create_project_client(
+    db: Session,
+    client_short_name: Optional[str],
+    client_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+) -> tuple[Optional[UUID], Optional[UUID], bool]:
+    """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
+    normalized_short_name = (client_short_name or "").strip()
+    normalized_client_code = (client_code or "").strip()
+    normalized_client_name = (client_name or "").strip()
+
+    if normalized_short_name:
+        short_name_key = normalized_short_name.lower()
+        client = (
+            db.query(Client)
+            .filter(func.lower(func.trim(Client.client_short_name)) == short_name_key)
+            .order_by(Client.created_at.asc(), Client.id.asc())
+            .first()
+        )
+        if client:
+            return client.id, None, False
+
+        sub_client = (
+            db.query(SubClient)
+            .filter(func.lower(func.trim(SubClient.client_short_name)) == short_name_key)
+            .order_by(SubClient.created_at.asc(), SubClient.id.asc())
+            .first()
+        )
+        if sub_client:
+            return sub_client.parent_client_id, sub_client.id, False
+
+    if normalized_client_code:
+        client_code_key = normalized_client_code.lower()
+        client = (
+            db.query(Client)
+            .filter(func.lower(func.trim(Client.client_code)) == client_code_key)
+            .first()
+        )
+        if client:
+            return client.id, None, False
+
+        sub_client = (
+            db.query(SubClient)
+            .filter(func.lower(func.trim(SubClient.sub_client_code)) == client_code_key)
+            .first()
+        )
+        if sub_client:
+            return sub_client.parent_client_id, sub_client.id, False
+
+    if not normalized_short_name:
+        return None, None, False
+
+    client = Client(
+        client_code=generate_client_code(db),
+        client_name=normalized_client_name or normalized_short_name,
+        client_short_name=normalized_short_name,
+        client_status="pending",
+    )
+    db.add(client)
+    db.flush()
+    return client.id, None, True
 
 
 def _validate_project_manager(db: Session, project_manager_id: Optional[UUID]) -> None:
@@ -960,7 +1266,8 @@ def get_translation_projects(
     project_name: Optional[str] = None,
     order_no: Optional[str] = None,
     project_status: Optional[str] = None,
-    client_short_name: Optional[str] = None
+    client_short_name: Optional[str] = None,
+    sort: Optional[str] = None,
 ) -> List[TranslationProject]:
     query = (
         db.query(TranslationProject)
@@ -991,9 +1298,60 @@ def get_translation_projects(
                 SubClient.client_short_name.ilike(pattern),
             )
         )
+    if sort in {"order_no_desc", "unfinished_first_order_no_desc"}:
+        # 兼容 TP-YYMMDD-NNN 与历史 TP-YYYYMMDD-NNN；异常订单号回退到创建时间。
+        order_date_part = func.substring(
+            TranslationProject.order_no,
+            r"^TP-([0-9]{6}|[0-9]{8})-",
+        )
+        normalized_order_date = case(
+            (func.length(order_date_part) == 6, func.concat("20", order_date_part)),
+            else_=order_date_part,
+        )
+        order_date_key = case(
+            (order_date_part.isnot(None), normalized_order_date),
+            else_=func.to_char(TranslationProject.created_at, "YYYYMMDD"),
+        )
+        order_sequence = case(
+            (
+                order_date_part.isnot(None),
+                cast(
+                    func.substring(
+                        TranslationProject.order_no,
+                        r"^TP-[0-9]{6,8}-([0-9]+)",
+                    ),
+                    Integer,
+                ),
+            ),
+            else_=None,
+        )
+        order_no_ordering = (
+            order_date_key.desc(),
+            order_sequence.desc().nullslast(),
+            TranslationProject.created_at.desc(),
+            TranslationProject.id.desc(),
+        )
+        if sort == "unfinished_first_order_no_desc":
+            ended_rank = case(
+                (
+                    TranslationProject.project_status.in_(
+                        ("completed", "cancelled", "partially_cancelled", "terminated")
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+            ordering = (ended_rank.asc(), *order_no_ordering)
+        else:
+            ordering = order_no_ordering
+    else:
+        ordering = (
+            TranslationProject.created_at.desc(),
+            TranslationProject.id.desc(),
+        )
     projects = (
         query
-        .order_by(TranslationProject.created_at.desc(), TranslationProject.id.desc())
+        .order_by(*ordering)
         .offset(skip)
         .limit(limit)
         .all()
@@ -1040,17 +1398,18 @@ def count_translation_projects(
 def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
     order_no = generate_order_no(db)
     
-    project_data = project.model_dump(exclude={'client_short_name', 'client_code'})
+    project_data = project.model_dump(exclude={'client_short_name', 'client_code', 'word_count_matrix'})
     
-    # Try looking up client_id by client_short_name if provided and client_id is missing
-    if project.client_short_name and not project.client_id:
-        client = db.query(Client).filter(Client.client_short_name == project.client_short_name).first()
-        if client:
-            project_data['client_id'] = client.id
-    elif project.client_code and not project.client_id:
-        client = db.query(Client).filter(Client.client_code == project.client_code).first()
-        if client:
-            project_data['client_id'] = client.id
+    if not project_data.get('client_id') and not project_data.get('sub_client_id'):
+        client_id, sub_client_id, _created = _resolve_or_create_project_client(
+            db,
+            project.client_short_name,
+            project.client_code,
+        )
+        if client_id:
+            project_data['client_id'] = client_id
+        if sub_client_id:
+            project_data['sub_client_id'] = sub_client_id
 
     project_data['client_id'] = _resolve_project_client_link(
         db,
@@ -1067,6 +1426,15 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
     db.add(db_project)
     db.flush()
 
+    from word_count_service import save_created_entity_matrix
+    save_created_entity_matrix(
+        db,
+        "project",
+        db_project.id,
+        project.word_count_matrix,
+        updated_by=project.created_by,
+    )
+
     from workflow_crud import init_workflow
 
     # 项目与初始工作流必须处于同一个事务中，避免接口失败但项目已单独落库。
@@ -1080,17 +1448,23 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     if not db_project:
         return None
     
-    update_data = project_update.model_dump(exclude_unset=True, exclude={'client_short_name', 'client_code'})
+    update_data = project_update.model_dump(exclude_unset=True, exclude={'client_short_name', 'client_code', 'word_count_matrix'})
     
-    # 未显式选择客户 ID 时，仍允许通过精确简称或客户编号补齐外键。
-    if project_update.client_short_name and not update_data.get('client_id'):
-        client = db.query(Client).filter(Client.client_short_name == project_update.client_short_name).first()
-        if client:
-            update_data['client_id'] = client.id
-    elif project_update.client_code and not update_data.get('client_id'):
-        client = db.query(Client).filter(Client.client_code == project_update.client_code).first()
-        if client:
-            update_data['client_id'] = client.id
+    # 编辑时手工输入简称与新增项目保持一致：优先复用已有客户，确实不存在则自动创建。
+    has_client_input = bool(
+        (project_update.client_short_name or '').strip()
+        or (project_update.client_code or '').strip()
+    )
+    if has_client_input and not update_data.get('client_id') and not update_data.get('sub_client_id'):
+        client_id, sub_client_id, _created = _resolve_or_create_project_client(
+            db,
+            project_update.client_short_name,
+            project_update.client_code,
+        )
+        if client_id:
+            update_data['client_id'] = client_id
+            # 从原客户（尤其是子客户）切换到手工输入客户时，同步清除旧子客户关联。
+            update_data['sub_client_id'] = sub_client_id
 
     # 只切换母客户时，自动清除已不匹配的子客户；显式提交子客户时则严格校验归属。
     if 'client_id' in update_data and 'sub_client_id' not in update_data and db_project.sub_client_id:
@@ -1620,23 +1994,107 @@ def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultatio
     return consultation
 
 
-def get_consultations(
-    db: Session, 
-    skip: int = 0, 
-    limit: int = 100,
+CONSULTATION_TYPE_FILTER_ALIASES = {
+    '笔译项目': ('笔译项目', 'translation', '笔译'),
+    '口译项目': ('口译项目', 'interpretation', '口译'),
+    '招聘项目': ('招聘项目', 'recruitment', '招聘'),
+    '标注项目': ('标注项目', 'annotation'),
+    '配音项目': ('配音项目', 'dubbing'),
+    '字幕项目': ('字幕项目', 'subtitle'),
+    '公证项目': ('公证项目', 'notarization'),
+    '认证项目': ('认证项目', 'certification'),
+    '其他项目': ('其他项目', 'equipment_rental', 'other', '其他'),
+    '非项目工作': ('非项目工作',),
+}
+
+
+def _apply_consultation_filters(
+    query,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
-    status: Optional[str] = None
-) -> List[Consultation]:
-    query = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id)
-    
+    status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
+):
     if consultation_code:
         query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
     if client_name:
-        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
+        client_keyword = client_name.strip()
+        if client_keyword:
+            keyword_pattern = f"%{client_keyword}%"
+            query = query.filter(or_(
+                Client.client_name.ilike(keyword_pattern),
+                Client.client_short_name.ilike(keyword_pattern),
+            ))
     if status:
         query = query.filter(Consultation.status == status)
-        
+    if consultation_date_start:
+        query = query.filter(Consultation.consultation_time >= datetime.combine(consultation_date_start, time.min))
+    if consultation_date_end:
+        end_exclusive = datetime.combine(consultation_date_end + timedelta(days=1), time.min)
+        query = query.filter(Consultation.consultation_time < end_exclusive)
+    if consultation_method:
+        if consultation_method == 'other':
+            query = query.filter(Consultation.consultation_method.notin_(['phone', 'email', 'online', 'onsite']))
+        else:
+            query = query.filter(Consultation.consultation_method == consultation_method)
+    if consultation_type:
+        type_values = CONSULTATION_TYPE_FILTER_ALIASES.get(consultation_type, (consultation_type,))
+        query = query.filter(Consultation.consultation_type.in_(type_values))
+    if client_source and client_source.strip():
+        query = query.filter(Consultation.client_source.ilike(f"%{client_source.strip()}%"))
+    if customer_service_id:
+        query = query.filter(Consultation.customer_service_id == customer_service_id)
+    if sales_person_id:
+        query = query.filter(Consultation.sales_person_id == sales_person_id)
+    if follow_up_person_id:
+        query = query.filter(Consultation.follow_up_person_id == follow_up_person_id)
+    if follow_up_status and follow_up_status.strip():
+        query = query.filter(Consultation.follow_up_status.ilike(f"%{follow_up_status.strip()}%"))
+    return query
+
+
+def get_consultations(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
+) -> List[Consultation]:
+    query = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id)
+    query = _apply_consultation_filters(
+        query,
+        consultation_code=consultation_code,
+        client_name=client_name,
+        status=status,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        consultation_method=consultation_method,
+        consultation_type=consultation_type,
+        client_source=client_source,
+        customer_service_id=customer_service_id,
+        sales_person_id=sales_person_id,
+        follow_up_person_id=follow_up_person_id,
+        follow_up_status=follow_up_status,
+    )
+
     results = query.order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
     
     consultations = []
@@ -1653,39 +2111,90 @@ def count_consultations(
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
 ) -> int:
     query = db.query(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id)
-    if consultation_code:
-        query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
-    if client_name:
-        query = query.filter(Client.client_name.ilike(f"%{client_name}%"))
-    if status:
-        query = query.filter(Consultation.status == status)
+    query = _apply_consultation_filters(
+        query,
+        consultation_code=consultation_code,
+        client_name=client_name,
+        status=status,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        consultation_method=consultation_method,
+        consultation_type=consultation_type,
+        client_source=client_source,
+        customer_service_id=customer_service_id,
+        sales_person_id=sales_person_id,
+        follow_up_person_id=follow_up_person_id,
+        follow_up_status=follow_up_status,
+    )
     return query.count()
 
 
 def create_consultation(db: Session, consultation: ConsultationCreate) -> Consultation:
     consultation_code = generate_consultation_code(db)
 
+    consultation_data = consultation.model_dump(exclude={
+        'consultation_code',
+        'client_code',
+        'client_name',
+        'client_short_name',
+    })
+    if not consultation_data.get('client_id') and (consultation.client_short_name or '').strip():
+        client_id, _sub_client_id, _created = _resolve_or_create_project_client(
+            db,
+            consultation.client_short_name,
+            consultation.client_code,
+            consultation.client_name,
+        )
+        consultation_data['client_id'] = client_id
+
     db_consultation = Consultation(
         consultation_code=consultation_code,
-        **consultation.model_dump(exclude={'consultation_code'})
+        **consultation_data,
     )
     db.add(db_consultation)
     db.commit()
-    db.refresh(db_consultation)
-    return db_consultation
+    return get_consultation(db, db_consultation.id)
 
 
 def update_consultation(db: Session, consultation_id: UUID, consultation_update: ConsultationUpdate) -> Optional[Consultation]:
     db_consultation = get_consultation(db, consultation_id)
     if not db_consultation:
         return None
-    for field, value in consultation_update.model_dump(exclude_unset=True).items():
+    update_data = consultation_update.model_dump(
+        exclude_unset=True,
+        exclude={'client_code', 'client_name', 'client_short_name'},
+    )
+    has_client_input = bool(
+        (consultation_update.client_short_name or '').strip()
+        or (consultation_update.client_code or '').strip()
+    )
+    if has_client_input and not update_data.get('client_id'):
+        client_id, _sub_client_id, _created = _resolve_or_create_project_client(
+            db,
+            consultation_update.client_short_name,
+            consultation_update.client_code,
+            consultation_update.client_name,
+        )
+        if client_id:
+            update_data['client_id'] = client_id
+
+    for field, value in update_data.items():
         setattr(db_consultation, field, value)
+    # updated_at 的数据库默认值只在新增时生效，编辑时使用服务器时间主动刷新。
+    db_consultation.updated_at = datetime.now()
     db.commit()
-    db.refresh(db_consultation)
-    return db_consultation
+    return get_consultation(db, consultation_id)
 
 
 def delete_consultation(db: Session, consultation_id: UUID) -> bool:
@@ -1765,10 +2274,18 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
 
 def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
     sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
-    data = sub_order.model_dump(exclude={'sub_order_no'})
+    data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix'})
     db_sub = TranslationSubOrder(sub_order_no=sub_order_no, **data)
     db.add(db_sub)
     db.flush()
+    from word_count_service import save_created_entity_matrix
+    save_created_entity_matrix(
+        db,
+        "suborder",
+        db_sub.id,
+        sub_order.word_count_matrix,
+        updated_by=sub_order.created_by,
+    )
     _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
     db.commit()
     return get_sub_order(db, db_sub.id)
@@ -1778,7 +2295,7 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return None
-    for field, value in sub_order_update.model_dump(exclude_unset=True).items():
+    for field, value in sub_order_update.model_dump(exclude_unset=True, exclude={'word_count_matrix'}).items():
         setattr(db_sub, field, value)
     db.commit()
     return get_sub_order(db, db_sub.id)

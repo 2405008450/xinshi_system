@@ -104,10 +104,10 @@
         </template>
       </el-table-column>
       <el-table-column prop="updatedAt" label="创建时间" width="170" />
-      <el-table-column v-if="canWrite" label="操作" width="130" fixed="right">
+      <el-table-column v-if="canWrite" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button type="primary" size="small" link @click="handleFileEdit(row)">编辑</el-button>
-          <el-button type="danger" size="small" link @click="handleFileDelete(row)">删除</el-button>
+          <TableActionButton action="edit" @click="handleFileEdit(row)" />
+          <TableActionButton action="delete" @click="handleFileDelete(row)" />
         </template>
       </el-table-column>
     </el-table>

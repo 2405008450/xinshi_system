@@ -90,7 +90,7 @@ export function getDefaultRoute() {
   if (hasPermission('clients:read')) return '/clients'
   if (hasPermission('translators:read')) return '/resource-management/translators'
   if (hasPermission('finance:read')) return '/finance'
-  return '/dashboard'
+  return '/pending-modules'
 }
 
 /**

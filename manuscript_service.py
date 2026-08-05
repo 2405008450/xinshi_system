@@ -5,7 +5,7 @@ import datetime
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from mail_service import send_plain_text_email
@@ -22,8 +22,14 @@ from manuscript_schemas import (
     ManuscriptDispatchUpdate,
     ManuscriptSettlementUpdate,
 )
-from models import AppUser, TranslationProject, TranslationSubOrder, Translator
-from workflow_crud import get_active_projects
+from models import AppUser, Client, TranslationProject, TranslationSubOrder, Translator
+from word_count_service import (
+    METRIC_TYPES,
+    attach_arrangement_matrices,
+    entity_matrix_values,
+    replace_arrangement_values,
+)
+from workflow_models import WorkflowInstance
 
 
 ORDER_STATUS_TRANSLATOR_ASSIGNED = "translator_assigned"
@@ -33,6 +39,52 @@ MANUSCRIPT_MANAGED_ORDER_STATUSES = {
     ORDER_STATUS_TRANSLATOR_ASSIGNED,
     ORDER_STATUS_SENT_TO_TRANSLATOR,
 }
+PENDING_ORDER_STATUSES = ("", "pending", "pending_confirmation")
+WORD_COUNT_LABELS = {
+    "words": "字数",
+    "characters_no_spaces": "字符数（不计空格）",
+    "cjk_chars_korean_words": "中文字符和朝鲜语单词",
+    "foreign_words": "外文字数",
+}
+
+
+def _normalize_settlement_method(method, custom_method=None) -> Optional[str]:
+    """兼容旧的“其他 + 自定义”结构，统一保存为自由文本。"""
+    normalized = (method or "").strip()
+    custom = (custom_method or "").strip()
+    if normalized == "other" and custom:
+        return custom
+    return normalized or None
+
+
+def _word_count_summary(values) -> str:
+    source = values.model_dump() if hasattr(values, "model_dump") else (values or {})
+    items = [
+        f"{WORD_COUNT_LABELS[metric_type]} {int(source[metric_type]):,}"
+        for metric_type in METRIC_TYPES
+        if source.get(metric_type) is not None
+    ]
+    if not items:
+        return "待确认"
+    return items[0] if len(items) == 1 else f"{items[0]}（另有 {len(items) - 1} 项）"
+
+
+def _effective_order_status_expression(sub_order_id_column):
+    """按稿件安排的实际操作对象返回状态字段：子订单优先于母项目。"""
+    return case(
+        (sub_order_id_column.is_not(None), TranslationSubOrder.status),
+        else_=TranslationProject.project_status,
+    )
+
+
+def _ensure_order_can_be_arranged(
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+) -> None:
+    """待确认订单只属于咨询阶段，不允许进入稿件安排流程。"""
+    current_status = sub_order.status if sub_order else project.project_status
+    if str(current_status or "").strip() in PENDING_ORDER_STATUSES:
+        raise ValueError("待确认状态的订单不能进行稿件安排，请先将状态调整为已确认")
 
 
 def _preferred_email(translator: Translator) -> Optional[str]:
@@ -55,7 +107,7 @@ def _default_body(
     planned_delivery_at: Optional[datetime.datetime],
     *,
     translation_scope: Optional[str] = None,
-    planned_word_count: Optional[int] = None,
+    planned=None,
 ) -> str:
     delivery_text = (
         planned_delivery_at.strftime("%Y-%m-%d %H:%M")
@@ -63,7 +115,7 @@ def _default_body(
         else "待确认"
     )
     scope_text = (translation_scope or "").strip() or "以项目经理提供的稿件为准"
-    word_text = str(planned_word_count) if planned_word_count is not None else "待确认"
+    word_text = _word_count_summary(planned)
     return (
         f"{translator_name}您好：\n\n"
         f"现安排您处理以下稿件：\n"
@@ -80,7 +132,7 @@ def _load_dispatch(
     db: Session,
     dispatch_id: UUID,
 ) -> Optional[ManuscriptDispatch]:
-    return (
+    dispatch = (
         db.query(ManuscriptDispatch)
         .options(
             joinedload(ManuscriptDispatch.arrangements).joinedload(
@@ -90,6 +142,9 @@ def _load_dispatch(
         .filter(ManuscriptDispatch.id == dispatch_id)
         .first()
     )
+    if dispatch is not None:
+        attach_arrangement_matrices(db, list(dispatch.arrangements))
+    return dispatch
 
 
 def _load_entity(
@@ -120,6 +175,7 @@ def _load_entity(
             raise LookupError("子订单不存在或不属于所选项目")
     elif sub_order_id is not None:
         raise ValueError("母订单稿件安排不能提供子订单 ID")
+    _ensure_order_can_be_arranged(project, sub_order)
     return project, sub_order
 
 
@@ -131,9 +187,11 @@ def _entity_values(
         return {
             "order_no": sub_order.sub_order_no,
             "project_name": sub_order.sub_project_name or project.project_name,
+            "language_pair": sub_order.language_pair or project.language_pair,
             "network_file_path": (
                 sub_order.network_file_path or project.network_file_path
             ),
+            "reference_file_path_one": project.reference_file_path_one,
             "customer_deadline_time": (
                 sub_order.customer_deadline_time or project.customer_deadline_time
             ),
@@ -141,9 +199,97 @@ def _entity_values(
     return {
         "order_no": project.order_no,
         "project_name": project.project_name,
+        "language_pair": project.language_pair,
         "network_file_path": project.network_file_path,
+        "reference_file_path_one": project.reference_file_path_one,
         "customer_deadline_time": project.customer_deadline_time,
     }
+
+
+def _mail_preview_values(
+    db: Session,
+    arrangement: ManuscriptArrangement,
+) -> dict:
+    """生成邮件预览；实际发送前也调用这里，保证预览与投递内容一致。"""
+    project, sub_order = _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
+    entity_values = _entity_values(project, sub_order)
+    translator = (
+        db.query(Translator)
+        .filter(Translator.id == arrangement.translator_id)
+        .first()
+    )
+    if not translator:
+        raise LookupError("译员不存在")
+
+    milestone_lines = []
+    for milestone in sorted(
+        arrangement.milestones,
+        key=lambda item: item.sequence_no,
+    ):
+        label = (
+            "译员交稿全稿预定时间"
+            if milestone.milestone_type == "final"
+            else milestone.name
+        )
+        planned_at_text = (
+            milestone.planned_at.strftime("%Y-%m-%d %H:%M")
+            if milestone.planned_at
+            else "待确认"
+        )
+        milestone_lines.append(
+            f"{label}：{planned_at_text}"
+        )
+    if not milestone_lines:
+        milestone_lines.append("译员交稿全稿预定时间：待确认")
+    milestone_text = "\n".join(milestone_lines)
+
+    source_path = (entity_values["network_file_path"] or "").strip()
+    reference_path = (entity_values["reference_file_path_one"] or "").strip()
+    scope_text = (arrangement.translation_scope or "").strip() or "以项目经理提供的稿件为准"
+    word_text = _word_count_summary(getattr(arrangement, "planned", None))
+    body = (
+        f"{translator.translator_name}您好：\n\n"
+        "现安排您处理以下稿件：\n"
+        f"订单号：{entity_values['order_no']}\n"
+        f"项目名称：{entity_values['project_name']}\n"
+        f"语种：{entity_values['language_pair'] or '待确认'}\n"
+        f"需翻译部分：{scope_text}\n"
+        f"预定译员结算字数：{word_text}\n"
+        f"{milestone_text}\n"
+        f"发稿文件路径：{source_path or '待填写'}\n"
+        f"参考文件路径一：{reference_path or '无'}\n\n"
+        "请以项目经理提供的稿件文件和最终要求为准。"
+    )
+    return {
+        "arrangement_id": arrangement.id,
+        "recipient_email": _preferred_email(translator),
+        "subject": _default_subject(
+            entity_values["order_no"],
+            entity_values["project_name"],
+        ),
+        "body": body,
+        "manuscript_source_path": source_path or None,
+        "reference_file_path_one": reference_path or None,
+    }
+
+
+def get_arrangement_mail_preview(
+    db: Session,
+    arrangement_id: UUID,
+) -> Optional[dict]:
+    arrangement = get_arrangement(db, arrangement_id)
+    if not arrangement:
+        return None
+    if arrangement.status == "draft":
+        raise ValueError("确认安排后才能生成邮件预览")
+    if arrangement.status == "cancelled":
+        raise ValueError("已取消的译员明细不能生成邮件预览")
+    return _mail_preview_values(db, arrangement)
 
 
 def _final_delivery_at(
@@ -210,7 +356,7 @@ def _create_arrangement_line(
         entity_values["project_name"],
         final_delivery_at,
         translation_scope=assignment.translation_scope,
-        planned_word_count=assignment.planned_word_count,
+        planned=assignment.planned,
     )
     arrangement = ManuscriptArrangement(
         entity_type=dispatch.entity_type,
@@ -222,14 +368,12 @@ def _create_arrangement_line(
         translator_name_snapshot=translator.translator_name,
         cooperation_type_snapshot=translator.cooperation_type,
         recipient_email=_preferred_email(translator),
-        planned_word_count=assignment.planned_word_count,
-        actual_word_count=assignment.actual_word_count,
-        word_count_type=assignment.word_count_type,
         translation_scope=(assignment.translation_scope or "").strip() or None,
-        settlement_method=assignment.settlement_method,
-        custom_settlement_method=(
-            (assignment.custom_settlement_method or "").strip() or None
+        settlement_method=_normalize_settlement_method(
+            assignment.settlement_method,
+            assignment.custom_settlement_method,
         ),
+        custom_settlement_method=None,
         translator_unit_price=assignment.translator_unit_price,
         translator_total_price=assignment.translator_total_price,
         manuscript_source_path=entity_values["network_file_path"],
@@ -244,15 +388,166 @@ def _create_arrangement_line(
     return arrangement
 
 
+def _get_active_manuscript_projects(
+    db: Session,
+    *,
+    limit: int,
+    keyword: Optional[str] = None,
+) -> dict:
+    """查询稿件安排页所需的进行中母订单和子订单。"""
+    deadline = func.coalesce(
+        TranslationSubOrder.customer_deadline_time,
+        TranslationProject.customer_deadline_time,
+    )
+    query = (
+        db.query(
+            WorkflowInstance,
+            TranslationProject,
+            TranslationSubOrder,
+            Client.client_short_name,
+            AppUser.full_name,
+            AppUser.username,
+        )
+        .outerjoin(
+            TranslationSubOrder,
+            WorkflowInstance.sub_order_id == TranslationSubOrder.id,
+        )
+        .join(
+            TranslationProject,
+            or_(
+                WorkflowInstance.translation_project_id == TranslationProject.id,
+                TranslationSubOrder.parent_project_id == TranslationProject.id,
+            ),
+        )
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .outerjoin(AppUser, WorkflowInstance.current_assignee_id == AppUser.id)
+        .filter(WorkflowInstance.current_stage_key != "completed")
+        .filter(
+            func.coalesce(WorkflowInstance.project_status, "").notin_(
+                ["completed", "terminated", "cancelled"]
+            )
+        )
+        .filter(
+            func.coalesce(TranslationProject.project_status, "").notin_(
+                ["completed", "terminated", "cancelled", "partially_cancelled"]
+            )
+        )
+        .filter(
+            func.coalesce(
+                _effective_order_status_expression(WorkflowInstance.sub_order_id),
+                "",
+            ).notin_(PENDING_ORDER_STATUSES)
+        )
+    )
+
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(
+            or_(
+                TranslationProject.order_no.ilike(pattern),
+                TranslationProject.project_name.ilike(pattern),
+                TranslationSubOrder.sub_order_no.ilike(pattern),
+                TranslationSubOrder.sub_project_name.ilike(pattern),
+                Client.client_short_name.ilike(pattern),
+                AppUser.full_name.ilike(pattern),
+                AppUser.username.ilike(pattern),
+            )
+        )
+
+    now = datetime.datetime.now()
+    due_soon = now + datetime.timedelta(hours=24)
+    total = query.count()
+    overdue_total = query.filter(deadline.is_not(None), deadline < now).count()
+    due_soon_total = query.filter(
+        deadline.is_not(None),
+        deadline >= now,
+        deadline <= due_soon,
+    ).count()
+    rows = (
+        query.order_by(deadline.asc().nullslast(), WorkflowInstance.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for workflow, project, sub_order, client_short_name, full_name, username in rows:
+        is_sub_order = workflow.sub_order_id is not None
+        items.append(
+            {
+                "workflow_instance_id": workflow.id,
+                "entity_type": "suborder" if is_sub_order else "project",
+                "translation_project_id": project.id,
+                "sub_order_id": sub_order.id if is_sub_order and sub_order else None,
+                "order_no": (
+                    sub_order.sub_order_no
+                    if is_sub_order and sub_order
+                    else project.order_no
+                ),
+                "project_name": project.project_name,
+                "sub_project_name": (
+                    sub_order.sub_project_name
+                    if is_sub_order and sub_order
+                    else None
+                ),
+                "client_short_name": client_short_name,
+                "current_stage_key": workflow.current_stage_key,
+                "current_assignee_id": workflow.current_assignee_id,
+                "current_assignee_name": full_name or username,
+                "group_assign_role": workflow.group_assign_role,
+                "project_manager_id": project.project_manager_id,
+                "project_manager_name": project.project_manager_name,
+                "project_status": workflow.project_status,
+                "customer_deadline_time": (
+                    sub_order.customer_deadline_time
+                    if is_sub_order and sub_order
+                    else project.customer_deadline_time
+                ),
+                "language_pair": (
+                    sub_order.language_pair or project.language_pair
+                    if is_sub_order and sub_order
+                    else project.language_pair
+                ),
+                "file_type_secondary": (
+                    sub_order.file_type_secondary or project.file_type_secondary
+                    if is_sub_order and sub_order
+                    else project.file_type_secondary
+                ),
+                "priority": (
+                    sub_order.priority or project.priority
+                    if is_sub_order and sub_order
+                    else project.priority
+                ),
+                "word_count_matrix": entity_matrix_values(
+                    db,
+                    "suborder" if is_sub_order else "project",
+                    sub_order.id if is_sub_order and sub_order else project.id,
+                ),
+                "network_file_path": (
+                    sub_order.network_file_path or project.network_file_path
+                    if is_sub_order and sub_order
+                    else project.network_file_path
+                ),
+                "reference_file_path_one": project.reference_file_path_one,
+                "updated_at": workflow.updated_at,
+            }
+        )
+
+    return {
+        "items": items,
+        "total": total,
+        "overdue_total": overdue_total,
+        "due_soon_total": due_soon_total,
+    }
+
+
 def get_arrangement_context(
     db: Session,
     *,
     keyword: Optional[str] = None,
     project_limit: int = 100,
 ) -> dict:
-    active_projects = get_active_projects(
+    active_projects = _get_active_manuscript_projects(
         db,
-        skip=0,
         limit=project_limit,
         keyword=keyword,
     )
@@ -336,9 +631,26 @@ def list_dispatches(
     keyword: Optional[str] = None,
     status: Optional[str] = None,
 ) -> list[ManuscriptDispatch]:
-    query = db.query(ManuscriptDispatch).options(
-        joinedload(ManuscriptDispatch.arrangements).joinedload(
-            ManuscriptArrangement.milestones
+    query = (
+        db.query(ManuscriptDispatch)
+        .options(
+            joinedload(ManuscriptDispatch.arrangements).joinedload(
+                ManuscriptArrangement.milestones
+            )
+        )
+        .join(
+            TranslationProject,
+            ManuscriptDispatch.translation_project_id == TranslationProject.id,
+        )
+        .outerjoin(
+            TranslationSubOrder,
+            ManuscriptDispatch.sub_order_id == TranslationSubOrder.id,
+        )
+        .filter(
+            func.coalesce(
+                _effective_order_status_expression(ManuscriptDispatch.sub_order_id),
+                "",
+            ).notin_(PENDING_ORDER_STATUSES)
         )
     )
     if status:
@@ -361,12 +673,17 @@ def list_dispatches(
                 ManuscriptDispatch.id.in_(matching_dispatch_ids),
             )
         )
-    return (
+    rows = (
         query.order_by(ManuscriptDispatch.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    attach_arrangement_matrices(
+        db,
+        [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
+    )
+    return rows
 
 
 def list_arrangements(
@@ -377,8 +694,23 @@ def list_arrangements(
     keyword: Optional[str] = None,
     status: Optional[str] = None,
 ) -> list[ManuscriptArrangement]:
-    query = db.query(ManuscriptArrangement).options(
-        joinedload(ManuscriptArrangement.milestones)
+    query = (
+        db.query(ManuscriptArrangement)
+        .options(joinedload(ManuscriptArrangement.milestones))
+        .join(
+            TranslationProject,
+            ManuscriptArrangement.translation_project_id == TranslationProject.id,
+        )
+        .outerjoin(
+            TranslationSubOrder,
+            ManuscriptArrangement.sub_order_id == TranslationSubOrder.id,
+        )
+        .filter(
+            func.coalesce(
+                _effective_order_status_expression(ManuscriptArrangement.sub_order_id),
+                "",
+            ).notin_(PENDING_ORDER_STATUSES)
+        )
     )
     if status:
         query = query.filter(ManuscriptArrangement.status == status)
@@ -392,24 +724,29 @@ def list_arrangements(
                 ManuscriptArrangement.recipient_email.ilike(pattern),
             )
         )
-    return (
+    rows = (
         query.order_by(ManuscriptArrangement.created_at.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    attach_arrangement_matrices(db, rows)
+    return rows
 
 
 def get_arrangement(
     db: Session,
     arrangement_id: UUID,
 ) -> Optional[ManuscriptArrangement]:
-    return (
+    arrangement = (
         db.query(ManuscriptArrangement)
         .options(joinedload(ManuscriptArrangement.milestones))
         .filter(ManuscriptArrangement.id == arrangement_id)
         .first()
     )
+    if arrangement is not None:
+        attach_arrangement_matrices(db, [arrangement])
+    return arrangement
 
 
 def create_dispatch(
@@ -450,6 +787,10 @@ def create_dispatch(
                 values,
             )
         )
+    db.flush()
+    for arrangement, assignment in zip(dispatch.arrangements, payload.arrangements):
+        replace_arrangement_values(db, arrangement.id, "planned", assignment.planned, updated_by=current_user.id)
+        replace_arrangement_values(db, arrangement.id, "actual", assignment.actual, updated_by=current_user.id)
     db.commit()
     return _load_dispatch(db, dispatch.id)
 
@@ -492,6 +833,10 @@ def update_dispatch(
                 values,
             )
         )
+    db.flush()
+    for arrangement, assignment in zip(dispatch.arrangements, payload.arrangements):
+        replace_arrangement_values(db, arrangement.id, "planned", assignment.planned, updated_by=current_user.id)
+        replace_arrangement_values(db, arrangement.id, "actual", assignment.actual, updated_by=current_user.id)
     db.commit()
     return _load_dispatch(db, dispatch.id)
 
@@ -720,9 +1065,8 @@ def create_arrangement(
         arrangements=[
             ManuscriptAssignmentInput(
                 translator_id=payload.translator_id,
-                planned_word_count=payload.planned_word_count,
-                actual_word_count=payload.actual_word_count,
-                word_count_type=payload.word_count_type,
+                planned=payload.planned,
+                actual=payload.actual,
                 translation_scope=payload.translation_scope,
                 settlement_method=payload.settlement_method,
                 custom_settlement_method=payload.custom_settlement_method,
@@ -761,8 +1105,18 @@ def send_arrangement(
         raise LookupError("译员不存在")
     if translator.status == "inactive":
         raise ValueError("已停用的译员不能发送稿件")
-    if not arrangement.recipient_email:
+
+    preview = _mail_preview_values(db, arrangement)
+    if not preview["manuscript_source_path"]:
+        raise ValueError("请先填写局域网共享文件路径，再发送稿件")
+    if not preview["recipient_email"]:
         raise ValueError("译员资料中缺少收件邮箱")
+
+    # 发送前按项目与派稿明细的最新数据重新生成，确保实际邮件与预览一致。
+    arrangement.recipient_email = preview["recipient_email"]
+    arrangement.manuscript_source_path = preview["manuscript_source_path"]
+    arrangement.email_subject = preview["subject"]
+    arrangement.email_body = preview["body"]
 
     project, sub_order = _load_entity(
         db,
@@ -811,6 +1165,12 @@ def send_dispatch(
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
         raise LookupError("派稿批次不存在")
+    _load_entity(
+        db,
+        dispatch.entity_type,
+        dispatch.translation_project_id,
+        dispatch.sub_order_id,
+    )
     if dispatch.status not in {"ready", "partially_sent"}:
         raise ValueError("只有已确认或部分发送的批次可以批量发送")
 
@@ -838,13 +1198,27 @@ def update_settlement(
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return None
+    _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
     if arrangement.status == "cancelled":
         raise ValueError("已取消的译员明细不能更新结算信息")
     update_data = payload.model_dump(exclude_unset=True)
-    if update_data.get("settlement_method") != "other":
+    actual_values = update_data.pop("actual", None)
+    if "settlement_method" in update_data or "custom_settlement_method" in update_data:
+        custom_method = update_data.pop("custom_settlement_method", None)
+        update_data["settlement_method"] = _normalize_settlement_method(
+            update_data.get("settlement_method", arrangement.settlement_method),
+            custom_method,
+        )
         update_data["custom_settlement_method"] = None
     for field, value in update_data.items():
         setattr(arrangement, field, value)
+    if actual_values is not None:
+        replace_arrangement_values(db, arrangement.id, "actual", actual_values)
     arrangement.updated_at = datetime.datetime.now()
     db.commit()
     return get_arrangement(db, arrangement.id)
@@ -858,12 +1232,28 @@ def update_arrangement(
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return None
+    _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
     if arrangement.status not in {"draft", "failed", "sent", "ready"}:
         raise ValueError("当前状态的稿件安排不能修改")
 
     update_data = payload.model_dump(exclude_unset=True)
+    actual_values = update_data.pop("actual", None)
+    if "settlement_method" in update_data or "custom_settlement_method" in update_data:
+        custom_method = update_data.pop("custom_settlement_method", None)
+        update_data["settlement_method"] = _normalize_settlement_method(
+            update_data.get("settlement_method", arrangement.settlement_method),
+            custom_method,
+        )
+        update_data["custom_settlement_method"] = None
     for field, value in update_data.items():
         setattr(arrangement, field, value)
+    if actual_values is not None:
+        replace_arrangement_values(db, arrangement.id, "actual", actual_values)
     if "planned_delivery_at" in update_data:
         final = next(
             (
@@ -885,6 +1275,12 @@ def delete_arrangement(db: Session, arrangement_id: UUID) -> bool:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return False
+    _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
     if arrangement.status not in {"draft", "failed", "cancelled"}:
         raise ValueError("只有未发送的稿件安排可以删除")
     dispatch = arrangement.dispatch

@@ -160,14 +160,6 @@ class ManuscriptArrangement(Base):
             "status IN ('draft', 'ready', 'sent', 'failed', 'cancelled')",
             name="ck_manuscript_arrangement_status",
         ),
-        CheckConstraint(
-            "planned_word_count IS NULL OR planned_word_count >= 0",
-            name="ck_manuscript_arrangement_planned_words",
-        ),
-        CheckConstraint(
-            "actual_word_count IS NULL OR actual_word_count >= 0",
-            name="ck_manuscript_arrangement_actual_words",
-        ),
         Index(
             "ix_manuscript_arrangement_project_status",
             "translation_project_id",
@@ -197,11 +189,8 @@ class ManuscriptArrangement(Base):
     cooperation_type_snapshot: Mapped[Optional[str]] = mapped_column(String(50))
     recipient_email: Mapped[Optional[str]] = mapped_column(String(255))
 
-    planned_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    actual_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
     translation_scope: Mapped[Optional[str]] = mapped_column(Text)
-    settlement_method: Mapped[Optional[str]] = mapped_column(String(30))
+    settlement_method: Mapped[Optional[str]] = mapped_column(String(100))
     custom_settlement_method: Mapped[Optional[str]] = mapped_column(String(100))
     translator_unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
     translator_total_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))

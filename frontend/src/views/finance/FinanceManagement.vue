@@ -140,10 +140,10 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
     </el-table>

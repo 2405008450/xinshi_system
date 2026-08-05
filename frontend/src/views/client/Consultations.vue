@@ -1,18 +1,41 @@
 <template>
-  <el-card>
+  <el-card class="consultations-card">
     <template #header>
       <div class="card-header">
         <span>新咨询管理</span>
-        <el-button type="primary" @click="handleAdd">新增咨询</el-button>
+        <div class="header-actions">
+          <el-popover placement="bottom-end" :width="360" trigger="click" title="首页显示字段">
+            <template #reference>
+              <el-button>字段设置</el-button>
+            </template>
+            <el-checkbox-group v-model="visibleColumnKeys" class="column-settings">
+              <el-checkbox
+                v-for="column in consultationColumnOptions"
+                :key="column.key"
+                :label="column.key"
+              >
+                {{ column.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+            <div class="column-settings-footer">
+              <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
+            </div>
+          </el-popover>
+          <el-button type="primary" @click="handleAdd">新增咨询</el-button>
+        </div>
       </div>
     </template>
 
     <el-form :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="咨询编号">
-        <el-input v-model="searchForm.consultation_code" placeholder="输入编号" clearable @keyup.enter="handleSearch" />
-      </el-form-item>
-      <el-form-item label="客户全称">
-        <el-input v-model="searchForm.client_name" placeholder="输入名称" clearable @keyup.enter="handleSearch" />
+      <el-form-item label="客户名称">
+        <el-input
+          v-model="searchForm.client_name"
+          placeholder="输入客户全称或简称"
+          clearable
+          style="width: 240px"
+          @input="handleDebouncedSearchInput"
+          @keyup.enter="handleSearch"
+        />
       </el-form-item>
       <el-form-item label="咨询状态">
         <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px" @change="handleSearch">
@@ -27,30 +50,155 @@
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
+        <el-popover
+          v-model:visible="advancedFilterVisible"
+          placement="bottom-end"
+          trigger="click"
+          :width="760"
+          popper-class="consultation-advanced-filter-popover"
+        >
+          <template #reference>
+            <el-button>
+              高级筛选
+              <span v-if="advancedFilterCount" class="advanced-filter-count">{{ advancedFilterCount }}</span>
+            </el-button>
+          </template>
+          <div class="advanced-filter-panel">
+            <div class="advanced-filter-header">
+              <span>高级筛选</span>
+              <div class="advanced-filter-header-actions">
+                <el-button v-if="advancedFilterCount" type="primary" link @click="clearAdvancedFilters">
+                  清空高级条件
+                </el-button>
+                <el-button link @click="advancedFilterVisible = false">关闭</el-button>
+              </div>
+            </div>
+            <el-form :model="searchForm" label-position="top" class="advanced-filter-form">
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="咨询日期">
+                    <el-date-picker
+                      v-model="searchForm.consultation_date_range"
+                      type="daterange"
+                      range-separator="至"
+                      start-placeholder="开始日期"
+                      end-placeholder="结束日期"
+                      value-format="YYYY-MM-DD"
+                      unlink-panels
+                      @change="handleSearch"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="咨询方式">
+                    <el-select v-model="searchForm.consultation_method" placeholder="全部" clearable @change="handleSearch">
+                      <el-option
+                        v-for="item in consultationMethodOptions"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="咨询类型">
+                    <el-select v-model="searchForm.consultation_type" placeholder="全部" clearable @change="handleSearch">
+                      <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="客户来源">
+                    <el-input
+                      v-model="searchForm.client_source"
+                      placeholder="输入客户来源"
+                      clearable
+                      @input="handleDebouncedSearchInput"
+                      @keyup.enter="handleSearch"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="客服人员">
+                    <el-select v-model="searchForm.customer_service_id" placeholder="全部" clearable filterable @change="handleSearch">
+                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="销售人员">
+                    <el-select v-model="searchForm.sales_person_id" placeholder="全部" clearable filterable @change="handleSearch">
+                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="跟进人">
+                    <el-select v-model="searchForm.follow_up_person_id" placeholder="全部" clearable filterable @change="handleSearch">
+                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="跟进状态">
+                    <el-input
+                      v-model="searchForm.follow_up_status"
+                      placeholder="输入跟进状态"
+                      clearable
+                      @input="handleDebouncedSearchInput"
+                      @keyup.enter="handleSearch"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </el-form>
+          </div>
+        </el-popover>
       </el-form-item>
     </el-form>
 
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="60" />
-      <el-table-column prop="consultation_code" label="咨询编号" width="160" />
-      <el-table-column prop="status" label="咨询状态" width="120">
+      <el-table-column
+        v-for="column in displayedConsultationColumns"
+        :key="column.key"
+        :prop="column.key"
+        :label="column.label"
+        :width="column.width"
+        show-overflow-tooltip
+      >
         <template #default="{ row }">
-          <el-tag :type="getStatusType(row.status)">
-             {{ getStatusText(row.status) }}
+          <el-tag v-if="column.key === 'status'" :type="getStatusType(row.status)">
+            {{ getStatusText(row.status) }}
           </el-tag>
+          <template v-else-if="column.key === 'consultation_time'">
+            <el-tag
+              v-if="isToday(row.consultation_time)"
+              type="success"
+              effect="light"
+              round
+              class="today-consultation-time"
+            >
+              今日 {{ formatTime(row.consultation_time) }}
+            </el-tag>
+            <el-tag
+              v-else-if="isYesterday(row.consultation_time)"
+              type="warning"
+              effect="light"
+              round
+              class="yesterday-consultation-time"
+            >
+              昨日 {{ formatTime(row.consultation_time) }}
+            </el-tag>
+            <span v-else>{{ formatDatetime(row.consultation_time) }}</span>
+          </template>
+          <span v-else-if="column.type === 'datetime'">{{ formatDatetime(row[column.key]) }}</span>
+          <span v-else-if="column.type === 'user'">{{ getUserName(row[column.key]) }}</span>
+          <span v-else-if="column.key === 'consultation_method'">{{ consultationMethodLabel(row.consultation_method) }}</span>
+          <span v-else-if="column.key === 'consultation_type'">{{ consultationTypeLabel(row.consultation_type) }}</span>
+          <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
-      </el-table-column>
-      <el-table-column prop="client_code" label="客户编号" width="150" />
-      <el-table-column prop="client_name" label="客户全称" width="200" show-overflow-tooltip />
-      <el-table-column prop="client_short_name" label="客户简称" width="150" />
-      <el-table-column prop="consultation_time" label="咨询时间" width="180">
-        <template #default="{ row }">{{ formatDatetime(row.consultation_time) }}</template>
-      </el-table-column>
-      <el-table-column prop="client_source" label="客户来源" width="120" />
-      <el-table-column prop="source_keyword" label="来源关键词" width="150" />
-      <el-table-column prop="consultation_method" label="咨询方式" width="120" />
-      <el-table-column label="咨询类型" width="140">
-        <template #default="{ row }">{{ consultationTypeLabel(row.consultation_type) }}</template>
       </el-table-column>
 
       <el-table-column label="详情" width="100" fixed="right">
@@ -69,14 +217,8 @@
             </template>
             <div class="detail-popover" v-loading="detailLoadingId === row.id">
               <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="ID" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).id || '-' }}</span>
-                </el-descriptions-item>
                 <el-descriptions-item label="咨询编号">
                   <span class="detail-value">{{ getDetailRow(row).consultation_code || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客户ID">
-                  <span class="detail-value">{{ getDetailRow(row).client_id || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户编号">
                   <span class="detail-value">{{ getDetailRow(row).client_code || '-' }}</span>
@@ -94,7 +236,7 @@
                   <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询方式">
-                  <span class="detail-value">{{ getDetailRow(row).consultation_method || '-' }}</span>
+                  <span class="detail-value">{{ consultationMethodLabel(getDetailRow(row).consultation_method) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户来源">
                   <span class="detail-value">{{ getDetailRow(row).client_source || '-' }}</span>
@@ -118,17 +260,17 @@
                 <el-descriptions-item label="编辑人">
                   <span class="detail-value">{{ getUserName(getDetailRow(row).editor_id) }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="跟进人">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).follow_up_person_id) }}</span>
+                </el-descriptions-item>
                 <el-descriptions-item label="跟进次数">
                   <span class="detail-value">{{ getDetailRow(row).follow_up_count ?? 0 }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="跟进时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).follow_up_time) }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="跟进状态">
+                <el-descriptions-item label="跟进状态" :span="2">
                   <span class="detail-value">{{ getDetailRow(row).follow_up_status || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进人">
-                  <span class="detail-value">{{ getUserName(getDetailRow(row).follow_up_person_id) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询描述" :span="2">
                   <span class="detail-value">{{ getDetailRow(row).consultation_description || '-' }}</span>
@@ -151,15 +293,16 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
     </el-table>
 
     <el-pagination
+      class="consultations-pagination"
       v-model:current-page="pagination.page"
       v-model:page-size="pagination.limit"
       :total="pagination.total"
@@ -167,16 +310,17 @@
       layout="total, sizes, prev, pager, next, jumper"
       @size-change="fetchData"
       @current-change="fetchData"
-      style="margin-top: 20px"
     />
 
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="900px"
-      @close="resetForm"
+      class="consultation-dialog"
+      width="min(960px, calc(100vw - 32px))"
+      top="5vh"
+      @close="handleDialogClose"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="140px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户全称" prop="client_name">
@@ -218,11 +362,31 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户简称" prop="client_short_name">
-              <el-input
-                v-model="form.client_short_name"
-                :disabled="!!form.client_id"
-                :placeholder="!form.client_id && form.client_name ? '新客户请填写简称（必填）' : ''"
-              />
+              <div class="client-short-name-field">
+                <el-autocomplete
+                  v-model="form.client_short_name"
+                  :fetch-suggestions="searchClientsByShortName"
+                  placeholder="输入简称联想客户，无匹配时保存后自动新增"
+                  value-key="client_short_name"
+                  clearable
+                  style="width: 100%"
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientShortNameClear"
+                  @input="handleClientShortNameInput"
+                >
+                  <template #default="{ item }">
+                    <div class="client-suggestion">
+                      <span>{{ item.client_short_name || item.client_name }}</span>
+                      <span class="client-suggestion-meta">
+                        {{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}
+                      </span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+                <div class="client-short-name-hint">
+                  未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
+                </div>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -282,13 +446,22 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="咨询方式" prop="consultation_method">
-              <el-select v-model="form.consultation_method" placeholder="请选择" style="width: 100%">
-                <el-option label="电话" value="phone" />
-                <el-option label="邮件" value="email" />
-                <el-option label="在线咨询" value="online" />
-                <el-option label="上门" value="onsite" />
-                <el-option label="其他" value="other" />
-              </el-select>
+              <div class="consultation-method-field">
+                <el-select v-model="form.consultation_method" placeholder="请选择">
+                  <el-option
+                    v-for="item in consultationMethodOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+                <el-input
+                  v-if="form.consultation_method === 'other'"
+                  v-model="form.consultation_method_custom"
+                  placeholder="请输入其他咨询方式"
+                  clearable
+                />
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -376,14 +549,6 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="跟进状态" prop="follow_up_status">
-              <el-input v-model="form.follow_up_status" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
             <el-form-item label="跟进人" prop="follow_up_person_id">
               <el-select
                 v-model="form.follow_up_person_id"
@@ -403,15 +568,26 @@
           </el-col>
         </el-row>
 
+        <el-form-item label="跟进状态" prop="follow_up_status">
+          <el-input v-model="form.follow_up_status" />
+        </el-form-item>
+
         <el-form-item label="咨询描述" prop="consultation_description">
-          <el-input v-model="form.consultation_description" type="textarea" :rows="4" />
+          <el-input v-model="form.consultation_description" type="textarea" :rows="3" />
         </el-form-item>
-        <el-form-item label="跟进备注" prop="follow_up_remarks">
-          <el-input v-model="form.follow_up_remarks" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="备注" prop="remarks">
-          <el-input v-model="form.remarks" type="textarea" :rows="2" />
-        </el-form-item>
+
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="跟进备注" prop="follow_up_remarks">
+              <el-input v-model="form.follow_up_remarks" type="textarea" :rows="2" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="备注" prop="remarks">
+              <el-input v-model="form.remarks" type="textarea" :rows="2" />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
 
       <template #footer>
@@ -458,7 +634,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
@@ -483,6 +659,75 @@ const createProjectConsultationId = ref(null)
 const createProjectFormRef = ref(null)
 const createProjectForm = reactive({ projectName: '' })
 const CONFIRMED_CONSULTATION_STATUS = 'success'
+const currentUserId = localStorage.getItem('user_id') || null
+const CONSULTATION_DRAFTS_STORAGE_KEY = `consultation_form_drafts:${currentUserId || 'anonymous'}`
+const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
+
+const consultationColumnOptions = [
+  { key: 'consultation_code', label: '咨询编号', width: 160 },
+  { key: 'client_code', label: '客户编号', width: 150 },
+  { key: 'client_name', label: '客户全称', width: 200 },
+  { key: 'client_short_name', label: '客户简称', width: 150 },
+  { key: 'status', label: '咨询状态', width: 120 },
+  { key: 'consultation_time', label: '咨询时间', width: 180 },
+  { key: 'consultation_method', label: '咨询方式', width: 120 },
+  { key: 'consultation_type', label: '咨询类型', width: 140 },
+  { key: 'client_source', label: '客户来源', width: 120 },
+  { key: 'source_keyword', label: '来源关键词', width: 150 },
+  { key: 'handling_method', label: '处理方式', width: 150 },
+  { key: 'customer_service_id', label: '客服人员', width: 120, type: 'user' },
+  { key: 'sales_person_id', label: '销售人员', width: 120, type: 'user' },
+  { key: 'editor_id', label: '编辑人', width: 120, type: 'user' },
+  { key: 'follow_up_person_id', label: '跟进人', width: 120, type: 'user' },
+  { key: 'follow_up_count', label: '跟进次数', width: 100 },
+  { key: 'follow_up_time', label: '跟进时间', width: 180, type: 'datetime' },
+  { key: 'follow_up_status', label: '跟进状态', width: 150 },
+  { key: 'consultation_description', label: '咨询描述', width: 220 },
+  { key: 'follow_up_remarks', label: '跟进备注', width: 220 },
+  { key: 'remarks', label: '备注', width: 220 },
+  { key: 'created_at', label: '创建时间', width: 180, type: 'datetime' },
+  { key: 'updated_at', label: '更新时间', width: 180, type: 'datetime' },
+]
+const defaultVisibleColumnKeys = [
+  'status',
+  'client_short_name',
+  'follow_up_person_id',
+  'consultation_time',
+  'client_source',
+  'source_keyword',
+  'consultation_method',
+  'consultation_type',
+]
+
+const loadVisibleColumnKeys = () => {
+  try {
+    const savedKeys = JSON.parse(localStorage.getItem(CONSULTATION_COLUMNS_STORAGE_KEY) || 'null')
+    if (!Array.isArray(savedKeys)) return [...defaultVisibleColumnKeys]
+    const availableKeys = new Set(consultationColumnOptions.map((column) => column.key))
+    return savedKeys.filter((key) => availableKeys.has(key))
+  } catch {
+    localStorage.removeItem(CONSULTATION_COLUMNS_STORAGE_KEY)
+    return [...defaultVisibleColumnKeys]
+  }
+}
+
+const visibleColumnKeys = ref(loadVisibleColumnKeys())
+const displayedConsultationColumns = computed(() => {
+  const visibleKeys = new Set(visibleColumnKeys.value)
+  return consultationColumnOptions.filter((column) => visibleKeys.has(column.key))
+})
+
+watch(visibleColumnKeys, (keys) => {
+  localStorage.setItem(CONSULTATION_COLUMNS_STORAGE_KEY, JSON.stringify(keys))
+}, { deep: true })
+
+const resetVisibleColumns = () => {
+  visibleColumnKeys.value = [...defaultVisibleColumnKeys]
+}
+const SEARCH_DEBOUNCE_MS = 400
+let searchDebounceTimer = null
+let consultationSearchController = null
+let consultationRequestId = 0
 
 const tableData = ref([])
 const pagination = reactive({
@@ -492,20 +737,78 @@ const pagination = reactive({
 })
 
 const searchForm = reactive({
-  consultation_code: '',
   client_name: '',
   status: '',
+  consultation_date_range: [],
+  consultation_method: '',
+  consultation_type: '',
+  client_source: '',
+  customer_service_id: '',
+  sales_person_id: '',
+  follow_up_person_id: '',
+  follow_up_status: '',
 })
+const advancedFilterVisible = ref(false)
+const advancedFilterFields = [
+  'consultation_date_range',
+  'consultation_method',
+  'consultation_type',
+  'client_source',
+  'customer_service_id',
+  'sales_person_id',
+  'follow_up_person_id',
+  'follow_up_status',
+]
+const advancedFilterCount = computed(() => advancedFilterFields.reduce((count, field) => {
+  const value = searchForm[field]
+  return count + (Array.isArray(value) ? Number(value.length > 0) : Number(!!value))
+}, 0))
 
 const handleSearch = () => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
   pagination.page = 1
   fetchData()
 }
 
+const handleDebouncedSearchInput = (value) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+
+  // 清空时立即恢复完整列表；有内容时等待用户结束本轮输入。
+  if (!value?.trim()) {
+    searchDebounceTimer = null
+    handleSearch()
+    return
+  }
+
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null
+    handleSearch()
+  }, SEARCH_DEBOUNCE_MS)
+}
+
 const resetSearch = () => {
-  searchForm.consultation_code = ''
-  searchForm.client_name = ''
-  searchForm.status = ''
+  Object.assign(searchForm, {
+    client_name: '',
+    status: '',
+    consultation_date_range: [],
+    consultation_method: '',
+    consultation_type: '',
+    client_source: '',
+    customer_service_id: '',
+    sales_person_id: '',
+    follow_up_person_id: '',
+    follow_up_status: '',
+  })
+  handleSearch()
+}
+
+const clearAdvancedFilters = () => {
+  advancedFilterFields.forEach((field) => {
+    searchForm[field] = field === 'consultation_date_range' ? [] : ''
+  })
   handleSearch()
 }
 
@@ -517,6 +820,7 @@ const defaultForm = () => ({
   client_short_name: '',
   consultation_time: '',
   consultation_method: '',
+  consultation_method_custom: '',
   client_source: '',
   source_keyword: '',
   consultation_description: '',
@@ -524,17 +828,97 @@ const defaultForm = () => ({
   consultation_type: '',
   handling_method: '',
   remarks: '',
-  customer_service_id: null,
-  sales_person_id: null,
-  editor_id: null,
+  customer_service_id: currentUserId,
+  sales_person_id: currentUserId,
+  editor_id: currentUserId,
   follow_up_count: 0,
   follow_up_time: '',
   follow_up_status: '',
   follow_up_remarks: '',
-  follow_up_person_id: null,
+  follow_up_person_id: currentUserId,
 })
 
 const form = reactive(defaultForm())
+const activeDraftKey = ref(null)
+const draftSavingEnabled = ref(false)
+
+const readDrafts = () => {
+  try {
+    const drafts = JSON.parse(sessionStorage.getItem(CONSULTATION_DRAFTS_STORAGE_KEY) || '{}')
+    return drafts && typeof drafts === 'object' ? drafts : {}
+  } catch {
+    sessionStorage.removeItem(CONSULTATION_DRAFTS_STORAGE_KEY)
+    return {}
+  }
+}
+
+const writeDrafts = (drafts) => {
+  if (Object.keys(drafts).length) {
+    sessionStorage.setItem(CONSULTATION_DRAFTS_STORAGE_KEY, JSON.stringify(drafts))
+  } else {
+    sessionStorage.removeItem(CONSULTATION_DRAFTS_STORAGE_KEY)
+  }
+}
+
+const removeDraft = (draftKey) => {
+  if (!draftKey) return
+  const drafts = readDrafts()
+  delete drafts[draftKey]
+  writeDrafts(drafts)
+}
+
+const saveActiveDraft = () => {
+  if (!draftSavingEnabled.value || !activeDraftKey.value) return
+  const drafts = readDrafts()
+  drafts[activeDraftKey.value] = {
+    form: { ...form },
+    savedAt: new Date().toISOString(),
+  }
+  writeDrafts(drafts)
+}
+
+const restoreDraftIfNeeded = async () => {
+  const draftKey = activeDraftKey.value
+  const draft = readDrafts()[draftKey]
+  if (!draft?.form) {
+    draftSavingEnabled.value = true
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      '检测到该表单有未提交的草稿，是否恢复上次填写的内容？',
+      '恢复未提交草稿',
+      {
+        confirmButtonText: '恢复草稿',
+        cancelButtonText: '放弃草稿',
+        type: 'info',
+        showClose: false,
+        closeOnClickModal: false,
+        closeOnPressEscape: false,
+      }
+    )
+    const restoredForm = defaultForm()
+    Object.keys(restoredForm).forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(draft.form, key)) {
+        restoredForm[key] = draft.form[key]
+      }
+    })
+    Object.assign(form, restoredForm)
+    if (form.consultation_method && !consultationMethodLabels[form.consultation_method]) {
+      form.consultation_method_custom = form.consultation_method
+      form.consultation_method = 'other'
+    }
+  } catch {
+    removeDraft(draftKey)
+  } finally {
+    draftSavingEnabled.value = true
+    await nextTick()
+    formRef.value?.clearValidate()
+  }
+}
+
+watch(form, saveActiveDraft, { deep: true, flush: 'sync' })
 const consultationTypeOptions = [
   '笔译项目',
   '口译项目',
@@ -553,6 +937,23 @@ const consultationStatusOptions = [
   { label: '未成交', value: 'failed' },
   { label: '已确认', value: CONFIRMED_CONSULTATION_STATUS },
 ]
+const consultationMethodOptions = [
+  { label: '电话', value: 'phone' },
+  { label: '邮件', value: 'email' },
+  { label: '在线咨询', value: 'online' },
+  { label: '上门', value: 'onsite' },
+  { label: '其他', value: 'other' },
+]
+const consultationMethodLabels = Object.fromEntries(
+  consultationMethodOptions.map((item) => [item.value, item.label])
+)
+const consultationMethodLabel = (value) => consultationMethodLabels[value] || value || '-'
+const normalizeConsultationMethod = (value) => {
+  if (!value || consultationMethodLabels[value]) {
+    return { method: value || '', custom: '' }
+  }
+  return { method: 'other', custom: value }
+}
 const legacyConsultationTypeLabels = {
   translation: '笔译项目',
   interpretation: '口译项目',
@@ -612,7 +1013,37 @@ const getStatusText = (status) => {
 
 const formatDatetime = (val) => {
   if (!val) return '-'
-  return new Date(val).toLocaleString('zh-CN', { hour12: false })
+  const date = new Date(String(val).replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? val : date.toLocaleString('zh-CN', { hour12: false })
+}
+
+const formatTime = (val) => {
+  if (!val) return '-'
+  const date = new Date(String(val).replace(' ', 'T'))
+  return Number.isNaN(date.getTime())
+    ? '-'
+    : date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+const isToday = (val) => {
+  if (!val) return false
+  const date = new Date(String(val).replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return false
+  const today = new Date()
+  return date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate()
+}
+
+const isYesterday = (val) => {
+  if (!val) return false
+  const date = new Date(String(val).replace(' ', 'T'))
+  if (Number.isNaN(date.getTime())) return false
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  return date.getFullYear() === yesterday.getFullYear()
+    && date.getMonth() === yesterday.getMonth()
+    && date.getDate() === yesterday.getDate()
 }
 
 const getDetailRow = (row) => detailCache[row.id] || row
@@ -634,6 +1065,26 @@ const searchClientsByName = async (queryString, cb) => {
   }
 }
 
+const searchClientsByShortName = async (queryString, cb) => {
+  if (!queryString?.trim()) {
+    cb([])
+    return
+  }
+  clientSearchLoading.value = true
+  try {
+    const res = await clientApi.getClients({
+      client_short_name: queryString.trim(),
+      skip: 0,
+      limit: 10,
+    })
+    cb(Array.isArray(res) ? res : [])
+  } catch {
+    cb([])
+  } finally {
+    clientSearchLoading.value = false
+  }
+}
+
 // 用户从下拉列表选中了已有客户
 const handleExistingClientSelect = (item) => {
   form.client_id = item.id
@@ -644,9 +1095,29 @@ const handleExistingClientSelect = (item) => {
 
 // 用户手动输入（重新输入时清空已关联的客户）
 const handleClientNameInput = () => {
+  const hadSelectedClient = !!form.client_id
+  form.client_id = null
+  form.client_code = ''
+  if (hadSelectedClient) form.client_short_name = ''
+}
+
+// 简称可直接录入；未填写全称时，以简称作为待完善客户的默认全称。
+const handleClientShortNameInput = (value) => {
+  const hadSelectedClient = !!form.client_id
+  form.client_id = null
+  form.client_code = ''
+  if (hadSelectedClient) form.client_name = ''
+  if (!form.client_name?.trim() && value?.trim()) {
+    form.client_name = value.trim()
+  }
+}
+
+const handleClientShortNameClear = () => {
+  const hadSelectedClient = !!form.client_id
   form.client_id = null
   form.client_code = ''
   form.client_short_name = ''
+  if (hadSelectedClient) form.client_name = ''
 }
 
 // 用户点击清空按钮
@@ -672,32 +1143,49 @@ const getUserName = (id) => {
   return user ? (user.full_name || user.username) : id
 }
 
+const buildSearchFilters = () => {
+  const [consultationDateStart, consultationDateEnd] = searchForm.consultation_date_range || []
+  return {
+    client_name: searchForm.client_name?.trim() || undefined,
+    status: searchForm.status || undefined,
+    consultation_date_start: consultationDateStart || undefined,
+    consultation_date_end: consultationDateEnd || undefined,
+    consultation_method: searchForm.consultation_method || undefined,
+    consultation_type: searchForm.consultation_type || undefined,
+    client_source: searchForm.client_source?.trim() || undefined,
+    customer_service_id: searchForm.customer_service_id || undefined,
+    sales_person_id: searchForm.sales_person_id || undefined,
+    follow_up_person_id: searchForm.follow_up_person_id || undefined,
+    follow_up_status: searchForm.follow_up_status?.trim() || undefined,
+  }
+}
+
 const fetchData = async () => {
+  consultationSearchController?.abort()
+  consultationSearchController = new AbortController()
+  const requestId = ++consultationRequestId
   loading.value = true
   try {
     const params = {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit,
+      ...buildSearchFilters(),
     }
-    if (searchForm.consultation_code) params.consultation_code = searchForm.consultation_code
-    if (searchForm.client_name) params.client_name = searchForm.client_name
-    if (searchForm.status) params.status = searchForm.status
+    const countParams = buildSearchFilters()
 
     const [res, countRes] = await Promise.all([
-      consultationApi.getConsultations(params),
-      consultationApi.getConsultationCount({
-        consultation_code: params.consultation_code,
-        client_name: params.client_name,
-        status: params.status,
-      })
+      consultationApi.getConsultations(params, { signal: consultationSearchController.signal }),
+      consultationApi.getConsultationCount(countParams, { signal: consultationSearchController.signal })
     ])
+    if (requestId !== consultationRequestId) return
     tableData.value = Array.isArray(res) ? res : []
     pagination.total = countRes?.total || tableData.value.length
   } catch {
+    if (requestId !== consultationRequestId) return
     tableData.value = []
     pagination.total = 0
   } finally {
-    loading.value = false
+    if (requestId === consultationRequestId) loading.value = false
   }
 }
 
@@ -705,8 +1193,15 @@ const toNullable = (v) => (v === '' ? null : v)
 
 const buildPayload = () => ({
   client_id: form.client_id,
+  client_code: form.client_code?.trim() || null,
+  client_name: form.client_name?.trim() || null,
+  client_short_name: form.client_short_name?.trim() || null,
   consultation_time: toNullable(form.consultation_time),
-  consultation_method: toNullable(form.consultation_method),
+  consultation_method: toNullable(
+    form.consultation_method === 'other'
+      ? form.consultation_method_custom?.trim() || 'other'
+      : form.consultation_method
+  ),
   client_source: toNullable(form.client_source),
   source_keyword: toNullable(form.source_keyword),
   consultation_description: toNullable(form.consultation_description),
@@ -739,11 +1234,16 @@ const loadConsultationDetail = async (id) => {
 
 const handleAdd = async () => {
   dialogTitle.value = '新增咨询'
+  draftSavingEnabled.value = false
+  activeDraftKey.value = 'create'
   resetForm()
   dialogVisible.value = true
+  await nextTick()
+  await restoreDraftIfNeeded()
 }
 
 const fillFormByRow = (row) => {
+  const consultationMethod = normalizeConsultationMethod(row.consultation_method)
   Object.assign(form, {
     id: row.id,
     client_id: row.client_id || null,
@@ -751,7 +1251,8 @@ const fillFormByRow = (row) => {
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
     consultation_time: row.consultation_time || '',
-    consultation_method: row.consultation_method || '',
+    consultation_method: consultationMethod.method,
+    consultation_method_custom: consultationMethod.custom,
     client_source: row.client_source || '',
     source_keyword: row.source_keyword || '',
     consultation_description: row.consultation_description || '',
@@ -761,19 +1262,21 @@ const fillFormByRow = (row) => {
       : consultationTypeLabel(row.consultation_type),
     handling_method: row.handling_method || '',
     remarks: row.remarks || '',
-    customer_service_id: row.customer_service_id || null,
-    sales_person_id: row.sales_person_id || null,
-    editor_id: row.editor_id || null,
+    customer_service_id: row.customer_service_id || currentUserId,
+    sales_person_id: row.sales_person_id || currentUserId,
+    editor_id: row.editor_id || currentUserId,
     follow_up_count: row.follow_up_count ?? 0,
     follow_up_time: row.follow_up_time || '',
     follow_up_status: row.follow_up_status || '',
     follow_up_remarks: row.follow_up_remarks || '',
-    follow_up_person_id: row.follow_up_person_id || null,
+    follow_up_person_id: row.follow_up_person_id || currentUserId,
   })
 }
 
 const handleEdit = async (row) => {
   dialogTitle.value = '编辑咨询'
+  draftSavingEnabled.value = false
+  activeDraftKey.value = `edit:${row.id}`
   try {
     const detail = await consultationApi.getConsultation(row.id)
     detailCache[row.id] = detail
@@ -782,6 +1285,8 @@ const handleEdit = async (row) => {
     fillFormByRow(row)
   }
   dialogVisible.value = true
+  await nextTick()
+  await restoreDraftIfNeeded()
 }
 
 const handleDelete = async (row) => {
@@ -801,16 +1306,6 @@ const handleSubmit = async () => {
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     try {
-      // 新客户：先在客户表创建记录，获取自动生成的客户编号和 ID
-      if (isNewClient.value) {
-        const newClient = await clientApi.createClient({
-          client_name: form.client_name,
-          client_short_name: form.client_short_name,
-        })
-        form.client_id = newClient.id
-        form.client_code = newClient.client_code
-      }
-
       const payload = buildPayload()
       const isUpdate = !!form.id
       // 记录提交前咨询的旧状态（用于判断是否首次变为已确认）
@@ -821,6 +1316,7 @@ const handleSubmit = async () => {
 
       if (isUpdate) {
         await consultationApi.updateConsultation(consultationId, payload)
+        delete detailCache[consultationId]
         ElMessage.success('更新成功')
       } else {
         const created = await consultationApi.createConsultation(payload)
@@ -833,6 +1329,8 @@ const handleSubmit = async () => {
           )
         }
       }
+      draftSavingEnabled.value = false
+      removeDraft(activeDraftKey.value)
       dialogVisible.value = false
       fetchData()
 
@@ -889,12 +1387,23 @@ const resetCreateProjectDraft = () => {
 
 const resetForm = () => {
   Object.assign(form, defaultForm())
-  formRef.value?.resetFields()
+  formRef.value?.clearValidate()
+}
+
+const handleDialogClose = () => {
+  draftSavingEnabled.value = false
+  activeDraftKey.value = null
+  resetForm()
 }
 
 onMounted(async () => {
   await loadUsers()
   await fetchData()
+})
+
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  consultationSearchController?.abort()
 })
 </script>
 
@@ -903,10 +1412,129 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.column-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 420px;
+  overflow-y: auto;
+  gap: 4px 12px;
+}
+
+.column-settings .el-checkbox {
+  margin-right: 0;
+}
+
+.column-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.consultations-card :deep(.el-card__header) {
+  padding: 16px 20px;
+}
+
+.consultations-card :deep(.el-card__body) {
+  padding: 20px;
 }
 
 .search-form {
-  margin-bottom: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.search-form :deep(.el-form-item) {
+  margin: 0;
+}
+
+.search-form :deep(.el-form-item:last-child) {
+  margin-left: auto;
+}
+
+.advanced-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 10px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-8);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.advanced-filter-panel {
+  max-height: min(560px, calc(100vh - 120px));
+  padding: 4px 4px 0;
+  overflow-y: auto;
+}
+
+.advanced-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.advanced-filter-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.advanced-filter-form :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.advanced-filter-form :deep(.el-select),
+.advanced-filter-form :deep(.el-date-editor) {
+  width: 100%;
+}
+
+:global(.consultation-advanced-filter-popover) {
+  max-width: calc(100vw - 32px);
+}
+
+.consultations-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  overflow-x: auto;
+}
+
+.consultation-method-field {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 8px;
+}
+
+.consultation-method-field .el-select {
+  width: 100%;
 }
 
 .detail-popover {
@@ -920,11 +1548,100 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.today-consultation-time {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.yesterday-consultation-time {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
 .project-name-hint {
   width: 100%;
   margin-top: 4px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.client-short-name-field {
+  width: 100%;
+}
+
+.client-short-name-hint {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.client-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-suggestion-meta {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.consultation-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  margin-bottom: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+:global(.consultation-dialog .el-dialog__header) {
+  flex: none;
+  margin-right: 0;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+:global(.consultation-dialog .el-dialog__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 4px;
+}
+
+:global(.consultation-dialog .el-dialog__footer) {
+  flex: none;
+  padding: 14px 24px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 4%);
+}
+
+@media (max-width: 768px) {
+  .search-form :deep(.el-form-item),
+  .search-form :deep(.el-form-item__content),
+  .search-form :deep(.el-input),
+  .search-form :deep(.el-select) {
+    width: 100%;
+  }
+
+  .search-form :deep(.el-form-item:last-child) {
+    margin-left: 0;
+  }
+
+  :global(.consultation-dialog .el-col-12) {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  :global(.consultation-dialog .el-dialog__body) {
+    padding: 16px 16px 4px;
+  }
 }
 </style>

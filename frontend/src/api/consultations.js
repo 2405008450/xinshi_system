@@ -1,11 +1,11 @@
 import api from './index'
 
-export const getConsultations = (params) => {
-  return api.get('/consultations/', { params })
+export const getConsultations = (params, config = {}) => {
+  return api.get('/consultations/', { ...config, params })
 }
 
-export const getConsultationCount = (params) => {
-  return api.get('/consultations/count', { params })
+export const getConsultationCount = (params, config = {}) => {
+  return api.get('/consultations/count', { ...config, params })
 }
 
 export const getConsultation = (id) => {

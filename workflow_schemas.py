@@ -130,42 +130,6 @@ class MyTaskItem(BaseModel):
         from_attributes = True
 
 
-class ActiveProjectItem(BaseModel):
-    """工作台中的进行中母订单或子订单。"""
-
-    workflow_instance_id: UUID
-    entity_type: Literal['project', 'suborder']
-    translation_project_id: UUID
-    sub_order_id: Optional[UUID] = None
-    order_no: str
-    project_name: str
-    sub_project_name: Optional[str] = None
-    client_short_name: Optional[str] = None
-    current_stage_key: str
-    current_assignee_id: Optional[UUID] = None
-    current_assignee_name: Optional[str] = None
-    group_assign_role: Optional[str] = None
-    project_manager_id: Optional[UUID] = None
-    project_manager_name: Optional[str] = None
-    project_status: Optional[str] = None
-    customer_deadline_time: Optional[datetime] = None
-    language_pair: Optional[str] = None
-    file_type_secondary: Optional[str] = None
-    priority: Optional[str] = None
-    word_count: Optional[int] = None
-    expected_translator_stats_method: Optional[str] = None
-    expected_translator_word_count: Optional[int] = None
-    network_file_path: Optional[str] = None
-    updated_at: Optional[datetime] = None
-
-
-class ActiveProjectListResponse(BaseModel):
-    items: list[ActiveProjectItem] = Field(default_factory=list)
-    total: int = 0
-    overdue_total: int = 0
-    due_soon_total: int = 0
-
-
 class ManagedProjectItem(BaseModel):
     """项目经理在管理层负责的母项目。"""
 

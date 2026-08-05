@@ -12,7 +12,6 @@ from workflow_crud import (
     get_workflow_by_project,
     get_workflow_by_sub_order,
     get_effective_stages,
-    get_active_projects,
     get_management_projects,
     get_my_tasks,
     get_project_manager_candidates,
@@ -44,7 +43,6 @@ from workflow_schemas import (
     WorkflowLogResponse,
     WorkflowStageResponse,
     MyTaskItem,
-    ActiveProjectListResponse,
     ManagedProjectItem,
     ProjectManagerHandoverCreate,
     ProjectManagerHandoverDecisionRequest,
@@ -123,22 +121,6 @@ def _build_state_response(instance) -> WorkflowStateResponse:
 
 
 # ---------- 获取工作流状态 ----------
-
-@router.get("/active-projects", response_model=ActiveProjectListResponse)
-def get_active_projects_endpoint(
-    skip: int = 0,
-    limit: int = 20,
-    keyword: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
-    """返回工作台使用的全部进行中母订单和子订单。"""
-    return get_active_projects(
-        db,
-        skip=max(skip, 0),
-        limit=min(max(limit, 1), 100),
-        keyword=keyword,
-    )
-
 
 @router.get("/my-tasks", response_model=list[MyTaskItem])
 def get_my_tasks_endpoint(

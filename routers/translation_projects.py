@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -104,6 +104,7 @@ def read_projects(
     order_no: Optional[str] = None,
     project_status: Optional[str] = None,
     client_short_name: Optional[str] = None,
+    sort: Optional[Literal["order_no_desc", "unfinished_first_order_no_desc"]] = None,
     db: Session = Depends(get_db)
 ):
     projects = get_translation_projects(
@@ -114,7 +115,8 @@ def read_projects(
         project_name=project_name,
         order_no=order_no,
         project_status=project_status,
-        client_short_name=client_short_name
+        client_short_name=client_short_name,
+        sort=sort,
     )
     return projects
 

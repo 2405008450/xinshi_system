@@ -1,35 +1,46 @@
 <template>
   <div class="manuscript-page">
-    <div class="page-header">
-      <div>
-        <h1>稿件安排</h1>
-      </div>
-      <div class="header-actions">
-        <el-tooltip :content="mailStatus.detail || '正在读取邮件配置'" placement="bottom">
-          <el-tag :type="mailStatusTagType" effect="plain">{{ mailStatusLabel }}</el-tag>
-        </el-tooltip>
-        <el-button :loading="loading" @click="loadAll">刷新</el-button>
-      </div>
-    </div>
-
     <div class="legacy-workbench">
-      <div class="legacy-workbench__left">
-        <el-card class="legacy-project-panel" shadow="never">
+      <div
+        class="legacy-workbench__left"
+        :class="{ 'is-project-collapsed': projectPanelCollapsed }"
+      >
+        <el-card
+          class="legacy-project-panel"
+          :class="{ 'is-collapsed': projectPanelCollapsed }"
+          shadow="never"
+        >
           <template #header>
             <div class="panel-header">
               <div>
-                <h2>稿件 / 项目列表</h2>
-                <span>选择需要安排译员的母订单或子订单</span>
+                <h2>稿件项目</h2>
+                <span>{{ projectPanelSubtitle }}</span>
               </div>
-              <div class="panel-tools">
-                <el-input
-                  v-model="projectKeyword"
-                  clearable
-                  placeholder="订单号、项目或客户"
-                  @keyup.enter="loadContext"
-                  @clear="loadContext"
-                />
-                <el-button type="primary" :loading="contextLoading" @click="loadContext">查询</el-button>
+              <div class="panel-tools project-panel-tools">
+                <template v-if="!projectPanelCollapsed">
+                  <el-input
+                    v-model="projectKeyword"
+                    size="small"
+                    clearable
+                    placeholder="订单号、项目或客户"
+                    @keyup.enter="loadContext"
+                    @clear="loadContext"
+                  />
+                  <el-button size="small" type="primary" :loading="contextLoading" @click="loadContext">查询</el-button>
+                  <span class="panel-tools__divider" />
+                </template>
+                <el-tooltip :content="mailStatus.detail || '正在读取邮件配置'" placement="bottom">
+                  <el-tag :type="mailStatusTagType" effect="plain" size="small">{{ mailStatusLabel }}</el-tag>
+                </el-tooltip>
+                <el-button size="small" :loading="loading" @click="loadAll">刷新</el-button>
+                <el-button
+                  size="small"
+                  class="project-panel-toggle"
+                  :aria-expanded="!projectPanelCollapsed"
+                  @click="toggleProjectPanel"
+                >
+                  {{ projectPanelCollapsed ? '展开项目' : '收起项目' }}
+                </el-button>
               </div>
             </div>
           </template>
@@ -45,26 +56,38 @@
             @current-change="selectProject"
             @row-dblclick="selectProject"
           >
-            <el-table-column type="index" label="" width="48" align="center" />
-            <el-table-column prop="order_no" label="订单号" width="170" show-overflow-tooltip />
-            <el-table-column label="稿件 / 项目名称" min-width="230" show-overflow-tooltip>
+            <el-table-column type="index" label="序号" width="52" align="center" />
+            <el-table-column prop="order_no" label="订单号" min-width="130" show-overflow-tooltip />
+            <el-table-column label="项目" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
                 <div class="strong-text">{{ row.sub_project_name || row.project_name }}</div>
                 <small>{{ row.client_short_name || '未填写客户' }}</small>
               </template>
             </el-table-column>
-            <el-table-column prop="language_pair" label="语种" width="105" show-overflow-tooltip />
-            <el-table-column label="字数摘要" width="180">
-              <template #default="{ row }">{{ projectWordSummary(row) }}</template>
+            <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip />
+            <el-table-column label="字数统计" min-width="220" header-align="left">
+              <template #default="{ row }">
+                <div class="legacy-word-count-summary">
+                  <span>{{ projectWordCount(row) }}</span>
+                  <WordCountMatrixPopover
+                    :model-value="row.word_count_matrix"
+                    :entity-type="matrixEntityType(row)"
+                    :entity-id="matrixEntityId(row)"
+                    :dispatch-id="activeDispatchFor(row)?.id"
+                    title="项目与译员字数统计"
+                    @saved="handleWordCountMatrixSaved"
+                  />
+                </div>
+              </template>
             </el-table-column>
-            <el-table-column label="客户交稿时间" width="155">
+            <el-table-column label="客户交稿时间" min-width="155">
               <template #default="{ row }">
                 <span :class="{ 'deadline-overdue': isOverdue(row.customer_deadline_time) }">
                   {{ formatDateTime(row.customer_deadline_time) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" min-width="80">
               <template #default="{ row }">
                 <el-tag :type="projectStatusType(row.project_status)" size="small">
                   {{ projectStatusLabel(row.project_status) }}
@@ -79,11 +102,12 @@
             <div class="panel-header translator-header">
               <div>
                 <h2>译员列表</h2>
-                <span>可勾选多位译员，右侧逐位填写合作信息</span>
+                <span>点击译员所在行即可选择，支持多选</span>
               </div>
               <div class="translator-header__tools">
-                <el-input v-model="translatorKeyword" clearable placeholder="姓名、编号或语种" />
+                <el-input v-model="translatorKeyword" size="small" clearable placeholder="姓名、编号或语种" />
                 <el-button
+                  size="small"
                   :type="showTranslatorCode ? 'primary' : 'default'"
                   :plain="!showTranslatorCode"
                   @click="showTranslatorCode = !showTranslatorCode"
@@ -95,7 +119,7 @@
           </template>
 
           <el-tabs v-model="translatorTab" class="translator-tabs">
-            <el-tab-pane :label="`兼取译员 ${translatorCounts.total}`" name="all" />
+            <el-tab-pane :label="`全部 ${translatorCounts.total}`" name="all" />
             <el-tab-pane :label="`全职 ${translatorCounts.fullTime}`" name="full_time" />
             <el-tab-pane :label="`兼职 ${translatorCounts.partTime}`" name="part_time" />
             <el-tab-pane :label="`其他 ${translatorCounts.other}`" name="other" />
@@ -111,31 +135,30 @@
               border
               highlight-current-row
               @selection-change="handleWorkspaceTranslatorSelection"
-              @row-click="activateTranslatorRow"
+              @row-click="handleTranslatorRowClick"
             >
               <el-table-column type="selection" width="44" :reserve-selection="true" />
-              <el-table-column type="index" label="" width="42" align="center" />
               <el-table-column
                 v-if="showTranslatorCode"
                 prop="translator_code"
-                label="译员编号"
-                width="105"
+                label="编号"
+                width="100"
                 show-overflow-tooltip
               />
-              <el-table-column prop="translator_name" label="译员姓名" width="110" show-overflow-tooltip />
-              <el-table-column label="译员合作形式" width="115">
+              <el-table-column prop="translator_name" label="译员" width="100" show-overflow-tooltip />
+              <el-table-column label="合作形式" width="92">
                 <template #default="{ row }">{{ cooperationLabel(row) }}</template>
               </el-table-column>
-              <el-table-column label="译员确认" width="145">
+              <el-table-column label="可用时间" width="130" show-overflow-tooltip>
                 <template #default="{ row }">{{ row.available_time_slot || '-' }}</template>
               </el-table-column>
-              <el-table-column label="语种 / 能力" min-width="180" show-overflow-tooltip>
+              <el-table-column label="语种 / 能力" min-width="165" show-overflow-tooltip>
                 <template #default="{ row }">
                   <div>{{ row.languages || row.direction || '-' }}</div>
                   <small>{{ formatDomains(row.domain_skills) }}</small>
                 </template>
               </el-table-column>
-              <el-table-column label="备注" min-width="170" show-overflow-tooltip>
+              <el-table-column label="备注" min-width="140" show-overflow-tooltip>
                 <template #default="{ row }">{{ row.remarks || '-' }}</template>
               </el-table-column>
             </el-table>
@@ -167,7 +190,7 @@
         <div v-else class="legacy-assignment-body">
           <div class="legacy-project-meta">
             <span>项目字数：{{ projectWordSummary(selectedProject) }}</span>
-            <span>客户交稿：{{ formatDateTime(selectedProject.customer_deadline_time) }}</span>
+            <span>客户交稿时间：{{ formatDateTime(selectedProject.customer_deadline_time) }}</span>
           </div>
 
           <el-alert
@@ -195,22 +218,22 @@
             </el-tabs>
 
             <div v-if="activeWorkbenchAssignment" class="legacy-field-grid">
-              <label>译员合作形式</label>
-              <div class="legacy-readonly-value">
-                {{ cooperationLabel(activeWorkbenchTranslator || {}) }}
-                · {{ activeWorkbenchTranslator?.translator_name || '-' }}
-              </div>
-
               <label>字数与结算</label>
               <div class="legacy-word-count-summary">
                 <span>{{ assignmentWordSummary(activeWorkbenchAssignment) }}</span>
-                <el-button
-                  type="primary"
-                  link
-                  @click="openWordCountDrawer(activeWorkbenchAssignment, workbenchReadonly)"
+                <WordCountMatrixPopover
+                  :model-value="selectedProject.word_count_matrix"
+                  :entity-type="matrixEntityType(selectedProject)"
+                  :entity-id="matrixEntityId(selectedProject)"
+                  :dispatch-id="selectedProjectDispatch?.id"
+                  :local="!selectedProjectDispatch"
+                  :translators="dispatchForm.arrangements"
+                  title="项目与译员字数统计"
+                  @update:translators="dispatchForm.arrangements = $event"
+                  @saved="handleWordCountMatrixSaved"
                 >
-                  展开字数详情
-                </el-button>
+                  <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                </WordCountMatrixPopover>
               </div>
 
               <label>需翻译部分</label>
@@ -226,7 +249,7 @@
                 v-for="milestone in activeWorkbenchAssignment.milestones"
                 :key="`${activeWorkbenchAssignment.translator_id}-${milestone.sequence_no}`"
               >
-                <label>{{ legacyMilestoneName(milestone) }}</label>
+                <label>{{ workbenchMilestoneLabel(milestone) }}</label>
                 <el-date-picker
                   v-model="milestone.planned_at"
                   type="datetime"
@@ -238,43 +261,30 @@
               </template>
 
               <label>译员结账方式</label>
-              <el-select
+              <el-input
                 v-model="activeWorkbenchAssignment.settlement_method"
                 clearable
                 :disabled="workbenchReadonly"
-                style="width: 100%"
-              >
-                <el-option label="单结" value="single" />
-                <el-option label="月结" value="monthly" />
-                <el-option label="预付" value="prepaid" />
-                <el-option label="其他" value="other" />
-              </el-select>
+                maxlength="100"
+                placeholder="请输入结账方式，如：单结、月结"
+              />
 
-              <template v-if="activeWorkbenchAssignment.settlement_method === 'other'">
-                <label>其他结账方式</label>
-                <el-input
-                  v-model="activeWorkbenchAssignment.custom_settlement_method"
-                  :disabled="workbenchReadonly"
-                  maxlength="100"
-                />
-              </template>
-
-              <label>译员单价</label>
+              <label>单价</label>
               <el-input-number
                 v-model="activeWorkbenchAssignment.translator_unit_price"
                 :min="0"
                 :precision="4"
-                controls-position="right"
+                :controls="false"
                 :disabled="workbenchReadonly"
                 style="width: 100%"
               />
 
-              <label>译员总价</label>
+              <label>总价</label>
               <el-input-number
                 v-model="activeWorkbenchAssignment.translator_total_price"
                 :min="0"
                 :precision="2"
-                controls-position="right"
+                :controls="false"
                 :disabled="workbenchReadonly"
                 style="width: 100%"
               />
@@ -289,34 +299,49 @@
               />
             </div>
 
-            <el-divider />
+            <template v-if="mailStageVisible">
+              <el-divider />
 
-            <div class="legacy-mail-fields">
-              <label>发稿文件路径</label>
-              <el-input :model-value="selectedProject.network_file_path || ''" readonly />
-              <label>参考文件路径一</label>
-              <el-input :model-value="selectedProject.reference_file_path_one || ''" readonly />
-              <label>译员邮箱</label>
-              <el-input :model-value="preferredEmail(activeWorkbenchTranslator || {})" readonly />
-            </div>
+              <div v-loading="mailPreviewLoading" class="mail-stage">
+                <el-alert
+                  v-if="mailPreviewError"
+                  :title="mailPreviewError"
+                  type="error"
+                  :closable="false"
+                  show-icon
+                />
+                <el-alert
+                  v-else-if="!mailPreview.manuscript_source_path"
+                  title="请先填写局域网共享文件路径，再发送稿件"
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                />
 
-            <el-collapse v-if="activeWorkbenchAssignment" class="legacy-mail-editor">
-              <el-collapse-item title="邮件标题与正文" name="mail">
-                <el-input
-                  v-model="activeWorkbenchAssignment.email_subject"
-                  :disabled="workbenchReadonly"
-                  placeholder="邮件标题"
-                />
-                <el-input
-                  v-model="activeWorkbenchAssignment.email_body"
-                  type="textarea"
-                  :rows="7"
-                  :disabled="workbenchReadonly"
-                  placeholder="邮件正文"
-                  class="mail-body-input"
-                />
-              </el-collapse-item>
-            </el-collapse>
+                <div class="legacy-mail-fields">
+                  <label>发稿文件</label>
+                  <el-input :model-value="mailPreview.manuscript_source_path || ''" readonly />
+                  <label>参考文件</label>
+                  <el-input :model-value="mailPreview.reference_file_path_one || ''" readonly />
+                  <label>译员邮箱</label>
+                  <el-input :model-value="mailPreview.recipient_email || ''" readonly />
+                </div>
+
+                <el-collapse class="legacy-mail-editor">
+                  <el-collapse-item title="邮件预览" name="mail">
+                    <el-input :model-value="mailPreview.subject" readonly placeholder="邮件标题" />
+                    <el-input
+                      :model-value="mailPreview.body"
+                      type="textarea"
+                      :rows="10"
+                      readonly
+                      placeholder="邮件正文"
+                      class="mail-body-input"
+                    />
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
+            </template>
 
             <div class="legacy-actions">
               <template v-if="canWrite && !workbenchReadonly">
@@ -328,7 +353,7 @@
                   v-if="activeExistingArrangement && ['ready', 'failed'].includes(activeExistingArrangement.status)"
                   type="primary"
                   :loading="sendingId === activeExistingArrangement.id"
-                  :disabled="!mailStatus.configured"
+                  :disabled="!mailStatus.configured || mailPreviewLoading || !mailPreview.manuscript_source_path"
                   @click="sendActiveWorkbenchAssignment"
                 >
                   发送稿件
@@ -336,7 +361,7 @@
                 <el-button
                   v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
                   :loading="sendingBatchId === selectedProjectDispatch.id"
-                  :disabled="!mailStatus.configured"
+                  :disabled="!mailStatus.configured || mailPreviewLoading || !mailPreview.manuscript_source_path"
                   @click="sendBatch(selectedProjectDispatch)"
                 >
                   批量发送
@@ -386,8 +411,8 @@
           <span>创建人：{{ selectedProjectDispatch.created_by_name || '-' }}</span>
           <span>创建时间：{{ formatDateTime(selectedProjectDispatch.created_at) }}</span>
           <span>人数：{{ activeAssignments(selectedProjectDispatch).length }}</span>
-          <span>预定结算字数：{{ formatInteger(sumField(selectedProjectDispatch, 'planned_word_count')) }}</span>
-          <span>实际结算字数：{{ formatInteger(sumField(selectedProjectDispatch, 'actual_word_count', true)) }}</span>
+          <span>预定结算字数：{{ assignmentTotalSummary(selectedProjectDispatch, 'planned') }}</span>
+          <span>实际结算字数：{{ assignmentTotalSummary(selectedProjectDispatch, 'actual') }}</span>
           <span>译员总价：{{ formatMoney(sumField(selectedProjectDispatch, 'translator_total_price', true)) }}</span>
         </div>
 
@@ -401,16 +426,16 @@
           <el-table-column label="字数与口径" width="230">
             <template #default="{ row }">
               <div>{{ assignmentWordSummary(row) }}</div>
-              <el-button
-                v-if="canWrite"
-                type="primary"
-                link
-                size="small"
-                :disabled="row.status === 'cancelled'"
-                @click="openWordCountDrawer(row, row.status === 'cancelled')"
+              <WordCountMatrixPopover
+                :model-value="selectedProject.word_count_matrix"
+                :entity-type="matrixEntityType(selectedProject)"
+                :entity-id="matrixEntityId(selectedProject)"
+                :dispatch-id="selectedProjectDispatch.id"
+                title="项目与译员字数统计"
+                @saved="handleWordCountMatrixSaved"
               >
-                编辑字数详情
-              </el-button>
+                <template #reference><el-button type="primary" link size="small">编辑字数统计</el-button></template>
+              </WordCountMatrixPopover>
             </template>
           </el-table-column>
           <el-table-column label="需翻译部分" min-width="160" show-overflow-tooltip>
@@ -430,25 +455,14 @@
           <template v-if="canWrite">
             <el-table-column label="译员结账方式" width="140">
               <template #default="{ row }">
-                <el-select
+                <el-input
                   v-model="row.settlement_method"
                   size="small"
                   clearable
+                  maxlength="100"
+                  placeholder="请输入结账方式"
                   style="width: 100%"
                   :disabled="row.status === 'cancelled'"
-                >
-                  <el-option label="单结" value="single" />
-                  <el-option label="月结" value="monthly" />
-                  <el-option label="预付" value="prepaid" />
-                  <el-option label="其他" value="other" />
-                </el-select>
-                <el-input
-                  v-if="row.settlement_method === 'other'"
-                  v-model="row.custom_settlement_method"
-                  size="small"
-                  maxlength="100"
-                  placeholder="自定义结算方式"
-                  style="margin-top: 4px"
                 />
               </template>
             </el-table-column>
@@ -459,7 +473,7 @@
                   :min="0"
                   :precision="4"
                   size="small"
-                  controls-position="right"
+                  :controls="false"
                   style="width: 100%"
                   :disabled="row.status === 'cancelled'"
                 />
@@ -472,7 +486,7 @@
                   :min="0"
                   :precision="2"
                   size="small"
-                  controls-position="right"
+                  :controls="false"
                   style="width: 100%"
                   :disabled="row.status === 'cancelled'"
                 />
@@ -675,12 +689,13 @@
           <div class="panel-tools">
             <el-input
               v-model="dispatchKeyword"
+              size="small"
               clearable
               placeholder="搜索订单、项目、译员或邮箱"
               @keyup.enter="loadDispatches"
               @clear="loadDispatches"
             />
-            <el-button :loading="recordsLoading" @click="loadDispatches">查询</el-button>
+            <el-button size="small" :loading="recordsLoading" @click="loadDispatches">查询</el-button>
           </div>
         </div>
       </template>
@@ -801,8 +816,17 @@
         </el-table-column>
         <el-table-column label="译员结算字数" width="200">
           <template #default="{ row }">
-            {{ formatInteger(sumField(row, 'planned_word_count')) }} /
-            {{ formatInteger(sumField(row, 'actual_word_count', true)) }}
+            <div>{{ assignmentTotalSummary(row, 'planned') }} / {{ assignmentTotalSummary(row, 'actual') }}</div>
+            <WordCountMatrixPopover
+              :model-value="row.word_count_matrix"
+              :entity-type="matrixEntityType(row)"
+              :entity-id="matrixEntityId(row)"
+              :dispatch-id="row.id"
+              title="项目与译员字数统计"
+              @saved="handleWordCountMatrixSaved"
+            >
+              <template #reference><el-button type="primary" link size="small">字数统计</el-button></template>
+            </WordCountMatrixPopover>
           </template>
         </el-table-column>
         <el-table-column label="译员总价" width="110" align="right">
@@ -865,8 +889,7 @@
         <el-descriptions-item label="文本类型">{{ selectedProject.file_type_secondary || '-' }}</el-descriptions-item>
         <el-descriptions-item label="优先级">{{ selectedProject.priority || '-' }}</el-descriptions-item>
         <el-descriptions-item label="项目字数">{{ projectWordSummary(selectedProject) }}</el-descriptions-item>
-        <el-descriptions-item label="客户交稿">{{ formatDateTime(selectedProject.customer_deadline_time) }}</el-descriptions-item>
-        <el-descriptions-item label="预计统计方式">{{ selectedProject.expected_translator_stats_method || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="客户交稿时间">{{ formatDateTime(selectedProject.customer_deadline_time) }}</el-descriptions-item>
         <el-descriptions-item label="网络文件路径" :span="3">{{ selectedProject.network_file_path || '-' }}</el-descriptions-item>
       </el-descriptions>
 
@@ -920,35 +943,42 @@
               <el-form-item label="字数与结算">
                 <div class="dialog-word-count-summary">
                   <span>{{ assignmentWordSummary(assignment) }}</span>
-                  <el-button type="primary" link @click="openWordCountDrawer(assignment, false)">展开字数详情</el-button>
+                  <WordCountMatrixPopover
+                    :model-value="selectedProject.word_count_matrix"
+                    :entity-type="matrixEntityType(selectedProject)"
+                    :entity-id="matrixEntityId(selectedProject)"
+                    :dispatch-id="dispatchForm.id"
+                    :local="!dispatchForm.id"
+                    :translators="dispatchForm.arrangements"
+                    title="项目与译员字数统计"
+                    @update:translators="dispatchForm.arrangements = $event"
+                    @saved="handleWordCountMatrixSaved"
+                  >
+                    <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                  </WordCountMatrixPopover>
                 </div>
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="译员结账方式">
-                <el-select v-model="assignment.settlement_method" clearable style="width: 100%">
-                  <el-option label="单结" value="single" />
-                  <el-option label="月结" value="monthly" />
-                  <el-option label="预付" value="prepaid" />
-                  <el-option label="其他" value="other" />
-                </el-select>
+                <el-input
+                  v-model="assignment.settlement_method"
+                  clearable
+                  maxlength="100"
+                  placeholder="请输入结账方式，如：单结、月结"
+                />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="8">
               <el-form-item label="译员单价">
-                <el-input-number v-model="assignment.translator_unit_price" :min="0" :precision="4" style="width: 100%" />
+                <el-input-number v-model="assignment.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="译员总价">
-                <el-input-number v-model="assignment.translator_total_price" :min="0" :precision="2" style="width: 100%" />
-              </el-form-item>
-            </el-col>
-            <el-col v-if="assignment.settlement_method === 'other'" :span="8">
-              <el-form-item label="其他结算方式" required>
-                <el-input v-model="assignment.custom_settlement_method" maxlength="100" />
+                <el-input-number v-model="assignment.translator_total_price" :min="0" :precision="2" :controls="false" style="width: 100%" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -1043,30 +1073,34 @@
         <el-form-item label="译员">
           <el-input :model-value="settlementForm.translator_name" disabled />
         </el-form-item>
-        <el-form-item label="实际译员结算字数">
-          <el-input-number v-model="settlementForm.actual_word_count" :min="0" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="字数计量口径">
-          <el-select v-model="settlementForm.word_count_type" clearable placeholder="请选择计量口径" style="width: 100%">
-            <el-option v-for="item in wordCountTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+        <el-form-item label="实际译员字数">
+          <div class="dialog-word-count-summary">
+            <span>{{ formatWordCountValues(settlementForm.actual) }}</span>
+            <WordCountMatrixPopover
+              :model-value="settlementForm.word_count_matrix"
+              :entity-type="settlementForm.entity_type"
+              :entity-id="settlementForm.entity_id"
+              :dispatch-id="settlementForm.dispatch_id"
+              title="项目与译员字数统计"
+              @saved="handleSettlementMatrixSaved"
+            >
+              <template #reference><el-button type="primary" link>编辑字数统计</el-button></template>
+            </WordCountMatrixPopover>
+          </div>
         </el-form-item>
         <el-form-item label="译员结账方式">
-          <el-select v-model="settlementForm.settlement_method" clearable style="width: 100%">
-            <el-option label="单结" value="single" />
-            <el-option label="月结" value="monthly" />
-            <el-option label="预付" value="prepaid" />
-            <el-option label="其他" value="other" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="settlementForm.settlement_method === 'other'" label="其他结算方式" required>
-          <el-input v-model="settlementForm.custom_settlement_method" maxlength="100" />
+          <el-input
+            v-model="settlementForm.settlement_method"
+            clearable
+            maxlength="100"
+            placeholder="请输入结账方式，如：单结、月结"
+          />
         </el-form-item>
         <el-form-item label="译员单价">
-          <el-input-number v-model="settlementForm.translator_unit_price" :min="0" :precision="4" style="width: 100%" />
+          <el-input-number v-model="settlementForm.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
         </el-form-item>
         <el-form-item label="译员总价">
-          <el-input-number v-model="settlementForm.translator_total_price" :min="0" :precision="2" style="width: 100%" />
+          <el-input-number v-model="settlementForm.translator_total_price" :min="0" :precision="2" :controls="false" style="width: 100%" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="settlementForm.remarks" type="textarea" :rows="3" maxlength="5000" />
@@ -1078,151 +1112,6 @@
       </template>
     </el-dialog>
 
-    <el-drawer
-      v-model="wordCountDrawerVisible"
-      title="字数与结算详情"
-      size="780px"
-      append-to-body
-      @closed="wordCountDrawerAssignments = []"
-    >
-      <template v-if="wordCountDrawerAssignments.length">
-        <el-alert
-          title="项目统计用于对照；译员预定字数和实际字数用于派稿及结算，不会覆盖客户或公司内部统计。"
-          type="info"
-          :closable="false"
-          show-icon
-          class="word-count-drawer__alert"
-        />
-
-        <div class="word-count-sheet-section">
-          <div class="word-count-sheet-section__header">
-            <strong>项目字数参考</strong>
-            <span>当前比较基准：{{ projectWordSummary(selectedProject) }}</span>
-          </div>
-          <div class="excel-word-grid excel-word-grid--readonly">
-            <table>
-              <colgroup>
-                <col class="excel-word-grid__source" />
-                <col class="excel-word-grid__count" />
-                <col class="excel-word-grid__method" />
-                <col class="excel-word-grid__usage" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>统计来源 / 用途</th>
-                  <th>字数</th>
-                  <th>计量口径 / 统计方式</th>
-                  <th>说明</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th>预计译员字数</th>
-                  <td class="excel-word-grid__text">{{ formatInteger(selectedProject?.expected_translator_word_count) }}</td>
-                  <td class="excel-word-grid__text">{{ selectedProject?.expected_translator_stats_method || '-' }}</td>
-                  <td class="excel-word-grid__text">译员分配的优先比较基准</td>
-                </tr>
-                <tr>
-                  <th>公司内部统计</th>
-                  <td class="excel-word-grid__text">{{ formatInteger(selectedProject?.internal_word_count) }}</td>
-                  <td class="excel-word-grid__text">{{ formatWordCountType(selectedProject?.internal_word_count_type) }}</td>
-                  <td class="excel-word-grid__text">预计译员字数为空时回退</td>
-                </tr>
-                <tr>
-                  <th>客户统计</th>
-                  <td class="excel-word-grid__text">{{ formatInteger(selectedProject?.customer_word_count) }}</td>
-                  <td class="excel-word-grid__text">{{ formatWordCountType(selectedProject?.customer_word_count_type) }}</td>
-                  <td class="excel-word-grid__text">内部统计为空时回退</td>
-                </tr>
-                <tr class="excel-word-grid__compatibility">
-                  <th>原项目字数（兼容）</th>
-                  <td class="excel-word-grid__text">{{ formatInteger(selectedProject?.word_count) }}</td>
-                  <td class="excel-word-grid__text">—</td>
-                  <td class="excel-word-grid__text">以上字段均为空时使用</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="word-count-sheet-section">
-          <div class="word-count-sheet-section__header">
-            <strong>译员安排字数</strong>
-            <span>直接在单元格内填写</span>
-          </div>
-          <div class="excel-word-grid">
-            <table>
-              <colgroup>
-                <col class="excel-word-grid__translator" />
-                <col class="excel-word-grid__settlement-count" />
-                <col class="excel-word-grid__settlement-count" />
-                <col class="excel-word-grid__settlement-method" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>译员</th>
-                  <th>预定译员字数_数量</th>
-                  <th>实际译员字数_数量</th>
-                  <th>字数计量口径</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="assignment in wordCountDrawerAssignments"
-                  :key="assignment.id || assignment.translator_id"
-                >
-                  <th>{{ wordCountAssignmentTranslatorName(assignment) }}</th>
-                  <td class="excel-word-grid__editor">
-                    <el-input-number
-                      v-model="assignment.planned_word_count"
-                      :min="0"
-                      :disabled="wordCountDrawerReadonly || wordCountDrawerSettlementOnly || assignment.status === 'cancelled'"
-                      controls-position="right"
-                    />
-                  </td>
-                  <td class="excel-word-grid__editor">
-                    <el-input-number
-                      v-model="assignment.actual_word_count"
-                      :min="0"
-                      :disabled="wordCountDrawerReadonly || assignment.status === 'cancelled'"
-                      controls-position="right"
-                    />
-                  </td>
-                  <td class="excel-word-grid__editor">
-                    <el-select
-                      v-model="assignment.word_count_type"
-                      clearable
-                      placeholder="选择计量口径"
-                      :disabled="wordCountDrawerReadonly || assignment.status === 'cancelled'"
-                    >
-                      <el-option v-for="item in wordCountTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-                    </el-select>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <el-alert
-          v-if="wordCountDrawerReadonly"
-          title="当前安排已确认。如需补录实际结算字数，请在安排概览或记录中的“结算”入口修改。"
-          type="warning"
-          :closable="false"
-        />
-        <el-alert
-          v-else-if="wordCountDrawerSettlementOnly"
-          title="当前批次已确认，预定字数保持只读；可批量补录实际字数和计量口径。"
-          type="warning"
-          :closable="false"
-        />
-      </template>
-      <template #footer>
-        <el-button type="primary" :loading="wordCountDrawerSaving" @click="completeWordCountDrawer">
-          {{ wordCountDrawerSettlementOnly ? '保存并完成' : '完成' }}
-        </el-button>
-      </template>
-    </el-drawer>
   </div>
 </template>
 
@@ -1235,6 +1124,7 @@ import {
   createManuscriptDispatch,
   getManuscriptContext,
   getManuscriptDispatches,
+  getManuscriptMailPreview,
   getManuscriptMailStatus,
   sendManuscriptAssignment,
   sendManuscriptDispatch,
@@ -1242,6 +1132,15 @@ import {
   updateManuscriptSettlement
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
+import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import {
+  createEmptyWordCountMatrix,
+  createEmptyWordCountValues,
+  formatWordCountMatrix,
+  formatWordCountValues,
+  normalizeWordCountValues,
+  sumWordCountValues
+} from '@/utils/wordCountMatrix'
 
 const loading = ref(false)
 const contextLoading = ref(false)
@@ -1258,11 +1157,6 @@ const projectKeyword = ref('')
 const dispatchKeyword = ref('')
 const dispatchDialogVisible = ref(false)
 const settlementDialogVisible = ref(false)
-const wordCountDrawerVisible = ref(false)
-const wordCountDrawerAssignments = ref([])
-const wordCountDrawerReadonly = ref(false)
-const wordCountDrawerSettlementOnly = ref(false)
-const wordCountDrawerSaving = ref(false)
 const selectedTranslatorIds = ref([])
 const activeArrangementTranslatorId = ref('')
 const workspaceTranslatorTableRef = ref(null)
@@ -1270,25 +1164,42 @@ const workspaceSelectedTranslators = ref([])
 const translatorKeyword = ref('')
 const translatorTab = ref('all')
 const showTranslatorCode = ref(false)
-const canWrite = computed(() => hasPermission('projects:write'))
-const wordCountTypeOptions = [
-  { label: '字符数（不计空格）', value: 'characters_no_spaces' },
-  { label: '字数', value: 'words' },
-  { label: '中文字符和朝鲜语单词', value: 'cjk_chars_korean_words' },
-  { label: '外文字数（除中日韩）', value: 'foreign_words' }
-]
+const manuscriptLayoutUserKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
+const projectPanelStorageKey = `manuscript_project_panel_collapsed:${manuscriptLayoutUserKey}`
+const projectPanelCollapsed = ref(false)
+try {
+  projectPanelCollapsed.value = localStorage.getItem(projectPanelStorageKey) === '1'
+} catch {}
 
+const projectPanelSubtitle = computed(() => {
+  if (!projectPanelCollapsed.value) return '选择需要安排译员的母订单或子订单'
+  if (selectedProject.value) {
+    const name = selectedProject.value.sub_project_name || selectedProject.value.project_name
+    return `当前：${selectedProject.value.order_no} · ${name}`
+  }
+  return `${activeProjects.value.length} 个可安排项目，点击展开选择`
+})
+
+function toggleProjectPanel() {
+  projectPanelCollapsed.value = !projectPanelCollapsed.value
+  try {
+    localStorage.setItem(projectPanelStorageKey, projectPanelCollapsed.value ? '1' : '0')
+  } catch {}
+}
+
+const canWrite = computed(() => hasPermission('projects:write'))
 const inlineSettlement = ref([])
 const inlineSavingId = ref('')
 
+function activeDispatchFor(project) {
+  const target = projectIdentity(project)
+  return dispatches.value.find(
+    (item) => projectIdentity(item) === target && item.status !== 'cancelled'
+  ) || null
+}
+
 const selectedProjectDispatch = computed(() => {
-  if (!selectedProject.value) return null
-  const target = projectIdentity(selectedProject.value)
-  return (
-    dispatches.value.find(
-      (item) => projectIdentity(item) === target && item.status !== 'cancelled'
-    ) || null
-  )
+  return selectedProject.value ? activeDispatchFor(selectedProject.value) : null
 })
 
 const selectedProjectCancelledDispatch = computed(() => {
@@ -1328,6 +1239,63 @@ const activeExistingArrangement = computed(() => {
   )
 })
 
+const mailStageVisible = computed(
+  () => Boolean(
+    selectedProjectDispatch.value
+    && selectedProjectDispatch.value.status !== 'draft'
+  )
+)
+const mailPreviewLoading = ref(false)
+const mailPreviewError = ref('')
+const mailPreview = reactive({
+  arrangement_id: '',
+  recipient_email: '',
+  subject: '',
+  body: '',
+  manuscript_source_path: '',
+  reference_file_path_one: ''
+})
+let mailPreviewRequestId = 0
+
+function clearMailPreview() {
+  Object.assign(mailPreview, {
+    arrangement_id: '',
+    recipient_email: '',
+    subject: '',
+    body: '',
+    manuscript_source_path: '',
+    reference_file_path_one: ''
+  })
+  mailPreviewError.value = ''
+}
+
+async function loadActiveMailPreview() {
+  const requestId = ++mailPreviewRequestId
+  const dispatchId = selectedProjectDispatch.value?.id
+  const arrangementId = activeExistingArrangement.value?.id
+  if (!mailStageVisible.value || !dispatchId || !arrangementId) {
+    clearMailPreview()
+    mailPreviewLoading.value = false
+    return
+  }
+
+  mailPreviewLoading.value = true
+  mailPreviewError.value = ''
+  try {
+    const response = await getManuscriptMailPreview(dispatchId, arrangementId)
+    if (requestId !== mailPreviewRequestId) return
+    Object.assign(mailPreview, response || {})
+  } catch (error) {
+    if (requestId !== mailPreviewRequestId) return
+    clearMailPreview()
+    mailPreviewError.value = error.detail || '加载邮件预览失败'
+  } finally {
+    if (requestId === mailPreviewRequestId) {
+      mailPreviewLoading.value = false
+    }
+  }
+}
+
 function buildInlineSettlement(dispatch) {
   if (!dispatch) return []
   return (dispatch.arrangements || []).map((item) => ({
@@ -1335,12 +1303,11 @@ function buildInlineSettlement(dispatch) {
     status: item.status,
     translator_name_snapshot: item.translator_name_snapshot,
     cooperation_type_snapshot: item.cooperation_type_snapshot,
-    planned_word_count: item.planned_word_count,
-    actual_word_count: item.actual_word_count,
-    word_count_type: item.word_count_type || null,
+    planned: normalizeWordCountValues(item.planned),
+    actual: normalizeWordCountValues(item.actual),
     translation_scope: item.translation_scope,
     milestones: item.milestones || [],
-    settlement_method: item.settlement_method || null,
+    settlement_method: settlementInputValue(item),
     custom_settlement_method: item.custom_settlement_method || '',
     translator_unit_price:
       item.translator_unit_price === null ? null : Number(item.translator_unit_price),
@@ -1358,20 +1325,13 @@ watch(
 )
 
 async function saveInlineSettlement(row) {
-  if (row.settlement_method === 'other' && !row.custom_settlement_method.trim()) {
-    ElMessage.warning('请填写其他结算方式')
-    return
-  }
   const dispatch = selectedProjectDispatch.value
   if (!dispatch) return
   inlineSavingId.value = row.id
   try {
     await updateManuscriptSettlement(dispatch.id, row.id, {
-      actual_word_count: row.actual_word_count,
-      word_count_type: row.word_count_type || null,
-      settlement_method: row.settlement_method || null,
-      custom_settlement_method:
-        row.settlement_method === 'other' ? row.custom_settlement_method || null : null,
+      settlement_method: String(row.settlement_method || '').trim() || null,
+      custom_settlement_method: null,
       translator_unit_price: row.translator_unit_price,
       translator_total_price: row.translator_total_price
     })
@@ -1397,12 +1357,24 @@ const dispatchForm = reactive({
   arrangements: []
 })
 
+watch(
+  [
+    () => mailStageVisible.value,
+    () => selectedProjectDispatch.value?.id,
+    () => activeExistingArrangement.value?.id
+  ],
+  loadActiveMailPreview,
+  { immediate: true }
+)
+
 const settlementForm = reactive({
   dispatch_id: '',
   arrangement_id: '',
+  entity_type: 'project',
+  entity_id: '',
   translator_name: '',
-  actual_word_count: null,
-  word_count_type: null,
+  actual: createEmptyWordCountValues(),
+  word_count_matrix: createEmptyWordCountMatrix(),
   settlement_method: null,
   custom_settlement_method: '',
   translator_unit_price: null,
@@ -1431,6 +1403,17 @@ const PROJECT_STATUS_LABELS = {
   in_progress: '已确认',
   completed: '已发客户',
   terminated: '已取消'
+}
+const HIDDEN_MANUSCRIPT_PROJECT_STATUSES = new Set([
+  '',
+  'pending',
+  'pending_confirmation'
+])
+
+function canShowInManuscriptArrangements(row) {
+  return !HIDDEN_MANUSCRIPT_PROJECT_STATUSES.has(
+    String(row?.project_status || '').trim()
+  )
 }
 
 const mailStatusTagType = computed(() => {
@@ -1482,33 +1465,16 @@ const workspaceSelectedTranslatorSummary = computed(() =>
     .join('、')
 )
 
-const plannedWordTotal = computed(() =>
-  dispatchForm.arrangements.reduce(
-    (total, item) => total + Number(item.planned_word_count || 0),
-    0
-  )
-)
-
-const selectedProjectWordBasis = computed(() => projectWordBasis(selectedProject.value))
-
-const wordDifference = computed(
-  () => plannedWordTotal.value - Number(selectedProjectWordBasis.value || 0)
+const plannedWordTotals = computed(() =>
+  sumWordCountValues(dispatchForm.arrangements.map((item) => item.planned))
 )
 
 const wordDifferenceMessage = computed(() => {
-  const basis = Number(selectedProjectWordBasis.value || 0)
-  if (!basis) return `当前已分配 ${formatInteger(plannedWordTotal.value)} 字，项目未填写可比较字数。`
-  if (wordDifference.value === 0) return `已分配 ${formatInteger(plannedWordTotal.value)} 字，与项目字数一致。`
-  if (wordDifference.value < 0) {
-    return `已分配 ${formatInteger(plannedWordTotal.value)} 字，尚有 ${formatInteger(Math.abs(wordDifference.value))} 字未分配。`
-  }
-  return `已分配 ${formatInteger(plannedWordTotal.value)} 字，超出项目字数 ${formatInteger(wordDifference.value)} 字；如包含重叠审校可继续保存。`
+  const estimate = selectedProject.value?.word_count_matrix?.translator_estimate
+  return `译员预定合计：${formatWordCountValues(plannedWordTotals.value)}；项目预估：${formatWordCountValues(estimate)}。各计量口径分别汇总。`
 })
 
-const wordDifferenceType = computed(() => {
-  if (!selectedProjectWordBasis.value) return 'info'
-  return wordDifference.value === 0 ? 'success' : 'warning'
-})
+const wordDifferenceType = computed(() => 'info')
 
 function preferredEmail(row) {
   return String(row?.email1 || row?.email2 || row?.recipient_email || '').trim()
@@ -1560,22 +1526,36 @@ function handleWorkspaceTranslatorSelection(selection) {
   }
 }
 
-function activateTranslatorRow(row) {
+function handleTranslatorRowClick(row, column) {
+  if (!row || column?.type === 'selection') return
+
+  const isSelected = workspaceSelectedTranslators.value.some(
+    (item) => item.id === row.id
+  )
+  workspaceTranslatorTableRef.value?.toggleRowSelection(row, !isSelected)
+
   if (
-    dispatchForm.arrangements.some((item) => item.translator_id === row?.id)
+    !isSelected
+    && dispatchForm.arrangements.some((item) => item.translator_id === row.id)
   ) {
     activeArrangementTranslatorId.value = row.id
   }
 }
 
-function settlementLabel(row) {
+function settlementInputValue(row) {
   const labels = {
     single: '单结',
     monthly: '月结',
-    prepaid: '预付',
-    other: row.custom_settlement_method || '其他'
+    prepaid: '预付'
   }
-  return labels[row.settlement_method] || '未填写'
+  if (row?.settlement_method === 'other') {
+    return String(row?.custom_settlement_method || '其他').trim()
+  }
+  return labels[row?.settlement_method] || String(row?.settlement_method || '').trim()
+}
+
+function settlementLabel(row) {
+  return settlementInputValue(row) || '未填写'
 }
 
 function dispatchStatusMeta(status) {
@@ -1631,41 +1611,6 @@ function formatInteger(value) {
   return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
 }
 
-function hasWordCount(value) {
-  return value !== null && value !== undefined && value !== ''
-}
-
-function normalizeWordCountType(value) {
-  const normalized = String(value || '').trim()
-  if (!normalized) return null
-  return wordCountTypeOptions.find(
-    (item) => item.value === normalized || item.label === normalized
-  )?.value || null
-}
-
-function formatWordCountType(value) {
-  return wordCountTypeOptions.find((item) => item.value === value)?.label || value || '未选口径'
-}
-
-function projectWordCountType(row) {
-  if (!row) return null
-  if (hasWordCount(row.expected_translator_word_count)) {
-    const expectedType = normalizeWordCountType(row.expected_translator_stats_method)
-    if (expectedType) return expectedType
-  }
-  if (hasWordCount(row.internal_word_count)) return row.internal_word_count_type || null
-  if (hasWordCount(row.customer_word_count)) return row.customer_word_count_type || null
-  return normalizeWordCountType(row.expected_translator_stats_method)
-}
-
-function formatProjectWordDimension(row, source) {
-  if (!row) return '未填写'
-  const value = row[`${source}_word_count`]
-  const type = row[`${source}_word_count_type`]
-  if (!hasWordCount(value)) return '未填写'
-  return `${formatInteger(value)} · ${formatWordCountType(type)}`
-}
-
 function formatMoney(value) {
   if (value === null || value === undefined || value === '') return '-'
   return `¥${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -1677,87 +1622,51 @@ function isOverdue(value) {
   return Number.isFinite(time) && time < Date.now()
 }
 
-function projectWordBasis(row) {
-  if (!row) return 0
-  return row.expected_translator_word_count
-    ?? row.internal_word_count
-    ?? row.customer_word_count
-    ?? row.word_count
-    ?? 0
+function projectWordSummary(row) {
+  return formatWordCountMatrix(row?.word_count_matrix, { empty: '未填写' })
 }
 
-function projectWordSummary(row) {
-  if (!row) return '未填写'
-  if (hasWordCount(row.expected_translator_word_count)) {
-    return `预计译员字数 ${formatInteger(row.expected_translator_word_count)} · ${formatWordCountType(normalizeWordCountType(row.expected_translator_stats_method) || row.expected_translator_stats_method)}`
-  }
-  if (hasWordCount(row.internal_word_count)) {
-    return `内部 ${formatProjectWordDimension(row, 'internal')}`
-  }
-  if (hasWordCount(row.customer_word_count)) {
-    return `客户 ${formatProjectWordDimension(row, 'customer')}`
-  }
-  if (hasWordCount(row.word_count)) return `历史 ${formatInteger(row.word_count)}`
-  return '未填写'
+function projectWordCount(row) {
+  return projectWordSummary(row)
 }
 
 function assignmentWordSummary(assignment) {
   if (!assignment) return '未填写'
-  return `预定 ${formatInteger(assignment.planned_word_count)} / 实际 ${formatInteger(assignment.actual_word_count)} · ${formatWordCountType(assignment.word_count_type)}`
+  return `预定：${formatWordCountValues(assignment.planned)} / 实际：${formatWordCountValues(assignment.actual)}`
 }
 
-function wordCountAssignmentTranslatorName(assignment) {
-  return assignment?.translator_name_snapshot
-    || translatorById(assignment?.translator_id)?.translator_name
-    || '当前译员'
+function assignmentTotalSummary(dispatch, dimension) {
+  const totals = sumWordCountValues(
+    activeAssignments(dispatch).map((item) => item?.[dimension])
+  )
+  return formatWordCountValues(totals)
 }
 
-function openWordCountDrawer(assignment, readonly = false) {
-  if (!assignment) return
-  wordCountDrawerSettlementOnly.value = false
-  if (dispatchForm.arrangements.includes(assignment)) {
-    wordCountDrawerAssignments.value = dispatchForm.arrangements
-  } else if (inlineSettlement.value.includes(assignment)) {
-    wordCountDrawerAssignments.value = inlineSettlement.value
-    wordCountDrawerSettlementOnly.value = true
-  } else {
-    wordCountDrawerAssignments.value = [assignment]
-  }
-  wordCountDrawerReadonly.value = Boolean(readonly)
-  wordCountDrawerVisible.value = true
+function matrixEntityType(row) {
+  return row?.entity_type === 'suborder' ? 'suborder' : 'project'
 }
 
-async function completeWordCountDrawer() {
-  if (!wordCountDrawerSettlementOnly.value) {
-    wordCountDrawerVisible.value = false
-    return
-  }
-  const dispatch = selectedProjectDispatch.value
-  if (!dispatch) {
-    ElMessage.warning('未找到当前稿件安排批次')
-    return
-  }
-  wordCountDrawerSaving.value = true
-  try {
-    const editableRows = wordCountDrawerAssignments.value.filter(
-      (item) => item.status !== 'cancelled'
-    )
-    await Promise.all(
-      editableRows.map((item) =>
-        updateManuscriptSettlement(dispatch.id, item.id, {
-          actual_word_count: item.actual_word_count,
-          word_count_type: item.word_count_type || null
-        })
-      )
-    )
-    wordCountDrawerVisible.value = false
-    ElMessage.success('译员实际字数与计量口径已保存')
-    await loadDispatches()
-  } catch (error) {
-    ElMessage.error(error.detail || '保存字数详情失败')
-  } finally {
-    wordCountDrawerSaving.value = false
-  }
+function matrixEntityId(row) {
+  return matrixEntityType(row) === 'suborder' ? row?.sub_order_id : row?.translation_project_id
+}
+
+async function handleWordCountMatrixSaved() {
+  const identity = projectIdentity(selectedProject.value)
+  await Promise.all([loadContext(), loadDispatches()])
+  const freshProject = activeProjects.value.find((item) => projectIdentity(item) === identity)
+  if (freshProject) selectedProject.value = freshProject
+  const freshDispatch = selectedProjectDispatch.value
+  if (freshDispatch && dispatchForm.id === freshDispatch.id) hydrateDispatchForm(freshDispatch)
+  else applySingleTranslatorEstimateDefault()
+  await loadActiveMailPreview()
+}
+
+async function handleSettlementMatrixSaved(saved) {
+  const translator = saved?.translators?.find(
+    (item) => item.arrangement_id === settlementForm.arrangement_id
+  )
+  if (translator) settlementForm.actual = normalizeWordCountValues(translator.actual)
+  await handleWordCountMatrixSaved()
 }
 
 function projectIdentity(row) {
@@ -1800,6 +1709,13 @@ function legacyMilestoneName(milestone) {
   return name
 }
 
+function workbenchMilestoneLabel(milestone) {
+  const name = legacyMilestoneName(milestone)
+  if (milestone?.milestone_type === 'final') return '译员交稿全稿预定时间'
+  const phase = name.match(/(?:预定时间|阶段)(\d+)$/)
+  return phase ? `译员交稿_预定时间${phase[1]}` : name
+}
+
 function defaultMilestones() {
   return [
     { milestone_type: 'phase', name: '译员交稿_预定时间1', sequence_no: 1, planned_at: null },
@@ -1836,11 +1752,11 @@ function defaultBody(translator) {
 function createAssignment(translator) {
   return {
     translator_id: translator.id,
-    planned_word_count: null,
-    actual_word_count: null,
-    word_count_type: projectWordCountType(selectedProject.value),
+    translator_name: translator.translator_name,
+    planned: createEmptyWordCountValues(),
+    actual: createEmptyWordCountValues(),
     translation_scope: '',
-    settlement_method: null,
+    settlement_method: '',
     custom_settlement_method: '',
     translator_unit_price: null,
     translator_total_price: null,
@@ -1851,17 +1767,71 @@ function createAssignment(translator) {
   }
 }
 
+function normalizedProjectTranslatorEstimate() {
+  return normalizeWordCountValues(
+    selectedProject.value?.word_count_matrix?.translator_estimate
+      || selectedProject.value?.word_count_matrix?.translatorEstimate
+  )
+}
+
+function hasWordCountValue(values) {
+  return Object.values(normalizeWordCountValues(values)).some((value) => value !== null)
+}
+
+function serializedWordCountValues(values) {
+  return JSON.stringify(normalizeWordCountValues(values))
+}
+
+function applySingleTranslatorEstimateDefault(assignments = dispatchForm.arrangements) {
+  if (assignments.length !== 1) return
+
+  const estimate = normalizedProjectTranslatorEstimate()
+  if (!hasWordCountValue(estimate)) return
+
+  const assignment = assignments[0]
+  const currentSnapshot = serializedWordCountValues(assignment.planned)
+  const automaticSnapshot = assignment._projectEstimatePrefillSnapshot
+
+  // 自动值未被改动时，项目预估发生变化也同步刷新；人工填写的内容永不覆盖。
+  if (automaticSnapshot && currentSnapshot === automaticSnapshot) {
+    assignment.planned = estimate
+    assignment._projectEstimatePrefillSnapshot = serializedWordCountValues(estimate)
+    return
+  }
+  if (hasWordCountValue(assignment.planned)) return
+
+  assignment.planned = estimate
+  assignment._projectEstimatePrefillSnapshot = serializedWordCountValues(estimate)
+}
+
+function revokeUnchangedSingleTranslatorDefaults(assignments) {
+  if (assignments.length <= 1) return
+  assignments.forEach((assignment) => {
+    const automaticSnapshot = assignment._projectEstimatePrefillSnapshot
+    if (!automaticSnapshot) return
+
+    // 从单人改为多人时，仅撤回尚未被用户修改过的自动带入值。
+    if (serializedWordCountValues(assignment.planned) === automaticSnapshot) {
+      assignment.planned = createEmptyWordCountValues()
+    }
+    delete assignment._projectEstimatePrefillSnapshot
+  })
+}
+
 function syncSelectedTranslators(ids) {
   const existing = new Map(
     dispatchForm.arrangements.map((item) => [item.translator_id, item])
   )
-  dispatchForm.arrangements = ids
+  const assignments = ids
     .map((id) => {
       if (existing.has(id)) return existing.get(id)
       const translator = translatorById(id)
       return translator ? createAssignment(translator) : null
     })
     .filter(Boolean)
+  revokeUnchangedSingleTranslatorDefaults(assignments)
+  applySingleTranslatorEstimateDefault(assignments)
+  dispatchForm.arrangements = assignments
 }
 
 function removeAssignment(translatorId) {
@@ -1926,12 +1896,14 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
   dispatchForm.id = asNew ? '' : row.id
   dispatchForm.remarks = row.remarks || ''
   dispatchForm.arrangements = (row.arrangements || []).map((item) => ({
+    id: item.id,
     translator_id: item.translator_id,
-    planned_word_count: item.planned_word_count,
-    actual_word_count: item.actual_word_count,
-    word_count_type: item.word_count_type || projectWordCountType(selectedProject.value),
+    translator_name: item.translator_name_snapshot,
+    translator_name_snapshot: item.translator_name_snapshot,
+    planned: normalizeWordCountValues(item.planned),
+    actual: normalizeWordCountValues(item.actual),
     translation_scope: item.translation_scope || '',
-    settlement_method: item.settlement_method || null,
+    settlement_method: settlementInputValue(item),
     custom_settlement_method: item.custom_settlement_method || '',
     translator_unit_price:
       item.translator_unit_price === null ? null : Number(item.translator_unit_price),
@@ -1954,6 +1926,7 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
   )
   activeArrangementTranslatorId.value =
     dispatchForm.arrangements[0]?.translator_id || ''
+  if (asNew) applySingleTranslatorEstimateDefault()
 }
 
 function prepareWorkbenchForProject() {
@@ -2036,9 +2009,6 @@ function validateDispatchForm() {
     return '多人派稿时，每位译员都必须填写需翻译部分'
   }
   for (const assignment of dispatchForm.arrangements) {
-    if (assignment.settlement_method === 'other' && !assignment.custom_settlement_method.trim()) {
-      return `${translatorById(assignment.translator_id)?.translator_name || '译员'}：请填写其他结算方式`
-    }
     const dated = assignment.milestones
       .filter((item) => item.planned_at)
       .sort((a, b) => a.sequence_no - b.sequence_no)
@@ -2062,15 +2032,11 @@ function buildDispatchPayload() {
     remarks: dispatchForm.remarks || null,
     arrangements: dispatchForm.arrangements.map((item) => ({
       translator_id: item.translator_id,
-      planned_word_count: item.planned_word_count,
-      actual_word_count: item.actual_word_count,
-      word_count_type: item.word_count_type || null,
+      planned: item.planned,
+      actual: item.actual,
       translation_scope: item.translation_scope || null,
-      settlement_method: item.settlement_method || null,
-      custom_settlement_method:
-        item.settlement_method === 'other'
-          ? item.custom_settlement_method || null
-          : null,
+      settlement_method: String(item.settlement_method || '').trim() || null,
+      custom_settlement_method: null,
       translator_unit_price: item.translator_unit_price,
       translator_total_price: item.translator_total_price,
       email_subject: item.email_subject || null,
@@ -2226,10 +2192,12 @@ function openSettlementDialog(dispatch, assignment) {
   Object.assign(settlementForm, {
     dispatch_id: dispatch.id,
     arrangement_id: assignment.id,
+    entity_type: matrixEntityType(dispatch),
+    entity_id: matrixEntityId(dispatch),
     translator_name: assignment.translator_name_snapshot,
-    actual_word_count: assignment.actual_word_count,
-    word_count_type: assignment.word_count_type || null,
-    settlement_method: assignment.settlement_method || null,
+    actual: normalizeWordCountValues(assignment.actual),
+    word_count_matrix: createEmptyWordCountMatrix(),
+    settlement_method: settlementInputValue(assignment),
     custom_settlement_method: assignment.custom_settlement_method || '',
     translator_unit_price:
       assignment.translator_unit_price === null ? null : Number(assignment.translator_unit_price),
@@ -2241,33 +2209,21 @@ function openSettlementDialog(dispatch, assignment) {
 }
 
 async function saveSettlement() {
-  if (
-    settlementForm.settlement_method === 'other' &&
-    !settlementForm.custom_settlement_method.trim()
-  ) {
-    ElMessage.warning('请填写其他结算方式')
-    return
-  }
   settlementSaving.value = true
   try {
     await updateManuscriptSettlement(
       settlementForm.dispatch_id,
       settlementForm.arrangement_id,
       {
-        actual_word_count: settlementForm.actual_word_count,
-        word_count_type: settlementForm.word_count_type || null,
-        settlement_method: settlementForm.settlement_method,
-        custom_settlement_method:
-          settlementForm.settlement_method === 'other'
-            ? settlementForm.custom_settlement_method
-            : null,
+        settlement_method: String(settlementForm.settlement_method || '').trim() || null,
+        custom_settlement_method: null,
         translator_unit_price: settlementForm.translator_unit_price,
         translator_total_price: settlementForm.translator_total_price,
         remarks: settlementForm.remarks || null
       }
     )
     settlementDialogVisible.value = false
-    ElMessage.success('实际字数与结算信息已保存')
+    ElMessage.success('结算信息已保存')
     await loadDispatches()
   } catch (error) {
     ElMessage.error(error.detail || '保存结算信息失败')
@@ -2284,7 +2240,7 @@ async function loadContext() {
       project_limit: 100
     })
     activeProjects.value = Array.isArray(response?.active_projects?.items)
-      ? response.active_projects.items
+      ? response.active_projects.items.filter(canShowInManuscriptArrangements)
       : []
     translators.value = Array.isArray(response?.translators) ? response.translators : []
     if (
@@ -2334,6 +2290,7 @@ async function loadAll() {
   loading.value = true
   try {
     await Promise.all([loadContext(), loadDispatches(), loadMailStatus()])
+    await loadActiveMailPreview()
   } finally {
     loading.value = false
   }
@@ -2346,13 +2303,11 @@ onMounted(loadAll)
 .manuscript-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 1120px;
 }
 
-.page-header,
 .panel-header,
-.header-actions,
 .panel-tools,
 .selection-bar,
 .assignment-card__header,
@@ -2361,7 +2316,6 @@ onMounted(loadAll)
   align-items: center;
 }
 
-.page-header,
 .panel-header,
 .selection-bar,
 .assignment-card__header,
@@ -2369,20 +2323,56 @@ onMounted(loadAll)
   justify-content: space-between;
 }
 
-.page-header h1,
 .panel-header h2 {
   margin: 0;
 }
 
-.page-header p,
+.panel-header h2 {
+  flex: none;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.panel-header > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.panel-header > div:first-child > span {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panel-header span {
   margin: 5px 0 0;
   color: var(--el-text-color-secondary);
 }
 
-.header-actions,
 .panel-tools {
   gap: 10px;
+}
+
+.panel-tools__divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0;
+  background: var(--el-border-color);
+}
+
+.panel-header .el-button {
+  height: 28px;
+  min-height: 28px;
+}
+
+.panel-header :deep(.el-input__wrapper) {
+  min-height: 28px;
 }
 
 .legacy-workbench {
@@ -2403,6 +2393,10 @@ onMounted(loadAll)
   border-right: 1px solid var(--el-border-color);
 }
 
+.legacy-workbench__left.is-project-collapsed {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .legacy-project-panel,
 .legacy-translator-panel,
 .legacy-assignment-panel {
@@ -2417,11 +2411,27 @@ onMounted(loadAll)
   border-bottom: 1px solid var(--el-border-color);
 }
 
+.legacy-project-panel.is-collapsed :deep(.el-card__body) {
+  display: none;
+}
+
+.project-panel-toggle {
+  flex: none;
+}
+
 .legacy-project-panel :deep(.el-card__header),
-.legacy-translator-panel :deep(.el-card__header),
-.legacy-assignment-panel :deep(.el-card__header) {
-  padding: 10px 12px;
+.legacy-translator-panel :deep(.el-card__header) {
+  padding: 5px 10px;
   background: var(--el-fill-color-light);
+}
+
+.legacy-assignment-panel :deep(.el-card__header) {
+  padding: 6px 10px;
+  background: var(--el-fill-color-light);
+}
+
+.records-panel :deep(.el-card__header) {
+  padding: 6px 12px;
 }
 
 .legacy-project-panel :deep(.el-card__body),
@@ -2430,7 +2440,7 @@ onMounted(loadAll)
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px 10px 10px;
+  padding: 6px 8px 8px;
 }
 
 .legacy-project-panel :deep(.el-table),
@@ -2446,6 +2456,16 @@ onMounted(loadAll)
   flex-direction: column;
 }
 
+.legacy-translator-panel :deep(.el-table__row) {
+  cursor: pointer;
+}
+
+.legacy-project-panel :deep(.el-table .cell),
+.legacy-translator-panel :deep(.el-table .cell) {
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
 .legacy-assignment-panel :deep(.el-card__body) {
   flex: 1;
   min-height: 0;
@@ -2455,12 +2475,20 @@ onMounted(loadAll)
 
 .legacy-assignment-panel__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
+.legacy-assignment-panel__header > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .legacy-assignment-panel__header h2 {
+  flex: none;
   margin: 0;
   color: var(--el-color-primary);
   font-size: 16px;
@@ -2468,9 +2496,13 @@ onMounted(loadAll)
 
 .legacy-assignment-panel__header span {
   display: block;
-  margin-top: 4px;
+  min-width: 0;
+  margin-top: 0;
+  overflow: hidden;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .legacy-assignment-body {
@@ -2490,10 +2522,16 @@ onMounted(loadAll)
   margin-bottom: 8px;
 }
 
-.legacy-field-grid,
+.legacy-field-grid {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  border-top: 1px solid var(--el-border-color);
+  border-left: 1px solid var(--el-border-color);
+}
+
 .legacy-mail-fields {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 116px minmax(0, 1fr);
   border-top: 1px solid var(--el-border-color);
   border-left: 1px solid var(--el-border-color);
 }
@@ -2503,13 +2541,13 @@ onMounted(loadAll)
   display: flex;
   min-height: 39px;
   align-items: center;
-  padding: 7px 8px;
+  padding: 7px 6px;
   border-right: 1px solid var(--el-border-color);
   border-bottom: 1px solid var(--el-border-color);
   background: var(--el-color-primary-light-9);
   color: var(--el-text-color-regular);
   font-size: 13px;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 .legacy-field-grid > :not(label),
@@ -2536,140 +2574,6 @@ onMounted(loadAll)
   color: var(--el-text-color-regular);
 }
 
-.word-count-drawer__alert {
-  margin-bottom: 16px;
-}
-
-.word-count-sheet-section {
-  margin-bottom: 20px;
-}
-
-.word-count-sheet-section__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-  color: var(--el-text-color-primary);
-}
-
-.word-count-sheet-section__header span {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.excel-word-grid {
-  overflow-x: auto;
-  border-top: 1px solid var(--el-border-color);
-  border-left: 1px solid var(--el-border-color);
-}
-
-.excel-word-grid table {
-  width: 100%;
-  min-width: 700px;
-  table-layout: fixed;
-  border-collapse: collapse;
-}
-
-.excel-word-grid__source {
-  width: 155px;
-}
-
-.excel-word-grid__count {
-  width: 135px;
-}
-
-.excel-word-grid__method {
-  width: 220px;
-}
-
-.excel-word-grid__usage {
-  width: auto;
-}
-
-.excel-word-grid__translator {
-  width: 155px;
-}
-
-.excel-word-grid__settlement-count {
-  width: 170px;
-}
-
-.excel-word-grid__settlement-method {
-  width: auto;
-}
-
-.excel-word-grid th,
-.excel-word-grid td {
-  height: 46px;
-  padding: 0;
-  border-right: 1px solid var(--el-border-color);
-  border-bottom: 1px solid var(--el-border-color);
-  vertical-align: middle;
-}
-
-.excel-word-grid thead th {
-  padding: 10px 12px;
-  background: var(--el-fill-color-dark);
-  color: var(--el-text-color-primary);
-  text-align: left;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.excel-word-grid tbody th {
-  padding: 8px 12px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
-  text-align: left;
-  font-weight: 500;
-}
-
-.excel-word-grid__text {
-  padding: 8px 12px !important;
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.excel-word-grid--readonly tbody td {
-  background: var(--el-fill-color-lighter);
-}
-
-.excel-word-grid__compatibility th,
-.excel-word-grid__compatibility td {
-  background: var(--el-fill-color-lighter);
-  color: var(--el-text-color-secondary);
-}
-
-.excel-word-grid__editor :deep(.el-input-number),
-.excel-word-grid__editor :deep(.el-select),
-.excel-word-grid__editor :deep(.el-input) {
-  width: 100%;
-  height: 45px;
-}
-
-.excel-word-grid__editor :deep(.el-input__wrapper),
-.excel-word-grid__editor :deep(.el-select__wrapper) {
-  min-height: 45px;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.excel-word-grid__editor :deep(.el-input-number .el-input__wrapper) {
-  padding-left: 12px;
-}
-
-.excel-word-grid__editor :deep(.el-input-number__increase),
-.excel-word-grid__editor :deep(.el-input-number__decrease) {
-  border-radius: 0;
-}
-
-.excel-word-grid__editor:focus-within {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: -2px;
-}
-
 .legacy-mail-editor {
   margin-top: 12px;
 }
@@ -2689,6 +2593,10 @@ onMounted(loadAll)
 
 .panel-tools .el-input {
   width: 290px;
+}
+
+.panel-tools.project-panel-tools .el-input {
+  width: 200px;
 }
 
 .dispatch-overview {
@@ -2736,6 +2644,17 @@ onMounted(loadAll)
 
 .translator-tabs {
   margin-top: -8px;
+}
+
+.translator-tabs :deep(.el-tabs__header) {
+  margin-bottom: 6px;
+}
+
+.translator-tabs :deep(.el-tabs__item.is-top) {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 30px;
 }
 
 .table-footer {

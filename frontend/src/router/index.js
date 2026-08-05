@@ -164,7 +164,7 @@ const routes = [
         path: 'pending-modules',
         name: 'PendingModules',
         component: () => import('../views/PendingModules.vue'),
-        meta: { title: '待完善模块' }
+        meta: { title: '待完善模块', roles: ['*'] }
       },
       // 营销管理
       {

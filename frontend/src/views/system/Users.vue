@@ -60,26 +60,21 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="380" fixed="right">
+      <el-table-column label="操作" width="160" fixed="right" align="center">
         <template #default="{ row }">
-          <el-button
+          <TableActionButton
             v-if="canAssignRoles"
-            type="success"
-            size="small"
+            action="assign"
+            label="分配角色"
             @click="handleAssignRoles(row)"
-          >
-            分配角色
-          </el-button>
-          <el-button
+          />
+          <TableActionButton
             v-if="canResetPassword"
-            type="warning"
-            size="small"
+            action="password"
             @click="handleResetPassword(row)"
-          >
-            修改密码
-          </el-button>
-          <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+          />
+          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
     </el-table>

@@ -1,11 +1,11 @@
 import api from './index'
 
-export const getTranslators = (params) => {
-  return api.get('/translators/', { params })
+export const getTranslators = (params, config = {}) => {
+  return api.get('/translators/', { ...config, params })
 }
 
-export const getTranslatorCount = (params) => {
-  return api.get('/translators/count', { params })
+export const getTranslatorCount = (params, config = {}) => {
+  return api.get('/translators/count', { ...config, params })
 }
 
 export const getTranslator = (id) => {

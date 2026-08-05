@@ -236,7 +236,7 @@ class Translator(Base):
     other_contact: Mapped[Optional[str]] = mapped_column(String(255))
     overdue_count: Mapped[Optional[int]] = mapped_column(server_default=text('0'))
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
-    first_contact_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    first_contact_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     # 可用性与产能字段（项目助理周一/五更新）
     status: Mapped[Optional[str]] = mapped_column(String(20), server_default=text("'standby'"))
@@ -328,12 +328,6 @@ class TranslationProject(Base):
     
     language_pair: Mapped[Optional[str]] = mapped_column(String(500))
     priority: Mapped[Optional[str]] = mapped_column(String(50))
-    word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    # 按统计来源拆分字数；word_count 继续作为旧数据兼容字段。
-    customer_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    customer_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
-    internal_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    internal_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
     
     project_status: Mapped[Optional[str]] = mapped_column(String(50))
     # 管理层主负责人；与工作流当前处理人分离。
@@ -343,8 +337,6 @@ class TranslationProject(Base):
     
     translator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     translator_assignment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-    expected_translator_stats_method: Mapped[Optional[str]] = mapped_column(String(100))
-    expected_translator_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
     
     translator_delivery_progress: Mapped[Optional[str]] = mapped_column(String(20))
     pre_review_qc_progress: Mapped[Optional[str]] = mapped_column(String(20))
@@ -415,12 +407,6 @@ class TranslationSubOrder(Base):
     file_type_secondary: Mapped[Optional[str]] = mapped_column(String(100))
     language_pair: Mapped[Optional[str]] = mapped_column(String(500))
     priority: Mapped[Optional[str]] = mapped_column(String(50))
-    word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    # 子订单可覆盖母项目的客户统计和内部统计。
-    customer_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    customer_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
-    internal_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
-    internal_word_count_type: Mapped[Optional[str]] = mapped_column(String(50))
 
     # 时间节点（子订单独立的时间）
     customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -430,8 +416,6 @@ class TranslationSubOrder(Base):
     # 译员信息
     translator_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     translator_assignment_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-    expected_translator_stats_method: Mapped[Optional[str]] = mapped_column(String(100))
-    expected_translator_word_count: Mapped[Optional[int]] = mapped_column(BigInteger)
 
     # 各流程进度（与母订单字段一致）
     status: Mapped[Optional[str]] = mapped_column(String(50), server_default=text("'pending'"))
