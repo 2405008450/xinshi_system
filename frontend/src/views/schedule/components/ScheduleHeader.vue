@@ -1,6 +1,9 @@
 <template>
   <div class="card-header">
     <span class="card-title">{{ title }}</span>
+    <div v-if="$slots.context" class="header-context">
+      <slot name="context" />
+    </div>
     <div class="header-actions">
       <el-date-picker
         :model-value="modelValue"
@@ -49,5 +52,18 @@ defineEmits(['update:modelValue', 'change', 'addTask', 'copyFromYesterday'])
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.header-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .header-context {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
 }
 </style>

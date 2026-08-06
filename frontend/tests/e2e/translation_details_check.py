@@ -34,9 +34,11 @@ ALL_COLUMN_KEYS = [
     "id", "orderNo", "projectName", "serviceContent", "taskType", "consultationId",
     "clientId", "subClientId", "clientShortName", "clientCode", "customerOrderNo",
     "projectManagerName", "clientManager", "managerContact", "projectStatus",
-    "fileTypeSecondary", "projectFileName", "projectFileTranslationDomainLevel1",
-    "projectFileTypeLevel1", "projectFileFormat", "projectFileAttributeLevel1",
-    "projectFileDifficulty", "projectContractType", "quotationRequired",
+    "fileTypeSecondary", "projectFileTranslationDomainLevel1", "projectFileTranslationDomainLevel2",
+    "projectFileTypeLevel1", "projectFileTypeLevel2", "projectFileFormat",
+    "projectFileAttributeLevel1", "projectFileAttributeLevel2", "projectFileAttributeLevel3",
+    "projectFileDifficulty", "projectContractType", "projectContractStatus", "quotationRequired",
+    "quotationStatus", "quotationPath",
     "customerRequirementProfessional", "customerRequirementSpecial", "languagePair",
     "priority", "customerWordCount", "customerWordCountType", "internalWordCount",
     "internalWordCountType", "wordCount", "customerReceptionTime", "customerDeadlineTime",
@@ -44,7 +46,7 @@ ALL_COLUMN_KEYS = [
     "assignedTranslators", "translatorAssignmentTime", "expectedTranslatorStatsMethod",
     "expectedTranslatorWordCount", "translatorDeliveryProgress", "preReviewQcProgress",
     "review1Progress", "review2Progress", "postReviewQcProgress", "layoutProgress",
-    "consolidationProgress", "networkFilePath", "referenceFilePathOne", "createdBy",
+    "consolidationProgress", "createdBy",
     "createdAt", "updatedAt",
 ]
 
@@ -95,12 +97,14 @@ def check_field_search(page, can_write: bool) -> list[str]:
         )
         return target
 
-    network_path = locate("网络路径", "网络文件路径", "networkFilePath")
+    word_count = locate("字数", "字数与预估", "wordCountSummary")
     active_tab = dialog.locator(".el-tabs__item.is-active").inner_text().strip()
-    if active_tab != "分配与预估":
-        failures.append(f"跨 Tab 定位失败，当前 Tab 为“{active_tab}”")
-    if "is-field-search-highlight" not in (network_path.get_attribute("class") or ""):
-        failures.append("网络文件路径定位后未高亮")
+    if active_tab != "基础信息":
+        failures.append(f"字数与预估定位失败，当前 Tab 为“{active_tab}”")
+    if "is-field-search-highlight" not in (word_count.get_attribute("class") or ""):
+        failures.append("字数与预估定位后未高亮")
+    if dialog.get_by_role("tab", name="分配与预估", exact=True).count():
+        failures.append("仍存在已废弃的“分配与预估”页签")
 
     dialog.get_by_role("tab", name="基础信息", exact=True).click()
     business_section = dialog.locator(".el-collapse-item").filter(

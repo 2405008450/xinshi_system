@@ -21,6 +21,7 @@ from workflow_models import (
     WorkflowLog,
 )
 from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave
+from leave_service import ensure_user_assignable
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -99,27 +100,31 @@ from crud import (
 )
 from notification_ws import dispatch_personal_message
 
-def get_my_tasks(db: Session, user_id: UUID) -> list:
-    """查询当前用户作为负责人（或同组指派）且未完成的工作流实例，包含母订单和子订单"""
+def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> list:
+    """查询未完成的工作流实例；超级管理员可按需查看全部执行任务。"""
     roles = get_user_roles_with_role_names(db, user_id)
+    can_view_all = include_all and not set(roles).isdisjoint(SUPER_TRANSFER_ROLES)
     is_customer_specialist = '客户专员' in roles
     group_filters = [WorkflowInstance.group_assign_role == role for role in roles] if roles else []
 
-    if is_customer_specialist:
-        base_conditions = [
-            WorkflowInstance.current_assignee_id == user_id,
-            (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None),
-        ]
+    if can_view_all:
+        scope_conditions = []
     else:
-        base_conditions = [WorkflowInstance.current_assignee_id == user_id]
-
-    filter_cond = or_(*base_conditions, *group_filters) if group_filters else or_(*base_conditions)
+        if is_customer_specialist:
+            base_conditions = [
+                WorkflowInstance.current_assignee_id == user_id,
+                (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None),
+            ]
+        else:
+            base_conditions = [WorkflowInstance.current_assignee_id == user_id]
+        filter_cond = or_(*base_conditions, *group_filters) if group_filters else or_(*base_conditions)
+        scope_conditions = [filter_cond]
 
     # 查询母订单工作流
     proj_query = db.query(WorkflowInstance, TranslationProject, Client)\
         .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\
-        .filter(filter_cond, WorkflowInstance.current_stage_key != 'completed',
+        .filter(*scope_conditions, WorkflowInstance.current_stage_key != 'completed',
                 WorkflowInstance.translation_project_id != None)
     proj_results = proj_query.all()
 
@@ -128,7 +133,7 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
         .join(TranslationSubOrder, WorkflowInstance.sub_order_id == TranslationSubOrder.id)\
         .join(TranslationProject, TranslationSubOrder.parent_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\
-        .filter(filter_cond, WorkflowInstance.current_stage_key != 'completed',
+        .filter(*scope_conditions, WorkflowInstance.current_stage_key != 'completed',
                 WorkflowInstance.sub_order_id != None)
     sub_results = sub_query.all()
 
@@ -151,7 +156,11 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
                 (wf.current_assignee.full_name or wf.current_assignee.username)
                 if wf.current_assignee else None
             ),
-            'assignment_type': 'direct' if wf.current_assignee_id == user_id else 'role_pool',
+            'assignment_type': (
+                'direct' if wf.current_assignee_id == user_id
+                else 'overview' if can_view_all
+                else 'role_pool'
+            ),
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
             'customer_deadline_time': proj.customer_deadline_time,
@@ -177,7 +186,11 @@ def get_my_tasks(db: Session, user_id: UUID) -> list:
                 (wf.current_assignee.full_name or wf.current_assignee.username)
                 if wf.current_assignee else None
             ),
-            'assignment_type': 'direct' if wf.current_assignee_id == user_id else 'role_pool',
+            'assignment_type': (
+                'direct' if wf.current_assignee_id == user_id
+                else 'overview' if can_view_all
+                else 'role_pool'
+            ),
             'difficulty': wf.difficulty,
             'project_status': wf.project_status,
             'customer_deadline_time': sub.customer_deadline_time,
@@ -394,6 +407,7 @@ def create_handover_request(
     target = db.query(AppUser).filter(AppUser.id == target_user_id, AppUser.is_active == True).first()
     if target is None:
         raise ValueError('接收用户不存在或已停用')
+    ensure_user_assignable(db, target.id)
     target_roles = set(get_user_roles_with_role_names(db, target.id))
     if any(not _user_can_take_stage(target_roles, instance.current_stage_key) for instance in instances):
         raise PermissionError('接收用户不具备部分任务当前阶段所需角色')
@@ -545,7 +559,7 @@ def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
     }
 
 
-def _serialize_managed_project(project: TranslationProject) -> dict:
+def serialize_managed_project(project: TranslationProject) -> dict:
     selected_client = project.sub_client or project.client
     return {
         'translation_project_id': project.id,
@@ -560,7 +574,7 @@ def _serialize_managed_project(project: TranslationProject) -> dict:
 
 
 def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
-    """返回当前项目经理负责的项目；超级管理员可查看全部管理归属。"""
+    """返回当前项目经理负责或可承接的项目；超级管理员可查看全部管理归属。"""
     roles = set(get_user_roles_with_role_names(db, current_user.id))
     is_super = bool(roles & SUPER_TRANSFER_ROLES)
     if '项目经理' not in roles and not is_super:
@@ -580,10 +594,15 @@ def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
         )
     )
     if not is_super:
-        query = query.filter(TranslationProject.project_manager_id == current_user.id)
+        query = query.filter(
+            or_(
+                TranslationProject.project_manager_id == current_user.id,
+                TranslationProject.project_manager_id.is_(None),
+            )
+        )
 
     return [
-        _serialize_managed_project(project)
+        serialize_managed_project(project)
         for project in query.order_by(
             TranslationProject.customer_deadline_time.asc().nullslast(),
             TranslationProject.created_at.desc(),
@@ -604,6 +623,69 @@ def get_project_manager_candidates(
         ),
         key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()),
     )
+
+
+def claim_management_projects(
+    db: Session,
+    current_user: AppUser,
+    translation_project_ids: list[UUID],
+) -> list[TranslationProject]:
+    """项目经理直接承接尚未绑定管理主负责人的项目。"""
+    roles = set(get_user_roles_with_role_names(db, current_user.id))
+    if '项目经理' not in roles:
+        raise PermissionError('只有项目经理可以自主承接未绑定的管理项目')
+    ensure_user_assignable(db, current_user.id)
+
+    unique_ids = list(dict.fromkeys(translation_project_ids))
+    if not unique_ids:
+        raise ValueError('请至少选择一个需要承接的管理项目')
+
+    projects = (
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.client),
+            selectinload(TranslationProject.sub_client),
+            selectinload(TranslationProject.project_manager),
+        )
+        .filter(
+            TranslationProject.id.in_(unique_ids),
+            func.coalesce(TranslationProject.project_status, '').notin_(
+                ['completed', 'terminated', 'cancelled', 'partially_cancelled']
+            ),
+        )
+        .with_for_update()
+        .all()
+    )
+    if len(projects) != len(unique_ids):
+        raise LookupError('部分管理项目不存在或已不再允许承接')
+    if any(project.project_manager_id is not None for project in projects):
+        raise LookupError('部分项目已被其他项目经理承接，请刷新后重试')
+
+    pending_project_ids = {
+        row.translation_project_id
+        for row in (
+            db.query(ProjectManagerHandoverItem.translation_project_id)
+            .join(
+                ProjectManagerHandoverRequest,
+                ProjectManagerHandoverRequest.id == ProjectManagerHandoverItem.request_id,
+            )
+            .filter(
+                ProjectManagerHandoverRequest.status == 'pending',
+                ProjectManagerHandoverItem.translation_project_id.in_(unique_ids),
+            )
+            .all()
+        )
+    }
+    if pending_project_ids:
+        raise LookupError('部分项目已有待确认的管理层交接，暂不能自主承接')
+
+    for project in projects:
+        project.project_manager_id = current_user.id
+
+    db.commit()
+    for project in projects:
+        db.refresh(project)
+    return projects
 
 
 def create_project_manager_handover(
@@ -628,6 +710,7 @@ def create_project_manager_handover(
     ).first()
     if not target or '项目经理' not in get_user_roles_with_role_names(db, target.id):
         raise ValueError('接收人必须是启用中的项目经理')
+    ensure_user_assignable(db, target.id)
 
     unique_ids = list(dict.fromkeys(translation_project_ids))
     if not unique_ids:
@@ -738,7 +821,7 @@ def serialize_project_manager_handover(request: ProjectManagerHandoverRequest) -
         'created_at': request.created_at,
         'decided_at': request.decided_at,
         'projects': [
-            _serialize_managed_project(item.project)
+            serialize_managed_project(item.project)
             for item in (request.items or [])
             if item.project
         ],
@@ -763,7 +846,9 @@ def decide_project_manager_handover(
             .joinedload(ProjectManagerHandoverItem.project),
         )
         .filter(ProjectManagerHandoverRequest.id == request_id)
-        .with_for_update()
+        # joinedload 会为申请人和接收人生成 LEFT OUTER JOIN。PostgreSQL 不允许
+        # 对外连接的可空侧执行 FOR UPDATE，因此这里只锁定交接申请主表。
+        .with_for_update(of=ProjectManagerHandoverRequest)
         .first()
     )
     if not request:
@@ -774,6 +859,7 @@ def decide_project_manager_handover(
         raise LookupError('该管理层交接申请已处理')
 
     if decision == 'accept':
+        ensure_user_assignable(db, current_user.id)
         if '项目经理' not in get_user_roles_with_role_names(db, current_user.id):
             raise PermissionError('当前用户已不具备项目经理角色，不能接收管理层项目归属')
         item_project_ids = [
@@ -891,6 +977,7 @@ def transfer_workflow_tasks(
     target = db.query(AppUser).filter(AppUser.id == target_id, AppUser.is_active == True).first()
     if target is None:
         raise ValueError('接收用户不存在或已停用')
+    ensure_user_assignable(db, target.id)
     target_roles = set(get_user_roles_with_role_names(db, target.id))
     if any(not _user_can_take_stage(target_roles, instance.current_stage_key) for instance in instances):
         raise PermissionError('接收用户不具备部分任务当前阶段所需角色')
@@ -1029,6 +1116,7 @@ def decide_handover_request(
 
     notifications = []
     if decision == 'accept':
+        ensure_user_assignable(db, target_user.id)
         items = db.query(WorkflowHandoverItem).filter(WorkflowHandoverItem.request_id == request.id).all()
         if not items:
             raise LookupError('交接申请中没有有效任务')
@@ -1197,17 +1285,7 @@ import datetime as _dt
 
 
 def _check_on_leave(db: Session, user_id: UUID):
-    now = _dt.datetime.now()
-    leave = db.query(EmployeeLeave).filter(
-        EmployeeLeave.employee_id == user_id,
-        EmployeeLeave.start_date <= now,
-        EmployeeLeave.end_date >= now,
-    ).first()
-    if leave:
-        raise ValueError(
-            f"The selected user {leave.employee_name} is currently on leave "
-            f"({leave.start_date.strftime('%Y-%m-%d %H:%M')} ~ {leave.end_date.strftime('%Y-%m-%d %H:%M')})."
-        )
+    ensure_user_assignable(db, user_id)
 
 
 import re

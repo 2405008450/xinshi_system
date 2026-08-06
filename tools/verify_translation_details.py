@@ -29,9 +29,11 @@ ALL_COLUMN_KEYS = [
     "id", "orderNo", "projectName", "serviceContent", "taskType", "consultationId",
     "clientId", "subClientId", "clientShortName", "clientCode", "customerOrderNo",
     "projectManagerName", "clientManager", "managerContact", "projectStatus",
-    "fileTypeSecondary", "projectFileName", "projectFileTranslationDomainLevel1",
-    "projectFileTypeLevel1", "projectFileFormat", "projectFileAttributeLevel1",
-    "projectFileDifficulty", "projectContractType", "quotationRequired",
+    "fileTypeSecondary", "projectFileTranslationDomainLevel1", "projectFileTranslationDomainLevel2",
+    "projectFileTypeLevel1", "projectFileTypeLevel2", "projectFileFormat",
+    "projectFileAttributeLevel1", "projectFileAttributeLevel2", "projectFileAttributeLevel3",
+    "projectFileDifficulty", "projectContractType", "projectContractStatus", "quotationRequired",
+    "quotationStatus", "quotationPath",
     "customerRequirementProfessional", "customerRequirementSpecial", "languagePair",
     "priority", "customerWordCount", "customerWordCountType", "internalWordCount",
     "internalWordCountType", "wordCount", "customerReceptionTime", "customerDeadlineTime",
@@ -39,7 +41,7 @@ ALL_COLUMN_KEYS = [
     "assignedTranslators", "translatorAssignmentTime", "expectedTranslatorStatsMethod",
     "expectedTranslatorWordCount", "translatorDeliveryProgress", "preReviewQcProgress",
     "review1Progress", "review2Progress", "postReviewQcProgress", "layoutProgress",
-    "consolidationProgress", "networkFilePath", "referenceFilePathOne", "createdBy",
+    "consolidationProgress", "createdBy",
     "createdAt", "updatedAt",
 ]
 

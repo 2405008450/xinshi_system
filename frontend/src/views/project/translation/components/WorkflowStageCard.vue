@@ -112,8 +112,9 @@
             <el-option
               v-for="user in nextStageUsers"
               :key="user.id"
-              :label="user.full_name || user.username || user.id"
+              :label="user.is_on_leave ? `${user.full_name || user.username || user.id}（${user.assignment_disabled_reason || '请假中'}）` : (user.full_name || user.username || user.id)"
               :value="user.id"
+              :disabled="user.is_on_leave"
             />
           </el-select>
         </template>
@@ -232,8 +233,9 @@
               <el-option
                 v-for="user in nextStageUsers"
                 :key="user.id"
-                :label="user.full_name || user.username || user.id"
+                :label="user.is_on_leave ? `${user.full_name || user.username || user.id}（${user.assignment_disabled_reason || '请假中'}）` : (user.full_name || user.username || user.id)"
                 :value="user.id"
+                :disabled="user.is_on_leave"
               />
             </el-select>
           </template>

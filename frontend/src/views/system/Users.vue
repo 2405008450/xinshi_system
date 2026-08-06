@@ -16,6 +16,8 @@
           v-model="searchForm.username"
           placeholder="请输入用户名"
           clearable
+          @input="handleTextInput"
+          @clear="handleSearch"
           @keyup.enter="handleSearch"
         />
       </el-form-item>
@@ -24,8 +26,15 @@
           v-model="searchForm.full_name"
           placeholder="请输入姓名"
           clearable
+          @input="handleTextInput"
+          @clear="handleSearch"
           @keyup.enter="handleSearch"
         />
+      </el-form-item>
+      <el-form-item label="部门">
+        <el-select v-model="searchForm.department" clearable placeholder="全部部门" style="width: 150px" @change="handleSearch">
+          <el-option v-for="department in departments" :key="department" :label="department" :value="department" />
+        </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
@@ -36,6 +45,9 @@
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column prop="username" label="用户名" width="150" />
       <el-table-column prop="full_name" label="全名" width="150" />
+      <el-table-column prop="department" label="部门" width="120">
+        <template #default="{ row }">{{ row.department || '未分部门' }}</template>
+      </el-table-column>
       <el-table-column prop="email" label="邮箱" width="200" />
       <el-table-column label="角色" min-width="220">
         <template #default="{ row }">
@@ -60,7 +72,7 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="160" fixed="right" align="center">
+      <el-table-column label="操作" width="230" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton
             v-if="canAssignRoles"
@@ -74,6 +86,7 @@
             @click="handleResetPassword(row)"
           />
           <TableActionButton action="edit" @click="handleEdit(row)" />
+          <el-button v-if="canManageSchedule" type="primary" link size="small" @click="handleShiftSettings(row)">排班设置</el-button>
           <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
@@ -114,6 +127,11 @@
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="form.email" />
+        </el-form-item>
+        <el-form-item label="部门" prop="department">
+          <el-select v-model="form.department" clearable placeholder="请选择部门" style="width: 100%">
+            <el-option v-for="department in departments" :key="department" :label="department" :value="department" />
+          </el-select>
         </el-form-item>
         <el-form-item label="状态" prop="is_active">
           <el-switch v-model="form.is_active" />
@@ -217,17 +235,19 @@
         </el-button>
       </template>
     </el-dialog>
+    <EmployeeShiftTemplateDialog v-model="shiftDialogVisible" :employee="shiftEmployee" @saved="fetchData" />
   </el-card>
 </template>
 
 <script setup>
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, Plus } from '@element-plus/icons-vue'
 import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
+import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShiftTemplateDialog.vue'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -241,6 +261,10 @@ const availableRoles = ref([])
 const userRoleRows = ref([])
 const canAssignRoles = computed(() => hasPermission('system:user_roles:write'))
 const canResetPassword = computed(() => isSuperAdmin())
+const canManageSchedule = computed(() => hasPermission('schedule:write'))
+const departments = ['项目经理', '翻译部', '项目部', '客户部', 'HR部', '排版', '招聘项目', '销售']
+const shiftDialogVisible = ref(false)
+const shiftEmployee = ref(null)
 const passwordDialogVisible = ref(false)
 const passwordSubmitting = ref(false)
 const passwordFormRef = ref(null)
@@ -281,7 +305,8 @@ const pagination = reactive({
 
 const searchForm = reactive({
   username: '',
-  full_name: ''
+  full_name: '',
+  department: ''
 })
 
 const form = reactive({
@@ -290,6 +315,7 @@ const form = reactive({
   password: '',
   full_name: '',
   email: '',
+  department: '',
   is_active: true
 })
 
@@ -298,7 +324,14 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+let searchTimer = null
+let requestController = null
+let requestSequence = 0
+
 const fetchData = async () => {
+  requestController?.abort()
+  requestController = new AbortController()
+  const sequence = ++requestSequence
   loading.value = true
   try {
     const userParams = {
@@ -307,18 +340,21 @@ const fetchData = async () => {
     }
     if (searchForm.username) userParams.username = searchForm.username
     if (searchForm.full_name) userParams.full_name = searchForm.full_name
+    if (searchForm.department) userParams.department = searchForm.department
 
     const requests = [
-      userApi.getUsers(userParams),
+      userApi.getUsers(userParams, requestController.signal),
       userApi.getUserCount({
         username: userParams.username,
-        full_name: userParams.full_name
-      })
+        full_name: userParams.full_name,
+        department: userParams.department
+      }, requestController.signal)
     ]
     if (canAssignRoles.value) {
       requests.push(userRoleApi.getUserRoles({ skip: 0, limit: 5000 }))
     }
     const [res, countRes, roleRows = []] = await Promise.all(requests)
+    if (sequence !== requestSequence) return
     userRoleRows.value = roleRows
     tableData.value = res.map((user) => ({
       ...user,
@@ -338,20 +374,28 @@ const fetchData = async () => {
       await fetchData()
     }
   } catch (error) {
-    ElMessage.error('获取数据失败')
+    if (error.code !== 'ERR_CANCELED' && sequence === requestSequence) ElMessage.error('获取数据失败')
   } finally {
-    loading.value = false
+    if (sequence === requestSequence) loading.value = false
   }
 }
 
 const handleSearch = () => {
+  clearTimeout(searchTimer)
   pagination.page = 1
   fetchData()
+}
+
+const handleTextInput = (value) => {
+  clearTimeout(searchTimer)
+  if (!value) return handleSearch()
+  searchTimer = setTimeout(handleSearch, 400)
 }
 
 const resetSearch = () => {
   searchForm.username = ''
   searchForm.full_name = ''
+  searchForm.department = ''
   handleSearch()
 }
 
@@ -427,6 +471,7 @@ const handleEdit = (row) => {
     password: '',
     full_name: row.full_name || '',
     email: row.email || '',
+    department: row.department || '',
     is_active: row.is_active
   })
   dialogVisible.value = true
@@ -437,6 +482,11 @@ const handleResetPassword = (row) => {
   passwordForm.newPassword = ''
   passwordForm.confirmPassword = ''
   passwordDialogVisible.value = true
+}
+
+const handleShiftSettings = (row) => {
+  shiftEmployee.value = { ...row, name: row.full_name || row.username }
+  shiftDialogVisible.value = true
 }
 
 const submitPasswordReset = async () => {
@@ -516,6 +566,7 @@ const resetForm = () => {
     password: '',
     full_name: '',
     email: '',
+    department: '',
     is_active: true
   })
   formRef.value?.resetFields()
@@ -523,6 +574,10 @@ const resetForm = () => {
 
 onMounted(() => {
   fetchData()
+})
+onBeforeUnmount(() => {
+  clearTimeout(searchTimer)
+  requestController?.abort()
 })
 </script>
 

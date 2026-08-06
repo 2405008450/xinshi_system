@@ -1,20 +1,14 @@
 <template>
-  <div v-if="!projectId">
-    <el-empty description="请先选择项目" />
-  </div>
-  <div v-else>
+  <div class="path-group-panel">
+    <el-empty v-if="!projectId && !allowDraft" description="请先选择项目" />
+    <template v-else>
     <div class="files-header">
       <div>
-        <strong>关联订单：{{ associatedOrderNo || '-' }}</strong>
-        <div class="files-description">文件记录固定归属于当前订单，不能单独选择或修改订单号。</div>
+        <strong>关联订单：{{ associatedOrderNo || '保存项目后自动生成' }}</strong>
+        <div class="files-description">
+          每个项目固定维护一组文件分类和流程路径，无需新增文件条目。
+        </div>
       </div>
-      <el-button
-        v-if="canWrite && !fileListLoading && fileList.length === 0"
-        type="primary"
-        @click="handleFileCreate"
-      >
-        新增文件记录
-      </el-button>
     </div>
 
     <el-alert
@@ -22,234 +16,162 @@
       type="info"
       :closable="false"
       class="files-hint"
-      title="当前查看的是子订单，文件列表展示所属母订单的项目文件。"
+      title="当前查看的是子订单，路径组归属于所属母订单。"
+    />
+    <el-alert
+      v-else-if="!projectId"
+      type="info"
+      :closable="false"
+      class="files-hint"
+      title="可直接填写路径组，保存项目时会自动关联到新订单。"
     />
 
-    <el-table :data="fileList" v-loading="fileListLoading" border size="small" style="width: 100%">
-      <el-table-column type="index" label="序号" width="60" />
-      <el-table-column prop="name" label="文件名" min-width="160" show-overflow-tooltip />
-      <el-table-column label="翻译文本领域" min-width="180" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatHierarchy(row.translation_domain_level1, row.translation_domain_level2) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="文件类型" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatHierarchy(row.file_type, row.file_type_secondary) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="文件格式" min-width="110" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.file_format || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="文件属性" min-width="210" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatHierarchy(row.file_attribute_level1, row.file_attribute_level2, row.file_attribute_level3) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="文件难度" min-width="110" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.file_difficulty || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="原文路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.storage_path">
-            <a :href="toOpenPathHref(row.storage_path)" class="path-link">{{ row.storage_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.storage_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="派稿文路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.dispatch_path">
-            <a :href="toOpenPathHref(row.dispatch_path)" class="path-link">{{ row.dispatch_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.dispatch_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="译员发回路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.translator_return_path">
-            <a :href="toOpenPathHref(row.translator_return_path)" class="path-link">{{ row.translator_return_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.translator_return_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="发客户路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.client_delivery_path">
-            <a :href="toOpenPathHref(row.client_delivery_path)" class="path-link">{{ row.client_delivery_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.client_delivery_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="项目反馈路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.project_feedback_path">
-            <a :href="toOpenPathHref(row.project_feedback_path)" class="path-link">{{ row.project_feedback_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.project_feedback_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="反馈后发客户路径" min-width="220">
-        <template #default="{ row }">
-          <template v-if="row.feedback_delivery_path">
-            <a :href="toOpenPathHref(row.feedback_delivery_path)" class="path-link">{{ row.feedback_delivery_path }}</a>
-            <el-button link type="primary" size="small" style="margin-left: 4px" @click.prevent="copyFilePath(row.feedback_delivery_path)">复制</el-button>
-          </template>
-          <span v-else class="path-empty">—</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="updatedAt" label="创建时间" width="170" />
-      <el-table-column v-if="canWrite" label="操作" width="88" fixed="right" align="center">
-        <template #default="{ row }">
-          <TableActionButton action="edit" @click="handleFileEdit(row)" />
-          <TableActionButton action="delete" @click="handleFileDelete(row)" />
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-empty v-if="!fileListLoading && !fileList.length" description="该项目暂无文件记录" />
-
-    <el-dialog
-      v-model="fileEditDialogVisible"
-      :title="fileEditForm.id ? '编辑项目文件' : '新增项目文件'"
-      width="860px"
-      append-to-body
-      @close="resetFileEditForm"
+    <el-form
+      ref="pathGroupFormRef"
+      v-loading="fileLoading"
+      :model="pathGroupForm"
+      :rules="pathGroupRules"
+      :disabled="!canWrite"
+      label-width="130px"
+      class="path-group-form"
     >
-      <el-alert
-        :title="`关联订单：${associatedOrderNo || '-'}`"
-        type="info"
-        :closable="false"
-        show-icon
-        class="order-alert"
-      />
-      <el-form ref="fileEditFormRef" :model="fileEditForm" :rules="fileEditRules" label-width="110px">
-        <el-divider content-position="left">基础信息</el-divider>
-        <el-form-item label="文件名" prop="file_name">
-          <el-input v-model="fileEditForm.file_name" placeholder="请输入文件名" />
-        </el-form-item>
-
-        <el-collapse v-model="fileEditExpandedSections" class="file-edit-collapse">
-          <el-collapse-item name="classification">
-            <template #title>
-              <div class="file-edit-collapse__title">
-                <span>文件分类</span>
-                <span class="file-edit-collapse__hint">领域、类型、格式、属性和难度</span>
-              </div>
-            </template>
-            <div class="file-edit-collapse__body">
-              <el-row :gutter="16">
-                <el-col :span="12">
-                  <el-form-item label="文本领域一级">
-                    <el-input v-model="fileEditForm.translation_domain_level1" clearable placeholder="请输入一级领域" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="文本领域二级">
-                    <el-input
-                      v-model="fileEditForm.translation_domain_level2"
-                      clearable
-                      :disabled="!fileEditForm.translation_domain_level1"
-                      placeholder="请输入二级领域"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="文件类型一级">
-                    <el-input v-model="fileEditForm.file_type" clearable placeholder="请输入一级类型" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="文件类型二级">
-                    <el-input
-                      v-model="fileEditForm.file_type_secondary"
-                      clearable
-                      :disabled="!fileEditForm.file_type"
-                      placeholder="请输入二级类型"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="文件格式">
-                    <el-input v-model="fileEditForm.file_format" clearable placeholder="如 DOCX、PDF、XLSX" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="文件难度">
-                    <el-input v-model="fileEditForm.file_difficulty" clearable placeholder="请输入文件难度" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="文件属性一级">
-                    <el-input v-model="fileEditForm.file_attribute_level1" clearable placeholder="一级属性" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="文件属性二级">
-                    <el-input
-                      v-model="fileEditForm.file_attribute_level2"
-                      clearable
-                      :disabled="!fileEditForm.file_attribute_level1"
-                      placeholder="二级属性"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="文件属性三级">
-                    <el-input
-                      v-model="fileEditForm.file_attribute_level3"
-                      clearable
-                      :disabled="!fileEditForm.file_attribute_level2"
-                      placeholder="三级属性"
-                    />
-                  </el-form-item>
-                </el-col>
-              </el-row>
+      <el-collapse v-model="expandedSections" class="file-edit-collapse">
+        <el-collapse-item name="classification">
+          <template #title>
+            <div class="file-edit-collapse__title">
+              <span>文件分类</span>
+              <span class="file-edit-collapse__hint">领域、类型、格式、属性和难度</span>
             </div>
-          </el-collapse-item>
+          </template>
+          <div class="file-edit-collapse__body">
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="翻译文本领域一级">
+                  <el-input v-model="pathGroupForm.translation_domain_level1" clearable placeholder="请输入一级领域" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="翻译文本领域二级">
+                  <el-input
+                    v-model="pathGroupForm.translation_domain_level2"
+                    clearable
+                    :disabled="!canWrite || !pathGroupForm.translation_domain_level1"
+                    placeholder="请输入二级领域"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="文件类型一级">
+                  <el-input v-model="pathGroupForm.file_type" clearable placeholder="请输入一级类型" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="文件类型二级">
+                  <el-input
+                    v-model="pathGroupForm.file_type_secondary"
+                    clearable
+                    :disabled="!canWrite || !pathGroupForm.file_type"
+                    placeholder="请输入二级类型"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="文件格式">
+                  <el-input v-model="pathGroupForm.file_format" clearable placeholder="如 DOCX、PDF、XLSX" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="文件难度">
+                  <el-input v-model="pathGroupForm.file_difficulty" clearable placeholder="请输入文件难度" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="文件属性一级">
+                  <el-input v-model="pathGroupForm.file_attribute_level1" clearable placeholder="一级属性" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="文件属性二级">
+                  <el-input
+                    v-model="pathGroupForm.file_attribute_level2"
+                    clearable
+                    :disabled="!canWrite || !pathGroupForm.file_attribute_level1"
+                    placeholder="二级属性"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="文件属性三级">
+                  <el-input
+                    v-model="pathGroupForm.file_attribute_level3"
+                    clearable
+                    :disabled="!canWrite || !pathGroupForm.file_attribute_level2"
+                    placeholder="三级属性"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </div>
+        </el-collapse-item>
 
-          <el-collapse-item name="paths">
-            <template #title>
-              <div class="file-edit-collapse__title">
-                <span>文件路径</span>
-                <span class="file-edit-collapse__hint">原文路径必填，其他路径按流程补充</span>
-              </div>
-            </template>
-            <div class="file-edit-collapse__body">
-              <el-form-item label="原文路径" prop="storage_path">
-                <el-input v-model="fileEditForm.storage_path" placeholder="如 \\win-server\原文" />
-              </el-form-item>
-              <el-form-item label="派稿文路径">
-                <el-input v-model="fileEditForm.dispatch_path" placeholder="如 \\win-server\派稿" />
-              </el-form-item>
-              <el-form-item label="译文路径">
-                <el-input v-model="fileEditForm.translation_path" placeholder="如 \\win-server\译文" />
-              </el-form-item>
-              <el-form-item label="译员发回路径">
-                <el-input v-model="fileEditForm.translator_return_path" placeholder="填写后项目状态自动变为“译员发回”" />
-              </el-form-item>
-              <el-form-item label="发客户路径">
-                <el-input v-model="fileEditForm.client_delivery_path" placeholder="填写后项目状态自动变为“已发客户”" />
-              </el-form-item>
-              <el-form-item label="项目反馈路径">
-                <el-input v-model="fileEditForm.project_feedback_path" placeholder="填写后项目状态自动变为“客户反馈”" />
-              </el-form-item>
-              <el-form-item label="反馈后发客户路径">
-                <el-input v-model="fileEditForm.feedback_delivery_path" placeholder="填写后项目状态自动变为“反馈后发客户”" />
-              </el-form-item>
+        <el-collapse-item name="paths">
+          <template #title>
+            <div class="file-edit-collapse__title">
+              <span>文件路径</span>
+              <span class="file-edit-collapse__hint">填写任一信息后原文路径必填，其他路径按流程补充</span>
             </div>
-          </el-collapse-item>
-        </el-collapse>
-      </el-form>
-      <template #footer>
-        <el-button @click="fileEditDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="fileEditSaving" @click="handleFileEditSubmit">保存</el-button>
-      </template>
-    </el-dialog>
+          </template>
+          <div class="file-edit-collapse__body">
+            <el-form-item label="原文路径" prop="storage_path">
+              <el-input v-model="pathGroupForm.storage_path" placeholder="如 \\win-server\原文" />
+            </el-form-item>
+            <el-form-item label="派稿文路径">
+              <el-input v-model="pathGroupForm.dispatch_path" placeholder="如 \\win-server\派稿" />
+            </el-form-item>
+            <el-form-item v-if="referenceFilePathOne !== undefined" label="参考文件路径一">
+              <el-input
+                :model-value="referenceFilePathOne"
+                type="textarea"
+                :rows="2"
+                placeholder="供稿件安排发信时引用，通过项目外键自动带入"
+                @update:model-value="emit('update:referenceFilePathOne', $event)"
+              />
+            </el-form-item>
+            <el-form-item label="译文路径">
+              <el-input v-model="pathGroupForm.translation_path" placeholder="如 \\win-server\译文" />
+            </el-form-item>
+            <el-form-item label="译员发回路径">
+              <el-input v-model="pathGroupForm.translator_return_path" placeholder="填写后项目状态自动变为“译员发回”" />
+            </el-form-item>
+            <el-form-item label="发客户路径">
+              <el-input v-model="pathGroupForm.client_delivery_path" placeholder="填写后项目状态自动变为“已发客户”" />
+            </el-form-item>
+            <el-form-item label="项目反馈路径">
+              <el-input v-model="pathGroupForm.project_feedback_path" placeholder="填写后项目状态自动变为“客户反馈”" />
+            </el-form-item>
+            <el-form-item label="反馈后发客户路径">
+              <el-input v-model="pathGroupForm.feedback_delivery_path" placeholder="填写后项目状态自动变为“反馈后发客户”" />
+            </el-form-item>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+    </el-form>
+
+    <div v-if="canWrite && showSaveAction && projectId" class="path-group-actions">
+      <el-button
+        v-if="pathGroupForm.id"
+        type="danger"
+        plain
+        :disabled="fileSaving"
+        @click="handlePathGroupDelete"
+      >
+        清空路径组
+      </el-button>
+      <el-button type="primary" :loading="fileSaving" @click="savePathGroup()">
+        保存路径组
+      </el-button>
+    </div>
+    </template>
   </div>
 </template>
 
@@ -260,7 +182,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { createProjectFile, deleteProjectFile, getProjectFilesByProject, updateProjectFile } from '@/api/projectFiles'
 import { hasPermission } from '@/utils/permission'
 
-const emit = defineEmits(['status-change'])
+const emit = defineEmits(['status-change', 'update:referenceFilePathOne'])
 const props = defineProps({
   projectId: {
     type: [String, Number],
@@ -277,18 +199,22 @@ const props = defineProps({
   active: {
     type: Boolean,
     default: false
+  },
+  showSaveAction: {
+    type: Boolean,
+    default: true
+  },
+  allowDraft: {
+    type: Boolean,
+    default: false
+  },
+  referenceFilePathOne: {
+    type: String,
+    default: undefined
   }
 })
 
-const canWrite = computed(() => hasPermission('project_files:write'))
-const fileList = ref([])
-const associatedOrderNo = computed(() => props.orderNo || fileList.value[0]?.order_no || '')
-const fileListLoading = ref(false)
-const fileEditDialogVisible = ref(false)
-const fileEditSaving = ref(false)
-const fileEditFormRef = ref(null)
-const fileEditExpandedSections = ref(['classification', 'paths'])
-const fileEditForm = reactive({
+const createEmptyPathGroup = () => ({
   id: null,
   file_name: '',
   storage_path: '',
@@ -308,246 +234,195 @@ const fileEditForm = reactive({
   file_attribute_level3: '',
   file_difficulty: ''
 })
-const fileEditRules = {
-  file_name: [{ required: true, message: '请输入文件名', trigger: 'blur' }],
-  storage_path: [{ required: true, message: '请输入原文路径', trigger: 'blur' }]
+const pathGroupDataKeys = Object.keys(createEmptyPathGroup()).filter((key) => !['id', 'file_name'].includes(key))
+const canWrite = computed(() => hasPermission('project_files:write'))
+const associatedOrderNo = computed(() => props.orderNo || '')
+const fileLoading = ref(false)
+const fileSaving = ref(false)
+const pathGroupFormRef = ref(null)
+const expandedSections = ref(['classification', 'paths'])
+const pathGroupForm = reactive(createEmptyPathGroup())
+const pathGroupRules = {
+  storage_path: [{ validator: validateStoragePath, trigger: 'blur' }]
 }
 
-const normalizeProjectFile = (file) => ({
-  ...file,
-  name: file?.file_name || '-',
-  updatedAt: file?.created_at ? String(file.created_at).replace('T', ' ').substring(0, 19) : '-'
-})
+const hasPathGroupData = () => pathGroupDataKeys.some((key) => String(pathGroupForm[key] || '').trim())
 
-function formatHierarchy(...values) {
-  const normalized = values.filter((value) => String(value || '').trim())
-  return normalized.length ? normalized.join(' / ') : '—'
-}
-
-function toOpenPathHref(path) {
-  if (!path) return '#'
-  const stripped = path.replace(/^\\\\/, '')
-  return `openpath://${encodeURIComponent(stripped).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')}`
-}
-
-async function copyFilePath(path) {
-  if (!path) return
-  try {
-    await navigator.clipboard.writeText(path)
-    ElMessage.success('路径已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
+function validateStoragePath(_rule, value, callback) {
+  if ((pathGroupForm.id || hasPathGroupData()) && !String(value || '').trim()) {
+    callback(new Error('填写路径组时请输入原文路径'))
+    return
   }
+  callback()
+}
+
+function assignPathGroup(source = {}) {
+  Object.assign(pathGroupForm, createEmptyPathGroup(), source)
+  expandedSections.value = ['classification', 'paths']
+  pathGroupFormRef.value?.clearValidate()
+}
+
+function resetPathGroup() {
+  assignPathGroup()
 }
 
 async function loadFiles() {
   if (!props.projectId) {
-    fileList.value = []
+    resetPathGroup()
     return
   }
 
-  fileListLoading.value = true
+  fileLoading.value = true
   try {
-    const response = await getProjectFilesByProject(props.projectId, { skip: 0, limit: 100 })
-    fileList.value = (Array.isArray(response) ? response : []).map(normalizeProjectFile)
-  } catch {
-    fileList.value = []
-  } finally {
-    fileListLoading.value = false
-  }
-}
-
-function handleFileEdit(row) {
-  Object.assign(fileEditForm, {
-    id: row.id,
-    file_name: row.file_name || '',
-    storage_path: row.storage_path || '',
-    dispatch_path: row.dispatch_path || '',
-    translation_path: row.translation_path || '',
-    translator_return_path: row.translator_return_path || '',
-    client_delivery_path: row.client_delivery_path || '',
-    project_feedback_path: row.project_feedback_path || '',
-    feedback_delivery_path: row.feedback_delivery_path || '',
-    translation_domain_level1: row.translation_domain_level1 || '',
-    translation_domain_level2: row.translation_domain_level2 || '',
-    file_type: row.file_type || '',
-    file_type_secondary: row.file_type_secondary || '',
-    file_format: row.file_format || '',
-    file_attribute_level1: row.file_attribute_level1 || '',
-    file_attribute_level2: row.file_attribute_level2 || '',
-    file_attribute_level3: row.file_attribute_level3 || '',
-    file_difficulty: row.file_difficulty || ''
-  })
-  fileEditExpandedSections.value = ['classification', 'paths']
-  fileEditDialogVisible.value = true
-}
-
-function handleFileCreate() {
-  resetFileEditForm()
-  fileEditDialogVisible.value = true
-}
-
-async function handleFileDelete(row) {
-  try {
-    await ElMessageBox.confirm('确认删除该文件记录？', '提示', { type: 'warning' })
-    await deleteProjectFile(row.id)
-    ElMessage.success('删除成功')
-    await loadFiles()
+    const response = await getProjectFilesByProject(props.projectId, { skip: 0, limit: 1 })
+    assignPathGroup(Array.isArray(response) && response.length ? response[0] : {})
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error?.detail || '删除失败')
-    }
+    resetPathGroup()
+    ElMessage.error(error?.detail || '加载项目路径组失败')
+  } finally {
+    fileLoading.value = false
   }
 }
 
-async function handleFileEditSubmit() {
-  if (!fileEditFormRef.value) return
-  await fileEditFormRef.value.validate(async (valid, invalidFields) => {
-    if (!valid) {
-      if (
-        invalidFields?.storage_path &&
-        !fileEditExpandedSections.value.includes('paths')
-      ) {
-        fileEditExpandedSections.value = [...fileEditExpandedSections.value, 'paths']
-      }
-      return
-    }
+async function validatePathGroup() {
+  if (!canWrite.value) return true
+  if (!pathGroupForm.id && !hasPathGroupData()) return true
+  const valid = await pathGroupFormRef.value?.validate().catch(() => false)
+  if (!valid && !expandedSections.value.includes('paths')) {
+    expandedSections.value = [...expandedSections.value, 'paths']
+  }
+  return Boolean(valid)
+}
 
-    fileEditSaving.value = true
-    try {
-      const payload = { ...fileEditForm }
-      delete payload.id
-      ;[
-        'dispatch_path',
-        'translation_path',
-        'translator_return_path',
-        'client_delivery_path',
-        'project_feedback_path',
-        'feedback_delivery_path',
-        'translation_domain_level1',
-        'translation_domain_level2',
-        'file_type',
-        'file_type_secondary',
-        'file_format',
-        'file_attribute_level1',
-        'file_attribute_level2',
-        'file_attribute_level3',
-        'file_difficulty'
-      ].forEach((key) => {
-        if (!payload[key]) payload[key] = null
-      })
-      let savedFile
-      if (fileEditForm.id) {
-        savedFile = await updateProjectFile(fileEditForm.id, payload)
-      } else {
-        savedFile = await createProjectFile({
-          translation_project_id: props.projectId,
+function buildPayload(orderNo) {
+  const payload = { ...pathGroupForm }
+  delete payload.id
+  payload.file_name = payload.file_name || orderNo || associatedOrderNo.value || '项目文件'
+  pathGroupDataKeys.filter((key) => key !== 'storage_path').forEach((key) => {
+    if (!payload[key]) payload[key] = null
+  })
+  return payload
+}
+
+function getStatusMessage(savedFile, payload) {
+  if (savedFile?.project_status === 'feedback_sent_to_client' && payload.feedback_delivery_path) return '，项目状态已更新为“反馈后发客户”'
+  if (savedFile?.project_status === 'client_feedback' && payload.project_feedback_path) return '，项目状态已更新为“客户反馈”'
+  if (savedFile?.project_status === 'sent_to_client' && payload.client_delivery_path) return '，项目状态已更新为“已发客户”'
+  if (savedFile?.project_status === 'translator_returned' && payload.translator_return_path) return '，项目状态已更新为“译员发回”'
+  return ''
+}
+
+async function savePathGroup(options = {}) {
+  if (!canWrite.value) return null
+  if (fileSaving.value) return null
+  if (!pathGroupForm.id && !hasPathGroupData()) return null
+
+  const valid = await validatePathGroup()
+  if (!valid) {
+    const error = new Error('请完善项目路径组')
+    error.validationFailed = true
+    throw error
+  }
+
+  const targetProjectId = options.projectId || props.projectId
+  const targetOrderNo = options.orderNo || associatedOrderNo.value
+  if (!targetProjectId) throw new Error('请先保存项目，再关联路径组')
+
+  fileSaving.value = true
+  try {
+    const payload = buildPayload(targetOrderNo)
+    const savedFile = pathGroupForm.id
+      ? await updateProjectFile(pathGroupForm.id, payload)
+      : await createProjectFile({
+          translation_project_id: targetProjectId,
           ...payload,
           uploaded_by: localStorage.getItem('user_id') || null
         })
-      }
-      if (savedFile?.project_status) {
-        emit('status-change', savedFile.project_status)
-      }
-      const statusMessage =
-        savedFile?.project_status === 'feedback_sent_to_client' && payload.feedback_delivery_path
-          ? '，项目状态已更新为“反馈后发客户”'
-          : savedFile?.project_status === 'client_feedback' && payload.project_feedback_path
-            ? '，项目状态已更新为“客户反馈”'
-            : savedFile?.project_status === 'sent_to_client' && payload.client_delivery_path
-              ? '，项目状态已更新为“已发客户”'
-              : savedFile?.project_status === 'translator_returned' && payload.translator_return_path
-                ? '，项目状态已更新为“译员发回”'
-                : ''
-      ElMessage.success(
-        `${fileEditForm.id ? '更新成功' : '文件记录已关联到当前订单'}${statusMessage}`
-      )
-      fileEditDialogVisible.value = false
-      await loadFiles()
-    } catch (error) {
-      ElMessage.error(error?.detail || '保存失败')
-    } finally {
-      fileEditSaving.value = false
+    assignPathGroup(savedFile)
+    if (savedFile?.project_status) emit('status-change', savedFile.project_status)
+    if (!options.silent) {
+      ElMessage.success(`路径组保存成功${getStatusMessage(savedFile, payload)}`)
     }
-  })
+    return savedFile
+  } catch (error) {
+    if (!options.silent) ElMessage.error(error?.detail || error.message || '路径组保存失败')
+    throw error
+  } finally {
+    fileSaving.value = false
+  }
 }
 
-function resetFileEditForm() {
-  Object.assign(fileEditForm, {
-    id: null,
-    file_name: '',
-    storage_path: '',
-    dispatch_path: '',
-    translation_path: '',
-    translator_return_path: '',
-    client_delivery_path: '',
-    project_feedback_path: '',
-    feedback_delivery_path: '',
-    translation_domain_level1: '',
-    translation_domain_level2: '',
-    file_type: '',
-    file_type_secondary: '',
-    file_format: '',
-    file_attribute_level1: '',
-    file_attribute_level2: '',
-    file_attribute_level3: '',
-    file_difficulty: ''
-  })
-  fileEditExpandedSections.value = ['classification', 'paths']
-  fileEditFormRef.value?.resetFields()
+async function handlePathGroupDelete() {
+  if (!pathGroupForm.id) return
+  try {
+    await ElMessageBox.confirm('确认清空该项目的整组文件路径吗？', '提示', { type: 'warning' })
+    await deleteProjectFile(pathGroupForm.id)
+    resetPathGroup()
+    ElMessage.success('路径组已清空')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.detail || '清空路径组失败')
+    }
+  }
 }
 
 watch(
   () => [props.projectId, props.active],
-  ([projectId, active]) => {
+  ([projectId, active], previous = []) => {
+    const [previousProjectId] = previous
     if (!projectId) {
-      fileList.value = []
+      if (previousProjectId) resetPathGroup()
       return
     }
-    if (active) {
-      loadFiles()
-    }
+    if (active) loadFiles()
   },
   { immediate: true }
 )
 
 watch(
-  () => fileEditForm.translation_domain_level1,
+  () => pathGroupForm.translation_domain_level1,
   (value) => {
-    if (!value) fileEditForm.translation_domain_level2 = ''
+    if (!value) pathGroupForm.translation_domain_level2 = ''
   }
 )
 
 watch(
-  () => fileEditForm.file_type,
+  () => pathGroupForm.file_type,
   (value) => {
-    if (!value) fileEditForm.file_type_secondary = ''
+    if (!value) pathGroupForm.file_type_secondary = ''
   }
 )
 
 watch(
-  () => fileEditForm.file_attribute_level1,
+  () => pathGroupForm.file_attribute_level1,
   (value) => {
     if (!value) {
-      fileEditForm.file_attribute_level2 = ''
-      fileEditForm.file_attribute_level3 = ''
+      pathGroupForm.file_attribute_level2 = ''
+      pathGroupForm.file_attribute_level3 = ''
     }
   }
 )
 
 watch(
-  () => fileEditForm.file_attribute_level2,
+  () => pathGroupForm.file_attribute_level2,
   (value) => {
-    if (!value) fileEditForm.file_attribute_level3 = ''
+    if (!value) pathGroupForm.file_attribute_level3 = ''
   }
 )
 
 defineExpose({
-  loadFiles
+  loadFiles,
+  resetPathGroup,
+  savePathGroup,
+  validatePathGroup
 })
 </script>
 
 <style scoped>
+.path-group-panel {
+  min-height: 160px;
+}
+
 .files-hint {
   margin-bottom: 12px;
 }
@@ -566,12 +441,8 @@ defineExpose({
   font-size: 13px;
 }
 
-.order-alert {
-  margin-bottom: 16px;
-}
-
-.file-edit-collapse {
-  margin-top: 16px;
+.path-group-form {
+  min-height: 120px;
 }
 
 .file-edit-collapse__title {
@@ -606,15 +477,16 @@ defineExpose({
   padding-bottom: 8px;
 }
 
-.path-link {
-  word-break: break-all;
-  color: var(--color-primary);
-  text-decoration: none;
-  font-size: 12px;
+.path-group-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 16px;
 }
 
-.path-empty {
-  color: var(--color-text-muted);
+@media (max-width: 768px) {
+  .file-edit-collapse__hint {
+    display: none;
+  }
 }
-
 </style>

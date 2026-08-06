@@ -1,6 +1,5 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
-import { getOnLeaveUsers } from '@/api/leave'
 import {
   getMyTasksAPI,
   getSubOrderWorkflowStateAPI,
@@ -448,15 +447,6 @@ export function useNextStageUsers(nextStageRef) {
         } else {
           list = await getUsersByRoleName(stage.role)
           if (version !== loadVersion) return
-        }
-
-        try {
-          const leaveList = await getOnLeaveUsers()
-          if (version !== loadVersion) return
-          const onLeaveIds = new Set((Array.isArray(leaveList) ? leaveList : []).map((item) => String(item.employee_id)))
-          list = list.filter((user) => !onLeaveIds.has(String(user.id)))
-        } catch {
-          // 请假接口异常时不阻塞选人
         }
 
         if (version !== loadVersion) return

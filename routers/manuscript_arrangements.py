@@ -17,6 +17,8 @@ from manuscript_schemas import (
     ManuscriptDispatchResponse,
     ManuscriptDispatchUpdate,
     ManuscriptMailPreview,
+    ManuscriptMailPathsResponse,
+    ManuscriptMailPathsUpdate,
     ManuscriptMailStatus,
     ManuscriptSettlementUpdate,
 )
@@ -35,6 +37,7 @@ from manuscript_service import (
     send_dispatch,
     update_arrangement,
     update_dispatch,
+    update_dispatch_mail_paths,
     update_settlement,
 )
 from models import AppUser
@@ -229,6 +232,25 @@ def read_arrangement_mail_preview(
     except Exception as exc:
         _raise_business_error(exc)
     return preview
+
+
+@router.patch(
+    "/batches/{dispatch_id}/mail-paths",
+    response_model=ManuscriptMailPathsResponse,
+)
+def update_dispatch_mail_paths_endpoint(
+    dispatch_id: UUID,
+    payload: ManuscriptMailPathsUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        result = update_dispatch_mail_paths(db, dispatch_id, payload)
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+    if not result:
+        raise HTTPException(status_code=404, detail="派稿批次不存在")
+    return result
 
 
 @router.patch(

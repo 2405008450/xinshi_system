@@ -20,9 +20,10 @@ from manuscript_schemas import (
     ManuscriptAssignmentInput,
     ManuscriptDispatchCreate,
     ManuscriptDispatchUpdate,
+    ManuscriptMailPathsUpdate,
     ManuscriptSettlementUpdate,
 )
-from models import AppUser, Client, TranslationProject, TranslationSubOrder, Translator
+from models import AppUser, Client, ProjectFile, TranslationProject, TranslationSubOrder, Translator
 from word_count_service import (
     METRIC_TYPES,
     attach_arrangement_matrices,
@@ -182,15 +183,15 @@ def _load_entity(
 def _entity_values(
     project: TranslationProject,
     sub_order: Optional[TranslationSubOrder],
+    *,
+    dispatch_path: Optional[str] = None,
 ) -> dict:
     if sub_order:
         return {
             "order_no": sub_order.sub_order_no,
             "project_name": sub_order.sub_project_name or project.project_name,
             "language_pair": sub_order.language_pair or project.language_pair,
-            "network_file_path": (
-                sub_order.network_file_path or project.network_file_path
-            ),
+            "dispatch_path": dispatch_path,
             "reference_file_path_one": project.reference_file_path_one,
             "customer_deadline_time": (
                 sub_order.customer_deadline_time or project.customer_deadline_time
@@ -200,10 +201,27 @@ def _entity_values(
         "order_no": project.order_no,
         "project_name": project.project_name,
         "language_pair": project.language_pair,
-        "network_file_path": project.network_file_path,
+        "dispatch_path": dispatch_path,
         "reference_file_path_one": project.reference_file_path_one,
         "customer_deadline_time": project.customer_deadline_time,
     }
+
+
+def _get_project_file(db: Session, translation_project_id: UUID) -> Optional[ProjectFile]:
+    """按项目外键取得项目详情中的唯一文件记录。"""
+    return (
+        db.query(ProjectFile)
+        .filter(ProjectFile.translation_project_id == translation_project_id)
+        .order_by(ProjectFile.created_at.asc(), ProjectFile.id.asc())
+        .first()
+    )
+
+
+def _get_project_dispatch_path(db: Session, translation_project_id: UUID) -> Optional[str]:
+    project_file = _get_project_file(db, translation_project_id)
+    if not project_file:
+        return None
+    return (project_file.dispatch_path or "").strip() or None
 
 
 def _mail_preview_values(
@@ -217,7 +235,11 @@ def _mail_preview_values(
         arrangement.translation_project_id,
         arrangement.sub_order_id,
     )
-    entity_values = _entity_values(project, sub_order)
+    entity_values = _entity_values(
+        project,
+        sub_order,
+        dispatch_path=_get_project_dispatch_path(db, project.id),
+    )
     translator = (
         db.query(Translator)
         .filter(Translator.id == arrangement.translator_id)
@@ -248,7 +270,7 @@ def _mail_preview_values(
         milestone_lines.append("译员交稿全稿预定时间：待确认")
     milestone_text = "\n".join(milestone_lines)
 
-    source_path = (entity_values["network_file_path"] or "").strip()
+    dispatch_path = (entity_values["dispatch_path"] or "").strip()
     reference_path = (entity_values["reference_file_path_one"] or "").strip()
     scope_text = (arrangement.translation_scope or "").strip() or "以项目经理提供的稿件为准"
     word_text = _word_count_summary(getattr(arrangement, "planned", None))
@@ -261,7 +283,7 @@ def _mail_preview_values(
         f"需翻译部分：{scope_text}\n"
         f"预定译员结算字数：{word_text}\n"
         f"{milestone_text}\n"
-        f"发稿文件路径：{source_path or '待填写'}\n"
+        f"派稿文路径：{dispatch_path or '待填写'}\n"
         f"参考文件路径一：{reference_path or '无'}\n\n"
         "请以项目经理提供的稿件文件和最终要求为准。"
     )
@@ -273,8 +295,46 @@ def _mail_preview_values(
             entity_values["project_name"],
         ),
         "body": body,
-        "manuscript_source_path": source_path or None,
+        "dispatch_path": dispatch_path or None,
         "reference_file_path_one": reference_path or None,
+    }
+
+
+def update_dispatch_mail_paths(
+    db: Session,
+    dispatch_id: UUID,
+    payload: ManuscriptMailPathsUpdate,
+) -> Optional[dict]:
+    """从稿件安排页更新项目详情中的派稿及参考文件路径。"""
+    dispatch = _load_dispatch(db, dispatch_id)
+    if not dispatch:
+        return None
+    if dispatch.status == "cancelled":
+        raise ValueError("已取消的派稿批次不能修改发送路径")
+
+    project = (
+        db.query(TranslationProject)
+        .filter(TranslationProject.id == dispatch.translation_project_id)
+        .first()
+    )
+    if not project:
+        raise LookupError("项目不存在")
+    project_file = _get_project_file(db, project.id)
+    if not project_file:
+        raise ValueError("项目详情中尚无文件记录，请先新增项目文件后再填写派稿文路径")
+
+    project_file.dispatch_path = (payload.dispatch_path or "").strip() or None
+    project.reference_file_path_one = (
+        (payload.reference_file_path_one or "").strip() or None
+    )
+    project.updated_at = datetime.datetime.now()
+    db.commit()
+    db.refresh(project_file)
+    return {
+        "translation_project_id": project.id,
+        "project_file_id": project_file.id,
+        "dispatch_path": project_file.dispatch_path,
+        "reference_file_path_one": project.reference_file_path_one,
     }
 
 
@@ -376,7 +436,7 @@ def _create_arrangement_line(
         custom_settlement_method=None,
         translator_unit_price=assignment.translator_unit_price,
         translator_total_price=assignment.translator_total_price,
-        manuscript_source_path=entity_values["network_file_path"],
+        manuscript_source_path=entity_values["dispatch_path"],
         email_subject=email_subject,
         email_body=email_body,
         remarks=assignment.remarks,
@@ -469,9 +529,25 @@ def _get_active_manuscript_projects(
         .all()
     )
 
+    project_ids = {project.id for _, project, *_ in rows}
+    project_file_by_project_id = {}
+    if project_ids:
+        project_files = (
+            db.query(ProjectFile)
+            .filter(ProjectFile.translation_project_id.in_(project_ids))
+            .order_by(ProjectFile.created_at.asc(), ProjectFile.id.asc())
+            .all()
+        )
+        for project_file in project_files:
+            project_file_by_project_id.setdefault(
+                project_file.translation_project_id,
+                project_file,
+            )
+
     items = []
     for workflow, project, sub_order, client_short_name, full_name, username in rows:
         is_sub_order = workflow.sub_order_id is not None
+        project_file = project_file_by_project_id.get(project.id)
         items.append(
             {
                 "workflow_instance_id": workflow.id,
@@ -522,6 +598,7 @@ def _get_active_manuscript_projects(
                     "suborder" if is_sub_order else "project",
                     sub_order.id if is_sub_order and sub_order else project.id,
                 ),
+                "dispatch_path": project_file.dispatch_path if project_file else None,
                 "network_file_path": (
                     sub_order.network_file_path or project.network_file_path
                     if is_sub_order and sub_order
@@ -760,7 +837,11 @@ def create_dispatch(
         payload.translation_project_id,
         payload.sub_order_id,
     )
-    values = _entity_values(project, sub_order)
+    values = _entity_values(
+        project,
+        sub_order,
+        dispatch_path=_get_project_dispatch_path(db, project.id),
+    )
     dispatch = ManuscriptDispatch(
         entity_type=payload.entity_type,
         translation_project_id=project.id,
@@ -813,7 +894,11 @@ def update_dispatch(
         payload.translation_project_id,
         payload.sub_order_id,
     )
-    values = _entity_values(project, sub_order)
+    values = _entity_values(
+        project,
+        sub_order,
+        dispatch_path=_get_project_dispatch_path(db, project.id),
+    )
     dispatch.entity_type = payload.entity_type
     dispatch.translation_project_id = project.id
     dispatch.sub_order_id = sub_order.id if sub_order else None
@@ -1107,14 +1192,14 @@ def send_arrangement(
         raise ValueError("已停用的译员不能发送稿件")
 
     preview = _mail_preview_values(db, arrangement)
-    if not preview["manuscript_source_path"]:
-        raise ValueError("请先填写局域网共享文件路径，再发送稿件")
+    if not preview["dispatch_path"]:
+        raise ValueError("请先在项目详情中填写派稿文路径，再发送稿件")
     if not preview["recipient_email"]:
         raise ValueError("译员资料中缺少收件邮箱")
 
     # 发送前按项目与派稿明细的最新数据重新生成，确保实际邮件与预览一致。
     arrangement.recipient_email = preview["recipient_email"]
-    arrangement.manuscript_source_path = preview["manuscript_source_path"]
+    arrangement.manuscript_source_path = preview["dispatch_path"]
     arrangement.email_subject = preview["subject"]
     arrangement.email_body = preview["body"]
 

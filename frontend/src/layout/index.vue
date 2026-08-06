@@ -126,7 +126,7 @@
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, Key, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
@@ -138,23 +138,36 @@ const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
 
 /** 侧边栏是否折叠 */
 const isCollapse = ref(false)
+const isMobileViewport = ref(false)
+const preferredCollapse = ref(false)
 
 /** 侧边栏宽度 */
 const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '240px'))
 
 function toggleCollapse() {
   isCollapse.value = !isCollapse.value
+  if (isMobileViewport.value) return
+  preferredCollapse.value = isCollapse.value
   try {
     localStorage.setItem(STORAGE_COLLAPSE_KEY, isCollapse.value ? '1' : '0')
   } catch {}
 }
 
+function syncResponsiveSidebar() {
+  isMobileViewport.value = window.innerWidth <= 768
+  isCollapse.value = isMobileViewport.value ? true : preferredCollapse.value
+}
+
 onMounted(() => {
   try {
     const saved = localStorage.getItem(STORAGE_COLLAPSE_KEY)
-    if (saved !== null) isCollapse.value = saved === '1'
+    if (saved !== null) preferredCollapse.value = saved === '1'
   } catch {}
+  syncResponsiveSidebar()
+  window.addEventListener('resize', syncResponsiveSidebar)
 })
+
+onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
 /** 是否显示完整菜单（超级管理员） */
 const showFullMenu = computed(() => isSuperAdmin())
@@ -558,12 +571,45 @@ const handleLogout = async () => {
 
 /* 响应式 */
 @media (max-width: 768px) {
-  .sidebar:not(.sidebar--collapsed) {
-    width: 200px !important;
+  .sidebar {
+    width: 64px !important;
+    flex: 0 0 64px;
   }
 
-  .sidebar--collapsed {
-    width: 64px !important;
+  .sidebar .logo {
+    padding: 0 12px;
+    justify-content: center;
+  }
+
+  .sidebar .logo-icon {
+    margin-right: 0;
+  }
+
+  .sidebar .logo-text,
+  .sidebar-extra-label,
+  .sidebar-menu :deep(.el-menu-item span),
+  .sidebar-menu :deep(.el-sub-menu__title span),
+  .sidebar-menu :deep(.el-sub-menu__icon-arrow) {
+    display: none;
+  }
+
+  .sidebar-extra {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .sidebar-menu :deep(.el-menu-item),
+  .sidebar-menu :deep(.el-sub-menu__title) {
+    justify-content: center;
+    margin-left: 8px;
+    margin-right: 8px;
+    padding: 0 !important;
+  }
+
+  .sidebar-menu :deep(.el-menu-item .el-icon),
+  .sidebar-menu :deep(.el-sub-menu__title .el-icon) {
+    margin-right: 0;
   }
   
   .logo h2 {

@@ -52,12 +52,15 @@ def get_users(
     limit: int = 100,
     username: Optional[str] = None,
     full_name: Optional[str] = None,
+    department: Optional[str] = None,
 ) -> List[AppUser]:
     query = db.query(AppUser)
     if username:
         query = query.filter(AppUser.username.ilike(f"%{username}%"))
     if full_name:
         query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+    if department:
+        query = query.filter(AppUser.department == department)
     return (
         query
         .order_by(AppUser.created_at.desc(), AppUser.id.desc())
@@ -71,12 +74,15 @@ def count_users(
     db: Session,
     username: Optional[str] = None,
     full_name: Optional[str] = None,
+    department: Optional[str] = None,
 ) -> int:
     query = db.query(AppUser.id)
     if username:
         query = query.filter(AppUser.username.ilike(f"%{username}%"))
     if full_name:
         query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+    if department:
+        query = query.filter(AppUser.department == department)
     return query.count()
 
 
@@ -87,7 +93,8 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
         password_hash=hashed,
         full_name=user.full_name,
         email=user.email,
-        is_active=user.is_active
+        is_active=user.is_active,
+        department=user.department,
     )
     db.add(db_user)
     db.commit()
@@ -1134,6 +1141,14 @@ def _validate_project_manager(db: Session, project_manager_id: Optional[UUID]) -
         raise ValueError("管理主负责人必须绑定“项目经理”角色用户")
 
 
+def _validate_project_manager_assignable(db: Session, project_manager_id: Optional[UUID]) -> None:
+    """项目经理新获分配时还必须处于可接收任务状态。"""
+    _validate_project_manager(db, project_manager_id)
+    if project_manager_id:
+        from leave_service import ensure_user_assignable
+        ensure_user_assignable(db, project_manager_id)
+
+
 def build_auto_project_name(
     client_short_name: Optional[str],
     sub_order_count: int = 0,
@@ -1416,7 +1431,7 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
         project_data.get('client_id'),
         project_data.get('sub_client_id'),
     )
-    _validate_project_manager(db, project_data.get('project_manager_id'))
+    _validate_project_manager_assignable(db, project_data.get('project_manager_id'))
     _normalize_project_business_details(project_data)
 
     db_project = TranslationProject(
@@ -1478,7 +1493,11 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         update_data.get('sub_client_id', db_project.sub_client_id),
     )
     if 'project_manager_id' in update_data:
-        _validate_project_manager(db, update_data.get('project_manager_id'))
+        manager_id = update_data.get('project_manager_id')
+        if manager_id != db_project.project_manager_id:
+            _validate_project_manager_assignable(db, manager_id)
+        else:
+            _validate_project_manager(db, manager_id)
     _normalize_project_business_details(update_data, db_project)
 
     for field, value in update_data.items():

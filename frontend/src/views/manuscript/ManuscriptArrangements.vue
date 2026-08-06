@@ -11,36 +11,49 @@
           shadow="never"
         >
           <template #header>
-            <div class="panel-header">
-              <div>
+            <div
+              class="panel-header project-panel-header"
+              @click="toggleProjectPanel"
+            >
+              <div
+                role="button"
+                tabindex="0"
+                :aria-expanded="!projectPanelCollapsed"
+                :aria-label="projectPanelCollapsed ? '展开稿件项目' : '收起稿件项目'"
+                @keydown.enter.prevent="toggleProjectPanel"
+                @keydown.space.prevent="toggleProjectPanel"
+              >
                 <h2>稿件项目</h2>
                 <span>{{ projectPanelSubtitle }}</span>
               </div>
-              <div class="panel-tools project-panel-tools">
-                <template v-if="!projectPanelCollapsed">
-                  <el-input
-                    v-model="projectKeyword"
-                    size="small"
-                    clearable
-                    placeholder="订单号、项目或客户"
-                    @keyup.enter="loadContext"
-                    @clear="loadContext"
-                  />
-                  <el-button size="small" type="primary" :loading="contextLoading" @click="loadContext">查询</el-button>
-                  <span class="panel-tools__divider" />
-                </template>
-                <el-tooltip :content="mailStatus.detail || '正在读取邮件配置'" placement="bottom">
-                  <el-tag :type="mailStatusTagType" effect="plain" size="small">{{ mailStatusLabel }}</el-tag>
-                </el-tooltip>
-                <el-button size="small" :loading="loading" @click="loadAll">刷新</el-button>
-                <el-button
-                  size="small"
-                  class="project-panel-toggle"
-                  :aria-expanded="!projectPanelCollapsed"
-                  @click="toggleProjectPanel"
+              <div class="project-panel-header__right">
+                <div
+                  class="panel-tools project-panel-tools"
+                  @click.stop
+                  @keydown.stop
                 >
-                  {{ projectPanelCollapsed ? '展开项目' : '收起项目' }}
-                </el-button>
+                  <template v-if="!projectPanelCollapsed">
+                    <el-input
+                      v-model="projectKeyword"
+                      size="small"
+                      clearable
+                      placeholder="订单号、项目或客户"
+                      @keyup.enter="loadContext"
+                      @clear="loadContext"
+                    />
+                    <el-button size="small" type="primary" :loading="contextLoading" @click="loadContext">查询</el-button>
+                    <span class="panel-tools__divider" />
+                  </template>
+                  <el-tooltip :content="mailStatus.detail || '正在读取邮件配置'" placement="bottom">
+                    <el-tag :type="mailStatusTagType" effect="plain" size="small">{{ mailStatusLabel }}</el-tag>
+                  </el-tooltip>
+                  <el-button size="small" :loading="loading" @click="loadAll">刷新</el-button>
+                </div>
+                <span
+                  class="project-panel-chevron"
+                  :class="{ 'is-collapsed': projectPanelCollapsed }"
+                  aria-hidden="true"
+                />
               </div>
             </div>
           </template>
@@ -208,167 +221,223 @@
               :closable="false"
               show-icon
             />
-            <el-tabs v-model="activeArrangementTranslatorId" class="assignment-tabs">
-              <el-tab-pane
-                v-for="assignment in dispatchForm.arrangements"
-                :key="assignment.translator_id"
-                :label="translatorById(assignment.translator_id)?.translator_name || '译员'"
-                :name="assignment.translator_id"
-              />
-            </el-tabs>
-
-            <div v-if="activeWorkbenchAssignment" class="legacy-field-grid">
-              <label>字数与结算</label>
-              <div class="legacy-word-count-summary">
-                <span>{{ assignmentWordSummary(activeWorkbenchAssignment) }}</span>
-                <WordCountMatrixPopover
-                  :model-value="selectedProject.word_count_matrix"
-                  :entity-type="matrixEntityType(selectedProject)"
-                  :entity-id="matrixEntityId(selectedProject)"
-                  :dispatch-id="selectedProjectDispatch?.id"
-                  :local="!selectedProjectDispatch"
-                  :translators="dispatchForm.arrangements"
-                  title="项目与译员字数统计"
-                  @update:translators="dispatchForm.arrangements = $event"
-                  @saved="handleWordCountMatrixSaved"
-                >
-                  <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
-                </WordCountMatrixPopover>
-              </div>
-
-              <label>需翻译部分</label>
-              <el-input
-                v-model="activeWorkbenchAssignment.translation_scope"
-                type="textarea"
-                :rows="2"
-                :disabled="workbenchReadonly"
-                placeholder="如：第1-20页、文档A或具体章节范围"
-              />
-
-              <template
-                v-for="milestone in activeWorkbenchAssignment.milestones"
-                :key="`${activeWorkbenchAssignment.translator_id}-${milestone.sequence_no}`"
-              >
-                <label>{{ workbenchMilestoneLabel(milestone) }}</label>
-                <el-date-picker
-                  v-model="milestone.planned_at"
-                  type="datetime"
-                  value-format="YYYY-MM-DDTHH:mm:ss"
-                  :disabled="workbenchReadonly"
-                  placeholder="选择预定时间"
-                  style="width: 100%"
-                />
-              </template>
-
-              <label>译员结账方式</label>
-              <el-input
-                v-model="activeWorkbenchAssignment.settlement_method"
-                clearable
-                :disabled="workbenchReadonly"
-                maxlength="100"
-                placeholder="请输入结账方式，如：单结、月结"
-              />
-
-              <label>单价</label>
-              <el-input-number
-                v-model="activeWorkbenchAssignment.translator_unit_price"
-                :min="0"
-                :precision="4"
-                :controls="false"
-                :disabled="workbenchReadonly"
-                style="width: 100%"
-              />
-
-              <label>总价</label>
-              <el-input-number
-                v-model="activeWorkbenchAssignment.translator_total_price"
-                :min="0"
-                :precision="2"
-                :controls="false"
-                :disabled="workbenchReadonly"
-                style="width: 100%"
-              />
-
-              <label>备注</label>
-              <el-input
-                v-model="activeWorkbenchAssignment.remarks"
-                type="textarea"
-                :rows="2"
-                :disabled="workbenchReadonly"
-                maxlength="5000"
-              />
-            </div>
-
-            <template v-if="mailStageVisible">
-              <el-divider />
-
-              <div v-loading="mailPreviewLoading" class="mail-stage">
-                <el-alert
-                  v-if="mailPreviewError"
-                  :title="mailPreviewError"
-                  type="error"
-                  :closable="false"
-                  show-icon
-                />
-                <el-alert
-                  v-else-if="!mailPreview.manuscript_source_path"
-                  title="请先填写局域网共享文件路径，再发送稿件"
-                  type="warning"
-                  :closable="false"
-                  show-icon
-                />
-
-                <div class="legacy-mail-fields">
-                  <label>发稿文件</label>
-                  <el-input :model-value="mailPreview.manuscript_source_path || ''" readonly />
-                  <label>参考文件</label>
-                  <el-input :model-value="mailPreview.reference_file_path_one || ''" readonly />
-                  <label>译员邮箱</label>
-                  <el-input :model-value="mailPreview.recipient_email || ''" readonly />
-                </div>
-
-                <el-collapse class="legacy-mail-editor">
-                  <el-collapse-item title="邮件预览" name="mail">
-                    <el-input :model-value="mailPreview.subject" readonly placeholder="邮件标题" />
-                    <el-input
-                      :model-value="mailPreview.body"
-                      type="textarea"
-                      :rows="10"
-                      readonly
-                      placeholder="邮件正文"
-                      class="mail-body-input"
+            <el-tabs v-model="workbenchStage" class="assignment-tabs">
+              <el-tab-pane label="安排" name="arrange">
+                <div class="assignment-stage-content">
+                  <el-tabs v-model="activeArrangementTranslatorId" class="assignment-translator-tabs">
+                    <el-tab-pane
+                      v-for="assignment in dispatchForm.arrangements"
+                      :key="`arrange-${assignment.translator_id}`"
+                      :label="translatorById(assignment.translator_id)?.translator_name || '译员'"
+                      :name="assignment.translator_id"
                     />
-                  </el-collapse-item>
-                </el-collapse>
-              </div>
-            </template>
+                  </el-tabs>
 
-            <div class="legacy-actions">
-              <template v-if="canWrite && !workbenchReadonly">
-                <el-button :loading="saving" @click="saveDraft(false)">保存草稿</el-button>
-                <el-button type="primary" :loading="saving" @click="saveDraft(true)">确认安排</el-button>
-              </template>
-              <template v-else-if="canWrite && selectedProjectDispatch">
-                <el-button
-                  v-if="activeExistingArrangement && ['ready', 'failed'].includes(activeExistingArrangement.status)"
-                  type="primary"
-                  :loading="sendingId === activeExistingArrangement.id"
-                  :disabled="!mailStatus.configured || mailPreviewLoading || !mailPreview.manuscript_source_path"
-                  @click="sendActiveWorkbenchAssignment"
-                >
-                  发送稿件
-                </el-button>
-                <el-button
-                  v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
-                  :loading="sendingBatchId === selectedProjectDispatch.id"
-                  :disabled="!mailStatus.configured || mailPreviewLoading || !mailPreview.manuscript_source_path"
-                  @click="sendBatch(selectedProjectDispatch)"
-                >
-                  批量发送
-                </el-button>
-                <el-tag v-if="activeExistingArrangement?.status === 'sent'" type="success">该译员已发送</el-tag>
-              </template>
-            </div>
+                  <div v-if="activeWorkbenchAssignment" class="legacy-field-grid">
+                    <label>字数与结算</label>
+                    <div class="legacy-word-count-summary">
+                      <span>{{ assignmentWordSummary(activeWorkbenchAssignment) }}</span>
+                      <WordCountMatrixPopover
+                        :model-value="selectedProject.word_count_matrix"
+                        :entity-type="matrixEntityType(selectedProject)"
+                        :entity-id="matrixEntityId(selectedProject)"
+                        :dispatch-id="selectedProjectDispatch?.id"
+                        :local="!selectedProjectDispatch"
+                        :translators="dispatchForm.arrangements"
+                        title="项目与译员字数统计"
+                        @update:translators="dispatchForm.arrangements = $event"
+                        @saved="handleWordCountMatrixSaved"
+                      >
+                        <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                      </WordCountMatrixPopover>
+                    </div>
+
+                    <label>需翻译部分</label>
+                    <el-input
+                      v-model="activeWorkbenchAssignment.translation_scope"
+                      type="textarea"
+                      :rows="2"
+                      :disabled="workbenchReadonly"
+                      placeholder="如：第1-20页、文档A或具体章节范围"
+                    />
+
+                    <template
+                      v-for="milestone in activeWorkbenchAssignment.milestones"
+                      :key="`${activeWorkbenchAssignment.translator_id}-${milestone.sequence_no}`"
+                    >
+                      <label>{{ workbenchMilestoneLabel(milestone) }}</label>
+                      <el-date-picker
+                        v-model="milestone.planned_at"
+                        type="datetime"
+                        value-format="YYYY-MM-DDTHH:mm:ss"
+                        :disabled="workbenchReadonly"
+                        placeholder="选择预定时间"
+                        style="width: 100%"
+                      />
+                    </template>
+
+                    <label>译员结账方式</label>
+                    <el-input
+                      v-model="activeWorkbenchAssignment.settlement_method"
+                      clearable
+                      :disabled="workbenchReadonly"
+                      maxlength="100"
+                      placeholder="请输入结账方式，如：单结、月结"
+                    />
+
+                    <label>单价</label>
+                    <el-input-number
+                      v-model="activeWorkbenchAssignment.translator_unit_price"
+                      :min="0"
+                      :precision="4"
+                      :controls="false"
+                      :disabled="workbenchReadonly"
+                      style="width: 100%"
+                    />
+
+                    <label>总价</label>
+                    <el-input-number
+                      v-model="activeWorkbenchAssignment.translator_total_price"
+                      :min="0"
+                      :precision="2"
+                      :controls="false"
+                      :disabled="workbenchReadonly"
+                      style="width: 100%"
+                    />
+
+                    <label>备注</label>
+                    <el-input
+                      v-model="activeWorkbenchAssignment.remarks"
+                      type="textarea"
+                      :rows="2"
+                      :disabled="workbenchReadonly"
+                      maxlength="5000"
+                    />
+                  </div>
+
+                  <div v-if="canWrite && !workbenchReadonly" class="legacy-actions">
+                    <el-button :loading="saving" @click="saveDraft(false)">保存草稿</el-button>
+                    <el-button type="primary" :loading="saving" @click="saveDraft(true)">确认安排</el-button>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="发送" name="send">
+                <div class="assignment-stage-content">
+                  <template v-if="mailStageVisible">
+                    <el-tabs v-model="activeArrangementTranslatorId" class="assignment-translator-tabs">
+                      <el-tab-pane
+                        v-for="assignment in dispatchForm.arrangements"
+                        :key="`send-${assignment.translator_id}`"
+                        :label="translatorById(assignment.translator_id)?.translator_name || '译员'"
+                        :name="assignment.translator_id"
+                      />
+                    </el-tabs>
+
+                    <div v-loading="mailPreviewLoading" class="mail-stage">
+                      <el-alert
+                        title="派稿文路径直接关联项目详情中的项目文件记录；参考文件路径一关联母项目；译员邮箱关联译员资料。"
+                        type="info"
+                        :closable="false"
+                        show-icon
+                      />
+                      <el-alert
+                        v-if="mailPreviewError"
+                        :title="mailPreviewError"
+                        type="error"
+                        :closable="false"
+                        show-icon
+                      />
+                      <el-alert
+                        v-else-if="mailPathsDirty || !mailPathForm.dispatch_path || !mailPreview.recipient_email"
+                        :title="mailPathsDirty
+                          ? '发送路径已修改，请先保存路径后再发送稿件'
+                          : (!mailPathForm.dispatch_path
+                            ? '请先填写派稿文路径，再发送稿件'
+                            : '请先在译员资料中填写邮箱，再发送稿件')"
+                        type="warning"
+                        :closable="false"
+                        show-icon
+                      />
+
+                      <div class="legacy-mail-fields">
+                        <label>派稿文路径</label>
+                        <el-input
+                          v-model="mailPathForm.dispatch_path"
+                          type="textarea"
+                          :rows="2"
+                          :disabled="!canWrite || mailPathsSaving"
+                          maxlength="5000"
+                          placeholder="请输入项目文件的派稿文路径"
+                          @input="mailPathsDirty = true"
+                        />
+                        <label>参考文件路径一</label>
+                        <el-input
+                          v-model="mailPathForm.reference_file_path_one"
+                          type="textarea"
+                          :rows="2"
+                          :disabled="!canWrite || mailPathsSaving"
+                          maxlength="500"
+                          placeholder="请输入参考文件路径一"
+                          @input="mailPathsDirty = true"
+                        />
+                        <label>译员邮箱</label>
+                        <el-input :model-value="mailPreview.recipient_email || ''" readonly />
+                      </div>
+
+                      <div v-if="canWrite" class="mail-path-actions">
+                        <el-button
+                          type="primary"
+                          :loading="mailPathsSaving"
+                          :disabled="!mailPathsDirty"
+                          @click="saveMailPaths"
+                        >
+                          保存发送路径
+                        </el-button>
+                      </div>
+
+                      <el-collapse class="legacy-mail-editor">
+                        <el-collapse-item title="邮件预览" name="mail">
+                          <el-input :model-value="mailPreview.subject" readonly placeholder="邮件标题" />
+                          <el-input
+                            :model-value="mailPreview.body"
+                            type="textarea"
+                            :rows="10"
+                            readonly
+                            placeholder="邮件正文"
+                            class="mail-body-input"
+                          />
+                        </el-collapse-item>
+                      </el-collapse>
+                    </div>
+
+                    <div v-if="canWrite && selectedProjectDispatch" class="legacy-actions">
+                      <el-button
+                        v-if="activeExistingArrangement && ['ready', 'failed'].includes(activeExistingArrangement.status)"
+                        type="primary"
+                        :loading="sendingId === activeExistingArrangement.id"
+                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || !mailPathForm.dispatch_path || !mailPreview.recipient_email"
+                        @click="sendActiveWorkbenchAssignment"
+                      >
+                        发送稿件
+                      </el-button>
+                      <el-button
+                        v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
+                        :loading="sendingBatchId === selectedProjectDispatch.id"
+                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || !mailPathForm.dispatch_path"
+                        @click="openBatchMailPreviewDialog(selectedProjectDispatch)"
+                      >
+                        批量发送
+                      </el-button>
+                      <el-tag v-if="activeExistingArrangement?.status === 'sent'" type="success">该译员已发送</el-tag>
+                    </div>
+                  </template>
+                  <el-empty v-else description="请先在“安排”中确认本次稿件安排" :image-size="72">
+                    <el-button type="primary" @click="workbenchStage = 'arrange'">返回安排</el-button>
+                  </el-empty>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
           </template>
         </div>
       </el-card>
@@ -771,7 +840,7 @@
                       size="small"
                       :disabled="!mailStatus.configured"
                       :loading="sendingId === item.id"
-                      @click="sendAssignment(row, item)"
+                      @click="openMailPreviewDialog(row, item)"
                     >
                       {{ item.status === 'failed' ? '重试' : '发送' }}
                     </el-button>
@@ -856,7 +925,7 @@
               size="small"
               :disabled="!mailStatus.configured"
               :loading="sendingBatchId === row.id"
-              @click="sendBatch(row)"
+              @click="openBatchMailPreviewDialog(row)"
             >
               批量发送
             </el-button>
@@ -890,7 +959,7 @@
         <el-descriptions-item label="优先级">{{ selectedProject.priority || '-' }}</el-descriptions-item>
         <el-descriptions-item label="项目字数">{{ projectWordSummary(selectedProject) }}</el-descriptions-item>
         <el-descriptions-item label="客户交稿时间">{{ formatDateTime(selectedProject.customer_deadline_time) }}</el-descriptions-item>
-        <el-descriptions-item label="网络文件路径" :span="3">{{ selectedProject.network_file_path || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="派稿文路径" :span="3">{{ selectedProject.dispatch_path || '-' }}</el-descriptions-item>
       </el-descriptions>
 
       <el-form label-width="155px" class="dispatch-form">
@@ -1068,6 +1137,75 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="mailSendPreviewDialogVisible"
+      :title="mailSendPreviewMode === 'batch' ? '批量发送邮件预览' : '发送邮件预览'"
+      width="min(820px, calc(100vw - 32px))"
+      top="5vh"
+      class="mail-send-preview-dialog"
+      destroy-on-close
+      :close-on-click-modal="!mailSendPreviewSending"
+      :close-on-press-escape="!mailSendPreviewSending"
+      :show-close="!mailSendPreviewSending"
+      @closed="clearMailSendPreview"
+    >
+      <div v-loading="mailSendPreviewLoading" class="mail-send-preview-body">
+        <el-alert
+          v-if="mailSendPreviewMode === 'batch'"
+          :title="`本次将向 ${mailSendPreviewBatchCount} 位待发送译员分别生成并发送邮件；下方展示当前抽样译员的实际邮件内容。`"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-if="mailSendPreviewError"
+          :title="mailSendPreviewError"
+          type="error"
+          :closable="false"
+          show-icon
+        />
+
+        <el-descriptions v-if="mailSendPreview.preview.arrangement_id" :column="1" border size="small">
+          <el-descriptions-item label="译员">
+            {{ mailSendPreview.assignment?.translator_name_snapshot || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="收件邮箱">
+            {{ mailSendPreview.preview.recipient_email || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="派稿文路径">
+            {{ mailSendPreview.preview.dispatch_path || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="参考文件路径一">
+            {{ mailSendPreview.preview.reference_file_path_one || '-' }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div v-if="mailSendPreview.preview.arrangement_id" class="mail-send-preview-content">
+          <label>邮件标题</label>
+          <el-input :model-value="mailSendPreview.preview.subject" readonly />
+          <label>邮件正文</label>
+          <el-input
+            :model-value="mailSendPreview.preview.body"
+            type="textarea"
+            :rows="14"
+            readonly
+            resize="none"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <el-button :disabled="mailSendPreviewSending" @click="mailSendPreviewDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="mailSendPreviewSending"
+          :disabled="mailSendPreviewConfirmDisabled"
+          @click="confirmMailPreviewSend"
+        >
+          {{ mailSendPreviewMode === 'batch' ? '确认批量发送' : '确认发送' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
       <el-form :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
@@ -1129,6 +1267,7 @@ import {
   sendManuscriptAssignment,
   sendManuscriptDispatch,
   updateManuscriptDispatch,
+  updateManuscriptMailPaths,
   updateManuscriptSettlement
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
@@ -1159,6 +1298,7 @@ const dispatchDialogVisible = ref(false)
 const settlementDialogVisible = ref(false)
 const selectedTranslatorIds = ref([])
 const activeArrangementTranslatorId = ref('')
+const workbenchStage = ref('arrange')
 const workspaceTranslatorTableRef = ref(null)
 const workspaceSelectedTranslators = ref([])
 const translatorKeyword = ref('')
@@ -1247,15 +1387,58 @@ const mailStageVisible = computed(
 )
 const mailPreviewLoading = ref(false)
 const mailPreviewError = ref('')
+const mailPathsSaving = ref(false)
+const mailPathsDirty = ref(false)
+const mailPathsDispatchId = ref('')
+const mailSendPreviewDialogVisible = ref(false)
+const mailSendPreviewLoading = ref(false)
+const mailSendPreviewSending = ref(false)
+const mailSendPreviewError = ref('')
+const mailSendPreviewMode = ref('single')
 const mailPreview = reactive({
   arrangement_id: '',
   recipient_email: '',
   subject: '',
   body: '',
-  manuscript_source_path: '',
+  dispatch_path: '',
   reference_file_path_one: ''
 })
+const mailPathForm = reactive({
+  dispatch_path: '',
+  reference_file_path_one: ''
+})
+const mailSendPreview = reactive({
+  dispatch: null,
+  assignment: null,
+  preview: {
+    arrangement_id: '',
+    recipient_email: '',
+    subject: '',
+    body: '',
+    dispatch_path: '',
+    reference_file_path_one: ''
+  }
+})
 let mailPreviewRequestId = 0
+let mailSendPreviewRequestId = 0
+
+const mailSendPreviewBatchCount = computed(() => {
+  const dispatch = mailSendPreview.dispatch
+  if (!dispatch) return 0
+  return activeAssignments(dispatch).filter((item) => item.status !== 'sent').length
+})
+
+const mailSendPreviewConfirmDisabled = computed(() => {
+  const preview = mailSendPreview.preview
+  return Boolean(
+    mailSendPreviewLoading.value
+    || mailSendPreviewSending.value
+    || mailSendPreviewError.value
+    || !preview.arrangement_id
+    || !preview.recipient_email
+    || !preview.dispatch_path
+  )
+})
 
 function clearMailPreview() {
   Object.assign(mailPreview, {
@@ -1263,10 +1446,101 @@ function clearMailPreview() {
     recipient_email: '',
     subject: '',
     body: '',
-    manuscript_source_path: '',
+    dispatch_path: '',
     reference_file_path_one: ''
   })
   mailPreviewError.value = ''
+}
+
+function resetMailPathForm() {
+  Object.assign(mailPathForm, {
+    dispatch_path: '',
+    reference_file_path_one: ''
+  })
+  mailPathsDispatchId.value = ''
+  mailPathsDirty.value = false
+}
+
+function clearMailSendPreview() {
+  mailSendPreviewRequestId += 1
+  mailSendPreviewLoading.value = false
+  mailSendPreviewError.value = ''
+  mailSendPreviewMode.value = 'single'
+  mailSendPreview.dispatch = null
+  mailSendPreview.assignment = null
+  Object.assign(mailSendPreview.preview, {
+    arrangement_id: '',
+    recipient_email: '',
+    subject: '',
+    body: '',
+    dispatch_path: '',
+    reference_file_path_one: ''
+  })
+}
+
+async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
+  if (!mailStatus.configured) {
+    ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
+    return
+  }
+  if (
+    mailPathsDirty.value
+    && selectedProjectDispatch.value?.id === dispatch?.id
+  ) {
+    ElMessage.warning('发送路径已修改，请先保存发送路径')
+    return
+  }
+  if (!dispatch?.id || !assignment?.id) {
+    ElMessage.warning('未找到可预览的待发送邮件')
+    return
+  }
+
+  const requestId = ++mailSendPreviewRequestId
+  mailSendPreviewMode.value = mode
+  mailSendPreview.dispatch = dispatch
+  mailSendPreview.assignment = assignment
+  mailSendPreviewError.value = ''
+  mailSendPreviewLoading.value = true
+  mailSendPreviewDialogVisible.value = true
+  try {
+    const preview = await getManuscriptMailPreview(dispatch.id, assignment.id)
+    if (requestId !== mailSendPreviewRequestId) return
+    Object.assign(mailSendPreview.preview, preview || {})
+  } catch (error) {
+    if (requestId !== mailSendPreviewRequestId) return
+    mailSendPreviewError.value = error.detail || '加载邮件预览失败'
+  } finally {
+    if (requestId === mailSendPreviewRequestId) {
+      mailSendPreviewLoading.value = false
+    }
+  }
+}
+
+function openBatchMailPreviewDialog(dispatch) {
+  const assignment = activeAssignments(dispatch).find(
+    (item) => item.status !== 'sent'
+  )
+  if (!assignment) {
+    ElMessage.info('该批次没有待发送邮件')
+    return
+  }
+  openMailPreviewDialog(dispatch, assignment, 'batch')
+}
+
+async function confirmMailPreviewSend() {
+  const dispatch = mailSendPreview.dispatch
+  const assignment = mailSendPreview.assignment
+  if (!dispatch || !assignment || mailSendPreviewConfirmDisabled.value) return
+
+  mailSendPreviewSending.value = true
+  try {
+    const sent = mailSendPreviewMode.value === 'batch'
+      ? await sendBatch(dispatch)
+      : await sendAssignment(dispatch, assignment)
+    if (sent) mailSendPreviewDialogVisible.value = false
+  } finally {
+    mailSendPreviewSending.value = false
+  }
 }
 
 async function loadActiveMailPreview() {
@@ -1275,6 +1549,7 @@ async function loadActiveMailPreview() {
   const arrangementId = activeExistingArrangement.value?.id
   if (!mailStageVisible.value || !dispatchId || !arrangementId) {
     clearMailPreview()
+    resetMailPathForm()
     mailPreviewLoading.value = false
     return
   }
@@ -1285,6 +1560,14 @@ async function loadActiveMailPreview() {
     const response = await getManuscriptMailPreview(dispatchId, arrangementId)
     if (requestId !== mailPreviewRequestId) return
     Object.assign(mailPreview, response || {})
+    if (mailPathsDispatchId.value !== dispatchId || !mailPathsDirty.value) {
+      Object.assign(mailPathForm, {
+        dispatch_path: response?.dispatch_path || '',
+        reference_file_path_one: response?.reference_file_path_one || ''
+      })
+      mailPathsDispatchId.value = dispatchId
+      mailPathsDirty.value = false
+    }
   } catch (error) {
     if (requestId !== mailPreviewRequestId) return
     clearMailPreview()
@@ -1293,6 +1576,35 @@ async function loadActiveMailPreview() {
     if (requestId === mailPreviewRequestId) {
       mailPreviewLoading.value = false
     }
+  }
+}
+
+async function saveMailPaths() {
+  const dispatchId = selectedProjectDispatch.value?.id
+  if (!dispatchId) return
+  mailPathsSaving.value = true
+  try {
+    const saved = await updateManuscriptMailPaths(dispatchId, {
+      dispatch_path: mailPathForm.dispatch_path.trim() || null,
+      reference_file_path_one: mailPathForm.reference_file_path_one.trim() || null
+    })
+    const identity = projectIdentity(selectedProject.value)
+    const freshValues = {
+      dispatch_path: saved?.dispatch_path || '',
+      reference_file_path_one: saved?.reference_file_path_one || ''
+    }
+    const contextProject = activeProjects.value.find(
+      (item) => projectIdentity(item) === identity
+    )
+    if (contextProject) Object.assign(contextProject, freshValues)
+    if (selectedProject.value) Object.assign(selectedProject.value, freshValues)
+    mailPathsDirty.value = false
+    await loadActiveMailPreview()
+    ElMessage.success('发送路径已保存，并同步到项目详情')
+  } catch (error) {
+    ElMessage.error(error.detail || '保存发送路径失败')
+  } finally {
+    mailPathsSaving.value = false
   }
 }
 
@@ -1743,7 +2055,7 @@ function defaultBody(translator) {
 需翻译部分：待填写
 预定译员结算字数：待确认
 译员交稿_全稿预定时间：待确认
-发稿文件路径：${selectedProject.value.network_file_path || '待填写'}
+派稿文路径：${selectedProject.value.dispatch_path || '待填写'}
 参考文件路径一：${selectedProject.value.reference_file_path_one || '无'}
 
 请以项目经理提供的稿件文件和最终要求为准。`
@@ -1890,6 +2202,7 @@ function resetDispatchForm() {
   Object.assign(dispatchForm, { id: '', remarks: '', arrangements: [] })
   selectedTranslatorIds.value = []
   activeArrangementTranslatorId.value = ''
+  workbenchStage.value = 'arrange'
 }
 
 function hydrateDispatchForm(row, { asNew = false } = {}) {
@@ -1933,6 +2246,7 @@ function prepareWorkbenchForProject() {
   const existing = selectedProjectDispatch.value
   if (existing) {
     hydrateDispatchForm(existing)
+    workbenchStage.value = existing.status === 'draft' ? 'arrange' : 'send'
     return
   }
   const cancelled = selectedProjectCancelledDispatch.value
@@ -2077,6 +2391,7 @@ async function saveDraft(shouldConfirm) {
     }
     dispatchDialogVisible.value = false
     await Promise.all([loadContext(), loadDispatches()])
+    if (shouldConfirm) workbenchStage.value = 'send'
   } catch (error) {
     ElMessage.error(error.detail || '保存稿件安排失败')
   } finally {
@@ -2086,7 +2401,7 @@ async function saveDraft(shouldConfirm) {
 
 async function sendActiveWorkbenchAssignment() {
   if (!selectedProjectDispatch.value || !activeExistingArrangement.value) return
-  await sendAssignment(
+  await openMailPreviewDialog(
     selectedProjectDispatch.value,
     activeExistingArrangement.value
   )
@@ -2111,14 +2426,9 @@ async function confirmExisting(row) {
 async function sendBatch(row) {
   if (!mailStatus.configured) {
     ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
-    return
+    return false
   }
   try {
-    await ElMessageBox.confirm(
-      `确认向 ${activeAssignments(row).filter((item) => item.status !== 'sent').length} 位待发送译员批量发送邮件吗？各译员将独立记录发送结果。`,
-      '批量发送稿件',
-      { type: 'warning', confirmButtonText: '确认发送' }
-    )
     sendingBatchId.value = row.id
     const result = await sendManuscriptDispatch(row.id)
     if (result.failed_count) {
@@ -2127,9 +2437,10 @@ async function sendBatch(row) {
       ElMessage.success(`发送完成：成功 ${result.sent_count}，跳过 ${result.skipped_count}`)
     }
     await Promise.all([loadContext(), loadDispatches()])
+    return true
   } catch (error) {
-    if (error === 'cancel' || error === 'close') return
     ElMessage.error(error.detail || '批量发送失败')
+    return false
   } finally {
     sendingBatchId.value = ''
   }
@@ -2138,22 +2449,18 @@ async function sendBatch(row) {
 async function sendAssignment(dispatch, assignment) {
   if (!mailStatus.configured) {
     ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
-    return
+    return false
   }
   try {
-    await ElMessageBox.confirm(
-      `确认向 ${assignment.translator_name_snapshot} 发送 ${dispatch.order_no_snapshot} 的稿件邮件吗？`,
-      '发送稿件',
-      { type: 'warning', confirmButtonText: '确认发送' }
-    )
     sendingId.value = assignment.id
     await sendManuscriptAssignment(dispatch.id, assignment.id)
     ElMessage.success('邮件发送成功')
     await Promise.all([loadContext(), loadDispatches()])
+    return true
   } catch (error) {
-    if (error === 'cancel' || error === 'close') return
     ElMessage.error(error.detail || '邮件发送失败')
     await loadDispatches()
+    return false
   } finally {
     sendingId.value = ''
   }
@@ -2415,8 +2722,39 @@ onMounted(loadAll)
   display: none;
 }
 
-.project-panel-toggle {
+.project-panel-header {
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-panel-header:hover h2 {
+  color: var(--el-color-primary);
+}
+
+.project-panel-header:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: -2px;
+}
+
+.project-panel-header__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-panel-chevron {
   flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-right: 2px solid var(--el-text-color-secondary);
+  border-bottom: 2px solid var(--el-text-color-secondary);
+  transform: rotate(225deg);
+  transition: transform 0.2s ease;
+}
+
+.project-panel-chevron.is-collapsed {
+  transform: rotate(45deg);
 }
 
 .legacy-project-panel :deep(.el-card__header),
@@ -2519,7 +2857,34 @@ onMounted(loadAll)
 }
 
 .assignment-tabs {
+  margin-bottom: 0;
+}
+
+.assignment-tabs > :deep(.el-tabs__header) {
+  margin-bottom: 12px;
+}
+
+.assignment-tabs > :deep(.el-tabs__header .el-tabs__item) {
+  min-width: 88px;
+  font-weight: 600;
+}
+
+.assignment-stage-content {
+  min-width: 0;
+}
+
+.assignment-translator-tabs {
   margin-bottom: 8px;
+}
+
+.assignment-translator-tabs :deep(.el-tabs__header) {
+  margin-bottom: 8px;
+}
+
+.assignment-translator-tabs :deep(.el-tabs__item) {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 .legacy-field-grid {
@@ -2576,6 +2941,70 @@ onMounted(loadAll)
 
 .legacy-mail-editor {
   margin-top: 12px;
+}
+
+.mail-path-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+}
+
+:deep(.mail-send-preview-dialog) {
+  display: flex;
+  max-height: 90vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:deep(.mail-send-preview-dialog .el-dialog__header),
+:deep(.mail-send-preview-dialog .el-dialog__footer) {
+  flex: none;
+}
+
+:deep(.mail-send-preview-dialog .el-dialog__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+:deep(.mail-send-preview-dialog .el-dialog__footer) {
+  border-top: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-lighter);
+}
+
+.mail-send-preview-body > .el-alert {
+  margin-bottom: 12px;
+}
+
+.mail-send-preview-body :deep(.el-descriptions__content) {
+  word-break: break-all;
+}
+
+.mail-send-preview-content {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  margin-top: 14px;
+  border-top: 1px solid var(--el-border-color);
+  border-left: 1px solid var(--el-border-color);
+}
+
+.mail-send-preview-content > label,
+.mail-send-preview-content > :not(label) {
+  padding: 6px;
+  border-right: 1px solid var(--el-border-color);
+  border-bottom: 1px solid var(--el-border-color);
+}
+
+.mail-send-preview-content > label {
+  display: flex;
+  align-items: center;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.mail-stage .el-alert {
+  margin-bottom: 8px;
 }
 
 .mail-body-input {

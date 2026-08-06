@@ -1,14 +1,5 @@
 <template>
   <div class="management-handover">
-    <el-alert
-      title="管理层项目归属"
-      description="这里交接的是项目的管理主负责人，不会改变下方执行任务的当前环节、处理人或流程状态。"
-      type="info"
-      :closable="false"
-      show-icon
-      class="scope-alert"
-    />
-
     <div v-if="incomingRequests.length" class="incoming-list">
       <div class="panel-title">
         待确认的管理层交接
@@ -42,37 +33,67 @@
     </div>
 
     <div class="panel-title">
-      <span>我负责的管理项目</span>
-      <el-button
-        type="primary"
-        size="small"
-        :disabled="!selectedProjects.length"
-        @click="openHandoverDialog"
-      >
-        交接管理归属（{{ selectedProjects.length }}）
-      </el-button>
+      <span>我负责及可承接的管理项目</span>
+      <div class="panel-actions">
+        <el-button
+          v-if="canSelfClaim"
+          type="success"
+          plain
+          size="small"
+          :loading="claiming"
+          :disabled="!claimableSelectedProjects.length"
+          @click="claimSelectedProjects"
+        >
+          自主承接（{{ claimableSelectedProjects.length }}）
+        </el-button>
+        <el-button
+          type="primary"
+          size="small"
+          :disabled="!handoverSelectedProjects.length"
+          @click="openHandoverDialog"
+        >
+          交接管理归属（{{ handoverSelectedProjects.length }}）
+        </el-button>
+      </div>
     </div>
 
     <el-table
+      ref="projectTableRef"
       v-loading="loading"
       :data="projects"
       border
       size="small"
+      class="workbench-data-table"
       row-key="translation_project_id"
       @selection-change="selectedProjects = $event"
     >
-      <el-table-column type="selection" width="46" />
-      <el-table-column prop="order_no" label="订单号" width="180" />
-      <el-table-column prop="project_name" label="项目名称" min-width="220" show-overflow-tooltip />
-      <el-table-column prop="client_short_name" label="客户" width="130" show-overflow-tooltip />
-      <el-table-column prop="project_manager_name" label="管理主负责人" width="140">
-        <template #default="{ row }">{{ row.project_manager_name || '未绑定' }}</template>
+      <el-table-column type="selection" width="48" />
+      <el-table-column type="index" label="序号" width="56" />
+      <el-table-column prop="order_no" label="订单号" width="180" show-overflow-tooltip />
+      <el-table-column label="项目 / 任务" min-width="280">
+        <template #default="{ row }">
+          <div class="workbench-project-cell">
+            <span class="workbench-project-cell__title">{{ row.project_name || '-' }}</span>
+            <div class="workbench-project-cell__meta">
+              <el-tag size="small" effect="plain">管理项目</el-tag>
+            </div>
+          </div>
+        </template>
       </el-table-column>
-      <el-table-column label="客户交稿时间" width="170">
+      <el-table-column prop="client_short_name" label="客户" width="130" show-overflow-tooltip />
+      <el-table-column label="客户交稿" width="170">
         <template #default="{ row }">{{ formatDateTime(row.customer_deadline_time) }}</template>
       </el-table-column>
+      <el-table-column prop="project_manager_name" label="管理归属" width="140">
+        <template #default="{ row }">
+          <el-tag v-if="row.project_manager_id" type="success" size="small" effect="plain">
+            {{ row.project_manager_name || '已绑定' }}
+          </el-tag>
+          <el-tag v-else type="warning" size="small" effect="plain">未绑定·可承接</el-tag>
+        </template>
+      </el-table-column>
     </el-table>
-    <el-empty v-if="!loading && !projects.length" description="暂无可交接的管理项目" :image-size="72" />
+    <el-empty v-if="!loading && !projects.length" description="暂无负责或可承接的管理项目" :image-size="72" />
 
     <el-dialog
       v-model="dialogVisible"
@@ -81,7 +102,7 @@
       destroy-on-close
     >
       <el-alert
-        :title="`将 ${selectedProjects.length} 个项目的管理主负责人交接给另一位项目经理，需由接收人确认。`"
+        :title="`将 ${handoverProjects.length} 个项目的管理主负责人交接给另一位项目经理，需由接收人确认。`"
         type="warning"
         :closable="false"
         show-icon
@@ -97,8 +118,9 @@
             <el-option
               v-for="manager in managerCandidates"
               :key="manager.id"
-              :label="manager.full_name || manager.username"
+              :label="manager.is_on_leave ? `${manager.full_name || manager.username}（请假至 ${formatDateTime(manager.leave_end)}）` : (manager.full_name || manager.username)"
               :value="manager.id"
+              :disabled="manager.is_on_leave"
             />
           </el-select>
         </el-form-item>
@@ -125,28 +147,42 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   acceptProjectManagerHandoverAPI,
+  claimManagementProjectsAPI,
   createProjectManagerHandoverAPI,
   getIncomingProjectManagerHandoversAPI,
   getManagementProjectsAPI,
   getProjectManagerCandidatesAPI,
   rejectProjectManagerHandoverAPI
 } from '@/api/workflow'
+import { hasRole } from '@/utils/permission'
 
 const emit = defineEmits(['updated'])
 const projects = ref([])
 const incomingRequests = ref([])
 const managerCandidates = ref([])
 const selectedProjects = ref([])
+const handoverProjects = ref([])
+const projectTableRef = ref(null)
 const loading = ref(false)
 const submitting = ref(false)
+const claiming = ref(false)
 const dialogVisible = ref(false)
 const targetManagerId = ref('')
 const reason = ref('')
 const note = ref('')
+const canSelfClaim = hasRole('项目经理')
+const claimableSelectedProjects = computed(() => (
+  canSelfClaim
+    ? selectedProjects.value.filter(project => !project.project_manager_id)
+    : []
+))
+const handoverSelectedProjects = computed(() => (
+  selectedProjects.value.filter(project => project.project_manager_id || !canSelfClaim)
+))
 
 function formatDateTime(value) {
   if (!value) return '-'
@@ -174,7 +210,8 @@ async function loadData() {
 }
 
 async function openHandoverDialog() {
-  if (!selectedProjects.value.length) return
+  if (!handoverSelectedProjects.value.length) return
+  handoverProjects.value = [...handoverSelectedProjects.value]
   targetManagerId.value = ''
   reason.value = ''
   note.value = ''
@@ -188,24 +225,56 @@ async function openHandoverDialog() {
 }
 
 async function submitHandover() {
-  if (!targetManagerId.value || !selectedProjects.value.length) return
+  if (!targetManagerId.value || !handoverProjects.value.length) return
   submitting.value = true
   try {
     await createProjectManagerHandoverAPI({
-      translation_project_ids: selectedProjects.value.map(item => item.translation_project_id),
+      translation_project_ids: handoverProjects.value.map(item => item.translation_project_id),
       target_manager_id: targetManagerId.value,
       reason: reason.value.trim() || undefined,
       note: note.value.trim() || undefined
     })
     ElMessage.success('管理层项目交接已发起，等待接收经理确认')
     dialogVisible.value = false
-    selectedProjects.value = []
+    clearProjectSelection()
     await loadData()
     emit('updated')
   } catch (error) {
     ElMessage.error(error?.detail || error?.message || '发起管理层项目交接失败')
   } finally {
     submitting.value = false
+  }
+}
+
+function clearProjectSelection() {
+  selectedProjects.value = []
+  handoverProjects.value = []
+  projectTableRef.value?.clearSelection()
+}
+
+async function claimSelectedProjects() {
+  const claimProjects = [...claimableSelectedProjects.value]
+  if (!claimProjects.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确认自主承接这 ${claimProjects.length} 个未绑定项目的管理主负责人归属吗？`,
+      '自主承接管理项目',
+      { type: 'warning', confirmButtonText: '确认承接', cancelButtonText: '取消' }
+    )
+    claiming.value = true
+    await claimManagementProjectsAPI(
+      claimProjects.map(project => project.translation_project_id)
+    )
+    ElMessage.success(`已承接 ${claimProjects.length} 个管理项目`)
+    clearProjectSelection()
+    await loadData()
+    emit('updated')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.detail || error?.message || '自主承接管理项目失败')
+    }
+  } finally {
+    claiming.value = false
   }
 }
 
@@ -249,11 +318,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .management-handover {
-  margin-bottom: 18px;
-}
-
-.scope-alert {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .panel-title,
@@ -265,17 +330,23 @@ onBeforeUnmount(() => {
 }
 
 .panel-title {
-  margin: 12px 0 10px;
-  font-size: 14px;
+  margin: 8px 0 6px;
+  font-size: 13px;
   font-weight: 600;
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .incoming-list {
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 
 .request-card {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .request-header > div {

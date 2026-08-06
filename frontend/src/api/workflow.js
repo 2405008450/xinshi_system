@@ -11,6 +11,8 @@ import api from './index'
 export const getWorkflowConfigAPI = () => api.get('/workflow/config')
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getManagementProjectsAPI = () => api.get('/workflow/management-projects')
+export const claimManagementProjectsAPI = (translationProjectIds) =>
+  api.post('/workflow/project-manager-claim', { translation_project_ids: translationProjectIds })
 export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })
 export const createProjectManagerHandoverAPI = (data) => api.post('/workflow/project-manager-handover', data)
 export const getIncomingProjectManagerHandoversAPI = () => api.get('/workflow/project-manager-handover/incoming')
@@ -55,7 +57,7 @@ export async function getUsersByRoleName(roleName) {
   const userRoles = await getUserRolesByRole(role.id)
   const userIds = new Set((userRoles || []).map((ur) => String(ur.user_id)).filter(Boolean))
   if (userIds.size === 0) return []
-  const allUsers = await getUsers({ limit: 500 })
+  const allUsers = await getUsers({ limit: 500, include_leave_status: true })
   const list = Array.isArray(allUsers) ? allUsers : []
   return list.filter((u) => u && userIds.has(String(u.id)))
 }

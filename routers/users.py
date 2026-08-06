@@ -10,6 +10,7 @@ from crud import (
 )
 from schemas import AppUserCreate, AppUserUpdate, AppUserPasswordReset, AppUserResponse
 from routers.auth import require_any_permission, require_permission, require_super_admin
+from leave_service import assignment_disabled_reason, get_active_leave_map
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -32,6 +33,8 @@ def read_users(
     limit: int = 100,
     username: Optional[str] = Query(None),
     full_name: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    include_leave_status: bool = Query(False),
     db: Session = Depends(get_db)
 ):
     users = get_users(
@@ -39,22 +42,44 @@ def read_users(
         skip=skip,
         limit=limit,
         username=username,
-        full_name=full_name
+        full_name=full_name,
+        department=department,
     )
-    return users
+    if not include_leave_status:
+        return users
+    leave_map = get_active_leave_map(db, [user.id for user in users])
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "email": user.email,
+            "is_active": user.is_active,
+            "department": user.department,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "is_on_leave": user.id in leave_map,
+            "leave_start": leave_map[user.id].start_date if user.id in leave_map else None,
+            "leave_end": leave_map[user.id].end_date if user.id in leave_map else None,
+            "assignment_disabled_reason": assignment_disabled_reason(leave_map.get(user.id)),
+        }
+        for user in users
+    ]
 
 
 @router.get("/count", dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_user_count(
     username: Optional[str] = Query(None),
     full_name: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return {
         "total": count_users(
             db,
             username=username,
-            full_name=full_name
+            full_name=full_name,
+            department=department,
         )
     }
 

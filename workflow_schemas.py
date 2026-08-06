@@ -150,6 +150,10 @@ class ProjectManagerHandoverCreate(BaseModel):
     note: Optional[str] = Field(default=None, max_length=5000)
 
 
+class ProjectManagerClaimRequest(BaseModel):
+    translation_project_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
 class ProjectManagerHandoverDecisionRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
@@ -191,6 +195,10 @@ class WorkflowTransferUser(BaseModel):
     id: UUID
     username: str
     full_name: Optional[str] = None
+    is_on_leave: bool = False
+    leave_start: Optional[datetime] = None
+    leave_end: Optional[datetime] = None
+    assignment_disabled_reason: Optional[str] = None
 
 
 class WorkflowEligibleUsersRequest(BaseModel):

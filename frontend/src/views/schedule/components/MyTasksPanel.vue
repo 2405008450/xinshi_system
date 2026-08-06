@@ -1,34 +1,29 @@
 <template>
   <div class="section-block">
     <div class="task-toolbar">
-      <p v-if="currentUserName" class="section-desc">当前用户：<strong>{{ currentUserName }}</strong></p>
+      <div v-if="tasksList.length" class="task-filters">
+        <el-input v-model="searchForm.client" aria-label="按客户筛选" placeholder="客户简称" clearable size="small" />
+        <el-input
+          v-model="searchForm.project"
+          aria-label="按项目筛选"
+          placeholder="项目、子项目或订单号"
+          clearable
+          size="small"
+          class="task-filters__project"
+        />
+        <el-input v-model="searchForm.language_pair" aria-label="按语言对筛选" placeholder="语言对" clearable size="small" />
+      </div>
       <div class="task-toolbar__actions">
         <el-button
           type="primary"
+          size="small"
           :disabled="!selectedTasks.length"
           @click="openHandoverDialog"
         >
           交接所选任务（{{ selectedTasks.length }}）
         </el-button>
-        <el-button type="warning" plain @click="openClaimDialog">继承他人任务</el-button>
+        <el-button type="warning" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
       </div>
-    </div>
-
-    <el-form v-if="tasksList.length" :inline="true" :model="searchForm" size="small" class="task-search">
-      <el-form-item label="客户">
-        <el-input v-model="searchForm.client" placeholder="客户全称或简称" clearable style="width: 180px" />
-      </el-form-item>
-      <el-form-item label="项目">
-        <el-input v-model="searchForm.project" placeholder="项目名或订单号" clearable style="width: 180px" />
-      </el-form-item>
-      <el-form-item label="语言对">
-        <el-input v-model="searchForm.language_pair" placeholder="支持模糊搜索" clearable style="width: 140px" />
-      </el-form-item>
-    </el-form>
-
-    <div v-if="urgentTasks.length" class="urgent-hint">
-      <el-tag type="danger" size="small" effect="dark">紧急任务 {{ urgentTasks.length }}</el-tag>
-      <span class="urgent-hint-text">高亮行为客户交稿时间在「当天至次日 10:00 前」的紧急任务，请优先处理。</span>
     </div>
 
     <el-table
@@ -37,66 +32,69 @@
       :data="filteredTasks"
       border
       size="small"
-      class="data-table"
+      class="data-table workbench-data-table"
       :row-class-name="rowClassName"
       @selection-change="selectedTasks = $event"
     >
       <el-table-column type="selection" width="48" :selectable="isTaskTransferable" />
-      <el-table-column type="index" label="序号" width="60" />
-      <el-table-column label="类型" width="82">
+      <el-table-column type="index" label="序号" width="56" />
+      <el-table-column prop="order_no" label="订单号" width="180" show-overflow-tooltip />
+      <el-table-column label="项目 / 任务" min-width="280">
         <template #default="{ row }">
-          <el-tag :type="row.entity_type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
-            {{ row.entity_type === 'suborder' ? '子订单' : '母项目' }}
-          </el-tag>
+          <div class="workbench-project-cell">
+            <span class="workbench-project-cell__title">
+              {{ row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-') }}
+            </span>
+            <div class="workbench-project-cell__meta">
+              <el-tag :type="row.entity_type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
+                {{ row.entity_type === 'suborder' ? '子订单' : '母项目' }}
+              </el-tag>
+              <span>{{ row.task_type || '项目任务' }}</span>
+              <span v-if="row.entity_type === 'suborder' && row.project_name">母项目：{{ row.project_name }}</span>
+            </div>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column prop="task_type" label="任务类型" width="120">
-        <template #default="{ row }">{{ row.task_type || '项目任务' }}</template>
+      <el-table-column label="客户" width="130" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column prop="client_name" label="客户全称" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="client_short_name" label="客户简称" width="120" show-overflow-tooltip />
-      <el-table-column prop="project_name" label="母项目名称" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="sub_project_name" label="子项目名称" min-width="160" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
-      </el-table-column>
-      <el-table-column prop="order_no" label="订单编号" width="170" show-overflow-tooltip />
-      <el-table-column prop="language_pair" label="语言对" width="140" show-overflow-tooltip />
-      <el-table-column label="客户交稿时间" width="160">
+      <el-table-column label="客户交稿" width="170">
         <template #default="{ row }">
-          {{ formatDeadline(getTaskDeadline(row)) }}
+          <div class="deadline-cell">
+            <span>{{ formatDeadline(getTaskDeadline(row)) }}</span>
+            <el-tag v-if="deadlineState(row) === DEADLINE_STATE.OVERDUE" type="danger" size="small" effect="dark">已逾期</el-tag>
+            <el-tag v-else-if="deadlineState(row) === DEADLINE_STATE.URGENT" type="warning" size="small" effect="dark">24小时内</el-tag>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column prop="current_stage_key" label="当前阶段" width="120">
+      <el-table-column prop="current_stage_key" label="状态" width="112">
         <template #default="{ row }">
-          <el-tag size="small" effect="plain">{{ STAGE_LABELS[row.current_stage_key] || row.current_stage_key }}</el-tag>
+          <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="difficulty" label="难度" width="80">
+      <el-table-column v-if="showAssigneeColumn" prop="current_assignee_name" label="当前负责人" width="120">
+        <template #default="{ row }">{{ row.current_assignee_name || '角色池' }}</template>
+      </el-table-column>
+      <el-table-column prop="language_pair" label="语言对" width="120" show-overflow-tooltip />
+      <el-table-column prop="difficulty" label="难度" width="76">
         <template #default="{ row }">
           <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
             {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
           </el-tag>
+          <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="project_status" label="状态" width="80">
+      <el-table-column label="分配" width="92">
         <template #default="{ row }">
-          <el-tag :type="STATUS_TYPE[row.project_status] || ''" size="small" effect="plain">
-            {{ STATUS_LABEL[row.project_status] || row.project_status }}
+          <el-tag :type="row.assignment_type === 'direct' ? 'success' : row.assignment_type === 'overview' ? 'warning' : 'info'" size="small" effect="plain">
+            {{ row.assignment_type === 'direct' ? '直接负责' : row.assignment_type === 'overview' ? '全局查看' : '角色池' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="分配" width="100">
+      <el-table-column label="操作" width="128" align="center" fixed="right">
         <template #default="{ row }">
-          <el-tag :type="row.assignment_type === 'direct' ? 'success' : 'info'" size="small" effect="plain">
-            {{ row.assignment_type === 'direct' ? '直接负责' : '角色池' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="180" align="center" fixed="right">
-        <template #default="{ row }">
-          <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="$emit('enter-project', row)">进入</el-button>
           <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="$emit('open-chat', row.translation_project_id)">留言</el-button>
-          <el-button type="success" link size="small" @click="$emit('record-work', row)">记进展</el-button>
+          <el-button v-if="row.assignment_type !== 'overview'" type="success" link size="small" @click="$emit('record-work', row)">记进展</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -134,9 +132,9 @@
             <el-option
               v-for="user in eligibleUsers"
               :key="user.id"
-              :label="user.full_name || user.username"
+              :label="user.is_on_leave ? `${user.full_name || user.username}（${user.assignment_disabled_reason || '请假中'}）` : (user.full_name || user.username)"
               :value="user.id"
-              :disabled="String(user.id) === currentUserId"
+              :disabled="String(user.id) === currentUserId || user.is_on_leave"
             />
           </el-select>
         </el-form-item>
@@ -189,8 +187,8 @@
           <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
         </el-table-column>
         <el-table-column prop="order_no" label="订单编号" width="165" />
-        <el-table-column label="当前阶段" width="110">
-          <template #default="{ row }">{{ STAGE_LABELS[row.current_stage_key] || row.current_stage_key }}</template>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">{{ formatStage(row.current_stage_key) }}</template>
         </el-table-column>
       </el-table>
       <div class="claim-note">
@@ -212,6 +210,12 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import TransferNoteEditor from '@/components/TransferNoteEditor.vue'
 import {
+  DEADLINE_STATE,
+  compareWorkItemsByDeadline,
+  getWorkItemDeadline,
+  getWorkItemDeadlineState
+} from '@/utils/workItemDeadline'
+import {
   claimWorkflowTasksAPI,
   getEligibleTransferUsersAPI,
   getTransferableTasksAPI,
@@ -232,17 +236,17 @@ const STAGE_LABELS = {
 
 const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
 const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
-const STATUS_LABEL = { pending: '待处理', in_progress: '进行中', completed: '已完成', paused: '暂停' }
-const STATUS_TYPE = { pending: 'info', in_progress: '', completed: 'success', paused: 'warning' }
+
+function formatStage(stageKey) {
+  return STAGE_LABELS[stageKey] || stageKey || '-'
+}
 
 const props = defineProps({
   currentUserName: { type: String, default: '' },
-  tasksList: { type: Array, default: () => [] },
-  /** 参考日期 YYYY-MM-DD，用于判定「当天及次日10点前」；不传则用当前真实日期 */
-  referenceDate: { type: String, default: '' }
+  tasksList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['enter-project', 'open-chat', 'record-work', 'refresh'])
+const emit = defineEmits(['open-chat', 'record-work', 'refresh'])
 
 const selectedTasks = ref([])
 const taskTableRef = ref(null)
@@ -292,39 +296,8 @@ function formatDeadline(timeStr) {
   return `${y}-${m}-${day} ${h}:${min}`
 }
 
-/** 从任务对象取客户交稿时间（兼容接口 snake_case / camelCase） */
-function getTaskDeadline(task) {
-  return task?.customer_deadline_time ?? task?.customerDeadlineTime ?? null
-}
-
-/**
- * 判定是否为紧急任务：客户交稿时间在「参考日当天 00:00」到「参考日次日 10:00」之间。
- * @param {string|null} deadlineTime - ISO 或可解析的日期时间字符串
- * @param {string} [refDateStr] - 参考日期 YYYY-MM-DD，不传则用当前日期
- */
-function isUrgentTask(deadlineTime, refDateStr) {
-  if (!deadlineTime) return false
-  const deadline = new Date(deadlineTime)
-  if (isNaN(deadline.getTime())) return false
-
-  const ref = refDateStr && refDateStr.trim() ? new Date(refDateStr + 'T00:00:00') : new Date()
-  const today = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate())
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-
-  const deadlineCutoff = new Date(tomorrow)
-  deadlineCutoff.setHours(10, 0, 0, 0)
-
-  return deadline >= today && deadline <= deadlineCutoff
-}
-
-const refDate = computed(() => (props.referenceDate || '').trim() || null)
-
-function isRowUrgent(task) {
-  return isUrgentTask(getTaskDeadline(task), refDate.value)
-}
-
-const urgentTasks = computed(() => props.tasksList.filter(isRowUrgent))
+const getTaskDeadline = getWorkItemDeadline
+const deadlineState = getWorkItemDeadlineState
 
 const filteredTasks = computed(() => {
   let list = props.tasksList.slice()
@@ -338,12 +311,19 @@ const filteredTasks = computed(() => {
   if (searchForm.language_pair) {
     list = list.filter(t => t.language_pair && t.language_pair.includes(searchForm.language_pair))
   }
-  // 紧急任务置顶，便于一眼看到高亮行
-  return list.sort((a, b) => Number(isRowUrgent(b)) - Number(isRowUrgent(a)))
+  const now = new Date()
+  return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
 })
 
+const showAssigneeColumn = computed(() => (
+  props.tasksList.some(task => task.assignment_type === 'overview')
+))
+
 function rowClassName({ row }) {
-  return isRowUrgent(row) ? 'urgent-row' : ''
+  const state = deadlineState(row)
+  if (state === DEADLINE_STATE.OVERDUE) return 'overdue-row'
+  if (state === DEADLINE_STATE.URGENT) return 'urgent-row'
+  return ''
 }
 
 const isTaskTransferable = (row) => row.assignment_type === 'direct'
@@ -455,48 +435,44 @@ const submitClaim = async () => {
 </script>
 
 <style scoped>
-.section-block { margin-bottom: 28px; }
-.section-desc { margin: 0 0 8px 0; line-height: 1.6; color: var(--el-text-color-regular); }
+.section-block { margin-bottom: 10px; }
 .data-table { margin-bottom: 12px; }
 
 .task-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
-.task-toolbar .section-desc {
-  margin: 0;
+.task-filters {
+  display: grid;
+  grid-template-columns: 150px 220px 130px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-filters__project {
+  min-width: 0;
 }
 
 .task-toolbar__actions {
   display: flex;
   gap: 8px;
+  margin-left: auto;
 }
 
-.task-search {
-  margin-bottom: -6px;
-}
-
-.urgent-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding: 6px 10px;
-  background: var(--el-color-danger-light-9);
-  border-left: 3px solid var(--el-color-danger);
-  border-radius: 4px;
-}
-.urgent-hint-text {
+.deadline-cell {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
   font-size: 12px;
-  color: var(--el-text-color-regular);
 }
 
 .empty-tip {
-  padding: 20px;
+  padding: 12px;
   text-align: center;
   color: var(--el-text-color-secondary);
   font-size: 13px;
@@ -532,13 +508,23 @@ const submitClaim = async () => {
   color: var(--el-text-color-primary);
 }
 
-:deep(.urgent-row),
-:deep(.urgent-row td) {
+:deep(.overdue-row),
+:deep(.overdue-row td) {
   background-color: var(--el-color-danger-light-9) !important;
 }
+:deep(.overdue-row:hover),
+:deep(.overdue-row:hover td) {
+  background-color: var(--el-color-danger-light-8) !important;
+}
+
+:deep(.urgent-row),
+:deep(.urgent-row td) {
+  background-color: var(--el-color-warning-light-9) !important;
+}
+
 :deep(.urgent-row:hover),
 :deep(.urgent-row:hover td) {
-  background-color: var(--el-color-danger-light-8) !important;
+  background-color: var(--el-color-warning-light-8) !important;
 }
 
 @media (max-width: 720px) {
@@ -547,7 +533,13 @@ const submitClaim = async () => {
     flex-direction: column;
   }
 
+  .task-filters {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
   .task-toolbar__actions {
+    margin-left: 0;
     flex-wrap: wrap;
   }
 }

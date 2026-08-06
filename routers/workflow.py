@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
+from leave_service import assignment_disabled_reason, get_active_leave_map
 from workflow_crud import (
     ALL_STAGES,
     get_workflow_by_project,
@@ -15,6 +16,7 @@ from workflow_crud import (
     get_management_projects,
     get_my_tasks,
     get_project_manager_candidates,
+    claim_management_projects,
     get_transferable_tasks,
     get_eligible_transfer_users,
     create_handover_request,
@@ -23,6 +25,7 @@ from workflow_crud import (
     decide_project_manager_handover,
     list_incoming_handover_requests,
     list_incoming_project_manager_handovers,
+    serialize_managed_project,
     serialize_project_manager_handover,
     serialize_handover_request,
     transfer_workflow_tasks,
@@ -45,6 +48,7 @@ from workflow_schemas import (
     MyTaskItem,
     ManagedProjectItem,
     ProjectManagerHandoverCreate,
+    ProjectManagerClaimRequest,
     ProjectManagerHandoverDecisionRequest,
     ProjectManagerHandoverResponse,
     WorkflowHandoverRequest,
@@ -59,6 +63,22 @@ from models import AppUser
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
+
+
+def _serialize_transfer_users(db: Session, users: list[AppUser]) -> list[WorkflowTransferUser]:
+    leave_map = get_active_leave_map(db, [user.id for user in users])
+    return [
+        WorkflowTransferUser(
+            id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+            is_on_leave=user.id in leave_map,
+            leave_start=leave_map[user.id].start_date if user.id in leave_map else None,
+            leave_end=leave_map[user.id].end_date if user.id in leave_map else None,
+            assignment_disabled_reason=assignment_disabled_reason(leave_map.get(user.id)),
+        )
+        for user in users
+    ]
 
 
 def _build_state_response(instance) -> WorkflowStateResponse:
@@ -147,14 +167,34 @@ def get_project_manager_candidates_endpoint(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    return [
-        WorkflowTransferUser(id=user.id, username=user.username, full_name=user.full_name)
-        for user in get_project_manager_candidates(
+    return _serialize_transfer_users(
+        db,
+        get_project_manager_candidates(db, current_user.id, include_current=include_current),
+    )
+
+
+@router.post("/project-manager-claim", response_model=list[ManagedProjectItem])
+def claim_management_projects_endpoint(
+    payload: ProjectManagerClaimRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        projects = claim_management_projects(
             db,
-            current_user.id,
-            include_current=include_current,
+            current_user=current_user,
+            translation_project_ids=payload.translation_project_ids,
         )
-    ]
+        return [serialize_managed_project(project) for project in projects]
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post(
@@ -285,10 +325,7 @@ def get_eligible_transfer_users_endpoint(
         users = get_eligible_transfer_users(db, payload.workflow_instance_ids)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return [
-        WorkflowTransferUser(id=user.id, username=user.username, full_name=user.full_name)
-        for user in users
-    ]
+    return _serialize_transfer_users(db, users)
 
 
 @router.post("/handover", response_model=WorkflowHandoverRequestResponse, status_code=status.HTTP_201_CREATED)

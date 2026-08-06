@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text, Time, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -34,6 +34,29 @@ class AppUser(Base):
     chat_enabled_actions: Mapped[list['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='operator')
     chat_sent_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='sender')
     chat_mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='mentioned_user')
+    shift_templates: Mapped[list['EmployeeShiftTemplate']] = relationship(
+        'EmployeeShiftTemplate',
+        back_populates='user',
+        cascade='all, delete-orphan',
+        foreign_keys='EmployeeShiftTemplate.user_id',
+    )
+    shift_overrides: Mapped[list['EmployeeShiftOverride']] = relationship(
+        'EmployeeShiftOverride',
+        back_populates='user',
+        cascade='all, delete-orphan',
+        foreign_keys='EmployeeShiftOverride.user_id',
+    )
+    shift_locks: Mapped[list['EmployeeShiftLock']] = relationship(
+        'EmployeeShiftLock',
+        back_populates='user',
+        cascade='all, delete-orphan',
+        foreign_keys='EmployeeShiftLock.user_id',
+    )
+    leave_records: Mapped[list['EmployeeLeave']] = relationship(
+        'EmployeeLeave',
+        back_populates='employee',
+        foreign_keys='EmployeeLeave.employee_id',
+    )
 
 
 class Role(Base):
@@ -270,6 +293,7 @@ class TranslatorSchedule(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     translator_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     schedule_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    availability_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'available'"))
     available_time_slot: Mapped[Optional[str]] = mapped_column(String(100))
     remaining_capacity: Mapped[Optional[int]] = mapped_column(Integer)
     source_type: Mapped[Optional[str]] = mapped_column(String(30), server_default=text("'manual'"))
@@ -280,6 +304,98 @@ class TranslatorSchedule(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     translator: Mapped['Translator'] = relationship('Translator', back_populates='schedules')
+
+
+class EmployeeShiftTemplate(Base):
+    """员工周班次模板；同一生效日期的七行构成一个版本。"""
+    __tablename__ = 'employee_shift_template'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_employee_shift_template_user'),
+        PrimaryKeyConstraint('id', name='employee_shift_template_pkey'),
+        UniqueConstraint('user_id', 'weekday', 'effective_from', name='uq_employee_shift_template_version'),
+        CheckConstraint('weekday >= 1 AND weekday <= 7', name='ck_employee_shift_template_weekday'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    weekday: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    effective_from: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    shift_code: Mapped[str] = mapped_column(String(30), nullable=False)
+    start_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    end_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    user: Mapped['AppUser'] = relationship('AppUser', back_populates='shift_templates', foreign_keys=[user_id])
+
+
+class EmployeeShiftOverride(Base):
+    """员工单日班次覆盖；存在时优先于周模板。"""
+    __tablename__ = 'employee_shift_override'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_employee_shift_override_user'),
+        PrimaryKeyConstraint('id', name='employee_shift_override_pkey'),
+        UniqueConstraint('user_id', 'schedule_date', name='uq_employee_shift_override_date'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    schedule_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    shift_code: Mapped[str] = mapped_column(String(30), nullable=False)
+    start_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    end_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    user: Mapped['AppUser'] = relationship('AppUser', back_populates='shift_overrides', foreign_keys=[user_id])
+
+
+class EmployeeShiftOverrideAudit(Base):
+    """单日排班调整审计；恢复模板后仍保留调整原因和操作人。"""
+    __tablename__ = 'employee_shift_override_audit'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_shift_override_audit_user'),
+        ForeignKeyConstraint(['changed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_shift_override_audit_changed_by'),
+        PrimaryKeyConstraint('id', name='employee_shift_override_audit_pkey'),
+        Index('ix_shift_override_audit_user_date', 'user_id', 'schedule_date', 'changed_at'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    schedule_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    shift_code: Mapped[Optional[str]] = mapped_column(String(30))
+    start_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    end_time: Mapped[Optional[datetime.time]] = mapped_column(Time)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    was_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class EmployeeShiftLock(Base):
+    """员工固定班次锁定状态；按生效周保留锁定/解锁历史。"""
+    __tablename__ = 'employee_shift_lock'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_employee_shift_lock_user'),
+        ForeignKeyConstraint(['changed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_employee_shift_lock_changed_by'),
+        PrimaryKeyConstraint('id', name='employee_shift_lock_pkey'),
+        UniqueConstraint('user_id', 'effective_from', name='uq_employee_shift_lock_version'),
+        Index('ix_employee_shift_lock_user_effective', 'user_id', 'effective_from'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    effective_from: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    reason: Mapped[Optional[str]] = mapped_column(String(500))
+    changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    user: Mapped['AppUser'] = relationship('AppUser', back_populates='shift_locks', foreign_keys=[user_id])
 
 
 class TranslationProject(Base):
@@ -696,7 +812,11 @@ class EmployeeLeave(Base):
     """员工请假记录"""
     __tablename__ = 'employee_leave'
     __table_args__ = (
+        ForeignKeyConstraint(['employee_id'], ['app_user.id'], ondelete='RESTRICT', name='fk_employee_leave_employee'),
+        ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_employee_leave_created_by'),
+        ForeignKeyConstraint(['updated_by'], ['app_user.id'], ondelete='SET NULL', name='fk_employee_leave_updated_by'),
         PrimaryKeyConstraint('id', name='employee_leave_pkey'),
+        Index('ix_employee_leave_employee_time', 'employee_id', 'start_date', 'end_date'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
@@ -706,7 +826,12 @@ class EmployeeLeave(Base):
     end_date: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     leave_type: Mapped[Optional[str]] = mapped_column(String(50))
     reason: Mapped[Optional[str]] = mapped_column(String(500))
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    employee: Mapped['AppUser'] = relationship('AppUser', back_populates='leave_records', foreign_keys=[employee_id])
 
 
 class FinanceRecord(Base):

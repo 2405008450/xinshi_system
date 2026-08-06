@@ -13,7 +13,9 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from models import AppUser, TranslationProject, TranslationSubOrder
-from permission_service import user_has_permission
+from permission_registry import ALL_PERMISSION
+from permission_service import get_user_permission_codes, user_has_permission
+from leave_service import ensure_user_assignable
 from task_models import (
     DailyReport,
     DailyReportItem,
@@ -76,6 +78,7 @@ def _ensure_assignee_allowed(db: Session, operator_id: UUID, assignee_id: UUID) 
     user = _get_active_user(db, assignee_id)
     if assignee_id != operator_id and not _can_assign(db, operator_id):
         raise PermissionError("缺少任务分配权限，只能为自己创建任务")
+    ensure_user_assignable(db, assignee_id)
     return user
 
 
@@ -156,10 +159,14 @@ def list_non_project_tasks(
     current_user: AppUser,
     *,
     include_created: bool = False,
+    include_all: bool = False,
     status: str | None = None,
 ) -> list[NonProjectTask]:
     query = db.query(NonProjectTask)
-    if include_created:
+    can_view_all = include_all and ALL_PERMISSION in get_user_permission_codes(db, current_user.id)
+    if can_view_all:
+        pass
+    elif include_created:
         query = query.filter(
             (NonProjectTask.assignee_id == current_user.id)
             | (NonProjectTask.assigner_id == current_user.id)
@@ -424,9 +431,14 @@ def generate_recurrence_instances(
 
 
 def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
-    generate_recurrence_instances(db, business_now().date(), assignee_id=current_user.id)
+    is_super_admin = ALL_PERMISSION in get_user_permission_codes(db, current_user.id)
+    generate_recurrence_instances(
+        db,
+        business_now().date(),
+        assignee_id=None if is_super_admin else current_user.id,
+    )
     items: list[dict] = []
-    for task in get_my_tasks(db, current_user.id):
+    for task in get_my_tasks(db, current_user.id, include_all=is_super_admin):
         items.append(
             {
                 "source_type": "project",
@@ -448,6 +460,7 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
         db,
         current_user,
         include_created=can_assign,
+        include_all=is_super_admin,
     ):
         serialized = serialize_non_project_task(task)
         can_change_status = task.assignee_id == current_user.id or can_assign
@@ -482,6 +495,11 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
                 "actual_completion_at": task.actual_completion_at,
                 "status": task.status,
                 "remark": task.remark,
+                "assignment_type": (
+                    "overview"
+                    if is_super_admin and task.assignee_id != current_user.id
+                    else "direct"
+                ),
                 "available_actions": available_actions,
             }
         )
@@ -514,6 +532,7 @@ def _project_identity(db: Session, workflow_id: UUID) -> tuple[str, str, dict]:
             {
                 "order_no": sub.sub_order_no if sub else None,
                 "project_name": project.project_name if project else None,
+                "client_short_name": project.client.client_short_name if project and project.client else None,
                 "workflow_instance_id": str(workflow_id),
             },
         )
@@ -528,6 +547,7 @@ def _project_identity(db: Session, workflow_id: UUID) -> tuple[str, str, dict]:
         {
             "order_no": project.order_no if project else None,
             "project_name": project.project_name if project else None,
+            "client_short_name": project.client.client_short_name if project and project.client else None,
             "workflow_instance_id": str(workflow_id),
         },
     )

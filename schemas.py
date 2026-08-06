@@ -1,8 +1,9 @@
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, date, time
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from language_catalog import normalize_language_pairs
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
@@ -30,6 +31,7 @@ class AppUserBase(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = True
+    department: Optional[str] = None
 
 
 class AppUserCreate(AppUserBase):
@@ -41,6 +43,7 @@ class AppUserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
+    department: Optional[str] = None
 
 
 class AppUserPasswordReset(BaseModel):
@@ -49,6 +52,10 @@ class AppUserPasswordReset(BaseModel):
 
 class AppUserResponse(AppUserBase):
     id: UUID
+    is_on_leave: bool = False
+    leave_start: Optional[datetime] = None
+    leave_end: Optional[datetime] = None
+    assignment_disabled_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -412,6 +419,7 @@ class TranslatorResponse(TranslatorFieldsBase):
 class TranslatorScheduleBase(BaseModel):
     translator_id: UUID
     schedule_date: date
+    availability_status: Literal['available', 'unavailable', 'cycle_blocked'] = 'available'
     available_time_slot: Optional[str] = None
     remaining_capacity: Optional[int] = None
     source_type: Optional[str] = "manual"
@@ -425,6 +433,7 @@ class TranslatorScheduleCreate(TranslatorScheduleBase):
 
 
 class TranslatorScheduleUpdate(BaseModel):
+    availability_status: Optional[Literal['available', 'unavailable', 'cycle_blocked']] = None
     available_time_slot: Optional[str] = None
     remaining_capacity: Optional[int] = None
     source_type: Optional[str] = None
@@ -440,6 +449,90 @@ class TranslatorScheduleResponse(TranslatorScheduleBase):
 
     class Config:
         from_attributes = True
+
+
+SHIFT_CODES = {
+    'early_early', 'early', 'late', 'late_late',
+    'weekend_duty', 'custom', 'off', 'unassigned',
+}
+
+
+class EmployeeShiftValue(BaseModel):
+    shift_code: str
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+
+    @model_validator(mode='after')
+    def validate_shift_value(self):
+        if self.shift_code not in SHIFT_CODES:
+            raise ValueError('不支持的班次编码')
+        if self.shift_code == 'custom':
+            if not self.start_time or not self.end_time:
+                raise ValueError('自定义班次必须填写开始和结束时间')
+            if self.end_time <= self.start_time:
+                raise ValueError('结束时间必须晚于开始时间，暂不支持跨午夜班次')
+        return self
+
+
+class EmployeeShiftTemplateDay(EmployeeShiftValue):
+    weekday: int = Field(ge=1, le=7)
+
+    @model_validator(mode='after')
+    def validate_weekend_duty(self):
+        if self.shift_code == 'weekend_duty' and self.weekday not in (6, 7):
+            raise ValueError('周末值班只能设置在周六或周日')
+        return self
+
+
+class EmployeeShiftTemplateUpdate(BaseModel):
+    effective_from: date
+    days: list[EmployeeShiftTemplateDay]
+
+    @model_validator(mode='after')
+    def validate_template(self):
+        if self.effective_from.weekday() != 0:
+            raise ValueError('周模板生效日期必须是周一')
+        if sorted(day.weekday for day in self.days) != list(range(1, 8)):
+            raise ValueError('周模板必须完整包含周一至周日且不能重复')
+        return self
+
+
+class EmployeeShiftOverrideItem(EmployeeShiftValue):
+    user_id: UUID
+    schedule_date: date
+    action: Literal['set', 'clear'] = 'set'
+    note: Optional[str] = None
+    override_locked: bool = False
+
+    @model_validator(mode='after')
+    def validate_override(self):
+        if self.action == 'set' and self.shift_code == 'weekend_duty' and self.schedule_date.weekday() < 5:
+            raise ValueError('周末值班只能设置在周六或周日')
+        return self
+
+
+class EmployeeShiftOverrideBatchUpdate(BaseModel):
+    items: list[EmployeeShiftOverrideItem]
+
+
+class EmployeeShiftLockUpdate(BaseModel):
+    effective_from: date
+    is_locked: bool
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason')
+    @classmethod
+    def validate_reason(cls, value: str):
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError('锁定或解锁原因不能为空')
+        return normalized
+
+    @model_validator(mode='after')
+    def validate_effective_week(self):
+        if self.effective_from.weekday() != 0:
+            raise ValueError('锁定状态生效日期必须是周一')
+        return self
 
 
 # Translation Project Schemas
@@ -817,7 +910,7 @@ class WorkScheduleResponse(WorkScheduleBase):
 
 class EmployeeLeaveCreate(BaseModel):
     employee_id: UUID
-    employee_name: str
+    employee_name: Optional[str] = None
     start_date: datetime
     end_date: datetime
     leave_type: Optional[str] = None
@@ -837,11 +930,17 @@ class EmployeeLeaveResponse(BaseModel):
     id: UUID
     employee_id: UUID
     employee_name: str
+    department: Optional[str] = None
     start_date: datetime
     end_date: datetime
     leave_type: Optional[str] = None
     reason: Optional[str] = None
+    status: Literal['active', 'upcoming', 'past'] = 'upcoming'
+    is_current_user: bool = False
+    created_by: Optional[UUID] = None
+    updated_by: Optional[UUID] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

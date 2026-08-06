@@ -1,107 +1,98 @@
 <template>
-  <CollapsibleSection
-    v-if="requests.length"
-    title="待确认交接"
-    subtitle="需要确认接收或拒绝的任务交接"
-    storage-key="pending-handovers"
-  >
-    <template #badge>
+  <div v-if="requests.length" class="pending-handover-bar">
+    <div class="pending-handover-bar__summary">
+      <span class="pending-handover-bar__title">待确认交接</span>
       <el-tag type="warning" size="small">{{ requests.length }}</el-tag>
-    </template>
-    <el-alert type="warning" :closable="false" show-icon>
-      <template #title>
-        你有 {{ requests.length }} 个待确认的任务交接
-      </template>
-      <el-button type="warning" link @click="dialogVisible = true">立即处理</el-button>
-    </el-alert>
+      <span class="pending-handover-bar__subtitle">需要确认接收或拒绝的任务交接</span>
+    </div>
+    <el-button type="warning" link size="small" @click="dialogVisible = true">立即处理</el-button>
+  </div>
 
-    <el-dialog v-model="dialogVisible" title="待确认的任务交接" width="920px" destroy-on-close>
-      <div class="request-list">
-        <el-card v-for="request in requests" :key="request.id" shadow="never" class="request-card">
-          <template #header>
-            <div class="request-card__header">
-              <div>
-                <strong>{{ request.requester_name || '未知用户' }}</strong>
-                <span>向你发起了 {{ request.tasks?.length || 0 }} 项任务交接</span>
-              </div>
-              <el-tag type="warning" effect="plain">{{ handoverTypeLabel(request.handover_type) }}</el-tag>
+  <el-dialog v-model="dialogVisible" title="待确认的任务交接" width="920px" destroy-on-close>
+    <div class="request-list">
+      <el-card v-for="request in requests" :key="request.id" shadow="never" class="request-card">
+        <template #header>
+          <div class="request-card__header">
+            <div>
+              <strong>{{ request.requester_name || '未知用户' }}</strong>
+              <span>向你发起了 {{ request.tasks?.length || 0 }} 项任务交接</span>
             </div>
-          </template>
-
-          <el-descriptions :column="2" border size="small">
-            <el-descriptions-item label="发起时间">{{ formatDateTime(request.created_at) }}</el-descriptions-item>
-            <el-descriptions-item label="交接原因">
-              {{ request.handover_type === 'other' ? request.reason_detail : handoverTypeLabel(request.handover_type) }}
-            </el-descriptions-item>
-          </el-descriptions>
-
-          <div v-if="request.content || request.content_json" class="request-note">
-            <div class="request-section-title">交接留言</div>
-            <RichTextContent :document="request.content_json" :fallback="request.content" />
+            <el-tag type="warning" effect="plain">{{ handoverTypeLabel(request.handover_type) }}</el-tag>
           </div>
+        </template>
 
-          <div v-if="request.attachments?.length" class="request-attachments">
-            <div class="request-section-title">留言图片</div>
-            <a
-              v-for="attachment in request.attachments"
-              :key="attachment.id"
-              :href="attachmentUrls[attachment.id] || undefined"
-              target="_blank"
-              rel="noopener"
-            >
-              <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.original_name" />
-              <span>{{ attachment.original_name }}</span>
-            </a>
-          </div>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="发起时间">{{ formatDateTime(request.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="交接原因">
+            {{ request.handover_type === 'other' ? request.reason_detail : handoverTypeLabel(request.handover_type) }}
+          </el-descriptions-item>
+        </el-descriptions>
 
-          <div class="request-section-title">交接任务</div>
-          <el-table :data="request.tasks || []" border size="small" max-height="260">
-            <el-table-column prop="client_name" label="客户" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="project_name" label="母项目" min-width="170" show-overflow-tooltip />
-            <el-table-column prop="sub_project_name" label="子项目" min-width="140" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="order_no" label="订单编号" width="165" />
-          </el-table>
+        <div v-if="request.content || request.content_json" class="request-note">
+          <div class="request-section-title">交接留言</div>
+          <RichTextContent :document="request.content_json" :fallback="request.content" />
+        </div>
 
-          <el-input
-            v-model="decisionNotes[request.id]"
-            maxlength="500"
-            show-word-limit
-            placeholder="处理备注（可选）"
-            class="decision-note"
-          />
-          <div class="request-actions">
-            <el-button
-              type="danger"
-              plain
-              :loading="processingId === request.id"
-              @click="handleDecision(request, 'reject')"
-            >
-              拒绝交接
-            </el-button>
-            <el-button
-              type="primary"
-              :loading="processingId === request.id"
-              @click="handleDecision(request, 'accept')"
-            >
-              确认接收
-            </el-button>
-          </div>
-        </el-card>
-      </div>
-      <template #footer>
-        <el-button @click="dialogVisible = false">稍后处理</el-button>
-      </template>
-    </el-dialog>
-  </CollapsibleSection>
+        <div v-if="request.attachments?.length" class="request-attachments">
+          <div class="request-section-title">留言图片</div>
+          <a
+            v-for="attachment in request.attachments"
+            :key="attachment.id"
+            :href="attachmentUrls[attachment.id] || undefined"
+            target="_blank"
+            rel="noopener"
+          >
+            <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.original_name" />
+            <span>{{ attachment.original_name }}</span>
+          </a>
+        </div>
+
+        <div class="request-section-title">交接任务</div>
+        <el-table :data="request.tasks || []" border size="small" max-height="260">
+          <el-table-column prop="client_name" label="客户" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="project_name" label="母项目" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="sub_project_name" label="子项目" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="order_no" label="订单编号" width="165" />
+        </el-table>
+
+        <el-input
+          v-model="decisionNotes[request.id]"
+          maxlength="500"
+          show-word-limit
+          placeholder="处理备注（可选）"
+          class="decision-note"
+        />
+        <div class="request-actions">
+          <el-button
+            type="danger"
+            plain
+            :loading="processingId === request.id"
+            @click="handleDecision(request, 'reject')"
+          >
+            拒绝交接
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="processingId === request.id"
+            @click="handleDecision(request, 'accept')"
+          >
+            确认接收
+          </el-button>
+        </div>
+      </el-card>
+    </div>
+    <template #footer>
+      <el-button @click="dialogVisible = false">稍后处理</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import RichTextContent from '@/components/RichTextContent.vue'
-import CollapsibleSection from './CollapsibleSection.vue'
 import { getProjectChatAttachmentBlob } from '@/api/projectChat'
 import {
   acceptHandoverRequestAPI,
@@ -216,8 +207,39 @@ defineExpose({ refresh: loadRequests })
 </script>
 
 <style scoped>
-.pending-handover {
-  margin-bottom: 20px;
+.pending-handover-bar {
+  min-height: 38px;
+  margin-bottom: 8px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 6px;
+  background: var(--el-color-warning-light-9);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pending-handover-bar__summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pending-handover-bar__title {
+  flex: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.pending-handover-bar__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .request-list {
@@ -289,6 +311,14 @@ defineExpose({ refresh: loadRequests })
 }
 
 @media (max-width: 720px) {
+  .pending-handover-bar {
+    padding: 5px 8px;
+  }
+
+  .pending-handover-bar__subtitle {
+    display: none;
+  }
+
   .request-card__header,
   .request-card__header > div {
     align-items: flex-start;

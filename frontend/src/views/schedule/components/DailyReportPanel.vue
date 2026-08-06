@@ -2,39 +2,44 @@
   <div>
     <div class="report-toolbar">
       <div class="toolbar-actions">
-        <el-tag :type="report.status === 'finalized' ? 'success' : 'info'">
+        <el-tag size="small" :type="report.status === 'finalized' ? 'success' : 'info'">
           {{ report.status === 'finalized' ? '已确认' : '草稿' }}
         </el-tag>
-        <el-button :loading="loading" @click="loadReport(true)">重新汇总</el-button>
-        <el-button v-if="report.status !== 'finalized'" type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
-        <el-button v-if="report.status !== 'finalized'" type="success" :loading="saving" @click="save(true)">确认日报</el-button>
-        <el-button type="primary" :disabled="report.status !== 'finalized'" :loading="exporting" @click="downloadReport">导出 Excel</el-button>
+        <el-button size="small" :loading="loading" @click="loadReport(true)">重新汇总</el-button>
+        <el-button v-if="report.status !== 'finalized'" size="small" type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
+        <el-button v-if="report.status !== 'finalized'" size="small" type="success" :loading="saving" @click="save(true)">确认日报</el-button>
+        <el-button size="small" type="primary" :disabled="report.status !== 'finalized'" :loading="exporting" @click="downloadReport">导出 Excel</el-button>
       </div>
     </div>
 
-    <el-alert
-      v-if="report.status === 'finalized'"
-      title="日报已确认并保存快照，后续任务修改不会影响本日报。"
-      type="success"
-      :closable="false"
-      show-icon
-      class="report-alert"
-    />
-
     <el-table v-loading="loading" :data="report.items" border size="small">
-      <el-table-column label="来源" width="100">
-        <template #default="{ row }">{{ SOURCE_LABEL[row.source_type] || row.source_type }}</template>
+      <el-table-column type="index" label="序号" width="56" />
+      <el-table-column label="订单号" width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.display_metadata?.order_no || '-' }}</template>
       </el-table-column>
-      <el-table-column label="任务类型" width="130">
+      <el-table-column label="项目 / 任务" min-width="220">
+        <template #default="{ row }">
+          <div class="report-task">
+            <el-input v-if="editable" v-model="row.task_name" size="small" />
+            <span v-else class="report-task__name">{{ row.task_name }}</span>
+            <div class="report-task__meta">
+              <el-tag size="small" effect="plain">{{ SOURCE_LABEL[row.source_type] || row.source_type }}</el-tag>
+              <span
+                v-if="row.source_type === 'project' && row.display_metadata?.project_name && row.display_metadata.project_name !== row.task_name"
+              >
+                母项目：{{ row.display_metadata.project_name }}
+              </span>
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="客户" width="130" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.display_metadata?.client_short_name || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="任务类型" width="120">
         <template #default="{ row }">
           <el-input v-if="editable" v-model="row.task_type" size="small" />
           <span v-else>{{ row.task_type }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="任务名称" min-width="190">
-        <template #default="{ row }">
-          <el-input v-if="editable" v-model="row.task_name" size="small" />
-          <span v-else>{{ row.task_name }}</span>
         </template>
       </el-table-column>
       <el-table-column label="工作进展" min-width="230">
@@ -246,12 +251,14 @@ onMounted(() => loadReport(false))
 </script>
 
 <style scoped>
-.report-toolbar { display: flex; justify-content: flex-end; gap: 16px; align-items: flex-start; margin-bottom: 12px; }
-.toolbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.report-alert { margin-bottom: 12px; }
+.report-toolbar { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 8px; }
+.toolbar-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .manual-row { margin-top: 8px; }
-.supplement-form { margin-top: 14px; }
+.supplement-form { margin-top: 10px; }
 .pre-wrap { white-space: pre-wrap; }
+.report-task { display: grid; gap: 4px; min-width: 0; }
+.report-task__name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.report-task__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--el-text-color-secondary); font-size: 12px; }
 .duration-editor { display: flex; align-items: center; gap: 6px; }
 .duration-editor :deep(.el-input-number) { width: 125px; }
 .duration-unit { width: 76px; }

@@ -7,7 +7,9 @@
     popper-class="business-detail-popover"
   >
     <template #reference>
-      <el-button type="primary" link>查看详情</el-button>
+      <slot name="reference">
+        <el-button type="primary" link>查看详情</el-button>
+      </slot>
     </template>
     <div class="business-detail-popover__content">
       <el-descriptions :column="2" border size="small">

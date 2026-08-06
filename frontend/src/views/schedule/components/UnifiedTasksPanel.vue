@@ -11,8 +11,6 @@
       <MyTasksPanel
         :current-user-name="currentUserName"
         :tasks-list="projectItems"
-        :reference-date="referenceDate"
-        @enter-project="$emit('enter-project', $event)"
         @open-chat="$emit('open-chat', $event)"
         @record-work="openWorkEntry"
         @refresh="$emit('refresh')"
@@ -23,7 +21,7 @@
       <div class="non-project-toolbar">
         <div v-if="sourceFilter === 'all'" class="subsection-title">非项目任务</div>
         <div class="toolbar-actions">
-          <el-select v-model="nonProjectStatusFilter" style="width: 130px">
+          <el-select v-model="nonProjectStatusFilter" size="small" style="width: 120px">
             <el-option label="进行中" value="open" />
             <el-option label="已完成" value="completed" />
             <el-option label="已取消" value="cancelled" />
@@ -31,17 +29,25 @@
           </el-select>
           <el-input
             v-model="keyword"
+            size="small"
             clearable
             placeholder="搜索任务名称、类型或安排人"
-            style="width: 260px"
+            style="width: 220px"
           />
-          <el-button plain @click="openRecurrenceDialog">周期任务</el-button>
-          <el-button type="primary" @click="openCreateTask(false)">添加个人任务</el-button>
-          <el-button v-if="canAssign" type="success" plain @click="openCreateTask(true)">分配非项目任务</el-button>
+          <el-button size="small" plain @click="openRecurrenceDialog">周期任务</el-button>
+          <el-button size="small" type="primary" @click="openCreateTask(false)">添加个人任务</el-button>
+          <el-button v-if="canAssign" size="small" type="success" plain @click="openCreateTask(true)">分配非项目任务</el-button>
         </div>
       </div>
 
-      <el-table v-if="filteredNonProjectItems.length" :data="filteredNonProjectItems" border size="small">
+      <el-table
+        v-if="filteredNonProjectItems.length"
+        :data="filteredNonProjectItems"
+        border
+        size="small"
+        class="workbench-data-table non-project-table"
+        :row-class-name="nonProjectRowClassName"
+      >
         <el-table-column prop="task_type" label="任务类型" width="120" />
         <el-table-column prop="task_name" label="任务名称" min-width="220" show-overflow-tooltip />
         <el-table-column prop="assigner_name" label="安排人" width="120" />
@@ -50,7 +56,13 @@
           <template #default="{ row }">{{ formatDateTime(row.assigned_at) }}</template>
         </el-table-column>
         <el-table-column label="预定完成时间" width="165">
-          <template #default="{ row }">{{ formatDateTime(row.planned_completion_at) }}</template>
+          <template #default="{ row }">
+            <div class="deadline-cell">
+              <span>{{ formatDateTime(row.planned_completion_at) }}</span>
+              <el-tag v-if="deadlineState(row) === DEADLINE_STATE.OVERDUE" type="danger" size="small" effect="dark">已逾期</el-tag>
+              <el-tag v-else-if="deadlineState(row) === DEADLINE_STATE.URGENT" type="warning" size="small" effect="dark">24小时内</el-tag>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column label="实际完成时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.actual_completion_at) }}</template>
@@ -76,7 +88,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-else description="暂无非项目任务" />
+      <el-empty v-else class="compact-empty" description="暂无非项目任务" :image-size="56" />
     </section>
 
     <el-dialog v-model="taskDialogVisible" :title="taskDialogTitle" width="640px" destroy-on-close>
@@ -102,8 +114,9 @@
             <el-option
               v-for="user in users"
               :key="user.id"
-              :label="user.full_name || user.username"
+              :label="user.is_on_leave ? `${user.full_name || user.username}（请假至 ${formatDateTime(user.leave_end)}）` : (user.full_name || user.username)"
               :value="user.id"
+              :disabled="user.is_on_leave"
             />
           </el-select>
         </el-form-item>
@@ -224,14 +237,15 @@ import {
   setTaskRecurrenceActive,
   updateNonProjectTask
 } from '@/api/tasks'
-import { hasPermission } from '@/utils/permission'
+import { hasRole, isSuperAdmin } from '@/utils/permission'
+import { DEADLINE_STATE, compareWorkItemsByDeadline, getWorkItemDeadlineState } from '@/utils/workItemDeadline'
 
 const props = defineProps({
   currentUserName: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   referenceDate: { type: String, default: '' }
 })
-const emit = defineEmits(['enter-project', 'open-chat', 'refresh'])
+const emit = defineEmits(['open-chat', 'refresh'])
 
 const TASK_TYPES = ['非项目工作', '自定义']
 const FREQUENCY_LABEL = { daily: '每日', workday: '工作日', weekly: '每周', monthly: '每月' }
@@ -241,13 +255,13 @@ const STATUS_TYPE = { pending: 'info', in_progress: 'primary', completed: 'succe
 const sourceFilter = ref('all')
 const keyword = ref('')
 const nonProjectStatusFilter = ref('open')
-const canAssign = computed(() => hasPermission('tasks:assign'))
+const canAssign = computed(() => isSuperAdmin() || hasRole('项目经理'))
 const projectItems = computed(() => props.items.filter(item => item.source_type === 'project'))
 const nonProjectItems = computed(() => props.items.filter(item => item.source_type === 'non_project'))
 const filteredNonProjectItems = computed(() => {
   const statusFilter = nonProjectStatusFilter.value
   const value = keyword.value.trim().toLowerCase()
-  return nonProjectItems.value.filter(item => {
+  const list = nonProjectItems.value.filter(item => {
     const statusMatches = statusFilter === 'all'
       || (statusFilter === 'open' && ['pending', 'in_progress'].includes(item.status))
       || item.status === statusFilter
@@ -256,7 +270,18 @@ const filteredNonProjectItems = computed(() => {
     return [item.task_type, item.task_name, item.assigner_name, item.assignee_name, item.remark]
       .some(field => String(field || '').toLowerCase().includes(value))
   })
+  const now = new Date()
+  return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
 })
+
+const deadlineState = getWorkItemDeadlineState
+
+function nonProjectRowClassName({ row }) {
+  const state = deadlineState(row)
+  if (state === DEADLINE_STATE.OVERDUE) return 'overdue-row'
+  if (state === DEADLINE_STATE.URGENT) return 'urgent-row'
+  return ''
+}
 
 function hasAction(row, action) {
   return Array.isArray(row.available_actions) && row.available_actions.includes(action)
@@ -330,7 +355,7 @@ function resetTaskForm() {
 async function loadUsers() {
   if (!canAssign.value || users.value.length) return
   try {
-    users.value = (await getUsers({ limit: 500 })).filter(user => user.is_active)
+    users.value = (await getUsers({ limit: 500, include_leave_status: true })).filter(user => user.is_active)
   } catch (error) {
     ElMessage.error(error?.detail || '加载用户失败')
   }
@@ -515,15 +540,41 @@ function formatDateTime(value) {
 </script>
 
 <style scoped>
-.source-tabs { margin-bottom: 12px; }
-.subsection-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 12px; }
-.non-project-section { margin-top: 8px; }
+.source-tabs { margin-bottom: 8px; }
+.source-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+.source-tabs :deep(.el-tabs__item) { height: 34px; padding: 0 14px; }
+.subsection-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
+.non-project-section { margin-top: 4px; }
 .non-project-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.toolbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.compact-empty { padding: 12px 0 8px; }
+.compact-empty :deep(.el-empty__description) { margin-top: 6px; }
+.deadline-cell { display: grid; justify-items: start; gap: 4px; font-size: 12px; }
+.non-project-table :deep(.overdue-row),
+.non-project-table :deep(.overdue-row td) { background-color: var(--el-color-danger-light-9) !important; }
+.non-project-table :deep(.overdue-row:hover),
+.non-project-table :deep(.overdue-row:hover td) { background-color: var(--el-color-danger-light-8) !important; }
+.non-project-table :deep(.urgent-row),
+.non-project-table :deep(.urgent-row td) { background-color: var(--el-color-warning-light-9) !important; }
+.non-project-table :deep(.urgent-row:hover),
+.non-project-table :deep(.urgent-row:hover td) { background-color: var(--el-color-warning-light-8) !important; }
+
+@media (max-width: 900px) {
+  .non-project-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+}
 </style>

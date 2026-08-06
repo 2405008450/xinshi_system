@@ -35,6 +35,9 @@ export const getManuscriptMailPreview = (dispatchId, arrangementId) =>
     `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/mail-preview`
   )
 
+export const updateManuscriptMailPaths = (dispatchId, data) =>
+  api.patch(`/manuscript-arrangements/batches/${dispatchId}/mail-paths`, data)
+
 export const updateManuscriptSettlement = (dispatchId, arrangementId, data) =>
   api.patch(
     `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/settlement`,

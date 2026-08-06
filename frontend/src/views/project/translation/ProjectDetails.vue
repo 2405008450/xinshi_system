@@ -129,7 +129,13 @@
       >
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-no-actions">
-            <span class="order-no-text" :title="row.orderNo">{{ row.orderNo }}</span>
+            <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType">
+              <template #reference>
+                <el-button type="primary" link class="order-no-link" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
+                  {{ row.orderNo }}
+                </el-button>
+              </template>
+            </BusinessDetailPopover>
             <div class="order-no-btns" v-if="canReadProjectFiles">
               <el-button type="primary" size="small" link :title="'打开路径'" @click.stop="openOriginalPath(row)">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" fill="currentColor"><path d="M928 256H512L416 160H128a96 96 0 0 0-96 96v544a96 96 0 0 0 96 96h800a96 96 0 0 0 96-96V352a96 96 0 0 0-96-96zM128 256h249.6l64 64H128V256zm800 544H128V448h800v352z"/></svg>
@@ -179,11 +185,6 @@
             <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="project" :entity-id="row.id" title="项目字数统计" @saved="fetchData" />
           </div>
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right">
-        <template #default="{ row }">
-          <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="88" fixed="right" align="center">
@@ -323,6 +324,9 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="客户负责人"><el-input v-model="form.clientManager" readonly placeholder="选择客户后从客户表自动带出" /></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" readonly placeholder="选择客户后从客户表自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
@@ -350,6 +354,24 @@
                       <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="文本类型" data-field-key="fileTypeSecondary"><el-input v-model="form.fileTypeSecondary" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="翻译方向" data-field-key="languagePair"><LanguagePairSelect v-model="form.languagePair" /></el-form-item></el-col>
+                      </el-row>
+                      <el-row :gutter="16">
+                        <el-col :xs="24">
+                          <el-form-item label="字数与预估" data-field-key="wordCountSummary">
+                            <div class="word-count-summary">
+                              <span>{{ formatWordCountSummary(form) }}</span>
+                              <WordCountMatrixPopover
+                                v-model="form.wordCountMatrix"
+                                entity-type="project"
+                                :entity-id="form.id"
+                                title="项目字数统计"
+                                @saved="handleProjectWordCountSaved"
+                              >
+                                <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                              </WordCountMatrixPopover>
+                            </div>
+                          </el-form-item>
+                        </el-col>
                       </el-row>
                     </div>
                   </el-collapse-item>
@@ -420,8 +442,9 @@
                         <el-option
                           v-for="manager in projectManagerOptions"
                           :key="manager.id"
-                          :label="manager.full_name || manager.username"
+                          :label="manager.is_on_leave ? `${manager.full_name || manager.username}（${manager.assignment_disabled_reason || '请假中'}）` : (manager.full_name || manager.username)"
                           :value="manager.id"
+                          :disabled="manager.is_on_leave && manager.id !== form.projectManagerId"
                         />
                       </el-select>
                       <div class="auto-name-field__hint">管理层主负责人，与当前流程处理人相互独立。</div>
@@ -430,6 +453,13 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="客户反馈" data-field-key="clientFeedback"><el-input v-model="form.clientFeedback" /></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :xs="24">
+                    <el-form-item label="已分配译员">
+                      <el-input :model-value="formatAssignedTranslators(form.assignedTranslators, form.translatorName)" readonly placeholder="由“稿件安排”模块统一维护" />
+                    </el-form-item>
+                  </el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户接单时间" data-field-key="customerReceptionTime"><el-date-picker v-model="form.customerReceptionTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
@@ -445,41 +475,6 @@
                     </div>
                   </el-collapse-item>
                 </el-collapse>
-              </div>
-            </el-tab-pane>
-
-            <el-tab-pane label="分配与预估" name="assignment">
-              <div class="form-section">
-                <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="已分配译员"><el-input :model-value="formatAssignedTranslators(form.assignedTranslators, form.translatorName)" readonly placeholder="请在“稿件安排”模块中分配译员" /></el-form-item></el-col>
-                </el-row>
-                <el-row :gutter="16">
-                  <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
-                </el-row>
-                <el-row :gutter="16">
-                  <el-col :xs="24">
-                    <el-form-item label="字数与预估" data-field-key="wordCountSummary">
-                      <div class="word-count-summary">
-                        <span>{{ formatWordCountSummary(form) }}</span>
-                        <WordCountMatrixPopover
-                          v-model="form.wordCountMatrix"
-                          entity-type="project"
-                          :entity-id="form.id"
-                          title="项目字数统计"
-                          @saved="handleProjectWordCountSaved"
-                        >
-                          <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
-                        </WordCountMatrixPopover>
-                      </div>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="网络文件路径" data-field-key="networkFilePath"><el-input v-model="form.networkFilePath" type="textarea" :rows="3" placeholder="如需多个路径，可按行填写" /></el-form-item></el-col>
-                </el-row>
-                <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="参考文件路径一" data-field-key="referenceFilePathOne"><el-input v-model="form.referenceFilePathOne" type="textarea" :rows="2" placeholder="供稿件安排发信时引用，通过项目外键自动带入" /></el-form-item></el-col>
-                </el-row>
               </div>
             </el-tab-pane>
 
@@ -557,19 +552,15 @@
 
             <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files">
               <ProjectFilesTab
-                v-if="form.id"
+                ref="projectFilesTabRef"
                 :project-id="form.id"
                 :order-no="form.orderNo"
                 entity-type="project"
                 :active="projectDialogTab === 'files'"
+                :show-save-action="false"
+                :allow-draft="true"
+                v-model:reference-file-path-one="form.referenceFilePathOne"
                 @status-change="handleProjectFileStatusChange"
-              />
-              <el-alert
-                v-else
-                title="请先保存项目，文件记录将自动关联保存后的订单号。"
-                type="info"
-                :closable="false"
-                show-icon
               />
             </el-tab-pane>
           </el-tabs>
@@ -788,6 +779,7 @@ const basicProjectFieldSearchItems = [
   { key: 'serviceContent', label: '服务内容', aliases: ['服务'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'fileTypeSecondary', label: '文本类型', aliases: ['文件类型'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'languagePair', label: '翻译方向', aliases: ['语言对', '语言方向'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'wordCountSummary', label: '字数与预估', aliases: ['字数摘要', '客户提供字数', '内部核算字数', '统计口径', '预计译员字数'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'projectContractType', label: '合同类型', aliases: ['项目合同类型'], section: 'business', sectionLabel: '项目商务信息' },
   { key: 'projectContractStatus', label: '合同状态', aliases: ['项目合同状态'], section: 'business', sectionLabel: '项目商务信息' },
   { key: 'quotationRequired', label: '需提供报价单', aliases: ['报价单', '是否需要报价'], section: 'business', sectionLabel: '项目商务信息' },
@@ -804,11 +796,6 @@ const basicProjectFieldSearchItems = [
   { key: 'sentToClientTime', label: '发客户时间', aliases: ['发送客户时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'pmConfirmedBy', label: 'PM确认人 ID', aliases: ['PM确认人', '确认人'], section: 'execution', sectionLabel: '项目执行信息' },
 ].map((item) => ({ ...item, tab: 'basic', tabLabel: '基础信息', location: `基础信息 · ${item.sectionLabel}` }))
-const assignmentFieldSearchItems = [
-  { key: 'wordCountSummary', label: '字数与预估', aliases: ['字数摘要', '客户提供字数', '内部核算字数', '统计口径', '预计译员字数'] },
-  { key: 'networkFilePath', label: '网络文件路径', aliases: ['网络路径', '文件路径'] },
-  { key: 'referenceFilePathOne', label: '参考文件路径一', aliases: ['参考文件', '参考路径'] },
-].map((item) => ({ ...item, tab: 'assignment', tabLabel: '分配与预估', location: '分配与预估' }))
 const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
   ...item,
   aliases: [item.label.replaceAll(' ', '')],
@@ -818,7 +805,6 @@ const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
 }))
 const projectFieldSearchItems = [
   ...basicProjectFieldSearchItems,
-  ...assignmentFieldSearchItems,
   ...progressFieldSearchItems,
 ]
 const taskTypeOptions = [
@@ -844,6 +830,7 @@ const projectDetailItems = [
   { label: '项目名称', key: 'projectName' },
   { label: '服务内容', key: 'serviceContent', span: 2 },
   { label: '任务类型', key: 'taskType' },
+  { label: '来源咨询 ID', key: 'consultationId' },
   { label: '客户简称', key: 'clientShortName' },
   { label: '客户编号', key: 'clientCode' },
   { label: '客户单号', key: 'customerOrderNo' },
@@ -852,35 +839,40 @@ const projectDetailItems = [
   { label: '负责人联系方式', key: 'managerContact' },
   { label: '状态', key: 'projectStatus', type: 'status' },
   { label: '文本类型', key: 'fileTypeSecondary' },
-  { label: '项目文件名', key: 'projectFileName' },
-  { label: '翻译文本领域', key: 'projectFileTranslationDomainLevel1', formatter: (value, row) => formatHierarchy(row.projectFileTranslationDomainLevel1, row.projectFileTranslationDomainLevel2) },
-  { label: '文件类型', key: 'projectFileTypeLevel1', formatter: (value, row) => formatHierarchy(row.projectFileTypeLevel1, row.projectFileTypeLevel2) },
+  { label: '翻译文本领域一级', key: 'projectFileTranslationDomainLevel1' },
+  { label: '翻译文本领域二级', key: 'projectFileTranslationDomainLevel2' },
+  { label: '文件类型一级', key: 'projectFileTypeLevel1' },
+  { label: '文件类型二级', key: 'projectFileTypeLevel2' },
   { label: '文件格式', key: 'projectFileFormat' },
-  { label: '文件属性', key: 'projectFileAttributeLevel1', formatter: (value, row) => formatHierarchy(row.projectFileAttributeLevel1, row.projectFileAttributeLevel2, row.projectFileAttributeLevel3) },
+  { label: '文件属性一级', key: 'projectFileAttributeLevel1' },
+  { label: '文件属性二级', key: 'projectFileAttributeLevel2' },
+  { label: '文件属性三级', key: 'projectFileAttributeLevel3' },
   { label: '文件难度', key: 'projectFileDifficulty' },
-  { label: '项目合同', key: 'projectContractType', formatter: (value, row) => formatHierarchy(row.projectContractType, row.projectContractStatus) },
-  { label: '项目报价单', key: 'quotationRequired', span: 2, formatter: (value, row) => formatProjectQuotation(row) },
+  { label: '合同类型', key: 'projectContractType' },
+  { label: '合同状态', key: 'projectContractStatus' },
+  { label: '需提供报价单', key: 'quotationRequired', formatter: (value) => value ? '是' : '否' },
+  { label: '报价单状态', key: 'quotationStatus' },
+  { label: '报价单路径', key: 'quotationPath', span: 2 },
   { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2 },
   { label: '客户特殊要求', key: 'customerRequirementSpecial', span: 2 },
   { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
-  { label: '字数统计', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
+  { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
   { label: '客户接单时间', key: 'customerReceptionTime' },
   { label: '客户交稿时间', key: 'customerDeadlineTime' },
   { label: '发客户时间', key: 'sentToClientTime' },
+  { label: 'PM确认人 ID', key: 'pmConfirmedBy' },
   { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
-  { label: '审校前QC', key: 'preReviewQcProgress' },
-  { label: '审校1', key: 'review1Progress' },
-  { label: '审校2', key: 'review2Progress' },
-  { label: '审校后QC', key: 'postReviewQcProgress' },
+  { label: '审校前 QC', key: 'preReviewQcProgress' },
+  { label: '审校 1', key: 'review1Progress' },
+  { label: '审校 2', key: 'review2Progress' },
+  { label: '审校后 QC', key: 'postReviewQcProgress' },
   { label: '排版进度', key: 'layoutProgress' },
   { label: '整合进度', key: 'consolidationProgress' },
-  { label: '网络文件路径', key: 'networkFilePath', span: 2 },
-  { label: '参考文件路径一', key: 'referenceFilePathOne', span: 2 },
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
@@ -891,18 +883,18 @@ const subOrderDetailItems = [
   { label: '文本类型', key: 'fileTypeSecondary' },
   { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
-  { label: '字数统计', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
+  { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
   { label: '客户交稿时间', key: 'customerDeadlineTime' },
   { label: '发客户时间', key: 'sentToClientTime' },
   { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
-  { label: '审校前QC', key: 'preReviewQcProgress' },
+  { label: '审校前 QC', key: 'preReviewQcProgress' },
   { label: '审核进度（旧字段）', key: 'reviewProgress' },
-  { label: '审校1', key: 'review1Progress' },
-  { label: '审校2', key: 'review2Progress' },
-  { label: '审校后QC', key: 'postReviewQcProgress' },
+  { label: '审校 1', key: 'review1Progress' },
+  { label: '审校 2', key: 'review2Progress' },
+  { label: '审校后 QC', key: 'postReviewQcProgress' },
   { label: '排版进度', key: 'layoutProgress' },
   { label: '整合进度', key: 'consolidationProgress' },
   { label: '网络文件路径', key: 'networkFilePath', span: 2 },
@@ -910,7 +902,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', translatorId: '', status: 'pending_confirmation' })
 const loading = ref(false)
@@ -927,6 +919,7 @@ const fieldSearchKeyword = ref('')
 const subOrderFormRef = ref(null)
 const batchFormRef = ref(null)
 const projectTableRef = ref(null)
+const projectFilesTabRef = ref(null)
 const tableData = ref([])
 const expandedProjectIds = ref(new Set())
 const expandedProjectRowKeys = computed(() => [...expandedProjectIds.value])
@@ -950,14 +943,20 @@ const tableColumnOverrides = {
   managerContact: { minWidth: 150 },
   projectStatus: { minWidth: 100, showOverflowTooltip: false },
   fileTypeSecondary: { minWidth: 110 },
-  projectFileName: { minWidth: 200 },
   projectFileTranslationDomainLevel1: { minWidth: 180 },
+  projectFileTranslationDomainLevel2: { minWidth: 180 },
   projectFileTypeLevel1: { minWidth: 180 },
+  projectFileTypeLevel2: { minWidth: 180 },
   projectFileFormat: { minWidth: 100 },
   projectFileAttributeLevel1: { minWidth: 200 },
+  projectFileAttributeLevel2: { minWidth: 200 },
+  projectFileAttributeLevel3: { minWidth: 200 },
   projectFileDifficulty: { minWidth: 96 },
   projectContractType: { minWidth: 180 },
+  projectContractStatus: { minWidth: 140 },
   quotationRequired: { minWidth: 200 },
+  quotationStatus: { minWidth: 140 },
+  quotationPath: { minWidth: 240 },
   customerRequirementProfessional: { minWidth: 240 },
   customerRequirementSpecial: { minWidth: 240 },
   languagePair: { width: 150, minWidth: 130, showOverflowTooltip: false },
@@ -977,8 +976,6 @@ const tableColumnOverrides = {
   postReviewQcProgress: { minWidth: 96 },
   layoutProgress: { minWidth: 90 },
   consolidationProgress: { minWidth: 90 },
-  networkFilePath: { minWidth: 260 },
-  referenceFilePathOne: { minWidth: 260 },
   createdBy: { minWidth: 280 },
   createdAt: { minWidth: 150 },
   updatedAt: { minWidth: 150 },
@@ -1000,7 +997,7 @@ const batchForm = reactive(createBatchForm())
 const rules = { projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }] }
 const subOrderRules = { subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }] }
 const batchRules = { count: [{ required: true, message: '请输入生成数量', trigger: 'change' }] }
-const NULLABLE_FIELDS = ['serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'networkFilePath', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
+const NULLABLE_FIELDS = ['serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const legacyStatusMap = {
   pending: 'pending_confirmation',
   in_progress: 'confirmed',
@@ -1101,14 +1098,6 @@ const getDeadlineDisplay = (row) => {
     label: `${prefix}剩 ${formatRemainingDuration(difference)}`,
     type: prefix ? 'warning' : 'info',
   }
-}
-function formatHierarchy(...values) {
-  const normalized = values.filter((value) => String(value || '').trim())
-  return normalized.length ? normalized.join(' / ') : '-'
-}
-function formatProjectQuotation(row = {}) {
-  if (!row.quotationRequired) return '无需提供'
-  return [row.quotationStatus || '需提供', row.quotationPath].filter(Boolean).join(' / ')
 }
 function formatWordCountSummary(target = {}) {
   return formatWordCountMatrix(target.wordCountMatrix)
@@ -1563,6 +1552,8 @@ const handleAdd = async () => {
   await loadProjectManagerOptions()
   form.orderNo = await generateOrderNo()
   dialogVisible.value = true
+  await nextTick()
+  projectFilesTabRef.value?.resetPathGroup()
 }
 const handleEdit = async (row) => {
   dialogTitle.value = '编辑项目详情'
@@ -1604,20 +1595,39 @@ const handleSubmit = async () => {
   })
   if (!valid) return
 
+  const pathGroupValid = await projectFilesTabRef.value?.validatePathGroup()
+  if (pathGroupValid === false) {
+    projectDialogTab.value = 'files'
+    return
+  }
+
   submitLoading.value = true
+  let projectSaved = false
   try {
     const payload = cleanPayload({ ...form })
     const isCreate = dialogTitle.value === '新增项目'
+    let savedProject
     if (isCreate) {
-      await createProject(payload)
+      savedProject = await createProject(payload)
       // 新项目按创建时间倒序展示；回到第一页并清除可能隐藏新项目的旧筛选条件。
       pagination.page = 1
       clearSearch()
-      ElMessage.success('创建成功')
     } else {
-      await updateProject(payload.id, payload)
-      ElMessage.success('更新成功')
+      savedProject = await updateProject(payload.id, payload)
     }
+    projectSaved = true
+
+    const savedPathGroup = await projectFilesTabRef.value?.savePathGroup({
+      projectId: savedProject?.id || payload.id,
+      orderNo: savedProject?.orderNo || form.orderNo,
+      silent: true,
+    })
+
+    ElMessage.success(
+      savedPathGroup
+        ? (isCreate ? '项目及路径组创建成功' : '项目及路径组更新成功')
+        : (isCreate ? '项目创建成功' : '项目更新成功')
+    )
     dialogVisible.value = false
 
     try {
@@ -1626,13 +1636,17 @@ const handleSubmit = async () => {
       // fetchData 内部已处理错误；保存结果不应被误报为失败。
     }
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '保存失败')
+    ElMessage.error(
+      projectSaved
+        ? `项目已保存，但路径组保存失败：${error.detail || error.message || '请重新进入项目补充保存'}`
+        : (error.detail || error.message || '保存失败')
+    )
   } finally {
     submitLoading.value = false
   }
 }
 const onProjectDialogClosed = () => { resetProjectForm(); resetSubOrderForm(); resetBatchForm(); currentProjectSubOrders.value = [] }
-const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: JSON.parse(JSON.stringify(form.wordCountMatrix)), customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, networkFilePath: form.networkFilePath, clientFeedback: form.clientFeedback })
+const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: JSON.parse(JSON.stringify(form.wordCountMatrix)), customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '新增子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
 const openProjectEditorForSubOrder = async (projectRow, subOrderRow) => { await handleEdit(projectRow); await nextTick(); handleEditSubOrder(subOrderRow) }
@@ -1680,7 +1694,8 @@ onBeforeUnmount(() => {
 .sub-order-panel__header { display: flex; align-items: center; justify-content: space-between; }
 .sub-order-panel__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .order-no-actions { display: flex; align-items: center; gap: 6px; }
-.order-no-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-no-actions :deep(.el-popover__reference-wrapper) { flex: 1; min-width: 0; }
+.order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .order-no-btns { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .order-no-btns :deep(.el-button) { margin-left: 0; padding: 0; height: 18px; line-height: 18px; font-size: 12px; display: flex; align-items: center; justify-content: center; }
 .deadline-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 2px 0; }

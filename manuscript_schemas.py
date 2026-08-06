@@ -57,6 +57,8 @@ class ManuscriptActiveProjectItem(BaseModel):
     file_type_secondary: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    dispatch_path: Optional[str] = None
+    # 保留旧字段供既有调用方读取；邮件发送统一使用 dispatch_path。
     network_file_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
     updated_at: Optional[datetime] = None
@@ -289,8 +291,20 @@ class ManuscriptMailPreview(BaseModel):
     recipient_email: Optional[str] = None
     subject: str
     body: str
-    manuscript_source_path: Optional[str] = None
+    dispatch_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
+
+
+class ManuscriptMailPathsUpdate(BaseModel):
+    """更新稿件发送所引用的项目路径。"""
+
+    dispatch_path: Optional[str] = Field(default=None, max_length=5000)
+    reference_file_path_one: Optional[str] = Field(default=None, max_length=500)
+
+
+class ManuscriptMailPathsResponse(ManuscriptMailPathsUpdate):
+    translation_project_id: UUID
+    project_file_id: UUID
 
 
 class ManuscriptMailStatus(BaseModel):
