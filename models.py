@@ -6,6 +6,8 @@ from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, For
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from project_roles import PROJECT_ROLE_DEFINITIONS
+
 class Base(DeclarativeBase):
     pass
 
@@ -480,6 +482,11 @@ class TranslationProject(Base):
     )
     translator: Mapped[Optional['Translator']] = relationship('Translator', back_populates='projects')
     project_manager: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[project_manager_id])
+    project_role_assignments: Mapped[list['ProjectRoleAssignment']] = relationship(
+        'ProjectRoleAssignment',
+        back_populates='project',
+        cascade='all, delete-orphan',
+    )
     pm_user: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[pm_confirmed_by])
     creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
     
@@ -501,6 +508,76 @@ class TranslationProject(Base):
         if not self.project_manager:
             return None
         return self.project_manager.full_name or self.project_manager.username
+
+    @property
+    def role_assignments(self) -> list[dict]:
+        """统一返回项目经理与关系表中的项目固定角色。"""
+        relation_by_code = {
+            item.role_code: item for item in (self.project_role_assignments or [])
+        }
+        result = []
+        for definition in PROJECT_ROLE_DEFINITIONS:
+            role_code = definition['role_code']
+            if role_code == 'project_manager':
+                assignee = self.project_manager
+                assignee_id = self.project_manager_id
+            else:
+                relation = relation_by_code.get(role_code)
+                assignee = relation.assignee if relation else None
+                assignee_id = relation.assignee_id if relation else None
+            result.append({
+                'role_code': role_code,
+                'role_name': definition['role_name'],
+                'assignee_id': assignee_id,
+                'assignee_name': (
+                    (assignee.full_name or assignee.username) if assignee else None
+                ),
+                'assignment_type': 'direct' if assignee_id else 'role_pool',
+            })
+        return result
+
+
+class ProjectRoleAssignment(Base):
+    """母项目的固定角色负责人；项目经理继续使用原字段。"""
+    __tablename__ = 'project_role_assignment'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['translation_project_id'], ['translation_project.id'],
+            ondelete='CASCADE', name='fk_project_role_assignment_project',
+        ),
+        ForeignKeyConstraint(
+            ['assignee_id'], ['app_user.id'],
+            ondelete='CASCADE', name='fk_project_role_assignment_assignee',
+        ),
+        PrimaryKeyConstraint('id', name='project_role_assignment_pkey'),
+        UniqueConstraint(
+            'translation_project_id', 'role_code',
+            name='uq_project_role_assignment_project_role',
+        ),
+        CheckConstraint(
+            "role_code IN ('project_specialist', 'project_assistant', 'layout_specialist')",
+            name='ck_project_role_assignment_role_code',
+        ),
+        Index('ix_project_role_assignment_assignee', 'assignee_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text('gen_random_uuid()')
+    )
+    translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    role_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    assignee_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text('CURRENT_TIMESTAMP')
+    )
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text('CURRENT_TIMESTAMP')
+    )
+
+    project: Mapped['TranslationProject'] = relationship(
+        'TranslationProject', back_populates='project_role_assignments'
+    )
+    assignee: Mapped['AppUser'] = relationship('AppUser', foreign_keys=[assignee_id])
 
 
 class TranslationSubOrder(Base):

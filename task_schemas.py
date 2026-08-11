@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from schemas import ProjectRoleAssignmentResponse
+
 
 TaskStatus = Literal["pending", "in_progress", "completed", "cancelled"]
 SourceType = Literal["project", "non_project"]
@@ -70,8 +72,12 @@ class WorkItemResponse(BaseModel):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     current_stage_key: Optional[str] = None
+    current_stage_role_code: Optional[str] = None
+    current_stage_role_name: Optional[str] = None
     current_assignee_id: Optional[UUID] = None
     current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     assignment_type: Optional[str] = None
     difficulty: Optional[str] = None
     project_status: Optional[str] = None

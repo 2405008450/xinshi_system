@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from openpyxl import Workbook, load_workbook
 
 from database import get_db
+from department_utils import department_filter_values, normalize_department
 from leave_service import business_now
 from models import (
     WorkSchedule, AppUser, Translator, TranslatorSchedule,
@@ -553,7 +554,7 @@ def _normalize_dept_person(person):
     fixed_tasks = person.get("fixed_tasks") if person.get("fixed_tasks") is not None else person.get("fixedTasks")
     return {
         "name": person.get("name") or "",
-        "dept": person.get("dept") or "",
+        "dept": normalize_department(person.get("dept")) or "",
         "status": person.get("status") or "scheduled",
         "tasks": [_normalize_task(t) for t in tasks] if isinstance(tasks, list) else [],
         "fixed_tasks": fixed_tasks if isinstance(fixed_tasks, list) else [],
@@ -564,7 +565,7 @@ def _normalize_not_scheduled(item):
     item = item or {}
     return {
         "person_name": item.get("person_name") or item.get("personName") or "",
-        "department": item.get("department") or "",
+        "department": normalize_department(item.get("department")) or "",
         "project_name": item.get("project_name")
         or item.get("projectName")
         or item.get("project_or_task")
@@ -710,7 +711,7 @@ def _resolve_employee_shift_rows(
             "user_id": str(user.id),
             "name": user.full_name or user.username,
             "username": user.username,
-            "department": user.department or "",
+            "department": normalize_department(user.department) or "",
             "is_locked": bool(current_lock and current_lock.is_locked),
             "lock_effective_from": current_lock.effective_from.isoformat() if current_lock else None,
             "lock_reason": current_lock.reason if current_lock else None,
@@ -733,7 +734,7 @@ def _employee_shift_department_options(db: Session):
             raw_value = row[0]
         except (TypeError, KeyError, IndexError):
             raw_value = getattr(row, "department", row)
-        value = str(raw_value or "").strip()
+        value = normalize_department(str(raw_value or "")) or ""
         if value:
             departments.add(value)
         else:
@@ -766,12 +767,12 @@ def get_employee_shifts(
         query = query.filter(or_(AppUser.department.is_(None), AppUser.department == ""))
         effective_department = "__unassigned__"
     elif department:
-        query = query.filter(AppUser.department == department)
-        effective_department = department
+        query = query.filter(AppUser.department.in_(department_filter_values(department)))
+        effective_department = normalize_department(department)
     elif not show_all:
         if current_user.department:
-            query = query.filter(AppUser.department == current_user.department)
-            effective_department = current_user.department
+            query = query.filter(AppUser.department.in_(department_filter_values(current_user.department)))
+            effective_department = normalize_department(current_user.department)
         else:
             # 未设置部门的账号默认只读取本人，避免退化为全员查询。
             query = query.filter(AppUser.id == current_user.id)
@@ -837,7 +838,7 @@ def get_employee_shift_template(
     return {
         "user_id": str(user.id),
         "name": user.full_name or user.username,
-        "department": user.department or "",
+        "department": normalize_department(user.department) or "",
         "effective_from": monday.isoformat(),
         "template_effective_from": effective_from.isoformat() if effective_from else None,
         "is_locked": bool(lock and lock.is_locked),
@@ -1042,7 +1043,10 @@ def get_my_employee_shift(
     if include_department and current_user.department:
         users = (
             db.query(AppUser)
-            .filter(AppUser.is_active == True, AppUser.department == current_user.department)
+            .filter(
+                AppUser.is_active == True,
+                AppUser.department.in_(department_filter_values(current_user.department)),
+            )
             .order_by(AppUser.full_name.asc(), AppUser.username.asc())
             .all()
         )
@@ -1064,7 +1068,7 @@ def get_staff_list(db: Session = Depends(get_db)):
         result.append({
             "id": str(u.id),
             "name": u.full_name or u.username,
-            "dept": u.department or "",
+            "dept": normalize_department(u.department) or "",
             "fixedTasks": u.fixed_tasks or [],
         })
     return result

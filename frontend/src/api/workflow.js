@@ -14,6 +14,8 @@ export const getManagementProjectsAPI = () => api.get('/workflow/management-proj
 export const claimManagementProjectsAPI = (translationProjectIds) =>
   api.post('/workflow/project-manager-claim', { translation_project_ids: translationProjectIds })
 export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })
+export const getProjectRoleCandidatesAPI = (roleCode) =>
+  api.get(`/workflow/role-candidates/${encodeURIComponent(roleCode)}`)
 export const createProjectManagerHandoverAPI = (data) => api.post('/workflow/project-manager-handover', data)
 export const getIncomingProjectManagerHandoversAPI = () => api.get('/workflow/project-manager-handover/incoming')
 export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
@@ -25,6 +27,8 @@ export const getEligibleTransferUsersAPI = (workflowInstanceIds) =>
   api.post('/workflow/eligible-users', { workflow_instance_ids: workflowInstanceIds })
 export const handoverWorkflowTasksAPI = (data) => api.post('/workflow/handover', data)
 export const claimWorkflowTasksAPI = (data) => api.post('/workflow/claim', data)
+export const claimRolePoolTasksAPI = (workflowInstanceIds) =>
+  api.post('/workflow/role-pool-claim', { workflow_instance_ids: workflowInstanceIds })
 export const getIncomingHandoverRequestsAPI = () => api.get('/workflow/handover-requests/incoming')
 export const acceptHandoverRequestAPI = (requestId, data = {}) =>
   api.post(`/workflow/handover-requests/${requestId}/accept`, data)

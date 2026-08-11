@@ -20,22 +20,27 @@ from workflow_models import (
     WorkflowInstance,
     WorkflowLog,
 )
-from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave
+from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave, ProjectRoleAssignment
 from leave_service import ensure_user_assignable
+from project_roles import (
+    PROJECT_ROLE_NAME_BY_CODE,
+    ROLE_NAME_BY_CODE,
+    get_stage_role,
+)
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
 
 ALL_STAGES = [
-    {'key': 'reception',           'title': '客户专员',   'role': '客户专员'},
-    {'key': 'layout_assign',       'title': '排版指派',   'role': '排版专员'},
-    {'key': 'project_manager',     'title': '项目经理',   'role': '项目经理'},
-    {'key': 'project_specialist',  'title': '项目专员',   'role': '项目专员'},
-    {'key': 'project_assistant',   'title': '项目助理',   'role': '项目助理'},
-    {'key': 'review',              'title': '译审',       'role': '译审'},
-    {'key': 'special_qc',          'title': '专检',       'role': '项目专员'},
-    {'key': 'layout',              'title': '排版',       'role': '排版专员'},
-    {'key': 'completed',           'title': '完成',       'role': '-'},
+    {'key': 'reception',           'title': '客户专员',   'role': '客户专员', 'role_code': 'customer_specialist'},
+    {'key': 'layout_assign',       'title': '排版指派',   'role': '排版专员', 'role_code': 'layout_specialist'},
+    {'key': 'project_manager',     'title': '项目经理',   'role': '项目经理', 'role_code': 'project_manager'},
+    {'key': 'project_specialist',  'title': '项目专员',   'role': '项目专员', 'role_code': 'project_specialist'},
+    {'key': 'project_assistant',   'title': '项目助理',   'role': '项目助理', 'role_code': 'project_assistant'},
+    {'key': 'review',              'title': '译审',       'role': '译审', 'role_code': 'reviewer'},
+    {'key': 'special_qc',          'title': '专检',       'role': '项目专员', 'role_code': 'project_specialist'},
+    {'key': 'layout',              'title': '排版',       'role': '排版专员', 'role_code': 'layout_specialist'},
+    {'key': 'completed',           'title': '完成',       'role': '-', 'role_code': 'completed'},
 ]
 
 STAGE_BY_KEY = {s['key']: s for s in ALL_STAGES}
@@ -139,6 +144,7 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
 
     tasks = []
     for wf, proj, client in proj_results:
+        stage_role = get_stage_role(wf.current_stage_key)
         tasks.append({
             'workflow_instance_id': wf.id,
             'translation_project_id': proj.id,
@@ -151,11 +157,14 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
             'client_name': client.client_name if client else '',
             'client_short_name': client.client_short_name if client else '',
             'current_stage_key': wf.current_stage_key,
+            'current_stage_role_code': stage_role['role_code'],
+            'current_stage_role_name': stage_role['role_name'],
             'current_assignee_id': wf.current_assignee_id,
             'current_assignee_name': (
                 (wf.current_assignee.full_name or wf.current_assignee.username)
                 if wf.current_assignee else None
             ),
+            'group_assign_role': wf.group_assign_role,
             'assignment_type': (
                 'direct' if wf.current_assignee_id == user_id
                 else 'overview' if can_view_all
@@ -166,9 +175,11 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
             'customer_deadline_time': proj.customer_deadline_time,
             'language_pair': proj.language_pair,
             'entity_type': 'project',
+            'role_assignments': proj.role_assignments,
         })
 
     for wf, sub, proj, client in sub_results:
+        stage_role = get_stage_role(wf.current_stage_key)
         tasks.append({
             'workflow_instance_id': wf.id,
             'translation_project_id': proj.id,
@@ -181,11 +192,14 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
             'client_name': client.client_name if client else '',
             'client_short_name': client.client_short_name if client else '',
             'current_stage_key': wf.current_stage_key,
+            'current_stage_role_code': stage_role['role_code'],
+            'current_stage_role_name': stage_role['role_name'],
             'current_assignee_id': wf.current_assignee_id,
             'current_assignee_name': (
                 (wf.current_assignee.full_name or wf.current_assignee.username)
                 if wf.current_assignee else None
             ),
+            'group_assign_role': wf.group_assign_role,
             'assignment_type': (
                 'direct' if wf.current_assignee_id == user_id
                 else 'overview' if can_view_all
@@ -196,6 +210,7 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
             'customer_deadline_time': sub.customer_deadline_time,
             'language_pair': sub.language_pair,
             'entity_type': 'suborder',
+            'role_assignments': proj.role_assignments,
         })
 
     return tasks
@@ -236,20 +251,25 @@ HANDOVER_TYPE_LABELS = {
 
 
 def _required_stage_roles(stage_key: str) -> set[str]:
-    stage = STAGE_BY_KEY.get(stage_key) or {}
-    roles = set(stage.get('assignRoles') or [])
-    role_label = str(stage.get('role') or '')
-    for separator in ('、', '／'):
-        role_label = role_label.replace(separator, '/')
-    roles.update(part.strip() for part in role_label.split('/') if part.strip() and part.strip() != '-')
-    return roles
+    role_name = get_stage_role(stage_key)['role_name']
+    return {role_name} if role_name and role_name != '-' else set()
 
 
 def _user_can_take_stage(user_roles: set[str], stage_key: str) -> bool:
-    if not user_roles.isdisjoint(SUPER_TRANSFER_ROLES):
-        return True
     required = _required_stage_roles(stage_key)
     return bool(required and not user_roles.isdisjoint(required))
+
+
+def _ensure_same_stage_role(instances: list[WorkflowInstance]) -> dict[str, str]:
+    if not instances:
+        raise ValueError('请至少选择一项任务')
+    roles = {
+        get_stage_role(instance.current_stage_key)['role_code']: get_stage_role(instance.current_stage_key)
+        for instance in instances
+    }
+    if len(roles) != 1:
+        raise ValueError('一次只能交接同一角色类型的任务，请按角色分别操作')
+    return next(iter(roles.values()))
 
 
 def _workflow_query_with_task_details(db: Session):
@@ -265,6 +285,7 @@ def _workflow_query_with_task_details(db: Session):
 def _serialize_transfer_task(instance: WorkflowInstance) -> dict:
     assignee = instance.current_assignee
     assignee_name = (assignee.full_name or assignee.username) if assignee else None
+    stage_role = get_stage_role(instance.current_stage_key)
     if instance.sub_order_id and instance.sub_order:
         sub = instance.sub_order
         project = sub.parent_project
@@ -281,14 +302,18 @@ def _serialize_transfer_task(instance: WorkflowInstance) -> dict:
             'client_name': client.client_name if client else '',
             'client_short_name': client.client_short_name if client else '',
             'current_stage_key': instance.current_stage_key,
+            'current_stage_role_code': stage_role['role_code'],
+            'current_stage_role_name': stage_role['role_name'],
             'current_assignee_id': instance.current_assignee_id,
             'current_assignee_name': assignee_name,
+            'group_assign_role': instance.group_assign_role,
             'assignment_type': 'direct',
             'difficulty': instance.difficulty,
             'project_status': instance.project_status,
             'customer_deadline_time': sub.customer_deadline_time,
             'language_pair': sub.language_pair,
             'entity_type': 'suborder',
+            'role_assignments': project.role_assignments if project else [],
         }
     project = instance.translation_project
     client = project.client if project else None
@@ -304,14 +329,18 @@ def _serialize_transfer_task(instance: WorkflowInstance) -> dict:
         'client_name': client.client_name if client else '',
         'client_short_name': client.client_short_name if client else '',
         'current_stage_key': instance.current_stage_key,
+        'current_stage_role_code': stage_role['role_code'],
+        'current_stage_role_name': stage_role['role_name'],
         'current_assignee_id': instance.current_assignee_id,
         'current_assignee_name': assignee_name,
+        'group_assign_role': instance.group_assign_role,
         'assignment_type': 'direct',
         'difficulty': instance.difficulty,
         'project_status': instance.project_status,
         'customer_deadline_time': project.customer_deadline_time if project else None,
         'language_pair': project.language_pair if project else None,
         'entity_type': 'project',
+        'role_assignments': project.role_assignments if project else [],
     }
 
 
@@ -365,6 +394,7 @@ def get_eligible_transfer_users(db: Session, workflow_instance_ids: list[UUID]) 
     )
     if len(instances) != len(unique_ids):
         raise ValueError('部分任务不存在、已完成或不是直接分配任务')
+    _ensure_same_stage_role(instances)
 
     eligible = []
     for user in db.query(AppUser).filter(AppUser.is_active == True).order_by(AppUser.full_name, AppUser.username).all():
@@ -396,6 +426,7 @@ def create_handover_request(
     )
     if len(instances) != len(unique_ids):
         raise LookupError('部分任务不存在')
+    _ensure_same_stage_role(instances)
     if any(
         instance.current_assignee_id != requester.id or instance.current_stage_key == 'completed'
         for instance in instances
@@ -561,13 +592,31 @@ def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
 
 def serialize_managed_project(project: TranslationProject) -> dict:
     selected_client = project.sub_client or project.client
+    workflow = project.workflow_instance
+    current_assignee = workflow.current_assignee if workflow else None
+    stage_role = get_stage_role(workflow.current_stage_key) if workflow else {
+        'role_code': None,
+        'role_name': None,
+    }
     return {
         'translation_project_id': project.id,
         'order_no': project.order_no,
         'project_name': project.project_name,
+        'task_type': project.task_type or '项目任务',
         'client_short_name': selected_client.client_short_name if selected_client else None,
         'project_status': project.project_status,
+        'difficulty': workflow.difficulty if workflow else None,
+        'language_pair': project.language_pair,
         'customer_deadline_time': project.customer_deadline_time,
+        'current_assignee_id': workflow.current_assignee_id if workflow else None,
+        'current_assignee_name': (
+            (current_assignee.full_name or current_assignee.username)
+            if current_assignee else None
+        ),
+        'group_assign_role': workflow.group_assign_role if workflow else None,
+        'current_stage_role_code': stage_role['role_code'],
+        'current_stage_role_name': stage_role['role_name'],
+        'role_assignments': project.role_assignments,
         'project_manager_id': project.project_manager_id,
         'project_manager_name': project.project_manager_name,
     }
@@ -586,6 +635,10 @@ def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
             selectinload(TranslationProject.client),
             selectinload(TranslationProject.sub_client),
             selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments)
+            .selectinload(ProjectRoleAssignment.assignee),
+            selectinload(TranslationProject.workflow_instance)
+            .selectinload(WorkflowInstance.current_assignee),
         )
         .filter(
             func.coalesce(TranslationProject.project_status, '').notin_(
@@ -621,6 +674,17 @@ def get_project_manager_candidates(
             user for user in get_users_by_role_names(db, ['项目经理'])
             if include_current or user.id != current_user_id
         ),
+        key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()),
+    )
+
+
+def get_project_role_candidates(db: Session, role_code: str) -> list[AppUser]:
+    """按稳定角色编码返回启用用户，不接受前端传入任意角色名称。"""
+    role_name = ROLE_NAME_BY_CODE.get(role_code)
+    if not role_name:
+        raise ValueError('不支持的项目角色编码')
+    return sorted(
+        get_users_by_role_names(db, [role_name]),
         key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()),
     )
 
@@ -941,6 +1005,13 @@ def transfer_workflow_tasks(
         raise LookupError('部分任务不存在或已发生变化')
 
     if action == 'handover':
+        _ensure_same_stage_role(instances)
+        expected_assignee_ids = expected_assignee_ids or {}
+        if expected_assignee_ids and any(
+            expected_assignee_ids.get(instance.id) != instance.current_assignee_id
+            for instance in instances
+        ):
+            raise LookupError('部分任务负责人已发生变化，请刷新后重新发起交接')
         if any(instance.current_assignee_id != operator.id for instance in instances):
             raise PermissionError('只能交接当前用户直接负责的任务')
         if not target_user_id or target_user_id == operator.id:
@@ -1092,6 +1163,69 @@ def transfer_workflow_tasks(
     return result
 
 
+def claim_role_pool_tasks(
+    db: Session,
+    operator: AppUser,
+    workflow_instance_ids: list[UUID],
+) -> dict:
+    """将当前用户有权处理的无人负责角色池任务直接绑定给本人。"""
+    unique_ids = list(dict.fromkeys(workflow_instance_ids))
+    if not unique_ids:
+        raise ValueError('请至少选择一个角色池任务')
+
+    ensure_user_assignable(db, operator.id)
+    operator_roles = set(get_user_roles_with_role_names(db, operator.id))
+    instances = (
+        db.query(WorkflowInstance)
+        .filter(WorkflowInstance.id.in_(unique_ids))
+        .with_for_update()
+        .all()
+    )
+    if len(instances) != len(unique_ids):
+        raise LookupError('部分角色池任务不存在或已发生变化')
+
+    def can_claim(instance: WorkflowInstance) -> bool:
+        if instance.current_assignee_id is not None or instance.current_stage_key == 'completed':
+            return False
+        if instance.group_assign_role:
+            return (
+                instance.group_assign_role in operator_roles
+                and _user_can_take_stage(operator_roles, instance.current_stage_key)
+            )
+        # 客户专员接单阶段的兼容角色池：历史数据可能尚未写入 group_assign_role。
+        return (
+            '客户专员' in operator_roles
+            and instance.current_stage_key == 'reception'
+            and instance.difficulty is None
+        )
+
+    if any(not can_claim(instance) for instance in instances):
+        raise PermissionError('部分任务已被承接，或当前用户不具备对应角色池权限')
+
+    operator_name = operator.full_name or operator.username
+    for instance in instances:
+        pool_name = instance.group_assign_role or '客户专员'
+        db.add(WorkflowLog(
+            workflow_instance_id=instance.id,
+            operator_id=operator.id,
+            from_stage=instance.current_stage_key,
+            to_stage=instance.current_stage_key,
+            direction='claim_pool',
+            description=f'{operator_name} 从“{pool_name}”角色池自主承接任务',
+            next_assignee_id=operator.id,
+        ))
+        instance.current_assignee_id = operator.id
+        instance.group_assign_role = None
+        instance.updated_at = _dt.datetime.utcnow()
+
+    db.commit()
+    return {
+        'action': 'role_pool_claim',
+        'transferred_count': len(instances),
+        'workflow_instance_ids': unique_ids,
+    }
+
+
 def decide_handover_request(
     db: Session,
     request_id: UUID,
@@ -1151,6 +1285,10 @@ def decide_handover_request(
             content=combined_content,
             content_json=combined_content_json,
             attachment_ids=attachment_ids,
+            expected_assignee_ids={
+                item.workflow_instance_id: item.expected_assignee_id
+                for item in items
+            },
             commit=False,
         )
         notifications.extend(result.pop('_notifications', []))
@@ -1288,6 +1426,93 @@ def _check_on_leave(db: Session, user_id: UUID):
     ensure_user_assignable(db, user_id)
 
 
+def _get_parent_project_for_workflow(
+    db: Session,
+    project_id: Optional[UUID],
+    sub_order_id: Optional[UUID],
+) -> Optional[TranslationProject]:
+    target_project_id = project_id
+    if sub_order_id:
+        sub_order = db.query(TranslationSubOrder).filter(
+            TranslationSubOrder.id == sub_order_id
+        ).first()
+        target_project_id = sub_order.parent_project_id if sub_order else None
+    if not target_project_id:
+        return None
+    return (
+        db.query(TranslationProject)
+        .options(
+            selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments)
+            .selectinload(ProjectRoleAssignment.assignee),
+        )
+        .filter(TranslationProject.id == target_project_id)
+        .first()
+    )
+
+
+def _configured_project_role_assignee_id(
+    project: Optional[TranslationProject], role_code: str
+) -> Optional[UUID]:
+    if not project:
+        return None
+    if role_code == 'project_manager':
+        return project.project_manager_id
+    for assignment in project.project_role_assignments or []:
+        if assignment.role_code == role_code:
+            return assignment.assignee_id
+    return None
+
+
+def _validate_stage_assignee(db: Session, user_id: UUID, stage_key: str) -> AppUser:
+    user = db.query(AppUser).filter(
+        AppUser.id == user_id,
+        AppUser.is_active == True,
+    ).first()
+    if not user:
+        raise ValueError('下一环节负责人不存在或已停用')
+    roles = set(get_user_roles_with_role_names(db, user.id))
+    if not _user_can_take_stage(roles, stage_key):
+        role_name = get_stage_role(stage_key)['role_name']
+        raise ValueError(f'下一环节负责人必须拥有“{role_name}”角色')
+    ensure_user_assignable(db, user.id)
+    return user
+
+
+def _resolve_stage_assignment(
+    db: Session,
+    *,
+    stage_key: str,
+    project_id: Optional[UUID],
+    sub_order_id: Optional[UUID],
+    next_assignee_id: Optional[UUID],
+    group_assign_role: Optional[str],
+) -> tuple[Optional[UUID], Optional[str]]:
+    """显式选择优先；未选择时使用项目固定角色，否则进入准确角色池。"""
+    stage_role = get_stage_role(stage_key)
+    role_name = stage_role['role_name']
+    if next_assignee_id:
+        _validate_stage_assignee(db, next_assignee_id, stage_key)
+        return next_assignee_id, None
+    if group_assign_role:
+        if group_assign_role != role_name:
+            raise ValueError(f'下一环节只能指派给“{role_name}”角色池')
+        return None, role_name
+
+    project = _get_parent_project_for_workflow(db, project_id, sub_order_id)
+    configured_id = _configured_project_role_assignee_id(
+        project, stage_role['role_code']
+    )
+    if configured_id:
+        try:
+            _validate_stage_assignee(db, configured_id, stage_key)
+            return configured_id, None
+        except ValueError:
+            # 固定负责人停用、失去角色或请假时，安全回退到对应角色池。
+            pass
+    return None, role_name if role_name != '-' else None
+
+
 import re
 
 def _sync_stage_data_to_project(db: Session, project_id: Optional[UUID], stage_data: dict, sub_order_id: Optional[UUID] = None):
@@ -1363,9 +1588,6 @@ def set_difficulty(
     stage_data: Optional[dict] = None,
     sub_order_id: Optional[UUID] = None,
 ) -> WorkflowInstance:
-    if not next_assignee_id and not group_assign_role:
-        raise ValueError("Must specify either next_assignee_id or group_assign_role")
-
     instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
         raise ValueError("Workflow not initialized")
@@ -1390,8 +1612,16 @@ def set_difficulty(
         raise ValueError("No next stage available")
     next_stage = steps[1]
 
+    next_assignee_id, group_assign_role = _resolve_stage_assignment(
+        db,
+        stage_key=next_stage['key'],
+        project_id=project_id,
+        sub_order_id=sub_order_id,
+        next_assignee_id=next_assignee_id,
+        group_assign_role=group_assign_role,
+    )
+
     if next_assignee_id:
-        _check_on_leave(db, next_assignee_id)
         next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
         next_user_name = (next_user.full_name or next_user.username) if next_user else str(next_assignee_id)
         assign_desc = f"Assigned to {next_user_name}"
@@ -1481,6 +1711,15 @@ def transition_forward(
         return instance
 
     next_stage = steps[next_idx]
+    if next_stage['key'] != 'completed':
+        next_assignee_id, group_assign_role = _resolve_stage_assignment(
+            db,
+            stage_key=next_stage['key'],
+            project_id=project_id,
+            sub_order_id=sub_order_id,
+            next_assignee_id=next_assignee_id,
+            group_assign_role=group_assign_role,
+        )
     if next_stage['key'] == 'completed':
         description = f"Moved from {current_stage_info.get('key', current_stage_key)} to completed."
         instance.project_status = 'completed'
@@ -1488,7 +1727,6 @@ def transition_forward(
         instance.group_assign_role = None
         log_next_assignee_id = None
     elif next_assignee_id:
-        _check_on_leave(db, next_assignee_id)
         next_user = db.query(AppUser).filter(AppUser.id == next_assignee_id).first()
         next_user_name = (next_user.full_name or next_user.username) if next_user else str(next_assignee_id)
         description = f"Moved from {current_stage_info.get('key', current_stage_key)} to {next_stage['key']}, assigned to {next_user_name}."
@@ -1553,6 +1791,14 @@ def rollback(
         f"Rolled back to start stage {target['key']}." if to_start
         else f"Rolled back to {target['key']}."
     )
+    rollback_assignee_id, rollback_group_role = _resolve_stage_assignment(
+        db,
+        stage_key=target['key'],
+        project_id=project_id,
+        sub_order_id=sub_order_id,
+        next_assignee_id=None,
+        group_assign_role=None,
+    )
 
     log = WorkflowLog(
         workflow_instance_id=instance.id,
@@ -1562,19 +1808,17 @@ def rollback(
         direction='rollback',
         description=description,
         note=note,
+        next_assignee_id=rollback_assignee_id,
     )
     db.add(log)
 
     instance.current_stage_key = target['key']
+    instance.current_assignee_id = rollback_assignee_id
+    instance.group_assign_role = rollback_group_role
     if target['key'] == 'reception':
-        instance.current_assignee_id = None
-        instance.group_assign_role = None
         instance.project_status = 'pending'
         instance.difficulty = None
         instance.file_editable = None
-    else:
-        instance.current_assignee_id = None
-        instance.group_assign_role = None
 
     current_notes = dict(instance.stage_notes or {})
     current_notes.pop(target['key'], None)
@@ -1587,9 +1831,15 @@ def rollback(
     db.commit()
     db.refresh(instance)
 
-    target_role = STAGE_BY_KEY.get(target['key'], {}).get('role')
-    if target_role and target_role != '-':
-        _notify_assignment(db, project_id, target['key'], None, target_role, 'rollback', sub_order_id=sub_order_id)
+    _notify_assignment(
+        db,
+        project_id,
+        target['key'],
+        rollback_assignee_id,
+        rollback_group_role,
+        'rollback',
+        sub_order_id=sub_order_id,
+    )
     return instance
 
 

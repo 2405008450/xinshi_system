@@ -245,11 +245,14 @@ onMounted(() => {
 
 <style scoped>
 .workbench-card {
-  border-color: var(--el-border-color-lighter);
+  border-color: #cbd5e1;
+  background: #e9eef4;
 }
 
 .workbench-card :deep(.el-card__header) {
   padding: 12px 16px;
+  border-bottom-color: #cbd5e1;
+  background: var(--el-bg-color);
 }
 
 .workbench-card :deep(.el-card__body) {
@@ -276,8 +279,9 @@ onMounted(() => {
   min-height: 54px;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid #cbd5e1;
   background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-rows: auto auto;
@@ -297,10 +301,10 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
 }
 
-.stat-chip.danger { border-left: 3px solid var(--el-color-danger); }
-.stat-chip.warning { border-left: 3px solid var(--el-color-warning); }
-.stat-chip.info { border-left: 3px solid var(--el-color-primary); }
-.stat-chip.neutral { border-left: 3px solid var(--el-color-info); }
+.stat-chip.danger { border-left: 4px solid var(--el-color-danger); background: #fff8f8; }
+.stat-chip.warning { border-left: 4px solid var(--el-color-warning); background: #fffbf2; }
+.stat-chip.info { border-left: 4px solid var(--el-color-primary); background: #f5f9ff; }
+.stat-chip.neutral { border-left: 4px solid #64748b; background: #f8fafc; }
 
 .stat-chip__label {
   font-size: 13px;
@@ -349,6 +353,10 @@ onMounted(() => {
   padding: 6px 0;
 }
 
+.workbench-card :deep(.row-click-select-table .el-table__row) {
+  cursor: pointer;
+}
+
 .workbench-card :deep(.workbench-project-cell) {
   display: grid;
   gap: 4px;
@@ -388,8 +396,9 @@ onMounted(() => {
 
 .task-subsection-title {
   margin: 8px 0 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 7px 10px;
+  border-left: 3px solid #475569;
+  background: #eef2f6;
   font-size: 13px;
   font-weight: 600;
   color: var(--el-text-color-primary);

@@ -46,7 +46,7 @@
       <el-table-column prop="username" label="用户名" width="150" />
       <el-table-column prop="full_name" label="全名" width="150" />
       <el-table-column prop="department" label="部门" width="120">
-        <template #default="{ row }">{{ row.department || '未分部门' }}</template>
+        <template #default="{ row }">{{ normalizeDepartment(row.department) || '未分部门' }}</template>
       </el-table-column>
       <el-table-column prop="email" label="邮箱" width="200" />
       <el-table-column label="角色" min-width="220">
@@ -247,6 +247,7 @@ import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
+import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShiftTemplateDialog.vue'
 
 const loading = ref(false)
@@ -262,7 +263,7 @@ const userRoleRows = ref([])
 const canAssignRoles = computed(() => hasPermission('system:user_roles:write'))
 const canResetPassword = computed(() => isSuperAdmin())
 const canManageSchedule = computed(() => hasPermission('schedule:write'))
-const departments = ['项目经理', '翻译部', '项目部', '客户部', 'HR部', '排版', '招聘项目', '销售']
+const departments = DEPARTMENT_NAMES
 const shiftDialogVisible = ref(false)
 const shiftEmployee = ref(null)
 const passwordDialogVisible = ref(false)
@@ -319,9 +320,23 @@ const form = reactive({
   is_active: true
 })
 
+const validateEmail = (_rule, value, callback) => {
+  const email = String(value || '').trim()
+  if (!email) {
+    callback(new Error('邮箱不能为空'))
+    return
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    callback(new Error('请输入正确的邮箱地址'))
+    return
+  }
+  callback()
+}
+
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  email: [{ validator: validateEmail, trigger: ['blur', 'change'] }]
 }
 
 let searchTimer = null
@@ -471,7 +486,7 @@ const handleEdit = (row) => {
     password: '',
     full_name: row.full_name || '',
     email: row.email || '',
-    department: row.department || '',
+    department: normalizeDepartment(row.department),
     is_active: row.is_active
   })
   dialogVisible.value = true
@@ -537,24 +552,31 @@ const handleDelete = async (row) => {
 const handleSubmit = async () => {
   if (!formRef.value) return
   
-  await formRef.value.validate(async (valid) => {
-    if (valid) {
-      try {
-        if (form.id) {
-          const updateData = { ...form }
-          delete updateData.password
-          delete updateData.id
-          await userApi.updateUser(form.id, updateData)
-          ElMessage.success('更新成功')
-        } else {
-          await userApi.createUser(form)
-          ElMessage.success('创建成功')
-        }
-        dialogVisible.value = false
-        fetchData()
-      } catch (error) {
-        ElMessage.error(error.detail || '操作失败')
+  await formRef.value.validate(async (valid, fields) => {
+    if (!valid) {
+      const emailError = fields?.email?.[0]?.message
+      if (emailError) ElMessage.error(emailError)
+      return
+    }
+    try {
+      const payload = {
+        ...form,
+        email: form.email.trim()
       }
+      if (form.id) {
+        const updateData = { ...payload }
+        delete updateData.password
+        delete updateData.id
+        await userApi.updateUser(form.id, updateData)
+        ElMessage.success('更新成功')
+      } else {
+        await userApi.createUser(payload)
+        ElMessage.success('创建成功')
+      }
+      dialogVisible.value = false
+      fetchData()
+    } catch (error) {
+      ElMessage.error(error.detail || '操作失败')
     }
   })
 }

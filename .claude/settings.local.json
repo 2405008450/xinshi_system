@@ -11,7 +11,10 @@
       "Bash(playwright-cli --help)",
       "Bash(playwright --help)",
       "Bash(playwright-cli install *)",
-      "Bash(playwright-cli install-browser *)"
+      "Bash(playwright-cli install-browser *)",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_console_messages"
     ]
   }
 }

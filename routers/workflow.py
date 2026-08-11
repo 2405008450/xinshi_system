@@ -16,6 +16,7 @@ from workflow_crud import (
     get_management_projects,
     get_my_tasks,
     get_project_manager_candidates,
+    get_project_role_candidates,
     claim_management_projects,
     get_transferable_tasks,
     get_eligible_transfer_users,
@@ -29,6 +30,7 @@ from workflow_crud import (
     serialize_project_manager_handover,
     serialize_handover_request,
     transfer_workflow_tasks,
+    claim_role_pool_tasks,
     init_workflow,
     set_difficulty,
     transition_forward,
@@ -55,11 +57,13 @@ from workflow_schemas import (
     WorkflowHandoverDecisionRequest,
     WorkflowHandoverRequestResponse,
     WorkflowClaimRequest,
+    WorkflowRolePoolClaimRequest,
     WorkflowEligibleUsersRequest,
     WorkflowTransferResult,
     WorkflowTransferUser,
 )
 from models import AppUser
+from project_roles import get_stage_role
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
@@ -118,6 +122,10 @@ def _build_state_response(instance) -> WorkflowStateResponse:
         WorkflowStageResponse(**stage)
         for stage in get_effective_stages(instance.difficulty, instance.file_editable)
     ]
+    stage_role = get_stage_role(instance.current_stage_key)
+    project = instance.translation_project
+    if not project and instance.sub_order:
+        project = instance.sub_order.parent_project
 
     return WorkflowStateResponse(
         id=instance.id,
@@ -127,6 +135,8 @@ def _build_state_response(instance) -> WorkflowStateResponse:
         difficulty=instance.difficulty,
         file_editable=instance.file_editable,
         current_stage_key=instance.current_stage_key,
+        current_stage_role_code=stage_role['role_code'],
+        current_stage_role_name=stage_role['role_name'],
         current_assignee_id=instance.current_assignee_id,
         current_assignee_name=assignee_name,
         group_assign_role=instance.group_assign_role,
@@ -134,6 +144,7 @@ def _build_state_response(instance) -> WorkflowStateResponse:
         stage_notes=instance.stage_notes,
         stage_data=instance.stage_data,
         effective_stages=effective_stages,
+        role_assignments=project.role_assignments if project else [],
         logs=logs,
         created_at=instance.created_at,
         updated_at=instance.updated_at,
@@ -171,6 +182,20 @@ def get_project_manager_candidates_endpoint(
         db,
         get_project_manager_candidates(db, current_user.id, include_current=include_current),
     )
+
+
+@router.get("/role-candidates/{role_code}", response_model=list[WorkflowTransferUser])
+def get_project_role_candidates_endpoint(
+    role_code: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        return _serialize_transfer_users(db, get_project_role_candidates(db, role_code))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/project-manager-claim", response_model=list[ManagedProjectItem])
@@ -436,6 +461,25 @@ def claim_tasks_endpoint(
             attachment_ids=payload.attachment_ids,
             expected_assignee_ids=payload.expected_assignee_ids,
         )
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/role-pool-claim", response_model=WorkflowTransferResult)
+def claim_role_pool_tasks_endpoint(
+    payload: WorkflowRolePoolClaimRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return claim_role_pool_tasks(db, current_user, payload.workflow_instance_ids)
     except PermissionError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc

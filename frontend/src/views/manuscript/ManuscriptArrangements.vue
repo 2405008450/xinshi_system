@@ -77,11 +77,28 @@
                 <small>{{ row.client_short_name || '未填写客户' }}</small>
               </template>
             </el-table-column>
-            <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip />
-            <el-table-column label="字数统计" min-width="220" header-align="left">
+            <el-table-column label="项目助理" width="116">
               <template #default="{ row }">
-                <div class="legacy-word-count-summary">
-                  <span>{{ projectWordCount(row) }}</span>
+                <el-tooltip :content="row.manuscript_access_reason || '项目助理责任信息'" placement="top">
+                  <div class="project-assistant-cell">
+                    <el-tag
+                      :type="row.project_assistant_id ? 'success' : 'info'"
+                      size="small"
+                      effect="plain"
+                    >
+                      {{ row.project_assistant_name || '角色池' }}
+                    </el-tag>
+                    <small
+                      v-if="row.current_stage_role_code === 'project_assistant' && row.current_assignee_name && row.current_assignee_id !== row.project_assistant_id"
+                    >当前：{{ row.current_assignee_name }}</small>
+                  </div>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+            <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip />
+            <el-table-column label="字数统计" width="126" min-width="116" header-align="left">
+              <template #default="{ row }">
+                <div class="legacy-word-count-summary legacy-word-count-summary--compact">
                   <WordCountMatrixPopover
                     :model-value="row.word_count_matrix"
                     :entity-type="matrixEntityType(row)"
@@ -89,13 +106,34 @@
                     :dispatch-id="activeDispatchFor(row)?.id"
                     title="项目与译员字数统计"
                     @saved="handleWordCountMatrixSaved"
-                  />
+                  >
+                    <template #reference>
+                      <el-button
+                        type="primary"
+                        link
+                        class="compact-table-link"
+                        :title="projectWordListSummary(row).title"
+                      >
+                        <span class="compact-table-value">
+                          <span class="compact-table-value__primary">{{ projectWordListSummary(row).primary }}</span>
+                          <span
+                            v-if="projectWordListSummary(row).extraCount"
+                            class="compact-table-value__count"
+                          >+{{ projectWordListSummary(row).extraCount }}</span>
+                        </span>
+                      </el-button>
+                    </template>
+                  </WordCountMatrixPopover>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="客户交稿时间" min-width="155">
+            <el-table-column label="客户交稿时间" width="138" min-width="128">
               <template #default="{ row }">
-                <span :class="{ 'deadline-overdue': isOverdue(row.customer_deadline_time) }">
+                <span
+                  class="compact-deadline"
+                  :class="{ 'deadline-overdue': isOverdue(row.customer_deadline_time) }"
+                  :title="formatDateTime(row.customer_deadline_time)"
+                >
                   {{ formatDateTime(row.customer_deadline_time) }}
                 </span>
               </template>
@@ -204,7 +242,16 @@
           <div class="legacy-project-meta">
             <span>项目字数：{{ projectWordSummary(selectedProject) }}</span>
             <span>客户交稿时间：{{ formatDateTime(selectedProject.customer_deadline_time) }}</span>
+            <span>项目助理：{{ selectedProject.project_assistant_name || '角色池' }}</span>
           </div>
+
+          <el-alert
+            v-if="canWrite && !canManageSelectedProject"
+            :title="selectedProject.manuscript_access_reason || '当前账号不能操作该项目的稿件安排'"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
 
           <el-alert
             v-if="!dispatchForm.arrangements.length"
@@ -315,7 +362,7 @@
                     />
                   </div>
 
-                  <div v-if="canWrite && !workbenchReadonly" class="legacy-actions">
+                  <div v-if="canManageSelectedProject && !workbenchReadonly" class="legacy-actions">
                     <el-button :loading="saving" @click="saveDraft(false)">保存草稿</el-button>
                     <el-button type="primary" :loading="saving" @click="saveDraft(true)">确认安排</el-button>
                   </div>
@@ -366,7 +413,7 @@
                           v-model="mailPathForm.dispatch_path"
                           type="textarea"
                           :rows="2"
-                          :disabled="!canWrite || mailPathsSaving"
+                          :disabled="!canManageSelectedProject || mailPathsSaving"
                           maxlength="5000"
                           placeholder="请输入项目文件的派稿文路径"
                           @input="mailPathsDirty = true"
@@ -376,7 +423,7 @@
                           v-model="mailPathForm.reference_file_path_one"
                           type="textarea"
                           :rows="2"
-                          :disabled="!canWrite || mailPathsSaving"
+                          :disabled="!canManageSelectedProject || mailPathsSaving"
                           maxlength="500"
                           placeholder="请输入参考文件路径一"
                           @input="mailPathsDirty = true"
@@ -385,7 +432,7 @@
                         <el-input :model-value="mailPreview.recipient_email || ''" readonly />
                       </div>
 
-                      <div v-if="canWrite" class="mail-path-actions">
+                      <div v-if="canManageSelectedProject" class="mail-path-actions">
                         <el-button
                           type="primary"
                           :loading="mailPathsSaving"
@@ -411,7 +458,7 @@
                       </el-collapse>
                     </div>
 
-                    <div v-if="canWrite && selectedProjectDispatch" class="legacy-actions">
+                    <div v-if="canManageSelectedProject && selectedProjectDispatch" class="legacy-actions">
                       <el-button
                         v-if="activeExistingArrangement && ['ready', 'failed'].includes(activeExistingArrangement.status)"
                         type="primary"
@@ -770,13 +817,22 @@
       </template>
 
       <el-table
+        ref="dispatchTableRef"
         v-loading="recordsLoading"
+        class="dispatch-records-table"
         :data="dispatches"
         row-key="id"
         border
         size="small"
+        :expand-row-keys="expandedDispatchRowKeys"
+        @expand-change="handleDispatchExpandChange"
       >
-        <el-table-column type="expand">
+        <el-table-column
+          type="expand"
+          width="1"
+          class-name="dispatch-expand-column"
+          label-class-name="dispatch-expand-column"
+        >
           <template #default="{ row }">
             <div class="assignment-detail-wrap">
               <el-table :data="row.arrangements || []" border size="small">
@@ -833,7 +889,8 @@
                 </el-table-column>
                 <el-table-column v-if="canWrite" label="操作" width="150" fixed="right">
                   <template #default="{ row: item }">
-                    <el-button
+                    <template v-if="canManageDispatch(row)">
+                      <el-button
                       v-if="['ready', 'failed'].includes(item.status)"
                       type="primary"
                       link
@@ -841,30 +898,46 @@
                       :disabled="!mailStatus.configured"
                       :loading="sendingId === item.id"
                       @click="openMailPreviewDialog(row, item)"
-                    >
-                      {{ item.status === 'failed' ? '重试' : '发送' }}
-                    </el-button>
-                    <el-button
+                      >
+                        {{ item.status === 'failed' ? '重试' : '发送' }}
+                      </el-button>
+                      <el-button
                       v-if="item.status !== 'cancelled'"
                       type="primary"
                       link
                       size="small"
                       @click="openSettlementDialog(row, item)"
-                    >
-                      结算
-                    </el-button>
-                    <el-button
+                      >
+                        结算
+                      </el-button>
+                      <el-button
                       v-if="row.status === 'cancelled' && item.status === 'cancelled'"
                       type="primary"
                       link
                       size="small"
                       @click="reEditCancelled(row, item.translator_id)"
-                    >
-                      重新编辑
-                    </el-button>
+                      >
+                        重新编辑
+                      </el-button>
+                    </template>
+                    <span v-else>-</span>
                   </template>
                 </el-table-column>
               </el-table>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="订单号" width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="dispatch-order-cell">
+              <TableExpandButton
+                v-if="row.arrangements?.length"
+                :expanded="isDispatchExpanded(row)"
+                expand-label="展开稿件安排详情"
+                collapse-label="收起稿件安排详情"
+                @click="toggleDispatchExpansion(row)"
+              />
+              <span>{{ row.order_no_snapshot || '-' }}</span>
             </div>
           </template>
         </el-table-column>
@@ -875,7 +948,6 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="order_no_snapshot" label="订单号" width="180" show-overflow-tooltip />
         <el-table-column prop="project_name_snapshot" label="项目" min-width="180" show-overflow-tooltip />
         <el-table-column label="译员" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ translatorSummary(row) }}</template>
@@ -901,12 +973,16 @@
         <el-table-column label="译员总价" width="110" align="right">
           <template #default="{ row }">{{ formatMoney(sumField(row, 'translator_total_price', true)) }}</template>
         </el-table-column>
-        <el-table-column prop="created_by_name" label="安排人" width="110" show-overflow-tooltip />
+        <el-table-column label="项目助理" width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.project_assistant_name || '角色池' }}</template>
+        </el-table-column>
+        <el-table-column prop="created_by_name" label="实际安排人" width="120" show-overflow-tooltip />
         <el-table-column label="创建时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
         <el-table-column v-if="canWrite" label="操作" width="200" fixed="right">
           <template #default="{ row }">
+            <template v-if="canManageDispatch(row)">
             <el-button v-if="row.status === 'draft'" type="primary" link size="small" @click="editDraft(row)">编辑</el-button>
             <el-button v-if="row.status === 'draft'" type="success" link size="small" @click="confirmExisting(row)">确认</el-button>
             <el-button
@@ -938,6 +1014,10 @@
             >
               取消
             </el-button>
+            </template>
+            <el-tooltip v-else :content="row.manuscript_access_reason || '当前账号不能操作该项目'" placement="left">
+              <span>-</span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -1272,11 +1352,13 @@ import {
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
   formatWordCountMatrix,
   formatWordCountValues,
+  getWordCountMatrixListSummary,
   normalizeWordCountValues,
   sumWordCountValues
 } from '@/utils/wordCountMatrix'
@@ -1291,6 +1373,9 @@ const sendingBatchId = ref('')
 const activeProjects = ref([])
 const translators = ref([])
 const dispatches = ref([])
+const dispatchTableRef = ref(null)
+const expandedDispatchIds = ref(new Set())
+const expandedDispatchRowKeys = computed(() => [...expandedDispatchIds.value])
 const selectedProject = ref(null)
 const projectKeyword = ref('')
 const dispatchKeyword = ref('')
@@ -1328,8 +1413,29 @@ function toggleProjectPanel() {
 }
 
 const canWrite = computed(() => hasPermission('projects:write'))
+const canManageSelectedProject = computed(() => (
+  canWrite.value && Boolean(selectedProject.value?.can_manage_manuscript)
+))
 const inlineSettlement = ref([])
 const inlineSavingId = ref('')
+
+const canManageDispatch = (dispatch) => (
+  canWrite.value && Boolean(dispatch?.can_manage_manuscript)
+)
+
+function ensureCanManage(target = selectedProject.value) {
+  if (!canWrite.value) {
+    ElMessage.warning('当前账号没有项目写入权限')
+    return false
+  }
+  if (!target?.can_manage_manuscript) {
+    ElMessage.warning(
+      target?.manuscript_access_reason || '当前账号不能操作该项目的稿件安排'
+    )
+    return false
+  }
+  return true
+}
 
 function activeDispatchFor(project) {
   const target = projectIdentity(project)
@@ -1479,6 +1585,7 @@ function clearMailSendPreview() {
 }
 
 async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
+  if (!ensureCanManage(dispatch)) return
   if (!mailStatus.configured) {
     ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
     return
@@ -1582,6 +1689,7 @@ async function loadActiveMailPreview() {
 async function saveMailPaths() {
   const dispatchId = selectedProjectDispatch.value?.id
   if (!dispatchId) return
+  if (!ensureCanManage(selectedProjectDispatch.value)) return
   mailPathsSaving.value = true
   try {
     const saved = await updateManuscriptMailPaths(dispatchId, {
@@ -1639,6 +1747,7 @@ watch(
 async function saveInlineSettlement(row) {
   const dispatch = selectedProjectDispatch.value
   if (!dispatch) return
+  if (!ensureCanManage(dispatch)) return
   inlineSavingId.value = row.id
   try {
     await updateManuscriptSettlement(dispatch.id, row.id, {
@@ -1825,7 +1934,7 @@ function formatDomains(skills) {
 
 function handleWorkspaceTranslatorSelection(selection) {
   workspaceSelectedTranslators.value = selection
-  if (!selectedProject.value || workbenchReadonly.value) return
+  if (!selectedProject.value || workbenchReadonly.value || !canManageSelectedProject.value) return
   selectedTranslatorIds.value = selection.map((item) => item.id)
   syncSelectedTranslators(selectedTranslatorIds.value)
   if (
@@ -1940,6 +2049,10 @@ function projectWordSummary(row) {
 
 function projectWordCount(row) {
   return projectWordSummary(row)
+}
+
+function projectWordListSummary(row) {
+  return getWordCountMatrixListSummary(row?.word_count_matrix)
 }
 
 function assignmentWordSummary(assignment) {
@@ -2185,6 +2298,19 @@ function activeAssignments(dispatch) {
   return (dispatch.arrangements || []).filter((item) => item.status !== 'cancelled')
 }
 
+function isDispatchExpanded(row) {
+  return expandedDispatchIds.value.has(row.id)
+}
+
+function handleDispatchExpandChange(_row, expandedRows) {
+  expandedDispatchIds.value = new Set(expandedRows.map((item) => item.id))
+}
+
+function toggleDispatchExpansion(row) {
+  if (!row.arrangements?.length) return
+  dispatchTableRef.value?.toggleRowExpansion(row, !isDispatchExpanded(row))
+}
+
 function translatorSummary(dispatch) {
   const names = activeAssignments(dispatch).map((item) => item.translator_name_snapshot)
   return names.length ? names.join('、') : '-'
@@ -2268,6 +2394,7 @@ function openCreateDialog() {
     ElMessage.warning('请先选择订单')
     return
   }
+  if (!ensureCanManage()) return
   resetDispatchForm()
   selectedTranslatorIds.value = workspaceSelectedTranslators.value.map((item) => item.id)
   syncSelectedTranslators(selectedTranslatorIds.value)
@@ -2277,6 +2404,7 @@ function openCreateDialog() {
 }
 
 function editDraft(row) {
+  if (!ensureCanManage(row)) return
   const matchedProject = activeProjects.value.find(
     (item) => projectIdentity(item) === projectIdentity(row)
   )
@@ -2292,6 +2420,7 @@ function editDraft(row) {
 }
 
 function reEditCancelled(row, translatorId = '') {
+  if (!ensureCanManage(row)) return
   const matchedProject = activeProjects.value.find(
     (item) => projectIdentity(item) === projectIdentity(row)
   )
@@ -2371,6 +2500,7 @@ function buildDispatchPayload() {
 }
 
 async function saveDraft(shouldConfirm) {
+  if (!ensureCanManage()) return
   const errorMessage = validateDispatchForm()
   if (errorMessage) {
     ElMessage.warning(errorMessage)
@@ -2401,6 +2531,7 @@ async function saveDraft(shouldConfirm) {
 
 async function sendActiveWorkbenchAssignment() {
   if (!selectedProjectDispatch.value || !activeExistingArrangement.value) return
+  if (!ensureCanManage(selectedProjectDispatch.value)) return
   await openMailPreviewDialog(
     selectedProjectDispatch.value,
     activeExistingArrangement.value
@@ -2408,6 +2539,7 @@ async function sendActiveWorkbenchAssignment() {
 }
 
 async function confirmExisting(row) {
+  if (!ensureCanManage(row)) return
   try {
     await ElMessageBox.confirm(
       `确认 ${row.order_no_snapshot} 的派稿批次吗？确认后订单状态将更新为“已排译员”。`,
@@ -2424,6 +2556,7 @@ async function confirmExisting(row) {
 }
 
 async function sendBatch(row) {
+  if (!ensureCanManage(row)) return false
   if (!mailStatus.configured) {
     ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
     return false
@@ -2447,6 +2580,7 @@ async function sendBatch(row) {
 }
 
 async function sendAssignment(dispatch, assignment) {
+  if (!ensureCanManage(dispatch)) return false
   if (!mailStatus.configured) {
     ElMessage.error(mailStatus.detail || '邮件服务尚未配置')
     return false
@@ -2467,6 +2601,7 @@ async function sendAssignment(dispatch, assignment) {
 }
 
 async function cancelBatch(row) {
+  if (!ensureCanManage(row)) return
   const isConfirmedBatch = row.status === 'ready'
   try {
     await ElMessageBox.confirm(
@@ -2496,6 +2631,7 @@ async function cancelBatch(row) {
 }
 
 function openSettlementDialog(dispatch, assignment) {
+  if (!ensureCanManage(dispatch)) return
   Object.assign(settlementForm, {
     dispatch_id: dispatch.id,
     arrangement_id: assignment.id,
@@ -2516,6 +2652,10 @@ function openSettlementDialog(dispatch, assignment) {
 }
 
 async function saveSettlement() {
+  const dispatch = dispatches.value.find(
+    (item) => item.id === settlementForm.dispatch_id
+  )
+  if (!ensureCanManage(dispatch)) return
   settlementSaving.value = true
   try {
     await updateManuscriptSettlement(
@@ -2550,13 +2690,11 @@ async function loadContext() {
       ? response.active_projects.items.filter(canShowInManuscriptArrangements)
       : []
     translators.value = Array.isArray(response?.translators) ? response.translators : []
-    if (
-      selectedProject.value &&
-      !activeProjects.value.some(
-        (item) => projectIdentity(item) === projectIdentity(selectedProject.value)
-      )
-    ) {
-      selectedProject.value = null
+    if (selectedProject.value) {
+      const selectedIdentity = projectIdentity(selectedProject.value)
+      selectedProject.value = activeProjects.value.find(
+        (item) => projectIdentity(item) === selectedIdentity
+      ) || null
     }
   } catch (error) {
     ElMessage.error(error.detail || '加载项目和译员信息失败')
@@ -2939,6 +3077,50 @@ onMounted(loadAll)
   color: var(--el-text-color-regular);
 }
 
+.legacy-word-count-summary--compact {
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.compact-table-link {
+  max-width: 100%;
+  height: auto;
+  padding: 0;
+}
+
+.compact-table-value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.compact-table-value__primary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-table-value__count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.compact-deadline {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .legacy-mail-editor {
   margin-top: 12px;
 }
@@ -3148,6 +3330,29 @@ small {
 .assignment-detail-wrap {
   padding: 10px 18px;
   background: var(--el-fill-color-lighter);
+}
+
+.dispatch-records-table :deep(.dispatch-expand-column) {
+  padding: 0 !important;
+  border-right: 0 !important;
+}
+
+.dispatch-records-table :deep(.dispatch-expand-column .cell) {
+  display: none;
+  padding: 0;
+}
+
+.dispatch-order-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dispatch-order-cell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .milestone-line {

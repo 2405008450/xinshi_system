@@ -75,9 +75,10 @@ watch(expanded, (value) => {
 <style scoped>
 .collapsible-section {
   margin-bottom: 8px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  border: 1px solid #b8c3d1;
+  border-radius: 8px;
   background: var(--el-bg-color);
+  box-shadow: 0 2px 5px rgb(15 23 42 / 8%);
   overflow: hidden;
 }
 
@@ -88,14 +89,14 @@ watch(expanded, (value) => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  background: var(--el-fill-color-extra-light);
+  background: #475569;
   cursor: pointer;
   user-select: none;
   transition: background-color 0.2s ease;
 }
 
 .collapsible-section__header:hover {
-  background: var(--el-fill-color-light);
+  background: #3b4a5e;
 }
 
 .collapsible-section__header:focus-visible {
@@ -114,7 +115,7 @@ watch(expanded, (value) => {
   flex: none;
   font-size: 14px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
+  color: #fff;
 }
 
 .collapsible-section__subtitle {
@@ -123,7 +124,7 @@ watch(expanded, (value) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: #dbe4ee;
 }
 
 .collapsible-section__toggle {
@@ -140,6 +141,7 @@ watch(expanded, (value) => {
 .collapsible-section__toggle {
   width: 28px;
   height: 28px;
+  color: #fff;
 }
 
 .collapsible-section__toggle .el-icon {
@@ -152,6 +154,7 @@ watch(expanded, (value) => {
 
 .collapsible-section__body {
   padding: 10px 12px 12px;
+  background: var(--el-bg-color);
 }
 
 .is-collapsed .collapsible-section__header {

@@ -5,9 +5,11 @@ import datetime
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, joinedload
 
+from crud import get_user_roles_with_role_names
+from leave_service import assignment_disabled_reason, get_active_leave
 from mail_service import send_plain_text_email
 from manuscript_models import (
     ManuscriptArrangement,
@@ -23,7 +25,16 @@ from manuscript_schemas import (
     ManuscriptMailPathsUpdate,
     ManuscriptSettlementUpdate,
 )
-from models import AppUser, Client, ProjectFile, TranslationProject, TranslationSubOrder, Translator
+from models import (
+    AppUser,
+    Client,
+    ProjectFile,
+    ProjectRoleAssignment,
+    TranslationProject,
+    TranslationSubOrder,
+    Translator,
+)
+from project_roles import get_stage_role
 from word_count_service import (
     METRIC_TYPES,
     attach_arrangement_matrices,
@@ -47,6 +58,162 @@ WORD_COUNT_LABELS = {
     "cjk_chars_korean_words": "中文字符和朝鲜语单词",
     "foreign_words": "外文字数",
 }
+
+
+def _project_assistant_actor_state(
+    db: Session,
+    current_user: AppUser,
+) -> tuple[bool, Optional[str]]:
+    """项目助理操作人必须仍拥有对应角色，且当前不在请假中。"""
+    roles = set(get_user_roles_with_role_names(db, current_user.id))
+    if "项目助理" not in roles:
+        return False, "当前账号没有“项目助理”角色，不能操作稿件安排"
+    active_leave = get_active_leave(db, current_user.id)
+    if active_leave:
+        return False, assignment_disabled_reason(active_leave) or "当前账号正在请假，不能操作稿件安排"
+    return True, None
+
+
+def _project_assistant_responsibility_summary(
+    current_user: AppUser,
+    *,
+    fixed_assignment: Optional[ProjectRoleAssignment],
+    workflow: Optional[WorkflowInstance],
+    actor_state: tuple[bool, Optional[str]],
+) -> dict:
+    """区分项目固定负责人、当前临时处理人与实际操作权限。"""
+    fixed_user = fixed_assignment.assignee if fixed_assignment else None
+    fixed_id = fixed_assignment.assignee_id if fixed_assignment else None
+    fixed_name = (
+        (fixed_user.full_name or fixed_user.username) if fixed_user else None
+    )
+    stage_role = get_stage_role(workflow.current_stage_key) if workflow else {
+        "role_code": None,
+        "role_name": None,
+    }
+    workflow_assignee = workflow.current_assignee if workflow else None
+    workflow_assignee_name = (
+        (workflow_assignee.full_name or workflow_assignee.username)
+        if workflow_assignee else None
+    )
+    result = {
+        "project_assistant_id": fixed_id,
+        "project_assistant_name": fixed_name,
+        "project_assistant_assignment_type": "direct" if fixed_id else "role_pool",
+        "current_stage_role_code": stage_role["role_code"],
+        "current_stage_role_name": stage_role["role_name"],
+        "can_manage_manuscript": False,
+        "manuscript_access_reason": None,
+    }
+
+    actor_eligible, actor_reason = actor_state
+    if not actor_eligible:
+        result["manuscript_access_reason"] = actor_reason
+        return result
+
+    if fixed_id == current_user.id:
+        result["can_manage_manuscript"] = True
+        result["manuscript_access_reason"] = "你是该项目的固定项目助理"
+        return result
+
+    is_project_assistant_stage = stage_role["role_code"] == "project_assistant"
+    if (
+        is_project_assistant_stage
+        and workflow
+        and workflow.current_assignee_id == current_user.id
+    ):
+        result["can_manage_manuscript"] = True
+        result["manuscript_access_reason"] = (
+            "你是当前项目助理流程负责人（临时交接）"
+            if fixed_id else
+            "你已认领该项目的项目助理角色池任务"
+        )
+        return result
+
+    if fixed_id:
+        result["manuscript_access_reason"] = (
+            f"该项目由项目助理“{fixed_name or '已停用用户'}”负责；如需代办，请先完成任务交接"
+        )
+    elif is_project_assistant_stage and workflow and workflow.current_assignee_id:
+        result["manuscript_access_reason"] = (
+            f"该项目助理任务当前由“{workflow_assignee_name or '其他用户'}”负责"
+        )
+    elif is_project_assistant_stage:
+        result["manuscript_access_reason"] = (
+            "项目未绑定固定项目助理，请先在工作台认领项目助理角色池任务"
+        )
+    else:
+        result["manuscript_access_reason"] = (
+            "项目未配置项目助理，且当前流程尚无可由你处理的项目助理任务"
+        )
+    return result
+
+
+def _get_project_assistant_assignment(
+    db: Session,
+    project_id: UUID,
+) -> Optional[ProjectRoleAssignment]:
+    return (
+        db.query(ProjectRoleAssignment)
+        .options(joinedload(ProjectRoleAssignment.assignee))
+        .filter(
+            ProjectRoleAssignment.translation_project_id == project_id,
+            ProjectRoleAssignment.role_code == "project_assistant",
+        )
+        .first()
+    )
+
+
+def _get_entity_workflow(
+    db: Session,
+    project_id: UUID,
+    sub_order_id: Optional[UUID],
+) -> Optional[WorkflowInstance]:
+    query = db.query(WorkflowInstance).options(
+        joinedload(WorkflowInstance.current_assignee)
+    )
+    if sub_order_id:
+        query = query.filter(WorkflowInstance.sub_order_id == sub_order_id)
+    else:
+        query = query.filter(
+            WorkflowInstance.translation_project_id == project_id,
+            WorkflowInstance.sub_order_id.is_(None),
+        )
+    return query.first()
+
+
+def _resolve_manuscript_responsibility(
+    db: Session,
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+    current_user: AppUser,
+) -> dict:
+    return _project_assistant_responsibility_summary(
+        current_user,
+        fixed_assignment=_get_project_assistant_assignment(db, project.id),
+        workflow=_get_entity_workflow(
+            db,
+            project.id,
+            sub_order.id if sub_order else None,
+        ),
+        actor_state=_project_assistant_actor_state(db, current_user),
+    )
+
+
+def _ensure_can_manage_manuscript(
+    db: Session,
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+    current_user: AppUser,
+) -> dict:
+    responsibility = _resolve_manuscript_responsibility(
+        db, project, sub_order, current_user
+    )
+    if not responsibility["can_manage_manuscript"]:
+        raise PermissionError(
+            responsibility["manuscript_access_reason"] or "当前用户不能操作该项目的稿件安排"
+        )
+    return responsibility
 
 
 def _normalize_settlement_method(method, custom_method=None) -> Optional[str]:
@@ -304,6 +471,7 @@ def update_dispatch_mail_paths(
     db: Session,
     dispatch_id: UUID,
     payload: ManuscriptMailPathsUpdate,
+    current_user: AppUser,
 ) -> Optional[dict]:
     """从稿件安排页更新项目详情中的派稿及参考文件路径。"""
     dispatch = _load_dispatch(db, dispatch_id)
@@ -312,13 +480,13 @@ def update_dispatch_mail_paths(
     if dispatch.status == "cancelled":
         raise ValueError("已取消的派稿批次不能修改发送路径")
 
-    project = (
-        db.query(TranslationProject)
-        .filter(TranslationProject.id == dispatch.translation_project_id)
-        .first()
+    project, sub_order = _load_entity(
+        db,
+        dispatch.entity_type,
+        dispatch.translation_project_id,
+        dispatch.sub_order_id,
     )
-    if not project:
-        raise LookupError("项目不存在")
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     project_file = _get_project_file(db, project.id)
     if not project_file:
         raise ValueError("项目详情中尚无文件记录，请先新增项目文件后再填写派稿文路径")
@@ -452,6 +620,7 @@ def _get_active_manuscript_projects(
     db: Session,
     *,
     limit: int,
+    current_user: AppUser,
     keyword: Optional[str] = None,
 ) -> dict:
     """查询稿件安排页所需的进行中母订单和子订单。"""
@@ -468,6 +637,7 @@ def _get_active_manuscript_projects(
             AppUser.full_name,
             AppUser.username,
         )
+        .options(joinedload(WorkflowInstance.current_assignee))
         .outerjoin(
             TranslationSubOrder,
             WorkflowInstance.sub_order_id == TranslationSubOrder.id,
@@ -530,6 +700,21 @@ def _get_active_manuscript_projects(
     )
 
     project_ids = {project.id for _, project, *_ in rows}
+    project_assistant_by_project_id = {}
+    if project_ids:
+        project_assistant_by_project_id = {
+            assignment.translation_project_id: assignment
+            for assignment in (
+                db.query(ProjectRoleAssignment)
+                .options(joinedload(ProjectRoleAssignment.assignee))
+                .filter(
+                    ProjectRoleAssignment.translation_project_id.in_(project_ids),
+                    ProjectRoleAssignment.role_code == "project_assistant",
+                )
+                .all()
+            )
+        }
+    actor_state = _project_assistant_actor_state(db, current_user)
     project_file_by_project_id = {}
     if project_ids:
         project_files = (
@@ -548,6 +733,12 @@ def _get_active_manuscript_projects(
     for workflow, project, sub_order, client_short_name, full_name, username in rows:
         is_sub_order = workflow.sub_order_id is not None
         project_file = project_file_by_project_id.get(project.id)
+        responsibility = _project_assistant_responsibility_summary(
+            current_user,
+            fixed_assignment=project_assistant_by_project_id.get(project.id),
+            workflow=workflow,
+            actor_state=actor_state,
+        )
         items.append(
             {
                 "workflow_instance_id": workflow.id,
@@ -570,6 +761,7 @@ def _get_active_manuscript_projects(
                 "current_assignee_id": workflow.current_assignee_id,
                 "current_assignee_name": full_name or username,
                 "group_assign_role": workflow.group_assign_role,
+                **responsibility,
                 "project_manager_id": project.project_manager_id,
                 "project_manager_name": project.project_manager_name,
                 "project_status": workflow.project_status,
@@ -620,12 +812,14 @@ def _get_active_manuscript_projects(
 def get_arrangement_context(
     db: Session,
     *,
+    current_user: AppUser,
     keyword: Optional[str] = None,
     project_limit: int = 100,
 ) -> dict:
     active_projects = _get_active_manuscript_projects(
         db,
         limit=project_limit,
+        current_user=current_user,
         keyword=keyword,
     )
     project_ids = {
@@ -700,9 +894,95 @@ def get_arrangement_context(
     }
 
 
+def _attach_dispatch_responsibilities(
+    db: Session,
+    dispatches: list[ManuscriptDispatch],
+    current_user: AppUser,
+) -> None:
+    """批量附加当前项目助理及当前用户操作权限，避免记录列表逐行查询。"""
+    if not dispatches:
+        return
+    project_ids = {dispatch.translation_project_id for dispatch in dispatches}
+    sub_order_ids = {
+        dispatch.sub_order_id for dispatch in dispatches if dispatch.sub_order_id
+    }
+    assignment_by_project_id = {
+        assignment.translation_project_id: assignment
+        for assignment in (
+            db.query(ProjectRoleAssignment)
+            .options(joinedload(ProjectRoleAssignment.assignee))
+            .filter(
+                ProjectRoleAssignment.translation_project_id.in_(project_ids),
+                ProjectRoleAssignment.role_code == "project_assistant",
+            )
+            .all()
+        )
+    }
+    workflow_filter = and_(
+        WorkflowInstance.translation_project_id.in_(project_ids),
+        WorkflowInstance.sub_order_id.is_(None),
+    )
+    if sub_order_ids:
+        workflow_filter = or_(
+            workflow_filter,
+            WorkflowInstance.sub_order_id.in_(sub_order_ids),
+        )
+    workflows = (
+        db.query(WorkflowInstance)
+        .options(joinedload(WorkflowInstance.current_assignee))
+        .filter(workflow_filter)
+        .all()
+    )
+    workflow_by_project_id = {
+        workflow.translation_project_id: workflow
+        for workflow in workflows
+        if workflow.translation_project_id and not workflow.sub_order_id
+    }
+    workflow_by_sub_order_id = {
+        workflow.sub_order_id: workflow
+        for workflow in workflows
+        if workflow.sub_order_id
+    }
+    actor_state = _project_assistant_actor_state(db, current_user)
+    for dispatch in dispatches:
+        workflow = (
+            workflow_by_sub_order_id.get(dispatch.sub_order_id)
+            if dispatch.sub_order_id else
+            workflow_by_project_id.get(dispatch.translation_project_id)
+        )
+        responsibility = _project_assistant_responsibility_summary(
+            current_user,
+            fixed_assignment=assignment_by_project_id.get(
+                dispatch.translation_project_id
+            ),
+            workflow=workflow,
+            actor_state=actor_state,
+        )
+        for field in (
+            "project_assistant_id",
+            "project_assistant_name",
+            "project_assistant_assignment_type",
+            "can_manage_manuscript",
+            "manuscript_access_reason",
+        ):
+            setattr(dispatch, field, responsibility[field])
+
+
+def _load_dispatch_for_actor(
+    db: Session,
+    dispatch_id: UUID,
+    current_user: AppUser,
+) -> Optional[ManuscriptDispatch]:
+    dispatch = _load_dispatch(db, dispatch_id)
+    if dispatch:
+        _attach_dispatch_responsibilities(db, [dispatch], current_user)
+    return dispatch
+
+
 def list_dispatches(
     db: Session,
     *,
+    current_user: AppUser,
     skip: int = 0,
     limit: int = 200,
     keyword: Optional[str] = None,
@@ -760,6 +1040,7 @@ def list_dispatches(
         db,
         [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
     )
+    _attach_dispatch_responsibilities(db, rows, current_user)
     return rows
 
 
@@ -837,6 +1118,7 @@ def create_dispatch(
         payload.translation_project_id,
         payload.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     values = _entity_values(
         project,
         sub_order,
@@ -873,7 +1155,7 @@ def create_dispatch(
         replace_arrangement_values(db, arrangement.id, "planned", assignment.planned, updated_by=current_user.id)
         replace_arrangement_values(db, arrangement.id, "actual", assignment.actual, updated_by=current_user.id)
     db.commit()
-    return _load_dispatch(db, dispatch.id)
+    return _load_dispatch_for_actor(db, dispatch.id, current_user)
 
 
 def update_dispatch(
@@ -888,12 +1170,23 @@ def update_dispatch(
     if dispatch.status != "draft":
         raise ValueError("只有草稿批次可以整体编辑")
 
+    existing_project, existing_sub_order = _load_entity(
+        db,
+        dispatch.entity_type,
+        dispatch.translation_project_id,
+        dispatch.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(
+        db, existing_project, existing_sub_order, current_user
+    )
+
     project, sub_order = _load_entity(
         db,
         payload.entity_type,
         payload.translation_project_id,
         payload.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     values = _entity_values(
         project,
         sub_order,
@@ -923,7 +1216,7 @@ def update_dispatch(
         replace_arrangement_values(db, arrangement.id, "planned", assignment.planned, updated_by=current_user.id)
         replace_arrangement_values(db, arrangement.id, "actual", assignment.actual, updated_by=current_user.id)
     db.commit()
-    return _load_dispatch(db, dispatch.id)
+    return _load_dispatch_for_actor(db, dispatch.id, current_user)
 
 
 def _sync_dispatch_status(dispatch: ManuscriptDispatch) -> None:
@@ -1050,6 +1343,7 @@ def confirm_dispatch(
         dispatch.translation_project_id,
         dispatch.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     now = datetime.datetime.now()
     for arrangement in dispatch.arrangements:
         translator = (
@@ -1082,18 +1376,26 @@ def confirm_dispatch(
     # “确认安排”是明确的业务动作，直接写入“已排译员”，不依赖回查时的自动刷新。
     _set_order_status(project, sub_order, ORDER_STATUS_TRANSLATOR_ASSIGNED)
     db.commit()
-    return _load_dispatch(db, dispatch.id)
+    return _load_dispatch_for_actor(db, dispatch.id, current_user)
 
 
 def cancel_dispatch(
     db: Session,
     dispatch_id: UUID,
+    current_user: AppUser,
 ) -> Optional[ManuscriptDispatch]:
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
         return None
     if any(item.status == "sent" for item in dispatch.arrangements):
         raise ValueError("包含已发送明细的批次不能整体取消")
+    project, sub_order = _load_entity(
+        db,
+        dispatch.entity_type,
+        dispatch.translation_project_id,
+        dispatch.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     was_confirmed = dispatch.confirmed_at is not None
     now = datetime.datetime.now()
     for arrangement in dispatch.arrangements:
@@ -1102,12 +1404,6 @@ def cancel_dispatch(
     dispatch.status = "cancelled"
     dispatch.cancelled_at = now
     dispatch.updated_at = now
-    project, sub_order = _load_entity(
-        db,
-        dispatch.entity_type,
-        dispatch.translation_project_id,
-        dispatch.sub_order_id,
-    )
     # Session 关闭了 autoflush，必须先落盘取消状态，后续回查才不会把本批次误算为有效安排。
     db.flush()
     remaining_status = _sync_order_status(db, project, sub_order)
@@ -1122,7 +1418,7 @@ def cancel_dispatch(
             rollback_status = ORDER_STATUS_CONFIRMED
         _set_order_status(project, sub_order, rollback_status)
     db.commit()
-    return _load_dispatch(db, dispatch.id)
+    return _load_dispatch_for_actor(db, dispatch.id, current_user)
 
 
 def create_arrangement(
@@ -1172,10 +1468,18 @@ def create_arrangement(
 def send_arrangement(
     db: Session,
     arrangement_id: UUID,
+    current_user: AppUser,
 ) -> Optional[ManuscriptArrangement]:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return None
+    project, sub_order = _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     if arrangement.status == "sent":
         return arrangement
     if arrangement.status not in {"ready", "failed"}:
@@ -1203,12 +1507,6 @@ def send_arrangement(
     arrangement.email_subject = preview["subject"]
     arrangement.email_body = preview["body"]
 
-    project, sub_order = _load_entity(
-        db,
-        arrangement.entity_type,
-        arrangement.translation_project_id,
-        arrangement.sub_order_id,
-    )
     now = datetime.datetime.now()
     arrangement.send_attempted_at = now
     arrangement.send_error = None
@@ -1246,16 +1544,18 @@ def send_arrangement(
 def send_dispatch(
     db: Session,
     dispatch_id: UUID,
+    current_user: AppUser,
 ) -> tuple[ManuscriptDispatch, int, int, int]:
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
         raise LookupError("派稿批次不存在")
-    _load_entity(
+    project, sub_order = _load_entity(
         db,
         dispatch.entity_type,
         dispatch.translation_project_id,
         dispatch.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     if dispatch.status not in {"ready", "partially_sent"}:
         raise ValueError("只有已确认或部分发送的批次可以批量发送")
 
@@ -1267,11 +1567,11 @@ def send_dispatch(
             skipped_count += 1
             continue
         try:
-            send_arrangement(db, arrangement.id)
+            send_arrangement(db, arrangement.id, current_user)
             sent_count += 1
         except Exception:
             failed_count += 1
-    refreshed = _load_dispatch(db, dispatch_id)
+    refreshed = _load_dispatch_for_actor(db, dispatch_id, current_user)
     return refreshed, sent_count, failed_count, skipped_count
 
 
@@ -1279,16 +1579,18 @@ def update_settlement(
     db: Session,
     arrangement_id: UUID,
     payload: ManuscriptSettlementUpdate,
+    current_user: AppUser,
 ) -> Optional[ManuscriptArrangement]:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return None
-    _load_entity(
+    project, sub_order = _load_entity(
         db,
         arrangement.entity_type,
         arrangement.translation_project_id,
         arrangement.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     if arrangement.status == "cancelled":
         raise ValueError("已取消的译员明细不能更新结算信息")
     update_data = payload.model_dump(exclude_unset=True)
@@ -1313,16 +1615,18 @@ def update_arrangement(
     db: Session,
     arrangement_id: UUID,
     payload: ManuscriptArrangementUpdate,
+    current_user: AppUser,
 ) -> Optional[ManuscriptArrangement]:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return None
-    _load_entity(
+    project, sub_order = _load_entity(
         db,
         arrangement.entity_type,
         arrangement.translation_project_id,
         arrangement.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     if arrangement.status not in {"draft", "failed", "sent", "ready"}:
         raise ValueError("当前状态的稿件安排不能修改")
 
@@ -1356,16 +1660,21 @@ def update_arrangement(
     return get_arrangement(db, arrangement.id)
 
 
-def delete_arrangement(db: Session, arrangement_id: UUID) -> bool:
+def delete_arrangement(
+    db: Session,
+    arrangement_id: UUID,
+    current_user: AppUser,
+) -> bool:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
         return False
-    _load_entity(
+    project, sub_order = _load_entity(
         db,
         arrangement.entity_type,
         arrangement.translation_project_id,
         arrangement.sub_order_id,
     )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     if arrangement.status not in {"draft", "failed", "cancelled"}:
         raise ValueError("只有未发送的稿件安排可以删除")
     dispatch = arrangement.dispatch

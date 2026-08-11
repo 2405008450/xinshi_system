@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from language_catalog import normalize_language_pairs
+from department_utils import normalize_department
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
 
@@ -33,6 +34,18 @@ class AppUserBase(BaseModel):
     is_active: Optional[bool] = True
     department: Optional[str] = None
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_optional_email(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator('department', mode='before')
+    @classmethod
+    def normalize_department_name(cls, value):
+        return normalize_department(value)
+
 
 class AppUserCreate(AppUserBase):
     password: str
@@ -44,6 +57,18 @@ class AppUserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
     department: Optional[str] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_optional_email(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator('department', mode='before')
+    @classmethod
+    def normalize_department_name(cls, value):
+        return normalize_department(value)
 
 
 class AppUserPasswordReset(BaseModel):
@@ -536,6 +561,22 @@ class EmployeeShiftLockUpdate(BaseModel):
 
 
 # Translation Project Schemas
+class ProjectRoleAssignmentInput(BaseModel):
+    role_code: Literal[
+        'project_manager',
+        'project_specialist',
+        'project_assistant',
+        'layout_specialist',
+    ]
+    assignee_id: Optional[UUID] = None
+
+
+class ProjectRoleAssignmentResponse(ProjectRoleAssignmentInput):
+    role_name: str
+    assignee_name: Optional[str] = None
+    assignment_type: Literal['direct', 'role_pool']
+
+
 class TranslationProjectBase(BaseModel):
     project_name: str
     task_type: Optional[str] = None
@@ -584,6 +625,7 @@ class TranslationProjectBase(BaseModel):
 
 class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
+    role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
 
 class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
@@ -625,6 +667,7 @@ class TranslationProjectUpdate(BaseModel):
     consolidation_progress: Optional[str] = None
     network_file_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
+    role_assignments: Optional[list[ProjectRoleAssignmentInput]] = None
 
     @field_validator('language_pair')
     @classmethod
@@ -690,6 +733,7 @@ class TranslationProjectResponse(TranslationProjectBase):
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     project_manager_name: Optional[str] = None
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     translator_name: Optional[str] = None
     created_by: Optional[UUID] = None
     created_at: Optional[datetime] = None

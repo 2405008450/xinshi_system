@@ -82,12 +82,19 @@ def test_mail_preview_uses_project_file_dispatch_path():
 def test_update_mail_paths_writes_back_to_project_detail(monkeypatch):
     project_id = uuid4()
     project_file_id = uuid4()
-    dispatch = SimpleNamespace(status="ready", translation_project_id=project_id)
+    dispatch = SimpleNamespace(
+        status="ready",
+        entity_type="project",
+        translation_project_id=project_id,
+        sub_order_id=None,
+    )
     project = SimpleNamespace(
         id=project_id,
+        project_status="confirmed",
         reference_file_path_one=None,
         updated_at=None,
     )
+    current_user = SimpleNamespace(id=uuid4())
     project_file = SimpleNamespace(
         id=project_file_id,
         dispatch_path=None,
@@ -98,6 +105,11 @@ def test_update_mail_paths_writes_back_to_project_detail(monkeypatch):
         "_load_dispatch",
         lambda current_db, dispatch_id: dispatch,
     )
+    monkeypatch.setattr(
+        manuscript_service,
+        "_ensure_can_manage_manuscript",
+        lambda current_db, current_project, sub_order, actor: {},
+    )
 
     result = manuscript_service.update_dispatch_mail_paths(
         db,
@@ -106,6 +118,7 @@ def test_update_mail_paths_writes_back_to_project_detail(monkeypatch):
             dispatch_path=r"  \\server\dispatch  ",
             reference_file_path_one=r"  \\server\reference  ",
         ),
+        current_user,
     )
 
     assert project_file.dispatch_path == r"\\server\dispatch"

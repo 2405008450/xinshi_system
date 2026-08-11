@@ -4,7 +4,12 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import Integer, String, and_, case, cast, func, or_
 
-from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification
+from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification, ProjectRoleAssignment
+from project_roles import (
+    PROJECT_ROLE_BY_CODE,
+    PROJECT_ROLE_NAME_BY_CODE,
+    RELATION_ROLE_CODES,
+)
 from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
@@ -21,6 +26,7 @@ from schemas import (
 from passlib.context import CryptContext
 import hashlib
 from utils import generate_order_no
+from department_utils import department_filter_values
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -60,7 +66,7 @@ def get_users(
     if full_name:
         query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
     if department:
-        query = query.filter(AppUser.department == department)
+        query = query.filter(AppUser.department.in_(department_filter_values(department)))
     return (
         query
         .order_by(AppUser.created_at.desc(), AppUser.id.desc())
@@ -82,7 +88,7 @@ def count_users(
     if full_name:
         query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
     if department:
-        query = query.filter(AppUser.department == department)
+        query = query.filter(AppUser.department.in_(department_filter_values(department)))
     return query.count()
 
 
@@ -1149,6 +1155,89 @@ def _validate_project_manager_assignable(db: Session, project_manager_id: Option
         ensure_user_assignable(db, project_manager_id)
 
 
+def _normalize_project_role_assignments(role_assignments) -> dict[str, Optional[UUID]]:
+    """校验并规范项目角色请求；同一角色只能出现一次。"""
+    normalized: dict[str, Optional[UUID]] = {}
+    for item in role_assignments or []:
+        data = item.model_dump() if hasattr(item, 'model_dump') else dict(item)
+        role_code = data.get('role_code')
+        if role_code not in PROJECT_ROLE_BY_CODE:
+            raise ValueError(f"不支持的项目角色：{role_code or '-'}")
+        if role_code in normalized:
+            raise ValueError(f"项目角色不能重复：{PROJECT_ROLE_NAME_BY_CODE[role_code]}")
+        normalized[role_code] = data.get('assignee_id')
+    return normalized
+
+
+def _validate_project_role_assignee(
+    db: Session,
+    role_code: str,
+    assignee_id: Optional[UUID],
+    *,
+    require_assignable: bool,
+) -> None:
+    if not assignee_id:
+        return
+    role_name = PROJECT_ROLE_NAME_BY_CODE[role_code]
+    user = db.query(AppUser).filter(
+        AppUser.id == assignee_id,
+        AppUser.is_active == True,
+    ).first()
+    if not user:
+        raise ValueError(f"所选{role_name}不存在或已停用")
+    if role_name not in get_user_roles_with_role_names(db, user.id):
+        raise ValueError(f"{role_name}负责人必须拥有“{role_name}”系统角色")
+    if require_assignable:
+        from leave_service import ensure_user_assignable
+        ensure_user_assignable(db, user.id)
+
+
+def _sync_project_role_assignments(
+    db: Session,
+    project: TranslationProject,
+    role_assignments,
+) -> None:
+    """以提交列表替换三类关系角色；项目经理仅在列表明确出现时同步。"""
+    normalized = _normalize_project_role_assignments(role_assignments)
+
+    if 'project_manager' in normalized:
+        manager_id = normalized['project_manager']
+        if manager_id != project.project_manager_id:
+            _validate_project_manager_assignable(db, manager_id)
+        else:
+            _validate_project_manager(db, manager_id)
+        project.project_manager_id = manager_id
+
+    current = {
+        item.role_code: item for item in (project.project_role_assignments or [])
+    }
+    for role_code in RELATION_ROLE_CODES:
+        target_id = normalized.get(role_code)
+        existing = current.get(role_code)
+        existing_id = existing.assignee_id if existing else None
+        if target_id == existing_id:
+            _validate_project_role_assignee(
+                db, role_code, target_id, require_assignable=False
+            )
+            continue
+        _validate_project_role_assignee(
+            db, role_code, target_id, require_assignable=bool(target_id)
+        )
+        if target_id is None:
+            if existing:
+                db.delete(existing)
+            continue
+        if existing:
+            existing.assignee_id = target_id
+            existing.updated_at = datetime.now()
+        else:
+            db.add(ProjectRoleAssignment(
+                translation_project_id=project.id,
+                role_code=role_code,
+                assignee_id=target_id,
+            ))
+
+
 def build_auto_project_name(
     client_short_name: Optional[str],
     sub_order_count: int = 0,
@@ -1237,6 +1326,8 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
             selectinload(TranslationProject.sub_client),
             selectinload(TranslationProject.translator),
             selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments)
+            .selectinload(ProjectRoleAssignment.assignee),
             selectinload(TranslationProject.project_file),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
         )
@@ -1259,6 +1350,8 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
             selectinload(TranslationProject.sub_client),
             selectinload(TranslationProject.translator),
             selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments)
+            .selectinload(ProjectRoleAssignment.assignee),
             selectinload(TranslationProject.project_file),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
         )
@@ -1291,6 +1384,8 @@ def get_translation_projects(
             selectinload(TranslationProject.sub_client),
             selectinload(TranslationProject.translator),
             selectinload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments)
+            .selectinload(ProjectRoleAssignment.assignee),
             selectinload(TranslationProject.project_file),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
         )
@@ -1412,8 +1507,18 @@ def count_translation_projects(
 
 def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
     order_no = generate_order_no(db)
-    
-    project_data = project.model_dump(exclude={'client_short_name', 'client_code', 'word_count_matrix'})
+    role_assignments = project.role_assignments
+    project_data = project.model_dump(exclude={
+        'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'
+    })
+    normalized_roles = _normalize_project_role_assignments(role_assignments)
+    role_manager_id = normalized_roles.get('project_manager')
+    if (
+        'project_manager' in normalized_roles
+        and project_data.get('project_manager_id') is not None
+        and role_manager_id != project_data.get('project_manager_id')
+    ):
+        raise ValueError('项目经理字段与角色负责人配置不一致')
     
     if not project_data.get('client_id') and not project_data.get('sub_client_id'):
         client_id, sub_client_id, _created = _resolve_or_create_project_client(
@@ -1440,6 +1545,7 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
     )
     db.add(db_project)
     db.flush()
+    _sync_project_role_assignments(db, db_project, role_assignments)
 
     from word_count_service import save_created_entity_matrix
     save_created_entity_matrix(
@@ -1463,7 +1569,24 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     if not db_project:
         return None
     
-    update_data = project_update.model_dump(exclude_unset=True, exclude={'client_short_name', 'client_code', 'word_count_matrix'})
+    role_assignments_provided = (
+        'role_assignments' in project_update.model_fields_set
+        and project_update.role_assignments is not None
+    )
+    role_assignments = project_update.role_assignments if role_assignments_provided else None
+    update_data = project_update.model_dump(
+        exclude_unset=True,
+        exclude={'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'},
+    )
+    if role_assignments_provided:
+        normalized_roles = _normalize_project_role_assignments(role_assignments)
+        role_manager_id = normalized_roles.get('project_manager')
+        if (
+            'project_manager' in normalized_roles
+            and 'project_manager_id' in update_data
+            and role_manager_id != update_data.get('project_manager_id')
+        ):
+            raise ValueError('项目经理字段与角色负责人配置不一致')
     
     # 编辑时手工输入简称与新增项目保持一致：优先复用已有客户，确实不存在则自动创建。
     has_client_input = bool(
@@ -1502,6 +1625,8 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
 
     for field, value in update_data.items():
         setattr(db_project, field, value)
+    if role_assignments_provided:
+        _sync_project_role_assignments(db, db_project, role_assignments)
     
     db.commit()
     db.refresh(db_project)

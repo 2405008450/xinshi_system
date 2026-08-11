@@ -219,22 +219,14 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { canEditSchedule } from '@/utils/permission'
 import { getSchedule, saveSchedule, copySchedule, getStaffList } from '@/api/schedule'
+import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftPanel from './components/EmployeeShiftPanel.vue'
 import TranslatorSchedulePanel from './components/TranslatorSchedulePanel.vue'
 import LeaveManagementPanel from './components/LeaveManagementPanel.vue'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-const DEPARTMENTS = [
-  { key: '项目经理', label: '项目经理' },
-  { key: '翻译部', label: '翻译部' },
-  { key: '项目部', label: '项目部' },
-  { key: '客户部', label: '客户部' },
-  { key: 'HR部', label: 'HR部' },
-  { key: '排版', label: '排版' },
-  { key: '招聘项目', label: '招聘项目' },
-  { key: '销售', label: '销售' }
-]
+const DEPARTMENTS = DEPARTMENT_NAMES.map((name) => ({ key: name, label: name }))
 
 // ==================== 状态 ====================
 const currentDate = new Date()
@@ -280,7 +272,7 @@ function normalizeDeptPersonDataForUi(data) {
   if (!Array.isArray(data)) return []
   return data.map((person) => ({
     name: person?.name || '',
-    dept: person?.dept || '',
+    dept: normalizeDepartment(person?.dept),
     status: person?.status || 'scheduled',
     tasks: Array.isArray(person?.tasks) ? person.tasks.map(normalizeTaskForUi) : [],
     fixedTasks: Array.isArray(person?.fixedTasks)
@@ -293,7 +285,7 @@ function normalizeNotScheduledTasksForUi(data) {
   if (!Array.isArray(data)) return []
   return data.map((item) => ({
     personName: item?.personName ?? item?.person_name ?? '',
-    department: item?.department ?? '',
+    department: normalizeDepartment(item?.department),
     projectOrTask: item?.projectOrTask ?? item?.projectName ?? item?.project_name ?? '',
     projectNo: item?.projectNo ?? item?.orderNo ?? item?.order_no ?? '',
     deadline: item?.deadline ?? item?.customerDeadlineTime ?? item?.customer_deadline_time ?? '',
@@ -346,7 +338,7 @@ async function fetchDefaultDeptPersonData() {
     if (Array.isArray(staffList) && staffList.length > 0) {
       return staffList.map((s) => ({
         name: s.name,
-        dept: s.dept || '',
+        dept: normalizeDepartment(s.dept),
         status: 'scheduled',
         tasks: [{ category: '直接项目任务', content: '搜索自己名字', projectNo: '', deadline: '' }],
         fixedTasks: Array.isArray(s.fixedTasks) ? s.fixedTasks : []

@@ -21,6 +21,7 @@ from models import (
     ChatProjectMessage,
     ChatProjectMessageAttachment,
     ClientContact,
+    ProjectRoleAssignment,
     Role,
     RolePermission,
     TranslatorSchedule,
@@ -452,6 +453,7 @@ def ensure_runtime_tables():
     ensure_project_file_path_columns()
     ensure_project_file_detail_columns()
     ensure_translation_project_columns()
+    ProjectRoleAssignment.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverRequest.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
 

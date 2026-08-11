@@ -128,13 +128,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getEmployeeShifts, saveEmployeeShiftOverrides } from '@/api/schedule'
+import { DEPARTMENT_NAMES } from '@/constants/departments'
 import EmployeeShiftTemplateDialog from './EmployeeShiftTemplateDialog.vue'
 
 const props = defineProps({ selectedDate: { type: String, default: '' }, canEdit: { type: Boolean, default: false } })
 const emit = defineEmits(['update:selectedDate'])
 const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const WORKDAYS_VALUE = '__workdays__'
-const departments = ['项目经理', '翻译部', '项目部', '客户部', 'HR部', '排版', '招聘项目', '销售']
+const departments = DEPARTMENT_NAMES
 const options = [
   { value: 'early_early', label: '早早班 08:30–18:00', start: '08:30', end: '18:00' },
   { value: 'early', label: '早班 09:00–18:30', start: '09:00', end: '18:30' },

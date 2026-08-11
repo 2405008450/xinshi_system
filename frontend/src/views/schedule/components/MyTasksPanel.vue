@@ -11,17 +11,25 @@
           size="small"
           class="task-filters__project"
         />
-        <el-input v-model="searchForm.language_pair" aria-label="按语言对筛选" placeholder="语言对" clearable size="small" />
+        <el-input v-model="searchForm.language_pair" aria-label="按翻译方向筛选" placeholder="翻译方向" clearable size="small" />
       </div>
       <div class="task-toolbar__actions">
         <el-button
           type="primary"
           size="small"
-          :disabled="!selectedTasks.length"
+          :disabled="!directSelectedTasks.length"
           @click="openHandoverDialog"
         >
-          交接所选任务（{{ selectedTasks.length }}）
+          交接所选任务（{{ directSelectedTasks.length }}）
         </el-button>
+        <el-button
+          type="success"
+          plain
+          size="small"
+          :loading="claimingRolePool"
+          :disabled="!rolePoolSelectedTasks.length"
+          @click="claimSelectedRolePoolTasks"
+        >认领任务（{{ rolePoolSelectedTasks.length }}）</el-button>
         <el-button type="warning" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
       </div>
     </div>
@@ -32,17 +40,21 @@
       :data="filteredTasks"
       border
       size="small"
-      class="data-table workbench-data-table"
+      class="data-table workbench-data-table row-click-select-table"
       :row-class-name="rowClassName"
       @selection-change="selectedTasks = $event"
+      @row-click="toggleTaskRowSelection"
     >
-      <el-table-column type="selection" width="48" :selectable="isTaskTransferable" />
-      <el-table-column type="index" label="序号" width="56" />
-      <el-table-column prop="order_no" label="订单号" width="180" show-overflow-tooltip />
-      <el-table-column label="项目 / 任务" min-width="280">
+      <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" :selectable="isTaskSelectable" />
+      <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
+      <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #default="{ row }">
           <div class="workbench-project-cell">
-            <span class="workbench-project-cell__title">
+            <span
+              class="workbench-project-cell__title"
+              :title="row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-')"
+            >
               {{ row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-') }}
             </span>
             <div class="workbench-project-cell__meta">
@@ -55,10 +67,10 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="客户" width="130" show-overflow-tooltip>
+      <el-table-column label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column label="客户交稿" width="170">
+      <el-table-column label="客户交稿" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <div class="deadline-cell">
             <span>{{ formatDeadline(getTaskDeadline(row)) }}</span>
@@ -67,16 +79,19 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="current_stage_key" label="状态" width="112">
+      <el-table-column prop="project_status" label="项目状态" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
         <template #default="{ row }">
-          <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
+          <el-tag :type="getProjectStatusType(row.project_status)" size="small" effect="plain">
+            {{ getProjectStatusLabel(row.project_status) }}
+          </el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="showAssigneeColumn" prop="current_assignee_name" label="当前负责人" width="120">
-        <template #default="{ row }">{{ row.current_assignee_name || '角色池' }}</template>
+      <el-table-column prop="language_pair" label="翻译方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+        <template #default="{ row }">
+          <LanguagePairText :value="row.language_pair" />
+        </template>
       </el-table-column>
-      <el-table-column prop="language_pair" label="语言对" width="120" show-overflow-tooltip />
-      <el-table-column prop="difficulty" label="难度" width="76">
+      <el-table-column prop="difficulty" label="难度" :width="WORKBENCH_COLUMN_WIDTHS.difficulty">
         <template #default="{ row }">
           <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
             {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
@@ -84,17 +99,41 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="分配" width="92">
+      <el-table-column prop="current_assignee_name" label="当前负责人" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+        <template #default="{ row }">
+          <ProjectRoleAssigneesPopover
+            :current-assignee-name="row.current_assignee_name || ''"
+            :current-stage-role-code="row.current_stage_role_code || ''"
+            :current-stage-role-name="row.current_stage_role_name || ''"
+            :group-assign-role="row.group_assign_role || ''"
+            :role-assignments="row.role_assignments || []"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="分配" width="84">
         <template #default="{ row }">
           <el-tag :type="row.assignment_type === 'direct' ? 'success' : row.assignment_type === 'overview' ? 'warning' : 'info'" size="small" effect="plain">
             {{ row.assignment_type === 'direct' ? '直接负责' : row.assignment_type === 'overview' ? '全局查看' : '角色池' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="128" align="center" fixed="right">
+      <el-table-column prop="current_stage_key" label="流程阶段（待启用）" width="145">
         <template #default="{ row }">
-          <el-button v-if="row.translation_project_id" type="primary" link size="small" @click="$emit('open-chat', row.translation_project_id)">留言</el-button>
-          <el-button v-if="row.assignment_type !== 'overview'" type="success" link size="small" @click="$emit('record-work', row)">记进展</el-button>
+          <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="100" align="center" fixed="right">
+        <template #default="{ row }">
+          <el-button
+            v-if="projectMessageEnabled && row.translation_project_id"
+            type="primary"
+            link
+            size="small"
+            @click="$emit('open-chat', row.translation_project_id)"
+          >
+            留言
+          </el-button>
+          <el-button v-if="row.assignment_type === 'direct'" type="success" link size="small" @click="$emit('record-work', row)">记进展</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -103,7 +142,7 @@
 
     <el-dialog v-model="handoverVisible" title="交接所选任务" width="720px" destroy-on-close>
       <el-alert
-        :title="`将 ${selectedTasks.length} 项任务交接给其他负责人，提交后立即生效。`"
+        :title="`将 ${directSelectedTasks.length} 项${handoverRoleName || ''}任务交接给相同角色的其他负责人，接收人确认后生效。`"
         type="warning"
         :closable="false"
         show-icon
@@ -187,7 +226,7 @@
           <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
         </el-table-column>
         <el-table-column prop="order_no" label="订单编号" width="165" />
-        <el-table-column label="状态" width="110">
+        <el-table-column label="流程阶段（待启用）" width="145">
           <template #default="{ row }">{{ formatStage(row.current_stage_key) }}</template>
         </el-table-column>
       </el-table>
@@ -207,8 +246,11 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import TransferNoteEditor from '@/components/TransferNoteEditor.vue'
+import LanguagePairText from '@/components/common/LanguagePairText.vue'
+import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
+import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
 import {
   DEADLINE_STATE,
   compareWorkItemsByDeadline,
@@ -217,6 +259,7 @@ import {
 } from '@/utils/workItemDeadline'
 import {
   claimWorkflowTasksAPI,
+  claimRolePoolTasksAPI,
   getEligibleTransferUsersAPI,
   getTransferableTasksAPI,
   handoverWorkflowTasksAPI
@@ -234,6 +277,39 @@ const STAGE_LABELS = {
   completed: '完成'
 }
 
+const PROJECT_STATUS_LABELS = {
+  pending: '待确认',
+  pending_confirmation: '待确认',
+  in_progress: '已确认',
+  confirmed: '已确认',
+  organized: '已整理',
+  translator_assigned: '已排译员',
+  sent_to_translator: '已发译员',
+  translator_returned: '译员发回',
+  special_checked: '已专检',
+  typeset: '已排版',
+  special_checked_typeset: '已专检排版',
+  reviewed: '已审核',
+  completed: '已发客户',
+  sent_to_client: '已发客户',
+  client_feedback: '客户反馈',
+  feedback_sent_to_client: '反馈后发客户',
+  cancelled: '已取消',
+  partially_cancelled: '已部分取消',
+  terminated: '已取消',
+  paused: '已暂停'
+}
+
+const PROJECT_STATUS_TYPES = {
+  pending: 'info', pending_confirmation: 'info',
+  confirmed: 'primary', in_progress: 'primary', organized: 'primary',
+  translator_assigned: 'warning', sent_to_translator: 'warning',
+  translator_returned: 'primary', special_checked: 'primary', typeset: 'primary',
+  special_checked_typeset: 'primary', reviewed: 'success', completed: 'success',
+  sent_to_client: 'success', client_feedback: 'success', feedback_sent_to_client: 'success',
+  cancelled: 'danger', partially_cancelled: 'danger', terminated: 'danger', paused: 'warning'
+}
+
 const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
 const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
 
@@ -241,14 +317,20 @@ function formatStage(stageKey) {
   return STAGE_LABELS[stageKey] || stageKey || '-'
 }
 
+const getProjectStatusLabel = (status) => PROJECT_STATUS_LABELS[status] || status || '-'
+const getProjectStatusType = (status) => PROJECT_STATUS_TYPES[status] || 'info'
+
 const props = defineProps({
   currentUserName: { type: String, default: '' },
   tasksList: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits(['open-chat', 'record-work', 'refresh'])
+// 项目留言板块尚未开放，保留入口代码便于后续启用。
+const projectMessageEnabled = false
 
 const selectedTasks = ref([])
+const claimingRolePool = ref(false)
 const taskTableRef = ref(null)
 const eligibleUsers = ref([])
 const handoverVisible = ref(false)
@@ -315,10 +397,6 @@ const filteredTasks = computed(() => {
   return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
 })
 
-const showAssigneeColumn = computed(() => (
-  props.tasksList.some(task => task.assignment_type === 'overview')
-))
-
 function rowClassName({ row }) {
   const state = deadlineState(row)
   if (state === DEADLINE_STATE.OVERDUE) return 'overdue-row'
@@ -326,7 +404,24 @@ function rowClassName({ row }) {
   return ''
 }
 
-const isTaskTransferable = (row) => row.assignment_type === 'direct'
+const directSelectedTasks = computed(() => selectedTasks.value.filter(row => row.assignment_type === 'direct'))
+const rolePoolSelectedTasks = computed(() => selectedTasks.value.filter(row => row.assignment_type === 'role_pool'))
+const directSelectedRoleCodes = computed(() => new Set(
+  directSelectedTasks.value.map(row => row.current_stage_role_code).filter(Boolean)
+))
+const handoverRoleName = computed(() => (
+  directSelectedRoleCodes.value.size === 1
+    ? directSelectedTasks.value[0]?.current_stage_role_name || ''
+    : ''
+))
+const isTaskSelectable = (row) => ['direct', 'role_pool'].includes(row.assignment_type)
+
+function toggleTaskRowSelection(row, _column, event) {
+  if (!isTaskSelectable(row)) return
+  if (event?.target?.closest?.('button, a, input, textarea, select, label, .el-checkbox, .el-radio, .el-switch')) return
+  const selected = selectedTasks.value.includes(row)
+  taskTableRef.value?.toggleRowSelection(row, !selected)
+}
 
 const claimOwnerOptions = computed(() => {
   const owners = new Map()
@@ -339,7 +434,11 @@ const claimOwnerOptions = computed(() => {
 })
 
 const openHandoverDialog = async () => {
-  if (!selectedTasks.value.length) return
+  if (!directSelectedTasks.value.length) return
+  if (directSelectedRoleCodes.value.size !== 1) {
+    ElMessage.warning('一次只能交接同一角色类型的任务，请按角色分别选择')
+    return
+  }
   handoverTargetUserId.value = ''
   handoverType.value = 'daily_shift'
   handoverReasonDetail.value = ''
@@ -347,7 +446,7 @@ const openHandoverDialog = async () => {
   handoverVisible.value = true
   try {
     eligibleUsers.value = await getEligibleTransferUsersAPI(
-      selectedTasks.value.map(task => task.workflow_instance_id)
+      directSelectedTasks.value.map(task => task.workflow_instance_id)
     )
   } catch (error) {
     eligibleUsers.value = []
@@ -362,11 +461,11 @@ const canSubmitHandover = computed(() => (
 ))
 
 const submitHandover = async () => {
-  if (!handoverTargetUserId.value || !selectedTasks.value.length) return
+  if (!handoverTargetUserId.value || !directSelectedTasks.value.length) return
   submittingHandover.value = true
   try {
     await handoverWorkflowTasksAPI({
-      workflow_instance_ids: selectedTasks.value.map(task => task.workflow_instance_id),
+      workflow_instance_ids: directSelectedTasks.value.map(task => task.workflow_instance_id),
       target_user_id: handoverTargetUserId.value,
       handover_type: handoverType.value,
       reason_detail: handoverType.value === 'other' ? handoverReasonDetail.value.trim() : undefined,
@@ -374,7 +473,7 @@ const submitHandover = async () => {
       content_json: handoverNote.value.contentJson,
       attachment_ids: handoverNote.value.attachments.map(item => item.id)
     })
-    ElMessage.success(`已发起 ${selectedTasks.value.length} 项任务交接，等待接收人确认`)
+    ElMessage.success(`已发起 ${directSelectedTasks.value.length} 项任务交接，等待接收人确认`)
     handoverVisible.value = false
     selectedTasks.value = []
     taskTableRef.value?.clearSelection()
@@ -382,6 +481,30 @@ const submitHandover = async () => {
     ElMessage.error(error?.detail || error?.message || '任务交接失败')
   } finally {
     submittingHandover.value = false
+  }
+}
+
+const claimSelectedRolePoolTasks = async () => {
+  const tasks = [...rolePoolSelectedTasks.value]
+  if (!tasks.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确认认领所选的 ${tasks.length} 项角色池任务吗？认领后你将成为这些任务的直接负责人。`,
+      '认领角色池任务',
+      { type: 'warning', confirmButtonText: '确认认领', cancelButtonText: '取消' }
+    )
+    claimingRolePool.value = true
+    await claimRolePoolTasksAPI(tasks.map(task => task.workflow_instance_id))
+    ElMessage.success(`已认领 ${tasks.length} 项角色池任务`)
+    selectedTasks.value = []
+    taskTableRef.value?.clearSelection()
+    emit('refresh')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error?.detail || error?.message || '认领任务失败')
+    }
+  } finally {
+    claimingRolePool.value = false
   }
 }
 

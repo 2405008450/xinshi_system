@@ -49,6 +49,13 @@ class ManuscriptActiveProjectItem(BaseModel):
     current_assignee_id: Optional[UUID] = None
     current_assignee_name: Optional[str] = None
     group_assign_role: Optional[str] = None
+    current_stage_role_code: Optional[str] = None
+    current_stage_role_name: Optional[str] = None
+    project_assistant_id: Optional[UUID] = None
+    project_assistant_name: Optional[str] = None
+    project_assistant_assignment_type: Literal["direct", "role_pool"] = "role_pool"
+    can_manage_manuscript: bool = False
+    manuscript_access_reason: Optional[str] = None
     project_manager_id: Optional[UUID] = None
     project_manager_name: Optional[str] = None
     project_status: Optional[str] = None
@@ -271,6 +278,11 @@ class ManuscriptDispatchResponse(BaseModel):
     confirmed_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     previous_order_status: Optional[str] = None
+    project_assistant_id: Optional[UUID] = None
+    project_assistant_name: Optional[str] = None
+    project_assistant_assignment_type: Literal["direct", "role_pool"] = "role_pool"
+    can_manage_manuscript: bool = False
+    manuscript_access_reason: Optional[str] = None
     arrangements: list[ManuscriptArrangementResponse] = Field(default_factory=list)
 
     class Config:

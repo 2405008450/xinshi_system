@@ -2,8 +2,8 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 
 import {
   getMyTasksAPI,
+  getProjectRoleCandidatesAPI,
   getSubOrderWorkflowStateAPI,
-  getUsersByRoleName,
   getWorkflowConfigAPI,
   getWorkflowStateAPI,
   initSubOrderWorkflowAPI,
@@ -19,15 +19,15 @@ import {
 } from '@/api/workflow'
 
 const FALLBACK_STAGE_DEFINITIONS = [
-  { key: 'reception', title: '客户专员', role: '客户专员' },
-  { key: 'layout_assign', title: '预处理', role: '排版专员', assignRoles: ['排版专员'] },
-  { key: 'project_manager', title: '项目经理', role: '项目经理' },
-  { key: 'project_specialist', title: '项目专员', role: '项目专员' },
-  { key: 'project_assistant', title: '项目助理', role: '项目助理' },
-  { key: 'review', title: '译审', role: '译审' },
-  { key: 'special_qc', title: '专检', role: '项目专员 / 客户专员', assignRoles: ['项目专员', '客户专员'] },
-  { key: 'layout', title: '排版', role: '排版专员', assignRoles: ['排版专员'] },
-  { key: 'completed', title: '完成', role: '-' }
+  { key: 'reception', title: '客户专员', role: '客户专员', roleCode: 'customer_specialist' },
+  { key: 'layout_assign', title: '预处理', role: '排版专员', roleCode: 'layout_specialist' },
+  { key: 'project_manager', title: '项目经理', role: '项目经理', roleCode: 'project_manager' },
+  { key: 'project_specialist', title: '项目专员', role: '项目专员', roleCode: 'project_specialist' },
+  { key: 'project_assistant', title: '项目助理', role: '项目助理', roleCode: 'project_assistant' },
+  { key: 'review', title: '译审', role: '译审', roleCode: 'reviewer' },
+  { key: 'special_qc', title: '专检', role: '项目专员', roleCode: 'project_specialist' },
+  { key: 'layout', title: '排版', role: '排版专员', roleCode: 'layout_specialist' },
+  { key: 'completed', title: '完成', role: '-', roleCode: 'completed' }
 ]
 
 const PROJECT_STATUS_OPTIONS = [
@@ -175,10 +175,14 @@ const stageProgressMap = {
 function normalizeStageDefinitions(stages) {
   const fallbackByKey = Object.fromEntries(FALLBACK_STAGE_DEFINITIONS.map((stage) => [stage.key, stage]))
   const source = Array.isArray(stages) && stages.length ? stages : FALLBACK_STAGE_DEFINITIONS
-  return source.map((stage) => ({
-    ...(fallbackByKey[stage.key] || {}),
-    ...stage
-  }))
+  return source.map((stage) => {
+    const fallback = fallbackByKey[stage.key] || {}
+    return {
+      ...fallback,
+      ...stage,
+      roleCode: stage.roleCode || stage.role_code || fallback.roleCode || ''
+    }
+  })
 }
 
 function formatLogTime(value) {
@@ -229,6 +233,8 @@ function normalizeWorkflowPayload(payload, stageDefinitions) {
     difficulty,
     fileEditable,
     currentStageKey: payload?.currentStageKey || payload?.current_stage_key || '',
+    currentStageRoleCode: payload?.currentStageRoleCode || payload?.current_stage_role_code || '',
+    currentStageRoleName: payload?.currentStageRoleName || payload?.current_stage_role_name || '',
     currentAssigneeUserId: payload?.currentAssigneeUserId || payload?.current_assignee_id ? String(payload.currentAssigneeUserId || payload.current_assignee_id) : '',
     currentAssigneeUserName: payload?.currentAssigneeUserName || payload?.current_assignee_name || '',
     groupAssignRole: payload?.groupAssignRole || payload?.group_assign_role || '',
@@ -236,6 +242,7 @@ function normalizeWorkflowPayload(payload, stageDefinitions) {
     stageNotes: payload?.stageNotes || payload?.stage_notes || {},
     stageData: payload?.stageData || payload?.stage_data || {},
     effectiveStages,
+    roleAssignments: payload?.roleAssignments || payload?.role_assignments || [],
     transitionLog: (payload?.transitionLog || payload?.logs || []).map((log) => ({
       at: formatLogTime(log?.at || log?.created_at),
       fromStage: log?.fromStage || log?.from_stage || '',
@@ -424,7 +431,8 @@ export function useNextStageUsers(nextStageRef) {
     nextStageRef,
     async (stage) => {
       const version = ++loadVersion
-      if (!stage || (!stage.role && !stage.assignRoles) || stage.role === '-') {
+      const roleCode = stage?.roleCode || stage?.role_code
+      if (!stage || !roleCode || stage.role === '-' || roleCode === 'completed') {
         nextStageUsers.value = []
         nextStageUsersLoading.value = false
         return
@@ -433,21 +441,8 @@ export function useNextStageUsers(nextStageRef) {
       nextStageUsersLoading.value = true
 
       try {
-        let list = []
-        if (Array.isArray(stage.assignRoles) && stage.assignRoles.length) {
-          const roleLists = await Promise.all(stage.assignRoles.map((role) => getUsersByRoleName(role)))
-          if (version !== loadVersion) return
-          const seen = new Set()
-          list = roleLists.flat().filter((user) => {
-            const userId = String(user?.id || '')
-            if (!userId || seen.has(userId)) return false
-            seen.add(userId)
-            return true
-          })
-        } else {
-          list = await getUsersByRoleName(stage.role)
-          if (version !== loadVersion) return
-        }
+        const list = await getProjectRoleCandidatesAPI(roleCode)
+        if (version !== loadVersion) return
 
         if (version !== loadVersion) return
         nextStageUsers.value = list

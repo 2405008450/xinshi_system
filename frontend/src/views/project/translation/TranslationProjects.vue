@@ -1072,6 +1072,37 @@ watch(
 
 watch(
   () => [
+    nextStageToAssign.value?.key || '',
+    nextStageUsersLoading.value ? 'loading' : 'ready',
+    nextStageUsers.value.map((user) => `${user.id}:${user.is_on_leave ? 1 : 0}`).join('|'),
+    (workflowState.value.roleAssignments || workflowState.value.role_assignments || [])
+      .map((item) => `${item.roleCode || item.role_code}:${item.assigneeId || item.assignee_id || ''}`)
+      .join('|')
+  ],
+  () => {
+    const stage = nextStageToAssign.value
+    if (!stage || nextStageUsersLoading.value) return
+    if (stageUiState.nextAssigneeUserId || stageUiState.groupAssignRole) return
+
+    const roleCode = stage.roleCode || stage.role_code
+    const assignments = workflowState.value.roleAssignments || workflowState.value.role_assignments || []
+    const assignment = assignments.find((item) => (item.roleCode || item.role_code) === roleCode)
+    const assigneeId = assignment?.assigneeId || assignment?.assignee_id || ''
+    const configuredUser = nextStageUsers.value.find((user) => String(user.id) === String(assigneeId))
+    if (configuredUser && !configuredUser.is_on_leave) {
+      stageUiState.assignMode = 'personal'
+      stageUiState.nextAssigneeUserId = configuredUser.id
+      return
+    }
+
+    stageUiState.assignMode = 'group'
+    stageUiState.groupAssignRole = nextStageRoleOptions.value[0] || ''
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [
     entityPickerFilters.keyword,
     entityPickerFilters.entityType,
     entityPickerFilters.clientShortName,

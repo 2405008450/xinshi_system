@@ -69,11 +69,27 @@
               <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
               <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
               <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
-              <el-table-column label="字数统计" min-width="220">
+              <el-table-column label="字数统计" width="132" min-width="120">
                 <template #default="{ row: subRow }">
                   <div class="word-count-list-cell">
-                    <span>{{ formatWordCountSummary(subRow) }}</span>
-                    <WordCountMatrixPopover v-model="subRow.wordCountMatrix" entity-type="suborder" :entity-id="subRow.id" title="子订单字数统计" @saved="fetchData" />
+                    <WordCountMatrixPopover v-model="subRow.wordCountMatrix" entity-type="suborder" :entity-id="subRow.id" title="子订单字数统计" @saved="fetchData">
+                      <template #reference>
+                        <el-button
+                          type="primary"
+                          link
+                          class="word-count-compact-link"
+                          :title="getWordCountListSummary(subRow).title"
+                        >
+                          <span class="compact-cell-value">
+                            <span class="compact-cell-value__primary">{{ getWordCountListSummary(subRow).primary }}</span>
+                            <span
+                              v-if="getWordCountListSummary(subRow).extraCount"
+                              class="compact-cell-value__count"
+                            >+{{ getWordCountListSummary(subRow).extraCount }}</span>
+                          </span>
+                        </el-button>
+                      </template>
+                    </WordCountMatrixPopover>
                   </div>
                 </template>
               </el-table-column>
@@ -104,17 +120,13 @@
         <template #default="{ row, $index }">
           <div class="index-cell">
             <span>{{ $index + 1 }}</span>
-            <button
+            <TableExpandButton
               v-if="getSubOrderCount(row)"
-              type="button"
-              class="index-expand-button"
-              :class="{ 'is-expanded': isProjectExpanded(row) }"
-              :aria-label="isProjectExpanded(row) ? '收起子订单' : '展开子订单'"
-              :aria-expanded="isProjectExpanded(row)"
-              @click.stop="toggleProjectExpansion(row)"
-            >
-              <span aria-hidden="true">›</span>
-            </button>
+              :expanded="isProjectExpanded(row)"
+              expand-label="展开子订单"
+              collapse-label="收起子订单"
+              @click="toggleProjectExpansion(row)"
+            />
           </div>
         </template>
       </el-table-column>
@@ -148,7 +160,11 @@
           <el-tag v-else-if="column.key === 'projectStatus'" :type="getStatusType(row.projectStatus)">
             {{ getStatusLabel(row.projectStatus) }}
           </el-tag>
-          <div v-else-if="column.key === 'customerDeadlineTime'" class="deadline-cell">
+          <div
+            v-else-if="column.key === 'customerDeadlineTime'"
+            class="deadline-cell"
+            :title="formatDateTime(row.customerDeadlineTime)"
+          >
             <span class="deadline-cell__time">{{ formatDateTime(row.customerDeadlineTime) }}</span>
             <el-tag
               v-if="getDeadlineDisplay(row).label"
@@ -181,8 +197,18 @@
             </span>
           </div>
           <div v-else-if="column.key === 'wordCountMatrix'" class="word-count-list-cell">
-            <span>{{ formatWordCountSummary(row) }}</span>
-            <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="project" :entity-id="row.id" title="项目字数统计" @saved="fetchData" />
+            <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="project" :entity-id="row.id" title="项目字数统计" @saved="fetchData">
+              <template #reference>
+                <el-button type="primary" link class="word-count-compact-link" :title="getWordCountListSummary(row).title">
+                  <span class="compact-cell-value">
+                    <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
+                    <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
+                      +{{ getWordCountListSummary(row).extraCount }}
+                    </span>
+                  </span>
+                </el-button>
+              </template>
+            </WordCountMatrixPopover>
           </div>
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
@@ -452,6 +478,33 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
+                  <el-col
+                    v-for="role in projectRoleFieldConfigs"
+                    :key="role.roleCode"
+                    :xs="24"
+                    :md="8"
+                  >
+                    <el-form-item :label="role.label" :data-field-key="role.fieldKey">
+                      <el-select
+                        v-model="form[role.formKey]"
+                        filterable
+                        clearable
+                        :placeholder="`未绑定时进入${role.label}角色池`"
+                        style="width: 100%"
+                        :loading="projectRoleOptionsLoading"
+                      >
+                        <el-option
+                          v-for="user in projectRoleCandidateOptions[role.roleCode] || []"
+                          :key="user.id"
+                          :label="user.is_on_leave ? `${user.full_name || user.username}（${user.assignment_disabled_reason || '请假中'}）` : (user.full_name || user.username)"
+                          :value="user.id"
+                          :disabled="user.is_on_leave && String(user.id) !== String(form[role.formKey])"
+                        />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="客户反馈" data-field-key="clientFeedback"><el-input v-model="form.clientFeedback" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
@@ -521,11 +574,21 @@
                   <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
                   <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
                   <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
-                  <el-table-column label="字数统计" min-width="220">
+                  <el-table-column label="字数统计" width="132" min-width="120">
                     <template #default="{ row }">
                       <div class="word-count-list-cell">
-                        <span>{{ formatWordCountSummary(row) }}</span>
-                        <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="suborder" :entity-id="row.id" title="子订单字数统计" @saved="fetchData" />
+                        <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="suborder" :entity-id="row.id" title="子订单字数统计" @saved="fetchData">
+                          <template #reference>
+                            <el-button type="primary" link class="word-count-compact-link" :title="getWordCountListSummary(row).title">
+                              <span class="compact-cell-value">
+                                <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
+                                <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
+                                  +{{ getWordCountListSummary(row).extraCount }}
+                                </span>
+                              </span>
+                            </el-button>
+                          </template>
+                        </WordCountMatrixPopover>
                       </div>
                     </template>
                   </el-table-column>
@@ -723,7 +786,7 @@ import { getProjects, getProjectCount, createProject, updateProject, deleteProje
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { getClients } from '@/api/clients'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
-import { getProjectManagerCandidatesAPI } from '@/api/workflow'
+import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
 import { hasPermission } from '@/utils/permission'
@@ -731,8 +794,10 @@ import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
-import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
+import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
+import { getLanguagePairSummary } from '@/utils/languagePair'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -761,6 +826,11 @@ const projectStatusOptions = [
 ]
 const priorityOptions = ['低', '中', '高', '紧急']
 const serviceContentOptions = ['翻译', '排版']
+const projectRoleFieldConfigs = [
+  { roleCode: 'project_specialist', label: '项目专员', formKey: 'projectSpecialistId', fieldKey: 'projectSpecialistId' },
+  { roleCode: 'project_assistant', label: '项目助理', formKey: 'projectAssistantId', fieldKey: 'projectAssistantId' },
+  { roleCode: 'layout_specialist', label: '排版专员', formKey: 'layoutSpecialistId', fieldKey: 'layoutSpecialistId' }
+]
 const progressFieldConfigs = [
   { key: 'translatorDeliveryProgress', label: '译员交付进度' },
   { key: 'preReviewQcProgress', label: '审校前 QC' },
@@ -790,6 +860,9 @@ const basicProjectFieldSearchItems = [
   { key: 'priority', label: '优先级', aliases: ['紧急程度'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'projectStatus', label: '状态', aliases: ['项目状态', '业务状态'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'projectManagerId', label: '项目经理', aliases: ['负责人', '项目负责人'], section: 'execution', sectionLabel: '项目执行信息' },
+  { key: 'projectSpecialistId', label: '项目专员', aliases: ['项目专员负责人'], section: 'execution', sectionLabel: '项目执行信息' },
+  { key: 'projectAssistantId', label: '项目助理', aliases: ['项目助理负责人'], section: 'execution', sectionLabel: '项目执行信息' },
+  { key: 'layoutSpecialistId', label: '排版专员', aliases: ['排版负责人'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'clientFeedback', label: '客户反馈', aliases: ['反馈'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'customerReceptionTime', label: '客户接单时间', aliases: ['接单时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'customerDeadlineTime', label: '客户交稿时间', aliases: ['交稿时间', '截止时间'], section: 'execution', sectionLabel: '项目执行信息' },
@@ -835,6 +908,9 @@ const projectDetailItems = [
   { label: '客户编号', key: 'clientCode' },
   { label: '客户单号', key: 'customerOrderNo' },
   { label: '项目经理', key: 'projectManagerName' },
+  { label: '项目专员', key: 'projectSpecialistName' },
+  { label: '项目助理', key: 'projectAssistantName' },
+  { label: '排版专员', key: 'layoutSpecialistName' },
   { label: '客户负责人', key: 'clientManager' },
   { label: '负责人联系方式', key: 'managerContact' },
   { label: '状态', key: 'projectStatus', type: 'status' },
@@ -902,7 +978,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', translatorId: '', status: 'pending_confirmation' })
 const loading = ref(false)
@@ -925,6 +1001,9 @@ const expandedProjectIds = ref(new Set())
 const expandedProjectRowKeys = computed(() => [...expandedProjectIds.value])
 const currentProjectSubOrders = ref([])
 const projectManagerOptions = ref([])
+const projectRoleCandidateOptions = reactive(Object.fromEntries(projectRoleFieldConfigs.map((role) => [role.roleCode, []])))
+const projectRoleOptionsLoading = ref(false)
+const projectRoleOptionsLoaded = ref(false)
 const projectNameManuallyEdited = ref(false)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '', projectStatus: '' })
@@ -961,9 +1040,9 @@ const tableColumnOverrides = {
   customerRequirementSpecial: { minWidth: 240 },
   languagePair: { width: 150, minWidth: 130, showOverflowTooltip: false },
   priority: { minWidth: 80 },
-  wordCountMatrix: { label: '字数统计', minWidth: 240, showOverflowTooltip: false },
+  wordCountMatrix: { label: '字数统计', width: 132, minWidth: 120, showOverflowTooltip: false },
   customerReceptionTime: { minWidth: 150 },
-  customerDeadlineTime: { minWidth: 205, showOverflowTooltip: false },
+  customerDeadlineTime: { width: 148, minWidth: 136, showOverflowTooltip: false },
   sentToClientTime: { minWidth: 150 },
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
@@ -1102,6 +1181,11 @@ const getDeadlineDisplay = (row) => {
 function formatWordCountSummary(target = {}) {
   return formatWordCountMatrix(target.wordCountMatrix)
 }
+function getWordCountListSummary(target = {}) {
+  return getWordCountMatrixListSummary(target.wordCountMatrix, {
+    translators: target.assignedTranslators || target.assigned_translators || []
+  })
+}
 const toLocalWordCountMatrix = (saved = {}) => ({
   company: saved.company || {},
   customer: saved.customer || {},
@@ -1144,39 +1228,6 @@ const getAssignedTranslatorSummary = (row) => {
     extraCount: Math.max(0, names.length - 1),
   }
 }
-const splitLanguagePairs = (value) => String(value || '')
-  .split(/[；;,，\n]+/)
-  .map((item) => item.trim())
-  .filter(Boolean)
-const compactLanguageNames = new Map([
-  ['中文（简体）', '简中'],
-  ['中文(简体)', '简中'],
-  ['中文（繁体）', '繁中'],
-  ['中文(繁体)', '繁中'],
-  ['英语（美国）', '美式英语'],
-  ['英语(美国)', '美式英语'],
-  ['英语（英国）', '英式英语'],
-  ['英语(英国)', '英式英语'],
-  ['葡萄牙语（巴西）', '巴西葡语'],
-  ['葡萄牙语(巴西)', '巴西葡语'],
-  ['葡萄牙语（葡萄牙）', '欧洲葡语'],
-  ['葡萄牙语(葡萄牙)', '欧洲葡语'],
-  ['西班牙语（拉美）', '拉美西语'],
-  ['西班牙语(拉美)', '拉美西语'],
-])
-const compactLanguageName = (value) => compactLanguageNames.get(String(value || '').trim()) || String(value || '').trim()
-const compactLanguagePair = (value) => {
-  const parts = String(value || '').split(/\s*(?:→|->|=>)\s*/)
-  if (parts.length !== 2) return value || '-'
-  return `${compactLanguageName(parts[0])} → ${compactLanguageName(parts[1])}`
-}
-const getLanguagePairSummary = (value) => {
-  const pairs = splitLanguagePairs(value)
-  return {
-    primary: compactLanguagePair(pairs[0]),
-    extraCount: Math.max(0, pairs.length - 1),
-  }
-}
 const pad = (value) => String(value).padStart(2, '0')
 const syncProjectName = ({ force = false } = {}) => {
   if (projectNameManuallyEdited.value && !force) return
@@ -1213,7 +1264,18 @@ const formatTableColumnValue = (row, column) => {
   if (Array.isArray(value)) return value.length ? value.join('、') : '-'
   return value === null || value === undefined || value === '' ? '-' : value
 }
-const normalizeProject = (project) => ({ ...project, subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : [] })
+const getProjectRoleAssigneeName = (project, roleCode) => {
+  const assignments = Array.isArray(project?.roleAssignments) ? project.roleAssignments : []
+  const assignment = assignments.find((item) => (item.roleCode || item.role_code) === roleCode)
+  return assignment?.assigneeName || assignment?.assignee_name || '角色池'
+}
+const normalizeProject = (project) => ({
+  ...project,
+  projectSpecialistName: getProjectRoleAssigneeName(project, 'project_specialist'),
+  projectAssistantName: getProjectRoleAssigneeName(project, 'project_assistant'),
+  layoutSpecialistName: getProjectRoleAssigneeName(project, 'layout_specialist'),
+  subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
+})
 const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
 const isProjectExpanded = (row) => expandedProjectIds.value.has(row.id)
 const handleProjectExpandChange = (_row, expandedRows) => {
@@ -1228,6 +1290,11 @@ const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders) ? row.subOrd
 const applyPagination = () => { fetchData() }
 const cleanPayload = (payload) => {
   const result = { ...payload }
+  result.roleAssignments = projectRoleFieldConfigs.map((role) => ({
+    roleCode: role.roleCode,
+    assigneeId: result[role.formKey] || null
+  }))
+  projectRoleFieldConfigs.forEach((role) => delete result[role.formKey])
   NULLABLE_FIELDS.forEach((key) => {
     if (result[key] === '') result[key] = null
   })
@@ -1259,6 +1326,16 @@ const assignReactive = (target, defaultsFactory, values = {}) => {
       target[key] = values[key] ?? defaults[key]
     }
   })
+  if (Object.prototype.hasOwnProperty.call(defaults, 'projectSpecialistId')) {
+    const assignments = Array.isArray(values.roleAssignments) ? values.roleAssignments : []
+    const byCode = Object.fromEntries(assignments.map((item) => [
+      item.roleCode || item.role_code,
+      item.assigneeId || item.assignee_id || ''
+    ]))
+    projectRoleFieldConfigs.forEach((role) => {
+      target[role.formKey] = byCode[role.roleCode] || ''
+    })
+  }
 }
 const buildFilterParams = () => ({
   project_name: searchForm.projectName.trim() || undefined,
@@ -1312,6 +1389,25 @@ const loadProjectManagerOptions = async () => {
     projectManagerOptions.value = await getProjectManagerCandidatesAPI({ include_current: true })
   } catch {
     projectManagerOptions.value = []
+  }
+}
+
+const loadProjectRoleOptions = async () => {
+  if (projectRoleOptionsLoaded.value || projectRoleOptionsLoading.value) return
+  projectRoleOptionsLoading.value = true
+  try {
+    const results = await Promise.all(
+      projectRoleFieldConfigs.map((role) => getProjectRoleCandidatesAPI(role.roleCode))
+    )
+    projectRoleFieldConfigs.forEach((role, index) => {
+      projectRoleCandidateOptions[role.roleCode] = Array.isArray(results[index]) ? results[index] : []
+    })
+    projectRoleOptionsLoaded.value = true
+  } catch (error) {
+    projectRoleOptionsLoaded.value = false
+    ElMessage.error(error?.detail || error?.message || '加载项目角色候选人失败')
+  } finally {
+    projectRoleOptionsLoading.value = false
   }
 }
 
@@ -1549,7 +1645,7 @@ const handleAdd = async () => {
   dialogTitle.value = '新增项目'
   resetProjectForm()
   currentProjectSubOrders.value = []
-  await loadProjectManagerOptions()
+  await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
   form.orderNo = await generateOrderNo()
   dialogVisible.value = true
   await nextTick()
@@ -1558,7 +1654,7 @@ const handleAdd = async () => {
 const handleEdit = async (row) => {
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
-  await loadProjectManagerOptions()
+  await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
   assignReactive(form, createEmptyProjectForm, row)
   currentProjectSubOrders.value = Array.isArray(row.subOrders) ? [...row.subOrders] : []
   projectNameManuallyEdited.value = Boolean(form.projectName) && !isAutoProjectName(form.projectName, form.clientShortName)
@@ -1711,8 +1807,10 @@ onBeforeUnmount(() => {
 .auto-name-field { width: 100%; }
 .auto-name-field__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .word-count-summary { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); color: var(--el-text-color-regular); }
-.word-count-list-cell { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.word-count-list-cell > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.word-count-list-cell { display: flex; align-items: center; min-width: 0; }
+.word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
+.word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
+.word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }
 :global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 92vh; overflow: hidden; }
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
@@ -1761,11 +1859,6 @@ onBeforeUnmount(() => {
 .project-table :deep(.project-expand-column) { padding: 0 !important; border-right: 0 !important; }
 .project-table :deep(.project-expand-column .cell) { display: none; padding: 0; }
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
-.index-expand-button { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--el-text-color-secondary); cursor: pointer; }
-.index-expand-button:hover { background: var(--el-fill-color-light); color: var(--el-color-primary); }
-.index-expand-button span { display: block; font-size: 20px; line-height: 1; transform: rotate(0deg); transition: transform 0.2s ease; }
-.index-expand-button.is-expanded span { transform: rotate(90deg); }
-.index-expand-button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 1px; }
 
 @media (max-width: 768px) {
   .project-dialog-header { align-items: stretch; flex-direction: column; gap: 10px; }

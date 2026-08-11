@@ -21,9 +21,26 @@
         <div v-if="request.reason" class="request-note">原因：{{ request.reason }}</div>
         <div v-if="request.note" class="request-note">说明：{{ request.note }}</div>
         <el-table :data="request.projects || []" border size="small" class="request-projects">
-          <el-table-column prop="order_no" label="订单号" width="180" />
-          <el-table-column prop="project_name" label="项目名称" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="client_short_name" label="客户" width="130" show-overflow-tooltip />
+          <el-table-column prop="order_no" label="订单号" width="145" show-overflow-tooltip />
+          <el-table-column prop="project_name" label="项目名称" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="client_short_name" label="客户" width="100" show-overflow-tooltip />
+          <el-table-column label="客户交稿" width="145">
+            <template #default="{ row }">{{ formatDateTime(row.customer_deadline_time) }}</template>
+          </el-table-column>
+          <el-table-column label="项目状态" width="100">
+            <template #default="{ row }"><el-tag :type="getProjectStatusType(row.project_status)" size="small" effect="plain">{{ getProjectStatusLabel(row.project_status) }}</el-tag></template>
+          </el-table-column>
+          <el-table-column label="翻译方向" width="105">
+            <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
+          </el-table-column>
+          <el-table-column label="难度" width="68">
+            <template #default="{ row }">
+              <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
+                {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
+              </el-tag>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
         </el-table>
         <div class="request-actions">
           <el-button size="small" type="danger" plain @click="decideRequest(request, 'reject')">拒绝</el-button>
@@ -63,28 +80,55 @@
       :data="projects"
       border
       size="small"
-      class="workbench-data-table"
+      class="workbench-data-table row-click-select-table"
       row-key="translation_project_id"
       @selection-change="selectedProjects = $event"
+      @row-click="toggleProjectRowSelection"
     >
-      <el-table-column type="selection" width="48" />
-      <el-table-column type="index" label="序号" width="56" />
-      <el-table-column prop="order_no" label="订单号" width="180" show-overflow-tooltip />
-      <el-table-column label="项目 / 任务" min-width="280">
+      <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" />
+      <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
+      <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #default="{ row }">
           <div class="workbench-project-cell">
-            <span class="workbench-project-cell__title">{{ row.project_name || '-' }}</span>
+            <span class="workbench-project-cell__title" :title="row.project_name || '-'">{{ row.project_name || '-' }}</span>
             <div class="workbench-project-cell__meta">
-              <el-tag size="small" effect="plain">管理项目</el-tag>
+              <el-tag size="small" effect="plain">母项目</el-tag>
+              <span>{{ row.task_type || '项目任务' }}</span>
             </div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="client_short_name" label="客户" width="130" show-overflow-tooltip />
-      <el-table-column label="客户交稿" width="170">
+      <el-table-column prop="client_short_name" label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip />
+      <el-table-column label="客户交稿" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">{{ formatDateTime(row.customer_deadline_time) }}</template>
       </el-table-column>
-      <el-table-column prop="project_manager_name" label="管理归属" width="140">
+      <el-table-column label="项目状态" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
+        <template #default="{ row }"><el-tag :type="getProjectStatusType(row.project_status)" size="small" effect="plain">{{ getProjectStatusLabel(row.project_status) }}</el-tag></template>
+      </el-table-column>
+      <el-table-column label="翻译方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+        <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
+      </el-table-column>
+      <el-table-column label="难度" :width="WORKBENCH_COLUMN_WIDTHS.difficulty">
+        <template #default="{ row }">
+          <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
+            {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
+          </el-tag>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="current_assignee_name" label="当前负责人" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+        <template #default="{ row }">
+          <ProjectRoleAssigneesPopover
+            :current-assignee-name="row.current_assignee_name || ''"
+            :current-stage-role-code="row.current_stage_role_code || ''"
+            :current-stage-role-name="row.current_stage_role_name || ''"
+            :group-assign-role="row.group_assign_role || ''"
+            :role-assignments="row.role_assignments || []"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column prop="project_manager_name" label="管理归属" width="110">
         <template #default="{ row }">
           <el-tag v-if="row.project_manager_id" type="success" size="small" effect="plain">
             {{ row.project_manager_name || '已绑定' }}
@@ -159,6 +203,46 @@ import {
   rejectProjectManagerHandoverAPI
 } from '@/api/workflow'
 import { hasRole } from '@/utils/permission'
+import LanguagePairText from '@/components/common/LanguagePairText.vue'
+import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
+import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
+
+const PROJECT_STATUS_LABELS = {
+  pending: '待确认',
+  pending_confirmation: '待确认',
+  in_progress: '已确认',
+  confirmed: '已确认',
+  organized: '已整理',
+  translator_assigned: '已排译员',
+  sent_to_translator: '已发译员',
+  translator_returned: '译员发回',
+  special_checked: '已专检',
+  typeset: '已排版',
+  special_checked_typeset: '已专检排版',
+  reviewed: '已审核',
+  completed: '已发客户',
+  sent_to_client: '已发客户',
+  client_feedback: '客户反馈',
+  feedback_sent_to_client: '反馈后发客户',
+  cancelled: '已取消',
+  partially_cancelled: '已部分取消',
+  terminated: '已取消',
+  paused: '已暂停'
+}
+const PROJECT_STATUS_TYPES = {
+  pending: 'info', pending_confirmation: 'info',
+  confirmed: 'primary', in_progress: 'primary', organized: 'primary',
+  translator_assigned: 'warning', sent_to_translator: 'warning',
+  translator_returned: 'primary', special_checked: 'primary', typeset: 'primary',
+  special_checked_typeset: 'primary', reviewed: 'success', completed: 'success',
+  sent_to_client: 'success', client_feedback: 'success', feedback_sent_to_client: 'success',
+  cancelled: 'danger', partially_cancelled: 'danger', terminated: 'danger', paused: 'warning'
+}
+const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
+const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
+
+const getProjectStatusLabel = (status) => PROJECT_STATUS_LABELS[status] || status || '-'
+const getProjectStatusType = (status) => PROJECT_STATUS_TYPES[status] || 'info'
 
 const emit = defineEmits(['updated'])
 const projects = ref([])
@@ -188,7 +272,8 @@ function formatDateTime(value) {
   if (!value) return '-'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', { hour12: false })
+  const pad = item => String(item).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 async function loadData() {
@@ -250,6 +335,12 @@ function clearProjectSelection() {
   selectedProjects.value = []
   handoverProjects.value = []
   projectTableRef.value?.clearSelection()
+}
+
+function toggleProjectRowSelection(row, _column, event) {
+  if (event?.target?.closest?.('button, a, input, textarea, select, label, .el-checkbox, .el-radio, .el-switch')) return
+  const selected = selectedProjects.value.includes(row)
+  projectTableRef.value?.toggleRowSelection(row, !selected)
 }
 
 async function claimSelectedProjects() {

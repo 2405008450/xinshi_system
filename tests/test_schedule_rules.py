@@ -15,7 +15,7 @@ from routers.schedule import (
     _parse_translator_availability_status,
     _parse_translator_schedule_auto,
 )
-from schemas import EmployeeShiftLockUpdate, EmployeeShiftOverrideItem, EmployeeShiftTemplateUpdate
+from schemas import AppUserUpdate, EmployeeShiftLockUpdate, EmployeeShiftOverrideItem, EmployeeShiftTemplateUpdate
 
 
 class FakeQuery:
@@ -87,10 +87,35 @@ def test_employee_shift_department_options_are_dynamic_and_sorted():
     )
 
     assert options == [
-        {"value": "翻译部", "label": "翻译部"},
+        {"value": "IT部", "label": "IT部"},
         {"value": "项目部", "label": "项目部"},
         {"value": "__unassigned__", "label": "未分部门"},
     ]
+
+
+def test_legacy_recruitment_department_is_exposed_as_other():
+    options = _employee_shift_department_options(
+        FakeDepartmentDb(["招聘项目", "其他"])
+    )
+
+    assert options == [{"value": "其他", "label": "其他"}]
+    assert AppUserUpdate(department="招聘项目").department == "其他"
+
+
+def test_legacy_translation_department_is_exposed_as_it():
+    options = _employee_shift_department_options(
+        FakeDepartmentDb(["翻译部", "IT部"])
+    )
+
+    assert options == [{"value": "IT部", "label": "IT部"}]
+    assert AppUserUpdate(department="翻译部").department == "IT部"
+
+
+def test_user_update_accepts_blank_optional_email():
+    payload = AppUserUpdate(email="", department="IT部")
+
+    assert payload.email is None
+    assert payload.department == "IT部"
 
 
 def test_week_template_requires_monday_and_all_seven_days():

@@ -54,6 +54,8 @@ router = APIRouter(
 
 
 def _raise_business_error(exc: Exception) -> None:
+    if isinstance(exc, PermissionError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, MailConfigurationError):
@@ -70,9 +72,11 @@ def read_context(
     keyword: Optional[str] = None,
     project_limit: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     return get_arrangement_context(
         db,
+        current_user=current_user,
         keyword=keyword,
         project_limit=project_limit,
     )
@@ -91,9 +95,11 @@ def read_dispatches(
     keyword: Optional[str] = None,
     dispatch_status: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     return list_dispatches(
         db,
+        current_user=current_user,
         skip=skip,
         limit=limit,
         keyword=keyword,
@@ -161,9 +167,10 @@ def confirm_dispatch_endpoint(
 def cancel_dispatch_endpoint(
     dispatch_id: UUID,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        dispatch = cancel_dispatch(db, dispatch_id)
+        dispatch = cancel_dispatch(db, dispatch_id, current_user)
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)
@@ -179,11 +186,13 @@ def cancel_dispatch_endpoint(
 def send_dispatch_endpoint(
     dispatch_id: UUID,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
         dispatch, sent_count, failed_count, skipped_count = send_dispatch(
             db,
             dispatch_id,
+            current_user,
         )
     except Exception as exc:
         db.rollback()
@@ -204,12 +213,13 @@ def send_dispatch_arrangement_endpoint(
     dispatch_id: UUID,
     arrangement_id: UUID,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     current = get_arrangement(db, arrangement_id)
     if not current or current.dispatch_id != dispatch_id:
         raise HTTPException(status_code=404, detail="译员派稿明细不存在")
     try:
-        arrangement = send_arrangement(db, arrangement_id)
+        arrangement = send_arrangement(db, arrangement_id, current_user)
     except Exception as exc:
         _raise_business_error(exc)
     return arrangement
@@ -242,9 +252,12 @@ def update_dispatch_mail_paths_endpoint(
     dispatch_id: UUID,
     payload: ManuscriptMailPathsUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        result = update_dispatch_mail_paths(db, dispatch_id, payload)
+        result = update_dispatch_mail_paths(
+            db, dispatch_id, payload, current_user
+        )
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)
@@ -262,12 +275,15 @@ def update_settlement_endpoint(
     arrangement_id: UUID,
     payload: ManuscriptSettlementUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     current = get_arrangement(db, arrangement_id)
     if not current or current.dispatch_id != dispatch_id:
         raise HTTPException(status_code=404, detail="译员派稿明细不存在")
     try:
-        arrangement = update_settlement(db, arrangement_id, payload)
+        arrangement = update_settlement(
+            db, arrangement_id, payload, current_user
+        )
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)
@@ -314,9 +330,12 @@ def update_arrangement_endpoint(
     arrangement_id: UUID,
     payload: ManuscriptArrangementUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        arrangement = update_arrangement(db, arrangement_id, payload)
+        arrangement = update_arrangement(
+            db, arrangement_id, payload, current_user
+        )
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)
@@ -332,9 +351,10 @@ def update_arrangement_endpoint(
 def send_arrangement_endpoint(
     arrangement_id: UUID,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        arrangement = send_arrangement(db, arrangement_id)
+        arrangement = send_arrangement(db, arrangement_id, current_user)
     except Exception as exc:
         _raise_business_error(exc)
     if not arrangement:
@@ -346,9 +366,10 @@ def send_arrangement_endpoint(
 def delete_arrangement_endpoint(
     arrangement_id: UUID,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        deleted = delete_arrangement(db, arrangement_id)
+        deleted = delete_arrangement(db, arrangement_id, current_user)
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)

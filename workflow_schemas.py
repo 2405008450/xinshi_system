@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from schemas import ProjectRoleAssignmentResponse
+
 
 # --- 请求模型 ---
 
@@ -59,6 +61,7 @@ class WorkflowStageResponse(BaseModel):
     key: str
     title: str
     role: str
+    role_code: str
 
 
 class WorkflowLogResponse(BaseModel):
@@ -86,6 +89,8 @@ class WorkflowStateResponse(BaseModel):
     difficulty: Optional[str] = None
     file_editable: Optional[bool] = None
     current_stage_key: str
+    current_stage_role_code: Optional[str] = None
+    current_stage_role_name: Optional[str] = None
     current_assignee_id: Optional[UUID] = None
     current_assignee_name: Optional[str] = None
     group_assign_role: Optional[str] = None  # 同组指派时的目标角色名
@@ -93,6 +98,7 @@ class WorkflowStateResponse(BaseModel):
     stage_notes: Optional[dict] = None
     stage_data: Optional[dict] = None
     effective_stages: list[WorkflowStageResponse] = []
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     logs: list[WorkflowLogResponse] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -117,14 +123,18 @@ class MyTaskItem(BaseModel):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     current_stage_key: str
+    current_stage_role_code: Optional[str] = None
+    current_stage_role_name: Optional[str] = None
     current_assignee_id: Optional[UUID] = None
     current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None
     assignment_type: str = 'direct'
     difficulty: Optional[str] = None
     project_status: Optional[str] = None
     customer_deadline_time: Optional[datetime] = None
     language_pair: Optional[str] = None
     entity_type: Optional[str] = 'project'   # 'project' | 'suborder'
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -136,9 +146,18 @@ class ManagedProjectItem(BaseModel):
     translation_project_id: UUID
     order_no: str
     project_name: str
+    task_type: Optional[str] = None
     client_short_name: Optional[str] = None
     project_status: Optional[str] = None
+    difficulty: Optional[str] = None
+    language_pair: Optional[str] = None
     customer_deadline_time: Optional[datetime] = None
+    current_assignee_id: Optional[UUID] = None
+    current_assignee_name: Optional[str] = None
+    group_assign_role: Optional[str] = None
+    current_stage_role_code: Optional[str] = None
+    current_stage_role_name: Optional[str] = None
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     project_manager_id: Optional[UUID] = None
     project_manager_name: Optional[str] = None
 
@@ -189,6 +208,10 @@ class WorkflowHandoverRequest(WorkflowTransferContent):
 class WorkflowClaimRequest(WorkflowTransferContent):
     workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
     expected_assignee_ids: dict[UUID, UUID]
+
+
+class WorkflowRolePoolClaimRequest(BaseModel):
+    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
 
 
 class WorkflowTransferUser(BaseModel):
