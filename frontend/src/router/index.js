@@ -36,7 +36,7 @@ const routes = [
         path: 'translation-details',
         name: 'TranslationProjectDetails',
         component: () => import('../views/project/translation/ProjectDetails.vue'),
-        meta: { title: '项目详情', permissions: ['projects:read'] }
+        meta: { title: '笔译项目详情', permissions: ['projects:read'] }
       },
       {
         path: 'manuscript-arrangements',
@@ -57,21 +57,33 @@ const routes = [
       // 项目管理 - 其他类型
       {
         path: 'interpretation',
-        name: 'InterpretationProjects',
-        component: () => import('../views/project/InterpretationProjects.vue'),
-        meta: { title: '口译项目管理' }
+        redirect: '/interpretation-details'
+      },
+      {
+        path: 'interpretation-details',
+        name: 'InterpretationProjectDetails',
+        component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),
+        meta: { title: '口译项目详情', permissions: ['projects:read'] }
       },
       {
         path: 'annotation',
-        name: 'AnnotationProjects',
+        redirect: '/annotation-details'
+      },
+      {
+        path: 'annotation-details',
+        name: 'AnnotationProjectDetails',
         component: () => import('../views/project/AnnotationProjects.vue'),
-        meta: { title: '标注项目管理' }
+        meta: { title: '标注项目详情', permissions: ['projects:read'] }
       },
       {
         path: 'recruitment',
-        name: 'RecruitmentProjects',
+        redirect: '/recruitment-details'
+      },
+      {
+        path: 'recruitment-details',
+        name: 'RecruitmentProjectDetails',
         component: () => import('../views/project/RecruitmentProjects.vue'),
-        meta: { title: '招聘项目管理' }
+        meta: { title: '招聘项目详情', permissions: ['projects:read'] }
       },
       {
         path: 'other',
@@ -285,7 +297,7 @@ router.beforeEach((to, from, next) => {
 
 router.afterEach((to) => {
   const title = to.meta?.title
-  document.title = title ? `${title} - ` : '翻译项目管理平台'
+  document.title = title ? `${title} - 翻译项目管理平台` : '翻译项目管理平台'
 })
 
 export default router

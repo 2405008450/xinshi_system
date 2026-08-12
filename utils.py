@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from models import TranslationProject
 
 def generate_order_no(db: Session) -> str:
@@ -11,6 +11,14 @@ def generate_order_no(db: Session) -> str:
     # 日期格式改为 YYMMDD (6位)
     today_str = datetime.datetime.now().strftime("%y%m%d")
     prefix = f"TP-{today_str}-"
+
+    # PostgreSQL 下串行化同一天的主订单号生成；SQLite 等测试数据库无需加锁。
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+            {"lock_key": f"translation-order:{today_str}"},
+        )
 
     # 查询今天最大的订单号（匹配新格式，排除子订单）
     last_project = (

@@ -58,20 +58,27 @@ WORD_COUNT_LABELS = {
     "cjk_chars_korean_words": "中文字符和朝鲜语单词",
     "foreign_words": "外文字数",
 }
+MANUSCRIPT_ADMIN_ROLES = {"admin", "超级管理员"}
 
 
 def _project_assistant_actor_state(
     db: Session,
     current_user: AppUser,
-) -> tuple[bool, Optional[str]]:
+) -> tuple[bool, Optional[str], bool]:
     """项目助理操作人必须仍拥有对应角色，且当前不在请假中。"""
     roles = set(get_user_roles_with_role_names(db, current_user.id))
+    if roles & MANUSCRIPT_ADMIN_ROLES:
+        return True, None, True
     if "项目助理" not in roles:
-        return False, "当前账号没有“项目助理”角色，不能操作稿件安排"
+        return False, "当前账号没有“项目助理”角色，不能操作稿件安排", False
     active_leave = get_active_leave(db, current_user.id)
     if active_leave:
-        return False, assignment_disabled_reason(active_leave) or "当前账号正在请假，不能操作稿件安排"
-    return True, None
+        return (
+            False,
+            assignment_disabled_reason(active_leave) or "当前账号正在请假，不能操作稿件安排",
+            False,
+        )
+    return True, None, False
 
 
 def _project_assistant_responsibility_summary(
@@ -79,7 +86,7 @@ def _project_assistant_responsibility_summary(
     *,
     fixed_assignment: Optional[ProjectRoleAssignment],
     workflow: Optional[WorkflowInstance],
-    actor_state: tuple[bool, Optional[str]],
+    actor_state: tuple[bool, Optional[str], bool],
 ) -> dict:
     """区分项目固定负责人、当前临时处理人与实际操作权限。"""
     fixed_user = fixed_assignment.assignee if fixed_assignment else None
@@ -106,7 +113,11 @@ def _project_assistant_responsibility_summary(
         "manuscript_access_reason": None,
     }
 
-    actor_eligible, actor_reason = actor_state
+    actor_eligible, actor_reason, is_super_admin = actor_state
+    if is_super_admin:
+        result["can_manage_manuscript"] = True
+        result["manuscript_access_reason"] = "超级管理员应急操作权限"
+        return result
     if not actor_eligible:
         result["manuscript_access_reason"] = actor_reason
         return result

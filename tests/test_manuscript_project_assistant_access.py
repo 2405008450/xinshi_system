@@ -34,7 +34,7 @@ def test_fixed_project_assistant_can_manage_manuscript_at_any_stage():
         actor,
         fixed_assignment=_assignment(actor),
         workflow=_workflow("project_manager"),
-        actor_state=(True, None),
+        actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is True
@@ -50,7 +50,7 @@ def test_temporary_project_assistant_handover_can_manage_without_replacing_fixed
         temporary_assistant,
         fixed_assignment=_assignment(fixed_assistant),
         workflow=_workflow("project_assistant", temporary_assistant),
-        actor_state=(True, None),
+        actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is True
@@ -66,7 +66,7 @@ def test_claimed_project_assistant_role_pool_task_can_manage():
         actor,
         fixed_assignment=None,
         workflow=_workflow("project_assistant", actor),
-        actor_state=(True, None),
+        actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is True
@@ -81,7 +81,7 @@ def test_unclaimed_project_assistant_role_pool_task_must_be_claimed_first():
         actor,
         fixed_assignment=None,
         workflow=_workflow("project_assistant"),
-        actor_state=(True, None),
+        actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is False
@@ -95,7 +95,7 @@ def test_non_project_assistant_stage_does_not_grant_manuscript_authority():
         actor,
         fixed_assignment=None,
         workflow=_workflow("project_manager", actor),
-        actor_state=(True, None),
+        actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is False
@@ -109,11 +109,12 @@ def test_missing_role_or_active_leave_blocks_manuscript_authority(monkeypatch):
         lambda db, user_id: ["项目经理"],
     )
 
-    eligible, reason = manuscript_service._project_assistant_actor_state(
+    eligible, reason, is_super_admin = manuscript_service._project_assistant_actor_state(
         object(), actor
     )
 
     assert eligible is False
+    assert is_super_admin is False
     assert "项目助理" in reason
 
     monkeypatch.setattr(
@@ -132,12 +133,33 @@ def test_missing_role_or_active_leave_blocks_manuscript_authority(monkeypatch):
         lambda leave: "当前处于请假状态",
     )
 
-    eligible, reason = manuscript_service._project_assistant_actor_state(
+    eligible, reason, is_super_admin = manuscript_service._project_assistant_actor_state(
         object(), actor
     )
 
     assert eligible is False
+    assert is_super_admin is False
     assert reason == "当前处于请假状态"
+
+
+def test_super_admin_can_manage_manuscript_without_project_assistant_role(monkeypatch):
+    actor = _user(name="超级管理员")
+    monkeypatch.setattr(
+        manuscript_service,
+        "get_user_roles_with_role_names",
+        lambda db, user_id: ["超级管理员"],
+    )
+
+    actor_state = manuscript_service._project_assistant_actor_state(object(), actor)
+    result = manuscript_service._project_assistant_responsibility_summary(
+        actor,
+        fixed_assignment=None,
+        workflow=_workflow("reception"),
+        actor_state=actor_state,
+    )
+
+    assert result["can_manage_manuscript"] is True
+    assert result["manuscript_access_reason"] == "超级管理员应急操作权限"
 
 
 def test_suborder_uses_parent_project_fixed_assistant_and_own_workflow(monkeypatch):
@@ -163,7 +185,7 @@ def test_suborder_uses_parent_project_fixed_assistant_and_own_workflow(monkeypat
     monkeypatch.setattr(
         manuscript_service,
         "_project_assistant_actor_state",
-        lambda db, current_user: (True, None),
+        lambda db, current_user: (True, None, False),
     )
 
     result = manuscript_service._resolve_manuscript_responsibility(

@@ -327,6 +327,14 @@ onMounted(() => {
   line-height: 1.2;
 }
 
+/* Element Plus 会把按钮内容包一层 span，需在内层 span 上做两行布局 */
+.shift-matrix-btn :deep(> span) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
 .shift-matrix-btn__hint {
   font-size: 11px;
   font-weight: 400;

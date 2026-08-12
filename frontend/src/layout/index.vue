@@ -43,7 +43,19 @@
         <!-- 项目管理：扁平菜单 -->
         <el-menu-item v-if="showTranslationMenu" index="/translation-details">
           <el-icon><Document /></el-icon>
-          <template #title>项目详情</template>
+          <template #title>笔译项目详情</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/interpretation-details">
+          <el-icon><Document /></el-icon>
+          <template #title>口译项目详情</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/annotation-details">
+          <el-icon><Document /></el-icon>
+          <template #title>标注项目详情</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/recruitment-details">
+          <el-icon><Document /></el-icon>
+          <template #title>招聘项目详情</template>
         </el-menu-item>
         <el-menu-item v-if="showTranslationMenu" index="/manuscript-arrangements">
           <el-icon><Tickets /></el-icon>
@@ -207,9 +219,6 @@ const displayName = computed(() => {
 const pendingModulePaths = new Set([
   '/dashboard',
   '/translation',
-  '/interpretation',
-  '/annotation',
-  '/recruitment',
   '/other',
   '/client-contacts',
   '/finance',

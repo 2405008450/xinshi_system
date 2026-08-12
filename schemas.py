@@ -299,6 +299,7 @@ class ConsultationCreate(ConsultationBase):
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
+    manager_contact: Optional[str] = None
 
 class ConsultationUpdate(BaseModel):
     consultation_code: Optional[str] = None
@@ -306,6 +307,7 @@ class ConsultationUpdate(BaseModel):
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
+    manager_contact: Optional[str] = None
     consultation_time: Optional[datetime] = None
     consultation_method: Optional[str] = None
     client_source: Optional[str] = None
@@ -329,6 +331,10 @@ class ConsultationResponse(ConsultationBase):
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
+    manager_contact: Optional[str] = None
+    interpretation_project_id: Optional[UUID] = None
+    annotation_project_id: Optional[UUID] = None
+    recruitment_project_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -343,6 +349,7 @@ class TranslatorFieldsBase(BaseModel):
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
     translation_type: Optional[str] = None
+    interpretation_level: Optional[Literal['初级', '中级', '高级']] = None
     quality_score: Optional[str] = None
     direction: Optional[str] = None
     default_priority: Optional[int] = 0
@@ -392,6 +399,7 @@ class TranslatorUpdate(BaseModel):
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
     translation_type: Optional[str] = None
+    interpretation_level: Optional[Literal['初级', '中级', '高级']] = None
     quality_score: Optional[str] = None
     cloud_revision: Optional[str] = None
     daily_rate: Optional[str] = None
@@ -594,6 +602,7 @@ class TranslationProjectBase(BaseModel):
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     customer_order_no: Optional[str] = None
+    email_subject_preview: Optional[str] = None
     service_content: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None
@@ -644,6 +653,7 @@ class TranslationProjectUpdate(BaseModel):
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     customer_order_no: Optional[str] = None
+    email_subject_preview: Optional[str] = None
     service_content: Optional[str] = None
     customer_reception_time: Optional[datetime] = None
     customer_deadline_time: Optional[datetime] = None

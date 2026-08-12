@@ -13,7 +13,7 @@
           <div class="logo-icon">
             <el-icon :size="48"><OfficeBuilding /></el-icon>
           </div>
-          <h1 class="system-title">系统</h1>
+          <h1 class="system-title">翻译</h1>
           <p class="system-subtitle">专业翻译项目管理平台</p>
         </div>
         <el-card class="login-card" shadow="always">
@@ -63,7 +63,7 @@
           </el-form>
         </el-card>
         <div class="login-footer">
-          <el-text type="info" size="small">© 2026 系统 版权所有</el-text>
+          <el-text type="info" size="small">© 2026 翻译项目管理平台 版权所有</el-text>
         </div>
       </div>
     </div>

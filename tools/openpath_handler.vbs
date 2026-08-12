@@ -7,4 +7,9 @@ If Left(path, 2) <> "\\" Then
     path = "\\" & path
 End If
 Set shell = CreateObject("WScript.Shell")
-shell.Run "explorer.exe " & Chr(34) & path & Chr(34), 1, False
+Set fileSystem = CreateObject("Scripting.FileSystemObject")
+If fileSystem.FileExists(path) Then
+    shell.Run Chr(34) & path & Chr(34), 1, False
+Else
+    shell.Run "explorer.exe " & Chr(34) & path & Chr(34), 1, False
+End If

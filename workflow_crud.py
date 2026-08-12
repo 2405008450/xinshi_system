@@ -8,7 +8,7 @@ from typing import Optional, List
 import uuid as _uuid
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, func, or_
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, and_, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from workflow_models import (
@@ -44,6 +44,15 @@ ALL_STAGES = [
 ]
 
 STAGE_BY_KEY = {s['key']: s for s in ALL_STAGES}
+MANUSCRIPT_EXCLUDED_PROJECT_STATUSES = {
+    '',
+    'pending',
+    'pending_confirmation',
+    'completed',
+    'terminated',
+    'cancelled',
+    'partially_cancelled',
+}
 
 
 def get_effective_stages(difficulty: Optional[str], file_editable: Optional[bool] = True) -> list:
@@ -105,10 +114,102 @@ from crud import (
 )
 from notification_ws import dispatch_personal_message
 
+
+def _get_manuscript_responsibility_tasks(
+    db: Session,
+    user_id: UUID,
+    roles: set[str],
+    existing_workflow_ids: set[UUID],
+) -> list[dict]:
+    """把稿件安排固定项目助理/待认领角色池作为独立责任任务加入工作台。"""
+    if '项目助理' not in roles:
+        return []
+
+    rows = (
+        db.query(
+            WorkflowInstance,
+            TranslationProject,
+            Client,
+            ProjectRoleAssignment,
+        )
+        .join(
+            TranslationProject,
+            WorkflowInstance.translation_project_id == TranslationProject.id,
+        )
+        .outerjoin(Client, TranslationProject.client_id == Client.id)
+        .outerjoin(
+            ProjectRoleAssignment,
+            and_(
+                ProjectRoleAssignment.translation_project_id == TranslationProject.id,
+                ProjectRoleAssignment.role_code == 'project_assistant',
+            ),
+        )
+        .options(
+            selectinload(TranslationProject.project_role_assignments).joinedload(
+                ProjectRoleAssignment.assignee
+            ),
+            joinedload(TranslationProject.project_manager),
+            joinedload(ProjectRoleAssignment.assignee),
+        )
+        .filter(
+            WorkflowInstance.translation_project_id.is_not(None),
+            WorkflowInstance.sub_order_id.is_(None),
+            WorkflowInstance.current_stage_key != 'completed',
+            func.coalesce(TranslationProject.project_status, '').notin_(
+                MANUSCRIPT_EXCLUDED_PROJECT_STATUSES
+            ),
+        )
+        .all()
+    )
+
+    tasks = []
+    for workflow, project, client, assistant_assignment in rows:
+        # 已作为当前阶段工作流任务出现时沿用原任务，避免一条流程重复展示。
+        if workflow.id in existing_workflow_ids:
+            continue
+        if (
+            assistant_assignment
+            and assistant_assignment.assignee_id != user_id
+        ):
+            continue
+
+        assistant = assistant_assignment.assignee if assistant_assignment else None
+        tasks.append({
+            'workflow_instance_id': workflow.id,
+            'translation_project_id': project.id,
+            'sub_order_id': None,
+            'order_no': project.order_no,
+            'project_name': project.project_name,
+            'task_type': '稿件安排',
+            'task_kind': 'manuscript_responsibility',
+            'consultation_id': project.consultation_id,
+            'sub_project_name': None,
+            'client_name': client.client_name if client else '',
+            'client_short_name': client.client_short_name if client else '',
+            'current_stage_key': 'project_assistant',
+            'current_stage_role_code': 'project_assistant',
+            'current_stage_role_name': '项目助理',
+            'current_assignee_id': (
+                assistant_assignment.assignee_id if assistant_assignment else None
+            ),
+            'current_assignee_name': (
+                (assistant.full_name or assistant.username) if assistant else None
+            ),
+            'group_assign_role': None if assistant_assignment else '项目助理',
+            'assignment_type': 'project_role' if assistant_assignment else 'role_pool',
+            'difficulty': workflow.difficulty,
+            'project_status': project.project_status,
+            'customer_deadline_time': project.customer_deadline_time,
+            'language_pair': project.language_pair,
+            'entity_type': 'project',
+            'role_assignments': project.role_assignments,
+        })
+    return tasks
+
 def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> list:
     """查询未完成的工作流实例；超级管理员可按需查看全部执行任务。"""
-    roles = get_user_roles_with_role_names(db, user_id)
-    can_view_all = include_all and not set(roles).isdisjoint(SUPER_TRANSFER_ROLES)
+    roles = set(get_user_roles_with_role_names(db, user_id))
+    can_view_all = include_all and not roles.isdisjoint(SUPER_TRANSFER_ROLES)
     is_customer_specialist = '客户专员' in roles
     group_filters = [WorkflowInstance.group_assign_role == role for role in roles] if roles else []
 
@@ -212,6 +313,13 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
             'entity_type': 'suborder',
             'role_assignments': proj.role_assignments,
         })
+
+    tasks.extend(_get_manuscript_responsibility_tasks(
+        db,
+        user_id,
+        roles,
+        {task['workflow_instance_id'] for task in tasks},
+    ))
 
     return tasks
 
@@ -1168,7 +1276,7 @@ def claim_role_pool_tasks(
     operator: AppUser,
     workflow_instance_ids: list[UUID],
 ) -> dict:
-    """将当前用户有权处理的无人负责角色池任务直接绑定给本人。"""
+    """认领当前阶段角色池任务，或无人负责的稿件安排项目助理责任。"""
     unique_ids = list(dict.fromkeys(workflow_instance_ids))
     if not unique_ids:
         raise ValueError('请至少选择一个角色池任务')
@@ -1184,7 +1292,7 @@ def claim_role_pool_tasks(
     if len(instances) != len(unique_ids):
         raise LookupError('部分角色池任务不存在或已发生变化')
 
-    def can_claim(instance: WorkflowInstance) -> bool:
+    def can_claim_workflow_pool(instance: WorkflowInstance) -> bool:
         if instance.current_assignee_id is not None or instance.current_stage_key == 'completed':
             return False
         if instance.group_assign_role:
@@ -1199,11 +1307,107 @@ def claim_role_pool_tasks(
             and instance.difficulty is None
         )
 
-    if any(not can_claim(instance) for instance in instances):
+    claim_modes = {
+        instance.id: 'workflow_pool'
+        for instance in instances
+        if can_claim_workflow_pool(instance)
+    }
+    unresolved_instances = [
+        instance for instance in instances if instance.id not in claim_modes
+    ]
+
+    project_id_by_instance = {}
+    projects_by_id = {}
+    assistant_assignment_by_project_id = {}
+    if unresolved_instances and '项目助理' in operator_roles:
+        sub_order_ids = {
+            instance.sub_order_id
+            for instance in unresolved_instances
+            if instance.sub_order_id
+        }
+        sub_order_project_ids = {
+            sub_order.id: sub_order.parent_project_id
+            for sub_order in (
+                db.query(TranslationSubOrder)
+                .filter(TranslationSubOrder.id.in_(sub_order_ids))
+                .all()
+                if sub_order_ids else []
+            )
+        }
+        project_id_by_instance = {
+            instance.id: (
+                instance.translation_project_id
+                or sub_order_project_ids.get(instance.sub_order_id)
+            )
+            for instance in unresolved_instances
+        }
+        project_ids = {
+            project_id for project_id in project_id_by_instance.values() if project_id
+        }
+        projects_by_id = {
+            project.id: project
+            for project in (
+                db.query(TranslationProject)
+                .filter(TranslationProject.id.in_(project_ids))
+                .with_for_update()
+                .all()
+                if project_ids else []
+            )
+        }
+        assistant_assignment_by_project_id = {
+            assignment.translation_project_id: assignment
+            for assignment in (
+                db.query(ProjectRoleAssignment)
+                .filter(
+                    ProjectRoleAssignment.translation_project_id.in_(project_ids),
+                    ProjectRoleAssignment.role_code == 'project_assistant',
+                )
+                .all()
+                if project_ids else []
+            )
+        }
+
+    def can_claim_manuscript_pool(instance: WorkflowInstance) -> bool:
+        if '项目助理' not in operator_roles or instance.current_stage_key == 'completed':
+            return False
+        project_id = project_id_by_instance.get(instance.id)
+        project = projects_by_id.get(project_id)
+        if not project or project_id in assistant_assignment_by_project_id:
+            return False
+        return str(project.project_status or '').strip() not in MANUSCRIPT_EXCLUDED_PROJECT_STATUSES
+
+    claimed_manuscript_project_ids = set()
+    for instance in unresolved_instances:
+        if can_claim_manuscript_pool(instance):
+            project_id = project_id_by_instance[instance.id]
+            if project_id in claimed_manuscript_project_ids:
+                raise ValueError('同一项目的稿件安排责任不能重复认领')
+            claimed_manuscript_project_ids.add(project_id)
+            claim_modes[instance.id] = 'manuscript_pool'
+
+    if len(claim_modes) != len(instances):
         raise PermissionError('部分任务已被承接，或当前用户不具备对应角色池权限')
 
     operator_name = operator.full_name or operator.username
     for instance in instances:
+        if claim_modes[instance.id] == 'manuscript_pool':
+            project_id = project_id_by_instance[instance.id]
+            db.add(ProjectRoleAssignment(
+                translation_project_id=project_id,
+                role_code='project_assistant',
+                assignee_id=operator.id,
+            ))
+            db.add(WorkflowLog(
+                workflow_instance_id=instance.id,
+                operator_id=operator.id,
+                from_stage=instance.current_stage_key,
+                to_stage=instance.current_stage_key,
+                direction='claim_project_role',
+                description=f'{operator_name} 认领稿件安排责任并成为项目固定项目助理',
+                next_assignee_id=operator.id,
+            ))
+            continue
+
         pool_name = instance.group_assign_role or '客户专员'
         db.add(WorkflowLog(
             workflow_instance_id=instance.id,

@@ -242,6 +242,7 @@ class Translator(Base):
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))
     contact_info: Mapped[Optional[str]] = mapped_column(String(255))
     translation_type: Mapped[Optional[str]] = mapped_column(String(255))
+    interpretation_level: Mapped[Optional[str]] = mapped_column(String(20))
     quality_score: Mapped[Optional[str]] = mapped_column(String(10))
     direction: Mapped[Optional[str]] = mapped_column(String(20))
     default_priority: Mapped[Optional[int]] = mapped_column(server_default=text('0'))
@@ -438,6 +439,7 @@ class TranslationProject(Base):
     sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     # 客户公司内部用于追踪外包项目的单号。
     customer_order_no: Mapped[Optional[str]] = mapped_column(String(100))
+    email_subject_preview: Mapped[Optional[str]] = mapped_column(Text)
     service_content: Mapped[Optional[str]] = mapped_column(String(255))
     customer_reception_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     customer_deadline_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -467,6 +469,10 @@ class TranslationProject(Base):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    # 历史上误建为笔译的标注项目迁移标记；保留原记录及其工作流/文件关系。
+    annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    annotation_migrated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     # 网络文件路径（如 \\win-server\xxx）
     network_file_path: Mapped[Optional[str]] = mapped_column(String(500))

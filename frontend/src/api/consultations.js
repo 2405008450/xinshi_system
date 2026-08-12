@@ -27,3 +27,15 @@ export const deleteConsultation = (id) => {
 export const createProjectFromConsultation = (id, projectName) => {
   return api.post(`/consultations/${id}/create-project`, { project_name: projectName })
 }
+
+export const previewConfirmation = (data) => {
+  return api.post('/consultations/confirmation-preview', data)
+}
+
+export const createConfirmedConsultation = (consultation, confirmation) => {
+  return api.post('/consultations/confirm', { consultation, confirmation })
+}
+
+export const updateConfirmedConsultation = (id, consultation, confirmation) => {
+  return api.post(`/consultations/${id}/confirm`, { consultation, confirmation })
+}

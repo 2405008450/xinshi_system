@@ -27,7 +27,33 @@ from models import (
     TranslatorSchedule,
 )
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from interpretation_models import (
+    InterpretationLanguage,
+    InterpretationProject,
+    InterpretationProjectInterpreter,
+    InterpretationProjectLanguageDirection,
+    InterpretationProjectTimeRange,
+)
+from interpretation_service import ensure_default_interpretation_languages
+from annotation_models import (
+    AnnotationProject,
+    AnnotationProjectLanguageItem,
+    AnnotationProjectPriceItem,
+)
+from annotation_service import (
+    ensure_translation_languages_in_catalog,
+    migrate_legacy_annotation_projects,
+)
+from recruitment_models import (
+    RecruitmentCandidate,
+    RecruitmentCandidateCommunication,
+    RecruitmentProject,
+    RecruitmentProjectLanguageDirection,
+    RecruitmentProjectProgress,
+    RecruitmentResumeSource,
+)
+from recruitment_service import ensure_default_resume_sources
 from task_models import DailyReport, DailyReportItem, NonProjectTask, NonProjectTaskEvent, NonProjectTaskRecurrence, WorkEntry
 from workflow_models import (
     ProjectManagerHandoverItem,
@@ -53,6 +79,10 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
+app.include_router(interpretation_projects.router)
+app.include_router(annotation_projects.router)
+app.include_router(recruitment_projects.router)
+app.include_router(project_languages.router)
 app.include_router(user_roles.router)
 app.include_router(project_files.router)
 app.include_router(clients.router)
@@ -104,6 +134,7 @@ TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS major_project_manager_confirmation VARCHAR(255)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS reference_file_path_one VARCHAR(500)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS customer_order_no VARCHAR(100)",
+    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS email_subject_preview TEXT",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS service_content VARCHAR(255)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS project_manager_id UUID",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS project_contract_type VARCHAR(100)",
@@ -115,6 +146,8 @@ TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS customer_requirement_special TEXT",
     "ALTER TABLE translation_project ALTER COLUMN language_pair TYPE VARCHAR(500)",
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS sub_client_id UUID",
+    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS annotation_project_id UUID",
+    "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS annotation_migrated_at TIMESTAMP",
     """
     DO $$
     BEGIN
@@ -151,6 +184,55 @@ TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
 )
 TRANSLATION_SUB_ORDER_COLUMN_STATEMENTS = (
     "ALTER TABLE translation_sub_order ALTER COLUMN language_pair TYPE VARCHAR(500)",
+)
+INTERPRETATION_REQUIREMENT_COLUMN_STATEMENTS = (
+    "ALTER TABLE translator ADD COLUMN IF NOT EXISTS interpretation_level VARCHAR(20)",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS required_interpreter_count INTEGER",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS required_interpreter_gender VARCHAR(20)",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS required_interpretation_level VARCHAR(20)",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_special_requirements TEXT",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_height_requirement VARCHAR(100)",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_appearance_requirement VARCHAR(255)",
+    "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_dress_requirement VARCHAR(255)",
+)
+RECRUITMENT_PROJECT_COLUMN_STATEMENTS = (
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS position_title VARCHAR(255)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS headcount_min INTEGER",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS headcount_max INTEGER",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS client_manager_id UUID REFERENCES app_user(id) ON DELETE SET NULL",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS client_manager_name_snapshot VARCHAR(255)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS target_onboard_type VARCHAR(20) NOT NULL DEFAULT 'date'",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS target_onboard_date DATE",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS employment_start DATE",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS employment_end DATE",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_type VARCHAR(30)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_currency VARCHAR(10) DEFAULT 'CNY'",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_amount NUMERIC(14, 2)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_rate NUMERIC(7, 4)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_note TEXT",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS project_path TEXT",
+)
+RECRUITMENT_CANDIDATE_COLUMN_STATEMENTS = (
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS contact_info VARCHAR(500)",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS stage VARCHAR(50) NOT NULL DEFAULT 'screening'",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS recommended_at TIMESTAMP",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS interview_at TIMESTAMP",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS offer_at TIMESTAMP",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS planned_onboard_date DATE",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS actual_onboard_date DATE",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES app_user(id) ON DELETE SET NULL",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMP",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS remarks TEXT",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS resume_source_id UUID REFERENCES recruitment_resume_source(id) ON DELETE SET NULL",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS first_interview_date DATE",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS first_interview_details TEXT",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS second_interview_date DATE",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS second_interview_details TEXT",
+)
+RECRUITMENT_COMMUNICATION_COLUMN_STATEMENTS = (
+    "ALTER TABLE recruitment_candidate_communication ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE recruitment_candidate_communication ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "CREATE INDEX IF NOT EXISTS ix_recruitment_candidate_communication_candidate ON recruitment_candidate_communication(candidate_id)",
 )
 MANUSCRIPT_DISPATCH_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_dispatch ADD COLUMN IF NOT EXISTS previous_order_status VARCHAR(50)",
@@ -212,6 +294,69 @@ def ensure_translation_project_columns():
         if "translation_sub_order" in inspector.get_table_names():
             for statement in TRANSLATION_SUB_ORDER_COLUMN_STATEMENTS:
                 conn.execute(text(statement))
+
+
+def ensure_interpretation_requirement_columns():
+    """补齐译员口译水平和口译项目译员要求字段。"""
+    table_names = set(inspect(engine).get_table_names())
+    if not {"translator", "interpretation_project"}.issubset(table_names):
+        return
+    with engine.begin() as conn:
+        for statement in INTERPRETATION_REQUIREMENT_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_recruitment_project_columns():
+    """补齐早期招聘模拟表与正式招聘项目域之间的字段差异。"""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        if "recruitment_project" in table_names:
+            for statement in RECRUITMENT_PROJECT_COLUMN_STATEMENTS:
+                conn.execute(text(statement))
+            columns = {item["name"] for item in inspect(conn).get_columns("recruitment_project")}
+            if "position_name_type" in columns:
+                conn.execute(text("UPDATE recruitment_project SET position_title = COALESCE(position_title, position_name_type)"))
+            if "recruitment_headcount" in columns:
+                conn.execute(text("UPDATE recruitment_project SET headcount_min = COALESCE(headcount_min, recruitment_headcount), headcount_max = COALESCE(headcount_max, recruitment_headcount)"))
+                conn.execute(text("ALTER TABLE recruitment_project ALTER COLUMN recruitment_headcount SET DEFAULT 0"))
+            if "proposed_start_date" in columns:
+                conn.execute(text("UPDATE recruitment_project SET target_onboard_date = COALESCE(target_onboard_date, proposed_start_date)"))
+            if "service_fee" in columns:
+                conn.execute(text("UPDATE recruitment_project SET service_fee_note = COALESCE(service_fee_note, service_fee)"))
+        if "recruitment_candidate" in table_names:
+            for statement in RECRUITMENT_CANDIDATE_COLUMN_STATEMENTS:
+                conn.execute(text(statement))
+            columns = {item["name"] for item in inspect(conn).get_columns("recruitment_candidate")}
+            if "sequence_no" in columns:
+                conn.execute(text("ALTER TABLE recruitment_candidate ALTER COLUMN sequence_no DROP NOT NULL"))
+            conn.execute(text("UPDATE recruitment_candidate SET first_interview_date = interview_at::date WHERE first_interview_date IS NULL AND interview_at IS NOT NULL"))
+            if "entry_date" in columns:
+                conn.execute(text("UPDATE recruitment_candidate SET actual_onboard_date = COALESCE(actual_onboard_date, entry_date)"))
+            if "resume_source" in columns:
+                conn.execute(text("""
+                    INSERT INTO recruitment_resume_source (label, is_custom)
+                    SELECT DISTINCT trim(candidate.resume_source), TRUE
+                    FROM recruitment_candidate candidate
+                    WHERE candidate.resume_source IS NOT NULL AND trim(candidate.resume_source) <> ''
+                    ON CONFLICT DO NOTHING
+                """))
+                conn.execute(text("""
+                    UPDATE recruitment_candidate candidate
+                    SET resume_source_id = source.id
+                    FROM recruitment_resume_source source
+                    WHERE candidate.resume_source_id IS NULL
+                      AND lower(trim(candidate.resume_source)) = lower(trim(source.label))
+                """))
+
+
+def ensure_recruitment_communication_columns():
+    """兼容早期招聘候选人沟通表。"""
+    if "recruitment_candidate_communication" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in RECRUITMENT_COMMUNICATION_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
 
 
 def ensure_manuscript_arrangement_columns():
@@ -456,6 +601,28 @@ def ensure_runtime_tables():
     ProjectRoleAssignment.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverRequest.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
+    InterpretationLanguage.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProject.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProjectTimeRange.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProjectInterpreter.__table__.create(bind=engine, checkfirst=True)
+    ensure_interpretation_requirement_columns()
+    AnnotationProject.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectPriceItem.__table__.create(bind=engine, checkfirst=True)
+    RecruitmentResumeSource.__table__.create(bind=engine, checkfirst=True)
+    RecruitmentProject.__table__.create(bind=engine, checkfirst=True)
+    ensure_recruitment_project_columns()
+    RecruitmentProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
+    RecruitmentProjectProgress.__table__.create(bind=engine, checkfirst=True)
+    RecruitmentCandidate.__table__.create(bind=engine, checkfirst=True)
+    RecruitmentCandidateCommunication.__table__.create(bind=engine, checkfirst=True)
+    ensure_recruitment_communication_columns()
+    with Session(engine) as db:
+        ensure_default_interpretation_languages(db)
+        ensure_translation_languages_in_catalog(db)
+        migrate_legacy_annotation_projects(db)
+        ensure_default_resume_sources(db)
 
 
 @app.get("/")

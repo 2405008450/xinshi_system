@@ -295,6 +295,15 @@
               </el-select>
             </el-form-item>
           </el-col>
+          <el-col :span="8">
+            <el-form-item label="口译水平" prop="interpretation_level">
+              <el-select v-model="form.interpretation_level" placeholder="请选择" clearable style="width: 100%">
+                <el-option label="初级" value="初级" />
+                <el-option label="中级" value="中级" />
+                <el-option label="高级" value="高级" />
+              </el-select>
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-row :gutter="20">
           <el-col :span="8">
@@ -562,6 +571,7 @@ const translatorTableColumns = [
   { key: 'translator_name', label: '姓名', width: 100 },
   { key: 'cooperation_type', label: '合作形式', width: 100 },
   { key: 'translation_type', label: '翻译类型', width: 100 },
+  { key: 'interpretation_level', label: '口译水平', width: 100 },
   { key: 'quality_score', label: '质量评分', width: 90 },
   { key: 'languages', label: '语种', width: 100, showOverflowTooltip: true },
   { key: 'direction', label: '方向', width: 90 },
@@ -596,6 +606,7 @@ const defaultTranslatorColumnKeys = [
   'status',
   'translator_name',
   'translation_type',
+  'interpretation_level',
   'quality_score',
   'languages',
   'direction',
@@ -706,6 +717,7 @@ const detailItems = [
   { label: '合作形式', key: 'cooperation_type' },
   { label: '语种', key: 'languages' },
   { label: '翻译类型', key: 'translation_type' },
+  { label: '口译水平', key: 'interpretation_level' },
   { label: '方向', key: 'direction' },
   { label: '质量评分', key: 'quality_score' },
   { label: '默认优先级', key: 'default_priority' },
@@ -918,6 +930,7 @@ const defaultForm = {
   cooperation_type: '',
   contact_info: '',
   translation_type: '',
+  interpretation_level: '',
   quality_score: '',
   direction: '',
   default_priority: 0,

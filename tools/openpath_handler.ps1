@@ -14,4 +14,8 @@ if (-not $path.StartsWith('\\')) {
     $path = '\\' + $path
 }
 
-Start-Process 'explorer.exe' -ArgumentList "`"$path`""
+if (Test-Path -LiteralPath $path -PathType Leaf) {
+    Start-Process -FilePath $path
+} else {
+    Start-Process 'explorer.exe' -ArgumentList "`"$path`""
+}

@@ -169,9 +169,38 @@
         show-overflow-tooltip
       >
         <template #default="{ row }">
-          <el-tag v-if="column.key === 'status'" :type="getStatusType(row.status)">
-            {{ getStatusText(row.status) }}
-          </el-tag>
+          <el-dropdown
+            v-if="column.key === 'status'"
+            trigger="click"
+            :disabled="statusUpdatingId === row.id"
+            @command="(command) => handleInlineStatusChange(row, command)"
+          >
+            <el-tag
+              :type="getStatusType(row.status)"
+              class="status-switch-tag"
+              :class="{ 'is-updating': statusUpdatingId === row.id }"
+            >
+              {{ getStatusText(row.status) }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in consultationStatusOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === row.status || statusUpdatingId === row.id"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">
+                      {{ item.label }}
+                    </el-tag>
+                    <el-icon v-if="item.value === row.status" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <template v-else-if="column.key === 'consultation_time'">
             <el-tag
               v-if="isToday(row.consultation_time)"
@@ -354,6 +383,19 @@
                 v-model="form.client_code"
                 disabled
                 :placeholder="!form.client_id && form.client_name ? '保存后自动生成' : '选择老客户后自动填充'"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="负责人联系方式" prop="manager_contact">
+              <el-input
+                v-model="form.manager_contact"
+                maxlength="100"
+                clearable
+                placeholder="请输入客户负责人联系方式"
               />
             </el-form-item>
           </el-col>
@@ -596,38 +638,73 @@
       </template>
     </el-dialog>
 
-    <!-- 创建翻译项目弹窗 -->
+    <!-- 口译/笔译咨询确认中间层 -->
     <el-dialog
-      v-model="createProjectDialogVisible"
-      title="咨询已确认 — 生成项目详情"
-      width="500px"
+      v-model="confirmationDialogVisible"
+      title="确认咨询并生成项目"
+      width="min(720px, calc(100vw - 32px))"
       :close-on-click-modal="false"
-      @close="resetCreateProjectDraft"
+      top="8vh"
+      @close="resetConfirmationDraft"
     >
-      <p style="color: #606266; margin-bottom: 16px;">
-        咨询状态已调整为“已确认”。系统已按项目命名规则填入名称，请再次确认生成项目详情。
-      </p>
-      <el-form :model="createProjectForm" ref="createProjectFormRef" @submit.prevent>
-        <el-form-item
-          label="项目名称"
-          prop="projectName"
-          :rules="[{ required: true, message: '请输入项目名称', trigger: 'blur' }]"
-        >
-          <el-input
-            v-model="createProjectForm.projectName"
-            placeholder="按“客户简称-当前日期”自动生成"
-            clearable
-          />
-          <div class="project-name-hint">名称可在确认生成前手动修改。</div>
-        </el-form-item>
-      </el-form>
+      <div v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
+        <el-alert
+          title="确认后将同时更新咨询状态、生成对应项目并保存邮件主题；取消不会改变咨询状态。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-descriptions :column="2" border size="small" class="confirmation-summary">
+          <el-descriptions-item label="咨询类型">{{ confirmationTypeLabel }}</el-descriptions-item>
+          <el-descriptions-item label="预计订单号">{{ confirmationPreview.order_no || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户简称">{{ confirmationPreview.client_short_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="负责人联系方式">{{ confirmationPreview.manager_contact || '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-form :model="confirmationForm" ref="confirmationFormRef" label-width="120px" @submit.prevent>
+          <el-form-item
+            label="项目名称"
+            prop="projectName"
+            :rules="[{ required: true, message: '请输入项目名称', trigger: 'blur' }]"
+          >
+            <el-input v-model="confirmationForm.projectName" maxlength="255" show-word-limit />
+            <div class="project-name-hint">已按“客户简称-当前日期”预填，可在确认前修改。</div>
+          </el-form-item>
+          <el-form-item label="标题前缀">
+            <el-input
+              v-model="confirmationForm.subjectPrefix"
+              maxlength="50"
+              show-word-limit
+              clearable
+              placeholder="例如：***急***"
+            />
+          </el-form-item>
+          <el-form-item v-if="confirmationPreview.project_type === 'interpretation'" label="客户单号/标识">
+            <el-input
+              v-model="confirmationForm.customerOrderNo"
+              maxlength="150"
+              show-word-limit
+              clearable
+            />
+          </el-form-item>
+          <el-form-item label="邮件主题预览">
+            <el-input :model-value="confirmationSubjectPreview" type="textarea" :rows="3" readonly />
+          </el-form-item>
+          <el-form-item v-if="confirmationMissingFields.length" label="缺失字段">
+            <div class="missing-field-list">
+              <el-tag v-for="item in confirmationMissingFields" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
+              <span class="missing-field-hint">缺失项不会写入主题，但不影响确认。</span>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
       <template #footer>
-        <el-button @click="createProjectDialogVisible = false">暂不生成</el-button>
+        <el-button :disabled="confirmationSubmitting" @click="confirmationDialogVisible = false">取消</el-button>
         <el-button
           type="primary"
-          :loading="createProjectLoading"
-          @click="handleCreateProject"
-        >确认生成</el-button>
+          :loading="confirmationSubmitting"
+          :disabled="confirmationPreviewLoading || !confirmationPreview.order_no"
+          @click="handleConfirmConsultation"
+        >确认并生成项目</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -639,10 +716,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
-import { useRouter } from 'vue-router'
 import { buildAutoProjectName } from '@/utils/projectNaming'
 
-const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
@@ -652,12 +727,17 @@ const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const clientSearchLoading = ref(false)
 
-// 创建翻译项目弹窗
-const createProjectDialogVisible = ref(false)
-const createProjectLoading = ref(false)
-const createProjectConsultationId = ref(null)
-const createProjectFormRef = ref(null)
-const createProjectForm = reactive({ projectName: '' })
+// 口译/笔译咨询确认中间层
+const confirmationDialogVisible = ref(false)
+const confirmationPreviewLoading = ref(false)
+const confirmationSubmitting = ref(false)
+const confirmationFormRef = ref(null)
+const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null })
+const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '' })
+const confirmationPreview = reactive({
+  project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+  project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
+})
 const CONFIRMED_CONSULTATION_STATUS = 'success'
 const currentUserId = localStorage.getItem('user_id') || null
 const CONSULTATION_DRAFTS_STORAGE_KEY = `consultation_form_drafts:${currentUserId || 'anonymous'}`
@@ -818,6 +898,7 @@ const defaultForm = () => ({
   client_code: '',
   client_name: '',
   client_short_name: '',
+  manager_contact: '',
   consultation_time: '',
   consultation_method: '',
   consultation_method_custom: '',
@@ -971,6 +1052,47 @@ const legacyConsultationTypeLabels = {
   其他: '其他项目',
 }
 const consultationTypeLabel = (value) => legacyConsultationTypeLabels[value] || value || '-'
+const isInterpretationConsultationType = (value) => (
+  ['口译项目', 'interpretation', '口译'].includes(value)
+)
+const isAnnotationConsultationType = (value) => (
+  ['标注项目', 'annotation'].includes(value)
+)
+const isRecruitmentConsultationType = (value) => (
+  ['招聘项目', 'recruitment', '招聘'].includes(value)
+)
+const isTranslationConsultationType = (value) => (
+  ['笔译项目', 'translation', '笔译'].includes(value)
+)
+const confirmationTypeLabel = computed(() => (
+  confirmationPreview.project_type === 'interpretation' ? '口译项目' : '笔译项目'
+))
+const confirmationSubjectParts = computed(() => {
+  const parts = [
+    confirmationForm.subjectPrefix,
+    confirmationPreview.order_no,
+    confirmationPreview.client_short_name,
+    confirmationPreview.manager_contact,
+  ]
+  if (confirmationPreview.project_type === 'interpretation') {
+    parts.push(confirmationForm.customerOrderNo)
+  }
+  parts.push(confirmationForm.projectName)
+  return parts.map((item) => item?.trim()).filter(Boolean)
+})
+const confirmationSubjectPreview = computed(() => confirmationSubjectParts.value.join('，'))
+const confirmationMissingFields = computed(() => {
+  const fields = [
+    ['订单号', confirmationPreview.order_no],
+    ['客户简称', confirmationPreview.client_short_name],
+    ['负责人联系方式', confirmationPreview.manager_contact],
+  ]
+  if (confirmationPreview.project_type === 'interpretation') {
+    fields.push(['客户单号/标识', confirmationForm.customerOrderNo])
+  }
+  fields.push(['项目名称', confirmationForm.projectName])
+  return fields.filter(([, value]) => !value?.trim()).map(([label]) => label)
+})
 
 // 是否为新客户：没有关联的 client_id 但已填写客户全称
 const isNewClient = computed(() => !form.client_id && !!form.client_name)
@@ -1091,6 +1213,7 @@ const handleExistingClientSelect = (item) => {
   form.client_name = item.client_name
   form.client_code = item.client_code || ''
   form.client_short_name = item.client_short_name || ''
+  form.manager_contact = item.manager_contact || ''
 }
 
 // 用户手动输入（重新输入时清空已关联的客户）
@@ -1098,7 +1221,10 @@ const handleClientNameInput = () => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
   form.client_code = ''
-  if (hadSelectedClient) form.client_short_name = ''
+  if (hadSelectedClient) {
+    form.client_short_name = ''
+    form.manager_contact = ''
+  }
 }
 
 // 简称可直接录入；未填写全称时，以简称作为待完善客户的默认全称。
@@ -1106,7 +1232,10 @@ const handleClientShortNameInput = (value) => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
   form.client_code = ''
-  if (hadSelectedClient) form.client_name = ''
+  if (hadSelectedClient) {
+    form.client_name = ''
+    form.manager_contact = ''
+  }
   if (!form.client_name?.trim() && value?.trim()) {
     form.client_name = value.trim()
   }
@@ -1117,7 +1246,10 @@ const handleClientShortNameClear = () => {
   form.client_id = null
   form.client_code = ''
   form.client_short_name = ''
-  if (hadSelectedClient) form.client_name = ''
+  if (hadSelectedClient) {
+    form.client_name = ''
+    form.manager_contact = ''
+  }
 }
 
 // 用户点击清空按钮
@@ -1126,6 +1258,7 @@ const handleClientNameClear = () => {
   form.client_name = ''
   form.client_code = ''
   form.client_short_name = ''
+  form.manager_contact = ''
 }
 
 const loadUsers = async () => {
@@ -1196,6 +1329,7 @@ const buildPayload = () => ({
   client_code: form.client_code?.trim() || null,
   client_name: form.client_name?.trim() || null,
   client_short_name: form.client_short_name?.trim() || null,
+  manager_contact: form.manager_contact?.trim() || null,
   consultation_time: toNullable(form.consultation_time),
   consultation_method: toNullable(
     form.consultation_method === 'other'
@@ -1250,6 +1384,7 @@ const fillFormByRow = (row) => {
     client_code: row.client_code || '',
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
+    manager_contact: row.manager_contact || '',
     consultation_time: row.consultation_time || '',
     consultation_method: consultationMethod.method,
     consultation_method_custom: consultationMethod.custom,
@@ -1300,6 +1435,69 @@ const handleDelete = async (row) => {
   }
 }
 
+const statusUpdatingId = ref(null)
+
+// 列表内直接切换咨询状态：仅提交 status 字段（后端支持局部更新）。
+// 普通状态直接切换；切到「已确认」时保留与编辑弹窗一致的联动：
+// 口译、标注类型由后端自动生成专用项目；只有笔译弹出名称确认框。
+const handleInlineStatusChange = async (row, newStatus) => {
+  if (!newStatus || newStatus === row.status || statusUpdatingId.value === row.id) return
+
+  if (
+    newStatus === CONFIRMED_CONSULTATION_STATUS
+    && (isInterpretationConsultationType(row.consultation_type) || isTranslationConsultationType(row.consultation_type))
+  ) {
+    await openConfirmationDialog({
+      mode: 'inline',
+      consultationId: row.id,
+      consultationPayload: null,
+      row,
+      previewSource: row,
+    })
+    return
+  }
+
+  if (newStatus === CONFIRMED_CONSULTATION_STATUS) {
+    try {
+      await ElMessageBox.confirm(
+        isAnnotationConsultationType(row.consultation_type)
+            ? '切换为「已确认」后，系统将自动建立标注项目档案，是否继续？'
+            : isRecruitmentConsultationType(row.consultation_type)
+              ? '切换为「已确认」后，系统将自动生成招聘项目，是否继续？'
+              : '确定将该咨询切换为「已确认」吗？',
+        '切换咨询状态',
+        { type: 'warning', confirmButtonText: '确认切换', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+
+  statusUpdatingId.value = row.id
+  try {
+    const saved = await consultationApi.updateConsultation(row.id, { status: newStatus })
+    row.status = newStatus
+    delete detailCache[row.id]
+    ElMessage.success(`状态已切换为「${getStatusText(newStatus)}」`)
+    // 列表若按状态筛选，切换后该行可能不再命中条件，重新拉取保持一致。
+    if (searchForm.status) fetchData()
+
+    if (newStatus === CONFIRMED_CONSULTATION_STATUS) {
+      if (isRecruitmentConsultationType(row.consultation_type)) {
+        ElMessage.success(
+          saved?.recruitment_project_id
+            ? '咨询已确认，招聘项目已自动生成'
+            : '咨询已确认，招聘项目已存在'
+        )
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || '切换状态失败')
+  } finally {
+    statusUpdatingId.value = null
+  }
+}
+
 const handleSubmit = async () => {
   if (!formRef.value) return
 
@@ -1313,20 +1511,36 @@ const handleSubmit = async () => {
         ? (detailCache[form.id]?.status ?? tableData.value.find((r) => r.id === form.id)?.status)
         : null
       const consultationId = form.id
+      let savedConsultation = null
+
+      if (
+        payload.status === CONFIRMED_CONSULTATION_STATUS
+        && prevStatus !== CONFIRMED_CONSULTATION_STATUS
+        && (isInterpretationConsultationType(payload.consultation_type) || isTranslationConsultationType(payload.consultation_type))
+      ) {
+        await openConfirmationDialog({
+          mode: isUpdate ? 'update' : 'create',
+          consultationId,
+          consultationPayload: payload,
+          row: null,
+          previewSource: payload,
+        })
+        return
+      }
 
       if (isUpdate) {
-        await consultationApi.updateConsultation(consultationId, payload)
+        savedConsultation = await consultationApi.updateConsultation(consultationId, payload)
         delete detailCache[consultationId]
         ElMessage.success('更新成功')
       } else {
         const created = await consultationApi.createConsultation(payload)
+        savedConsultation = created
         ElMessage.success('创建成功')
         // 新建咨询也支持立即确认并生成项目详情。
         if (payload.status === CONFIRMED_CONSULTATION_STATUS && created?.id) {
-          openCreateProjectDialog(
-            created.id,
-            created.client_short_name || form.client_short_name
-          )
+          if (isRecruitmentConsultationType(payload.consultation_type)) {
+            ElMessage.success('咨询已确认，招聘项目已自动生成')
+          }
         }
       }
       draftSavingEnabled.value = false
@@ -1340,7 +1554,13 @@ const handleSubmit = async () => {
         payload.status === CONFIRMED_CONSULTATION_STATUS &&
         prevStatus !== CONFIRMED_CONSULTATION_STATUS
       ) {
-        openCreateProjectDialog(consultationId, form.client_short_name)
+        if (isRecruitmentConsultationType(payload.consultation_type)) {
+          ElMessage.success(
+            savedConsultation?.recruitment_project_id
+              ? '咨询已确认，招聘项目已自动生成'
+              : '咨询已确认，招聘项目已存在'
+          )
+        }
       }
     } catch (error) {
       ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
@@ -1348,41 +1568,112 @@ const handleSubmit = async () => {
   })
 }
 
-const handleCreateProject = async () => {
-  if (!createProjectFormRef.value) return
-  const valid = await createProjectFormRef.value.validate().catch(() => false)
-  if (!valid) return
-  createProjectLoading.value = true
+const applyConfirmationPreview = (preview) => {
+  Object.assign(confirmationPreview, {
+    project_type: preview?.project_type || '',
+    order_no: preview?.order_no || '',
+    client_short_name: preview?.client_short_name || '',
+    manager_contact: preview?.manager_contact || '',
+    project_name: preview?.project_name || '',
+    customer_order_no: preview?.customer_order_no || '',
+    email_subject_preview: preview?.email_subject_preview || '',
+    missing_fields: Array.isArray(preview?.missing_fields) ? preview.missing_fields : [],
+  })
+  confirmationForm.projectName = preview?.project_name || confirmationForm.projectName
+  confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
+}
+
+const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource }) => {
+  Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row })
+  Object.assign(confirmationForm, {
+    projectName: buildAutoProjectName(previewSource?.client_short_name),
+    subjectPrefix: '',
+    customerOrderNo: '',
+  })
+  Object.assign(confirmationPreview, {
+    project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+    project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
+  })
+  confirmationDialogVisible.value = true
+  confirmationPreviewLoading.value = true
   try {
-    const project = await consultationApi.createProjectFromConsultation(
-      createProjectConsultationId.value,
-      createProjectForm.projectName
-    )
-    ElMessage.success('项目详情已生成')
-    createProjectDialogVisible.value = false
-    createProjectConsultationId.value = null
-    createProjectForm.projectName = ''
-    if (project?.id) {
-      router.push('/translation-details')
-    }
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.detail || '\u521B\u5EFA\u9879\u76EE\u5931\u8D25')
+    const preview = await consultationApi.previewConfirmation({
+      consultation_id: consultationId || null,
+      consultation_type: previewSource?.consultation_type,
+      client_id: previewSource?.client_id || null,
+      client_short_name: previewSource?.client_short_name || null,
+      manager_contact: previewSource?.manager_contact?.trim() || null,
+      project_name: confirmationForm.projectName || null,
+      subject_prefix: null,
+      customer_order_no: null,
+    })
+    applyConfirmationPreview(preview)
+    await nextTick()
+    confirmationFormRef.value?.clearValidate()
+  } catch (error) {
+    confirmationDialogVisible.value = false
+    ElMessage.error(error?.response?.data?.detail || error?.detail || '加载确认预览失败')
   } finally {
-    createProjectLoading.value = false
+    confirmationPreviewLoading.value = false
   }
 }
 
-const openCreateProjectDialog = (consultationId, clientShortName) => {
-  createProjectConsultationId.value = consultationId
-  createProjectForm.projectName = buildAutoProjectName(clientShortName)
-  createProjectFormRef.value?.clearValidate()
-  createProjectDialogVisible.value = true
+const handleConfirmConsultation = async () => {
+  if (!confirmationFormRef.value) return
+  const valid = await confirmationFormRef.value.validate().catch(() => false)
+  if (!valid || !confirmationPreview.order_no) return
+
+  const confirmation = {
+    project_name: confirmationForm.projectName?.trim() || null,
+    expected_order_no: confirmationPreview.order_no,
+    subject_prefix: confirmationForm.subjectPrefix?.trim() || null,
+    customer_order_no: confirmationPreview.project_type === 'interpretation'
+      ? confirmationForm.customerOrderNo?.trim() || null
+      : null,
+  }
+  confirmationSubmitting.value = true
+  if (confirmationContext.mode === 'inline') {
+    statusUpdatingId.value = confirmationContext.consultationId
+  }
+  try {
+    const result = confirmationContext.mode === 'create'
+      ? await consultationApi.createConfirmedConsultation(confirmationContext.consultationPayload, confirmation)
+      : await consultationApi.updateConfirmedConsultation(
+          confirmationContext.consultationId,
+          confirmationContext.mode === 'update' ? confirmationContext.consultationPayload : null,
+          confirmation
+        )
+
+    if (confirmationContext.row) confirmationContext.row.status = CONFIRMED_CONSULTATION_STATUS
+    if (confirmationContext.consultationId) delete detailCache[confirmationContext.consultationId]
+    if (confirmationContext.mode === 'create' || confirmationContext.mode === 'update') {
+      draftSavingEnabled.value = false
+      removeDraft(activeDraftKey.value)
+      dialogVisible.value = false
+    }
+    confirmationDialogVisible.value = false
+    ElMessage.success(
+      `${result?.project_type === 'interpretation' ? '口译' : '笔译'}咨询已确认，项目和邮件主题已生成`
+    )
+    await fetchData()
+  } catch (error) {
+    const detail = error?.response?.data?.detail || error?.detail
+    if (error?.response?.status === 409 && detail?.preview) {
+      applyConfirmationPreview(detail.preview)
+      ElMessage.warning(detail.message || '订单号已变化，请核对刷新后的主题并再次确认')
+    } else {
+      ElMessage.error(typeof detail === 'string' ? detail : '确认咨询失败')
+    }
+  } finally {
+    confirmationSubmitting.value = false
+    statusUpdatingId.value = null
+  }
 }
 
-const resetCreateProjectDraft = () => {
-  createProjectConsultationId.value = null
-  createProjectForm.projectName = ''
-  createProjectFormRef.value?.clearValidate()
+const resetConfirmationDraft = () => {
+  Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null })
+  Object.assign(confirmationForm, { projectName: '', subjectPrefix: '', customerOrderNo: '' })
+  confirmationFormRef.value?.clearValidate()
 }
 
 const resetForm = () => {
@@ -1526,6 +1817,32 @@ onBeforeUnmount(() => {
   overflow-x: auto;
 }
 
+.status-switch-tag {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s ease;
+}
+
+.status-switch-tag:hover {
+  opacity: 0.8;
+}
+
+.status-switch-tag.is-updating {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.status-option-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.status-current-icon {
+  color: var(--el-color-primary);
+}
+
 .consultation-method-field {
   display: flex;
   flex-direction: column;
@@ -1564,6 +1881,26 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.confirmation-preview-body {
+  min-height: 260px;
+}
+
+.confirmation-summary {
+  margin: 16px 0 20px;
+}
+
+.missing-field-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.missing-field-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .client-short-name-field {

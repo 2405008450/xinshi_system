@@ -112,12 +112,12 @@
       </el-table-column>
       <el-table-column label="分配" width="84">
         <template #default="{ row }">
-          <el-tag :type="row.assignment_type === 'direct' ? 'success' : row.assignment_type === 'overview' ? 'warning' : 'info'" size="small" effect="plain">
-            {{ row.assignment_type === 'direct' ? '直接负责' : row.assignment_type === 'overview' ? '全局查看' : '角色池' }}
+          <el-tag :type="assignmentTagType(row)" size="small" effect="plain">
+            {{ assignmentLabel(row) }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="current_stage_key" label="流程阶段（待启用）" width="145">
+      <el-table-column v-if="stageColumnEnabled" prop="current_stage_key" label="流程阶段（待启用）" width="145">
         <template #default="{ row }">
           <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
         </template>
@@ -137,7 +137,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <div v-else-if="currentUserName" class="empty-tip">暂无待处理的工作流任务。</div>
+    <div v-else-if="currentUserName" class="empty-tip">暂无待处理任务或可认领的角色池任务。</div>
     <el-empty v-else description="请先登录，登录账号将用于匹配「我的任务」" />
 
     <el-dialog v-model="handoverVisible" title="交接所选任务" width="720px" destroy-on-close>
@@ -328,6 +328,8 @@ const props = defineProps({
 const emit = defineEmits(['open-chat', 'record-work', 'refresh'])
 // 项目留言板块尚未开放，保留入口代码便于后续启用。
 const projectMessageEnabled = false
+// 流程阶段功能待启用，主表默认隐藏该列以节省横向空间，启用时改为 true。
+const stageColumnEnabled = false
 
 const selectedTasks = ref([])
 const claimingRolePool = ref(false)
@@ -416,6 +418,19 @@ const handoverRoleName = computed(() => (
 ))
 const isTaskSelectable = (row) => ['direct', 'role_pool'].includes(row.assignment_type)
 
+function assignmentTagType(row) {
+  if (row.assignment_type === 'direct' || row.assignment_type === 'project_role') return 'success'
+  if (row.assignment_type === 'overview') return 'warning'
+  return 'info'
+}
+
+function assignmentLabel(row) {
+  if (row.assignment_type === 'direct') return '直接负责'
+  if (row.assignment_type === 'project_role') return '固定角色'
+  if (row.assignment_type === 'overview') return '全局查看'
+  return '角色池'
+}
+
 function toggleTaskRowSelection(row, _column, event) {
   if (!isTaskSelectable(row)) return
   if (event?.target?.closest?.('button, a, input, textarea, select, label, .el-checkbox, .el-radio, .el-switch')) return
@@ -487,9 +502,17 @@ const submitHandover = async () => {
 const claimSelectedRolePoolTasks = async () => {
   const tasks = [...rolePoolSelectedTasks.value]
   if (!tasks.length) return
+  const manuscriptCount = tasks.filter(
+    task => task.task_kind === 'manuscript_responsibility'
+  ).length
+  const workflowCount = tasks.length - manuscriptCount
+  const claimDescription = [
+    workflowCount ? `${workflowCount} 项工作流任务将由你直接负责` : '',
+    manuscriptCount ? `${manuscriptCount} 个项目将绑定你为固定项目助理` : ''
+  ].filter(Boolean).join('；')
   try {
     await ElMessageBox.confirm(
-      `确认认领所选的 ${tasks.length} 项角色池任务吗？认领后你将成为这些任务的直接负责人。`,
+      `确认认领所选的 ${tasks.length} 项角色池任务吗？${claimDescription}。`,
       '认领角色池任务',
       { type: 'warning', confirmButtonText: '确认认领', cancelButtonText: '取消' }
     )

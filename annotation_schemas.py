@@ -1,0 +1,250 @@
+"""标注项目 API 数据契约。"""
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+ANNOTATION_PROJECT_TYPE_LABELS = {
+    "audio_collection": "音频采集",
+    "audio_annotation": "音频标注",
+    "audio_evaluation": "音频评测",
+    "text_evaluation": "文本评测",
+    "text_annotation": "文本标注",
+    "quality_inspection": "质检",
+    "listening_test": "测听",
+    "slot_deduction": "扣槽",
+    "generalization": "泛化",
+    "translation": "翻译",
+}
+ANNOTATION_PROJECT_STATUSES = {
+    "pending_confirmation",
+    "trial",
+    "in_progress",
+    "sent_to_client",
+    "client_feedback",
+    "cancelled",
+    "partially_cancelled",
+}
+
+
+def _nullable_text(value):
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+class AnnotationLanguageItemInput(BaseModel):
+    source_language_id: UUID
+    target_language_id: Optional[UUID] = None
+
+    @model_validator(mode="after")
+    def validate_distinct(self):
+        if self.target_language_id == self.source_language_id:
+            raise ValueError("语言方向的两个语种不能相同")
+        return self
+
+    @property
+    def key(self):
+        return self.source_language_id, self.target_language_id
+
+
+class AnnotationLanguageItemResponse(AnnotationLanguageItemInput):
+    id: UUID
+    sequence_no: int
+    source_language_label: str
+    target_language_label: Optional[str] = None
+    display: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnotationPriceItemInput(BaseModel):
+    project_type: Optional[str] = None
+    source_language_id: Optional[UUID] = None
+    target_language_id: Optional[UUID] = None
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    unit: str = Field(min_length=1, max_length=50)
+    remarks: Optional[str] = None
+
+    @field_validator("project_type", "remarks", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        return _nullable_text(value)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value):
+        return value.strip().upper()
+
+    @field_validator("unit")
+    @classmethod
+    def normalize_unit(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("计价单位不能为空")
+        return value
+
+    @model_validator(mode="after")
+    def validate_language_scope(self):
+        if self.target_language_id is not None and self.source_language_id is None:
+            raise ValueError("价格语言范围缺少源语种")
+        return self
+
+    @property
+    def language_key(self):
+        if self.source_language_id is None:
+            return None
+        return self.source_language_id, self.target_language_id
+
+
+class AnnotationPriceItemResponse(AnnotationPriceItemInput):
+    id: UUID
+    sequence_no: int
+    source_language_label: Optional[str] = None
+    target_language_label: Optional[str] = None
+    language_display: Optional[str] = None
+    display: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnotationProjectWrite(BaseModel):
+    project_name: Optional[str] = None
+    project_types: list[str] = Field(default_factory=list, max_length=10)
+    task_description: Optional[str] = None
+    client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
+    client_name: Optional[str] = None
+    client_short_name: Optional[str] = None
+    client_code: Optional[str] = None
+    contact_name: Optional[str] = None
+    customer_order_no: Optional[str] = None
+    project_status: str = "pending_confirmation"
+    potential_demand: Optional[str] = None
+    task_dispatched_at: Optional[datetime] = None
+    task_submitted_at: Optional[datetime] = None
+    client_manager_id: Optional[UUID] = None
+    customer_consultation_time: Optional[datetime] = None
+    customer_confirmation_time: Optional[datetime] = None
+    language_items: list[AnnotationLanguageItemInput] = Field(default_factory=list)
+    price_items: list[AnnotationPriceItemInput] = Field(default_factory=list)
+
+    @field_validator(
+        "project_name", "task_description", "client_name", "client_short_name",
+        "client_code", "contact_name", "customer_order_no", "potential_demand",
+        mode="before",
+    )
+    @classmethod
+    def normalize_text(cls, value):
+        return _nullable_text(value)
+
+    @field_validator("project_types")
+    @classmethod
+    def validate_project_types(cls, values):
+        normalized = []
+        for value in values:
+            if value not in ANNOTATION_PROJECT_TYPE_LABELS:
+                raise ValueError(f"不支持的项目类型：{value}")
+            if value not in normalized:
+                normalized.append(value)
+        return normalized
+
+    @field_validator("project_status")
+    @classmethod
+    def validate_status(cls, value):
+        if value not in ANNOTATION_PROJECT_STATUSES:
+            raise ValueError("不支持的标注项目状态")
+        return value
+
+    @model_validator(mode="after")
+    def validate_project(self):
+        if (
+            self.task_dispatched_at and self.task_submitted_at
+            and self.task_submitted_at < self.task_dispatched_at
+        ):
+            raise ValueError("任务提交时间不能早于任务派发时间")
+
+        language_keys = [item.key for item in self.language_items]
+        if len(set(language_keys)) != len(language_keys):
+            raise ValueError("同一语言或语言方向不能重复")
+
+        project_types = set(self.project_types)
+        language_key_set = set(language_keys)
+        for item in self.price_items:
+            if item.project_type and item.project_type not in project_types:
+                raise ValueError("价格明细引用了当前项目未选择的项目类型")
+            if item.language_key and item.language_key not in language_key_set:
+                raise ValueError("价格明细引用了当前项目未选择的语言项")
+        return self
+
+
+class AnnotationProjectCreate(AnnotationProjectWrite):
+    pass
+
+
+class AnnotationProjectUpdate(AnnotationProjectWrite):
+    pass
+
+
+class AnnotationProjectListResponse(BaseModel):
+    id: UUID
+    order_no: str
+    project_name: Optional[str] = None
+    project_types: list[str] = Field(default_factory=list)
+    task_description: Optional[str] = None
+    client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
+    contact_name: Optional[str] = None
+    customer_order_no: Optional[str] = None
+    project_status: str
+    potential_demand: Optional[str] = None
+    task_dispatched_at: Optional[datetime] = None
+    task_submitted_at: Optional[datetime] = None
+    client_manager_id: Optional[UUID] = None
+    client_short_name: Optional[str] = None
+    client_code: Optional[str] = None
+    client_full_name: Optional[str] = None
+    client_manager_name: Optional[str] = None
+    sub_client_contact: Optional[str] = None
+    language_items_display: Optional[str] = None
+    customer_price_summary: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnnotationProjectDetailResponse(AnnotationProjectListResponse):
+    consultation_id: Optional[UUID] = None
+    customer_consultation_time: Optional[datetime] = None
+    customer_confirmation_time: Optional[datetime] = None
+    legacy_order_no: Optional[str] = None
+    legacy_status: Optional[str] = None
+    language_items: list[AnnotationLanguageItemResponse] = Field(default_factory=list)
+    price_items: list[AnnotationPriceItemResponse] = Field(default_factory=list)
+
+
+class AnnotationNamePreviewRequest(BaseModel):
+    client_short_name: Optional[str] = None
+    project_types: list[str] = Field(default_factory=list)
+    language_items: list[AnnotationLanguageItemInput] = Field(default_factory=list)
+
+    @field_validator("client_short_name", mode="before")
+    @classmethod
+    def normalize_client_name(cls, value):
+        return _nullable_text(value)
+
+    @field_validator("project_types")
+    @classmethod
+    def validate_types(cls, values):
+        for value in values:
+            if value not in ANNOTATION_PROJECT_TYPE_LABELS:
+                raise ValueError(f"不支持的项目类型：{value}")
+        return list(dict.fromkeys(values))
+
+
+class AnnotationNamePreviewResponse(BaseModel):
+    project_name: str

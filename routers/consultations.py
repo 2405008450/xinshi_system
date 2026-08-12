@@ -2,7 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,7 +12,28 @@ from crud import (
     build_auto_project_name, create_translation_project, get_translation_projects
 )
 from schemas import ConsultationCreate, ConsultationUpdate, ConsultationResponse, TranslationProjectCreate, TranslationProjectResponse
-from models import AppUser, TranslationProject
+from models import AppUser, Client, TranslationProject
+from utils import generate_order_no
+from interpretation_models import InterpretationProject
+from interpretation_service import (
+    ensure_interpretation_project_for_consultation,
+    generate_interpretation_order_no,
+    is_interpretation_type,
+    validate_consultation_project_type_change,
+)
+from annotation_models import AnnotationProject
+from annotation_service import (
+    ensure_annotation_project_for_consultation,
+    is_annotation_type,
+    is_translation_type,
+    validate_consultation_annotation_type_change,
+)
+from recruitment_models import RecruitmentProject
+from recruitment_service import (
+    ensure_recruitment_project_for_consultation,
+    is_recruitment_type,
+    validate_consultation_recruitment_type_change,
+)
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies=[Depends(require_module_access("consultations:read", "consultations:write"))])
@@ -20,6 +41,55 @@ router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies
 
 class CreateProjectFromConsultationRequest(BaseModel):
     project_name: Optional[str] = None
+
+
+class ConsultationConfirmationFields(BaseModel):
+    project_name: Optional[str] = Field(default=None, max_length=255)
+    expected_order_no: str = Field(min_length=1, max_length=50)
+    subject_prefix: Optional[str] = Field(default=None, max_length=50)
+    customer_order_no: Optional[str] = Field(default=None, max_length=150)
+
+
+class ConsultationConfirmationPreviewRequest(BaseModel):
+    consultation_id: Optional[UUID] = None
+    consultation_type: str = Field(min_length=1, max_length=50)
+    client_id: Optional[UUID] = None
+    client_short_name: Optional[str] = Field(default=None, max_length=100)
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
+    project_name: Optional[str] = Field(default=None, max_length=255)
+    subject_prefix: Optional[str] = Field(default=None, max_length=50)
+    customer_order_no: Optional[str] = Field(default=None, max_length=150)
+
+
+class CreateConfirmedConsultationRequest(BaseModel):
+    consultation: ConsultationCreate
+    confirmation: ConsultationConfirmationFields
+
+
+class UpdateConfirmedConsultationRequest(BaseModel):
+    consultation: Optional[ConsultationUpdate] = None
+    confirmation: ConsultationConfirmationFields
+
+
+class ConsultationConfirmationPreviewResponse(BaseModel):
+    project_type: str
+    order_no: str
+    client_short_name: Optional[str] = None
+    manager_contact: Optional[str] = None
+    project_name: str
+    customer_order_no: Optional[str] = None
+    subject_prefix: Optional[str] = None
+    subject_parts: List[str]
+    email_subject_preview: str
+    missing_fields: List[str]
+
+
+class ConsultationConfirmationResponse(BaseModel):
+    consultation: ConsultationResponse
+    project_type: str
+    project_id: UUID
+    order_no: str
+    email_subject_preview: str
 
 
 CONSULTATION_CONFIRMED_STATUS = "success"
@@ -44,9 +114,374 @@ CONSULTATION_TASK_TYPE_LABELS = {
 }
 
 
+def _confirmation_project_type(value: Optional[str]) -> str:
+    if is_interpretation_type(value):
+        return "interpretation"
+    if is_translation_type(value):
+        return "translation"
+    raise ValueError("只有口译项目和笔译项目使用项目确认预览")
+
+
+def _clean_text(value: Optional[str]) -> str:
+    return (value or "").strip()
+
+
+def _build_subject_preview(
+    *,
+    project_type: str,
+    subject_prefix: Optional[str],
+    order_no: str,
+    client_short_name: Optional[str],
+    manager_contact: Optional[str],
+    customer_order_no: Optional[str],
+    project_name: Optional[str],
+) -> tuple[list[str], str, list[str]]:
+    values = [
+        ("标题前缀", subject_prefix),
+        ("订单号", order_no),
+        ("客户简称", client_short_name),
+        ("负责人联系方式", manager_contact),
+    ]
+    if project_type == "interpretation":
+        values.append(("客户单号/标识", customer_order_no))
+    values.append(("项目名称", project_name))
+    parts = [_clean_text(value) for _label, value in values if _clean_text(value)]
+    missing = [
+        label for label, value in values
+        if label != "标题前缀" and not _clean_text(value)
+    ]
+    return parts, "，".join(parts), missing
+
+
+def _confirmation_preview_values(
+    db: Session,
+    payload: ConsultationConfirmationPreviewRequest,
+) -> dict:
+    consultation = None
+    if payload.consultation_id:
+        consultation = get_consultation(db, payload.consultation_id)
+        if not consultation:
+            raise ValueError("咨询记录不存在")
+
+    consultation_type = payload.consultation_type or (
+        consultation.consultation_type if consultation else None
+    )
+    project_type = _confirmation_project_type(consultation_type)
+    client_id = payload.client_id or (consultation.client_id if consultation else None)
+    client = db.query(Client).filter(Client.id == client_id).first() if client_id else None
+    if client:
+        client_short_name = client.client_short_name
+    elif payload.client_short_name:
+        client_short_name = payload.client_short_name
+    else:
+        client_short_name = getattr(consultation, "client_short_name", None)
+    manager_contact = (
+        payload.manager_contact
+        if "manager_contact" in payload.model_fields_set
+        else client.manager_contact if client else None
+    )
+
+    existing_project = None
+    if consultation:
+        project_model = InterpretationProject if project_type == "interpretation" else TranslationProject
+        existing_project = db.query(project_model).filter(
+            project_model.consultation_id == consultation.id
+        ).first()
+
+    order_no = (
+        existing_project.order_no if existing_project else
+        generate_interpretation_order_no(db) if project_type == "interpretation" else
+        generate_order_no(db)
+    )
+    project_name = _clean_text(payload.project_name) or _clean_text(
+        getattr(existing_project, "project_name", None)
+    ) or build_auto_project_name(client_short_name)
+    customer_order_no = (
+        _clean_text(payload.customer_order_no)
+        if project_type == "interpretation"
+        else ""
+    )
+    if project_type == "interpretation" and not customer_order_no:
+        customer_order_no = _clean_text(getattr(existing_project, "customer_order_no", None))
+
+    parts, subject, missing = _build_subject_preview(
+        project_type=project_type,
+        subject_prefix=payload.subject_prefix,
+        order_no=order_no,
+        client_short_name=client_short_name,
+        manager_contact=manager_contact,
+        customer_order_no=customer_order_no,
+        project_name=project_name,
+    )
+    return {
+        "project_type": project_type,
+        "order_no": order_no,
+        "client_short_name": _clean_text(client_short_name) or None,
+        "manager_contact": _clean_text(manager_contact) or None,
+        "project_name": project_name,
+        "customer_order_no": customer_order_no or None,
+        "subject_prefix": _clean_text(payload.subject_prefix) or None,
+        "subject_parts": parts,
+        "email_subject_preview": subject,
+        "missing_fields": missing,
+    }
+
+
+def _confirm_consultation_project(
+    db: Session,
+    consultation,
+    confirmation: ConsultationConfirmationFields,
+    created_by: UUID,
+):
+    preview_request = ConsultationConfirmationPreviewRequest(
+        consultation_id=consultation.id,
+        consultation_type=consultation.consultation_type,
+        client_id=consultation.client_id,
+        client_short_name=getattr(consultation, "client_short_name", None),
+        project_name=confirmation.project_name,
+        subject_prefix=confirmation.subject_prefix,
+        customer_order_no=confirmation.customer_order_no,
+    )
+    preview = _confirmation_preview_values(db, preview_request)
+    if preview["project_type"] == "interpretation":
+        # 确认请求中的空值表示用户主动清空，不再回退到项目历史值。
+        preview["customer_order_no"] = _clean_text(confirmation.customer_order_no) or None
+        parts, subject, missing = _build_subject_preview(
+            project_type=preview["project_type"],
+            subject_prefix=confirmation.subject_prefix,
+            order_no=preview["order_no"],
+            client_short_name=preview["client_short_name"],
+            manager_contact=preview["manager_contact"],
+            customer_order_no=preview["customer_order_no"],
+            project_name=preview["project_name"],
+        )
+        preview.update(
+            subject_parts=parts,
+            email_subject_preview=subject,
+            missing_fields=missing,
+        )
+    if preview["order_no"] != confirmation.expected_order_no:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "订单号已被其他项目占用，主题预览已刷新，请重新确认",
+                "preview": preview,
+            },
+        )
+
+    if preview["project_type"] == "interpretation":
+        project, _created = ensure_interpretation_project_for_consultation(
+            db,
+            consultation,
+            created_by,
+            order_no=preview["order_no"],
+            project_name=preview["project_name"],
+            customer_order_no=preview["customer_order_no"],
+            email_subject_preview=preview["email_subject_preview"],
+        )
+        project.customer_order_no = preview["customer_order_no"]
+        db.flush()
+    else:
+        project = db.query(TranslationProject).filter(
+            TranslationProject.consultation_id == consultation.id
+        ).first()
+        if project:
+            project.project_name = preview["project_name"]
+            project.email_subject_preview = preview["email_subject_preview"]
+            if project.project_status in (None, "", "pending", "pending_confirmation"):
+                project.project_status = PROJECT_CONFIRMED_STATUS
+            db.flush()
+        else:
+            project_data = TranslationProjectCreate(
+                project_name=preview["project_name"],
+                task_type="笔译项目",
+                consultation_id=consultation.id,
+                client_id=consultation.client_id,
+                customer_reception_time=consultation.consultation_time,
+                project_status=PROJECT_CONFIRMED_STATUS,
+                email_subject_preview=preview["email_subject_preview"],
+                created_by=created_by,
+            )
+            project = create_translation_project(
+                db,
+                project_data,
+                commit=False,
+                order_no=preview["order_no"],
+            )
+    return project, preview
+
+
+def _attach_linked_project_ids(db: Session, consultation):
+    interpretation_project_id = db.query(InterpretationProject.id).filter(
+        InterpretationProject.consultation_id == consultation.id
+    ).scalar()
+    annotation_project_id = db.query(AnnotationProject.id).filter(
+        AnnotationProject.consultation_id == consultation.id
+    ).scalar()
+    recruitment_project_id = db.query(RecruitmentProject.id).filter(
+        RecruitmentProject.consultation_id == consultation.id
+    ).scalar()
+    consultation.interpretation_project_id = interpretation_project_id
+    consultation.annotation_project_id = annotation_project_id
+    consultation.recruitment_project_id = recruitment_project_id
+    return consultation
+
+
+@router.post(
+    "/confirmation-preview",
+    response_model=ConsultationConfirmationPreviewResponse,
+)
+def preview_consultation_confirmation(
+    payload: ConsultationConfirmationPreviewRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return _confirmation_preview_values(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/confirm",
+    response_model=ConsultationConfirmationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_confirmed_consultation(
+    body: CreateConfirmedConsultationRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        _confirmation_project_type(body.consultation.consultation_type)
+        confirmed_payload = body.consultation.model_copy(
+            update={"status": CONSULTATION_CONFIRMED_STATUS}
+        )
+        consultation = create_consultation(
+            db,
+            confirmed_payload,
+            commit=False,
+        )
+        project, preview = _confirm_consultation_project(
+            db, consultation, body.confirmation, current_user.id
+        )
+        db.commit()
+        saved = _attach_linked_project_ids(
+            db, get_consultation(db, consultation.id)
+        )
+        return {
+            "consultation": saved,
+            "project_type": preview["project_type"],
+            "project_id": project.id,
+            "order_no": project.order_no,
+            "email_subject_preview": preview["email_subject_preview"],
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.post(
+    "/{consultation_id}/confirm",
+    response_model=ConsultationConfirmationResponse,
+)
+def update_confirmed_consultation(
+    consultation_id: UUID,
+    body: UpdateConfirmedConsultationRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    existing = get_consultation(db, consultation_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="咨询记录不存在")
+    update_payload = body.consultation or ConsultationUpdate()
+    target_type = (
+        update_payload.consultation_type
+        if "consultation_type" in update_payload.model_fields_set
+        else existing.consultation_type
+    )
+    try:
+        _confirmation_project_type(target_type)
+        validate_consultation_project_type_change(db, consultation_id, target_type)
+        validate_consultation_annotation_type_change(db, consultation_id, target_type)
+        validate_consultation_recruitment_type_change(db, consultation_id, target_type)
+        confirmed_payload = update_payload.model_copy(
+            update={"status": CONSULTATION_CONFIRMED_STATUS}
+        )
+        consultation = update_consultation(
+            db,
+            consultation_id,
+            confirmed_payload,
+            commit=False,
+        )
+        project, preview = _confirm_consultation_project(
+            db, consultation, body.confirmation, current_user.id
+        )
+        db.commit()
+        saved = _attach_linked_project_ids(
+            db, get_consultation(db, consultation_id)
+        )
+        return {
+            "consultation": saved,
+            "project_type": preview["project_type"],
+            "project_id": project.id,
+            "order_no": project.order_no,
+            "email_subject_preview": preview["email_subject_preview"],
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception:
+        db.rollback()
+        raise
+
+
 @router.post("/", response_model=ConsultationResponse, status_code=status.HTTP_201_CREATED)
-def create_consultation_endpoint(consultation: ConsultationCreate, db: Session = Depends(get_db)):
-    return create_consultation(db=db, consultation=consultation)
+def create_consultation_endpoint(
+    consultation: ConsultationCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        db_consultation = create_consultation(
+            db=db, consultation=consultation, commit=False
+        )
+        if (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_interpretation_type(db_consultation.consultation_type)
+        ):
+            ensure_interpretation_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        elif (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_annotation_type(db_consultation.consultation_type)
+        ):
+            ensure_annotation_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        elif (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_recruitment_type(db_consultation.consultation_type)
+        ):
+            ensure_recruitment_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        db.commit()
+        return _attach_linked_project_ids(
+            db, get_consultation(db, db_consultation.id)
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/count")
@@ -126,15 +561,62 @@ def read_consultation(consultation_id: UUID, db: Session = Depends(get_db)):
     db_consultation = get_consultation(db, consultation_id=consultation_id)
     if not db_consultation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
-    return db_consultation
+    return _attach_linked_project_ids(db, db_consultation)
 
 
 @router.put("/{consultation_id}", response_model=ConsultationResponse)
-def update_consultation_endpoint(consultation_id: UUID, consultation_update: ConsultationUpdate, db: Session = Depends(get_db)):
-    db_consultation = update_consultation(db, consultation_id=consultation_id, consultation_update=consultation_update)
-    if not db_consultation:
+def update_consultation_endpoint(
+    consultation_id: UUID,
+    consultation_update: ConsultationUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    existing = get_consultation(db, consultation_id=consultation_id)
+    if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
-    return db_consultation
+    target_type = (
+        consultation_update.consultation_type
+        if "consultation_type" in consultation_update.model_fields_set
+        else existing.consultation_type
+    )
+    try:
+        validate_consultation_project_type_change(db, consultation_id, target_type)
+        validate_consultation_annotation_type_change(db, consultation_id, target_type)
+        validate_consultation_recruitment_type_change(db, consultation_id, target_type)
+        db_consultation = update_consultation(
+            db,
+            consultation_id=consultation_id,
+            consultation_update=consultation_update,
+            commit=False,
+        )
+        if (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_interpretation_type(db_consultation.consultation_type)
+        ):
+            ensure_interpretation_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        elif (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_annotation_type(db_consultation.consultation_type)
+        ):
+            ensure_annotation_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        elif (
+            db_consultation.status == CONSULTATION_CONFIRMED_STATUS
+            and is_recruitment_type(db_consultation.consultation_type)
+        ):
+            ensure_recruitment_project_for_consultation(
+                db, db_consultation, current_user.id
+            )
+        db.commit()
+        return _attach_linked_project_ids(
+            db, get_consultation(db, consultation_id)
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post("/{consultation_id}/create-project", response_model=TranslationProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -155,6 +637,18 @@ def create_project_from_consultation(
 
     if db_consultation.status != CONSULTATION_CONFIRMED_STATUS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有已确认的咨询才能生成项目详情")
+
+    if is_interpretation_type(db_consultation.consultation_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="口译咨询在确认时自动生成口译项目，无需再次生成",
+        )
+
+    if not is_translation_type(db_consultation.consultation_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该咨询类型不生成笔译项目，请使用对应的专用项目模块",
+        )
 
     existing_project = (
         db.query(TranslationProject)

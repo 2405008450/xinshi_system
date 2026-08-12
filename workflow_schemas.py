@@ -119,6 +119,8 @@ class MyTaskItem(BaseModel):
     sub_order_id: Optional[UUID] = None
     order_no: str
     project_name: str
+    task_type: Optional[str] = None
+    task_kind: str = 'workflow'
     sub_project_name: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None

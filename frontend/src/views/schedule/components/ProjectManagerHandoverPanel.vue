@@ -80,6 +80,7 @@
       :data="projects"
       border
       size="small"
+      max-height="460"
       class="workbench-data-table row-click-select-table"
       row-key="translation_project_id"
       @selection-change="selectedProjects = $event"

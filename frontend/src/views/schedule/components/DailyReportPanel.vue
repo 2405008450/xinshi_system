@@ -14,10 +14,10 @@
 
     <el-table v-loading="loading" :data="report.items" border size="small">
       <el-table-column type="index" label="序号" width="56" />
-      <el-table-column label="订单号" width="180" show-overflow-tooltip>
+      <el-table-column label="订单号" width="130" show-overflow-tooltip>
         <template #default="{ row }">{{ row.display_metadata?.order_no || '-' }}</template>
       </el-table-column>
-      <el-table-column label="项目 / 任务" min-width="220">
+      <el-table-column label="项目 / 任务" min-width="190">
         <template #default="{ row }">
           <div class="report-task">
             <el-input v-if="editable" v-model="row.task_name" size="small" />
@@ -33,28 +33,28 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="客户" width="130" show-overflow-tooltip>
+      <el-table-column label="客户" width="90" show-overflow-tooltip>
         <template #default="{ row }">{{ row.display_metadata?.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column label="任务类型" width="120">
+      <el-table-column label="任务类型" width="100">
         <template #default="{ row }">
           <el-input v-if="editable" v-model="row.task_type" size="small" />
           <span v-else>{{ row.task_type }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="工作进展" min-width="230">
+      <el-table-column label="工作进展" min-width="200">
         <template #default="{ row }">
           <el-input v-if="editable" v-model="row.progress_content" type="textarea" :rows="2" />
           <span v-else class="pre-wrap">{{ row.progress_content }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="工作成果" min-width="210">
+      <el-table-column label="工作成果" min-width="180">
         <template #default="{ row }">
           <el-input v-if="editable" v-model="row.result_content" type="textarea" :rows="2" />
           <span v-else class="pre-wrap">{{ row.result_content || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="耗时" width="220">
+      <el-table-column label="耗时" width="210">
         <template #default="{ row }">
           <div v-if="editable" class="duration-editor">
             <el-input-number
@@ -260,6 +260,6 @@ onMounted(() => loadReport(false))
 .report-task__name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .report-task__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--el-text-color-secondary); font-size: 12px; }
 .duration-editor { display: flex; align-items: center; gap: 6px; }
-.duration-editor :deep(.el-input-number) { width: 125px; }
-.duration-unit { width: 76px; }
+.duration-editor :deep(.el-input-number) { width: 108px; }
+.duration-unit { width: 68px; }
 </style>

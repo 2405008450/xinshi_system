@@ -1292,7 +1292,10 @@ def _sync_project_name_with_sub_order_count(
             joinedload(TranslationProject.client),
             joinedload(TranslationProject.sub_client),
         )
-        .filter(TranslationProject.id == project_id)
+        .filter(
+            TranslationProject.id == project_id,
+            TranslationProject.annotation_migrated_at.is_(None),
+        )
         .first()
     )
     if not project:
@@ -1331,7 +1334,10 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
             selectinload(TranslationProject.project_file),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
         )
-        .filter(TranslationProject.id == project_id)
+        .filter(
+            TranslationProject.id == project_id,
+            TranslationProject.annotation_migrated_at.is_(None),
+        )
         .first()
     )
     if not project:
@@ -1355,7 +1361,10 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
             selectinload(TranslationProject.project_file),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
         )
-        .filter(TranslationProject.order_no == order_no)
+        .filter(
+            TranslationProject.order_no == order_no,
+            TranslationProject.annotation_migrated_at.is_(None),
+        )
         .first()
     )
     if not project:
@@ -1391,6 +1400,7 @@ def get_translation_projects(
         )
         .outerjoin(Client, TranslationProject.client_id == Client.id)
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
+        .filter(TranslationProject.annotation_migrated_at.is_(None))
     )
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
@@ -1485,6 +1495,7 @@ def count_translation_projects(
         db.query(TranslationProject.id)
         .outerjoin(Client, TranslationProject.client_id == Client.id)
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
+        .filter(TranslationProject.annotation_migrated_at.is_(None))
     )
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
@@ -1505,8 +1516,14 @@ def count_translation_projects(
     return query.count()
 
 
-def create_translation_project(db: Session, project: TranslationProjectCreate) -> TranslationProject:
-    order_no = generate_order_no(db)
+def create_translation_project(
+    db: Session,
+    project: TranslationProjectCreate,
+    *,
+    commit: bool = True,
+    order_no: Optional[str] = None,
+) -> TranslationProject:
+    order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'
@@ -1560,7 +1577,10 @@ def create_translation_project(db: Session, project: TranslationProjectCreate) -
 
     # 项目与初始工作流必须处于同一个事务中，避免接口失败但项目已单独落库。
     init_workflow(db, db_project.id, commit=False)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_translation_project(db, db_project.id)
 
 
@@ -2128,13 +2148,20 @@ def generate_consultation_code(db: Session) -> str:
 
 
 def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultation]:
-    result = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id).filter(Consultation.id == consultation_id).first()
+    result = db.query(
+        Consultation,
+        Client.client_code,
+        Client.client_name,
+        Client.client_short_name,
+        Client.manager_contact,
+    ).outerjoin(Client, Consultation.client_id == Client.id).filter(Consultation.id == consultation_id).first()
     if not result:
         return None
-    consultation, client_code, client_name, client_short_name = result
+    consultation, client_code, client_name, client_short_name, manager_contact = result
     consultation.client_code = client_code
     consultation.client_name = client_name
     consultation.client_short_name = client_short_name
+    consultation.manager_contact = manager_contact
     return consultation
 
 
@@ -2222,7 +2249,13 @@ def get_consultations(
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
 ) -> List[Consultation]:
-    query = db.query(Consultation, Client.client_code, Client.client_name, Client.client_short_name).outerjoin(Client, Consultation.client_id == Client.id)
+    query = db.query(
+        Consultation,
+        Client.client_code,
+        Client.client_name,
+        Client.client_short_name,
+        Client.manager_contact,
+    ).outerjoin(Client, Consultation.client_id == Client.id)
     query = _apply_consultation_filters(
         query,
         consultation_code=consultation_code,
@@ -2242,10 +2275,11 @@ def get_consultations(
     results = query.order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
     
     consultations = []
-    for consultation, client_code, db_client_name, client_short_name in results:
+    for consultation, client_code, db_client_name, client_short_name, manager_contact in results:
         consultation.client_code = client_code
         consultation.client_name = db_client_name
         consultation.client_short_name = client_short_name
+        consultation.manager_contact = manager_contact
         consultations.append(consultation)
     return consultations
 
@@ -2284,7 +2318,12 @@ def count_consultations(
     return query.count()
 
 
-def create_consultation(db: Session, consultation: ConsultationCreate) -> Consultation:
+def create_consultation(
+    db: Session,
+    consultation: ConsultationCreate,
+    *,
+    commit: bool = True,
+) -> Consultation:
     consultation_code = generate_consultation_code(db)
 
     consultation_data = consultation.model_dump(exclude={
@@ -2292,6 +2331,7 @@ def create_consultation(db: Session, consultation: ConsultationCreate) -> Consul
         'client_code',
         'client_name',
         'client_short_name',
+        'manager_contact',
     })
     if not consultation_data.get('client_id') and (consultation.client_short_name or '').strip():
         client_id, _sub_client_id, _created = _resolve_or_create_project_client(
@@ -2302,22 +2342,37 @@ def create_consultation(db: Session, consultation: ConsultationCreate) -> Consul
         )
         consultation_data['client_id'] = client_id
 
+    # 负责人联系方式属于关联客户资料；咨询表单仅提供就地编辑入口，不重复落库。
+    if 'manager_contact' in consultation.model_fields_set and consultation_data.get('client_id'):
+        client = db.query(Client).filter(Client.id == consultation_data['client_id']).first()
+        if client:
+            client.manager_contact = (consultation.manager_contact or '').strip() or None
+
     db_consultation = Consultation(
         consultation_code=consultation_code,
         **consultation_data,
     )
     db.add(db_consultation)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_consultation(db, db_consultation.id)
 
 
-def update_consultation(db: Session, consultation_id: UUID, consultation_update: ConsultationUpdate) -> Optional[Consultation]:
+def update_consultation(
+    db: Session,
+    consultation_id: UUID,
+    consultation_update: ConsultationUpdate,
+    *,
+    commit: bool = True,
+) -> Optional[Consultation]:
     db_consultation = get_consultation(db, consultation_id)
     if not db_consultation:
         return None
     update_data = consultation_update.model_dump(
         exclude_unset=True,
-        exclude={'client_code', 'client_name', 'client_short_name'},
+        exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact'},
     )
     has_client_input = bool(
         (consultation_update.client_short_name or '').strip()
@@ -2333,11 +2388,22 @@ def update_consultation(db: Session, consultation_id: UUID, consultation_update:
         if client_id:
             update_data['client_id'] = client_id
 
+    # 只在请求明确携带该字段时同步客户资料，避免列表内联更新状态时误清空联系方式。
+    if 'manager_contact' in consultation_update.model_fields_set:
+        target_client_id = update_data.get('client_id', db_consultation.client_id)
+        if target_client_id:
+            client = db.query(Client).filter(Client.id == target_client_id).first()
+            if client:
+                client.manager_contact = (consultation_update.manager_contact or '').strip() or None
+
     for field, value in update_data.items():
         setattr(db_consultation, field, value)
     # updated_at 的数据库默认值只在新增时生效，编辑时使用服务器时间主动刷新。
     db_consultation.updated_at = datetime.now()
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_consultation(db, consultation_id)
 
 

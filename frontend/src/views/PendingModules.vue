@@ -45,9 +45,7 @@ const moduleGroups = [
     title: '项目类型',
     items: [
       { name: '项目流程', path: '/translation', description: '功能持续完善中', permission: 'projects:read' },
-      { name: '口译项目管理', path: '/interpretation', description: '模拟表单' },
       { name: '标注项目管理', path: '/annotation', description: '模拟表单' },
-      { name: '招聘项目管理', path: '/recruitment', description: '模拟表单' },
       { name: '其他项目管理', path: '/other', description: '模拟表单' },
     ],
   },

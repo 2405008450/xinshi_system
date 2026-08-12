@@ -121,7 +121,10 @@ export function canAccessRoute(route) {
  */
 export const TRANSLATION_PROJECT_PATHS = [
   '/translation',
-  '/translation-details'
+  '/translation-details',
+  '/interpretation-details',
+  '/annotation-details',
+  '/recruitment-details'
 ]
 
 /** 排班管理编辑权限：仅项目经理与超级管理员可以编辑 */
