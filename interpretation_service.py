@@ -283,31 +283,18 @@ def _resolve_client(db: Session, data: dict) -> None:
             raise ValueError("所选客户不存在")
         return
 
-    short_name = (data.pop("client_short_name", None) or "").strip()
-    client_name = (data.pop("client_name", None) or "").strip()
-    client_code = (data.pop("client_code", None) or "").strip()
-    if not short_name:
-        return
-    lowered = short_name.lower()
-    client = db.query(Client).filter(func.lower(func.trim(Client.client_short_name)) == lowered).first()
-    if client:
-        data["client_id"] = client.id
-        return
-    sub_client = db.query(SubClient).filter(func.lower(func.trim(SubClient.client_short_name)) == lowered).first()
-    if sub_client:
-        data["client_id"] = sub_client.parent_client_id
-        data["sub_client_id"] = sub_client.id
-        return
-    from crud import generate_client_code
-    new_client = Client(
-        client_code=client_code or generate_client_code(db),
-        client_name=client_name or short_name,
-        client_short_name=short_name,
-        client_status="pending",
+    from crud import _resolve_or_create_project_client
+
+    client_id, sub_client_id, _created = _resolve_or_create_project_client(
+        db,
+        data.get("client_short_name"),
+        data.get("client_code"),
+        data.get("client_name"),
     )
-    db.add(new_client)
-    db.flush()
-    data["client_id"] = new_client.id
+    if client_id:
+        data["client_id"] = client_id
+    if sub_client_id:
+        data["sub_client_id"] = sub_client_id
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}

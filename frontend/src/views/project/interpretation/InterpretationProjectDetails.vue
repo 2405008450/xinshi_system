@@ -309,11 +309,20 @@
     <el-dialog
       v-model="dialogVisible"
       class="interpretation-editor-dialog"
-      :title="dialogTitle"
       width="min(1080px, calc(100vw - 32px))"
       top="5vh"
       @closed="resetForm"
     >
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="dialogTitle"
+          :fetch-suggestions="fetchFieldSuggestions"
+          @select="locateDialogField"
+          @clear="clearFieldSearch"
+        />
+      </template>
       <div ref="dialogBodyRef" class="editor-body">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
           <section class="form-section">
@@ -361,31 +370,42 @@
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
-                <el-form-item label="关联客户">
-                  <el-select v-model="form.clientId" filterable clearable style="width: 100%" placeholder="选择已有客户，或在下方录入新客户" @change="handleClientChange">
-                    <el-option v-for="item in clients" :key="item.id" :label="`${item.client_short_name} · ${item.client_name}`" :value="item.id" />
-                  </el-select>
+                <el-form-item label="客户简称" data-field-key="clientShortName">
+                  <div class="client-autocomplete-field">
+                    <el-autocomplete
+                      v-model="form.clientShortName"
+                      :fetch-suggestions="fetchClientSuggestions"
+                      value-key="client_short_name"
+                      clearable
+                      :debounce="300"
+                      :trigger-on-focus="true"
+                      style="width: 100%"
+                      @select="handleClientSelect"
+                      @input="handleClientShortNameInput"
+                      @clear="clearSelectedClient"
+                    >
+                      <template #default="{ item }">
+                        <div class="client-suggestion">
+                          <span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span>
+                          <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
+                        </div>
+                      </template>
+                    </el-autocomplete>
+                    <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                  </div>
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-input v-model="form.currentClientManager" disabled /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="6"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="6"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="6"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="6"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" disabled placeholder="由客户信息自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" disabled /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8">
-                <el-form-item label="子客户">
-                  <el-select v-model="form.subClientId" clearable filterable style="width: 100%" @change="handleSubClientChange">
-                    <el-option v-for="item in selectedClientSubClients" :key="item.id" :label="item.client_short_name" :value="item.id" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
               <el-col :xs="24" :md="8"><el-form-item label="联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" disabled placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" disabled /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item></el-col>
@@ -546,14 +566,17 @@ import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
+import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 
 const canWrite = hasPermission('projects:write')
 const loading = ref(false)
@@ -567,6 +590,13 @@ const languageManagerLoading = ref(false)
 const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
 const dialogBodyRef = ref(null)
+const {
+  fieldSearchRef,
+  fieldSearchKeyword,
+  fetchFieldSuggestions,
+  locateDialogField,
+  clearFieldSearch,
+} = useDialogFieldSearch(dialogBodyRef)
 const tableData = ref([])
 const clients = ref([])
 const translators = ref([])
@@ -666,9 +696,6 @@ const selectableLanguages = computed(() => languages.value.filter(
   (item) => item.isActive !== false || selectedLanguageIds.value.has(item.id)
 ))
 
-const selectedClient = computed(() => clients.value.find((item) => item.id === form.clientId))
-const selectedClientSubClients = computed(() => selectedClient.value?.sub_clients || [])
-
 const statusLabel = (value) => statusMap[value] || value || '-'
 const statusType = (value) => ({ initial_follow_up: 'warning', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
@@ -766,45 +793,36 @@ const loadDetail = async (id, force = false) => {
 }
 const detailRow = (row) => detailCache[row.id] || row
 
-const handleClientChange = (id) => {
-  const client = clients.value.find((item) => item.id === id)
-  form.subClientId = ''
-  if (!client) {
-    form.clientShortName = ''
-    form.clientFullName = ''
-    form.clientCode = ''
-    form.clientDomain = ''
-    form.currentClientManager = ''
-    form.managerContact = ''
-    return
-  }
+const fetchClientSuggestions = fetchProjectClientSuggestions
+const handleClientSelect = (client) => {
+  form.clientId = client.parent_client_id || client.id || ''
+  form.subClientId = client.sub_client_id || ''
   form.clientShortName = client.client_short_name || ''
   form.clientFullName = client.client_name || ''
   form.clientCode = client.client_code || ''
-  form.clientDomain = [client.field_level1, client.field_level2].filter(Boolean).join(' / ')
+  form.clientDomain = client.client_domain || ''
   form.currentClientManager = client.client_manager || ''
   form.managerContact = client.manager_contact || ''
 }
-const handleSubClientChange = (id) => {
-  const subClient = selectedClientSubClients.value.find((item) => item.id === id)
-  if (!subClient) {
-    const client = selectedClient.value
-    if (client) {
-      form.clientShortName = client.client_short_name || ''
-      form.clientFullName = client.client_name || ''
-      form.clientCode = client.client_code || ''
-      form.clientDomain = [client.field_level1, client.field_level2].filter(Boolean).join(' / ')
-      form.currentClientManager = client.client_manager || ''
-      form.managerContact = client.manager_contact || ''
-    }
-    return
-  }
-  form.clientShortName = subClient.client_short_name || ''
-  form.clientFullName = subClient.client_name || ''
-  form.clientCode = subClient.sub_client_code || ''
-  form.clientDomain = [subClient.field_level1, subClient.field_level2].filter(Boolean).join(' / ')
-  form.currentClientManager = subClient.client_manager || ''
-  form.managerContact = subClient.manager_contact || selectedClient.value?.manager_contact || ''
+const handleClientShortNameInput = () => {
+  const hadSelectedClient = Boolean(form.clientId || form.subClientId)
+  form.clientId = ''
+  form.subClientId = ''
+  form.clientCode = ''
+  form.clientDomain = ''
+  form.currentClientManager = ''
+  form.managerContact = ''
+  if (hadSelectedClient) form.clientFullName = ''
+}
+const clearSelectedClient = () => {
+  form.clientId = ''
+  form.subClientId = ''
+  form.clientShortName = ''
+  form.clientFullName = ''
+  form.clientCode = ''
+  form.clientDomain = ''
+  form.currentClientManager = ''
+  form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
 const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '' })
@@ -1084,7 +1102,7 @@ const handleDelete = async (row) => {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '删除失败')
   }
 }
-const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate() }
+const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate(); clearFieldSearch() }
 
 watch(
   () => [form.projectTypes, form.locations, form.timeRanges, form.languageDirections],
@@ -1114,6 +1132,10 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 </script>
 
 <style scoped>
+.client-autocomplete-field { width: 100%; }
+.client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.client-suggestion { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; line-height: 1.45; }
+.client-suggestion__meta { overflow: hidden; color: var(--el-text-color-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .card-header, .header-actions, .advanced-header, .section-title-row, .repeat-title, .order-cell, .direction-row { display: flex; align-items: center; }
 .card-header, .advanced-header, .section-title-row, .repeat-title { justify-content: space-between; }
 .header-actions { display: flex; gap: 8px; }

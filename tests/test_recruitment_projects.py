@@ -6,7 +6,7 @@ import pytest
 
 from annotation_models import AnnotationProject
 from interpretation_models import InterpretationProject
-from models import AppUser, Client, TranslationProject
+from models import AppUser, Client, SubClient, TranslationProject
 from recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateCommunication,
@@ -25,6 +25,7 @@ from recruitment_schemas import (
     RecruitmentResumeSourceCreate,
 )
 from recruitment_service import (
+    _resolve_client as resolve_recruitment_client,
     _sync_candidate_interviews,
     build_recruitment_project_name,
     create_candidate_communication,
@@ -34,6 +35,9 @@ from recruitment_service import (
     patch_candidate,
     update_recruitment_project_status,
 )
+from annotation_service import _resolve_client as resolve_annotation_client
+from crud import _resolve_or_create_project_client
+from interpretation_service import _resolve_client as resolve_interpretation_client
 
 
 class OrderQuery:
@@ -98,6 +102,85 @@ def test_payload_normalizes_headcount_and_anytime_date_rules():
     assert payload.target_onboard_date is None
     with pytest.raises(ValueError, match="上限不能小于下限"):
         RecruitmentProjectCreate(headcount_min=5, headcount_max=4)
+
+
+def test_recruitment_payload_accepts_manual_client_fields():
+    payload = RecruitmentProjectCreate(
+        client_short_name="  新客户  ",
+        client_name="  新客户有限公司  ",
+        client_code="  TEMP-001  ",
+    )
+
+    assert payload.client_short_name == "新客户"
+    assert payload.client_name == "新客户有限公司"
+    assert payload.client_code == "TEMP-001"
+
+
+class MissingClientQuery:
+    def filter(self, *_args):
+        return self
+
+    def order_by(self, *_args):
+        return self
+
+    def first(self):
+        return None
+
+
+class MissingClientDb:
+    def __init__(self):
+        self.added = None
+
+    def query(self, target):
+        assert target in {Client, SubClient}
+        return MissingClientQuery()
+
+    def add(self, value):
+        self.added = value
+
+    def flush(self):
+        self.added.id = uuid4()
+
+
+def test_translation_client_resolver_creates_pending_client_for_new_short_name(monkeypatch):
+    db = MissingClientDb()
+    monkeypatch.setattr("crud.generate_client_code", lambda _db: "C000001")
+
+    client_id, sub_client_id, created = _resolve_or_create_project_client(
+        db, "  新增简称  ", client_name="  新增客户全称  "
+    )
+
+    assert created is True
+    assert client_id == db.added.id
+    assert sub_client_id is None
+    assert db.added.client_short_name == "新增简称"
+    assert db.added.client_name == "新增客户全称"
+    assert db.added.client_code == "C000001"
+    assert db.added.client_status == "pending"
+
+
+@pytest.mark.parametrize(
+    "resolver",
+    [resolve_interpretation_client, resolve_annotation_client, resolve_recruitment_client],
+)
+def test_three_project_resolvers_reuse_translation_client_logic(monkeypatch, resolver):
+    parent_id, sub_client_id = uuid4(), uuid4()
+    monkeypatch.setattr(
+        "crud._resolve_or_create_project_client",
+        lambda *_args: (parent_id, sub_client_id, False),
+    )
+    data = {
+        "client_id": None,
+        "sub_client_id": None,
+        "client_short_name": "已有子客户",
+        "client_name": None,
+        "client_code": None,
+    }
+
+    resolver(SimpleNamespace(), data)
+
+    assert data["client_id"] == parent_id
+    assert data["sub_client_id"] == sub_client_id
 
 
 def test_project_status_patch_validates_supported_status():

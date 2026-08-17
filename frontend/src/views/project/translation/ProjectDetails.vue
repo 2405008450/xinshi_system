@@ -271,31 +271,14 @@
       @closed="onProjectDialogClosed"
     >
       <template #header>
-        <div class="project-dialog-header">
-          <span class="project-dialog-header__title">{{ dialogTitle }}</span>
-          <el-autocomplete
-            ref="fieldSearchRef"
-            v-model="fieldSearchKeyword"
-            class="project-field-search"
-            :fetch-suggestions="fetchFieldSuggestions"
-            value-key="label"
-            :trigger-on-focus="false"
-            clearable
-            placeholder="搜索字段，如客户交稿时间"
-            popper-class="project-field-search-popper"
-            aria-label="搜索项目表单字段"
-            @select="locateProjectField"
-            @clear="clearFieldSearch"
-            @keyup.esc.stop="clearFieldSearch"
-          >
-            <template #default="{ item }">
-              <div class="project-field-search-option">
-                <span>{{ item.label }}</span>
-                <span class="project-field-search-option__location">{{ item.location }}</span>
-              </div>
-            </template>
-          </el-autocomplete>
-        </div>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="dialogTitle"
+          :fetch-suggestions="fetchFieldSuggestions"
+          @select="locateProjectField"
+          @clear="clearFieldSearch"
+        />
       </template>
       <div ref="editorBodyRef" class="editor-body">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
@@ -836,15 +819,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, MagicStick } from '@element-plus/icons-vue'
 import { getProjects, getProjectCount, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
-import { getClients } from '@/api/clients'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
 import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
+import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -1479,45 +1463,7 @@ const loadProjectRoleOptions = async () => {
   }
 }
 
-const fetchClientSuggestions = async (queryString, callback) => {
-  const keyword = String(queryString || '').trim()
-  try {
-    const clients = await getClients({
-      skip: 0,
-      limit: 20,
-      client_short_name: keyword || undefined,
-      frequent_first: true
-    })
-    const options = (Array.isArray(clients) ? clients : []).flatMap((client) => {
-      const parentOption = {
-        id: client.id,
-        parent_client_id: client.id,
-        sub_client_id: null,
-        client_short_name: client.client_short_name || '',
-        client_code: client.client_code || '',
-        client_name: client.client_name || '',
-        client_manager: client.client_manager || '',
-        manager_contact: client.manager_contact || '',
-        parent_client_short_name: ''
-      }
-      const subClientOptions = (Array.isArray(client.sub_clients) ? client.sub_clients : []).map((subClient) => ({
-        id: subClient.id,
-        parent_client_id: client.id,
-        sub_client_id: subClient.id,
-        client_short_name: subClient.client_short_name || '',
-        client_code: subClient.sub_client_code || '',
-        client_name: subClient.client_name || '',
-        client_manager: subClient.client_manager || client.client_manager || '',
-        manager_contact: subClient.manager_contact || client.manager_contact || '',
-        parent_client_short_name: client.client_short_name || ''
-      }))
-      return [parentOption, ...subClientOptions]
-    })
-    callback(options)
-  } catch {
-    callback([])
-  }
-}
+const fetchClientSuggestions = fetchProjectClientSuggestions
 const handleClientSelect = (client) => {
   form.clientId = client.parent_client_id || client.id || ''
   form.subClientId = client.sub_client_id || ''
@@ -1919,14 +1865,6 @@ onBeforeUnmount(() => {
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
 :global(.project-editor-dialog .el-dialog__body) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.project-dialog-header { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: 16px; padding-right: 36px; }
-.project-dialog-header__title { flex: 0 1 auto; overflow: hidden; color: var(--el-text-color-primary); font-size: var(--el-dialog-title-font-size); line-height: var(--el-dialog-font-line-height); text-overflow: ellipsis; white-space: nowrap; }
-.project-field-search { flex: 0 1 340px; width: 340px; max-width: 100%; }
-.project-field-search-option { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: 20px; }
-.project-field-search-option > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-field-search-option__location { flex-shrink: 0; color: var(--el-text-color-secondary); font-size: 12px; }
-:global(.project-field-search-popper) { max-width: calc(100vw - 32px); }
-:global(.project-field-search-popper .el-autocomplete-suggestion li) { height: auto; min-height: 34px; line-height: 1.4; }
 :global(.is-field-search-highlight) {
   outline: 2px solid var(--el-color-warning);
   outline-offset: 3px;
@@ -1965,10 +1903,6 @@ onBeforeUnmount(() => {
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {
-  .project-dialog-header { align-items: stretch; flex-direction: column; gap: 10px; }
-  .project-dialog-header__title { padding-right: 4px; }
-  .project-field-search { flex-basis: auto; width: 100%; }
-
   .search-form :deep(.el-form-item),
   .search-form :deep(.el-form-item__content),
   .search-form :deep(.el-input),

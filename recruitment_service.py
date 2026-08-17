@@ -42,6 +42,7 @@ RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
 NESTED_FIELDS = {"language_directions"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
 
 
 def is_recruitment_type(value: Optional[str]) -> bool:
@@ -187,8 +188,24 @@ def _resolve_client(db: Session, data: dict) -> None:
         if client_id and sub_client.parent_client_id != client_id:
             raise ValueError("所选子客户不属于当前客户")
         data["client_id"] = sub_client.parent_client_id
-    elif client_id and not db.query(Client.id).filter(Client.id == client_id).first():
-        raise ValueError("所选客户不存在")
+        return
+    if client_id:
+        if not db.query(Client.id).filter(Client.id == client_id).first():
+            raise ValueError("所选客户不存在")
+        return
+
+    from crud import _resolve_or_create_project_client
+
+    client_id, sub_client_id, _created = _resolve_or_create_project_client(
+        db,
+        data.get("client_short_name"),
+        data.get("client_code"),
+        data.get("client_name"),
+    )
+    if client_id:
+        data["client_id"] = client_id
+    if sub_client_id:
+        data["sub_client_id"] = sub_client_id
 
 
 def _unique_active_user_by_name(db: Session, name: Optional[str]) -> Optional[AppUser]:
@@ -276,6 +293,8 @@ def create_recruitment_project(
 ) -> RecruitmentProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     _resolve_client(db, data)
+    for key in WRITE_ONLY_CLIENT_FIELDS:
+        data.pop(key, None)
     _set_client_manager(db, data)
     project = RecruitmentProject(order_no=generate_recruitment_order_no(db), created_by=created_by, **data)
     db.add(project)
@@ -297,6 +316,8 @@ def update_recruitment_project(
     # 来源咨询一经建项即不可通过普通编辑解绑或换绑。
     data.pop("consultation_id", None)
     _resolve_client(db, data)
+    for key in WRITE_ONLY_CLIENT_FIELDS:
+        data.pop(key, None)
     _set_client_manager(db, data, existing=project)
     for key, value in data.items():
         setattr(project, key, value)

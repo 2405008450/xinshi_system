@@ -113,10 +113,15 @@
 
     <el-dialog v-model="editorVisible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="resetForm">
       <template #header>
-        <div class="editor-dialog-heading">
-          <span class="editor-dialog-title">{{ editorTitle }}</span>
-          <span class="editor-dialog-subtitle">集中维护职位、客户、招聘要求和项目资料</span>
-        </div>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="editorTitle"
+          subtitle="集中维护职位、客户、招聘要求和项目资料"
+          :fetch-suggestions="fetchFieldSuggestions"
+          @select="locateDialogField"
+          @clear="clearFieldSearch"
+        />
       </template>
       <div ref="editorBodyRef" class="editor-body">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
@@ -143,22 +148,35 @@
 
           <div class="form-section"><h3>客户信息</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户"><el-select v-model="form.clientSelection" filterable clearable style="width:100%" @change="selectClient"><el-option v-for="item in clientOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="客户简称" data-field-key="clientShortName">
+                  <div class="client-autocomplete-field">
+                    <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
+                      <template #default="{ item }">
+                        <div class="client-suggestion">
+                          <span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span>
+                          <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
+                        </div>
+                      </template>
+                    </el-autocomplete>
+                    <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                  </div>
+                </el-form-item>
+              </el-col>
               <el-col :xs="24" :md="12"><el-form-item label="子客户/联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户编号"><el-input v-model="form.clientCode" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :readonly="!!form.clientId" :class="{ 'readonly-input': !!form.clientId }" placeholder="新客户不填则自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户全称"><el-input v-model="form.clientName" :readonly="!!form.clientId" :class="{ 'readonly-input': !!form.clientId }" placeholder="新客户可补充全称" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户全称"><el-input v-model="form.clientName" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="user in managerUserOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" :disabled="!user.is_active" /></el-select></el-form-item></el-col>
             </el-row>
-            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="user in managerUserOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" :disabled="!user.is_active" /></el-select></el-form-item></el-col></el-row>
           </div>
 
           <div class="form-section"><h3>招聘要求</h3>
@@ -284,14 +302,17 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
+import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { getClients } from '@/api/clients'
 import { getUsers } from '@/api/users'
 import { getRecruitmentTalents } from '@/api/talents'
@@ -454,6 +475,7 @@ const handleSizeChange = () => { pagination.page=1; fetchData() }
 
 const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[]})
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 let autoNameTimer=null; let namePreviewRequestId=0
 const rules = { projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}] }
 const resolveManagerByName = (name) => {
@@ -462,21 +484,30 @@ const resolveManagerByName = (name) => {
   const fallback = activeUsers.value.filter((user) => userLabel(user) === '欧阳靖琳')
   return fallback.length === 1 ? fallback[0].id : ''
 }
-const selectClient = (value) => {
-  const item=clientOptions.value.find((option)=>option.value===value)
+const fetchClientSuggestions = fetchProjectClientSuggestions
+const handleClientSelect = (item) => {
   Object.assign(form, {
-    clientId:item?.clientId||'',subClientId:item?.subClientId||'',
-    clientShortName:item?.clientShortName||'',clientCode:item?.clientCode||'',
-    clientName:item?.clientName||'',clientDomain:item?.clientDomain||'',
-    managerContact:item?.managerContact||'',
-    clientManagerId:item ? resolveManagerByName(item.clientManager) : '',
+    clientId:item?.parent_client_id||item?.id||'',subClientId:item?.sub_client_id||'',
+    clientShortName:item?.client_short_name||'',clientCode:item?.client_code||'',
+    clientName:item?.client_name||'',clientDomain:item?.client_domain||'',
+    managerContact:item?.manager_contact||'',
+    clientManagerId:item ? resolveManagerByName(item.client_manager) : '',
   })
 }
-const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate() }
+const handleClientShortNameInput = () => {
+  const hadSelectedClient=Boolean(form.clientId||form.subClientId)
+  Object.assign(form,{clientId:'',subClientId:'',clientCode:'',clientDomain:'',managerContact:''})
+  if(hadSelectedClient)form.clientName=''
+  if(hadSelectedClient)form.clientManagerId=resolveManagerByName('')
+}
+const clearSelectedClient = () => {
+  Object.assign(form,{clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:'',clientManagerId:resolveManagerByName('')})
+}
+const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate(); clearFieldSearch() }
 const openAdd = () => { resetForm(); const defaultManager=activeUsers.value.filter((item)=>userLabel(item)==='欧阳靖琳'); if(defaultManager.length===1)form.clientManagerId=defaultManager[0].id; editorVisible.value=true }
 const openEdit = async (row) => { try { const item=await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||''}); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; loadCandidates() } catch(error){ElMessage.error(error?.response?.data?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
-const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
+const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
 const projectNamePayload = () => ({
   employmentStart: form.employmentRange?.[0] || null,
   employmentEnd: form.employmentRange?.[1] || null,
@@ -586,6 +617,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 </script>
 
 <style scoped>
+.client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;min-height:32px;padding:5px 0;white-space:normal;text-align:left;line-height:1.45;align-items:flex-start}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
 .wrap-link :deep(span){line-height:1.45}
 .candidate-count-link{gap:2px}

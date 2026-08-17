@@ -210,7 +210,17 @@
 
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @size-change="fetchData" @current-change="fetchData" />
 
-    <el-dialog v-model="dialogVisible" class="annotation-editor-dialog" :title="dialogTitle" width="min(1080px, calc(100vw - 32px))" top="5vh" @closed="resetForm">
+    <el-dialog v-model="dialogVisible" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" @closed="resetForm">
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="dialogTitle"
+          :fetch-suggestions="fetchFieldSuggestions"
+          @select="locateDialogField"
+          @clear="clearFieldSearch"
+        />
+      </template>
       <div ref="dialogBodyRef" class="editor-body">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="125px">
           <section class="form-section">
@@ -228,15 +238,24 @@
             </el-row>
             <el-form-item label="具体任务"><el-input v-model="form.taskDescription" type="textarea" :rows="3" /></el-form-item>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="关联客户"><el-select v-model="form.clientId" filterable clearable style="width:100%" placeholder="选择已有客户，或在下方录入新客户" @change="handleClientChange"><el-option v-for="item in clients" :key="item.id" :label="`${item.client_short_name} · ${item.client_name}`" :value="item.id" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="子客户"><el-select v-model="form.subClientId" filterable clearable style="width:100%" @change="handleSubClientChange"><el-option v-for="item in selectedClientSubClients" :key="item.id" :label="item.client_short_name" :value="item.id" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="客户简称" data-field-key="clientShortName">
+                  <div class="client-autocomplete-field">
+                    <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
+                      <template #default="{ item }">
+                        <div class="client-suggestion">
+                          <span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span>
+                          <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
+                        </div>
+                      </template>
+                    </el-autocomplete>
+                    <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" placeholder="新客户不填则自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" placeholder="新客户可补充全称" /></el-form-item></el-col>
             </el-row>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" :disabled="!!form.clientId" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" /></el-form-item></el-col>
-            </el-row>
-            <el-alert v-if="form.clientId" class="client-source-tip" type="info" :closable="false" show-icon title="客户简称、编号和全称来自客户档案；如需修改，请前往“客户信息”。" />
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="联系人"><el-input v-model="form.contactName" placeholder="填写联系人姓名或联系方式" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
@@ -331,14 +350,17 @@ import * as talentApi from '@/api/talents'
 import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { hasPermission } from '@/utils/permission'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
+import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 
 const canWrite = hasPermission('projects:write')
 const projectTypeOptions = [
@@ -360,6 +382,7 @@ const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisib
 
 const loading=ref(false), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null)
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([])
 const projectStatusSavingIds=ref(new Set())
 const detailCache=reactive({}), pagination=reactive({page:1,limit:10,total:0})
@@ -372,8 +395,6 @@ const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescri
 const form=reactive(emptyForm())
 const rules={projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}]}
 const activeUsers=computed(()=>users.value.filter((item)=>item.is_active ?? item.isActive ?? true))
-const selectedClient=computed(()=>clients.value.find((item)=>item.id===form.clientId))
-const selectedClientSubClients=computed(()=>selectedClient.value?.sub_clients||[])
 const filterClientOptions=computed(()=>clients.value.flatMap((client)=>[{value:`client:${client.id}`,label:client.client_short_name||client.client_name},...((client.sub_clients||[]).map((sub)=>({value:`sub:${sub.id}`,label:`${client.client_short_name||client.client_name} / ${sub.client_short_name||sub.client_name}`})))]))
 const selectedProjectTypeOptions=computed(()=>projectTypeOptions.filter((item)=>form.projectTypes.includes(item.value)))
 const currentLanguageOptions=computed(()=>form.languageItems.filter((item)=>item.sourceLanguageId && (item.mode==='single'||item.targetLanguageId)).map((item)=>({key:`${item.sourceLanguageId}:${item.mode==='direction'?item.targetLanguageId:''}`,label:languageItemLabel(item)})))
@@ -401,8 +422,10 @@ const resetSearch=()=>{Object.assign(searchForm,{keyword:'',projectStatus:'',pro
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 
-const handleClientChange=(id)=>{const client=clients.value.find((item)=>item.id===id);form.subClientId='';if(!client){form.clientShortName='';form.clientFullName='';form.clientCode='';form.managerContact='';return}form.clientShortName=client.client_short_name||'';form.clientFullName=client.client_name||'';form.clientCode=client.client_code||'';form.managerContact=client.manager_contact||''}
-const handleSubClientChange=(id)=>{const subClient=selectedClientSubClients.value.find((item)=>item.id===id);if(subClient){form.clientShortName=subClient.client_short_name||'';form.clientFullName=subClient.client_name||'';form.clientCode=subClient.sub_client_code||'';form.managerContact=subClient.manager_contact||selectedClient.value?.manager_contact||''}else if(form.clientId){handleClientChange(form.clientId)}}
+const fetchClientSuggestions=fetchProjectClientSuggestions
+const handleClientSelect=(client)=>{form.clientId=client.parent_client_id||client.id||'';form.subClientId=client.sub_client_id||'';form.clientShortName=client.client_short_name||'';form.clientFullName=client.client_name||'';form.clientCode=client.client_code||'';form.managerContact=client.manager_contact||''}
+const handleClientShortNameInput=()=>{const hadSelectedClient=Boolean(form.clientId||form.subClientId);form.clientId='';form.subClientId='';form.clientCode='';form.managerContact='';if(hadSelectedClient)form.clientFullName=''}
+const clearSelectedClient=()=>{form.clientId='';form.subClientId='';form.clientShortName='';form.clientFullName='';form.clientCode='';form.managerContact=''}
 const addLanguageItem=()=>form.languageItems.push({mode:'single',sourceLanguageId:'',targetLanguageId:''})
 const addPriceItem=()=>form.priceItems.push({projectType:'',languageKey:'',amount:null,currency:'CNY',unit:'',remarks:''})
 const addAssignee=()=>form.assignees.push({personId:'',assignmentStatus:'assigned',qualityScore:'',evaluationNote:''})
@@ -422,7 +445,7 @@ const handleSubmit=async()=>{const valid=await formRef.value?.validate().catch((
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,value);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
 const handleDelete=async(row)=>{try{await ElMessageBox.confirm(`确定删除标注项目“${row.orderNo}”吗？`,'删除确认',{type:'warning'});await annotationApi.deleteAnnotationProject(row.id);delete detailCache[row.id];ElMessage.success('删除成功');await fetchData()}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除失败')}}
-const resetForm=()=>{Object.assign(form,emptyForm());nameManuallyEdited.value=false;formRef.value?.clearValidate()}
+const resetForm=()=>{Object.assign(form,emptyForm());nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 
 const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`
 const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');window.location.href=toOpenPathHref(value)}
@@ -438,6 +461,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 </script>
 
 <style scoped>
+.client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 </style>
 
