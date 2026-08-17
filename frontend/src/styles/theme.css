@@ -29,6 +29,8 @@
   --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.05);
   --shadow-dropdown: 0 12px 32px rgba(15, 23, 42, 0.12);
 
+  --ui-zoom: 1;
+
   --el-color-primary: var(--color-primary);
   --el-color-primary-light-3: #64748b;
   --el-color-primary-light-5: #94a3b8;

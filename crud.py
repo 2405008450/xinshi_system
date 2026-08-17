@@ -564,6 +564,7 @@ def get_translator(db: Session, translator_id: UUID) -> Optional[Translator]:
 
 def _apply_translator_filters(
     query,
+    capability_type: Optional[str] = None,
     translator_code: Optional[str] = None,
     translator_name: Optional[str] = None,
     cooperation_type: Optional[str] = None,
@@ -586,6 +587,15 @@ def _apply_translator_filters(
     stale_only: bool = False,
     stale_days: int = 4,
 ):
+    if capability_type:
+        from resource_models import ResourceCapability
+        query = query.join(
+            ResourceCapability,
+            ResourceCapability.person_id == Translator.resource_person_id,
+        ).filter(
+            ResourceCapability.capability_type == capability_type,
+            ResourceCapability.status == "active",
+        )
     if translator_code:
         query = query.filter(Translator.translator_code.ilike(f"%{translator_code}%"))
     if translator_name:
@@ -644,6 +654,7 @@ def get_translators(
     db: Session,
     skip: int = 0,
     limit: int = 100,
+    capability_type: Optional[str] = None,
     translator_code: Optional[str] = None,
     translator_name: Optional[str] = None,
     cooperation_type: Optional[str] = None,
@@ -669,6 +680,7 @@ def get_translators(
     query = db.query(Translator)
     query = _apply_translator_filters(
         query,
+        capability_type=capability_type,
         translator_code=translator_code,
         translator_name=translator_name,
         cooperation_type=cooperation_type,
@@ -705,6 +717,7 @@ def get_translators(
 
 def count_translators(
     db: Session,
+    capability_type: Optional[str] = None,
     translator_code: Optional[str] = None,
     translator_name: Optional[str] = None,
     cooperation_type: Optional[str] = None,
@@ -730,6 +743,7 @@ def count_translators(
     query = db.query(Translator.id)
     query = _apply_translator_filters(
         query,
+        capability_type=capability_type,
         translator_code=translator_code,
         translator_name=translator_name,
         cooperation_type=cooperation_type,
@@ -827,6 +841,9 @@ def create_translator(db: Session, translator: TranslatorCreate) -> Translator:
         payload["availability_updated_at"] = dt.datetime.utcnow()
     db_translator = Translator(**payload)
     db.add(db_translator)
+    db.flush()
+    from resource_service import sync_legacy_translator_to_talent
+    sync_legacy_translator_to_talent(db, db_translator)
     db.commit()
     db.refresh(db_translator)
     return db_translator
@@ -845,6 +862,8 @@ def update_translator(db: Session, translator_id: UUID, translator_update: Trans
         payload["availability_updated_at"] = dt.datetime.utcnow()
     for field, value in payload.items():
         setattr(db_translator, field, value)
+    from resource_service import sync_legacy_translator_to_talent
+    sync_legacy_translator_to_talent(db, db_translator)
     db.commit()
     db.refresh(db_translator)
     return db_translator
@@ -1516,6 +1535,14 @@ def count_translation_projects(
     return query.count()
 
 
+def _validate_written_translator(db: Session, translator_id: Optional[UUID]) -> None:
+    if not translator_id:
+        return
+    from resource_service import translator_has_capability
+    if not translator_has_capability(db, translator_id, "written_translation"):
+        raise ValueError("所选人员已停用或不具备有效的笔译能力")
+
+
 def create_translation_project(
     db: Session,
     project: TranslationProjectCreate,
@@ -1554,6 +1581,7 @@ def create_translation_project(
         project_data.get('sub_client_id'),
     )
     _validate_project_manager_assignable(db, project_data.get('project_manager_id'))
+    _validate_written_translator(db, project_data.get('translator_id'))
     _normalize_project_business_details(project_data)
 
     db_project = TranslationProject(
@@ -1598,6 +1626,8 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         exclude_unset=True,
         exclude={'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'},
     )
+    if 'translator_id' in update_data:
+        _validate_written_translator(db, update_data.get('translator_id'))
     if role_assignments_provided:
         normalized_roles = _normalize_project_role_assignments(role_assignments)
         role_manager_id = normalized_roles.get('project_manager')
@@ -2485,6 +2515,7 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
 def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
     sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
     data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix'})
+    _validate_written_translator(db, data.get('translator_id'))
     db_sub = TranslationSubOrder(sub_order_no=sub_order_no, **data)
     db.add(db_sub)
     db.flush()
@@ -2505,7 +2536,10 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return None
-    for field, value in sub_order_update.model_dump(exclude_unset=True, exclude={'word_count_matrix'}).items():
+    update_data = sub_order_update.model_dump(exclude_unset=True, exclude={'word_count_matrix'})
+    if 'translator_id' in update_data:
+        _validate_written_translator(db, update_data.get('translator_id'))
+    for field, value in update_data.items():
         setattr(db_sub, field, value)
     db.commit()
     return get_sub_order(db, db_sub.id)

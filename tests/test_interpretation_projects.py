@@ -3,15 +3,19 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 import workflow_models  # noqa: F401  注册 TranslationProject 使用的关系模型
-from interpretation_models import InterpretationProject
+from interpretation_models import InterpretationLanguage, InterpretationProject
 from interpretation_schemas import (
+    InterpretationLanguageUpdate,
     InterpretationLanguageDirectionInput,
     InterpretationNamePreviewRequest,
     InterpretationProjectCreate,
+    InterpretationProjectStatusUpdate,
     InterpretationTimeRangeInput,
 )
+from routers.interpretation_projects import update_language
 from interpretation_service import (
     build_interpretation_project_name,
     ensure_interpretation_project_for_consultation,
@@ -113,6 +117,94 @@ def test_interpreter_requirements_and_translator_level_validation():
         TranslatorCreate(translator_name="测试译员", interpretation_level="专家级")
 
 
+def test_inline_project_status_validation():
+    assert InterpretationProjectStatusUpdate(project_status="in_progress").project_status == "in_progress"
+    with pytest.raises(ValueError, match="不支持的口译项目状态"):
+        InterpretationProjectStatusUpdate(project_status="unknown")
+
+
+class LanguageUpdateQuery:
+    def __init__(self, db):
+        self.db = db
+
+    def filter(self, *_args):
+        return self
+
+    def first(self):
+        self.db.query_count += 1
+        if self.db.query_count == 1:
+            return self.db.language
+        return self.db.duplicate
+
+
+class LanguageUpdateDb:
+    def __init__(self, language, duplicate=None):
+        self.language = language
+        self.duplicate = duplicate
+        self.query_count = 0
+        self.committed = False
+
+    def query(self, target):
+        assert target is InterpretationLanguage
+        return LanguageUpdateQuery(self)
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        pass
+
+    def refresh(self, _value):
+        pass
+
+
+def test_custom_language_can_be_renamed_and_deactivated_without_changing_id():
+    language_id = uuid4()
+    language = SimpleNamespace(
+        id=language_id, label="吴语", is_custom=True, is_active=True,
+        updated_by=None, updated_at=None,
+    )
+    db = LanguageUpdateDb(language)
+    user = SimpleNamespace(id=uuid4())
+
+    renamed = update_language(
+        language_id,
+        InterpretationLanguageUpdate(label="吴语（上海话）", is_active=False),
+        db,
+        user,
+    )
+
+    assert renamed.id == language_id
+    assert renamed.label == "吴语（上海话）"
+    assert renamed.is_active is False
+    assert renamed.updated_by == user.id
+    assert db.committed is True
+
+
+def test_preset_language_cannot_be_renamed_or_deactivated():
+    language = SimpleNamespace(
+        id=uuid4(), label="英语", is_custom=False, is_active=True,
+        updated_by=None, updated_at=None,
+    )
+    db = LanguageUpdateDb(language)
+
+    with pytest.raises(HTTPException, match="系统预置语种不可修改或停用") as exc_info:
+        update_language(
+            language.id,
+            InterpretationLanguageUpdate(is_active=False),
+            db,
+            SimpleNamespace(id=uuid4()),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert db.committed is False
+
+
+def test_language_update_requires_at_least_one_change():
+    with pytest.raises(ValueError, match="至少需要修改一项语种信息"):
+        InterpretationLanguageUpdate()
+
+
 class OrderQuery:
     def __init__(self, value):
         self.value = value
@@ -141,10 +233,10 @@ class OrderDb:
         return OrderQuery(self.value)
 
 
-def test_interpretation_order_number_uses_eight_digit_date_and_increments():
+def test_interpretation_order_number_matches_translation_date_format_and_increments():
     now = datetime(2026, 8, 11, 10)
-    assert generate_interpretation_order_no(OrderDb(), now) == "IP-20260811-001"
-    assert generate_interpretation_order_no(OrderDb("IP-20260811-009"), now) == "IP-20260811-010"
+    assert generate_interpretation_order_no(OrderDb(), now) == "IP-260811-001"
+    assert generate_interpretation_order_no(OrderDb("IP-260811-009"), now) == "IP-260811-010"
 
 
 class EnsureQuery:
@@ -188,7 +280,7 @@ def test_confirmed_consultation_creation_is_idempotent(monkeypatch):
     )
     monkeypatch.setattr(
         "interpretation_service.generate_interpretation_order_no",
-        lambda _db: "IP-20260811-001",
+        lambda _db: "IP-260811-001",
     )
 
     project, created = ensure_interpretation_project_for_consultation(db, consultation, uuid4())

@@ -88,7 +88,7 @@ export function getDefaultRoute() {
   if (hasPermission('system:users:read')) return '/users'
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'
-  if (hasPermission('translators:read')) return '/resource-management/translators'
+  if (hasPermission(['talents:read', 'translators:read'])) return '/resource-management/talents'
   if (hasPermission('finance:read')) return '/finance'
   return '/pending-modules'
 }

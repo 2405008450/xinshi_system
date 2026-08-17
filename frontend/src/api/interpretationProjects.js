@@ -33,14 +33,24 @@ export const updateInterpretationProject = (id, data) => (
   api.put(`/projects/interpretation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const updateInterpretationProjectStatus = (id, projectStatus) => (
+  api.patch(`/projects/interpretation/${id}/status`, { project_status: projectStatus })
+    .then((res) => convertKeys(res, toCamelCase))
+)
+
 export const deleteInterpretationProject = (id) => api.delete(`/projects/interpretation/${id}`)
 
-export const getInterpretationLanguages = () => (
-  api.get('/projects/interpretation/languages').then((res) => convertKeys(res, toCamelCase))
+export const getInterpretationLanguages = (params = {}) => (
+  api.get('/projects/interpretation/languages', { params }).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const createInterpretationLanguage = (label) => (
   api.post('/projects/interpretation/languages', { label }).then((res) => convertKeys(res, toCamelCase))
+)
+
+export const updateInterpretationLanguage = (id, data) => (
+  api.patch(`/projects/interpretation/languages/${id}`, convertKeys(data, toSnakeCase))
+    .then((res) => convertKeys(res, toCamelCase))
 )
 
 export const previewInterpretationProjectName = (data) => (

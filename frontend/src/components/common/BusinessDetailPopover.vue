@@ -2,7 +2,7 @@
   <el-popover
     trigger="click"
     placement="left"
-    :width="760"
+    :width="800"
     :title="title"
     popper-class="business-detail-popover"
   >
@@ -58,6 +58,9 @@ const formatValue = (item) => {
 
 <style>
 .business-detail-popover { max-width: calc(100vw - 32px) !important; }
+.business-detail-popover .el-popover__title { padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-primary); font-size: 15px; font-weight: 600; }
 .business-detail-popover__content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
-.business-detail-popover__value { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.business-detail-popover .el-descriptions__label { width: 140px; min-width: 140px; white-space: nowrap; font-weight: 500; }
+.business-detail-popover .el-descriptions__cell { padding: 9px 12px; }
+.business-detail-popover__value { white-space: normal; word-break: break-word; overflow-wrap: anywhere; line-height: 1.6; }
 </style>

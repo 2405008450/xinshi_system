@@ -23,8 +23,11 @@ router = APIRouter(
 
 @router.get("", response_model=List[InterpretationLanguageResponse])
 @router.get("/", response_model=List[InterpretationLanguageResponse], include_in_schema=False)
-def read_languages(db: Session = Depends(get_db)):
-    return db.query(InterpretationLanguage).order_by(
+def read_languages(include_inactive: bool = False, db: Session = Depends(get_db)):
+    query = db.query(InterpretationLanguage)
+    if not include_inactive:
+        query = query.filter(InterpretationLanguage.is_active.is_(True))
+    return query.order_by(
         InterpretationLanguage.is_custom.asc(), InterpretationLanguage.label.asc()
     ).all()
 

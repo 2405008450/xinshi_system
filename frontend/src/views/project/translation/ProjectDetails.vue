@@ -70,6 +70,7 @@
               <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
               <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
               <el-table-column label="字数统计" width="132" min-width="120">
+                <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
                 <template #default="{ row: subRow }">
                   <div class="word-count-list-cell">
                     <WordCountMatrixPopover v-model="subRow.wordCountMatrix" entity-type="suborder" :entity-id="subRow.id" title="子订单字数统计" @saved="fetchData">
@@ -77,7 +78,7 @@
                         <el-button
                           type="primary"
                           link
-                          class="word-count-compact-link"
+                          class="word-count-compact-link business-clickable-cell"
                           :title="getWordCountListSummary(subRow).title"
                         >
                           <span class="compact-cell-value">
@@ -116,7 +117,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="序号" width="64" align="center">
+      <el-table-column label="序号" width="50" align="center">
         <template #default="{ row, $index }">
           <div class="index-cell">
             <span>{{ $index + 1 }}</span>
@@ -139,24 +140,52 @@
         :min-width="column.minWidth"
         :show-overflow-tooltip="column.showOverflowTooltip !== false"
       >
+        <template #header>
+          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+          <span v-else>{{ column.label }}</span>
+        </template>
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-no-actions">
             <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType">
               <template #reference>
-                <el-button type="primary" link class="order-no-link" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
+                <el-button type="primary" link class="order-no-link business-clickable-cell" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
                   {{ row.orderNo }}
                 </el-button>
               </template>
             </BusinessDetailPopover>
-            <div class="order-no-btns" v-if="canReadProjectFiles">
-              <el-button type="primary" size="small" link :title="'打开路径'" @click.stop="openOriginalPath(row)">
-                <svg viewBox="0 0 1024 1024" width="14" height="14" fill="currentColor"><path d="M928 256H512L416 160H128a96 96 0 0 0-96 96v544a96 96 0 0 0 96 96h800a96 96 0 0 0 96-96V352a96 96 0 0 0-96-96zM128 256h249.6l64 64H128V256zm800 544H128V448h800v352z"/></svg>
-              </el-button>
-              <el-button type="primary" size="small" link :title="'复制路径'" @click.stop="copyOriginalPath(row)">
-                <svg viewBox="0 0 1024 1024" width="14" height="14" fill="currentColor"><path d="M768 128H256a64 64 0 0 0-64 64v512a64 64 0 0 0 64 64h512a64 64 0 0 0 64-64V192a64 64 0 0 0-64-64zm0 576H256V192h512v512zM640 832v64a64 64 0 0 1-64 64H160a64 64 0 0 1-64-64V384a64 64 0 0 1 64-64h64v64H160v512h416v-64h64z"/></svg>
-              </el-button>
-            </div>
+            <PathActionButtons v-if="canReadProjectFiles" @open="openOriginalPath(row)" @copy="copyOriginalPath(row)" />
           </div>
+          <el-dropdown
+            v-else-if="column.key === 'projectStatus' && canWriteProjects"
+            trigger="click"
+            :disabled="projectStatusSavingIds.has(row.id)"
+            @command="(command) => changeProjectStatus(row, command)"
+          >
+            <el-tag
+              :type="getStatusType(row.projectStatus)"
+              size="small"
+              class="status-switch-tag"
+              :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
+            >
+              <span class="status-switch-text">{{ getStatusLabel(row.projectStatus) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in projectStatusOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === normalizeStatus(row.projectStatus) || item.value === 'pending_confirmation' || projectStatusSavingIds.has(row.id)"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">{{ item.label }}</el-tag>
+                    <el-icon v-if="item.value === normalizeStatus(row.projectStatus)" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-tag v-else-if="column.key === 'projectStatus'" :type="getStatusType(row.projectStatus)">
             {{ getStatusLabel(row.projectStatus) }}
           </el-tag>
@@ -199,7 +228,7 @@
           <div v-else-if="column.key === 'wordCountMatrix'" class="word-count-list-cell">
             <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="project" :entity-id="row.id" title="项目字数统计" @saved="fetchData">
               <template #reference>
-                <el-button type="primary" link class="word-count-compact-link" :title="getWordCountListSummary(row).title">
+                <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
                   <span class="compact-cell-value">
                     <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
                     <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
@@ -213,10 +242,12 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="88" fixed="right" align="center">
+      <el-table-column label="操作" width="94" fixed="right" align="center">
         <template #default="{ row }">
-          <TableActionButton v-if="canWriteProjects" action="edit" @click="handleEdit(row)" />
-          <TableActionButton v-if="canWriteProjects" action="delete" @click="handleDeleteProject(row)" />
+          <div v-if="canWriteProjects" class="action-buttons">
+            <TableActionButton action="edit" @click="handleEdit(row)" />
+            <TableActionButton action="delete" @click="handleDeleteProject(row)" />
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -288,10 +319,11 @@
                   <el-col :xs="24">
                     <el-form-item label="项目名称" data-field-key="projectName">
                       <div class="auto-name-field">
-                        <el-input
+                        <GeneratedProjectNameInput
                           v-model="form.projectName"
-                          placeholder="选择客户简称后自动生成"
-                          @input="handleProjectNameInput"
+                          placeholder="可手工填写，或根据客户简称和日期自动生成"
+                          @manual-input="handleProjectNameInput"
+                          @regenerate="regenerateProjectName"
                         />
                         <div class="auto-name-field__hint">按“客户简称-当前日期”自动生成，存在子订单时追加批次；也可手动修改。</div>
                       </div>
@@ -300,8 +332,19 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24">
+                    <el-form-item label="标题前缀">
+                      <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :xs="24">
                     <el-form-item label="邮件主题预览" data-field-key="emailSubjectPreview">
-                      <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
+                      <div class="subject-preview-field">
+                        <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
+                        <div class="subject-preview-toolbar">
+                          <span>按“标题前缀、订单号、客户简称、负责人联系方式、客户单号/标识、项目名称”顺序生成</span>
+                          <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                        </div>
+                      </div>
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -582,11 +625,12 @@
                   <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
                   <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
                   <el-table-column label="字数统计" width="132" min-width="120">
+                    <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
                     <template #default="{ row }">
                       <div class="word-count-list-cell">
                         <WordCountMatrixPopover v-model="row.wordCountMatrix" entity-type="suborder" :entity-id="row.id" title="子订单字数统计" @saved="fetchData">
                           <template #reference>
-                            <el-button type="primary" link class="word-count-compact-link" :title="getWordCountListSummary(row).title">
+                            <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
                               <span class="compact-cell-value">
                                 <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
                                 <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
@@ -789,6 +833,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { CaretBottom, Check, MagicStick } from '@element-plus/icons-vue'
 import { getProjects, getProjectCount, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { getClients } from '@/api/clients'
@@ -799,12 +844,16 @@ import ProjectFilesTab from './components/ProjectFilesTab.vue'
 import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
+import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
+import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -987,7 +1036,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', emailSubjectPreview: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', translatorId: '', status: 'pending_confirmation' })
 const loading = ref(false)
@@ -1006,6 +1055,7 @@ const batchFormRef = ref(null)
 const projectTableRef = ref(null)
 const projectFilesTabRef = ref(null)
 const tableData = ref([])
+const projectStatusSavingIds = ref(new Set())
 const expandedProjectIds = ref(new Set())
 const expandedProjectRowKeys = computed(() => [...expandedProjectIds.value])
 const currentProjectSubOrders = ref([])
@@ -1019,17 +1069,17 @@ const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '',
 const advancedVisible = ref(false)
 const advancedFilterCount = computed(() => searchForm.orderNo ? 1 : 0)
 const tableColumnOverrides = {
-  orderNo: { minWidth: 168, showOverflowTooltip: false },
-  projectName: { minWidth: 200 },
+  orderNo: { width: 184, minWidth: 184, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目详情' },
+  projectName: { minWidth: 160 },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
-  clientShortName: { minWidth: 110 },
+  clientShortName: { minWidth: 85 },
   clientCode: { minWidth: 100 },
   customerOrderNo: { minWidth: 120 },
-  projectManagerName: { minWidth: 110 },
+  projectManagerName: { minWidth: 90 },
   clientManager: { minWidth: 110 },
   managerContact: { minWidth: 150 },
-  projectStatus: { minWidth: 100, showOverflowTooltip: false },
+  projectStatus: { minWidth: 105, showOverflowTooltip: false },
   fileTypeSecondary: { minWidth: 110 },
   projectFileTranslationDomainLevel1: { minWidth: 180 },
   projectFileTranslationDomainLevel2: { minWidth: 180 },
@@ -1047,15 +1097,15 @@ const tableColumnOverrides = {
   quotationPath: { minWidth: 240 },
   customerRequirementProfessional: { minWidth: 240 },
   customerRequirementSpecial: { minWidth: 240 },
-  languagePair: { width: 150, minWidth: 130, showOverflowTooltip: false },
+  languagePair: { width: 110, minWidth: 100, showOverflowTooltip: false },
   priority: { minWidth: 80 },
-  wordCountMatrix: { label: '字数统计', width: 132, minWidth: 120, showOverflowTooltip: false },
+  wordCountMatrix: { label: '字数统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目字数统计' },
   customerReceptionTime: { minWidth: 150 },
-  customerDeadlineTime: { width: 148, minWidth: 136, showOverflowTooltip: false },
+  customerDeadlineTime: { width: 115, minWidth: 110, showOverflowTooltip: false },
   sentToClientTime: { minWidth: 150 },
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
-  assignedTranslators: { width: 130, minWidth: 120, showOverflowTooltip: false },
+  assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
   translatorAssignmentTime: { minWidth: 150 },
   translatorDeliveryProgress: { minWidth: 110 },
   preReviewQcProgress: { minWidth: 96 },
@@ -1075,7 +1125,7 @@ const tableColumns = projectDetailItems.map((item) => ({
   ...(tableColumnOverrides[item.key] || {}),
 }))
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
-  'translation-details-v3', tableColumns,
+  'translation-details-v4', tableColumns,
   ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
@@ -1245,6 +1295,14 @@ const syncProjectName = ({ force = false } = {}) => {
 const handleProjectNameInput = () => {
   projectNameManuallyEdited.value = true
 }
+const regenerateProjectName = () => {
+  const generatedName = buildAutoProjectName(form.clientShortName, currentProjectSubOrders.value.length)
+  if (!generatedName) return ElMessage.warning('请先选择或填写客户简称')
+  projectNameManuallyEdited.value = false
+  form.projectName = generatedName
+  ElMessage.success('项目名称已重新生成，仍可手工修改')
+}
+const generateEmailSubject = () => notifyEmailSubjectGenerated(form, ElMessage)
 const clampProgress = (value) => Math.max(0, Math.min(100, Number(value) || 0))
 const parseProgressValue = (value) => {
   if (value === null || value === undefined || value === '') return 0
@@ -1316,6 +1374,7 @@ const cleanPayload = (payload) => {
   delete result.assignedTranslators
   delete result.clientManager
   delete result.managerContact
+  delete result.subjectPrefix
   delete result.projectManagerName
   result.quotationRequired = Boolean(result.quotationRequired)
   if (!result.quotationRequired) {
@@ -1685,6 +1744,31 @@ const handleProjectFileStatusChange = (status) => {
   const row = tableData.value.find((item) => item.id === form.id)
   if (row) row.projectStatus = form.projectStatus
 }
+const setProjectStatusSaving = (id, saving) => {
+  const next = new Set(projectStatusSavingIds.value)
+  if (saving) next.add(id)
+  else next.delete(id)
+  projectStatusSavingIds.value = next
+}
+const changeProjectStatus = async (row, value) => {
+  const previousStatus = normalizeStatus(row.projectStatus)
+  const nextStatus = normalizeStatus(value)
+  if (!nextStatus || nextStatus === previousStatus) return
+
+  setProjectStatusSaving(row.id, true)
+  try {
+    const updated = normalizeProject(await updateProject(row.id, { projectStatus: nextStatus }))
+    Object.assign(row, updated)
+    ElMessage.success('项目状态已更新')
+    if (searchForm.projectStatus && searchForm.projectStatus !== updated.projectStatus) {
+      await fetchData()
+    }
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || error?.detail || error?.message || '项目状态更新失败')
+  } finally {
+    setProjectStatusSaving(row.id, false)
+  }
+}
 const handleDeleteProject = async (row) => { try { await ElMessageBox.confirm(`确认删除母订单 ${row.orderNo} 吗？`, '提示', { type: 'warning' }); await deleteProject(row.id); ElMessage.success('删除成功'); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '删除失败') } }
 const handleSubmit = async () => {
   if (!formRef.value || submitLoading.value) return
@@ -1801,8 +1885,15 @@ onBeforeUnmount(() => {
 .order-no-actions { display: flex; align-items: center; gap: 6px; }
 .order-no-actions :deep(.el-popover__reference-wrapper) { flex: 1; min-width: 0; }
 .order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.order-no-btns { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.order-no-btns :deep(.el-button) { margin-left: 0; padding: 0; height: 18px; line-height: 18px; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+.action-buttons { display: inline-flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; }
+.status-switch-tag.el-tag { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; max-width: 100%; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity 0.15s ease; }
+.status-switch-tag :deep(.el-tag__content) { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
+.status-switch-text { line-height: 1; }
+.status-switch-caret { width: 10px; height: 10px; flex-shrink: 0; margin: 0; font-size: 10px; }
+.status-switch-tag:hover { opacity: 0.85; }
+.status-switch-tag.is-updating { pointer-events: none; opacity: 0.55; }
+.status-option-row { display: inline-flex; align-items: center; gap: 8px; width: 100%; }
+.status-current-icon { color: var(--el-color-primary); }
 .deadline-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 2px 0; }
 .deadline-cell__time { max-width: 100%; overflow: hidden; font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .deadline-cell__tag { max-width: 100%; }
@@ -1815,6 +1906,10 @@ onBeforeUnmount(() => {
 .client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .auto-name-field { width: 100%; }
 .auto-name-field__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.subject-preview-field { width: 100%; min-width: 0; }
+.subject-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.subject-preview-toolbar .el-button { flex: none; }
+.soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
 .word-count-summary { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); color: var(--el-text-color-regular); }
 .word-count-list-cell { display: flex; align-items: center; min-width: 0; }
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }

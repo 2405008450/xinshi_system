@@ -166,7 +166,7 @@
         :prop="column.key"
         :label="column.label"
         :width="column.width"
-        show-overflow-tooltip
+        :show-overflow-tooltip="column.key !== 'status'"
       >
         <template #default="{ row }">
           <el-dropdown
@@ -177,11 +177,12 @@
           >
             <el-tag
               :type="getStatusType(row.status)"
+              size="small"
               class="status-switch-tag"
               :class="{ 'is-updating': statusUpdatingId === row.id }"
             >
-              {{ getStatusText(row.status) }}
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              <span class="status-switch-text">{{ getStatusText(row.status) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
             </el-tag>
             <template #dropdown>
               <el-dropdown-menu>
@@ -712,12 +713,14 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { buildAutoProjectName } from '@/utils/projectNaming'
 
+const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
@@ -748,7 +751,7 @@ const consultationColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 150 },
   { key: 'client_name', label: '客户全称', width: 200 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
-  { key: 'status', label: '咨询状态', width: 120 },
+  { key: 'status', label: '咨询状态', width: 136 },
   { key: 'consultation_time', label: '咨询时间', width: 180 },
   { key: 'consultation_method', label: '咨询方式', width: 120 },
   { key: 'consultation_type', label: '咨询类型', width: 140 },
@@ -1064,6 +1067,17 @@ const isRecruitmentConsultationType = (value) => (
 const isTranslationConsultationType = (value) => (
   ['笔译项目', 'translation', '笔译'].includes(value)
 )
+const projectRouteName = (consultationType) => {
+  if (isTranslationConsultationType(consultationType)) return 'TranslationProjectDetails'
+  if (isInterpretationConsultationType(consultationType)) return 'InterpretationProjectDetails'
+  if (isAnnotationConsultationType(consultationType)) return 'AnnotationProjectDetails'
+  if (isRecruitmentConsultationType(consultationType)) return 'RecruitmentProjectDetails'
+  return ''
+}
+const routeToProjectBoard = async (consultationType) => {
+  const name = projectRouteName(consultationType)
+  if (name) await router.push({ name })
+}
 const confirmationTypeLabel = computed(() => (
   confirmationPreview.project_type === 'interpretation' ? '口译项目' : '笔译项目'
 ))
@@ -1439,7 +1453,7 @@ const statusUpdatingId = ref(null)
 
 // 列表内直接切换咨询状态：仅提交 status 字段（后端支持局部更新）。
 // 普通状态直接切换；切到「已确认」时保留与编辑弹窗一致的联动：
-// 口译、标注类型由后端自动生成专用项目；只有笔译弹出名称确认框。
+// 笔译、口译先确认项目名称和邮件主题；标注、招聘由后端直接生成专用项目。
 const handleInlineStatusChange = async (row, newStatus) => {
   if (!newStatus || newStatus === row.status || statusUpdatingId.value === row.id) return
 
@@ -1490,6 +1504,7 @@ const handleInlineStatusChange = async (row, newStatus) => {
             : '咨询已确认，招聘项目已存在'
         )
       }
+      await routeToProjectBoard(row.consultation_type)
     }
   } catch (error) {
     ElMessage.error(error?.response?.data?.detail || '切换状态失败')
@@ -1546,7 +1561,7 @@ const handleSubmit = async () => {
       draftSavingEnabled.value = false
       removeDraft(activeDraftKey.value)
       dialogVisible.value = false
-      fetchData()
+      await fetchData()
 
       // 若编辑时首次改为「已确认」，使用统一命名规则预填项目名称并二次确认。
       if (
@@ -1561,6 +1576,12 @@ const handleSubmit = async () => {
               : '咨询已确认，招聘项目已存在'
           )
         }
+      }
+      if (
+        payload.status === CONFIRMED_CONSULTATION_STATUS
+        && prevStatus !== CONFIRMED_CONSULTATION_STATUS
+      ) {
+        await routeToProjectBoard(payload.consultation_type)
       }
     } catch (error) {
       ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
@@ -1656,6 +1677,7 @@ const handleConfirmConsultation = async () => {
       `${result?.project_type === 'interpretation' ? '口译' : '笔译'}咨询已确认，项目和邮件主题已生成`
     )
     await fetchData()
+    await routeToProjectBoard(result?.project_type)
   } catch (error) {
     const detail = error?.response?.data?.detail || error?.detail
     if (error?.response?.status === 409 && detail?.preview) {
@@ -1817,14 +1839,41 @@ onBeforeUnmount(() => {
   overflow-x: auto;
 }
 
-.status-switch-tag {
+.status-switch-tag.el-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  max-width: 100%;
   cursor: pointer;
   user-select: none;
+  vertical-align: middle;
   transition: opacity 0.15s ease;
 }
 
+.status-switch-tag :deep(.el-tag__content) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.status-switch-text {
+  line-height: 1;
+}
+
+.status-switch-caret {
+  width: 10px;
+  height: 10px;
+  font-size: 10px;
+  flex-shrink: 0;
+  margin: 0;
+}
+
 .status-switch-tag:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .status-switch-tag.is-updating {

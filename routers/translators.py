@@ -21,6 +21,7 @@ def create_translator_endpoint(translator: TranslatorCreate, db: Session = Depen
 def read_translators(
     skip: int = 0,
     limit: int = 100,
+    capability_type: Optional[str] = Query(None),
     translator_code: Optional[str] = Query(None),
     translator_name: Optional[str] = Query(None),
     cooperation_type: Optional[str] = Query(None),
@@ -48,6 +49,7 @@ def read_translators(
         db,
         skip=skip,
         limit=limit,
+        capability_type=capability_type,
         translator_code=translator_code,
         translator_name=translator_name,
         cooperation_type=cooperation_type,
@@ -73,6 +75,7 @@ def read_translators(
 
 @router.get("/count")
 def read_translator_count(
+    capability_type: Optional[str] = Query(None),
     translator_code: Optional[str] = Query(None),
     translator_name: Optional[str] = Query(None),
     cooperation_type: Optional[str] = Query(None),
@@ -99,6 +102,7 @@ def read_translator_count(
     return {
         "total": count_translators(
             db,
+            capability_type=capability_type,
             translator_code=translator_code,
             translator_name=translator_name,
             cooperation_type=cooperation_type,

@@ -19,3 +19,10 @@ __pycache__
 # 环境文件
 .env
 *.log
+
+# 部署备份与测试产物（不得打入生产镜像）
+backups/
+test-results/
+.pytest_cache/
+.playwright/
+.playwright-mcp/

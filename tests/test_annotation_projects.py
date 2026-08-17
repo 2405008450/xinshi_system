@@ -46,8 +46,8 @@ class OrderDb:
 
 def test_annotation_order_number_uses_required_format_and_increments():
     now = datetime(2026, 8, 1, 9)
-    assert generate_annotation_order_no(OrderDb(), now) == "AP-20260801-001"
-    assert generate_annotation_order_no(OrderDb("AP-20260801-009"), now) == "AP-20260801-010"
+    assert generate_annotation_order_no(OrderDb(), now) == "AP-260801-001"
+    assert generate_annotation_order_no(OrderDb("AP-260801-009"), now) == "AP-260801-010"
 
 
 def test_annotation_project_name_lists_first_three_directions():
@@ -76,6 +76,18 @@ def test_payload_rejects_duplicate_language_and_invalid_price_scope():
                 "unit": "条",
             }],
         )
+
+
+def test_payload_normalizes_annotation_project_paths():
+    payload = AnnotationProjectCreate(
+        project_path=r"  \\server\annotation  ",
+        quotation_path="  D:/报价单  ",
+        contract_path="   ",
+    )
+
+    assert payload.project_path == r"\\server\annotation"
+    assert payload.quotation_path == "D:/报价单"
+    assert payload.contract_path is None
 
 
 def test_payload_rejects_submitted_time_before_dispatch():
@@ -130,7 +142,7 @@ def test_confirmed_annotation_consultation_creation_is_idempotent(monkeypatch):
     )
     monkeypatch.setattr(
         "annotation_service.generate_annotation_order_no",
-        lambda _db: "AP-20260811-001",
+        lambda _db: "AP-260811-001",
     )
 
     project, created = ensure_annotation_project_for_consultation(

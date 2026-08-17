@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 import workflow_models  # noqa: F401  注册笔译项目既有关系
 from annotation_models import (
     AnnotationProject,
+    AnnotationProjectAssignee,
     AnnotationProjectLanguageItem,
     AnnotationProjectPriceItem,
 )
@@ -46,7 +47,7 @@ def generate_annotation_order_no(
     db: Session, current_time: Optional[datetime] = None
 ) -> str:
     now = current_time or datetime.now(ZoneInfo("Asia/Hong_Kong"))
-    date_text = now.strftime("%Y%m%d")
+    date_text = now.strftime("%y%m%d")
     prefix = f"AP-{date_text}-"
     bind = db.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":
@@ -72,9 +73,12 @@ def generate_annotation_order_no(
 
 def _project_options():
     return (
+        selectinload(AnnotationProject.consultation),
         selectinload(AnnotationProject.client),
         selectinload(AnnotationProject.sub_client),
         selectinload(AnnotationProject.client_manager),
+        selectinload(AnnotationProject.creator),
+        selectinload(AnnotationProject.assignees).selectinload(AnnotationProjectAssignee.person),
         selectinload(AnnotationProject.language_items)
         .selectinload(AnnotationProjectLanguageItem.source_language),
         selectinload(AnnotationProject.language_items)
@@ -109,6 +113,15 @@ def _apply_filters(
     dispatched_date_end=None,
     submitted_date_start=None,
     submitted_date_end=None,
+    client_id=None,
+    sub_client_id=None,
+    assignee_person_id=None,
+    created_date_start=None,
+    created_date_end=None,
+    consultation_date_start=None,
+    consultation_date_end=None,
+    confirmation_date_start=None,
+    confirmation_date_end=None,
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
@@ -137,9 +150,21 @@ def _apply_filters(
         ))
     if client_manager_id:
         query = query.filter(AnnotationProject.client_manager_id == client_manager_id)
+    if client_id:
+        query = query.filter(AnnotationProject.client_id == client_id)
+    if sub_client_id:
+        query = query.filter(AnnotationProject.sub_client_id == sub_client_id)
+    if assignee_person_id:
+        query = query.join(
+            AnnotationProjectAssignee,
+            AnnotationProjectAssignee.project_id == AnnotationProject.id,
+        ).filter(AnnotationProjectAssignee.person_id == assignee_person_id)
     for field, start_value, end_value in (
         (AnnotationProject.task_dispatched_at, dispatched_date_start, dispatched_date_end),
         (AnnotationProject.task_submitted_at, submitted_date_start, submitted_date_end),
+        (AnnotationProject.created_at, created_date_start, created_date_end),
+        (AnnotationProject.customer_consultation_time, consultation_date_start, consultation_date_end),
+        (AnnotationProject.customer_confirmation_time, confirmation_date_start, confirmation_date_end),
     ):
         if start_value:
             query = query.filter(field >= datetime.combine(start_value, time.min))
@@ -175,7 +200,7 @@ def count_annotation_projects(db: Session, **filters) -> int:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
-NESTED_FIELDS = {"language_items", "price_items"}
+NESTED_FIELDS = {"language_items", "price_items", "assignees"}
 
 
 def _resolve_client(db: Session, data: dict) -> None:
@@ -248,10 +273,32 @@ def _validate_write_references(db: Session, payload) -> None:
             raise ValueError("所选客户经理不存在或已停用")
 
 
+def _validate_annotation_assignees(db: Session, payload) -> None:
+    if not payload.assignees:
+        return
+    from resource_models import ResourceCapability, ResourcePerson
+
+    person_ids = {item.person_id for item in payload.assignees}
+    eligible_ids = {
+        value for (value,) in db.query(ResourcePerson.id)
+        .join(ResourceCapability, ResourceCapability.person_id == ResourcePerson.id)
+        .filter(
+            ResourcePerson.id.in_(person_ids),
+            ResourcePerson.status != "inactive",
+            ResourceCapability.capability_type == "annotation",
+            ResourceCapability.status == "active",
+        ).all()
+    }
+    if eligible_ids != person_ids:
+        raise ValueError("所选人员不存在、已停用或不具备有效的标注能力")
+
+
 def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
     _validate_write_references(db, payload)
+    _validate_annotation_assignees(db, payload)
     project.language_items.clear()
     project.price_items.clear()
+    project.assignees.clear()
     db.flush()
     project.language_items = [
         AnnotationProjectLanguageItem(sequence_no=index, **item.model_dump())
@@ -260,6 +307,10 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
     project.price_items = [
         AnnotationProjectPriceItem(sequence_no=index, **item.model_dump())
         for index, item in enumerate(payload.price_items, start=1)
+    ]
+    project.assignees = [
+        AnnotationProjectAssignee(sequence_no=index, **item.model_dump())
+        for index, item in enumerate(payload.assignees, start=1)
     ]
 
 
@@ -294,6 +345,20 @@ def update_annotation_project(
     for key, value in data.items():
         setattr(project, key, value)
     _sync_nested(db, project, payload)
+    project.updated_at = datetime.now()
+    db.commit()
+    return get_annotation_project(db, project.id)
+
+
+def update_annotation_project_status(
+    db: Session, project_id: UUID, project_status: str
+) -> Optional[AnnotationProject]:
+    project = get_annotation_project(db, project_id)
+    if not project:
+        return None
+    if project.project_status == project_status:
+        return project
+    project.project_status = project_status
     project.updated_at = datetime.now()
     db.commit()
     return get_annotation_project(db, project.id)

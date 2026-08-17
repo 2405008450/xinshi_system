@@ -21,6 +21,14 @@ class Token(BaseModel):
     permissions: Optional[list[str]] = None
 
 
+class AuthSession(BaseModel):
+    user_id: str
+    username: str
+    full_name: str
+    roles: list[str]
+    permissions: list[str]
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str

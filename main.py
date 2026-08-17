@@ -27,7 +27,7 @@ from models import (
     TranslatorSchedule,
 )
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
@@ -38,6 +38,7 @@ from interpretation_models import (
 from interpretation_service import ensure_default_interpretation_languages
 from annotation_models import (
     AnnotationProject,
+    AnnotationProjectAssignee,
     AnnotationProjectLanguageItem,
     AnnotationProjectPriceItem,
 )
@@ -48,11 +49,21 @@ from annotation_service import (
 from recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateCommunication,
+    RecruitmentCandidateInterview,
     RecruitmentProject,
     RecruitmentProjectLanguageDirection,
     RecruitmentProjectProgress,
     RecruitmentResumeSource,
 )
+from resource_models import (
+    AnnotationProfile,
+    InterpretationProfile,
+    ResourceCapability,
+    ResourceCareerProfile,
+    ResourcePerson,
+    WrittenTranslationProfile,
+)
+from resource_service import backfill_resource_people
 from recruitment_service import ensure_default_resume_sources
 from task_models import DailyReport, DailyReportItem, NonProjectTask, NonProjectTaskEvent, NonProjectTaskRecurrence, WorkEntry
 from workflow_models import (
@@ -88,6 +99,9 @@ app.include_router(project_files.router)
 app.include_router(clients.router)
 app.include_router(client_contacts.router)
 app.include_router(translators.router)
+app.include_router(talents.router)
+app.include_router(talents.recruitment_router)
+app.include_router(talent_options.router)
 app.include_router(workflow.router)
 app.include_router(schedule.workbench_router)
 app.include_router(schedule.router)
@@ -194,6 +208,51 @@ INTERPRETATION_REQUIREMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_height_requirement VARCHAR(100)",
     "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_appearance_requirement VARCHAR(255)",
     "ALTER TABLE interpretation_project ADD COLUMN IF NOT EXISTS interpreter_dress_requirement VARCHAR(255)",
+)
+ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
+    "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS email_subject_preview VARCHAR(1000)",
+)
+RESOURCE_COMPAT_COLUMN_STATEMENTS = (
+    "ALTER TABLE translator ADD COLUMN IF NOT EXISTS resource_person_id UUID",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_translator_resource_person ON translator(resource_person_id) WHERE resource_person_id IS NOT NULL",
+    "ALTER TABLE recruitment_candidate ADD COLUMN IF NOT EXISTS person_id UUID",
+    "CREATE INDEX IF NOT EXISTS ix_recruitment_candidate_person ON recruitment_candidate(person_id)",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_translator_resource_person') THEN
+            ALTER TABLE translator ADD CONSTRAINT fk_translator_resource_person
+                FOREIGN KEY (resource_person_id) REFERENCES resource_person(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_recruitment_candidate_person') THEN
+            ALTER TABLE recruitment_candidate ADD CONSTRAINT fk_recruitment_candidate_person
+                FOREIGN KEY (person_id) REFERENCES resource_person(id) ON DELETE RESTRICT;
+        END IF;
+    END
+    $$
+    """,
+)
+INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS = (
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS updated_by UUID",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_interpretation_language_updater'
+        ) THEN
+            ALTER TABLE interpretation_language
+                ADD CONSTRAINT fk_interpretation_language_updater
+                FOREIGN KEY (updated_by)
+                REFERENCES app_user(id)
+                ON DELETE SET NULL;
+        END IF;
+    END
+    $$
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_interpretation_language_active ON interpretation_language(is_active)",
 )
 RECRUITMENT_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS position_title VARCHAR(255)",
@@ -306,6 +365,24 @@ def ensure_interpretation_requirement_columns():
             conn.execute(text(statement))
 
 
+def ensure_interpretation_language_columns():
+    """补齐自定义口译语种的启停与修改审计字段。"""
+    if "interpretation_language" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_annotation_project_columns():
+    """兼容尚未单独执行标注项目邮件主题迁移的已有部署。"""
+    if "annotation_project" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in ANNOTATION_PROJECT_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
 def ensure_recruitment_project_columns():
     """补齐早期招聘模拟表与正式招聘项目域之间的字段差异。"""
     inspector = inspect(engine)
@@ -356,6 +433,16 @@ def ensure_recruitment_communication_columns():
         return
     with engine.begin() as conn:
         for statement in RECRUITMENT_COMMUNICATION_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_resource_compat_columns():
+    """为旧译员、招聘候选记录补齐统一人才主档关联。"""
+    tables = set(inspect(engine).get_table_names())
+    if not {"translator", "recruitment_candidate", "resource_person"}.issubset(tables):
+        return
+    with engine.begin() as conn:
+        for statement in RESOURCE_COMPAT_COLUMN_STATEMENTS:
             conn.execute(text(statement))
 
 
@@ -533,7 +620,8 @@ def ensure_role_permission_table():
         return
 
     legacy_permissions = sorted(
-        code for code in PERMISSION_CODES if not code.startswith("system:")
+        code for code in PERMISSION_CODES
+        if not code.startswith(("system:", "talents:", "recruitment_talents:"))
     )
     with Session(engine) as db:
         roles = db.query(Role).filter(~Role.role_name.in_(SUPER_ROLE_NAMES)).all()
@@ -562,6 +650,28 @@ def ensure_personal_task_permissions():
                     db.add(RolePermission(role_id=role.id, permission_code=code))
             if role.role_name == "项目经理" and (role.id, "tasks:assign") not in existing:
                 db.add(RolePermission(role_id=role.id, permission_code="tasks:assign"))
+        db.commit()
+
+
+def ensure_talent_permission_compatibility():
+    """把原译员资源权限平滑映射到统一人才资源库。"""
+    mapping = {
+        "translators:read": "talents:read",
+        "translators:write": "talents:write",
+        "projects:read": "recruitment_talents:read",
+        "projects:write": "recruitment_talents:write",
+    }
+    with Session(engine) as db:
+        existing = {
+            (row.role_id, row.permission_code)
+            for row in db.query(RolePermission).filter(
+                RolePermission.permission_code.in_(tuple(mapping) + tuple(mapping.values()))
+            ).all()
+        }
+        for role_id, old_code in list(existing):
+            new_code = mapping.get(old_code)
+            if new_code and (role_id, new_code) not in existing:
+                db.add(RolePermission(role_id=role_id, permission_code=new_code))
         db.commit()
 
 
@@ -595,6 +705,13 @@ def ensure_runtime_tables():
     TranslatorSchedule.__table__.create(bind=engine, checkfirst=True)
     ensure_role_permission_table()
     ensure_personal_task_permissions()
+    ensure_talent_permission_compatibility()
+    ResourcePerson.__table__.create(bind=engine, checkfirst=True)
+    ResourceCapability.__table__.create(bind=engine, checkfirst=True)
+    WrittenTranslationProfile.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProfile.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProfile.__table__.create(bind=engine, checkfirst=True)
+    ResourceCareerProfile.__table__.create(bind=engine, checkfirst=True)
     ensure_project_file_path_columns()
     ensure_project_file_detail_columns()
     ensure_translation_project_columns()
@@ -602,27 +719,58 @@ def ensure_runtime_tables():
     ProjectManagerHandoverRequest.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
     InterpretationLanguage.__table__.create(bind=engine, checkfirst=True)
+    ensure_interpretation_language_columns()
     InterpretationProject.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectTimeRange.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectInterpreter.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_requirement_columns()
     AnnotationProject.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_project_columns()
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectPriceItem.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectAssignee.__table__.create(bind=engine, checkfirst=True)
     RecruitmentResumeSource.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProject.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_project_columns()
     RecruitmentProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectProgress.__table__.create(bind=engine, checkfirst=True)
     RecruitmentCandidate.__table__.create(bind=engine, checkfirst=True)
+    ensure_resource_compat_columns()
     RecruitmentCandidateCommunication.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_communication_columns()
+    RecruitmentCandidateInterview.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO recruitment_candidate_interview
+                (candidate_id, round_no, interview_date, details)
+            SELECT id, 1, first_interview_date, first_interview_details
+            FROM recruitment_candidate
+            WHERE (first_interview_date IS NOT NULL OR first_interview_details IS NOT NULL)
+            ON CONFLICT (candidate_id, round_no) DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO recruitment_candidate_interview
+                (candidate_id, round_no, interview_date, details)
+            SELECT id, 1, NULL, NULL
+            FROM recruitment_candidate
+            WHERE (second_interview_date IS NOT NULL OR second_interview_details IS NOT NULL)
+            ON CONFLICT (candidate_id, round_no) DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO recruitment_candidate_interview
+                (candidate_id, round_no, interview_date, details)
+            SELECT id, 2, second_interview_date, second_interview_details
+            FROM recruitment_candidate
+            WHERE (second_interview_date IS NOT NULL OR second_interview_details IS NOT NULL)
+            ON CONFLICT (candidate_id, round_no) DO NOTHING
+        """))
     with Session(engine) as db:
         ensure_default_interpretation_languages(db)
         ensure_translation_languages_in_catalog(db)
         migrate_legacy_annotation_projects(db)
         ensure_default_resume_sources(db)
+        backfill_resource_people(db)
 
 
 @app.get("/")

@@ -166,7 +166,8 @@ const handleLogin = async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100%;
   overflow: hidden;
   background: linear-gradient(135deg, var(--color-sidebar-deep) 0%, var(--color-primary) 100%);
 }

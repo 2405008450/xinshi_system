@@ -67,9 +67,9 @@
           <template #title>排班管理</template>
         </el-menu-item>
         <!-- 译员信息：所有员工可查看 -->
-        <el-menu-item v-if="showResourceManagement" index="/resource-management/translators">
+        <el-menu-item v-if="showResourceManagement" index="/resource-management/talents">
           <el-icon><Avatar /></el-icon>
-          <template #title>译员信息</template>
+          <template #title>人才资源库</template>
         </el-menu-item>
         <!-- 客户管理：所有员工可查看 -->
         <el-menu-item v-if="showClients" index="/clients">
@@ -107,6 +107,7 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <UiZoomControl />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
             <span class="user-info">
@@ -142,9 +143,12 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, Key, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
+import UiZoomControl from '../components/UiZoomControl.vue'
+import { useUiZoom } from '../composables/useUiZoom'
 
 const route = useRoute()
 const router = useRouter()
+const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
 
@@ -175,6 +179,7 @@ onMounted(() => {
     const saved = localStorage.getItem(STORAGE_COLLAPSE_KEY)
     if (saved !== null) preferredCollapse.value = saved === '1'
   } catch {}
+  syncFromStorage()
   syncResponsiveSidebar()
   window.addEventListener('resize', syncResponsiveSidebar)
 })
@@ -201,7 +206,7 @@ const showConsultations = computed(() => hasPermission('consultations:read'))
 /** 是否显示「客户联系人及回复」（仅超级管理员） */
 const showClientContacts = computed(() => hasPermission('clients:read'))
 /** 是否显示「资源管理」（所有员工） */
-const showResourceManagement = computed(() => hasPermission('translators:read'))
+const showResourceManagement = computed(() => hasPermission(['talents:read', 'translators:read']))
 const showFinance = computed(() => hasPermission('finance:read'))
 // 数据看板已移入待完善模块，因此所有登录用户都保留该入口。
 const showPendingModules = computed(() => true)
@@ -259,8 +264,9 @@ const handleCommand = (command) => {
     // 跳转到个人中心
     console.log('个人中心')
   } else if (command === 'settings') {
-    // 跳转到系统设置
-    console.log('系统设置')
+    setTimeout(() => {
+      openPanel()
+    }, 50)
   }
 }
 
@@ -286,7 +292,8 @@ const handleLogout = async () => {
 
 <style scoped>
 .layout-container {
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 

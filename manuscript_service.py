@@ -583,6 +583,9 @@ def _create_arrangement_line(
     )
     if not translator:
         raise LookupError("译员不存在")
+    from resource_service import translator_has_capability
+    if not translator_has_capability(db, assignment.translator_id, "written_translation"):
+        raise ValueError("所选人员已停用或不具备有效的笔译能力")
 
     final_delivery_at = _final_delivery_at(assignment.milestones)
     email_subject = (assignment.email_subject or "").strip() or _default_subject(
@@ -869,8 +872,14 @@ def get_arrangement_context(
             else project_status_map.get(item["translation_project_id"])
         )
 
+    from resource_models import ResourceCapability
     translators = (
         db.query(Translator)
+        .join(ResourceCapability, ResourceCapability.person_id == Translator.resource_person_id)
+        .filter(
+            ResourceCapability.capability_type == "written_translation",
+            ResourceCapability.status == "active",
+        )
         .filter(or_(Translator.status != "inactive", Translator.status.is_(None)))
         .order_by(
             Translator.default_priority.asc().nullslast(),
@@ -1368,6 +1377,11 @@ def confirm_dispatch(
             raise ValueError(
                 f"已停用的译员 {translator.translator_name} 不能确认派稿"
             )
+        from resource_service import translator_has_capability
+        if not translator_has_capability(db, arrangement.translator_id, "written_translation"):
+            raise ValueError(
+                f"人员 {translator.translator_name} 已不具备有效的笔译能力"
+            )
         arrangement.translator_name_snapshot = translator.translator_name
         arrangement.cooperation_type_snapshot = translator.cooperation_type
         arrangement.recipient_email = _preferred_email(translator)
@@ -1505,6 +1519,9 @@ def send_arrangement(
         raise LookupError("译员不存在")
     if translator.status == "inactive":
         raise ValueError("已停用的译员不能发送稿件")
+    from resource_service import translator_has_capability
+    if not translator_has_capability(db, arrangement.translator_id, "written_translation"):
+        raise ValueError("该人员已不具备有效的笔译能力")
 
     preview = _mail_preview_values(db, arrangement)
     if not preview["dispatch_path"]:

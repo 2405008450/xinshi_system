@@ -33,6 +33,10 @@ export const updateAnnotationProject = (id, data) => (
   api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const updateAnnotationProjectStatus = (id, projectStatus) => (
+  api.patch(`/projects/annotation/${id}/status`, { project_status: projectStatus }).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const deleteAnnotationProject = (id) => api.delete(`/projects/annotation/${id}`)
 
 export const previewAnnotationProjectName = (data) => (

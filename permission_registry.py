@@ -39,6 +39,10 @@ PERMISSION_GROUPS = [
     {
         "group": "资源与排班",
         "permissions": [
+            {"code": "talents:read", "name": "查看人才资源库"},
+            {"code": "talents:write", "name": "管理人才资源库"},
+            {"code": "recruitment_talents:read", "name": "查看招聘人才敏感信息"},
+            {"code": "recruitment_talents:write", "name": "管理招聘人才敏感信息"},
             {"code": "translators:read", "name": "查看译员资源"},
             {"code": "translators:write", "name": "管理译员资源"},
             {"code": "schedule:read", "name": "查看排班"},

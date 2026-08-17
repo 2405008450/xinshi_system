@@ -35,6 +35,10 @@ class InterpretationLanguage(Base):
             ["created_by"], ["app_user.id"], ondelete="SET NULL",
             name="fk_interpretation_language_creator",
         ),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_interpretation_language_updater",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -44,12 +48,20 @@ class InterpretationLanguage(Base):
     is_custom: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
 
     creator: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[created_by])
+    updater: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[updated_by])
 
 
 class InterpretationProject(Base):

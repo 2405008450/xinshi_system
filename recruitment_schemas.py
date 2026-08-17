@@ -131,6 +131,17 @@ class RecruitmentProjectUpdate(RecruitmentProjectBase):
     pass
 
 
+class RecruitmentProjectStatusUpdate(BaseModel):
+    project_status: str
+
+    @field_validator("project_status")
+    @classmethod
+    def validate_status(cls, value):
+        if value not in PROJECT_STATUSES:
+            raise ValueError("不支持的招聘项目状态")
+        return value
+
+
 class RecruitmentProjectResponse(RecruitmentProjectBase):
     id: UUID
     order_no: str
@@ -192,7 +203,29 @@ class RecruitmentProgressResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RecruitmentCandidateInterviewInput(BaseModel):
+    round_no: int = Field(ge=1)
+    interview_date: Optional[date] = None
+    details: Optional[str] = None
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def normalize_details(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+
+class RecruitmentCandidateInterviewResponse(RecruitmentCandidateInterviewInput):
+    id: UUID
+    candidate_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RecruitmentCandidateBase(BaseModel):
+    person_id: Optional[UUID] = None
     candidate_name: str = Field(min_length=1, max_length=255)
     contact_info: Optional[str] = Field(default=None, max_length=500)
     resume_path: Optional[str] = None
@@ -207,6 +240,7 @@ class RecruitmentCandidateBase(BaseModel):
     first_interview_details: Optional[str] = None
     second_interview_date: Optional[date] = None
     second_interview_details: Optional[str] = None
+    interviews: list[RecruitmentCandidateInterviewInput] = Field(default_factory=list)
     owner_id: Optional[UUID] = None
     next_follow_up_at: Optional[datetime] = None
     remarks: Optional[str] = None
@@ -228,9 +262,17 @@ class RecruitmentCandidateBase(BaseModel):
             return value.strip() or None
         return value
 
+    @field_validator("interviews")
+    @classmethod
+    def validate_interview_rounds(cls, value):
+        rounds = [item.round_no for item in value]
+        if rounds != list(range(1, len(rounds) + 1)):
+            raise ValueError("面试轮次必须从一面开始连续排列")
+        return value
+
 
 class RecruitmentCandidateCreate(RecruitmentCandidateBase):
-    pass
+    allow_duplicate: bool = False
 
 
 class RecruitmentCandidateUpdate(RecruitmentCandidateBase):
@@ -244,12 +286,23 @@ class RecruitmentCandidatePatch(BaseModel):
     second_interview_date: Optional[date] = None
     second_interview_details: Optional[str] = None
     actual_onboard_date: Optional[date] = None
+    interviews: Optional[list[RecruitmentCandidateInterviewInput]] = None
 
     @field_validator("first_interview_details", "second_interview_details", mode="before")
     @classmethod
     def normalize_details(cls, value):
         if isinstance(value, str):
             return value.strip() or None
+        return value
+
+    @field_validator("interviews")
+    @classmethod
+    def validate_interview_rounds(cls, value):
+        if value is None:
+            return value
+        rounds = [item.round_no for item in value]
+        if rounds != list(range(1, len(rounds) + 1)):
+            raise ValueError("面试轮次必须从一面开始连续排列")
         return value
 
 
@@ -287,6 +340,7 @@ class RecruitmentCandidateResponse(RecruitmentCandidateBase):
     project_id: UUID
     owner_name: Optional[str] = None
     resume_source_label: Optional[str] = None
+    interviews: list[RecruitmentCandidateInterviewResponse] = Field(default_factory=list)
     communications: list[RecruitmentCandidateCommunicationResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

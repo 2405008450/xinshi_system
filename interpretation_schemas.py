@@ -237,6 +237,17 @@ class InterpretationProjectUpdate(InterpretationProjectWrite):
     pass
 
 
+class InterpretationProjectStatusUpdate(BaseModel):
+    project_status: str
+
+    @field_validator("project_status")
+    @classmethod
+    def validate_status(cls, value):
+        if value not in PROJECT_STATUSES:
+            raise ValueError("不支持的口译项目状态")
+        return value
+
+
 class InterpretationProjectListResponse(BaseModel):
     id: UUID
     order_no: str
@@ -303,12 +314,36 @@ class InterpretationLanguageCreate(BaseModel):
         return normalized
 
 
+class InterpretationLanguageUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    is_active: Optional[bool] = None
+
+    @field_validator("label")
+    @classmethod
+    def normalize_label(cls, value):
+        if value is None:
+            return value
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("语种名称不能为空")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_changes(self):
+        if self.label is None and self.is_active is None:
+            raise ValueError("至少需要修改一项语种信息")
+        return self
+
+
 class InterpretationLanguageResponse(BaseModel):
     id: UUID
     label: str
     is_custom: bool
+    is_active: bool = True
     created_by: Optional[UUID] = None
     created_at: datetime
+    updated_by: Optional[UUID] = None
+    updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 

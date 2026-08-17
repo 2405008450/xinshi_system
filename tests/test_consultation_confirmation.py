@@ -36,7 +36,7 @@ def test_interpretation_subject_contains_customer_identifier():
     parts, subject, missing = _build_subject_preview(
         project_type="interpretation",
         subject_prefix=None,
-        order_no="IP-20260812-001",
+        order_no="IP-260812-001",
         client_short_name="信实客户",
         manager_contact="张经理 13800000000",
         customer_order_no="PO-88",
@@ -44,7 +44,7 @@ def test_interpretation_subject_contains_customer_identifier():
     )
 
     assert parts[-2:] == ["PO-88", "信实客户-260812"]
-    assert subject == "IP-20260812-001，信实客户，张经理 13800000000，PO-88，信实客户-260812"
+    assert subject == "IP-260812-001，信实客户，张经理 13800000000，PO-88，信实客户-260812"
     assert missing == []
 
 

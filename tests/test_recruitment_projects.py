@@ -10,24 +10,29 @@ from models import AppUser, Client, TranslationProject
 from recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateCommunication,
+    RecruitmentCandidateInterview,
     RecruitmentProject,
     RecruitmentProjectProgress,
     RecruitmentResumeSource,
 )
 from recruitment_schemas import (
+    RecruitmentCandidateCreate,
     RecruitmentCandidateCommunicationCreate,
     RecruitmentCandidatePatch,
     RecruitmentNamePreviewRequest,
     RecruitmentProjectCreate,
+    RecruitmentProjectStatusUpdate,
     RecruitmentResumeSourceCreate,
 )
 from recruitment_service import (
+    _sync_candidate_interviews,
     build_recruitment_project_name,
     create_candidate_communication,
     create_or_get_resume_source,
     ensure_recruitment_project_for_consultation,
     generate_recruitment_order_no,
     patch_candidate,
+    update_recruitment_project_status,
 )
 
 
@@ -61,8 +66,8 @@ class OrderDb:
 
 def test_recruitment_order_number_uses_hp_format_and_increments():
     now = datetime(2026, 8, 1, 9)
-    assert generate_recruitment_order_no(OrderDb(), now) == "HP-20260801-001"
-    assert generate_recruitment_order_no(OrderDb("HP-20260801-009"), now) == "HP-20260801-010"
+    assert generate_recruitment_order_no(OrderDb(), now) == "HP-260801-001"
+    assert generate_recruitment_order_no(OrderDb("HP-260801-009"), now) == "HP-260801-010"
 
 
 def test_project_name_lists_three_directions_then_suffix():
@@ -95,12 +100,93 @@ def test_payload_normalizes_headcount_and_anytime_date_rules():
         RecruitmentProjectCreate(headcount_min=5, headcount_max=4)
 
 
+def test_project_status_patch_validates_supported_status():
+    assert RecruitmentProjectStatusUpdate(project_status="interviewing").project_status == "interviewing"
+    with pytest.raises(ValueError, match="不支持"):
+        RecruitmentProjectStatusUpdate(project_status="unknown")
+
+
+class StatusUpdateDb:
+    def __init__(self):
+        self.added = []
+        self.committed = False
+
+    def add(self, value):
+        self.added.append(value)
+
+    def commit(self):
+        self.committed = True
+
+
+def test_inline_project_status_update_records_progress(monkeypatch):
+    project = RecruitmentProject(id=uuid4(), order_no="HP-260817-099", project_status="sourcing")
+    db = StatusUpdateDb()
+    monkeypatch.setattr("recruitment_service.get_recruitment_project", lambda *_args: project)
+
+    updated = update_recruitment_project_status(
+        db, project.id, "interviewing", operator_id=uuid4()
+    )
+
+    assert updated.project_status == "interviewing"
+    assert db.committed is True
+    progress = next(item for item in db.added if isinstance(item, RecruitmentProjectProgress))
+    assert progress.from_status == "sourcing"
+    assert progress.to_status == "interviewing"
+    assert progress.note == "项目状态变更"
+
+
 def test_candidate_tracking_payloads_normalize_and_validate():
     patch = RecruitmentCandidatePatch(first_interview_details="  沟通顺畅  ")
     assert patch.model_dump(exclude_unset=True) == {"first_interview_details": "沟通顺畅"}
     assert RecruitmentResumeSourceCreate(label="  猎聘  ").label == "猎聘"
     with pytest.raises(ValueError):
         RecruitmentCandidateCommunicationCreate(communication_date=date(2026, 8, 12), details="   ")
+
+
+def test_candidate_interviews_support_continuous_dynamic_rounds():
+    payload = RecruitmentCandidateCreate(
+        candidate_name="动态面试人选",
+        interviews=[
+            {"round_no": 1, "interview_date": date(2026, 8, 18), "details": " 一面通过 "},
+            {"round_no": 2, "details": "二面待安排"},
+            {"round_no": 3},
+        ],
+    )
+    assert [item.round_no for item in payload.interviews] == [1, 2, 3]
+    assert payload.interviews[0].details == "一面通过"
+    with pytest.raises(ValueError, match="连续排列"):
+        RecruitmentCandidateCreate(
+            candidate_name="跳号人选",
+            interviews=[{"round_no": 1}, {"round_no": 3}],
+        )
+
+
+class InterviewSyncDb:
+    def __init__(self):
+        self.added = []
+        self.deleted = []
+
+    def add(self, value):
+        self.added.append(value)
+
+    def delete(self, value):
+        self.deleted.append(value)
+
+
+def test_candidate_interview_sync_creates_rounds_and_updates_legacy_fields():
+    db = InterviewSyncDb()
+    candidate = RecruitmentCandidate(
+        id=uuid4(), project_id=uuid4(), candidate_name="同步面试人选"
+    )
+    _sync_candidate_interviews(db, candidate, [
+        {"round_no": 1, "interview_date": date(2026, 8, 18), "details": "一面通过"},
+        {"round_no": 2, "interview_date": date(2026, 8, 20), "details": "二面通过"},
+        {"round_no": 3, "interview_date": None, "details": "待安排"},
+    ])
+
+    assert len([item for item in db.added if isinstance(item, RecruitmentCandidateInterview)]) == 3
+    assert candidate.first_interview_date == date(2026, 8, 18)
+    assert candidate.second_interview_details == "二面通过"
 
 
 class CommunicationQuery:
@@ -266,7 +352,7 @@ def test_confirmed_recruitment_consultation_creation_is_idempotent(monkeypatch):
     )
     monkeypatch.setattr(
         "recruitment_service.generate_recruitment_order_no",
-        lambda _db: "HP-20260811-001",
+        lambda _db: "HP-260811-001",
     )
 
     project, created = ensure_recruitment_project_for_consultation(db, consultation, uuid4())

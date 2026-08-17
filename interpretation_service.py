@@ -49,7 +49,7 @@ def ensure_default_interpretation_languages(db: Session) -> None:
 
 def generate_interpretation_order_no(db: Session, current_time: Optional[datetime] = None) -> str:
     now = current_time or datetime.now(ZoneInfo("Asia/Hong_Kong"))
-    date_text = now.strftime("%Y%m%d")
+    date_text = now.strftime("%y%m%d")
     prefix = f"IP-{date_text}-"
     bind = db.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":
@@ -315,6 +315,7 @@ NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments"
 
 
 def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
+    existing_translator_ids = {item.translator_id for item in project.interpreter_assignments}
     language_ids = {
         value
         for item in payload.language_directions
@@ -335,6 +336,13 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         }
         if found != translator_ids:
             raise ValueError("所选译员不存在或已失效")
+        from resource_service import translator_has_capability
+        ineligible = {
+            translator_id for translator_id in translator_ids - existing_translator_ids
+            if not translator_has_capability(db, translator_id, "interpretation")
+        }
+        if ineligible:
+            raise ValueError("所选人员已停用或不具备有效的口译能力")
 
     # 先删除并落库旧关系，再按相同 sequence_no 重建，避免唯一约束下
     # SQLAlchemy 先 INSERT 后 DELETE 导致编辑已有项目时冲突。
@@ -390,6 +398,20 @@ def update_interpretation_project(
     for key, value in data.items():
         setattr(project, key, value)
     _sync_nested(db, project, payload)
+    project.updated_at = datetime.now()
+    db.commit()
+    return get_interpretation_project(db, project.id)
+
+
+def update_interpretation_project_status(
+    db: Session, project_id: UUID, project_status: str
+) -> Optional[InterpretationProject]:
+    project = get_interpretation_project(db, project_id)
+    if not project:
+        return None
+    if project.project_status == project_status:
+        return project
+    project.project_status = project_status
     project.updated_at = datetime.now()
     db.commit()
     return get_interpretation_project(db, project.id)

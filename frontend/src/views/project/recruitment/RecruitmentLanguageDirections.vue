@@ -21,9 +21,9 @@
       <el-button type="danger" link @click="remove(index)">删除</el-button>
     </div>
     <div class="direction-actions">
-      <el-button @click="add">新增方向</el-button>
+      <el-button class="soft-action-button" :icon="Plus" @click="add">新增方向</el-button>
       <el-popover v-model:visible="createVisible" trigger="click" placement="bottom-end" :width="320">
-        <template #reference><el-button>新增共享语种</el-button></template>
+        <template #reference><el-button class="soft-action-button" :icon="Plus">新增共享语种</el-button></template>
         <el-form @submit.prevent>
           <el-form-item label="语种名称"><el-input v-model="newLabel" maxlength="100" placeholder="例如：吴语（上海话）" @keyup.enter="createLanguage" /></el-form-item>
           <div class="create-actions"><el-button @click="createVisible = false">取消</el-button><el-button type="primary" :loading="creating" @click="createLanguage">添加</el-button></div>
@@ -37,6 +37,7 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 
 const props = defineProps({ modelValue: { type: Array, default: () => [] } })
@@ -92,6 +93,15 @@ onMounted(load)
 .direction-editor { width: 100%; }
 .direction-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .direction-actions, .create-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.soft-action-button {
+  --el-button-bg-color: var(--el-color-primary-light-9);
+  --el-button-border-color: var(--el-color-primary-light-7);
+  --el-button-text-color: var(--el-color-primary-dark-2);
+  --el-button-hover-bg-color: var(--el-color-primary-light-8);
+  --el-button-hover-border-color: var(--el-color-primary-light-5);
+  --el-button-hover-text-color: var(--el-color-primary);
+  font-weight: 500;
+}
 .hint { margin-top: 5px; color: var(--el-text-color-secondary); font-size: 12px; }
 .new-tag { float: right; margin-left: 8px; }
 @media (max-width: 720px) { .direction-row { align-items: stretch; flex-direction: column; } }

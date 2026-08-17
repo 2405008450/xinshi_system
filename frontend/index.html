@@ -5,8 +5,46 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>翻译项目管理平台</title>
+    <style>
+      html, body, #app { width: 100%; height: 100%; overflow: hidden; }
+    </style>
   </head>
   <body>
+    <script>
+      (function () {
+        var levels = [0.8, 0.9, 1, 1.1, 1.25]
+        function normalize(value) {
+          var level = Number(value)
+          return levels.indexOf(level) >= 0 ? level : 1
+        }
+        function clearZoom(el) {
+          if (!el) return
+          el.style.removeProperty('zoom')
+          el.style.removeProperty('width')
+          el.style.removeProperty('height')
+        }
+        function apply(level) {
+          var root = document.documentElement
+          var body = document.body
+          root.style.setProperty('--ui-zoom', String(level))
+          clearZoom(root)
+          var target = body || root
+          if (level === 1) {
+            clearZoom(target)
+            return
+          }
+          target.style.zoom = String(level)
+          target.style.width = 100 / level + 'vw'
+          target.style.height = 100 / level + 'vh'
+        }
+        try {
+          var userKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || ''
+          var raw = userKey ? localStorage.getItem('ui-zoom:' + userKey) : null
+          if (raw == null) raw = localStorage.getItem('ui-zoom')
+          apply(normalize(raw))
+        } catch (e) {}
+      })()
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

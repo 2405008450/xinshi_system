@@ -23,6 +23,7 @@ export const getRecruitmentProjectCount = (params, config = {}) => (
 export const getRecruitmentProject = (id) => api.get(`/projects/recruitment/${id}`).then(fromApi)
 export const createRecruitmentProject = (data) => api.post('/projects/recruitment/', toApi(data)).then(fromApi)
 export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruitment/${id}`, toApi(data)).then(fromApi)
+export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, { project_status: projectStatus }).then(fromApi)
 export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`)
 export const previewRecruitmentProjectName = (data) => api.post('/projects/recruitment/name-preview', toApi(data)).then(fromApi)
 

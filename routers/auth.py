@@ -12,7 +12,7 @@ from database import get_db
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
-from schemas import Token, LoginRequest
+from schemas import AuthSession, Token, LoginRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -190,6 +190,21 @@ def require_any_permission(*permission_codes: str) -> Callable:
         return current_user
 
     return permission_dependency
+
+
+@router.get("/session", response_model=AuthSession)
+def read_current_session(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """返回当前账号的实时角色与权限，用于前端刷新会话缓存。"""
+    return {
+        "user_id": str(current_user.id),
+        "username": current_user.username,
+        "full_name": current_user.full_name or current_user.username,
+        "roles": get_user_roles_with_role_names(db, current_user.id),
+        "permissions": get_user_permission_codes(db, current_user.id),
+    }
 
 
 @router.post("/login", response_model=Token)

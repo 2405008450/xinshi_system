@@ -13,6 +13,7 @@ from annotation_schemas import (
     AnnotationProjectCreate,
     AnnotationProjectDetailResponse,
     AnnotationProjectListResponse,
+    AnnotationProjectStatusUpdate,
     AnnotationProjectUpdate,
 )
 from annotation_service import (
@@ -23,6 +24,7 @@ from annotation_service import (
     get_annotation_projects,
     preview_annotation_project_name,
     update_annotation_project,
+    update_annotation_project_status,
 )
 from database import get_db
 from models import AppUser
@@ -46,6 +48,15 @@ def _filters(
     dispatched_date_end=None,
     submitted_date_start=None,
     submitted_date_end=None,
+    client_id=None,
+    sub_client_id=None,
+    assignee_person_id=None,
+    created_date_start=None,
+    created_date_end=None,
+    consultation_date_start=None,
+    consultation_date_end=None,
+    confirmation_date_start=None,
+    confirmation_date_end=None,
 ):
     return dict(
         keyword=keyword,
@@ -57,6 +68,15 @@ def _filters(
         dispatched_date_end=dispatched_date_end,
         submitted_date_start=submitted_date_start,
         submitted_date_end=submitted_date_end,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        assignee_person_id=assignee_person_id,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        confirmation_date_start=confirmation_date_start,
+        confirmation_date_end=confirmation_date_end,
     )
 
 
@@ -73,12 +93,36 @@ def read_projects(
     dispatched_date_end: Optional[date] = None,
     submitted_date_start: Optional[date] = None,
     submitted_date_end: Optional[date] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    assignee_person_id: Optional[UUID] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    confirmation_date_start: Optional[date] = None,
+    confirmation_date_end: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
     filters = _filters(
-        keyword, project_status, project_type, language_id, client_manager_id,
-        dispatched_date_start, dispatched_date_end,
-        submitted_date_start, submitted_date_end,
+        keyword=keyword,
+        project_status=project_status,
+        project_type=project_type,
+        language_id=language_id,
+        client_manager_id=client_manager_id,
+        dispatched_date_start=dispatched_date_start,
+        dispatched_date_end=dispatched_date_end,
+        submitted_date_start=submitted_date_start,
+        submitted_date_end=submitted_date_end,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        assignee_person_id=assignee_person_id,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        confirmation_date_start=confirmation_date_start,
+        confirmation_date_end=confirmation_date_end,
     )
     return get_annotation_projects(db, skip=skip, limit=limit, **filters)
 
@@ -94,12 +138,36 @@ def read_project_count(
     dispatched_date_end: Optional[date] = None,
     submitted_date_start: Optional[date] = None,
     submitted_date_end: Optional[date] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    assignee_person_id: Optional[UUID] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    confirmation_date_start: Optional[date] = None,
+    confirmation_date_end: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
     filters = _filters(
-        keyword, project_status, project_type, language_id, client_manager_id,
-        dispatched_date_start, dispatched_date_end,
-        submitted_date_start, submitted_date_end,
+        keyword=keyword,
+        project_status=project_status,
+        project_type=project_type,
+        language_id=language_id,
+        client_manager_id=client_manager_id,
+        dispatched_date_start=dispatched_date_start,
+        dispatched_date_end=dispatched_date_end,
+        submitted_date_start=submitted_date_start,
+        submitted_date_end=submitted_date_end,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        assignee_person_id=assignee_person_id,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        confirmation_date_start=confirmation_date_start,
+        confirmation_date_end=confirmation_date_end,
     )
     return {"total": count_annotation_projects(db, **filters)}
 
@@ -151,6 +219,21 @@ def update_project(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    return project
+
+
+@router.patch(
+    "/{project_id}/status", response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_status(
+    project_id: UUID,
+    payload: AnnotationProjectStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    project = update_annotation_project_status(db, project_id, payload.project_status)
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     return project

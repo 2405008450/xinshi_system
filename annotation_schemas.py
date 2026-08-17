@@ -112,6 +112,33 @@ class AnnotationPriceItemResponse(AnnotationPriceItemInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnnotationAssigneeInput(BaseModel):
+    person_id: UUID
+    assignment_status: str = "assigned"
+    quality_score: Optional[str] = None
+    evaluation_note: Optional[str] = None
+
+    @field_validator("assignment_status")
+    @classmethod
+    def validate_status(cls, value):
+        if value not in {"assigned", "in_progress", "completed", "cancelled"}:
+            raise ValueError("不支持的标注人员安排状态")
+        return value
+
+    @field_validator("quality_score", "evaluation_note", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        return _nullable_text(value)
+
+
+class AnnotationAssigneeResponse(AnnotationAssigneeInput):
+    id: UUID
+    sequence_no: int
+    person_name: str
+    resource_code: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AnnotationProjectWrite(BaseModel):
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list, max_length=10)
@@ -123,8 +150,12 @@ class AnnotationProjectWrite(BaseModel):
     client_code: Optional[str] = None
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
+    email_subject_preview: Optional[str] = Field(default=None, max_length=1000)
     project_status: str = "pending_confirmation"
     potential_demand: Optional[str] = None
+    project_path: Optional[str] = None
+    quotation_path: Optional[str] = None
+    contract_path: Optional[str] = None
     task_dispatched_at: Optional[datetime] = None
     task_submitted_at: Optional[datetime] = None
     client_manager_id: Optional[UUID] = None
@@ -132,10 +163,12 @@ class AnnotationProjectWrite(BaseModel):
     customer_confirmation_time: Optional[datetime] = None
     language_items: list[AnnotationLanguageItemInput] = Field(default_factory=list)
     price_items: list[AnnotationPriceItemInput] = Field(default_factory=list)
+    assignees: list[AnnotationAssigneeInput] = Field(default_factory=list)
 
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",
-        "client_code", "contact_name", "customer_order_no", "potential_demand",
+        "client_code", "contact_name", "customer_order_no", "email_subject_preview", "potential_demand",
+        "project_path", "quotation_path", "contract_path",
         mode="before",
     )
     @classmethod
@@ -179,6 +212,9 @@ class AnnotationProjectWrite(BaseModel):
                 raise ValueError("价格明细引用了当前项目未选择的项目类型")
             if item.language_key and item.language_key not in language_key_set:
                 raise ValueError("价格明细引用了当前项目未选择的语言项")
+        person_ids = [item.person_id for item in self.assignees]
+        if len(person_ids) != len(set(person_ids)):
+            raise ValueError("同一标注人员不能重复安排")
         return self
 
 
@@ -188,6 +224,17 @@ class AnnotationProjectCreate(AnnotationProjectWrite):
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
     pass
+
+
+class AnnotationProjectStatusUpdate(BaseModel):
+    project_status: str
+
+    @field_validator("project_status")
+    @classmethod
+    def validate_status(cls, value):
+        if value not in ANNOTATION_PROJECT_STATUSES:
+            raise ValueError("不支持的标注项目状态")
+        return value
 
 
 class AnnotationProjectListResponse(BaseModel):
@@ -200,8 +247,12 @@ class AnnotationProjectListResponse(BaseModel):
     sub_client_id: Optional[UUID] = None
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
+    email_subject_preview: Optional[str] = None
     project_status: str
     potential_demand: Optional[str] = None
+    project_path: Optional[str] = None
+    quotation_path: Optional[str] = None
+    contract_path: Optional[str] = None
     task_dispatched_at: Optional[datetime] = None
     task_submitted_at: Optional[datetime] = None
     client_manager_id: Optional[UUID] = None
@@ -212,6 +263,7 @@ class AnnotationProjectListResponse(BaseModel):
     sub_client_contact: Optional[str] = None
     language_items_display: Optional[str] = None
     customer_price_summary: Optional[str] = None
+    assignee_summary: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -219,12 +271,15 @@ class AnnotationProjectListResponse(BaseModel):
 
 class AnnotationProjectDetailResponse(AnnotationProjectListResponse):
     consultation_id: Optional[UUID] = None
+    consultation_code: Optional[str] = None
     customer_consultation_time: Optional[datetime] = None
     customer_confirmation_time: Optional[datetime] = None
+    created_by_name: Optional[str] = None
     legacy_order_no: Optional[str] = None
     legacy_status: Optional[str] = None
     language_items: list[AnnotationLanguageItemResponse] = Field(default_factory=list)
     price_items: list[AnnotationPriceItemResponse] = Field(default_factory=list)
+    assignees: list[AnnotationAssigneeResponse] = Field(default_factory=list)
 
 
 class AnnotationNamePreviewRequest(BaseModel):

@@ -24,6 +24,7 @@ from recruitment_schemas import (
     RecruitmentProgressResponse,
     RecruitmentProjectCreate,
     RecruitmentProjectResponse,
+    RecruitmentProjectStatusUpdate,
     RecruitmentProjectUpdate,
     RecruitmentResumeSourceCreate,
     RecruitmentResumeSourceResponse,
@@ -45,7 +46,9 @@ from recruitment_service import (
     update_candidate,
     update_candidate_communication,
     update_recruitment_project,
+    update_recruitment_project_status,
 )
+from resource_service import TalentDuplicateError
 from routers.auth import get_current_user, require_any_permission, require_module_access
 
 
@@ -56,13 +59,33 @@ router = APIRouter(
 )
 
 
-def _filters(keyword=None, project_status=None, client_manager_id=None, employment_date_start=None, employment_date_end=None):
+def _filters(
+    keyword=None,
+    project_status=None,
+    client_id=None,
+    sub_client_id=None,
+    language_id=None,
+    client_manager_id=None,
+    employment_date_start=None,
+    employment_date_end=None,
+    target_onboard_date_start=None,
+    target_onboard_date_end=None,
+    created_date_start=None,
+    created_date_end=None,
+):
     return dict(
         keyword=keyword,
         project_status=project_status,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        language_id=language_id,
         client_manager_id=client_manager_id,
         employment_date_start=employment_date_start,
         employment_date_end=employment_date_end,
+        target_onboard_date_start=target_onboard_date_start,
+        target_onboard_date_end=target_onboard_date_end,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
     )
 
 
@@ -72,14 +95,34 @@ def read_projects(
     limit: int = Query(100, ge=1, le=500),
     keyword: Optional[str] = None,
     project_status: Optional[str] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
     client_manager_id: Optional[UUID] = None,
     employment_date_start: Optional[date] = None,
     employment_date_end: Optional[date] = None,
+    target_onboard_date_start: Optional[date] = None,
+    target_onboard_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
     return get_recruitment_projects(
         db, skip=skip, limit=limit,
-        **_filters(keyword, project_status, client_manager_id, employment_date_start, employment_date_end),
+        **_filters(
+            keyword=keyword,
+            project_status=project_status,
+            client_id=client_id,
+            sub_client_id=sub_client_id,
+            language_id=language_id,
+            client_manager_id=client_manager_id,
+            employment_date_start=employment_date_start,
+            employment_date_end=employment_date_end,
+            target_onboard_date_start=target_onboard_date_start,
+            target_onboard_date_end=target_onboard_date_end,
+            created_date_start=created_date_start,
+            created_date_end=created_date_end,
+        ),
     )
 
 
@@ -87,13 +130,33 @@ def read_projects(
 def read_project_count(
     keyword: Optional[str] = None,
     project_status: Optional[str] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
     client_manager_id: Optional[UUID] = None,
     employment_date_start: Optional[date] = None,
     employment_date_end: Optional[date] = None,
+    target_onboard_date_start: Optional[date] = None,
+    target_onboard_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
     return {"total": count_recruitment_projects(
-        db, **_filters(keyword, project_status, client_manager_id, employment_date_start, employment_date_end)
+        db, **_filters(
+            keyword=keyword,
+            project_status=project_status,
+            client_id=client_id,
+            sub_client_id=sub_client_id,
+            language_id=language_id,
+            client_manager_id=client_manager_id,
+            employment_date_start=employment_date_start,
+            employment_date_end=employment_date_end,
+            target_onboard_date_start=target_onboard_date_start,
+            target_onboard_date_end=target_onboard_date_end,
+            created_date_start=created_date_start,
+            created_date_end=created_date_end,
+        )
     )}
 
 
@@ -105,14 +168,17 @@ def preview_name(payload: RecruitmentNamePreviewRequest, db: Session = Depends(g
         raise HTTPException(status_code=422, detail=str(exc))
 
 
-@router.get("/resume-sources", response_model=List[RecruitmentResumeSourceResponse])
+@router.get(
+    "/resume-sources", response_model=List[RecruitmentResumeSourceResponse],
+    dependencies=[Depends(require_any_permission("recruitment_talents:read"))],
+)
 def read_resume_sources(db: Session = Depends(get_db)):
     return get_resume_sources(db)
 
 
 @router.post(
     "/resume-sources", response_model=RecruitmentResumeSourceResponse,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def create_resume_source(
     payload: RecruitmentResumeSourceCreate,
@@ -140,7 +206,7 @@ def create_project(
 
 @router.put(
     "/candidate/{candidate_id}", response_model=RecruitmentCandidateResponse,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def update_candidate_endpoint(
     candidate_id: UUID, payload: RecruitmentCandidateUpdate, db: Session = Depends(get_db)
@@ -157,7 +223,7 @@ def update_candidate_endpoint(
 
 @router.patch(
     "/candidate/{candidate_id}", response_model=RecruitmentCandidateResponse,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def patch_candidate_endpoint(
     candidate_id: UUID, payload: RecruitmentCandidatePatch, db: Session = Depends(get_db)
@@ -176,7 +242,7 @@ def patch_candidate_endpoint(
     "/candidate/{candidate_id}/communications",
     response_model=RecruitmentCandidateCommunicationResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def create_candidate_communication_endpoint(
     candidate_id: UUID,
@@ -192,7 +258,7 @@ def create_candidate_communication_endpoint(
 @router.put(
     "/candidate/communication/{communication_id}",
     response_model=RecruitmentCandidateCommunicationResponse,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def update_candidate_communication_endpoint(
     communication_id: UUID,
@@ -207,7 +273,7 @@ def update_candidate_communication_endpoint(
 
 @router.delete(
     "/candidate/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def delete_candidate_endpoint(candidate_id: UUID, db: Session = Depends(get_db)):
     if not delete_candidate(db, candidate_id):
@@ -245,7 +311,10 @@ def create_progress(
     return record
 
 
-@router.get("/{project_id}/candidates", response_model=List[RecruitmentCandidateResponse])
+@router.get(
+    "/{project_id}/candidates", response_model=List[RecruitmentCandidateResponse],
+    dependencies=[Depends(require_any_permission("recruitment_talents:read"))],
+)
 def read_candidates(project_id: UUID, db: Session = Depends(get_db)):
     if not get_recruitment_project(db, project_id):
         raise HTTPException(status_code=404, detail="招聘项目不存在")
@@ -255,6 +324,7 @@ def read_candidates(project_id: UUID, db: Session = Depends(get_db)):
             selectinload(RecruitmentCandidate.owner),
             selectinload(RecruitmentCandidate.resume_source),
             selectinload(RecruitmentCandidate.communications),
+            selectinload(RecruitmentCandidate.interviews),
         )
         .filter(RecruitmentCandidate.project_id == project_id)
         .order_by(RecruitmentCandidate.created_at.desc())
@@ -265,13 +335,18 @@ def read_candidates(project_id: UUID, db: Session = Depends(get_db)):
 @router.post(
     "/{project_id}/candidates", response_model=RecruitmentCandidateResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("recruitment_talents:write"))],
 )
 def create_candidate_endpoint(
     project_id: UUID, payload: RecruitmentCandidateCreate, db: Session = Depends(get_db)
 ):
     try:
         candidate = create_candidate(db, project_id, payload)
+    except TalentDuplicateError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
+        })
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
@@ -303,6 +378,24 @@ def update_project(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    if not project:
+        raise HTTPException(status_code=404, detail="招聘项目不存在")
+    return project
+
+
+@router.patch(
+    "/{project_id}/status", response_model=RecruitmentProjectResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_status(
+    project_id: UUID,
+    payload: RecruitmentProjectStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    project = update_recruitment_project_status(
+        db, project_id, payload.project_status, current_user.id,
+    )
     if not project:
         raise HTTPException(status_code=404, detail="招聘项目不存在")
     return project

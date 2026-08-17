@@ -233,10 +233,17 @@ class Translator(Base):
     __tablename__ = 'translator'
     __table_args__ = (
         PrimaryKeyConstraint('id', name='translator_pkey'),
-        UniqueConstraint('translator_code', name='translator_translator_code_key')
+        UniqueConstraint('translator_code', name='translator_translator_code_key'),
+        UniqueConstraint('resource_person_id', name='uq_translator_resource_person'),
+        ForeignKeyConstraint(
+            ['resource_person_id'], ['resource_person.id'], ondelete='SET NULL',
+            name='fk_translator_resource_person'
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    # 兼容桥接：旧项目继续引用 translator.id，新资源库通过该字段关联统一人员主档。
+    resource_person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     translator_code: Mapped[Optional[str]] = mapped_column(String(50))
     translator_name: Mapped[str] = mapped_column(String(255), nullable=False)
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))

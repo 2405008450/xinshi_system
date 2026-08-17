@@ -1,0 +1,115 @@
+import { computed, ref } from 'vue'
+
+export const UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25]
+export const UI_ZOOM_DEFAULT = 1
+export const UI_ZOOM_STORAGE_KEY = 'ui-zoom'
+
+function getUserKey() {
+  try {
+    return localStorage.getItem('user_id') || localStorage.getItem('user_name') || ''
+  } catch {
+    return ''
+  }
+}
+
+function userStorageKey(userKey = getUserKey()) {
+  return userKey ? `${UI_ZOOM_STORAGE_KEY}:${userKey}` : UI_ZOOM_STORAGE_KEY
+}
+
+export function normalizeUiZoom(value) {
+  const level = Number(value)
+  return UI_ZOOM_LEVELS.includes(level) ? level : UI_ZOOM_DEFAULT
+}
+
+function clearZoomStyles(el) {
+  if (!el) return
+  el.style.removeProperty('zoom')
+  el.style.removeProperty('width')
+  el.style.removeProperty('height')
+}
+
+export function applyUiZoom(zoom) {
+  const level = normalizeUiZoom(zoom)
+  const root = document.documentElement
+  const body = document.body
+  root.style.setProperty('--ui-zoom', String(level))
+  // 旧实现把 zoom 写在 html 上，视口 overflow:hidden 会裁掉补偿宽度。
+  clearZoomStyles(root)
+
+  const target = body || root
+  if (level === 1) {
+    clearZoomStyles(target)
+    return level
+  }
+
+  target.style.zoom = String(level)
+  target.style.width = `${100 / level}vw`
+  target.style.height = `${100 / level}vh`
+  return level
+}
+
+export function readStoredUiZoom() {
+  try {
+    const userKey = getUserKey()
+    if (userKey) {
+      const userValue = localStorage.getItem(userStorageKey(userKey))
+      if (userValue != null) return normalizeUiZoom(userValue)
+    }
+    const fallback = localStorage.getItem(UI_ZOOM_STORAGE_KEY)
+    if (fallback != null) return normalizeUiZoom(fallback)
+  } catch {
+    // ignore storage access errors
+  }
+  return UI_ZOOM_DEFAULT
+}
+
+export function persistUiZoom(zoom) {
+  const level = normalizeUiZoom(zoom)
+  try {
+    localStorage.setItem(userStorageKey(), String(level))
+    localStorage.setItem(UI_ZOOM_STORAGE_KEY, String(level))
+  } catch {
+    // ignore storage access errors
+  }
+  return level
+}
+
+const zoom = ref(readStoredUiZoom())
+const panelVisible = ref(false)
+
+applyUiZoom(zoom.value)
+
+export function useUiZoom() {
+  const zoomPercent = computed(() => Math.round(zoom.value * 100))
+
+  function setZoom(value) {
+    const level = persistUiZoom(value)
+    zoom.value = level
+    applyUiZoom(level)
+  }
+
+  function resetZoom() {
+    setZoom(UI_ZOOM_DEFAULT)
+  }
+
+  function openPanel() {
+    panelVisible.value = true
+  }
+
+  function syncFromStorage() {
+    const level = readStoredUiZoom()
+    zoom.value = level
+    applyUiZoom(level)
+  }
+
+  return {
+    zoom,
+    zoomPercent,
+    panelVisible,
+    levels: UI_ZOOM_LEVELS,
+    setZoom,
+    resetZoom,
+    openPanel,
+    syncFromStorage,
+  }
+}

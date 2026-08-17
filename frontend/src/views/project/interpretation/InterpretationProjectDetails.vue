@@ -8,6 +8,7 @@
             v-model="visibleColumnKeys"
             :columns="tableColumns"
             :column-count="2"
+            hint="序号、订单号和操作列固定显示；扩展信息请点击订单号查看详情。"
             @reset="resetColumns"
           />
           <el-button v-if="canWrite" type="primary" @click="handleAdd">新增口译项目</el-button>
@@ -92,8 +93,9 @@
     </el-form>
 
     <el-table :data="tableData" v-loading="loading" border class="interpretation-table">
-      <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
-      <el-table-column label="订单号" width="210" fixed="left">
+      <el-table-column type="index" label="序号" width="50" align="center" fixed="left" />
+      <el-table-column label="订单号" width="164" fixed="left">
+        <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目详情" /></template>
         <template #default="{ row }">
           <div class="order-cell">
             <el-popover
@@ -105,19 +107,39 @@
               @show="loadDetail(row.id)"
             >
               <template #reference>
-                <el-button type="primary" link @click.stop>{{ row.orderNo }}</el-button>
+                <el-button type="primary" link class="order-no-link business-clickable-cell" @click.stop>{{ row.orderNo }}</el-button>
               </template>
               <div class="detail-content" v-loading="detailLoadingId === row.id">
                 <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="订单号">{{ textValue(detailRow(row).orderNo) }}</el-descriptions-item>
+                  <el-descriptions-item label="项目状态">{{ statusLabel(detailRow(row).projectStatus) }}</el-descriptions-item>
+                  <el-descriptions-item label="项目名称" :span="2">{{ detailRow(row).projectName || '待完善' }}</el-descriptions-item>
+                  <el-descriptions-item label="具体任务" :span="2">{{ textValue(detailRow(row).taskDescription) }}</el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row)) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户简称">{{ textValue(detailRow(row).clientShortName) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户编号">{{ textValue(detailRow(row).clientCode) }}</el-descriptions-item>
                   <el-descriptions-item label="客户全称">{{ textValue(detailRow(row).clientFullName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户领域">{{ textValue(detailRow(row).clientDomain) }}</el-descriptions-item>
+                  <el-descriptions-item label="现客户经理">{{ textValue(detailRow(row).currentClientManager) }}</el-descriptions-item>
+                  <el-descriptions-item label="子客户/联系人">{{ textValue(detailRow(row).subClientContact) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户单号/项目标识" :span="2">{{ textValue(detailRow(row).customerOrderNo) }}</el-descriptions-item>
                   <el-descriptions-item label="项目时间" :span="2">{{ timeRangesText(detailRow(row).timeRanges) }}</el-descriptions-item>
                   <el-descriptions-item label="项目地点" :span="2">{{ arrayText(detailRow(row).locations, '、') }}</el-descriptions-item>
+                  <el-descriptions-item label="口译方向" :span="2">{{ textValue(detailRow(row).languageDirectionsDisplay) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户预算" :span="2">{{ textValue(detailRow(row).customerBudget) }}</el-descriptions-item>
                   <el-descriptions-item label="客户咨询时间">{{ formatDateTime(detailRow(row).customerConsultationTime) }}</el-descriptions-item>
                   <el-descriptions-item label="客户确认时间">{{ formatDateTime(detailRow(row).customerConfirmationTime) }}</el-descriptions-item>
                   <el-descriptions-item label="口译领域" :span="2">{{ textValue(detailRow(row).interpretationDomain) }}</el-descriptions-item>
                   <el-descriptions-item label="口译内容" :span="2">{{ textValue(detailRow(row).interpretationContent) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员性别">{{ textValue(detailRow(row).requiredInterpreterGender) }}</el-descriptions-item>
+                  <el-descriptions-item label="口译水平">{{ textValue(detailRow(row).requiredInterpretationLevel) }}</el-descriptions-item>
+                  <el-descriptions-item label="特殊要求">{{ textValue(detailRow(row).interpreterSpecialRequirements) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员身高">{{ textValue(detailRow(row).interpreterHeightRequirement) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员相貌">{{ textValue(detailRow(row).interpreterAppearanceRequirement) }}</el-descriptions-item>
+                  <el-descriptions-item label="着装要求" :span="2">{{ textValue(detailRow(row).interpreterDressRequirement) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员安排" :span="2">{{ textValue(detailRow(row).assignedInterpretersDisplay) }}</el-descriptions-item>
+                  <el-descriptions-item label="译员编号" :span="2">{{ textValue(detailRow(row).translatorCodes) }}</el-descriptions-item>
                   <el-descriptions-item label="项目文件路径" :span="2">{{ textValue(detailRow(row).filePath) }}</el-descriptions-item>
                   <el-descriptions-item label="报价单路径" :span="2">{{ textValue(detailRow(row).quotationPath) }}</el-descriptions-item>
                   <el-descriptions-item label="合同路径" :span="2">{{ textValue(detailRow(row).contractPath) }}</el-descriptions-item>
@@ -129,6 +151,9 @@
                   </el-descriptions-item>
                   <el-descriptions-item label="发圈请求" :span="2">{{ textValue(detailRow(row).socialPostRequest) }}</el-descriptions-item>
                   <el-descriptions-item label="资源请求" :span="2">{{ textValue(detailRow(row).resourceRequest) }}</el-descriptions-item>
+                  <el-descriptions-item label="来源咨询 ID" :span="2">{{ textValue(detailRow(row).consultationId) }}</el-descriptions-item>
+                  <el-descriptions-item label="创建时间">{{ formatDateTime(detailRow(row).createdAt) }}</el-descriptions-item>
+                  <el-descriptions-item label="更新时间">{{ formatDateTime(detailRow(row).updatedAt) }}</el-descriptions-item>
                   <el-descriptions-item label="备注" :span="2">
                     <div class="remarks-detail">{{ textValue(detailRow(row).remarks) }}</div>
                   </el-descriptions-item>
@@ -136,10 +161,7 @@
                 </el-descriptions>
               </div>
             </el-popover>
-            <div class="path-actions">
-              <el-button link type="primary" :icon="FolderOpened" title="打开路径" @click.stop="openProjectPath(row)" />
-              <el-button link type="primary" :icon="CopyDocument" title="复制路径" @click.stop="copyProjectPath(row)" />
-            </div>
+            <PathActionButtons @open="openProjectPath(row)" @copy="copyProjectPath(row)" />
           </div>
         </template>
       </el-table-column>
@@ -150,10 +172,45 @@
         :label="column.label"
         :width="column.width"
         :min-width="column.minWidth"
-        show-overflow-tooltip
+        :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)"
       >
+        <template #header>
+          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+          <span v-else>{{ column.label }}</span>
+        </template>
         <template #default="{ row }">
-          <el-tag v-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)">{{ statusLabel(row.projectStatus) }}</el-tag>
+          <el-dropdown
+            v-if="column.key === 'projectStatus' && canWrite"
+            trigger="click"
+            :disabled="projectStatusSavingIds.has(row.id)"
+            @command="(command) => changeProjectStatus(row, command)"
+          >
+            <el-tag
+              :type="statusType(row.projectStatus)"
+              size="small"
+              class="status-switch-tag"
+              :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
+            >
+              <span class="status-switch-text">{{ statusLabel(row.projectStatus) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in statusOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === row.projectStatus || projectStatusSavingIds.has(row.id)"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="statusType(item.value)" size="small" effect="plain">{{ item.label }}</el-tag>
+                    <el-icon v-if="item.value === row.projectStatus" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)" size="small">{{ statusLabel(row.projectStatus) }}</el-tag>
           <el-popover
             v-else-if="column.key === 'clientShortName' && row.clientShortName"
             trigger="click"
@@ -163,7 +220,7 @@
             popper-class="interpretation-client-popover"
           >
             <template #reference>
-              <el-button type="primary" link @click.stop>{{ row.clientShortName }}</el-button>
+              <el-button type="primary" link class="business-clickable-cell" @click.stop>{{ row.clientShortName }}</el-button>
             </template>
             <el-descriptions :column="1" border size="small">
               <el-descriptions-item label="子客户/联系人">{{ textValue(row.subClientContact) }}</el-descriptions-item>
@@ -180,7 +237,7 @@
             @show="loadDetail(row.id)"
           >
             <template #reference>
-              <el-button type="primary" link @click.stop>{{ row.assignedInterpretersDisplay || '查看要求' }}</el-button>
+              <el-button type="primary" link class="business-clickable-cell" @click.stop>{{ row.assignedInterpretersDisplay || '查看要求' }}</el-button>
             </template>
             <div class="interpreter-detail-content" v-loading="detailLoadingId === row.id">
               <div class="interpreter-detail-section-title">常用要求</div>
@@ -224,14 +281,16 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
-          <span v-else-if="column.key === 'projectName'">{{ row.projectName || '待完善' }}</span>
+          <span v-else-if="column.key === 'projectName'" class="project-name-cell">{{ row.projectName || '待完善' }}</span>
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="88" fixed="right" align="center">
+      <el-table-column label="操作" width="94" fixed="right" align="center">
         <template #default="{ row }">
-          <TableActionButton v-if="canWrite" action="edit" @click="handleEdit(row)" />
-          <TableActionButton v-if="canWrite" action="delete" @click="handleDelete(row)" />
+          <div v-if="canWrite" class="action-buttons">
+            <TableActionButton action="edit" @click="handleEdit(row)" />
+            <TableActionButton action="delete" @click="handleDelete(row)" />
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -268,7 +327,17 @@
               </el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24"><el-form-item label="项目名称"><el-input v-model="form.projectName" placeholder="完善时间、地点、方向和类型后点击生成，也可手工编辑" /></el-form-item></el-col>
+              <el-col :span="24">
+                <el-form-item label="项目名称">
+                  <GeneratedProjectNameInput
+                    v-model="form.projectName"
+                    placeholder="可手工填写，或根据时间、地点、方向和类型生成"
+                    :loading="nameLoading"
+                    @manual-input="handleProjectNameInput"
+                    @regenerate="generateProjectName"
+                  />
+                </el-form-item>
+              </el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
@@ -278,7 +347,17 @@
                   </el-select>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="具体任务"><el-input v-model="form.taskDescription" /></el-form-item></el-col>
+              <el-col :span="24">
+                <el-form-item label="具体任务">
+                  <el-input
+                    v-model="form.taskDescription"
+                    type="textarea"
+                    :autosize="{ minRows: 4, maxRows: 10 }"
+                    placeholder="请输入具体任务，可填写详细的工作内容和要求"
+                    resize="vertical"
+                  />
+                </el-form-item>
+              </el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
@@ -291,20 +370,22 @@
               <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-input v-model="form.currentClientManager" disabled /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" /></el-form-item></el-col>
+              <el-col :xs="24" :md="6"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="6"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="6"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="6"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" disabled placeholder="由客户信息自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8">
                 <el-form-item label="子客户">
-                  <el-select v-model="form.subClientId" clearable filterable style="width: 100%">
+                  <el-select v-model="form.subClientId" clearable filterable style="width: 100%" @change="handleSubClientChange">
                     <el-option v-for="item in selectedClientSubClients" :key="item.id" :label="item.client_short_name" :value="item.id" />
                   </el-select>
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="8"><el-form-item label="联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" disabled placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item></el-col>
@@ -331,22 +412,28 @@
                 <el-form-item :label="`项目地点${['一', '二', '三', '四'][index - 1]}`"><el-input v-model="form.locations[index - 1]" /></el-form-item>
               </el-col>
             </el-row>
-            <div class="section-title-row"><h4>口译方向</h4><div><el-button link type="primary" @click="addLanguage">新增语种</el-button><el-button type="primary" plain @click="addDirection">增加方向</el-button></div></div>
+            <div class="section-title-row">
+              <h4>口译方向</h4>
+              <div>
+                <el-button link type="primary" @click="openLanguageManager">管理语种</el-button>
+                <el-button link type="primary" @click="addLanguage">新增语种</el-button>
+                <el-button type="primary" plain @click="addDirection">增加方向</el-button>
+              </div>
+            </div>
             <div v-for="(item, index) in form.languageDirections" :key="index" class="direction-row">
               <el-select v-model="item.sourceLanguageId" filterable placeholder="语种 A">
-                <el-option v-for="lang in languages" :key="lang.id" :label="lang.label" :value="lang.id"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag></el-option>
+                <el-option v-for="lang in selectableLanguages" :key="lang.id" :label="lang.label" :value="lang.id" :disabled="lang.isActive === false"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag><el-tag v-if="lang.isActive === false" size="small" type="info" class="new-language-tag">已停用</el-tag></el-option>
               </el-select>
               <span class="direction-arrow">↔</span>
               <el-select v-model="item.targetLanguageId" filterable placeholder="语种 B">
-                <el-option v-for="lang in languages" :key="lang.id" :label="lang.label" :value="lang.id"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag></el-option>
+                <el-option v-for="lang in selectableLanguages" :key="lang.id" :label="lang.label" :value="lang.id" :disabled="lang.isActive === false"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag><el-tag v-if="lang.isActive === false" size="small" type="info" class="new-language-tag">已停用</el-tag></el-option>
               </el-select>
               <el-button link type="danger" @click="form.languageDirections.splice(index, 1)">删除</el-button>
             </div>
-            <el-button type="primary" @click="generateProjectName">生成项目名称</el-button>
           </section>
 
           <section class="form-section">
-            <div class="section-title-row"><h3>译员安排与评价</h3><el-button type="primary" plain @click="addInterpreter">增加译员</el-button></div>
+            <div class="section-title-row"><h3>译员安排与评价</h3></div>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="译员人数"><el-input-number v-model="form.requiredInterpreterCount" :min="0" style="width: 100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
@@ -369,6 +456,7 @@
                 <el-col :xs="24"><el-form-item label="评价备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" /></el-form-item></el-col>
               </el-row>
             </div>
+            <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
           </section>
 
           <section class="form-section">
@@ -389,7 +477,18 @@
               <el-col :xs="24" :md="12"><el-form-item label="资源请求"><el-input v-model="form.resourceRequest" type="textarea" :rows="2" /></el-form-item></el-col>
             </el-row>
             <el-form-item label="备注" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
-            <el-form-item label="邮件主题预览"><el-input v-model="form.emailSubjectPreview" type="textarea" :rows="3" /></el-form-item>
+            <el-form-item label="标题前缀">
+              <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
+            </el-form-item>
+            <el-form-item label="邮件主题预览">
+              <div class="subject-preview-field">
+                <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="3" />
+                <div class="subject-preview-toolbar">
+                  <span>按“标题前缀、订单号、客户简称、负责人联系方式、客户单号/标识、项目名称”顺序生成</span>
+                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                </div>
+              </div>
+            </el-form-item>
           </section>
         </el-form>
       </div>
@@ -398,37 +497,73 @@
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="languageManagerVisible"
+      title="管理口译语种"
+      class="language-manager-dialog"
+      width="min(760px, calc(100vw - 32px))"
+      top="8vh"
+      append-to-body
+    >
+      <div class="language-manager-hint">
+        系统预置语种只读；自定义语种可以重命名或停用。停用不会影响历史项目，但不会再出现在新项目的可选项中。
+      </div>
+      <el-table :data="languages" v-loading="languageManagerLoading" border max-height="480">
+        <el-table-column prop="label" label="语种名称" min-width="220">
+          <template #default="{ row }">
+            <span>{{ row.label }}</span>
+            <el-tag v-if="row.isCustom" size="small" type="warning" class="language-type-tag">新</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="110" align="center">
+          <template #default="{ row }">{{ row.isCustom ? '用户新增' : '系统预置' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100" align="center">
+          <template #default="{ row }"><el-tag :type="row.isActive === false ? 'info' : 'success'">{{ row.isActive === false ? '已停用' : '启用中' }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right" align="center">
+          <template #default="{ row }">
+            <template v-if="row.isCustom">
+              <el-button link type="primary" @click="renameLanguage(row)">重命名</el-button>
+              <el-button v-if="row.isActive !== false" link type="danger" @click="toggleLanguage(row, false)">停用</el-button>
+              <el-button v-else link type="success" @click="toggleLanguage(row, true)">重新启用</el-button>
+            </template>
+            <span v-else class="readonly-language">只读</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer><el-button @click="languageManagerVisible = false">关闭</el-button></template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { CopyDocument, FolderOpened } from '@element-plus/icons-vue'
-import { ElButton, ElInput, ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
-import * as translatorApi from '@/api/translators'
+import { getProjectTalentOptions } from '@/api/talents'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
+import PathActionButtons from '@/components/common/PathActionButtons.vue'
+import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
-
-const PathInput = defineComponent({
-  props: { modelValue: { type: String, default: '' } },
-  emits: ['update:modelValue', 'open', 'copy'],
-  setup(props, { emit }) {
-    return () => h('div', { class: 'path-input' }, [
-      h(ElInput, { modelValue: props.modelValue, 'onUpdate:modelValue': (value) => emit('update:modelValue', value) }),
-      h(ElButton, { icon: FolderOpened, onClick: () => emit('open') }),
-      h(ElButton, { icon: CopyDocument, onClick: () => emit('copy') }),
-    ])
-  },
-})
 
 const canWrite = hasPermission('projects:write')
 const loading = ref(false)
 const submitLoading = ref(false)
+const projectStatusSavingIds = ref(new Set())
+const nameLoading = ref(false)
+const nameManuallyEdited = ref(false)
 const dialogVisible = ref(false)
+const languageManagerVisible = ref(false)
+const languageManagerLoading = ref(false)
 const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
 const dialogBodyRef = ref(null)
@@ -440,8 +575,10 @@ const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const advancedVisible = ref(false)
 let searchTimer = null
+let autoNameTimer = null
 let requestController = null
 let requestId = 0
+let namePreviewRequestId = 0
 
 const projectTypeOptions = [
   { value: 'onsite', label: '现场口译' },
@@ -474,26 +611,25 @@ const ratingOptions = [
 const ratingMap = Object.fromEntries(ratingOptions.map((item) => [item.value, item.label]))
 
 const tableColumns = [
-  { key: 'projectName', label: '项目名称', minWidth: 210 },
-  { key: 'taskDescription', label: '具体任务', minWidth: 180 },
-  { key: 'currentClientManager', label: '现客户经理', width: 130 },
-  { key: 'projectStatus', label: '项目状态', width: 130 },
-  { key: 'clientShortName', label: '客户简称', width: 150 },
-  { key: 'subClientContact', label: '子客户/联系人', minWidth: 170 },
-  { key: 'customerOrderNo', label: '客户单号/项目标识', minWidth: 180 },
-  { key: 'languageDirectionsDisplay', label: '口译方向', minWidth: 210 },
-  { key: 'customerBudget', label: '客户预算', minWidth: 160 },
-  { key: 'assignedInterpretersDisplay', label: '译员安排', minWidth: 180 },
-  { key: 'clientCode', label: '客户编号', width: 150 },
-  { key: 'translatorCodes', label: '译员编号', minWidth: 160 },
+  { key: 'projectName', label: '项目名称', minWidth: 170 },
+  { key: 'taskDescription', label: '具体任务', minWidth: 140 },
+  { key: 'currentClientManager', label: '现客户经理', width: 92 },
+  { key: 'projectStatus', label: '项目状态', width: 124 },
+  { key: 'clientShortName', label: '客户简称', width: 90, clickHint: '点击客户简称查看关联信息' },
+  { key: 'subClientContact', label: '子客户/联系人', minWidth: 125 },
+  { key: 'customerOrderNo', label: '客户单号/项目标识', minWidth: 140 },
+  { key: 'languageDirectionsDisplay', label: '口译方向', minWidth: 130 },
+  { key: 'customerBudget', label: '客户预算', minWidth: 120 },
+  { key: 'assignedInterpretersDisplay', label: '译员安排', minWidth: 140, clickHint: '点击查看译员要求与安排详情' },
+  { key: 'clientCode', label: '客户编号', width: 100 },
+  { key: 'translatorCodes', label: '译员编号', minWidth: 110 },
 ]
 const defaultColumns = [
-  'projectName', 'taskDescription', 'currentClientManager', 'projectStatus',
-  'clientShortName',
-  'languageDirectionsDisplay', 'customerBudget', 'assignedInterpretersDisplay',
+  'projectName', 'currentClientManager', 'projectStatus', 'clientShortName',
+  'languageDirectionsDisplay', 'assignedInterpretersDisplay',
 ]
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(
-  'interpretation-details-v2', tableColumns, defaultColumns
+  'interpretation-details-v3', tableColumns, defaultColumns
 )
 const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
 
@@ -511,17 +647,24 @@ const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStar
 const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
-  currentClientManager: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
+  clientDomain: '', currentClientManager: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: ['', '', '', ''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterCount: null, requiredInterpreterGender: '', requiredInterpretationLevel: '',
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
   interpretationDomain: '', interpretationContent: '', filePath: '', quotationPath: '', contractPath: '',
-  clientRating: '', clientRatingNote: '', remarks: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
+  clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
   timeRanges: [emptyTimeRange()], languageDirections: [], interpreterAssignments: [],
 })
 const form = reactive(defaultForm())
 const rules = { projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }] }
+
+const selectedLanguageIds = computed(() => new Set(
+  form.languageDirections.flatMap((item) => [item.sourceLanguageId, item.targetLanguageId]).filter(Boolean)
+))
+const selectableLanguages = computed(() => languages.value.filter(
+  (item) => item.isActive !== false || selectedLanguageIds.value.has(item.id)
+))
 
 const selectedClient = computed(() => clients.value.find((item) => item.id === form.clientId))
 const selectedClientSubClients = computed(() => selectedClient.value?.sub_clients || [])
@@ -547,10 +690,10 @@ const interpreterRatingsText = (items) => Array.isArray(items) && items.length
   ? items.map((item) => `${item.translatorName}：${ratingText(item.customerRating, item.evaluationNote)}`).join('；')
   : '-'
 const translatorOptionLabel = (item) => {
-  const name = item.translator_name || item.translatorName
-  const code = item.translator_code || item.translatorCode
-  const level = item.interpretation_level || item.interpretationLevel
-  return `${name}${code ? `（${code}）` : ''}${level ? ` · ${level}` : ''}`
+  const name = item.fullName || item.translator_name || item.translatorName
+  const code = item.resourceCode || item.translator_code || item.translatorCode
+  const level = item.interpretation_level || item.interpretationLevel || item.translatorInterpretationLevel
+  return `${name || item.id}${code ? `（${code}）` : ''}${level ? ` · ${level}` : ''}${item.isHistorical ? ' · 已安排' : ''}`
 }
 
 const buildFilters = () => {
@@ -599,8 +742,8 @@ const clearAdvanced = () => { Object.assign(searchForm, { projectType: '', sched
 const loadReferenceData = async () => {
   const [clientRows, translatorRows, languageRows] = await Promise.allSettled([
     clientApi.getClients({ skip: 0, limit: 500, frequent_first: true }),
-    translatorApi.getTranslators({ skip: 0, limit: 500 }),
-    projectApi.getInterpretationLanguages(),
+    getProjectTalentOptions('interpretation'),
+    projectApi.getInterpretationLanguages({ include_inactive: true }),
   ])
   clients.value = clientRows.status === 'fulfilled' && Array.isArray(clientRows.value) ? clientRows.value : []
   translators.value = translatorRows.status === 'fulfilled' && Array.isArray(translatorRows.value) ? translatorRows.value : []
@@ -627,27 +770,109 @@ const handleClientChange = (id) => {
   const client = clients.value.find((item) => item.id === id)
   form.subClientId = ''
   if (!client) {
+    form.clientShortName = ''
+    form.clientFullName = ''
+    form.clientCode = ''
+    form.clientDomain = ''
     form.currentClientManager = ''
+    form.managerContact = ''
     return
   }
   form.clientShortName = client.client_short_name || ''
   form.clientFullName = client.client_name || ''
   form.clientCode = client.client_code || ''
+  form.clientDomain = [client.field_level1, client.field_level2].filter(Boolean).join(' / ')
   form.currentClientManager = client.client_manager || ''
+  form.managerContact = client.manager_contact || ''
+}
+const handleSubClientChange = (id) => {
+  const subClient = selectedClientSubClients.value.find((item) => item.id === id)
+  if (!subClient) {
+    const client = selectedClient.value
+    if (client) {
+      form.clientShortName = client.client_short_name || ''
+      form.clientFullName = client.client_name || ''
+      form.clientCode = client.client_code || ''
+      form.clientDomain = [client.field_level1, client.field_level2].filter(Boolean).join(' / ')
+      form.currentClientManager = client.client_manager || ''
+      form.managerContact = client.manager_contact || ''
+    }
+    return
+  }
+  form.clientShortName = subClient.client_short_name || ''
+  form.clientFullName = subClient.client_name || ''
+  form.clientCode = subClient.sub_client_code || ''
+  form.clientDomain = [subClient.field_level1, subClient.field_level2].filter(Boolean).join(' / ')
+  form.currentClientManager = subClient.client_manager || ''
+  form.managerContact = subClient.manager_contact || selectedClient.value?.manager_contact || ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
 const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '' })
 const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
+const sortLanguages = () => languages.value.sort((a, b) => (
+  Number(a.isActive === false) - Number(b.isActive === false)
+  || Number(a.isCustom) - Number(b.isCustom)
+  || a.label.localeCompare(b.label, 'zh-CN')
+))
+const replaceLanguage = (updated) => {
+  const index = languages.value.findIndex((item) => item.id === updated.id)
+  if (index >= 0) languages.value.splice(index, 1, updated)
+  else languages.value.push(updated)
+  sortLanguages()
+}
+const openLanguageManager = async () => {
+  languageManagerVisible.value = true
+  languageManagerLoading.value = true
+  try {
+    languages.value = await projectApi.getInterpretationLanguages({ include_inactive: true })
+    sortLanguages()
+  } catch (error) {
+    ElMessage.error(error.detail || '加载语种目录失败')
+  } finally {
+    languageManagerLoading.value = false
+  }
+}
 const addLanguage = async () => {
   try {
     const { value } = await ElMessageBox.prompt('请输入要新增的语种或方言名称', '新增口译语种', {
       inputPlaceholder: '例如：粤语', inputValidator: (text) => !!text?.trim() || '语种名称不能为空',
     })
     const created = await projectApi.createInterpretationLanguage(value.trim())
-    languages.value.push(created)
+    replaceLanguage(created)
     ElMessage.success('语种已新增')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '新增语种失败')
+  }
+}
+const renameLanguage = async (language) => {
+  try {
+    const { value } = await ElMessageBox.prompt('修改后，所有引用该语种的项目都会显示新名称。', '重命名语种', {
+      inputValue: language.label,
+      inputPlaceholder: '请输入语种或方言名称',
+      inputValidator: (text) => !!text?.trim() || '语种名称不能为空',
+      confirmButtonText: '保存',
+    })
+    const updated = await projectApi.updateInterpretationLanguage(language.id, { label: value.trim() })
+    replaceLanguage(updated)
+    ElMessage.success('语种名称已更新')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '修改语种失败')
+  }
+}
+const toggleLanguage = async (language, isActive) => {
+  try {
+    if (!isActive) {
+      await ElMessageBox.confirm(
+        `停用“${language.label}”后，新项目将无法选择该语种，历史项目不受影响。确定继续吗？`,
+        '停用语种',
+        { type: 'warning', confirmButtonText: '确定停用' }
+      )
+    }
+    const updated = await projectApi.updateInterpretationLanguage(language.id, { isActive })
+    replaceLanguage(updated)
+    ElMessage.success(isActive ? '语种已重新启用' : '语种已停用')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '更新语种状态失败')
   }
 }
 
@@ -678,21 +903,45 @@ const validateNested = (nested) => {
   const translatorIds = nested.interpreterAssignments.map((item) => item.translatorId)
   if (new Set(translatorIds).size !== translatorIds.length) throw new Error('同一译员不能重复安排')
 }
-const generateProjectName = async () => {
-  try {
-    const nested = normalizedNestedPayload()
-    validateNested(nested)
-    const result = await projectApi.previewInterpretationProjectName({
-      projectTypes: form.projectTypes,
-      locations: form.locations.filter((item) => item?.trim()).map((item) => item.trim()),
-      timeRanges: nested.timeRanges,
-      languageDirections: nested.languageDirections,
-    })
-    form.projectName = result.projectName
-    ElMessage.success('项目名称已重新生成，仍可手工修改')
-  } catch (error) {
-    ElMessage.warning(error.detail || error.message || '无法生成项目名称')
+const projectNamePayload = () => {
+  const nested = normalizedNestedPayload()
+  return {
+    projectTypes: form.projectTypes,
+    locations: form.locations.filter((item) => item?.trim()).map((item) => item.trim()),
+    timeRanges: nested.timeRanges,
+    languageDirections: nested.languageDirections,
   }
+}
+const hasCompleteProjectNameSource = (payload) => (
+  payload.projectTypes.length > 0
+  && payload.locations.length > 0
+  && payload.timeRanges.length > 0
+  && payload.languageDirections.length > 0
+  && payload.timeRanges.every((item) => item.scheduledStart && item.scheduledEnd)
+  && payload.languageDirections.every((item) => item.sourceLanguageId && item.targetLanguageId)
+)
+const previewProjectName = async ({ automatic = false } = {}) => {
+  const payload = projectNamePayload()
+  if (automatic && !hasCompleteProjectNameSource(payload)) return
+  const currentRequestId = ++namePreviewRequestId
+  if (!automatic) nameLoading.value = true
+  try {
+    const result = await projectApi.previewInterpretationProjectName(payload)
+    if (currentRequestId !== namePreviewRequestId || (automatic && nameManuallyEdited.value)) return
+    form.projectName = result.projectName
+    nameManuallyEdited.value = false
+    if (!automatic) ElMessage.success('项目名称已重新生成，仍可手工修改')
+  } catch (error) {
+    if (!automatic) ElMessage.warning(error.detail || error.message || '无法生成项目名称')
+  } finally {
+    if (!automatic) nameLoading.value = false
+  }
+}
+const generateProjectName = () => previewProjectName()
+const generateEmailSubject = () => notifyEmailSubjectGenerated(form, ElMessage)
+const handleProjectNameInput = () => {
+  nameManuallyEdited.value = true
+  namePreviewRequestId += 1
 }
 
 const buildPayload = () => {
@@ -736,12 +985,28 @@ const buildPayload = () => {
   }
 }
 const assignForm = (detail) => {
+  const client = clients.value.find((item) => item.id === detail.clientId)
+  const knownTranslatorIds = new Set(translators.value.map((item) => item.id))
+  for (const item of detail.interpreterAssignments || []) {
+    if (!knownTranslatorIds.has(item.translatorId)) {
+      translators.value.push({
+        id: item.translatorId,
+        fullName: item.translatorName,
+        resourceCode: item.translatorCode,
+        interpretationLevel: item.translatorInterpretationLevel,
+        isHistorical: true,
+      })
+      knownTranslatorIds.add(item.translatorId)
+    }
+  }
   Object.assign(form, defaultForm(), {
     ...detail,
     projectName: detail.projectName || '',
     clientId: detail.clientId || '', subClientId: detail.subClientId || '',
     clientShortName: detail.clientShortName || '', clientFullName: detail.clientFullName || '', clientCode: detail.clientCode || '',
+    clientDomain: detail.clientDomain || '',
     currentClientManager: detail.currentClientManager || '',
+    managerContact: detail.managerContact || client?.manager_contact || '',
     requiredInterpreterCount: detail.requiredInterpreterCount ?? null,
     requiredInterpreterGender: detail.requiredInterpreterGender || '',
     requiredInterpretationLevel: detail.requiredInterpretationLevel || '',
@@ -755,6 +1020,7 @@ const assignForm = (detail) => {
     languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId })),
     interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
   })
+  nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const handleAdd = () => { dialogTitle.value = '新增口译项目'; resetForm(); dialogVisible.value = true }
 const handleEdit = async (row) => {
@@ -786,6 +1052,27 @@ const handleSubmit = async () => {
     submitLoading.value = false
   }
 }
+const setProjectStatusSaving = (id, saving) => {
+  const next = new Set(projectStatusSavingIds.value)
+  if (saving) next.add(id)
+  else next.delete(id)
+  projectStatusSavingIds.value = next
+}
+const changeProjectStatus = async (row, value) => {
+  if (!value || value === row.projectStatus) return
+  setProjectStatusSaving(row.id, true)
+  try {
+    const updated = await projectApi.updateInterpretationProjectStatus(row.id, value)
+    Object.assign(row, updated)
+    detailCache[row.id] = updated
+    ElMessage.success('项目状态已更新')
+    if (searchForm.projectStatus && searchForm.projectStatus !== updated.projectStatus) await fetchData()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || error?.detail || '项目状态更新失败')
+  } finally {
+    setProjectStatusSaving(row.id, false)
+  }
+}
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm(`确定删除口译项目“${row.orderNo}”吗？`, '删除确认', { type: 'warning' })
@@ -797,7 +1084,17 @@ const handleDelete = async (row) => {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '删除失败')
   }
 }
-const resetForm = () => { Object.assign(form, defaultForm()); formRef.value?.clearValidate() }
+const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate() }
+
+watch(
+  () => [form.projectTypes, form.locations, form.timeRanges, form.languageDirections],
+  () => {
+    clearTimeout(autoNameTimer)
+    if (nameManuallyEdited.value || !dialogVisible.value) return
+    autoNameTimer = setTimeout(() => previewProjectName({ automatic: true }), 400)
+  },
+  { deep: true },
+)
 
 const toOpenPathHref = (path) => `openpath://${encodeURIComponent(String(path).replace(/^\\\\/, '')).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')}`
 const openPathValue = (path) => {
@@ -813,20 +1110,23 @@ const openProjectPath = async (row) => openPathValue(await projectPath(row))
 const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
 onMounted(async () => { await loadReferenceData(); await fetchData() })
-onBeforeUnmount(() => { clearTimeout(searchTimer); requestController?.abort() })
+onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 </script>
 
 <style scoped>
 .card-header, .header-actions, .advanced-header, .section-title-row, .repeat-title, .order-cell, .direction-row { display: flex; align-items: center; }
 .card-header, .advanced-header, .section-title-row, .repeat-title { justify-content: space-between; }
-.header-actions, .path-actions { display: flex; gap: 8px; }
+.header-actions { display: flex; gap: 8px; }
 .search-form { margin-bottom: 4px; }
 .filter-count { display: inline-flex; min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 9px; color: #fff; background: var(--el-color-primary); font-size: 11px; }
 .advanced-panel { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .advanced-header { margin-bottom: 12px; font-weight: 600; }
 .pagination { margin-top: 20px; }
-.order-cell { justify-content: space-between; gap: 6px; }
-.path-actions { flex-shrink: 0; }
+.order-cell { min-width: 0; gap: 4px; }
+.order-cell :deep(.el-popover__reference-wrapper) { flex: 1; min-width: 0; }
+.order-cell :deep(.path-action-buttons) { width: 40px; min-width: 40px; }
+.order-cell :deep(.path-action-buttons .el-button) { width: 19px; height: 22px; }
+.order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .editor-body { min-height: 0; }
 .form-section { margin-bottom: 18px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-blank); }
 .form-section h3 { margin: 0 0 16px; font-size: 16px; }
@@ -838,9 +1138,28 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); requestController?.abort() })
 .requirement-group-title { margin-bottom: 12px; color: var(--el-text-color-regular); font-weight: 600; }
 .repeat-title { margin-bottom: 8px; color: var(--el-text-color-regular); font-weight: 600; }
 .direction-row { gap: 10px; margin-bottom: 10px; }
+.project-name-cell { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.status-switch-tag.el-tag { display: inline-flex; min-width: 92px; max-width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity .15s ease; }
+.status-switch-tag :deep(.el-tag__content) { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
+.status-switch-text { line-height: 1; }
+.status-switch-caret { width: 10px; height: 10px; flex-shrink: 0; margin: 0; font-size: 10px; }
+.status-switch-tag:hover { opacity: .85; }
+.status-switch-tag.is-updating { pointer-events: none; opacity: .55; }
+.status-option-row { display: inline-flex; width: 100%; align-items: center; gap: 8px; }
+.status-current-icon { color: var(--el-color-primary); }
+.action-buttons { display: inline-flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; }
 .direction-row .el-select { flex: 1; }
 .direction-arrow { flex: 0 0 auto; color: var(--el-color-primary); font-size: 20px; font-weight: 700; }
+.soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
+.subject-preview-field { width: 100%; min-width: 0; }
+.subject-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.subject-preview-toolbar .el-button { flex: none; }
+.interpreter-add-button { width: 100%; margin-top: 4px; border-style: dashed; color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.interpreter-add-button:hover { border-style: dashed; background: var(--el-color-primary-light-8); }
 .new-language-tag { float: right; margin-left: 8px; }
+.language-type-tag { margin-left: 8px; }
+.language-manager-hint { margin-bottom: 14px; padding: 10px 12px; border-radius: 6px; color: var(--el-text-color-regular); background: var(--el-fill-color-light); line-height: 1.6; }
+.readonly-language { color: var(--el-text-color-secondary); }
 .remarks-form-item :deep(textarea) { min-height: 120px; }
 :deep(.path-input) { display: flex; width: 100%; gap: 8px; }
 :deep(.path-input .el-input) { flex: 1; }
@@ -862,6 +1181,10 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); requestController?.abort() })
 .interpretation-editor-dialog .el-dialog__footer { flex: 0 0 auto; }
 .interpretation-editor-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; padding-top: 12px; }
 .interpretation-editor-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.04); }
+.language-manager-dialog { display: flex; max-height: 84vh; flex-direction: column; overflow: hidden; }
+.language-manager-dialog .el-dialog__header,
+.language-manager-dialog .el-dialog__footer { flex: 0 0 auto; }
+.language-manager-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
 @media (max-width: 768px) {
   .interpretation-card .search-form .el-form-item { display: flex; width: 100%; margin-right: 0; }
   .interpretation-card .search-form .el-input, .interpretation-card .search-form .el-select { width: 100% !important; }

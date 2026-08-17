@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -19,6 +19,7 @@ from models import AppUser, Client, Consultation, SubClient, TranslationProject
 from recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateCommunication,
+    RecruitmentCandidateInterview,
     RecruitmentProject,
     RecruitmentProjectLanguageDirection,
     RecruitmentProjectProgress,
@@ -49,7 +50,7 @@ def is_recruitment_type(value: Optional[str]) -> bool:
 
 def generate_recruitment_order_no(db: Session, current_time: Optional[datetime] = None) -> str:
     now = current_time or datetime.now(ZoneInfo("Asia/Hong_Kong"))
-    date_text = now.strftime("%Y%m%d")
+    date_text = now.strftime("%y%m%d")
     prefix = f"HP-{date_text}-"
     bind = db.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":
@@ -96,9 +97,16 @@ def _apply_filters(
     *,
     keyword=None,
     project_status=None,
+    client_id=None,
+    sub_client_id=None,
+    language_id=None,
     client_manager_id=None,
     employment_date_start=None,
     employment_date_end=None,
+    target_onboard_date_start=None,
+    target_onboard_date_end=None,
+    created_date_start=None,
+    created_date_end=None,
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
@@ -116,12 +124,32 @@ def _apply_filters(
         ))
     if project_status:
         query = query.filter(RecruitmentProject.project_status == project_status)
+    if client_id:
+        query = query.filter(RecruitmentProject.client_id == client_id)
+    if sub_client_id:
+        query = query.filter(RecruitmentProject.sub_client_id == sub_client_id)
+    if language_id:
+        query = query.join(
+            RecruitmentProjectLanguageDirection,
+            RecruitmentProjectLanguageDirection.project_id == RecruitmentProject.id,
+        ).filter(or_(
+            RecruitmentProjectLanguageDirection.source_language_id == language_id,
+            RecruitmentProjectLanguageDirection.target_language_id == language_id,
+        ))
     if client_manager_id:
         query = query.filter(RecruitmentProject.client_manager_id == client_manager_id)
     if employment_date_start:
         query = query.filter(RecruitmentProject.employment_end >= employment_date_start)
     if employment_date_end:
         query = query.filter(RecruitmentProject.employment_start <= employment_date_end)
+    if target_onboard_date_start:
+        query = query.filter(RecruitmentProject.target_onboard_date >= target_onboard_date_start)
+    if target_onboard_date_end:
+        query = query.filter(RecruitmentProject.target_onboard_date <= target_onboard_date_end)
+    if created_date_start:
+        query = query.filter(RecruitmentProject.created_at >= datetime.combine(created_date_start, time.min))
+    if created_date_end:
+        query = query.filter(RecruitmentProject.created_at <= datetime.combine(created_date_end, time.max))
     return query
 
 
@@ -283,6 +311,25 @@ def update_recruitment_project(
     return get_recruitment_project(db, project.id)
 
 
+def update_recruitment_project_status(
+    db: Session, project_id: UUID, project_status: str, operator_id: Optional[UUID]
+) -> Optional[RecruitmentProject]:
+    project = get_recruitment_project(db, project_id)
+    if not project:
+        return None
+    old_status = project.project_status
+    if old_status == project_status:
+        return project
+    project.project_status = project_status
+    project.updated_at = datetime.now()
+    _add_progress(
+        db, project, operator_id=operator_id, from_status=old_status,
+        to_status=project_status, note="项目状态变更",
+    )
+    db.commit()
+    return get_recruitment_project(db, project.id)
+
+
 def delete_recruitment_project(db: Session, project_id: UUID) -> bool:
     project = db.query(RecruitmentProject).filter(RecruitmentProject.id == project_id).first()
     if not project:
@@ -341,11 +388,44 @@ def create_candidate(
     if not db.query(RecruitmentProject.id).filter(RecruitmentProject.id == project_id).first():
         return None
     data = payload.model_dump()
+    allow_duplicate = data.pop("allow_duplicate", False)
+    interviews = data.pop("interviews", None)
+    from resource_models import ResourcePerson
+    from resource_service import (
+        TalentDuplicateError,
+        extract_contact_identifiers,
+        find_duplicate_talents,
+    )
+
+    person_id = data.get("person_id")
+    if person_id:
+        if not db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first():
+            raise ValueError("所选人才档案不存在")
+    else:
+        phone, email = extract_contact_identifiers(data.get("contact_info"))
+        duplicates = find_duplicate_talents(db, phone=phone, email=email)
+        if duplicates and not allow_duplicate:
+            raise TalentDuplicateError(duplicates)
+        person = ResourcePerson(
+            full_name=data["candidate_name"],
+            contact_info=data.get("contact_info"),
+            primary_phone=phone,
+            primary_email=email,
+            resume_path=data.get("resume_path"),
+            status="standby",
+            duplicate_review_required=bool(duplicates),
+        )
+        db.add(person)
+        db.flush()
+        data["person_id"] = person.id
     if data.get("owner_id") and not db.query(AppUser.id).filter(AppUser.id == data["owner_id"]).first():
         raise ValueError("所选跟进人不存在")
     _validate_resume_source(db, data.get("resume_source_id"))
     candidate = RecruitmentCandidate(project_id=project_id, **data)
     db.add(candidate)
+    db.flush()
+    if interviews is not None:
+        _sync_candidate_interviews(db, candidate, interviews)
     db.commit()
     return get_candidate(db, candidate.id)
 
@@ -357,11 +437,20 @@ def update_candidate(
     if not candidate:
         return None
     data = payload.model_dump()
+    interviews = data.pop("interviews", None)
+    if not data.get("person_id"):
+        data["person_id"] = candidate.person_id
+    if data.get("person_id"):
+        from resource_models import ResourcePerson
+        if not db.query(ResourcePerson.id).filter(ResourcePerson.id == data["person_id"]).first():
+            raise ValueError("所选人才档案不存在")
     if data.get("owner_id") and not db.query(AppUser.id).filter(AppUser.id == data["owner_id"]).first():
         raise ValueError("所选跟进人不存在")
     _validate_resume_source(db, data.get("resume_source_id"))
     for key, value in data.items():
         setattr(candidate, key, value)
+    if interviews is not None:
+        _sync_candidate_interviews(db, candidate, interviews)
     candidate.updated_at = datetime.now()
     db.commit()
     return get_candidate(db, candidate_id)
@@ -369,9 +458,11 @@ def update_candidate(
 
 def _candidate_options():
     return (
+        selectinload(RecruitmentCandidate.person),
         selectinload(RecruitmentCandidate.owner),
         selectinload(RecruitmentCandidate.resume_source),
         selectinload(RecruitmentCandidate.communications),
+        selectinload(RecruitmentCandidate.interviews),
     )
 
 
@@ -389,6 +480,41 @@ def _validate_resume_source(db: Session, source_id: Optional[UUID]) -> None:
         raise ValueError("所选简历来源不存在")
 
 
+def _sync_candidate_interviews(db: Session, candidate: RecruitmentCandidate, interviews) -> None:
+    """按连续轮次同步面试记录，并保留固定一面/二面字段用于旧接口兼容。"""
+    existing_by_round = {item.round_no: item for item in candidate.interviews}
+    retained_rounds = set()
+    now = datetime.now()
+    for item in interviews:
+        values = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        round_no = values["round_no"]
+        retained_rounds.add(round_no)
+        record = existing_by_round.get(round_no)
+        if record is None:
+            record = RecruitmentCandidateInterview(
+                candidate=candidate,
+                round_no=round_no,
+            )
+            db.add(record)
+        record.interview_date = values.get("interview_date")
+        record.details = values.get("details")
+        record.updated_at = now
+
+    for round_no, record in existing_by_round.items():
+        if round_no not in retained_rounds:
+            db.delete(record)
+
+    values_by_round = {
+        (item.round_no if hasattr(item, "round_no") else item["round_no"]): item
+        for item in interviews
+    }
+    for round_no, prefix in ((1, "first_interview"), (2, "second_interview")):
+        item = values_by_round.get(round_no)
+        values = item.model_dump() if hasattr(item, "model_dump") else (dict(item) if item else {})
+        setattr(candidate, f"{prefix}_date", values.get("interview_date"))
+        setattr(candidate, f"{prefix}_details", values.get("details"))
+
+
 def patch_candidate(
     db: Session, candidate_id: UUID, payload: RecruitmentCandidatePatch
 ) -> Optional[RecruitmentCandidate]:
@@ -396,10 +522,13 @@ def patch_candidate(
     if not candidate:
         return None
     data = payload.model_dump(exclude_unset=True)
+    interviews = data.pop("interviews", None)
     if "resume_source_id" in data:
         _validate_resume_source(db, data["resume_source_id"])
     for key, value in data.items():
         setattr(candidate, key, value)
+    if interviews is not None:
+        _sync_candidate_interviews(db, candidate, interviews)
     candidate.updated_at = datetime.now()
     db.commit()
     return get_candidate(db, candidate_id)

@@ -1,0 +1,529 @@
+"""统一人才资源库查询、写入、兼容同步与历史回填。"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from sqlalchemy import String, func, or_
+from sqlalchemy.orm import Session, selectinload
+
+from resource_models import (
+    AnnotationProfile,
+    InterpretationProfile,
+    ResourceCapability,
+    ResourceCareerProfile,
+    ResourcePerson,
+    WrittenTranslationProfile,
+)
+from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
+
+
+PROFILE_FIELDS = {
+    "written_profile": WrittenTranslationProfile,
+    "interpretation_profile": InterpretationProfile,
+    "annotation_profile": AnnotationProfile,
+    "career_profile": ResourceCareerProfile,
+}
+
+
+class TalentDuplicateError(ValueError):
+    def __init__(self, duplicates: list[dict]):
+        super().__init__("发现联系方式相同的人才档案，请确认是否复用")
+        self.duplicates = duplicates
+
+
+def normalize_phone(value: Optional[str]) -> Optional[str]:
+    digits = re.sub(r"\D", "", value or "")
+    return digits or None
+
+
+def normalize_email(value: Optional[str]) -> Optional[str]:
+    normalized = (value or "").strip().lower()
+    return normalized or None
+
+
+def extract_contact_identifiers(value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    text = value or ""
+    email_match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
+    phone_matches = re.findall(r"(?:\+?\d[\d\s()-]{6,}\d)", text)
+    phone = normalize_phone(phone_matches[0]) if phone_matches else None
+    email = normalize_email(email_match.group(0)) if email_match else None
+    return phone, email
+
+
+def _person_options():
+    return (
+        selectinload(ResourcePerson.capabilities),
+        selectinload(ResourcePerson.written_profile),
+        selectinload(ResourcePerson.interpretation_profile),
+        selectinload(ResourcePerson.annotation_profile),
+        selectinload(ResourcePerson.career_profile),
+    )
+
+
+def get_talent(db: Session, person_id: UUID) -> Optional[ResourcePerson]:
+    return (
+        db.query(ResourcePerson)
+        .options(*_person_options())
+        .filter(ResourcePerson.id == person_id)
+        .first()
+    )
+
+
+def _talent_query(
+    db: Session,
+    *,
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    capability_type: Optional[str] = None,
+    capability_status: Optional[str] = None,
+    cooperation_type: Optional[str] = None,
+    industry_keyword: Optional[str] = None,
+    review_required: Optional[bool] = None,
+):
+    query = db.query(ResourcePerson)
+    if capability_type:
+        query = query.join(
+            ResourceCapability,
+            ResourceCapability.person_id == ResourcePerson.id,
+        ).filter(ResourceCapability.capability_type == capability_type)
+        query = query.filter(ResourceCapability.status == (capability_status or "active"))
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            ResourcePerson.resource_code.ilike(pattern),
+            ResourcePerson.full_name.ilike(pattern),
+            ResourcePerson.primary_phone.ilike(pattern),
+            ResourcePerson.primary_email.ilike(pattern),
+            ResourcePerson.contact_info.ilike(pattern),
+        ))
+    if status:
+        query = query.filter(ResourcePerson.status == status)
+    if cooperation_type:
+        query = query.filter(ResourcePerson.cooperation_type == cooperation_type)
+    if industry_keyword:
+        query = query.join(
+            ResourceCareerProfile,
+            ResourceCareerProfile.person_id == ResourcePerson.id,
+        ).filter(ResourceCareerProfile.industries.cast(String).ilike(f"%{industry_keyword.strip()}%"))
+    if review_required is not None:
+        query = query.filter(or_(
+            ResourcePerson.duplicate_review_required == review_required,
+            ResourcePerson.capabilities.any(ResourceCapability.review_required == review_required),
+        ))
+    return query.distinct()
+
+
+def get_talents(db: Session, *, skip: int = 0, limit: int = 100, **filters) -> list[ResourcePerson]:
+    return (
+        _talent_query(db, **filters)
+        .options(*_person_options())
+        .order_by(ResourcePerson.updated_at.desc(), ResourcePerson.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def count_talents(db: Session, **filters) -> int:
+    return _talent_query(db, **filters).count()
+
+
+def find_duplicate_talents(
+    db: Session,
+    *,
+    phone: Optional[str] = None,
+    email: Optional[str] = None,
+    exclude_id: Optional[UUID] = None,
+) -> list[dict]:
+    normalized_phone = normalize_phone(phone)
+    normalized_email = normalize_email(email)
+    if not normalized_phone and not normalized_email:
+        return []
+    query = db.query(ResourcePerson)
+    conditions = []
+    bind = db.get_bind()
+    is_postgresql = bind is not None and bind.dialect.name == "postgresql"
+    if normalized_phone and is_postgresql:
+        conditions.extend([
+            func.regexp_replace(ResourcePerson.primary_phone, r"\D", "", "g") == normalized_phone,
+            func.regexp_replace(ResourcePerson.secondary_phone, r"\D", "", "g") == normalized_phone,
+        ])
+    if normalized_email:
+        conditions.extend([
+            func.lower(func.trim(ResourcePerson.primary_email)) == normalized_email,
+            func.lower(func.trim(ResourcePerson.secondary_email)) == normalized_email,
+        ])
+    if conditions and not (normalized_phone and not is_postgresql):
+        query = query.filter(or_(*conditions))
+    if exclude_id:
+        query = query.filter(ResourcePerson.id != exclude_id)
+    result = []
+    for person in query.limit(500 if normalized_phone and not is_postgresql else 20).all():
+        match_fields = []
+        if normalized_phone in {normalize_phone(person.primary_phone), normalize_phone(person.secondary_phone)}:
+            match_fields.append("phone")
+        if normalized_email in {normalize_email(person.primary_email), normalize_email(person.secondary_email)}:
+            match_fields.append("email")
+        if not match_fields:
+            continue
+        result.append({
+            "id": person.id,
+            "resource_code": person.resource_code,
+            "full_name": person.full_name,
+            "primary_phone": person.primary_phone,
+            "primary_email": person.primary_email,
+            "match_fields": match_fields,
+        })
+        if len(result) >= 20:
+            break
+    return result
+
+
+def _sync_capabilities(db: Session, person: ResourcePerson, payload) -> None:
+    existing = {item.capability_type: item for item in person.capabilities}
+    incoming = {item.capability_type: item for item in payload.capabilities}
+    for capability_type, capability in incoming.items():
+        values = capability.model_dump()
+        row = existing.get(capability_type)
+        if row:
+            for key, value in values.items():
+                setattr(row, key, value)
+            row.updated_at = datetime.now()
+        else:
+            person.capabilities.append(ResourceCapability(source="manual", **values))
+    for capability_type, row in existing.items():
+        if capability_type not in incoming:
+            row.status = "inactive"
+            row.updated_at = datetime.now()
+
+
+def _sync_profiles(db: Session, person: ResourcePerson, payload) -> None:
+    for field, model in PROFILE_FIELDS.items():
+        profile_input = getattr(payload, field)
+        current = getattr(person, field)
+        if profile_input is None:
+            continue
+        values = profile_input.model_dump()
+        if current is None:
+            setattr(person, field, model(**values))
+        else:
+            for key, value in values.items():
+                setattr(current, key, value)
+
+
+def _legacy_translation_type(capability_types: set[str]) -> Optional[str]:
+    if {"written_translation", "interpretation"}.issubset(capability_types):
+        return "笔译/口译"
+    if "interpretation" in capability_types:
+        return "口译"
+    if "written_translation" in capability_types:
+        return "笔译"
+    return None
+
+
+def _sync_legacy_translator(db: Session, person: ResourcePerson) -> None:
+    """为旧项目外键和排期保留 translator 兼容记录。"""
+    from models import Translator
+
+    capability_types = {
+        item.capability_type for item in person.capabilities if item.status != "inactive"
+    }
+    translator = db.query(Translator).filter(Translator.id == person.id).first()
+    if not capability_types.intersection({"written_translation", "interpretation"}):
+        return
+    written = person.written_profile
+    oral = person.interpretation_profile
+    values = {
+        "translator_code": person.resource_code,
+        "translator_name": person.full_name,
+        "cooperation_type": person.cooperation_type,
+        "contact_info": person.contact_info,
+        "translation_type": _legacy_translation_type(capability_types),
+        "interpretation_level": oral.interpretation_level if oral else None,
+        "quality_score": (written.quality_score if written else None) or (oral.quality_score if oral else None),
+        "direction": (written.direction if written else None) or (oral.direction if oral else None),
+        "languages": (written.languages if written else None) or (oral.languages if oral else None),
+        "gender": person.gender,
+        "height": person.height,
+        "appearance": person.appearance,
+        "nationality": person.nationality,
+        "ethnicity": person.ethnicity,
+        "phone": person.primary_phone,
+        "phone2": person.secondary_phone,
+        "email1": person.primary_email,
+        "email2": person.secondary_email,
+        "resume_path": person.resume_path,
+        "other_contact": person.other_contact,
+        "overall_rating": person.overall_rating,
+        "first_contact_date": person.first_contact_date,
+        "remarks": person.remarks,
+        "status": person.status,
+        "resource_person_id": person.id,
+        "default_priority": written.default_priority if written else 0,
+        "schedule_remarks": written.schedule_remarks if written else None,
+        "available_time_slot": written.available_time_slot if written else None,
+        "daily_accept_count": written.daily_accept_count if written else None,
+        "hourly_speed": written.hourly_speed if written else None,
+        "daily_word_capacity": written.daily_word_capacity if written else None,
+        "can_cloud_edit": written.can_cloud_edit if written else None,
+        "can_revision": written.can_revision if written else None,
+        "domain_skills": (written.domain_skills if written else None) or (oral.domain_skills if oral else []),
+        "availability_updated_at": written.availability_updated_at if written else None,
+    }
+    if translator is None:
+        translator = Translator(id=person.id, **values)
+        db.add(translator)
+    else:
+        for key, value in values.items():
+            setattr(translator, key, value)
+
+
+def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
+    duplicates = find_duplicate_talents(
+        db, phone=payload.primary_phone, email=payload.primary_email
+    )
+    if duplicates and not payload.allow_duplicate:
+        raise TalentDuplicateError(duplicates)
+    data = payload.model_dump(exclude={
+        "capabilities", "written_profile", "interpretation_profile",
+        "annotation_profile", "career_profile", "allow_duplicate",
+    })
+    person = ResourcePerson(
+        duplicate_review_required=bool(duplicates and payload.allow_duplicate), **data
+    )
+    db.add(person)
+    db.flush()
+    _sync_capabilities(db, person, payload)
+    _sync_profiles(db, person, payload)
+    db.flush()
+    _sync_legacy_translator(db, person)
+    db.commit()
+    return get_talent(db, person.id)
+
+
+def update_talent(
+    db: Session, person_id: UUID, payload: ResourcePersonUpdate
+) -> Optional[ResourcePerson]:
+    person = get_talent(db, person_id)
+    if not person:
+        return None
+    duplicates = find_duplicate_talents(
+        db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
+    )
+    if duplicates and not payload.allow_duplicate:
+        raise TalentDuplicateError(duplicates)
+    data = payload.model_dump(exclude={
+        "capabilities", "written_profile", "interpretation_profile",
+        "annotation_profile", "career_profile", "allow_duplicate",
+    })
+    for key, value in data.items():
+        setattr(person, key, value)
+    if duplicates and payload.allow_duplicate:
+        person.duplicate_review_required = True
+    _sync_capabilities(db, person, payload)
+    _sync_profiles(db, person, payload)
+    person.updated_at = datetime.now()
+    db.flush()
+    _sync_legacy_translator(db, person)
+    db.commit()
+    return get_talent(db, person.id)
+
+
+def update_recruitment_talent(
+    db: Session, person_id: UUID, payload: ResourcePersonUpdate
+) -> Optional[ResourcePerson]:
+    """招聘端只更新人员主档与职业档案，不改写专业能力。"""
+    person = get_talent(db, person_id)
+    if not person:
+        return None
+    duplicates = find_duplicate_talents(
+        db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
+    )
+    if duplicates and not payload.allow_duplicate:
+        raise TalentDuplicateError(duplicates)
+    data = payload.model_dump(exclude={
+        "capabilities", "written_profile", "interpretation_profile",
+        "annotation_profile", "career_profile", "allow_duplicate",
+    })
+    for key, value in data.items():
+        setattr(person, key, value)
+    if duplicates and payload.allow_duplicate:
+        person.duplicate_review_required = True
+    if payload.career_profile is not None:
+        values = payload.career_profile.model_dump()
+        if person.career_profile is None:
+            person.career_profile = ResourceCareerProfile(**values)
+        else:
+            for key, value in values.items():
+                setattr(person.career_profile, key, value)
+    person.updated_at = datetime.now()
+    db.flush()
+    _sync_legacy_translator(db, person)
+    db.commit()
+    return get_talent(db, person.id)
+
+
+def talent_has_capability(
+    db: Session,
+    person_id: UUID,
+    capability_type: str,
+    *,
+    active_only: bool = True,
+) -> bool:
+    query = db.query(ResourceCapability.id).join(ResourcePerson).filter(
+        ResourceCapability.person_id == person_id,
+        ResourceCapability.capability_type == capability_type,
+        ResourcePerson.status != "inactive",
+    )
+    if active_only:
+        query = query.filter(ResourceCapability.status == "active")
+    return query.first() is not None
+
+
+def translator_has_capability(db: Session, translator_id: UUID, capability_type: str) -> bool:
+    from models import Translator
+
+    person_id = db.query(Translator.resource_person_id).filter(Translator.id == translator_id).scalar()
+    return bool(person_id and talent_has_capability(db, person_id, capability_type))
+
+
+def sync_legacy_translator_to_talent(db: Session, translator) -> ResourcePerson:
+    """旧译员接口新增或修改后同步统一人才主档。"""
+    person = db.query(ResourcePerson).filter(ResourcePerson.id == translator.id).first()
+    if person is None:
+        person = ResourcePerson(id=translator.id, full_name=translator.translator_name)
+        db.add(person)
+    person.resource_code = translator.translator_code
+    person.full_name = translator.translator_name
+    person.cooperation_type = translator.cooperation_type
+    person.contact_info = translator.contact_info
+    person.primary_phone = translator.phone
+    person.secondary_phone = translator.phone2
+    person.primary_email = normalize_email(translator.email1)
+    person.secondary_email = normalize_email(translator.email2)
+    person.other_contact = translator.other_contact
+    person.resume_path = translator.resume_path
+    person.gender = translator.gender
+    person.height = translator.height
+    person.appearance = translator.appearance
+    person.nationality = translator.nationality
+    person.ethnicity = translator.ethnicity
+    person.overall_rating = translator.overall_rating
+    person.first_contact_date = translator.first_contact_date
+    person.remarks = translator.remarks
+    person.status = translator.status or "standby"
+    # 兼容表是已持久化记录，必须先确保新主档已插入，
+    # 再更新其外键；否则 PostgreSQL 会在同一次 flush 中先执行 UPDATE。
+    db.flush([person])
+    translator.resource_person_id = translator.id
+
+    raw_type = (translator.translation_type or "").strip()
+    oral = any(token in raw_type for token in ("口译", "同传", "交传"))
+    written = "笔译" in raw_type or not oral or "/" in raw_type
+    existing = {item.capability_type: item for item in person.capabilities}
+    for capability_type in (["written_translation"] if written else []) + (["interpretation"] if oral else []):
+        if capability_type not in existing:
+            person.capabilities.append(ResourceCapability(
+                capability_type=capability_type,
+                status="active",
+                source="legacy_translator",
+                review_required=not bool(raw_type),
+            ))
+    if written:
+        if person.written_profile is None:
+            person.written_profile = WrittenTranslationProfile()
+        profile = person.written_profile
+        for key in (
+            "languages", "direction", "domain_skills", "quality_score", "default_priority",
+            "daily_accept_count", "hourly_speed", "daily_word_capacity", "can_cloud_edit",
+            "can_revision", "available_time_slot", "schedule_remarks", "availability_updated_at",
+        ):
+            setattr(profile, key, getattr(translator, key))
+    if oral:
+        if person.interpretation_profile is None:
+            person.interpretation_profile = InterpretationProfile()
+        profile = person.interpretation_profile
+        profile.languages = translator.languages
+        profile.direction = translator.direction
+        profile.interpretation_level = translator.interpretation_level
+        profile.quality_score = translator.quality_score
+        profile.domain_skills = translator.domain_skills or []
+        profile.interpretation_modes = [
+            value for value, token in (("simultaneous", "同传"), ("consecutive", "交传"))
+            if token in raw_type
+        ]
+    return person
+
+
+def backfill_resource_people(db: Session) -> dict[str, int]:
+    """幂等回填旧译员和招聘候选人，不删除或改写历史项目。"""
+    from interpretation_models import InterpretationProjectInterpreter
+    from manuscript_models import ManuscriptArrangement
+    from models import TranslationProject, TranslationSubOrder, Translator
+    from recruitment_models import RecruitmentCandidate
+
+    counters = {"translators": 0, "candidates": 0, "candidate_reused": 0}
+    written_ids = {
+        value for (value,) in db.query(TranslationProject.translator_id)
+        .filter(TranslationProject.translator_id.is_not(None)).all()
+    }
+    written_ids.update(
+        value for (value,) in db.query(TranslationSubOrder.translator_id)
+        .filter(TranslationSubOrder.translator_id.is_not(None)).all()
+    )
+    written_ids.update(value for (value,) in db.query(ManuscriptArrangement.translator_id).all())
+    oral_ids = {value for (value,) in db.query(InterpretationProjectInterpreter.translator_id).all()}
+
+    for translator in db.query(Translator).all():
+        existed = db.query(ResourcePerson.id).filter(ResourcePerson.id == translator.id).first()
+        person = sync_legacy_translator_to_talent(db, translator)
+        raw_type = (translator.translation_type or "").strip()
+        explicit_oral = any(token in raw_type for token in ("口译", "同传", "交传"))
+        explicit_written = "笔译" in raw_type
+        capability_types = {item.capability_type: item for item in person.capabilities}
+        if translator.id in written_ids or explicit_written or not explicit_oral:
+            if "written_translation" not in capability_types:
+                person.capabilities.append(ResourceCapability(
+                    capability_type="written_translation", status="active",
+                    source="legacy_backfill", review_required=not explicit_written,
+                ))
+            elif not explicit_written and translator.id not in written_ids:
+                capability_types["written_translation"].review_required = True
+        if translator.id in oral_ids or explicit_oral:
+            if "interpretation" not in capability_types:
+                person.capabilities.append(ResourceCapability(
+                    capability_type="interpretation", status="active",
+                    source="legacy_backfill", review_required=False,
+                ))
+        if not existed:
+            counters["translators"] += 1
+    db.flush()
+
+    for candidate in db.query(RecruitmentCandidate).filter(
+        RecruitmentCandidate.person_id.is_(None)
+    ).all():
+        phone, email = extract_contact_identifiers(candidate.contact_info)
+        duplicates = find_duplicate_talents(db, phone=phone, email=email)
+        if len(duplicates) == 1:
+            candidate.person_id = duplicates[0]["id"]
+            counters["candidate_reused"] += 1
+            continue
+        person = ResourcePerson(
+            full_name=candidate.candidate_name,
+            contact_info=candidate.contact_info,
+            primary_phone=phone,
+            primary_email=email,
+            resume_path=candidate.resume_path,
+            status="standby",
+            duplicate_review_required=len(duplicates) > 1,
+        )
+        db.add(person)
+        db.flush()
+        candidate.person_id = person.id
+        counters["candidates"] += 1
+    db.commit()
+    return counters

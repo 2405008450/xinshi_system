@@ -22,6 +22,10 @@
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="searchForm.clientManagerId" clearable filterable style="width:100%" @change="handleSearch"><el-option v-for="user in activeUsers" :key="user.id" :label="userLabel(user)" :value="user.id" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="履职日期范围"><el-date-picker v-model="searchForm.employmentRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="客户/子客户"><el-select v-model="searchForm.clientSelection" clearable filterable style="width:100%" @change="handleSearch"><el-option v-for="item in clientOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="外语/翻译方向"><el-select v-model="searchForm.languageId" clearable filterable style="width:100%" @change="handleSearch"><el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="拟入职日期范围"><el-date-picker v-model="searchForm.targetOnboardRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="创建时间范围"><el-date-picker v-model="searchForm.createdRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
               </el-row>
             </el-form>
             <div class="advanced-footer"><el-button link @click="clearAdvanced">清空高级条件</el-button><el-button type="primary" @click="advancedVisible=false">关闭</el-button></div>
@@ -30,33 +34,72 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="rows" v-loading="loading" border row-key="id">
-      <el-table-column label="序号" width="64" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
+    <el-table :data="rows" v-loading="loading" border row-key="id" class="recruitment-list-table">
+      <el-table-column label="序号" width="50" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
+        <template #header>
+          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+          <span v-else>{{ column.label }}</span>
+        </template>
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-cell">
             <BusinessDetailPopover :row="row" title="招聘项目详情" :items="detailItems" :status-label="statusLabel" :status-type="statusType">
-              <template #reference><el-button type="primary" link @click.stop>{{ row.orderNo }}</el-button></template>
+              <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" @click.stop>{{ row.orderNo }}</el-button></template>
             </BusinessDetailPopover>
-            <el-button type="primary" link title="打开项目路径" @click.stop="openPath(row.projectPath)">📂</el-button>
-            <el-button type="primary" link title="复制项目路径" @click.stop="copyPath(row.projectPath)">⧉</el-button>
+            <PathActionButtons @open="openPath(row.projectPath)" @copy="copyPath(row.projectPath)" />
           </div>
-          <el-button v-else-if="column.key === 'projectName'" type="primary" link class="wrap-link" @click="openProgress(row)">{{ row.projectName || '待生成' }}</el-button>
+          <el-button v-else-if="column.key === 'projectName'" type="primary" link class="wrap-link business-clickable-cell" @click="openProgress(row)">{{ row.projectName || '待生成' }}</el-button>
           <el-popover v-else-if="column.key === 'jobDescription'" trigger="click" placement="left" :width="560">
-            <template #reference><el-button type="primary" link class="description-preview">{{ row.jobDescription || '-' }}</el-button></template>
+            <template #reference><el-button type="primary" link class="description-preview business-clickable-cell">{{ row.jobDescription || '-' }}</el-button></template>
             <div class="long-text-detail">{{ row.jobDescription || '-' }}</div>
           </el-popover>
           <el-popover v-else-if="column.key === 'clientShortName'" trigger="click" placement="left" :width="420">
-            <template #reference><el-button type="primary" link>{{ row.clientShortName || '-' }}</el-button></template>
+            <template #reference><el-button type="primary" link class="business-clickable-cell">{{ row.clientShortName || '-' }}</el-button></template>
             <el-descriptions title="客户关联信息" :column="1" border size="small">
               <el-descriptions-item label="子客户/联系人">{{ displayValue(row.contactName) }}</el-descriptions-item>
               <el-descriptions-item label="客户单号/项目标识">{{ displayValue(row.customerOrderNo) }}</el-descriptions-item>
             </el-descriptions>
           </el-popover>
+          <el-dropdown
+            v-else-if="column.key === 'projectStatus' && canWrite"
+            trigger="click"
+            :disabled="projectStatusSavingIds.has(row.id)"
+            @command="(command) => changeProjectStatus(row, command)"
+          >
+            <el-tag
+              :type="statusType(row.projectStatus)"
+              size="small"
+              class="status-switch-tag"
+              :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
+            >
+              <span class="status-switch-text">{{ statusLabel(row.projectStatus) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in statusOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === row.projectStatus || projectStatusSavingIds.has(row.id)"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="statusType(item.value)" size="small" effect="plain" class="status-option-tag">{{ item.label }}</el-tag>
+                    <el-icon v-if="item.value === row.projectStatus" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)">{{ statusLabel(row.projectStatus) }}</el-tag>
-          <el-button v-else-if="column.key === 'candidateCount'" type="primary" link @click="openCandidates(row)">{{ row.candidateCount || 0 }} 人</el-button>
+          <el-button v-else-if="column.key === 'candidateCount'" type="primary" link class="business-clickable-cell candidate-count-link" @click="openCandidates(row)">
+            <span>{{ row.candidateCount || 0 }} 人</span><el-icon><ArrowRight /></el-icon>
+          </el-button>
           <span v-else-if="column.key === 'headcount'">{{ headcountText(row) }}</span>
           <span v-else-if="column.key === 'languageSummary'">{{ languageText(row) }}</span>
+          <el-tooltip v-else-if="column.key === 'employmentPeriod' && isCurrentYearPeriod(row)" :content="fullPeriodText(row)" placement="top">
+            <span class="current-year-period">{{ periodText(row) }}</span>
+          </el-tooltip>
           <span v-else-if="column.key === 'employmentPeriod'">{{ periodText(row) }}</span>
           <span v-else-if="column.key === 'targetOnboard'">{{ row.targetOnboardType === 'anytime' ? '随时' : formatDate(row.targetOnboardDate) }}</span>
           <span v-else-if="column.key === 'serviceFee'">{{ feeText(row) }}</span>
@@ -64,24 +107,38 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="88" fixed="right" align="center"><template #default="{ row }"><TableActionButton v-if="canWrite" action="edit" @click="openEdit(row)" /><TableActionButton v-if="canWrite" action="delete" @click="removeProject(row)" /></template></el-table-column>
+      <el-table-column label="操作" width="94" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /><TableActionButton action="delete" @click="removeProject(row)" /></div></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
-    <el-dialog v-model="editorVisible" :title="editorTitle" width="min(960px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="resetForm">
+    <el-dialog v-model="editorVisible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="resetForm">
+      <template #header>
+        <div class="editor-dialog-heading">
+          <span class="editor-dialog-title">{{ editorTitle }}</span>
+          <span class="editor-dialog-subtitle">集中维护职位、客户、招聘要求和项目资料</span>
+        </div>
+      </template>
       <div ref="editorBodyRef" class="editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="125px">
+        <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
           <div class="form-section"><h3>项目与职位</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><el-input :model-value="form.orderNo" disabled placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
             </el-row>
-            <el-row :gutter="16"><el-col :span="24"><el-form-item label="项目名称"><div class="name-field"><el-input v-model="form.projectName" /><el-button :loading="nameLoading" @click="generateName">生成项目名称</el-button></div></el-form-item></el-col></el-row>
+            <el-row :gutter="16"><el-col :span="24"><el-form-item label="项目名称"><GeneratedProjectNameInput v-model="form.projectName" placeholder="可手工填写，或根据招聘信息自动生成" :loading="nameLoading" @manual-input="handleProjectNameInput" @regenerate="generateName" /></el-form-item></el-col></el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="positionTitle"><el-input v-model="form.positionTitle" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="headcountMin"><div class="number-range"><el-input-number v-model="form.headcountMin" :min="0" controls-position="right" /><span>至</span><el-input-number v-model="form.headcountMax" :min="form.headcountMin || 0" controls-position="right" /></div></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="positionTitle"><el-input v-model="form.positionTitle" placeholder="例如：法语翻译、海外销售" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="headcountMin"><div class="number-range"><el-input-number v-model="form.headcountMin" :min="0" :controls="false" placeholder="最低人数" /><span class="range-separator">—</span><el-input-number v-model="form.headcountMax" :min="form.headcountMin || 0" :controls="false" placeholder="最高人数" /><span class="range-unit">人</span></div></el-form-item></el-col>
             </el-row>
-            <el-form-item label="职位描述"><el-input v-model="form.jobDescription" type="textarea" :rows="5" /></el-form-item>
+            <el-form-item label="职位描述">
+              <div class="job-description-editor">
+                <el-input v-model="form.jobDescription" type="textarea" :autosize="{ minRows: 7, maxRows: 14 }" placeholder="填写岗位职责、任职要求和补充说明" />
+                <div class="job-description-toolbar">
+                  <span>{{ (form.jobDescription || '').length }} 字符，支持粘贴较长的职位说明</span>
+                  <el-button class="soft-action-button" :icon="FullScreen" @click="jobDescriptionEditorVisible=true">大窗编辑</el-button>
+                </div>
+              </div>
+            </el-form-item>
           </div>
 
           <div class="form-section"><h3>客户信息</h3>
@@ -90,17 +147,18 @@
               <el-col :xs="24" :md="12"><el-form-item label="子客户/联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户编号"><el-input v-model="form.clientCode" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户简称"><el-input v-model="form.clientShortName" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户编号"><el-input v-model="form.clientCode" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户全称"><el-input v-model="form.clientName" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户全称"><el-input v-model="form.clientName" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="user in managerUserOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" :disabled="!user.is_active" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" class="readonly-input" readonly placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
+            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="user in managerUserOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" :disabled="!user.is_active" /></el-select></el-form-item></el-col></el-row>
           </div>
 
           <div class="form-section"><h3>招聘要求</h3>
@@ -115,19 +173,30 @@
             </el-row>
           </div>
 
-          <div class="form-section"><h3>费用与扩展信息</h3>
+          <div class="form-section"><h3>服务费用与扩展信息</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="费用模式"><el-select v-model="form.serviceFeeType" clearable style="width:100%"><el-option label="固定金额" value="fixed" /><el-option label="年薪比例" value="annual_salary_rate" /><el-option label="其他" value="other" /></el-select></el-form-item></el-col>
-              <el-col v-if="form.serviceFeeType==='fixed'" :xs="24" :md="8"><el-form-item label="币种/金额"><div class="money-field"><el-select v-model="form.serviceFeeCurrency"><el-option label="人民币" value="CNY" /><el-option label="美元" value="USD" /><el-option label="港币" value="HKD" /></el-select><el-input-number v-model="form.serviceFeeAmount" :min="0" :precision="2" /></div></el-form-item></el-col>
-              <el-col v-if="form.serviceFeeType==='annual_salary_rate'" :xs="24" :md="8"><el-form-item label="年薪比例"><el-input-number v-model="form.serviceFeeRate" :min="0" :max="100" :precision="2" /><span class="suffix">%</span></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="服务费用"><el-select v-model="form.serviceFeeType" clearable placeholder="选择计费方式" style="width:100%"><el-option label="固定金额" value="fixed" /><el-option label="年薪比例" value="annual_salary_rate" /><el-option label="其他" value="other" /></el-select></el-form-item></el-col>
+              <el-col v-if="form.serviceFeeType==='fixed'" :xs="24" :md="16"><el-form-item label="币种/金额"><div class="money-field"><el-select v-model="form.serviceFeeCurrency"><el-option label="人民币" value="CNY" /><el-option label="美元" value="USD" /><el-option label="港币" value="HKD" /></el-select><el-input-number v-model="form.serviceFeeAmount" :min="0" :precision="2" :controls="false" placeholder="请输入金额" /></div></el-form-item></el-col>
+              <el-col v-if="form.serviceFeeType==='annual_salary_rate'" :xs="24" :md="16"><el-form-item label="年薪比例"><el-input-number v-model="form.serviceFeeRate" :min="0" :max="100" :precision="2" :controls="false" placeholder="请输入比例" /><span class="suffix">%</span></el-form-item></el-col>
             </el-row>
             <el-form-item label="费用说明"><el-input v-model="form.serviceFeeNote" /></el-form-item>
             <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col></el-row>
-            <el-form-item label="项目路径"><el-input v-model="form.projectPath" /></el-form-item>
-            <el-form-item label="报价单路径"><el-input v-model="form.quotationPath" /></el-form-item>
-            <el-form-item label="合同路径"><el-input v-model="form.contractPath" /></el-form-item>
+            <el-form-item label="项目路径"><PathInput v-model="form.projectPath" @open="openPath(form.projectPath)" @copy="copyPath(form.projectPath)" /></el-form-item>
+            <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPath(form.quotationPath)" @copy="copyPath(form.quotationPath)" /></el-form-item>
+            <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPath(form.contractPath)" @copy="copyPath(form.contractPath)" /></el-form-item>
             <el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="3" /></el-form-item>
-            <el-form-item label="邮件主题预览"><el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="标题前缀">
+              <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
+            </el-form-item>
+            <el-form-item label="邮件主题预览">
+              <div class="subject-preview-field">
+                <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
+                <div class="subject-preview-toolbar">
+                  <span>按“标题前缀、订单号、客户简称、负责人联系方式、客户单号/标识、项目名称”顺序生成</span>
+                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                </div>
+              </div>
+            </el-form-item>
             <el-form-item label="发圈请求"><el-input v-model="form.socialPostRequest" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="资源请求"><el-input v-model="form.resourceRequest" type="textarea" :rows="2" /></el-form-item>
           </div>
@@ -137,11 +206,12 @@
               <h3>简历人选管理</h3>
               <div class="candidate-heading-actions">
                 <span>共 {{ candidateRows.length }} 人</span>
-                <el-button type="primary" size="small" @click="openCandidateEditor()">新增候选人</el-button>
+                <el-button class="soft-action-button" :icon="Plus" size="small" @click="openCandidateEditor()">新增候选人</el-button>
               </div>
             </div>
             <RecruitmentCandidateTable
               :rows="candidateRows" :loading="candidateLoading" :can-write="canWrite" :resume-sources="resumeSources"
+              layout="cards"
               @edit="openCandidateEditor" @delete="removeCandidate" @refresh="loadCandidates"
               @row-updated="replaceCandidate" @source-created="addResumeSource"
             />
@@ -149,6 +219,15 @@
         </el-form>
       </div>
       <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveProject">保存</el-button></div></template>
+    </el-dialog>
+
+    <el-dialog v-model="jobDescriptionEditorVisible" title="编辑职位描述" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body class="job-description-dialog">
+      <div class="job-description-dialog__body">
+        <p>可在此集中编辑岗位职责、任职要求及其他补充说明，内容会实时同步到项目表单。</p>
+        <el-input v-model="form.jobDescription" class="job-description-large-input" type="textarea" :rows="22" placeholder="填写岗位职责、任职要求和补充说明" />
+        <div class="job-description-count">{{ (form.jobDescription || '').length }} 字符</div>
+      </div>
+      <template #footer><el-button type="primary" @click="jobDescriptionEditorVisible=false">完成</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="progressVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 项目进度表`" width="min(760px, calc(100vw - 32px))">
@@ -160,10 +239,11 @@
       <el-timeline v-loading="progressLoading"><el-timeline-item v-for="item in progressRows" :key="item.id" :timestamp="formatDateTime(item.occurredAt)" :type="item.isSystem ? 'primary' : 'success'" placement="top"><el-card shadow="never"><div v-if="item.fromStatus || item.toStatus"><b>{{ item.fromStatus ? statusLabel(item.fromStatus) : '创建项目' }}</b><span> → </span><b>{{ item.toStatus ? statusLabel(item.toStatus) : '补充记录' }}</b></div><div class="progress-note">{{ item.note || '-' }}</div><small>{{ item.operatorName || '系统' }} · {{ item.isSystem ? '系统记录' : '人工记录' }}</small></el-card></el-timeline-item></el-timeline>
     </el-dialog>
 
-    <el-dialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(1180px, calc(100vw - 32px))">
+    <el-dialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(980px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-list-dialog">
       <div class="candidate-toolbar"><span>共 {{ candidateRows.length }} 人</span><el-button v-if="canWrite" type="primary" @click="openCandidateEditor()">新增候选人</el-button></div>
       <RecruitmentCandidateTable
         :rows="candidateRows" :loading="candidateLoading" :can-write="canWrite" :resume-sources="resumeSources"
+        layout="cards"
         @edit="openCandidateEditor" @delete="removeCandidate" @refresh="loadCandidates"
         @row-updated="replaceCandidate" @source-created="addResumeSource"
       />
@@ -171,12 +251,19 @@
 
     <el-dialog v-model="candidateEditorVisible" :title="candidateForm.id ? '编辑候选人' : '新增候选人'" width="min(760px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-editor-dialog">
       <div class="candidate-editor-body"><el-form ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">
+        <el-form-item label="复用人才档案"><el-select v-model="candidateForm.personId" filterable clearable placeholder="可选择人才库已有人员" style="width:100%" @change="handleCandidatePersonChange"><el-option v-for="person in talentOptions" :key="person.id" :label="`${person.fullName}${person.resourceCode ? `（${person.resourceCode}）` : ''}`" :value="person.id" /></el-select></el-form-item>
         <el-form-item label="候选人姓名" prop="candidateName"><el-input v-model="candidateForm.candidateName" /></el-form-item>
         <el-form-item label="简历路径"><el-input v-model="candidateForm.resumePath" /></el-form-item>
         <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="简历来源"><el-select v-model="candidateForm.resumeSourceId" filterable clearable style="width:100%"><el-option v-for="source in resumeSources" :key="source.id" :label="source.label" :value="source.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="入职日期"><el-date-picker v-model="candidateForm.actualOnboardDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col></el-row>
-        <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="一面日期"><el-date-picker v-model="candidateForm.firstInterviewDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="二面日期"><el-date-picker v-model="candidateForm.secondInterviewDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col></el-row>
-        <el-form-item label="一面详情"><el-input v-model="candidateForm.firstInterviewDetails" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="二面详情"><el-input v-model="candidateForm.secondInterviewDetails" type="textarea" :rows="3" /></el-form-item>
+        <div v-for="(interview, index) in candidateForm.interviews" :key="interview.localKey" class="candidate-interview-editor">
+          <div class="candidate-interview-editor__heading">
+            <span>{{ candidateInterviewLabel(interview.roundNo) }}日期与详情</span>
+            <el-button v-if="index > 0 && index === candidateForm.interviews.length - 1" link type="danger" @click="removeLastCandidateInterview">移除本轮</el-button>
+          </div>
+          <el-form-item :label="`${candidateInterviewLabel(interview.roundNo)}日期`"><el-date-picker v-model="interview.interviewDate" value-format="YYYY-MM-DD" clearable style="width:100%" /></el-form-item>
+          <el-form-item :label="`${candidateInterviewLabel(interview.roundNo)}详情`"><el-input v-model="interview.details" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" :placeholder="`填写${candidateInterviewLabel(interview.roundNo)}反馈、结论及后续安排`" /></el-form-item>
+        </div>
+        <div class="candidate-interview-actions"><el-button type="primary" plain @click="addCandidateInterview">增加下一轮面试</el-button></div>
         <el-collapse><el-collapse-item title="更多信息" name="legacy">
           <el-form-item label="当前阶段"><el-select v-model="candidateForm.stage" style="width:100%"><el-option v-for="item in candidateStageOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="联系方式"><el-input v-model="candidateForm.contactInfo" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="跟进人"><el-select v-model="candidateForm.ownerId" filterable clearable style="width:100%"><el-option v-for="user in activeUsers" :key="user.id" :label="userLabel(user)" :value="user.id" /></el-select></el-form-item></el-col></el-row>
@@ -192,20 +279,28 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
+import PathActionButtons from '@/components/common/PathActionButtons.vue'
+import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { getClients } from '@/api/clients'
 import { getUsers } from '@/api/users'
+import { getRecruitmentTalents } from '@/api/talents'
+import { getProjectLanguages } from '@/api/projectLanguages'
 import {
   createRecruitmentCandidate, createRecruitmentProgress, createRecruitmentProject,
   deleteRecruitmentCandidate, deleteRecruitmentProject, getRecruitmentCandidates,
   getRecruitmentProgress, getRecruitmentProject, getRecruitmentProjectCount,
-  getRecruitmentProjects, getRecruitmentResumeSources, previewRecruitmentProjectName, updateRecruitmentCandidate,
+  getRecruitmentProjects, getRecruitmentResumeSources, patchRecruitmentProjectStatus, previewRecruitmentProjectName, updateRecruitmentCandidate,
   updateRecruitmentProject,
 } from '@/api/recruitmentProjects'
 import RecruitmentLanguageDirections from './recruitment/RecruitmentLanguageDirections.vue'
@@ -222,46 +317,82 @@ const candidateStageLabel = (value) => candidateStageOptions.find((item) => item
 
 // 顺序严格对应业务字段清单；序号、操作是结构列，不参与字段设置。
 const tableColumns = [
-  {key:'orderNo',label:'订单号',minWidth:190,tooltip:false},
-  {key:'projectName',label:'项目名称',minWidth:230,tooltip:false},
-  {key:'jobDescription',label:'职位描述',minWidth:200,tooltip:false},
-  {key:'positionTitle',label:'职位名称/类型',minWidth:160},
-  {key:'headcount',label:'招聘人数',minWidth:100},
-  {key:'clientManagerName',label:'现客户经理',minWidth:120},
-  {key:'projectStatus',label:'项目状态',minWidth:160},
-  {key:'clientShortName',label:'客户简称',minWidth:120},
-  {key:'clientCode',label:'客户编号',minWidth:120},
-  {key:'clientName',label:'客户全称',minWidth:180},
-  {key:'clientDomain',label:'客户领域',minWidth:150},
-  {key:'contactName',label:'子客户/联系人',minWidth:140},
-  {key:'customerOrderNo',label:'客户单号/项目标识',minWidth:160},
-  {key:'languageSummary',label:'外语/翻译方向',minWidth:190},
-  {key:'targetOnboard',label:'拟入职日期',minWidth:120},
-  {key:'employmentPeriod',label:'拟履职周期',minWidth:190},
-  {key:'workLocation',label:'任职工作属地',minWidth:150},
-  {key:'serviceFee',label:'服务费用',minWidth:150},
-  {key:'candidateCount',label:'简历人选数',minWidth:110},
-  {key:'customerConsultationTime',label:'客户咨询时间',minWidth:170},
-  {key:'customerConfirmationTime',label:'客户确认时间',minWidth:170},
-  {key:'quotationPath',label:'报价单路径',minWidth:210},
-  {key:'contractPath',label:'合同路径',minWidth:210},
-  {key:'remarks',label:'备注',minWidth:200},
-  {key:'emailSubjectPreview',label:'邮件主题预览',minWidth:220},
-  {key:'socialPostRequest',label:'发圈请求',minWidth:200},
-  {key:'resourceRequest',label:'资源请求',minWidth:200},
+  {key:'orderNo',label:'订单号',width:184,tooltip:false,clickHint:'点击订单号查看项目详情'},
+  {key:'projectName',label:'项目名称',minWidth:150,tooltip:false,clickHint:'点击项目名称查看项目进度'},
+  {key:'jobDescription',label:'职位描述',minWidth:120,tooltip:false,clickHint:'点击职位描述查看完整内容'},
+  {key:'positionTitle',label:'职位名称/类型',minWidth:120},
+  {key:'headcount',label:'招聘人数',minWidth:70},
+  {key:'clientManagerName',label:'现客户经理',minWidth:92},
+  {key:'projectStatus',label:'项目状态',minWidth:100},
+  {key:'clientShortName',label:'客户简称',minWidth:80,clickHint:'点击客户简称查看关联信息'},
+  {key:'clientCode',label:'客户编号',minWidth:105},
+  {key:'clientName',label:'客户全称',minWidth:150},
+  {key:'clientDomain',label:'客户领域',minWidth:125},
+  {key:'contactName',label:'子客户/联系人',minWidth:125},
+  {key:'customerOrderNo',label:'客户单号/项目标识',minWidth:145},
+  {key:'languageSummary',label:'外语/翻译方向',minWidth:105},
+  {key:'targetOnboard',label:'拟入职日期',minWidth:86},
+  {key:'employmentPeriod',label:'拟履职周期',minWidth:120},
+  {key:'workLocation',label:'任职工作属地',minWidth:85},
+  {key:'serviceFee',label:'服务费用',minWidth:80},
+  {key:'candidateCount',label:'简历人选数',minWidth:82,clickHint:'点击人数查看候选人跟进情况'},
+  {key:'customerConsultationTime',label:'客户咨询时间',minWidth:150},
+  {key:'customerConfirmationTime',label:'客户确认时间',minWidth:150},
+  {key:'quotationPath',label:'报价单路径',minWidth:180},
+  {key:'contractPath',label:'合同路径',minWidth:180},
+  {key:'projectPath',label:'项目路径',minWidth:180},
+  {key:'remarks',label:'备注',minWidth:160},
+  {key:'emailSubjectPreview',label:'邮件主题预览',minWidth:185},
+  {key:'socialPostRequest',label:'发圈请求',minWidth:170},
+  {key:'resourceRequest',label:'资源请求',minWidth:170},
+  {key:'createdAt',label:'创建时间',minWidth:150},
+  {key:'updatedAt',label:'更新时间',minWidth:150},
 ]
 const defaultColumnKeys = [
-  'orderNo','projectName','jobDescription','headcount','projectStatus','clientShortName',
-  'languageSummary','targetOnboard','employmentPeriod','workLocation','serviceFee','candidateCount',
+  'orderNo','projectName','headcount','projectStatus','clientShortName',
+  'languageSummary','targetOnboard','employmentPeriod','workLocation','candidateCount',
 ]
-const dateTimeColumnKeys = new Set(['customerConsultationTime', 'customerConfirmationTime'])
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('recruitment-details-v3', tableColumns, defaultColumnKeys)
+const dateTimeColumnKeys = new Set(['customerConsultationTime', 'customerConfirmationTime', 'createdAt', 'updatedAt'])
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('recruitment-details-v4', tableColumns, defaultColumnKeys)
 const visibleColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
+const summarizeDetail = (value, maxLength = 80) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
 const detailItems = [
-  {label:'订单号',key:'orderNo'},{label:'项目名称',key:'projectName'},{label:'职位名称/类型',key:'positionTitle'},{label:'现客户经理',key:'clientManagerName'},{label:'客户编号',key:'clientCode'},{label:'客户全称',key:'clientName'},{label:'客户领域',key:'clientDomain'},{label:'客户咨询时间',key:'customerConsultationTime'},{label:'客户确认时间',key:'customerConfirmationTime'},{label:'报价单路径',key:'quotationPath',span:2},{label:'合同路径',key:'contractPath',span:2},{label:'项目路径',key:'projectPath',span:2},{label:'备注',key:'remarks',span:2},{label:'邮件主题预览',key:'emailSubjectPreview',span:2},{label:'发圈请求',key:'socialPostRequest',span:2},{label:'资源请求',key:'resourceRequest',span:2},{label:'创建时间',key:'createdAt'},{label:'更新时间',key:'updatedAt'},
+  {label:'订单号',key:'orderNo'},
+  {label:'项目名称',key:'projectName'},
+  {label:'职位描述',key:'jobDescription',span:2,formatter:(value)=>summarizeDetail(value)},
+  {label:'职位名称/类型',key:'positionTitle'},
+  {label:'招聘人数',key:'headcount',formatter:(_value,row)=>headcountText(row)},
+  {label:'现客户经理',key:'clientManagerName'},
+  {label:'项目状态',key:'projectStatus',type:'status'},
+  {label:'客户简称',key:'clientShortName'},
+  {label:'客户编号',key:'clientCode'},
+  {label:'客户全称',key:'clientName'},
+  {label:'客户领域',key:'clientDomain'},
+  {label:'子客户/联系人',key:'contactName'},
+  {label:'客户单号/项目标识',key:'customerOrderNo'},
+  {label:'外语/翻译方向',key:'languageSummary',span:2,formatter:(_value,row)=>languageText(row)},
+  {label:'拟入职日期',key:'targetOnboard',formatter:(_value,row)=>row.targetOnboardType==='anytime'?'随时':formatDate(row.targetOnboardDate)},
+  {label:'拟履职周期',key:'employmentPeriod',formatter:(_value,row)=>periodText(row)},
+  {label:'任职工作属地',key:'workLocation'},
+  {label:'服务费用',key:'serviceFee',formatter:(_value,row)=>feeText(row)},
+  {label:'简历人选数',key:'candidateCount',formatter:(value)=>`${value || 0} 人`},
+  {label:'客户咨询时间',key:'customerConsultationTime'},
+  {label:'客户确认时间',key:'customerConfirmationTime'},
+  {label:'报价单路径',key:'quotationPath',span:2},
+  {label:'合同路径',key:'contractPath',span:2},
+  {label:'项目路径',key:'projectPath',span:2},
+  {label:'备注',key:'remarks',span:2},
+  {label:'邮件主题预览',key:'emailSubjectPreview',span:2},
+  {label:'发圈请求',key:'socialPostRequest',span:2},
+  {label:'资源请求',key:'resourceRequest',span:2},
+  {label:'创建时间',key:'createdAt'},
+  {label:'更新时间',key:'updatedAt'},
 ]
 
-const rows = ref([]); const loading = ref(false); const users = ref([]); const clients = ref([]); const resumeSources = ref([])
+const rows = ref([]); const loading = ref(false); const users = ref([]); const clients = ref([]); const resumeSources = ref([]); const talentOptions = ref([]); const languages = ref([])
 const activeUsers = computed(() => users.value.filter((item) => item.is_active !== false))
 const managerUserOptions = computed(() => { const current = users.value.find((item) => item.id === form.clientManagerId); return current && !current.is_active ? [current, ...activeUsers.value] : activeUsers.value })
 const userLabel = (user) => user.full_name || user.username
@@ -273,30 +404,57 @@ const clientOptions = computed(() => clients.value.flatMap((client) => [
     clientId:client.id,subClientId:'',clientShortName:client.client_short_name || '',
     clientCode:client.client_code || '',clientName:client.client_name || '',
     clientDomain:clientDomainText(client),clientManager:client.client_manager || '',
+    managerContact:client.manager_contact || '',
   },
   ...((client.sub_clients || []).map((sub) => ({
     value:`sub:${sub.id}`,label:`${client.client_short_name || client.client_name} / ${sub.client_short_name || sub.client_name}`,
     clientId:client.id,subClientId:sub.id,clientShortName:sub.client_short_name || '',
     clientCode:sub.sub_client_code || '',clientName:sub.client_name || '',
     clientDomain:clientDomainText(sub),clientManager:sub.client_manager || client.client_manager || '',
+    managerContact:sub.manager_contact || client.manager_contact || '',
   }))),
 ]))
 
 const pagination = reactive({page:1,limit:20,total:0})
-const searchForm = reactive({keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[]})
+const searchForm = reactive({keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]})
+const projectStatusSavingIds = ref(new Set())
 const advancedVisible = ref(false)
-const advancedCount = computed(() => Number(!!searchForm.clientManagerId) + Number(searchForm.employmentRange?.length === 2))
+const advancedCount = computed(() => [
+  searchForm.clientManagerId,
+  searchForm.employmentRange?.length === 2 ? 1 : '',
+  searchForm.clientSelection,
+  searchForm.languageId,
+  searchForm.targetOnboardRange?.length === 2 ? 1 : '',
+  searchForm.createdRange?.length === 2 ? 1 : '',
+].filter(Boolean).length)
 let searchTimer = null; let controller = null; let sequence = 0
-const buildFilters = () => ({ keyword:searchForm.keyword.trim() || undefined, project_status:searchForm.projectStatus || undefined, client_manager_id:searchForm.clientManagerId || undefined, employment_date_start:searchForm.employmentRange?.[0] || undefined, employment_date_end:searchForm.employmentRange?.[1] || undefined })
+const buildFilters = () => {
+  const selection = searchForm.clientSelection || ''
+  return {
+    keyword: searchForm.keyword.trim() || undefined,
+    project_status: searchForm.projectStatus || undefined,
+    client_manager_id: searchForm.clientManagerId || undefined,
+    employment_date_start: searchForm.employmentRange?.[0] || undefined,
+    employment_date_end: searchForm.employmentRange?.[1] || undefined,
+    client_id: selection.startsWith('client:') ? selection.slice(7) : undefined,
+    sub_client_id: selection.startsWith('sub:') ? selection.slice(4) : undefined,
+    language_id: searchForm.languageId || undefined,
+    target_onboard_date_start: searchForm.targetOnboardRange?.[0] || undefined,
+    target_onboard_date_end: searchForm.targetOnboardRange?.[1] || undefined,
+    created_date_start: searchForm.createdRange?.[0] || undefined,
+    created_date_end: searchForm.createdRange?.[1] || undefined,
+  }
+}
 const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const [list,count]=await Promise.all([getRecruitmentProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}),getRecruitmentProjectCount(filters,{signal:controller.signal})]); if(current!==sequence)return; rows.value=list||[]; pagination.total=count?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.response?.data?.detail||'招聘项目加载失败') } finally { if(current===sequence)loading.value=false } }
 const handleTextSearch = (value) => { clearTimeout(searchTimer); if(!value)return handleSearch(); searchTimer=setTimeout(handleSearch,400) }
 const handleSearch = () => { clearTimeout(searchTimer); pagination.page=1; fetchData() }
-const resetSearch = () => { Object.assign(searchForm,{keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[]}); handleSearch() }
-const clearAdvanced = () => { searchForm.clientManagerId=''; searchForm.employmentRange=[]; handleSearch() }
+const resetSearch = () => { Object.assign(searchForm,{keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
+const clearAdvanced = () => { Object.assign(searchForm,{clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
 
-const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[]})
-const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
+const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[]})
+const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
+let autoNameTimer=null; let namePreviewRequestId=0
 const rules = { projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}] }
 const resolveManagerByName = (name) => {
   const exact = activeUsers.value.filter((user) => userLabel(user) === String(name || '').trim())
@@ -310,17 +468,71 @@ const selectClient = (value) => {
     clientId:item?.clientId||'',subClientId:item?.subClientId||'',
     clientShortName:item?.clientShortName||'',clientCode:item?.clientCode||'',
     clientName:item?.clientName||'',clientDomain:item?.clientDomain||'',
+    managerContact:item?.managerContact||'',
     clientManagerId:item ? resolveManagerByName(item.clientManager) : '',
   })
 }
-const resetForm = () => { Object.assign(form,emptyForm()); formRef.value?.clearValidate() }
+const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate() }
 const openAdd = () => { resetForm(); const defaultManager=activeUsers.value.filter((item)=>userLabel(item)==='欧阳靖琳'); if(defaultManager.length===1)form.clientManagerId=defaultManager[0].id; editorVisible.value=true }
-const openEdit = async (row) => { try { const item=await getRecruitmentProject(row.id); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection:item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:'')}); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; loadCandidates() } catch(error){ElMessage.error(error?.response?.data?.detail||'项目详情加载失败')} }
+const openEdit = async (row) => { try { const item=await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||''}); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; loadCandidates() } catch(error){ElMessage.error(error?.response?.data?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
 const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
-const generateName = async () => { const payload=buildPayload(); if(!payload.employmentStart||!payload.employmentEnd||!payload.workLocation||!payload.positionTitle||!payload.languageDirections.length)return ElMessage.warning('请先填写拟履职周期、工作属地、外语/翻译方向和职位名称'); nameLoading.value=true; try { const result=await previewRecruitmentProjectName({employmentStart:payload.employmentStart,employmentEnd:payload.employmentEnd,workLocation:payload.workLocation,positionTitle:payload.positionTitle,languageDirections:payload.languageDirections}); form.projectName=result.projectName; ElMessage.success('项目名称已生成') } catch(error){ElMessage.error(error?.response?.data?.detail||'项目名称生成失败')} finally{nameLoading.value=false} }
+const projectNamePayload = () => ({
+  employmentStart: form.employmentRange?.[0] || null,
+  employmentEnd: form.employmentRange?.[1] || null,
+  workLocation: form.workLocation?.trim() || null,
+  positionTitle: form.positionTitle?.trim() || null,
+  languageDirections: form.languageDirections
+    .filter((item) => item.sourceLanguageId)
+    .map((item) => ({ ...item, targetLanguageId: item.directionType === 'translation' ? item.targetLanguageId : null })),
+})
+const hasCompleteProjectNameSource = (payload) => (
+  payload.employmentStart
+  && payload.employmentEnd
+  && payload.workLocation
+  && payload.positionTitle
+  && payload.languageDirections.length > 0
+  && payload.languageDirections.every((item) => item.directionType !== 'translation' || item.targetLanguageId)
+)
+const previewProjectName = async ({ automatic = false } = {}) => {
+  const payload = projectNamePayload()
+  if (!hasCompleteProjectNameSource(payload)) {
+    if (!automatic) ElMessage.warning('请先填写拟履职周期、工作属地、外语/翻译方向和职位名称')
+    return
+  }
+  const currentRequestId = ++namePreviewRequestId
+  if (!automatic) nameLoading.value = true
+  try {
+    const result = await previewRecruitmentProjectName(payload)
+    if (currentRequestId !== namePreviewRequestId || (automatic && nameManuallyEdited.value)) return
+    form.projectName = result.projectName
+    nameManuallyEdited.value = false
+    if (!automatic) ElMessage.success('项目名称已重新生成，仍可手工修改')
+  } catch(error) {
+    if (!automatic) ElMessage.error(error?.response?.data?.detail || '项目名称生成失败')
+  } finally {
+    if (!automatic) nameLoading.value = false
+  }
+}
+const generateName = () => previewProjectName()
+const handleProjectNameInput = () => { nameManuallyEdited.value=true; namePreviewRequestId+=1 }
+const generateEmailSubject = () => {
+  notifyEmailSubjectGenerated(form, ElMessage)
+}
 const saveProject = async () => { if(!formRef.value)return; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({behavior:'smooth',block:'center'}); return } saving.value=true; try { const payload=buildPayload(); if(form.id)await updateRecruitmentProject(form.id,payload); else await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); editorVisible.value=false; fetchData() } catch(error){ElMessage.error(error?.response?.data?.detail||'保存失败')} finally{saving.value=false} }
+const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
+const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
 const removeProject = async (row) => { try { await ElMessageBox.confirm(`确认删除招聘项目 ${row.orderNo} 吗？`,'提示',{type:'warning'}); await deleteRecruitmentProject(row.id); ElMessage.success('删除成功'); fetchData() } catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error?.response?.data?.detail||'删除失败')} }
+
+watch(
+  () => [form.employmentRange, form.workLocation, form.positionTitle, form.languageDirections],
+  () => {
+    clearTimeout(autoNameTimer)
+    if (nameManuallyEdited.value || !editorVisible.value) return
+    autoNameTimer=setTimeout(() => previewProjectName({automatic:true}), 400)
+  },
+  {deep:true},
+)
 
 const currentLocalDateTime = () => {
   const now = new Date()
@@ -332,13 +544,24 @@ const openProgress = async (row) => { activeProject.value=row; progressNote.valu
 const addProgress = async () => { if(!progressOccurredAt.value)return ElMessage.warning('请选择发生时间'); if(!progressNote.value.trim())return ElMessage.warning('请输入进度说明'); progressSaving.value=true; try{await createRecruitmentProgress(activeProject.value.id,{note:progressNote.value.trim(),occurredAt:progressOccurredAt.value}); progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressRows.value=await getRecruitmentProgress(activeProject.value.id)}catch(error){ElMessage.error(error?.response?.data?.detail||'添加失败')}finally{progressSaving.value=false} }
 
 const candidateVisible=ref(false),candidateLoading=ref(false),candidateRows=ref([]),candidateEditorVisible=ref(false),candidateSaving=ref(false),candidateFormRef=ref()
-const emptyCandidate=()=>({id:'',candidateName:'',contactInfo:'',resumePath:'',resumeSourceId:'',stage:'screening',recommendedAt:'',interviewAt:'',offerAt:'',plannedOnboardDate:'',actualOnboardDate:'',firstInterviewDate:'',firstInterviewDetails:'',secondInterviewDate:'',secondInterviewDetails:'',ownerId:'',nextFollowUpAt:'',remarks:''})
+let candidateInterviewKey=0
+const emptyCandidateInterview=(roundNo)=>({localKey:`interview-${++candidateInterviewKey}`,roundNo,interviewDate:'',details:''})
+const emptyCandidate=()=>({id:'',personId:'',candidateName:'',contactInfo:'',resumePath:'',resumeSourceId:'',stage:'screening',recommendedAt:'',interviewAt:'',offerAt:'',plannedOnboardDate:'',actualOnboardDate:'',interviews:[emptyCandidateInterview(1)],ownerId:'',nextFollowUpAt:'',remarks:''})
 const candidateForm=reactive(emptyCandidate()); const candidateRules={candidateName:[{required:true,message:'请输入候选人姓名',trigger:'blur'}]}
 const loadCandidates=async()=>{candidateLoading.value=true;try{candidateRows.value=await getRecruitmentCandidates(activeProject.value.id)}catch{ElMessage.error('候选人加载失败')}finally{candidateLoading.value=false}}
 const openCandidates=async(row)=>{activeProject.value=row;candidateVisible.value=true;await loadCandidates()}
-const openCandidateEditor=(row=null)=>{Object.assign(candidateForm,emptyCandidate(),row||{});candidateEditorVisible.value=true}
-const candidatePayload=()=>Object.fromEntries(Object.keys(emptyCandidate()).filter((key)=>key!=='id').map((key)=>[key,clean(candidateForm[key])]))
-const saveCandidate=async()=>{const valid=await candidateFormRef.value?.validate().catch(()=>false);if(!valid)return;candidateSaving.value=true;try{if(candidateForm.id)await updateRecruitmentCandidate(candidateForm.id,candidatePayload());else await createRecruitmentCandidate(activeProject.value.id,candidatePayload());candidateEditorVisible.value=false;await loadCandidates();await fetchData();ElMessage.success('候选人已保存')}catch(error){ElMessage.error(error?.response?.data?.detail||'保存失败')}finally{candidateSaving.value=false}}
+const normalizeCandidateInterviews=(row)=>{
+  const values=(row?.interviews||[]).map((item,index)=>({...emptyCandidateInterview(index+1),...item,roundNo:index+1}))
+  return values.length?values:[emptyCandidateInterview(1)]
+}
+const openCandidateEditor=(row=null)=>{Object.assign(candidateForm,emptyCandidate(),row||{}, {interviews:normalizeCandidateInterviews(row)});candidateEditorVisible.value=true}
+const candidateInterviewLabel=(roundNo)=>roundNo<=10?`${['零','一','二','三','四','五','六','七','八','九','十'][roundNo]}面`:`第${roundNo}轮面试`
+const addCandidateInterview=()=>candidateForm.interviews.push(emptyCandidateInterview(candidateForm.interviews.length+1))
+const removeLastCandidateInterview=()=>{if(candidateForm.interviews.length>1)candidateForm.interviews.pop()}
+const handleCandidatePersonChange=(id)=>{const person=talentOptions.value.find(item=>item.id===id);if(!person)return;candidateForm.candidateName=person.fullName||candidateForm.candidateName;candidateForm.contactInfo=[person.primaryPhone,person.primaryEmail].filter(Boolean).join(' / ')||candidateForm.contactInfo}
+const candidatePayloadKeys=['personId','candidateName','contactInfo','resumePath','resumeSourceId','stage','recommendedAt','interviewAt','offerAt','plannedOnboardDate','actualOnboardDate','interviews','ownerId','nextFollowUpAt','remarks']
+const candidatePayload=()=>Object.fromEntries(candidatePayloadKeys.map((key)=>[key,key==='interviews'?candidateForm.interviews.map((item,index)=>({roundNo:index+1,interviewDate:clean(item.interviewDate),details:clean(item.details)})):clean(candidateForm[key])]))
+const saveCandidate=async()=>{const valid=await candidateFormRef.value?.validate().catch(()=>false);if(!valid)return;candidateSaving.value=true;try{if(candidateForm.id)await updateRecruitmentCandidate(candidateForm.id,candidatePayload());else{let payload=candidatePayload();try{await createRecruitmentCandidate(activeProject.value.id,payload)}catch(error){const detail=error.detail;if(detail?.code!=='duplicate_talent')throw error;const first=detail.duplicates?.[0];try{await ElMessageBox.confirm(`人才库中已有联系方式相同的“${first?.full_name||first?.fullName||'候选人'}”，是否复用该人才档案？`,'疑似重复人才',{confirmButtonText:'复用已有档案',cancelButtonText:'仍然新建',distinguishCancelAndClose:true,type:'warning'});payload.personId=first.id;await createRecruitmentCandidate(activeProject.value.id,payload)}catch(action){if(action==='cancel')await createRecruitmentCandidate(activeProject.value.id,{...payload,allowDuplicate:true});else throw action}}}candidateEditorVisible.value=false;await loadCandidates();await fetchData();ElMessage.success('候选人已保存')}catch(error){if(error!=='close')ElMessage.error(error?.detail?.message||error?.detail||error?.response?.data?.detail||'保存失败')}finally{candidateSaving.value=false}}
 const removeCandidate=async(row)=>{try{await ElMessageBox.confirm(`确认删除候选人 ${row.candidateName} 吗？`,'提示',{type:'warning'});await deleteRecruitmentCandidate(row.id);await loadCandidates();await fetchData()}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error('删除失败')}}
 const replaceCandidate=(updated)=>{const index=candidateRows.value.findIndex((item)=>item.id===updated.id);if(index>=0)candidateRows.value.splice(index,1,updated)}
 const addResumeSource=(source)=>{if(!resumeSources.value.some((item)=>item.id===source.id))resumeSources.value.push(source);resumeSources.value.sort((a,b)=>Number(a.isCustom)-Number(b.isCustom)||a.label.localeCompare(b.label,'zh-CN'))}
@@ -348,19 +571,36 @@ const formatDate=(value)=>value?new Intl.DateTimeFormat('zh-CN').format(new Date
 const formatDateTime=(value)=>value?new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'
 const headcountText=(row)=>row.headcountMin==null?'-':(row.headcountMax!=null&&row.headcountMax!==row.headcountMin?`${row.headcountMin}–${row.headcountMax}人`:`${row.headcountMin}人`)
 const languageText=(row)=>(row.languageDirections||[]).map((item)=>item.label).join('；')||'-'
-const periodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
+const dateYear=(value)=>Number(String(value||'').slice(0,4))
+const formatMonthDay=(value)=>{const [,month,day]=String(value||'').split('-');return month&&day?`${month}月${day}日`:'-'}
+const isCurrentYearPeriod=(row)=>{const year=new Date().getFullYear();return Boolean(row.employmentStart&&row.employmentEnd&&dateYear(row.employmentStart)===year&&dateYear(row.employmentEnd)===year)}
+const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
+const periodText=(row)=>isCurrentYearPeriod(row)?`${formatMonthDay(row.employmentStart)}—${formatMonthDay(row.employmentEnd)}`:fullPeriodText(row)
 const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
 const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`
 const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');window.location.href=toOpenPathHref(path.trim())}
 const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{await navigator.clipboard.writeText(path.trim());ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 
-onMounted(async()=>{const [userRows,clientRows,sourceRows]=await Promise.all([getUsers({skip:0,limit:500}),getClients({skip:0,limit:500}),getRecruitmentResumeSources()]).catch(()=>[[],[],[]]);users.value=userRows||[];clients.value=clientRows||[];resumeSources.value=sourceRows||[];fetchData()})
-onBeforeUnmount(()=>{clearTimeout(searchTimer);controller?.abort()})
+onMounted(async()=>{const [userRows,clientRows,sourceRows,talents,languageRows]=await Promise.all([getUsers({skip:0,limit:500}),getClients({skip:0,limit:500}),getRecruitmentResumeSources(),getRecruitmentTalents({skip:0,limit:500}),getProjectLanguages()]).catch(()=>[[],[],[],[],[]]);users.value=userRows||[];clients.value=clientRows||[];resumeSources.value=sourceRows||[];talentOptions.value=talents||[];languages.value=languageRows||[];fetchData()})
+onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);controller?.abort()})
 </script>
 
 <style scoped>
-.card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.name-field,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;white-space:normal;text-align:left}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto;padding:0 4px}.form-section{padding:0 8px 12px;margin-bottom:14px;border:1px solid var(--el-border-color-lighter);border-radius:6px}.form-section h3{margin:0 -8px 16px;padding:10px 14px;background:var(--el-fill-color-light);font-size:15px}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.name-field{width:100%}.name-field .el-input{flex:1}.number-range .el-input-number{width:130px}.money-field{width:100%}.money-field .el-select{width:110px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
+.card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;min-height:32px;padding:5px 0;white-space:normal;text-align:left;line-height:1.45;align-items:flex-start}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
+.wrap-link :deep(span){line-height:1.45}
+.candidate-count-link{gap:2px}
+.recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:7px;padding-left:7px;line-height:1.35}.recruitment-list-table .wrap-link{min-height:26px;padding:2px 0}.recruitment-list-table .order-cell{gap:2px}
+.recruitment-list-table .order-cell{min-width:0;gap:4px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}
+.action-buttons{display:inline-flex;align-items:center;justify-content:center;flex-wrap:nowrap;white-space:nowrap}
+.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}
+.current-year-period{cursor:help;text-decoration:underline dotted var(--el-text-color-placeholder);text-underline-offset:3px}
+.candidate-interview-editor{margin-bottom:14px;padding:14px 14px 2px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.candidate-interview-editor__heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--el-text-color-primary);font-size:14px;font-weight:600}.candidate-interview-actions{display:flex;justify-content:center;margin:-2px 0 18px}
+.job-description-editor{width:100%}.job-description-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px}.job-description-toolbar .el-button{flex:none}.job-description-dialog__body>p{margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6}.job-description-count{margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;text-align:right}.job-description-large-input :deep(.el-textarea__inner){min-height:min(520px,calc(90vh - 210px));line-height:1.7;resize:none}
+.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}
 :deep(.recruitment-editor){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:deep(.recruitment-editor .el-dialog__header),:deep(.recruitment-editor .el-dialog__footer){flex:none}:deep(.recruitment-editor .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:deep(.recruitment-editor .editor-body){flex:1;min-height:0}:deep(.recruitment-editor .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
-:global(.candidate-editor-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-editor-dialog .el-dialog__header),:global(.candidate-editor-dialog .el-dialog__footer){flex:none}:global(.candidate-editor-dialog .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:global(.candidate-editor-dialog .candidate-editor-body){flex:1;min-height:0;overflow-y:auto;padding:0 4px}:global(.candidate-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
-@media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.name-field,.number-range,.money-field,.progress-create{align-items:stretch;flex-direction:column}.number-range .el-input-number,.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}
+:global(.job-description-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.job-description-dialog .el-dialog__header),:global(.job-description-dialog .el-dialog__footer){flex:none}:global(.job-description-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.job-description-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-bg-color)}
+:global(.candidate-list-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-list-dialog .el-dialog__header){flex:none}:global(.candidate-list-dialog .el-dialog__body){flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto}:global(.candidate-list-dialog .candidate-toolbar){position:sticky;top:0;z-index:2;padding-bottom:10px;background:var(--el-bg-color)}
+:global(.candidate-editor-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-editor-dialog .el-dialog__header),:global(.candidate-editor-dialog .el-dialog__footer){flex:none}:global(.candidate-editor-dialog .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:global(.candidate-editor-dialog .candidate-editor-body){box-sizing:border-box;flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;padding:0 4px}:global(.candidate-editor-dialog .candidate-editor-body>.el-form){box-sizing:border-box;width:100%}:global(.candidate-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
+.editor-dialog-heading{display:flex;flex-direction:column;gap:4px;padding-right:36px}.editor-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600;line-height:1.35}.editor-dialog-subtitle{color:var(--el-text-color-secondary);font-size:12px;font-weight:400}.editor-body{padding:16px 24px 20px;background:var(--el-fill-color-lighter)}.recruitment-form{max-width:100%}.form-section{margin-bottom:16px;padding:20px 20px 4px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-bg-color);box-shadow:0 2px 8px rgb(15 23 42 / 4%)}.form-section:last-child{margin-bottom:0}.form-section h3{display:flex;align-items:center;gap:8px;margin:-20px -20px 20px;padding:12px 20px;border-bottom:1px solid var(--el-border-color-lighter);border-radius:10px 10px 0 0;background:linear-gradient(90deg,var(--el-color-primary-light-9),var(--el-fill-color-extra-light));color:var(--el-text-color-primary);font-size:15px;font-weight:600}.form-section h3::before{width:3px;height:16px;border-radius:2px;background:var(--el-color-primary);content:""}.recruitment-form :deep(.el-form-item){margin-bottom:18px}.recruitment-form :deep(.el-input__wrapper),.recruitment-form :deep(.el-select__wrapper),.recruitment-form :deep(.el-textarea__inner){transition:border-color .2s ease,box-shadow .2s ease}.readonly-input :deep(.el-input__wrapper){background:var(--el-fill-color-lighter);box-shadow:0 0 0 1px var(--el-border-color-lighter) inset}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);font-weight:500}.number-range{width:100%;min-width:0}.number-range .el-input-number{flex:1;width:auto;min-width:0}.number-range :deep(.el-input__inner),.money-field :deep(.el-input__inner){text-align:left}.range-separator,.range-unit{flex:none;color:var(--el-text-color-secondary)}.range-unit{font-size:13px}.money-field .el-input-number{flex:1;min-width:140px}.editor-footer{gap:10px}.editor-footer .el-button{min-width:88px}:deep(.recruitment-editor .el-dialog__body){padding:0}:deep(.recruitment-editor .el-dialog__footer){padding:14px 24px;background:var(--el-bg-color);box-shadow:0 -4px 14px rgb(15 23 42 / 5%)}
+@media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.money-field,.progress-create,.subject-preview-toolbar{align-items:stretch;flex-direction:column}.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.subject-preview-toolbar .el-button{align-self:flex-end}.recruitment-form :deep(.el-form-item){display:block}.recruitment-form :deep(.el-form-item__label){width:auto!important;margin-bottom:6px;justify-content:flex-start}.recruitment-form :deep(.el-form-item__content){margin-left:0!important}.editor-body{padding:12px 12px 16px}.form-section{padding:16px 14px 4px}.form-section h3{margin:-16px -14px 16px}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}
 </style>

@@ -373,7 +373,7 @@ onMounted(() => {
 
 .workbench-card :deep(.workbench-project-cell__title) {
   overflow: hidden;
-  color: var(--el-text-color-primary);
+  color: #3f6173;
   font-weight: 600;
   line-height: 1.35;
   text-overflow: ellipsis;

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from interpretation_models import InterpretationLanguage
 from models import AppUser, Base, Client, Consultation, SubClient
+from resource_models import ResourcePerson
 
 
 class RecruitmentProject(Base):
@@ -219,14 +220,17 @@ class RecruitmentCandidate(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="recruitment_candidate_pkey"),
         ForeignKeyConstraint(["project_id"], ["recruitment_project.id"], ondelete="CASCADE", name="fk_recruitment_candidate_project"),
+        ForeignKeyConstraint(["person_id"], ["resource_person.id"], ondelete="RESTRICT", name="fk_recruitment_candidate_person"),
         ForeignKeyConstraint(["owner_id"], ["app_user.id"], ondelete="SET NULL", name="fk_recruitment_candidate_owner"),
         ForeignKeyConstraint(["resume_source_id"], ["recruitment_resume_source.id"], ondelete="SET NULL", name="fk_recruitment_candidate_resume_source"),
         Index("ix_recruitment_candidate_project", "project_id"),
+        Index("ix_recruitment_candidate_person", "person_id"),
         Index("ix_recruitment_candidate_stage", "stage"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    person_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     candidate_name: Mapped[str] = mapped_column(String(255), nullable=False)
     contact_info: Mapped[Optional[str]] = mapped_column(String(500))
     resume_path: Mapped[Optional[str]] = mapped_column(Text)
@@ -248,11 +252,16 @@ class RecruitmentCandidate(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     project: Mapped[RecruitmentProject] = relationship(RecruitmentProject, back_populates="candidates")
+    person: Mapped[Optional[ResourcePerson]] = relationship(ResourcePerson)
     owner: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[owner_id])
     resume_source: Mapped[Optional[RecruitmentResumeSource]] = relationship(RecruitmentResumeSource)
     communications: Mapped[list["RecruitmentCandidateCommunication"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan",
         order_by="RecruitmentCandidateCommunication.sequence_no",
+    )
+    interviews: Mapped[list["RecruitmentCandidateInterview"]] = relationship(
+        back_populates="candidate", cascade="all, delete-orphan",
+        order_by="RecruitmentCandidateInterview.round_no",
     )
 
     @property
@@ -286,3 +295,27 @@ class RecruitmentCandidateCommunication(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     candidate: Mapped[RecruitmentCandidate] = relationship(RecruitmentCandidate, back_populates="communications")
+
+
+class RecruitmentCandidateInterview(Base):
+    __tablename__ = "recruitment_candidate_interview"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="recruitment_candidate_interview_pkey"),
+        UniqueConstraint("candidate_id", "round_no", name="uq_recruitment_candidate_interview_round"),
+        ForeignKeyConstraint(
+            ["candidate_id"], ["recruitment_candidate.id"], ondelete="CASCADE",
+            name="fk_recruitment_candidate_interview_candidate",
+        ),
+        CheckConstraint("round_no > 0", name="ck_recruitment_candidate_interview_round"),
+        Index("ix_recruitment_candidate_interview_candidate", "candidate_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    candidate_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    round_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    interview_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    details: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    candidate: Mapped[RecruitmentCandidate] = relationship(RecruitmentCandidate, back_populates="interviews")

@@ -12,11 +12,13 @@ from interpretation_models import InterpretationLanguage
 from interpretation_schemas import (
     InterpretationLanguageCreate,
     InterpretationLanguageResponse,
+    InterpretationLanguageUpdate,
     InterpretationNamePreviewRequest,
     InterpretationNamePreviewResponse,
     InterpretationProjectCreate,
     InterpretationProjectDetailResponse,
     InterpretationProjectListResponse,
+    InterpretationProjectStatusUpdate,
     InterpretationProjectUpdate,
 )
 from interpretation_service import (
@@ -27,6 +29,7 @@ from interpretation_service import (
     get_interpretation_projects,
     preview_interpretation_project_name,
     update_interpretation_project,
+    update_interpretation_project_status,
 )
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access
@@ -91,8 +94,14 @@ def read_project_count(
 
 
 @router.get("/languages", response_model=List[InterpretationLanguageResponse])
-def read_languages(db: Session = Depends(get_db)):
-    return db.query(InterpretationLanguage).order_by(
+def read_languages(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+):
+    query = db.query(InterpretationLanguage)
+    if not include_inactive:
+        query = query.filter(InterpretationLanguage.is_active.is_(True))
+    return query.order_by(
         InterpretationLanguage.is_custom.asc(), InterpretationLanguage.label.asc()
     ).all()
 
@@ -117,6 +126,45 @@ def create_language(
         label=payload.label, is_custom=True, created_by=current_user.id
     )
     db.add(language)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该语种已存在")
+    db.refresh(language)
+    return language
+
+
+@router.patch(
+    "/languages/{language_id}",
+    response_model=InterpretationLanguageResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_language(
+    language_id: UUID,
+    payload: InterpretationLanguageUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    language = db.query(InterpretationLanguage).filter(
+        InterpretationLanguage.id == language_id
+    ).first()
+    if not language:
+        raise HTTPException(status_code=404, detail="语种不存在")
+    if not language.is_custom:
+        raise HTTPException(status_code=400, detail="系统预置语种不可修改或停用")
+    if payload.label is not None and payload.label != language.label:
+        existing = db.query(InterpretationLanguage).filter(
+            func.lower(func.trim(InterpretationLanguage.label)) == payload.label.lower(),
+            InterpretationLanguage.id != language_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="该语种已存在")
+        language.label = payload.label
+    if payload.is_active is not None:
+        language.is_active = payload.is_active
+    language.updated_by = current_user.id
+    language.updated_at = func.now()
     try:
         db.commit()
     except IntegrityError:
@@ -173,6 +221,21 @@ def update_project(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+    if not project:
+        raise HTTPException(status_code=404, detail="口译项目不存在")
+    return project
+
+
+@router.patch(
+    "/{project_id}/status", response_model=InterpretationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_status(
+    project_id: UUID,
+    payload: InterpretationProjectStatusUpdate,
+    db: Session = Depends(get_db),
+):
+    project = update_interpretation_project_status(db, project_id, payload.project_status)
     if not project:
         raise HTTPException(status_code=404, detail="口译项目不存在")
     return project

@@ -2,6 +2,7 @@
 import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
 import { canAccessRoute, getDefaultRoute } from '../utils/permission'
+import { getCurrentSession } from '../api/auth'
 
 const routes = [
   {
@@ -119,20 +120,38 @@ const routes = [
       {
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
-        redirect: '/resource-management/translators',
-        meta: { title: '资源管理', permissions: ['translators:read'] },
+        redirect: '/resource-management/talents',
+        meta: { title: '资源管理', permissions: ['talents:read', 'translators:read'] },
         children: [
+          {
+            path: 'talents',
+            name: 'Talents',
+            component: () => import('../views/resource/TalentPool.vue'),
+            meta: { title: '人才总库', permissions: ['talents:read', 'translators:read'] }
+          },
           {
             path: 'translators',
             name: 'Translators',
-            component: () => import('../views/resource/Translators.vue'),
-            meta: { title: '译者信息', permissions: ['translators:read'] }
+            component: () => import('../views/resource/TalentPool.vue'),
+            meta: { title: '笔译资源', capabilityType: 'written_translation', permissions: ['talents:read', 'translators:read'] }
+          },
+          {
+            path: 'interpreters',
+            name: 'Interpreters',
+            component: () => import('../views/resource/TalentPool.vue'),
+            meta: { title: '口译资源', capabilityType: 'interpretation', permissions: ['talents:read', 'translators:read'] }
           },
           {
             path: 'annotators',
             name: 'Annotators',
-            component: () => import('../views/resource/Annotators.vue'),
-            meta: { title: '标注员' }
+            component: () => import('../views/resource/TalentPool.vue'),
+            meta: { title: '标注员', capabilityType: 'annotation', permissions: ['talents:read', 'translators:read'] }
+          },
+          {
+            path: 'recruitment-talents',
+            name: 'RecruitmentTalents',
+            component: () => import('../views/resource/TalentPool.vue'),
+            meta: { title: '招聘人才库', talentApiScope: 'recruitment', permissions: ['recruitment_talents:read'] }
           },
           {
             path: 'suppliers',
@@ -268,8 +287,26 @@ const router = createRouter({
   routes
 })
 
+let sessionPermissionSyncAt = 0
+
+const syncSessionPermissions = async (force = false) => {
+  if (!force && Date.now() - sessionPermissionSyncAt < 60_000) return true
+  try {
+    const session = await getCurrentSession()
+    localStorage.setItem('user_id', session.user_id || '')
+    localStorage.setItem('user_name', session.username || '')
+    localStorage.setItem('user_full_name', session.full_name || session.username || '')
+    localStorage.setItem('user_roles', JSON.stringify(Array.isArray(session.roles) ? session.roles : []))
+    localStorage.setItem('user_permissions', JSON.stringify(Array.isArray(session.permissions) ? session.permissions : []))
+    sessionPermissionSyncAt = Date.now()
+    return true
+  } catch {
+    return false
+  }
+}
+
 // 路由守卫：认证 + 角色权限
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
 
   if (to.path === '/login') {
@@ -282,14 +319,22 @@ router.beforeEach((to, from, next) => {
     return
   }
 
+  if (!await syncSessionPermissions()) {
+    next('/login')
+    return
+  }
+
   if (to.path === '/') {
     next(getDefaultRoute())
     return
   }
 
   if (!canAccessRoute(to)) {
-    next(getDefaultRoute())
-    return
+    // 权限可能刚被管理员调整，拒绝导航前强制再同步一次。
+    if (!await syncSessionPermissions(true) || !canAccessRoute(to)) {
+      next(getDefaultRoute())
+      return
+    }
   }
 
   next()
