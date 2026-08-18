@@ -29,6 +29,14 @@ ANNOTATION_PROJECT_STATUSES = {
     "cancelled",
     "partially_cancelled",
 }
+CURRENCY_SYMBOLS = {
+    "CNY": "￥",
+    "USD": "$",
+    "HKD": "HK$",
+    "EUR": "€",
+    "GBP": "£",
+    "JPY": "¥",
+}
 
 
 def _nullable_text(value):
@@ -36,6 +44,13 @@ def _nullable_text(value):
         value = value.strip()
         return value or None
     return value
+
+
+def currency_symbol(code=None) -> str:
+    if not code or not str(code).strip():
+        return CURRENCY_SYMBOLS["CNY"]
+    normalized = str(code).strip().upper()
+    return CURRENCY_SYMBOLS.get(normalized, normalized)
 
 
 class AnnotationLanguageItemInput(BaseModel):
@@ -67,7 +82,7 @@ class AnnotationPriceItemInput(BaseModel):
     source_language_id: Optional[UUID] = None
     target_language_id: Optional[UUID] = None
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
-    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
     unit: str = Field(min_length=1, max_length=50)
     remarks: Optional[str] = None
 
@@ -76,10 +91,16 @@ class AnnotationPriceItemInput(BaseModel):
     def normalize_optional_text(cls, value):
         return _nullable_text(value)
 
-    @field_validator("currency")
+    @field_validator("currency", mode="before")
     @classmethod
     def normalize_currency(cls, value):
-        return value.strip().upper()
+        value = _nullable_text(value)
+        if value is None:
+            return None
+        value = value.upper()
+        if len(value) != 3:
+            raise ValueError("报价币种必须为三位代码")
+        return value
 
     @field_validator("unit")
     @classmethod

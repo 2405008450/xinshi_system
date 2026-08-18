@@ -34,8 +34,8 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="rows" v-loading="loading" border row-key="id" class="recruitment-list-table">
-      <el-table-column label="序号" width="50" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
+    <el-table :data="rows" v-loading="loading" border row-key="id" class="recruitment-list-table project-detail-list-table">
+      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
         <template #header>
           <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
@@ -44,7 +44,7 @@
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-cell">
             <BusinessDetailPopover :row="row" title="招聘项目详情" :items="detailItems" :status-label="statusLabel" :status-type="statusType">
-              <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" @click.stop>{{ row.orderNo }}</el-button></template>
+              <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </BusinessDetailPopover>
             <PathActionButtons @open="openPath(row.projectPath)" @copy="copyPath(row.projectPath)" />
           </div>
@@ -97,17 +97,14 @@
           </el-button>
           <span v-else-if="column.key === 'headcount'">{{ headcountText(row) }}</span>
           <span v-else-if="column.key === 'languageSummary'">{{ languageText(row) }}</span>
-          <el-tooltip v-else-if="column.key === 'employmentPeriod' && isCurrentYearPeriod(row)" :content="fullPeriodText(row)" placement="top">
-            <span class="current-year-period">{{ periodText(row) }}</span>
-          </el-tooltip>
-          <span v-else-if="column.key === 'employmentPeriod'">{{ periodText(row) }}</span>
+          <span v-else-if="column.key === 'employmentPeriod'" class="employment-period-text">{{ periodText(row) }}</span>
           <span v-else-if="column.key === 'targetOnboard'">{{ row.targetOnboardType === 'anytime' ? '随时' : formatDate(row.targetOnboardDate) }}</span>
           <span v-else-if="column.key === 'serviceFee'">{{ feeText(row) }}</span>
           <span v-else-if="dateTimeColumnKeys.has(column.key)">{{ formatDateTime(row[column.key]) }}</span>
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="94" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /><TableActionButton action="delete" @click="removeProject(row)" /></div></template></el-table-column>
+      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /><TableActionButton action="delete" @click="removeProject(row)" /></div></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
@@ -302,6 +299,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
@@ -338,43 +336,43 @@ const candidateStageLabel = (value) => candidateStageOptions.find((item) => item
 
 // 顺序严格对应业务字段清单；序号、操作是结构列，不参与字段设置。
 const tableColumns = [
-  {key:'orderNo',label:'订单号',width:184,tooltip:false,clickHint:'点击订单号查看项目详情'},
-  {key:'projectName',label:'项目名称',minWidth:150,tooltip:false,clickHint:'点击项目名称查看项目进度'},
-  {key:'jobDescription',label:'职位描述',minWidth:120,tooltip:false,clickHint:'点击职位描述查看完整内容'},
-  {key:'positionTitle',label:'职位名称/类型',minWidth:120},
-  {key:'headcount',label:'招聘人数',minWidth:70},
-  {key:'clientManagerName',label:'现客户经理',minWidth:92},
-  {key:'projectStatus',label:'项目状态',minWidth:100},
-  {key:'clientShortName',label:'客户简称',minWidth:80,clickHint:'点击客户简称查看关联信息'},
-  {key:'clientCode',label:'客户编号',minWidth:105},
-  {key:'clientName',label:'客户全称',minWidth:150},
-  {key:'clientDomain',label:'客户领域',minWidth:125},
-  {key:'contactName',label:'子客户/联系人',minWidth:125},
-  {key:'customerOrderNo',label:'客户单号/项目标识',minWidth:145},
-  {key:'languageSummary',label:'外语/翻译方向',minWidth:105},
-  {key:'targetOnboard',label:'拟入职日期',minWidth:86},
-  {key:'employmentPeriod',label:'拟履职周期',minWidth:120},
-  {key:'workLocation',label:'任职工作属地',minWidth:85},
-  {key:'serviceFee',label:'服务费用',minWidth:80},
-  {key:'candidateCount',label:'简历人选数',minWidth:82,clickHint:'点击人数查看候选人跟进情况'},
-  {key:'customerConsultationTime',label:'客户咨询时间',minWidth:150},
-  {key:'customerConfirmationTime',label:'客户确认时间',minWidth:150},
-  {key:'quotationPath',label:'报价单路径',minWidth:180},
-  {key:'contractPath',label:'合同路径',minWidth:180},
-  {key:'projectPath',label:'项目路径',minWidth:180},
-  {key:'remarks',label:'备注',minWidth:160},
-  {key:'emailSubjectPreview',label:'邮件主题预览',minWidth:185},
-  {key:'socialPostRequest',label:'发圈请求',minWidth:170},
-  {key:'resourceRequest',label:'资源请求',minWidth:170},
-  {key:'createdAt',label:'创建时间',minWidth:150},
-  {key:'updatedAt',label:'更新时间',minWidth:150},
+  {key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo,tooltip:false,clickHint:'点击订单号查看项目详情'},
+  {key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,tooltip:false,clickHint:'点击项目名称查看项目进度'},
+  {key:'jobDescription',label:'职位描述',width:PROJECT_LIST_COLUMN_WIDTHS.longText,tooltip:false,clickHint:'点击职位描述查看完整内容'},
+  {key:'positionTitle',label:'职位名称/类型',width:118},
+  {key:'headcount',label:'招聘人数',width:78},
+  {key:'clientManagerName',label:'现客户经理',width:92},
+  {key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus},
+  {key:'clientShortName',label:'客户简称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息'},
+  {key:'clientCode',label:'客户编号',width:96},
+  {key:'clientName',label:'客户全称',minWidth:135},
+  {key:'clientDomain',label:'客户领域',width:110},
+  {key:'contactName',label:'子客户/联系人',width:115},
+  {key:'customerOrderNo',label:'客户单号/项目标识',width:135},
+  {key:'languageSummary',label:'外语/翻译方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection},
+  {key:'targetOnboard',label:'拟入职日期',width:100},
+  {key:'employmentPeriod',label:'拟履职周期',width:155},
+  {key:'workLocation',label:'任职工作属地',minWidth:92},
+  {key:'serviceFee',label:'服务费用',width:88},
+  {key:'candidateCount',label:'简历人选数',width:95,clickHint:'点击人数查看候选人跟进情况'},
+  {key:'customerConsultationTime',label:'客户咨询时间',width:140},
+  {key:'customerConfirmationTime',label:'客户确认时间',width:140},
+  {key:'quotationPath',label:'报价单路径',minWidth:155},
+  {key:'contractPath',label:'合同路径',minWidth:155},
+  {key:'projectPath',label:'项目路径',minWidth:155},
+  {key:'remarks',label:'备注',minWidth:140},
+  {key:'emailSubjectPreview',label:'邮件主题预览',minWidth:165},
+  {key:'socialPostRequest',label:'发圈请求',minWidth:150},
+  {key:'resourceRequest',label:'资源请求',minWidth:150},
+  {key:'createdAt',label:'创建时间',width:140},
+  {key:'updatedAt',label:'更新时间',width:140},
 ]
 const defaultColumnKeys = [
-  'orderNo','projectName','headcount','projectStatus','clientShortName',
+  'orderNo','projectName','jobDescription','headcount','projectStatus','clientShortName',
   'languageSummary','targetOnboard','employmentPeriod','workLocation','candidateCount',
 ]
 const dateTimeColumnKeys = new Set(['customerConsultationTime', 'customerConfirmationTime', 'createdAt', 'updatedAt'])
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('recruitment-details-v4', tableColumns, defaultColumnKeys)
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('recruitment-details-v5', tableColumns, defaultColumnKeys)
 const visibleColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
 const summarizeDetail = (value, maxLength = 80) => {
   const text = String(value || '').replace(/\s+/g, ' ').trim()
@@ -602,11 +600,8 @@ const formatDate=(value)=>value?new Intl.DateTimeFormat('zh-CN').format(new Date
 const formatDateTime=(value)=>value?new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'
 const headcountText=(row)=>row.headcountMin==null?'-':(row.headcountMax!=null&&row.headcountMax!==row.headcountMin?`${row.headcountMin}–${row.headcountMax}人`:`${row.headcountMin}人`)
 const languageText=(row)=>(row.languageDirections||[]).map((item)=>item.label).join('；')||'-'
-const dateYear=(value)=>Number(String(value||'').slice(0,4))
-const formatMonthDay=(value)=>{const [,month,day]=String(value||'').split('-');return month&&day?`${month}月${day}日`:'-'}
-const isCurrentYearPeriod=(row)=>{const year=new Date().getFullYear();return Boolean(row.employmentStart&&row.employmentEnd&&dateYear(row.employmentStart)===year&&dateYear(row.employmentEnd)===year)}
 const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
-const periodText=(row)=>isCurrentYearPeriod(row)?`${formatMonthDay(row.employmentStart)}—${formatMonthDay(row.employmentEnd)}`:fullPeriodText(row)
+const periodText=(row)=>fullPeriodText(row)
 const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
 const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`
 const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');window.location.href=toOpenPathHref(path.trim())}
@@ -621,11 +616,11 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 .card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;min-height:32px;padding:5px 0;white-space:normal;text-align:left;line-height:1.45;align-items:flex-start}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
 .wrap-link :deep(span){line-height:1.45}
 .candidate-count-link{gap:2px}
-.recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:7px;padding-left:7px;line-height:1.35}.recruitment-list-table .wrap-link{min-height:26px;padding:2px 0}.recruitment-list-table .order-cell{gap:2px}
+.recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:5px;padding-left:5px;line-height:1.35}.recruitment-list-table .wrap-link{min-height:26px;padding:2px 0}.recruitment-list-table .order-cell{gap:2px}
 .recruitment-list-table .order-cell{min-width:0;gap:4px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}
+.employment-period-text{font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:-.1px;white-space:nowrap}
 .action-buttons{display:inline-flex;align-items:center;justify-content:center;flex-wrap:nowrap;white-space:nowrap}
 .status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}
-.current-year-period{cursor:help;text-decoration:underline dotted var(--el-text-color-placeholder);text-underline-offset:3px}
 .candidate-interview-editor{margin-bottom:14px;padding:14px 14px 2px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.candidate-interview-editor__heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--el-text-color-primary);font-size:14px;font-weight:600}.candidate-interview-actions{display:flex;justify-content:center;margin:-2px 0 18px}
 .job-description-editor{width:100%}.job-description-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px}.job-description-toolbar .el-button{flex:none}.job-description-dialog__body>p{margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6}.job-description-count{margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;text-align:right}.job-description-large-input :deep(.el-textarea__inner){min-height:min(520px,calc(90vh - 210px));line-height:1.7;resize:none}
 .subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}

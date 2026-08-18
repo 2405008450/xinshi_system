@@ -191,6 +191,11 @@ class InterpretationProject(Base):
         return selected.client_manager if selected else None
 
     @property
+    def manager_contact(self) -> Optional[str]:
+        selected = self.sub_client or self.client
+        return selected.manager_contact if selected else None
+
+    @property
     def sub_client_contact(self) -> Optional[str]:
         values = []
         if self.sub_client:

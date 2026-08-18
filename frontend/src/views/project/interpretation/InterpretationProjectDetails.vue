@@ -8,7 +8,7 @@
             v-model="visibleColumnKeys"
             :columns="tableColumns"
             :column-count="2"
-            hint="序号、订单号和操作列固定显示；扩展信息请点击订单号查看详情。"
+            hint="序号、订单号和操作列固定显示；长文本字段启用后可悬停查看完整内容。"
             @reset="resetColumns"
           />
           <el-button v-if="canWrite" type="primary" @click="handleAdd">新增口译项目</el-button>
@@ -92,9 +92,9 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="tableData" v-loading="loading" border class="interpretation-table">
-      <el-table-column type="index" label="序号" width="50" align="center" fixed="left" />
-      <el-table-column label="订单号" width="164" fixed="left">
+    <el-table :data="tableData" v-loading="loading" border class="interpretation-table project-detail-list-table">
+      <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
+      <el-table-column label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目详情" /></template>
         <template #default="{ row }">
           <div class="order-cell">
@@ -107,7 +107,7 @@
               @show="loadDetail(row.id)"
             >
               <template #reference>
-                <el-button type="primary" link class="order-no-link business-clickable-cell" @click.stop>{{ row.orderNo }}</el-button>
+                <el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button>
               </template>
               <div class="detail-content" v-loading="detailLoadingId === row.id">
                 <el-descriptions :column="2" border size="small">
@@ -121,6 +121,7 @@
                   <el-descriptions-item label="客户全称">{{ textValue(detailRow(row).clientFullName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户领域">{{ textValue(detailRow(row).clientDomain) }}</el-descriptions-item>
                   <el-descriptions-item label="现客户经理">{{ textValue(detailRow(row).currentClientManager) }}</el-descriptions-item>
+                  <el-descriptions-item label="负责人联系方式">{{ textValue(detailRow(row).managerContact) }}</el-descriptions-item>
                   <el-descriptions-item label="子客户/联系人">{{ textValue(detailRow(row).subClientContact) }}</el-descriptions-item>
                   <el-descriptions-item label="客户单号/项目标识" :span="2">{{ textValue(detailRow(row).customerOrderNo) }}</el-descriptions-item>
                   <el-descriptions-item label="项目时间" :span="2">{{ timeRangesText(detailRow(row).timeRanges) }}</el-descriptions-item>
@@ -282,10 +283,10 @@
             </div>
           </el-popover>
           <span v-else-if="column.key === 'projectName'" class="project-name-cell">{{ row.projectName || '待完善' }}</span>
-          <span v-else>{{ textValue(row[column.key]) }}</span>
+          <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="94" fixed="right" align="center">
+      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
             <TableActionButton action="edit" @click="handleEdit(row)" />
@@ -356,18 +357,17 @@
                   </el-select>
                 </el-form-item>
               </el-col>
-              <el-col :span="24">
-                <el-form-item label="具体任务">
-                  <el-input
-                    v-model="form.taskDescription"
-                    type="textarea"
-                    :autosize="{ minRows: 4, maxRows: 10 }"
-                    placeholder="请输入具体任务，可填写详细的工作内容和要求"
-                    resize="vertical"
-                  />
-                </el-form-item>
-              </el-col>
             </el-row>
+            <el-form-item label="具体任务">
+              <el-input
+                v-model="form.taskDescription"
+                type="textarea"
+                :autosize="{ minRows: 4, maxRows: 10 }"
+                placeholder="请输入具体任务，可填写详细的工作内容和要求"
+                resize="vertical"
+              />
+            </el-form-item>
+            <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="客户简称" data-field-key="clientShortName">
@@ -408,10 +408,7 @@
               <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" disabled /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-            </el-row>
-            <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
             </el-row>
           </section>
@@ -427,11 +424,46 @@
                 <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
               </el-row>
             </div>
-            <el-row :gutter="12">
-              <el-col v-for="index in 4" :key="index" :xs="24" :md="12">
-                <el-form-item :label="`项目地点${['一', '二', '三', '四'][index - 1]}`"><el-input v-model="form.locations[index - 1]" /></el-form-item>
-              </el-col>
-            </el-row>
+            <div class="location-panel">
+              <div class="location-panel__header">
+                <div>
+                  <h4>项目地点</h4>
+                  <div class="location-panel__hint">默认保留 1 个地点，最多可添加 {{ MAX_LOCATIONS }} 个</div>
+                </div>
+                <el-button
+                  type="primary"
+                  plain
+                  :icon="Plus"
+                  :disabled="form.locations.length >= MAX_LOCATIONS"
+                  @click="addLocation"
+                >
+                  增加地点
+                </el-button>
+              </div>
+              <el-row :gutter="12" class="location-list">
+                <el-col v-for="(location, index) in form.locations" :key="index" :xs="24" :md="12">
+                  <div class="location-item">
+                    <div class="location-item__header">
+                      <span>地点 {{ index + 1 }}</span>
+                      <el-button
+                        v-if="form.locations.length > 1"
+                        link
+                        type="danger"
+                        @click="removeLocation(index)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                    <el-input
+                      v-model="form.locations[index]"
+                      :aria-label="`项目地点 ${index + 1}`"
+                      placeholder="请输入项目地点"
+                      clearable
+                    />
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
             <div class="section-title-row">
               <h4>口译方向</h4>
               <div>
@@ -566,6 +598,7 @@ import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
@@ -641,25 +674,54 @@ const ratingOptions = [
 const ratingMap = Object.fromEntries(ratingOptions.map((item) => [item.value, item.label]))
 
 const tableColumns = [
-  { key: 'projectName', label: '项目名称', minWidth: 170 },
-  { key: 'taskDescription', label: '具体任务', minWidth: 140 },
+  { key: 'projectName', label: '项目名称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
+  { key: 'projectTypes', label: '项目类型', minWidth: 150 },
+  { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
   { key: 'currentClientManager', label: '现客户经理', width: 92 },
-  { key: 'projectStatus', label: '项目状态', width: 124 },
-  { key: 'clientShortName', label: '客户简称', width: 90, clickHint: '点击客户简称查看关联信息' },
+  { key: 'projectStatus', label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
+  { key: 'clientShortName', label: '客户简称', width: PROJECT_LIST_COLUMN_WIDTHS.clientShortName, clickHint: '点击客户简称查看关联信息' },
+  { key: 'clientCode', label: '客户编号', width: 100 },
+  { key: 'clientFullName', label: '客户全称', minWidth: 150 },
+  { key: 'clientDomain', label: '客户领域', minWidth: 120 },
+  { key: 'managerContact', label: '负责人联系方式', minWidth: 130 },
   { key: 'subClientContact', label: '子客户/联系人', minWidth: 125 },
   { key: 'customerOrderNo', label: '客户单号/项目标识', minWidth: 140 },
-  { key: 'languageDirectionsDisplay', label: '口译方向', minWidth: 130 },
+  { key: 'timeRanges', label: '项目时间', minWidth: 200 },
+  { key: 'locations', label: '项目地点', minWidth: 140 },
+  { key: 'languageDirectionsDisplay', label: '口译方向', minWidth: PROJECT_LIST_COLUMN_WIDTHS.languageDirection },
   { key: 'customerBudget', label: '客户预算', minWidth: 120 },
+  { key: 'customerConsultationTime', label: '客户咨询时间', minWidth: 150 },
+  { key: 'customerConfirmationTime', label: '客户确认时间', minWidth: 150 },
+  { key: 'interpretationDomain', label: '口译领域', minWidth: 120 },
+  { key: 'interpretationContent', label: '口译内容', minWidth: 160 },
+  { key: 'requiredInterpreterCount', label: '译员人数', width: 90 },
+  { key: 'requiredInterpreterGender', label: '译员性别', width: 90 },
+  { key: 'requiredInterpretationLevel', label: '口译水平', width: 90 },
+  { key: 'interpreterSpecialRequirements', label: '特殊要求', minWidth: 140 },
+  { key: 'interpreterHeightRequirement', label: '译员身高', minWidth: 110 },
+  { key: 'interpreterAppearanceRequirement', label: '译员相貌', minWidth: 110 },
+  { key: 'interpreterDressRequirement', label: '着装要求', minWidth: 120 },
   { key: 'assignedInterpretersDisplay', label: '译员安排', minWidth: 140, clickHint: '点击查看译员要求与安排详情' },
-  { key: 'clientCode', label: '客户编号', width: 100 },
   { key: 'translatorCodes', label: '译员编号', minWidth: 110 },
+  { key: 'filePath', label: '项目文件路径', minWidth: 180 },
+  { key: 'quotationPath', label: '报价单路径', minWidth: 180 },
+  { key: 'contractPath', label: '合同路径', minWidth: 180 },
+  { key: 'clientRating', label: '客户对信实评价', minWidth: 130 },
+  { key: 'clientRatingNote', label: '评价备注', minWidth: 160 },
+  { key: 'interpreterAssignments', label: '客户对译员评价', minWidth: 180 },
+  { key: 'remarks', label: '备注', minWidth: 180 },
+  { key: 'emailSubjectPreview', label: '邮件主题预览', minWidth: 200 },
+  { key: 'socialPostRequest', label: '发圈请求', minWidth: 150 },
+  { key: 'resourceRequest', label: '资源请求', minWidth: 150 },
+  { key: 'createdAt', label: '创建时间', minWidth: 150 },
+  { key: 'updatedAt', label: '更新时间', minWidth: 150 },
 ]
 const defaultColumns = [
-  'projectName', 'currentClientManager', 'projectStatus', 'clientShortName',
-  'languageDirectionsDisplay', 'assignedInterpretersDisplay',
+  'projectName', 'taskDescription', 'currentClientManager', 'projectStatus', 'clientShortName',
+  'languageDirectionsDisplay', 'customerBudget', 'assignedInterpretersDisplay',
 ]
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(
-  'interpretation-details-v3', tableColumns, defaultColumns
+  'interpretation-details-v4', tableColumns, defaultColumns
 )
 const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
 
@@ -673,12 +735,13 @@ const advancedCount = computed(() => [
   searchForm.translatorId,
 ].filter(Boolean).length)
 
+const MAX_LOCATIONS = 4
 const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '' })
 const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
-  locations: ['', '', '', ''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
+  locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterCount: null, requiredInterpreterGender: '', requiredInterpretationLevel: '',
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
@@ -716,6 +779,17 @@ const ratingText = (rating, note) => [ratingMap[rating] || rating, note].filter(
 const interpreterRatingsText = (items) => Array.isArray(items) && items.length
   ? items.map((item) => `${item.translatorName}：${ratingText(item.customerRating, item.evaluationNote)}`).join('；')
   : '-'
+const tableCellText = (row, key) => {
+  if (key === 'projectTypes') return projectTypesText(row)
+  if (key === 'timeRanges') return timeRangesText(row.timeRanges)
+  if (key === 'locations') return arrayText(row.locations, '、')
+  if (key === 'customerConsultationTime' || key === 'customerConfirmationTime' || key === 'createdAt' || key === 'updatedAt') {
+    return formatDateTime(row[key])
+  }
+  if (key === 'clientRating') return ratingText(row.clientRating, null)
+  if (key === 'interpreterAssignments') return interpreterRatingsText(row.interpreterAssignments)
+  return textValue(row[key])
+}
 const translatorOptionLabel = (item) => {
   const name = item.fullName || item.translator_name || item.translatorName
   const code = item.resourceCode || item.translator_code || item.translatorCode
@@ -825,6 +899,12 @@ const clearSelectedClient = () => {
   form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
+const addLocation = () => {
+  if (form.locations.length < MAX_LOCATIONS) form.locations.push('')
+}
+const removeLocation = (index) => {
+  if (form.locations.length > 1) form.locations.splice(index, 1)
+}
 const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '' })
 const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
@@ -1032,7 +1112,7 @@ const assignForm = (detail) => {
     interpreterHeightRequirement: detail.interpreterHeightRequirement || '',
     interpreterAppearanceRequirement: detail.interpreterAppearanceRequirement || '',
     interpreterDressRequirement: detail.interpreterDressRequirement || '',
-    locations: [...(detail.locations || []), '', '', '', ''].slice(0, 4),
+    locations: detail.locations?.length ? detail.locations.slice(0, MAX_LOCATIONS) : [''],
     customerConsultationTime: detail.customerConsultationTime || '', customerConfirmationTime: detail.customerConfirmationTime || '',
     timeRanges: detail.timeRanges?.length ? detail.timeRanges.map((item) => ({ scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, actualStart: item.actualStart || '', actualEnd: item.actualEnd || '' })) : [emptyTimeRange()],
     languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId })),
@@ -1156,6 +1236,14 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .section-title-row { margin-bottom: 12px; }
 .section-title-row h3 { margin-bottom: 0; }
 .repeat-card { margin-bottom: 12px; padding: 12px 12px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
+.location-panel { margin: 4px 0 18px; padding: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-light); }
+.location-panel__header, .location-item__header { display: flex; align-items: center; justify-content: space-between; }
+.location-panel__header { gap: 16px; margin-bottom: 12px; }
+.location-panel__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.location-list { margin-bottom: -12px; }
+.location-list .el-col { margin-bottom: 12px; }
+.location-item { height: 100%; padding: 10px 12px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-blank); }
+.location-item__header { min-height: 28px; margin-bottom: 6px; color: var(--el-text-color-regular); font-size: 13px; font-weight: 600; }
 .interpreter-requirement-group { margin: 4px 0 16px; padding: 14px 14px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
 .requirement-group-title { margin-bottom: 12px; color: var(--el-text-color-regular); font-weight: 600; }
 .repeat-title { margin-bottom: 8px; color: var(--el-text-color-regular); font-weight: 600; }
@@ -1210,6 +1298,8 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 @media (max-width: 768px) {
   .interpretation-card .search-form .el-form-item { display: flex; width: 100%; margin-right: 0; }
   .interpretation-card .search-form .el-input, .interpretation-card .search-form .el-select { width: 100% !important; }
+  .location-panel__header { align-items: flex-start; flex-direction: column; }
+  .location-panel__header .el-button { width: 100%; }
   .direction-row { align-items: stretch; flex-direction: column; }
   .direction-arrow { text-align: center; transform: rotate(90deg); }
 }

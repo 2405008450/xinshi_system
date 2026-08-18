@@ -252,6 +252,7 @@ class InterpretationProjectListResponse(BaseModel):
     id: UUID
     order_no: str
     project_name: Optional[str] = None
+    project_types: list[str] = Field(default_factory=list)
     task_description: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
@@ -262,18 +263,11 @@ class InterpretationProjectListResponse(BaseModel):
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     current_client_manager: Optional[str] = None
+    manager_contact: Optional[str] = None
     sub_client_contact: Optional[str] = None
     language_directions_display: Optional[str] = None
     assigned_interpreters_display: Optional[str] = None
     translator_codes: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    model_config = ConfigDict(from_attributes=True)
-
-
-class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
-    consultation_id: Optional[UUID] = None
-    project_types: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     client_full_name: Optional[str] = None
     client_domain: Optional[str] = None
@@ -298,8 +292,15 @@ class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
     interpreter_appearance_requirement: Optional[str] = None
     interpreter_dress_requirement: Optional[str] = None
     time_ranges: list[InterpretationTimeRangeResponse] = Field(default_factory=list)
-    language_directions: list[InterpretationLanguageDirectionResponse] = Field(default_factory=list)
     interpreter_assignments: list[InterpretationInterpreterResponse] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
+    consultation_id: Optional[UUID] = None
+    language_directions: list[InterpretationLanguageDirectionResponse] = Field(default_factory=list)
 
 
 class InterpretationLanguageCreate(BaseModel):

@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS annotation_project_price_item (
     source_language_id UUID REFERENCES interpretation_language(id) ON DELETE RESTRICT,
     target_language_id UUID REFERENCES interpretation_language(id) ON DELETE RESTRICT,
     amount NUMERIC(18, 6) NOT NULL,
-    currency VARCHAR(3) NOT NULL DEFAULT 'CNY',
+    currency VARCHAR(3),
     unit VARCHAR(50) NOT NULL,
     remarks TEXT,
     CONSTRAINT uq_annotation_price_item_sequence UNIQUE (project_id, sequence_no),

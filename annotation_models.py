@@ -187,7 +187,7 @@ class AnnotationProject(Base):
 
     @property
     def customer_price_summary(self) -> Optional[str]:
-        values = [item.display for item in self.price_items]
+        values = [item.amount_display for item in self.price_items]
         return "；".join(value for value in values if value) or None
 
     @property
@@ -337,7 +337,7 @@ class AnnotationProjectPriceItem(Base):
     source_language_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     target_language_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default=text("'CNY'"))
+    currency: Mapped[Optional[str]] = mapped_column(String(3))
     unit: Mapped[str] = mapped_column(String(50), nullable=False)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
 
@@ -366,6 +366,13 @@ class AnnotationProjectPriceItem(Base):
         return self.source_language_label
 
     @property
+    def amount_display(self) -> str:
+        from annotation_schemas import currency_symbol
+
+        amount_text = format(self.amount.normalize(), "f")
+        return f"{currency_symbol(self.currency)}{amount_text}/{self.unit}"
+
+    @property
     def display(self) -> str:
         from annotation_schemas import ANNOTATION_PROJECT_TYPE_LABELS
 
@@ -374,6 +381,4 @@ class AnnotationProjectPriceItem(Base):
             self.language_display,
         ]
         scope_text = "/".join(value for value in scope if value)
-        amount_text = format(self.amount.normalize(), "f")
-        price_text = f"{amount_text} {self.currency}/{self.unit}"
-        return f"{scope_text}：{price_text}" if scope_text else price_text
+        return f"{scope_text}：{self.amount_display}" if scope_text else self.amount_display

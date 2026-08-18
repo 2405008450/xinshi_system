@@ -376,11 +376,17 @@ def ensure_interpretation_language_columns():
 
 def ensure_annotation_project_columns():
     """兼容尚未单独执行标注项目邮件主题迁移的已有部署。"""
-    if "annotation_project" not in inspect(engine).get_table_names():
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "annotation_project" not in table_names:
         return
     with engine.begin() as conn:
         for statement in ANNOTATION_PROJECT_COLUMN_STATEMENTS:
             conn.execute(text(statement))
+        if "annotation_project_price_item" in table_names:
+            conn.execute(text("ALTER TABLE annotation_project_price_item ALTER COLUMN currency DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE annotation_project_price_item ALTER COLUMN currency DROP DEFAULT"))
+            conn.execute(text("UPDATE annotation_project_price_item SET currency = NULL WHERE currency = 'CNY'"))
 
 
 def ensure_recruitment_project_columns():

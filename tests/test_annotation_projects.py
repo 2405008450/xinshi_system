@@ -1,11 +1,12 @@
 from datetime import datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 import workflow_models  # noqa: F401
-from annotation_models import AnnotationProject
+from annotation_models import AnnotationProject, AnnotationProjectPriceItem
 from annotation_schemas import AnnotationProjectCreate
 from annotation_service import (
     build_annotation_project_name,
@@ -56,6 +57,74 @@ def test_annotation_project_name_lists_first_three_directions():
         ["audio_annotation", "quality_inspection"],
         ["英文", "粤语→普通话", "日文→中文", "法文→中文"],
     ) == "测试客户-英文、粤语→普通话、日文→中文等方向-音频标注、质检"
+
+
+def test_customer_price_summary_shows_amount_only():
+    project = AnnotationProject()
+    project.price_items = [
+        AnnotationProjectPriceItem(
+            amount=Decimal("123123"),
+            currency="CNY",
+            unit="条",
+            project_type="audio_annotation",
+        ),
+        AnnotationProjectPriceItem(
+            amount=Decimal("0.15"),
+            currency="USD",
+            unit="小时",
+            project_type="quality_inspection",
+        ),
+    ]
+
+    assert project.customer_price_summary == "￥123123/条；$0.15/小时"
+    assert project.price_items[0].amount_display == "￥123123/条"
+    assert project.price_items[1].amount_display == "$0.15/小时"
+    assert AnnotationProjectPriceItem(amount=Decimal("8"), unit="条").amount_display == "￥8/条"
+
+
+def test_price_item_currency_is_optional():
+    payload = AnnotationProjectCreate(
+        project_types=["audio_annotation"],
+        price_items=[{
+            "project_type": "audio_annotation",
+            "amount": "0.15",
+            "unit": "条",
+        }],
+    )
+    assert payload.price_items[0].currency is None
+
+    payload = AnnotationProjectCreate(
+        project_types=["audio_annotation"],
+        price_items=[{
+            "project_type": "audio_annotation",
+            "amount": "0.15",
+            "currency": "cny",
+            "unit": "条",
+        }],
+    )
+    assert payload.price_items[0].currency == "CNY"
+
+    payload = AnnotationProjectCreate(
+        project_types=["audio_annotation"],
+        price_items=[{
+            "project_type": "audio_annotation",
+            "amount": "0.15",
+            "currency": "usd",
+            "unit": "条",
+        }],
+    )
+    assert payload.price_items[0].currency == "USD"
+
+    with pytest.raises(ValueError, match="三位代码"):
+        AnnotationProjectCreate(
+            project_types=["audio_annotation"],
+            price_items=[{
+                "project_type": "audio_annotation",
+                "amount": "0.15",
+                "currency": "US",
+                "unit": "条",
+            }],
+        )
 
 
 def test_payload_rejects_duplicate_language_and_invalid_price_scope():

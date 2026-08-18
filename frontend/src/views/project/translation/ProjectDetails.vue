@@ -41,7 +41,7 @@
 
     <el-table
       ref="projectTableRef"
-      class="project-table"
+      class="project-table project-detail-list-table"
       :data="tableData"
       v-loading="loading"
       row-key="id"
@@ -117,7 +117,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="序号" width="50" align="center">
+      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center">
         <template #default="{ row, $index }">
           <div class="index-cell">
             <span>{{ $index + 1 }}</span>
@@ -242,7 +242,7 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="94" fixed="right" align="center">
+      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWriteProjects" class="action-buttons">
             <TableActionButton action="edit" @click="handleEdit(row)" />
@@ -828,6 +828,7 @@ import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
@@ -1053,17 +1054,17 @@ const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '',
 const advancedVisible = ref(false)
 const advancedFilterCount = computed(() => searchForm.orderNo ? 1 : 0)
 const tableColumnOverrides = {
-  orderNo: { width: 184, minWidth: 184, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目详情' },
-  projectName: { minWidth: 160 },
+  orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, minWidth: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目详情' },
+  projectName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
-  clientShortName: { minWidth: 85 },
+  clientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
   clientCode: { minWidth: 100 },
   customerOrderNo: { minWidth: 120 },
   projectManagerName: { minWidth: 90 },
   clientManager: { minWidth: 110 },
   managerContact: { minWidth: 150 },
-  projectStatus: { minWidth: 105, showOverflowTooltip: false },
+  projectStatus: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectStatus, showOverflowTooltip: false },
   fileTypeSecondary: { minWidth: 110 },
   projectFileTranslationDomainLevel1: { minWidth: 180 },
   projectFileTranslationDomainLevel2: { minWidth: 180 },

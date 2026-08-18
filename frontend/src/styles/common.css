@@ -27,6 +27,34 @@
   color: var(--color-text-primary);
 }
 
+/* 四类项目详情列表使用同一套紧凑单元格节奏，避免默认字段出现横向滚动。 */
+.project-detail-list-table .el-table__cell {
+  padding: 6px 0;
+}
+
+.project-detail-list-table .cell {
+  min-width: 0;
+  padding-right: 4px;
+  padding-left: 4px;
+  line-height: 1.35;
+}
+
+.project-detail-list-table .order-cell,
+.project-detail-list-table .order-no-actions {
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-detail-list-table .el-table__cell .cell .path-action-buttons {
+  width: 40px;
+  min-width: 40px;
+}
+
+.project-detail-list-table .el-table__cell .cell .path-action-buttons .el-button {
+  width: 19px;
+  height: 22px;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
