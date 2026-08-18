@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
         <div>
@@ -24,7 +24,8 @@
               <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
             </div>
           </el-popover>
-          <el-button type="primary" @click="handleAdd">新增客户</el-button>
+          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="!deleteMode" type="primary" @click="handleAdd">新增客户</el-button>
         </div>
       </div>
     </template>
@@ -166,7 +167,9 @@
       border
       row-key="id"
       @expand-change="handleExpandChange"
+      @selection-change="handleDeleteSelectionChange"
     >
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column
         type="expand"
         width="1"
@@ -217,30 +220,29 @@
         :width="column.width"
         show-overflow-tooltip
       >
-        <template #default="{ row }">
-          <el-tag
-            v-if="column.key === 'client_status'"
-            :type="row.client_status === 'active' ? 'success' : 'info'"
-          >
-            {{ getClientStatusLabel(row.client_status) }}
-          </el-tag>
-          <span v-else-if="column.key === 'cooperation_start_date'">
-            {{ formatDatetime(row.cooperation_start_date) }}
-          </span>
-          <span v-else>{{ row[column.key] || '-' }}</span>
+        <template #header>
+          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户详情" />
+          <span v-else>{{ column.label }}</span>
         </template>
-      </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right">
         <template #default="{ row }">
           <el-popover
+            v-if="column.key === 'client_short_name'"
             placement="left"
             :width="760"
             trigger="click"
-            title="客户详情"
+            :title="`${row.client_short_name || row.client_name || '客户'} 客户详情`"
             @show="loadClientDetail(row.id)"
           >
             <template #reference>
-              <el-button type="info" size="small" link>查看详情</el-button>
+              <el-button
+                type="primary"
+                link
+                class="client-short-name-link business-clickable-cell"
+                :title="`${row.client_short_name || '-'}（点击查看详情）`"
+                @click.stop
+              >
+                {{ row.client_short_name || '-' }}
+              </el-button>
             </template>
             <div class="detail-popover" v-loading="detailLoadingId === row.id">
               <el-descriptions :column="2" border size="small">
@@ -301,12 +303,21 @@
               </el-descriptions>
             </div>
           </el-popover>
+          <el-tag
+            v-else-if="column.key === 'client_status'"
+            :type="row.client_status === 'active' ? 'success' : 'info'"
+          >
+            {{ getClientStatusLabel(row.client_status) }}
+          </el-tag>
+          <span v-else-if="column.key === 'cooperation_start_date'">
+            {{ formatDatetime(row.cooperation_start_date) }}
+          </span>
+          <span v-else>{{ row[column.key] || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
-          <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
     </el-table>
@@ -515,6 +526,9 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -529,15 +543,15 @@ const CLIENT_COLUMNS_STORAGE_KEY = `client_visible_columns:${currentUserId || 'a
 const CREATE_DRAFT_KEY = 'create'
 
 const clientColumnOptions = [
-  { key: 'client_code', label: '客户编号', width: 150 },
-  { key: 'client_name', label: '客户全称', width: 200 },
+  { key: 'client_code', label: '客户编号', width: 140 },
+  { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
   { key: 'english_short_name', label: '英文简称', width: 150 },
-  { key: 'client_manager', label: '客户负责人', width: 150 },
-  { key: 'manager_contact', label: '负责人联系方式', width: 160 },
+  { key: 'client_manager', label: '客户负责人', width: 140 },
+  { key: 'manager_contact', label: '负责人联系方式', width: 150 },
   { key: 'field_level1', label: '客户领域一级', width: 150 },
-  { key: 'field_level2', label: '客户领域二级', width: 150 },
+  { key: 'field_level2', label: '客户领域二级', width: 120 },
   { key: 'country', label: '国家', width: 100 },
   { key: 'province', label: '省份', width: 100 },
   { key: 'city', label: '地级市', width: 100 },
@@ -546,11 +560,23 @@ const clientColumnOptions = [
   { key: 'cooperation_start_date', label: '开始合作时间', width: 180 },
   { key: 'remarks', label: '备注', width: 220 }
 ]
-const defaultVisibleColumnKeys = [
+const legacyDefaultVisibleColumnKeys = [
   'client_short_name',
   'client_manager',
   'manager_contact',
   'field_level1',
+  'client_status',
+  'cooperation_start_date'
+]
+const defaultVisibleColumnKeys = [
+  'client_code',
+  'client_name',
+  'client_short_name',
+  'client_manager',
+  'manager_contact',
+  'field_level1',
+  'field_level2',
+  'country',
   'client_status',
   'cooperation_start_date'
 ]
@@ -560,7 +586,10 @@ const loadVisibleColumnKeys = () => {
     const savedKeys = JSON.parse(localStorage.getItem(CLIENT_COLUMNS_STORAGE_KEY) || 'null')
     if (!Array.isArray(savedKeys)) return [...defaultVisibleColumnKeys]
     const availableKeys = new Set(clientColumnOptions.map((column) => column.key))
-    return savedKeys.filter((key) => availableKeys.has(key))
+    const filteredKeys = savedKeys.filter((key) => availableKeys.has(key))
+    const usesLegacyDefault = filteredKeys.length === legacyDefaultVisibleColumnKeys.length
+      && filteredKeys.every((key, index) => key === legacyDefaultVisibleColumnKeys[index])
+    return usesLegacyDefault ? [...defaultVisibleColumnKeys] : filteredKeys
   } catch {
     localStorage.removeItem(CLIENT_COLUMNS_STORAGE_KEY)
     return [...defaultVisibleColumnKeys]
@@ -594,6 +623,7 @@ const pagination = reactive({
   limit: 10,
   total: 0
 })
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:clientTableRef,pagination,deleteRow:(row)=>clientApi.deleteClient(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.client_code,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'客户'})
 
 const defaultClientForm = () => ({
   id: null,
@@ -739,6 +769,7 @@ let clientsRequestController = null
 let clientsRequestId = 0
 
 const handleSearch = () => {
+  exitDeleteMode()
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
@@ -776,6 +807,7 @@ const handleExpandChange = (_row, expandedRows) => {
 }
 
 const resetSearch = () => {
+  exitDeleteMode()
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
@@ -786,6 +818,7 @@ const resetSearch = () => {
 }
 
 const clearAdvancedFilters = () => {
+  exitDeleteMode()
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
@@ -924,22 +957,6 @@ const handleEdit = (row) => {
     sub_clients: row.sub_clients || []
   })
   dialogVisible.value = true
-}
-
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该客户吗？', '提示', {
-      type: 'warning'
-    })
-    await clientApi.deleteClient(row.id)
-    delete detailCache[row.id]
-    ElMessage.success('删除成功')
-    fetchData()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
-  }
 }
 
 const handleSubmit = async () => {
@@ -1122,14 +1139,14 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--el-border-color-lighter);
 }
 .search-bar {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 .search-form-inline {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px 16px;
-  padding: 16px;
+  gap: 6px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   background: var(--el-fill-color-extra-light);
@@ -1176,6 +1193,16 @@ onBeforeUnmount(() => {
   color: #606266;
   font-size: 13px;
   word-break: break-all;
+}
+.client-short-name-link {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 :deep(.client-hidden-expand-column) {
   width: 1px !important;

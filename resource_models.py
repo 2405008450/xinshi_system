@@ -101,6 +101,28 @@ class ResourcePerson(Base):
     def capability_types(self) -> list[str]:
         return [item.capability_type for item in self.capabilities if item.status != "inactive"]
 
+    @property
+    def language_directions(self) -> list[str]:
+        """汇总笔译和口译语种，供人才列表快速识别。"""
+        values = []
+        for profile in (self.written_profile, self.interpretation_profile):
+            value = profile.languages if profile else None
+            if value and value not in values:
+                values.append(value)
+        return values
+
+    @property
+    def industries(self) -> list[str]:
+        return list(self.career_profile.industries or []) if self.career_profile else []
+
+    @property
+    def job_titles(self) -> list[str]:
+        return list(self.career_profile.job_titles or []) if self.career_profile else []
+
+    @property
+    def years_experience(self) -> Optional[Decimal]:
+        return self.career_profile.years_experience if self.career_profile else None
+
 
 class ResourceCapability(Base):
     __tablename__ = "resource_capability"

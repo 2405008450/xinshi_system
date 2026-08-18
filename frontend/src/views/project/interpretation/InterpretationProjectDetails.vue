@@ -1,5 +1,5 @@
 <template>
-  <el-card class="interpretation-card">
+  <el-card class="interpretation-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>口译项目详情</span>
@@ -11,7 +11,16 @@
             hint="序号、订单号和操作列固定显示；长文本字段启用后可悬停查看完整内容。"
             @reset="resetColumns"
           />
-          <el-button v-if="canWrite" type="primary" @click="handleAdd">新增口译项目</el-button>
+          <BatchDeleteToolbar
+            v-if="canWrite"
+            :active="deleteMode"
+            :selected-count="selectedRows.length"
+            :loading="deleting"
+            @enter="enterDeleteMode"
+            @exit="exitDeleteMode"
+            @confirm="confirmBatchDelete"
+          />
+          <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增口译项目</el-button>
         </div>
       </div>
     </template>
@@ -92,7 +101,8 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="tableData" v-loading="loading" border class="interpretation-table project-detail-list-table">
+    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
       <el-table-column label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目详情" /></template>
@@ -286,11 +296,10 @@
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
             <TableActionButton action="edit" @click="handleEdit(row)" />
-            <TableActionButton action="delete" @click="handleDelete(row)" />
           </div>
         </template>
       </el-table-column>
@@ -598,6 +607,7 @@ import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
@@ -606,6 +616,7 @@ import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
@@ -631,6 +642,7 @@ const {
   clearFieldSearch,
 } = useDialogFieldSearch(dialogBodyRef)
 const tableData = ref([])
+const projectTableRef = ref(null)
 const clients = ref([])
 const translators = ref([])
 const languages = ref([])
@@ -726,6 +738,24 @@ const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useT
 const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
 
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
+const {
+  deleteMode,
+  deleting,
+  selectedRows,
+  enterDeleteMode,
+  exitDeleteMode,
+  handleDeleteSelectionChange,
+  confirmBatchDelete,
+} = useBatchDelete({
+  rows: tableData,
+  tableRef: projectTableRef,
+  pagination,
+  deleteRow: (row) => projectApi.deleteInterpretationProject(row.id),
+  getLabel: (row) => row.orderNo || row.projectName,
+  reload: () => fetchData(),
+  onDeleted: (row) => { delete detailCache[row.id] },
+  entityName: '口译项目',
+})
 const searchForm = reactive({
   keyword: '', projectStatus: '', projectType: '', scheduledDateRange: [], translatorId: '',
 })
@@ -831,7 +861,7 @@ const fetchData = async () => {
     if (currentId === requestId) loading.value = false
   }
 }
-const handleSearch = () => { clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
 const handleTextSearch = (value) => {
   clearTimeout(searchTimer)
   if (!value?.trim()) return handleSearch()
@@ -1169,17 +1199,6 @@ const changeProjectStatus = async (row, value) => {
     ElMessage.error(error?.response?.data?.detail || error?.detail || '项目状态更新失败')
   } finally {
     setProjectStatusSaving(row.id, false)
-  }
-}
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm(`确定删除口译项目“${row.orderNo}”吗？`, '删除确认', { type: 'warning' })
-    await projectApi.deleteInterpretationProject(row.id)
-    delete detailCache[row.id]
-    ElMessage.success('删除成功')
-    await fetchData()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || '删除失败')
   }
 }
 const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate(); clearFieldSearch() }

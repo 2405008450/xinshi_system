@@ -1,11 +1,20 @@
 ﻿<template>
-  <el-card>
+  <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
         <span>项目详情</span>
         <div class="header-actions">
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
-          <el-button v-if="canWriteProjects" type="primary" @click="handleAdd">新增项目</el-button>
+          <BatchDeleteToolbar
+            v-if="canWriteProjects"
+            :active="deleteMode"
+            :selected-count="selectedRows.length"
+            :loading="deleting"
+            @enter="enterDeleteMode"
+            @exit="exitDeleteMode"
+            @confirm="confirmBatchDelete"
+          />
+          <el-button v-if="canWriteProjects && !deleteMode" type="primary" @click="handleAdd">新增项目</el-button>
         </div>
       </div>
     </template>
@@ -48,7 +57,9 @@
       border
       :expand-row-keys="expandedProjectRowKeys"
       @expand-change="handleProjectExpandChange"
+      @selection-change="handleDeleteSelectionChange"
     >
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column
         type="expand"
         width="1"
@@ -242,11 +253,10 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWriteProjects" class="action-buttons">
             <TableActionButton action="edit" @click="handleEdit(row)" />
-            <TableActionButton action="delete" @click="handleDeleteProject(row)" />
           </div>
         </template>
       </el-table-column>
@@ -827,6 +837,7 @@ import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
@@ -836,6 +847,7 @@ import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
@@ -1050,6 +1062,23 @@ const projectRoleOptionsLoading = ref(false)
 const projectRoleOptionsLoaded = ref(false)
 const projectNameManuallyEdited = ref(false)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
+const {
+  deleteMode,
+  deleting,
+  selectedRows,
+  enterDeleteMode,
+  exitDeleteMode,
+  handleDeleteSelectionChange,
+  confirmBatchDelete,
+} = useBatchDelete({
+  rows: tableData,
+  tableRef: projectTableRef,
+  pagination,
+  deleteRow: (row) => deleteProject(row.id),
+  getLabel: (row) => row.orderNo || row.projectName,
+  reload: () => fetchData(),
+  entityName: '笔译项目',
+})
 const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '', projectStatus: '' })
 const advancedVisible = ref(false)
 const advancedFilterCount = computed(() => searchForm.orderNo ? 1 : 0)
@@ -1535,7 +1564,7 @@ const handleTextSearch = (value) => {
   if (!value) return handleSearch()
   searchTimer = setTimeout(handleSearch, 400)
 }
-const handleSearch = () => { clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
 const resetSearch = () => { searchForm.projectName = ''; searchForm.orderNo = ''; searchForm.clientShortName = ''; searchForm.projectStatus = ''; handleSearch() }
 const clearAdvancedFilters = () => { searchForm.orderNo = ''; handleSearch() }
 const clearSearch = () => {
@@ -1716,7 +1745,6 @@ const changeProjectStatus = async (row, value) => {
     setProjectStatusSaving(row.id, false)
   }
 }
-const handleDeleteProject = async (row) => { try { await ElMessageBox.confirm(`确认删除母订单 ${row.orderNo} 吗？`, '提示', { type: 'warning' }); await deleteProject(row.id); ElMessage.success('删除成功'); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '删除失败') } }
 const handleSubmit = async () => {
   if (!formRef.value || submitLoading.value) return
   syncProjectName()
@@ -1812,15 +1840,14 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px 16px;
-  margin-bottom: 16px;
-  padding: 16px;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   background: var(--el-fill-color-extra-light);
 }
 .search-form :deep(.el-form-item) { margin: 0; }
-.search-form :deep(.el-form-item:last-child) { margin-left: auto; }
 .header-actions { display: flex; align-items: center; gap: 12px; }
 .advanced-filter-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .advanced-filter-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }

@@ -193,6 +193,14 @@ class ResourcePersonListResponse(BaseModel):
     status: ResourceStatus
     duplicate_review_required: bool = False
     capability_types: list[str] = Field(default_factory=list)
+    language_directions: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    job_titles: list[str] = Field(default_factory=list)
+    years_experience: Optional[Decimal] = None
+    gender: Optional[str] = None
+    nationality: Optional[str] = None
+    overall_rating: Optional[str] = None
+    first_contact_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

@@ -1,10 +1,12 @@
 from uuid import uuid4
+from types import SimpleNamespace
 
 import pytest
 
 from annotation_schemas import AnnotationProjectCreate
 from recruitment_schemas import RecruitmentCandidateCreate
 from resource_schemas import ResourcePersonCreate
+from resource_models import ResourcePerson
 from resource_service import extract_contact_identifiers, normalize_email, normalize_phone
 
 
@@ -79,3 +81,20 @@ def test_annotation_project_rejects_duplicate_person_assignments():
             {"person_id": person_id},
             {"person_id": person_id},
         ])
+
+
+def test_talent_list_summary_combines_professional_profile_fields():
+    person = SimpleNamespace(
+        written_profile=SimpleNamespace(languages="中英"),
+        interpretation_profile=SimpleNamespace(languages="中英"),
+        career_profile=SimpleNamespace(
+        industries=["汽车", "制造"],
+        job_titles=["译员"],
+        years_experience=5,
+        ),
+    )
+
+    assert ResourcePerson.language_directions.fget(person) == ["中英"]
+    assert ResourcePerson.industries.fget(person) == ["汽车", "制造"]
+    assert ResourcePerson.job_titles.fget(person) == ["译员"]
+    assert ResourcePerson.years_experience.fget(person) == 5

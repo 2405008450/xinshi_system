@@ -1,5 +1,5 @@
 <template>
-  <el-card class="consultations-card">
+  <el-card class="consultations-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>新咨询管理</span>
@@ -21,7 +21,8 @@
               <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
             </div>
           </el-popover>
-          <el-button type="primary" @click="handleAdd">新增咨询</el-button>
+          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="!deleteMode" type="primary" @click="handleAdd">新增咨询</el-button>
         </div>
       </div>
     </template>
@@ -158,7 +159,8 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="tableData" v-loading="loading" border>
+    <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column
         v-for="column in displayedConsultationColumns"
@@ -168,9 +170,106 @@
         :width="column.width"
         :show-overflow-tooltip="column.key !== 'status'"
       >
+        <template #header>
+          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看咨询详情" />
+          <span v-else>{{ column.label }}</span>
+        </template>
         <template #default="{ row }">
+          <el-popover
+            v-if="column.key === 'client_short_name'"
+            placement="left"
+            :width="760"
+            trigger="click"
+            :title="`${row.client_short_name || '客户'} 咨询详情`"
+            @show="loadConsultationDetail(row.id)"
+          >
+            <template #reference>
+              <el-button
+                type="primary"
+                link
+                class="client-short-name-link business-clickable-cell"
+                :title="`${row.client_short_name || '-'}（点击查看详情）`"
+                @click.stop
+              >
+                {{ row.client_short_name || '-' }}
+              </el-button>
+            </template>
+            <div class="detail-popover" v-loading="detailLoadingId === row.id">
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="咨询编号">
+                  <span class="detail-value">{{ getDetailRow(row).consultation_code || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户编号">
+                  <span class="detail-value">{{ getDetailRow(row).client_code || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户全称">
+                  <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户简称">
+                  <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="咨询时间">
+                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).consultation_time) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="咨询状态">
+                  <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="咨询方式">
+                  <span class="detail-value">{{ consultationMethodLabel(getDetailRow(row).consultation_method) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户来源">
+                  <span class="detail-value">{{ getDetailRow(row).client_source || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="来源关键词">
+                  <span class="detail-value">{{ getDetailRow(row).source_keyword || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="咨询类型">
+                  <span class="detail-value">{{ consultationTypeLabel(getDetailRow(row).consultation_type) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="处理方式">
+                  <span class="detail-value">{{ getDetailRow(row).handling_method || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客服人员">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).customer_service_id) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="销售人员">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).sales_person_id) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="编辑人">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).editor_id) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="跟进人">
+                  <span class="detail-value">{{ getUserName(getDetailRow(row).follow_up_person_id) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="跟进次数">
+                  <span class="detail-value">{{ getDetailRow(row).follow_up_count ?? 0 }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="跟进时间">
+                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).follow_up_time) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="跟进状态" :span="2">
+                  <span class="detail-value">{{ getDetailRow(row).follow_up_status || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="咨询描述" :span="2">
+                  <span class="detail-value">{{ getDetailRow(row).consultation_description || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="跟进备注" :span="2">
+                  <span class="detail-value">{{ getDetailRow(row).follow_up_remarks || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="备注" :span="2">
+                  <span class="detail-value">{{ getDetailRow(row).remarks || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="创建时间">
+                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).created_at) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="更新时间">
+                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).updated_at) }}</span>
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
+          </el-popover>
           <el-dropdown
-            v-if="column.key === 'status'"
+            v-else-if="column.key === 'status'"
             trigger="click"
             :disabled="statusUpdatingId === row.id"
             @command="(command) => handleInlineStatusChange(row, command)"
@@ -230,103 +329,9 @@
           <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
       </el-table-column>
-
-      <el-table-column label="详情" width="100" fixed="right">
-        <template #default="{ row }">
-          <el-popover
-            placement="left"
-            :width="760"
-            trigger="click"
-            title="咨询详情"
-            @show="loadConsultationDetail(row.id)"
-          >
-            <template #reference>
-              <el-button type="info" size="small" link>
-                查看详情
-              </el-button>
-            </template>
-            <div class="detail-popover" v-loading="detailLoadingId === row.id">
-              <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="咨询编号">
-                  <span class="detail-value">{{ getDetailRow(row).consultation_code || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客户编号">
-                  <span class="detail-value">{{ getDetailRow(row).client_code || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客户全称">
-                  <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客户简称">
-                  <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="咨询时间">
-                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).consultation_time) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="咨询状态">
-                  <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="咨询方式">
-                  <span class="detail-value">{{ consultationMethodLabel(getDetailRow(row).consultation_method) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客户来源">
-                  <span class="detail-value">{{ getDetailRow(row).client_source || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="来源关键词">
-                  <span class="detail-value">{{ getDetailRow(row).source_keyword || '-' }}</span>
-                </el-descriptions-item>
-
-                <el-descriptions-item label="咨询类型">
-                  <span class="detail-value">{{ consultationTypeLabel(getDetailRow(row).consultation_type) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="处理方式">
-                  <span class="detail-value">{{ getDetailRow(row).handling_method || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="客服人员">
-                  <span class="detail-value">{{ getUserName(getDetailRow(row).customer_service_id) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="销售人员">
-                  <span class="detail-value">{{ getUserName(getDetailRow(row).sales_person_id) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="编辑人">
-                  <span class="detail-value">{{ getUserName(getDetailRow(row).editor_id) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进人">
-                  <span class="detail-value">{{ getUserName(getDetailRow(row).follow_up_person_id) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进次数">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_count ?? 0 }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进时间">
-                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).follow_up_time) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进状态" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_status || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="咨询描述" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).consultation_description || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="跟进备注" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_remarks || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="备注" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).remarks || '-' }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="创建时间">
-                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).created_at) }}</span>
-                </el-descriptions-item>
-                <el-descriptions-item label="更新时间">
-                  <span class="detail-value">{{ formatDatetime(getDetailRow(row).updated_at) }}</span>
-                </el-descriptions-item>
-              </el-descriptions>
-            </div>
-          </el-popover>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
-          <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
     </el-table>
@@ -353,28 +358,35 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户全称" prop="client_name">
-              <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
-                <el-autocomplete
-                  v-model="form.client_name"
-                  :fetch-suggestions="searchClientsByName"
-                  placeholder="输入名称模糊搜索，无结果则新建"
-                  style="flex: 1;"
-                  value-key="client_name"
-                  clearable
-                  @select="handleExistingClientSelect"
-                  @clear="handleClientNameClear"
-                  @input="handleClientNameInput"
-                >
-                  <template #default="{ item }">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <span>{{ item.client_name }}</span>
-                      <span style="color: #909399; font-size: 12px; margin-left: 10px;">{{ item.client_code }}</span>
-                    </div>
-                  </template>
-                </el-autocomplete>
-                <el-tag v-if="form.client_id" type="success" size="small" effect="plain">老客户</el-tag>
-                <el-tag v-else-if="form.client_name" type="warning" size="small" effect="plain">新客户</el-tag>
+            <el-form-item label="客户简称" prop="client_short_name">
+              <div class="client-short-name-field">
+                <div class="client-short-name-control">
+                  <el-autocomplete
+                    v-model="form.client_short_name"
+                    :fetch-suggestions="searchClientsByShortName"
+                    placeholder="输入简称联想客户，无匹配时保存后自动新增"
+                    style="flex: 1;"
+                    value-key="client_short_name"
+                    clearable
+                    @select="handleExistingClientSelect"
+                    @clear="handleClientShortNameClear"
+                    @input="handleClientShortNameInput"
+                  >
+                    <template #default="{ item }">
+                      <div class="client-suggestion">
+                        <span>{{ item.client_short_name || item.client_name }}</span>
+                        <span class="client-suggestion-meta">
+                          {{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}
+                        </span>
+                      </div>
+                    </template>
+                  </el-autocomplete>
+                  <el-tag v-if="form.client_id" type="success" size="small" effect="plain">老客户</el-tag>
+                  <el-tag v-else-if="form.client_short_name" type="warning" size="small" effect="plain">新客户</el-tag>
+                </div>
+                <div class="client-short-name-hint">
+                  未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
+                </div>
               </div>
             </el-form-item>
           </el-col>
@@ -383,7 +395,7 @@
               <el-input
                 v-model="form.client_code"
                 disabled
-                :placeholder="!form.client_id && form.client_name ? '保存后自动生成' : '选择老客户后自动填充'"
+                :placeholder="!form.client_id && form.client_short_name ? '保存后自动生成' : '选择老客户后自动填充'"
               />
             </el-form-item>
           </el-col>
@@ -404,31 +416,26 @@
 
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户简称" prop="client_short_name">
-              <div class="client-short-name-field">
+            <el-form-item label="客户全称" prop="client_name">
+              <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
                 <el-autocomplete
-                  v-model="form.client_short_name"
-                  :fetch-suggestions="searchClientsByShortName"
-                  placeholder="输入简称联想客户，无匹配时保存后自动新增"
-                  value-key="client_short_name"
+                  v-model="form.client_name"
+                  :fetch-suggestions="searchClientsByName"
+                  placeholder="可选填客户全称"
+                  value-key="client_name"
                   clearable
-                  style="width: 100%"
+                  style="flex: 1;"
                   @select="handleExistingClientSelect"
-                  @clear="handleClientShortNameClear"
-                  @input="handleClientShortNameInput"
+                  @clear="handleClientNameClear"
+                  @input="handleClientNameInput"
                 >
                   <template #default="{ item }">
-                    <div class="client-suggestion">
-                      <span>{{ item.client_short_name || item.client_name }}</span>
-                      <span class="client-suggestion-meta">
-                        {{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}
-                      </span>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <span>{{ item.client_name }}</span>
+                      <span style="color: #909399; font-size: 12px; margin-left: 10px;">{{ item.client_code }}</span>
                     </div>
                   </template>
                 </el-autocomplete>
-                <div class="client-short-name-hint">
-                  未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
-                </div>
               </div>
             </el-form-item>
           </el-col>
@@ -716,9 +723,12 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } 
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as consultationApi from '@/api/consultations'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { buildAutoProjectName } from '@/utils/projectNaming'
+import { useBatchDelete } from '@/composables/useBatchDelete'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -751,13 +761,13 @@ const consultationColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 150 },
   { key: 'client_name', label: '客户全称', width: 200 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
-  { key: 'status', label: '咨询状态', width: 136 },
+  { key: 'status', label: '咨询状态', width: 120 },
   { key: 'consultation_time', label: '咨询时间', width: 180 },
   { key: 'consultation_method', label: '咨询方式', width: 120 },
   { key: 'consultation_type', label: '咨询类型', width: 140 },
   { key: 'client_source', label: '客户来源', width: 120 },
   { key: 'source_keyword', label: '来源关键词', width: 150 },
-  { key: 'handling_method', label: '处理方式', width: 150 },
+  { key: 'handling_method', label: '处理方式', width: 120 },
   { key: 'customer_service_id', label: '客服人员', width: 120, type: 'user' },
   { key: 'sales_person_id', label: '销售人员', width: 120, type: 'user' },
   { key: 'editor_id', label: '编辑人', width: 120, type: 'user' },
@@ -775,6 +785,19 @@ const defaultVisibleColumnKeys = [
   'status',
   'client_short_name',
   'follow_up_person_id',
+  'follow_up_count',
+  'consultation_time',
+  'client_source',
+  'source_keyword',
+  'handling_method',
+  'customer_service_id',
+  'consultation_method',
+  'consultation_type',
+]
+const legacyDefaultVisibleColumnKeys = [
+  'status',
+  'client_short_name',
+  'follow_up_person_id',
   'consultation_time',
   'client_source',
   'source_keyword',
@@ -787,7 +810,10 @@ const loadVisibleColumnKeys = () => {
     const savedKeys = JSON.parse(localStorage.getItem(CONSULTATION_COLUMNS_STORAGE_KEY) || 'null')
     if (!Array.isArray(savedKeys)) return [...defaultVisibleColumnKeys]
     const availableKeys = new Set(consultationColumnOptions.map((column) => column.key))
-    return savedKeys.filter((key) => availableKeys.has(key))
+    const filteredKeys = savedKeys.filter((key) => availableKeys.has(key))
+    const usesLegacyDefault = filteredKeys.length === legacyDefaultVisibleColumnKeys.length
+      && filteredKeys.every((key, index) => key === legacyDefaultVisibleColumnKeys[index])
+    return usesLegacyDefault ? [...defaultVisibleColumnKeys] : filteredKeys
   } catch {
     localStorage.removeItem(CONSULTATION_COLUMNS_STORAGE_KEY)
     return [...defaultVisibleColumnKeys]
@@ -813,11 +839,13 @@ let consultationSearchController = null
 let consultationRequestId = 0
 
 const tableData = ref([])
+const consultationTableRef = ref(null)
 const pagination = reactive({
   page: 1,
   limit: 10,
   total: 0,
 })
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:consultationTableRef,pagination,deleteRow:(row)=>consultationApi.deleteConsultation(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.consultation_description,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'咨询记录'})
 
 const searchForm = reactive({
   client_name: '',
@@ -848,6 +876,7 @@ const advancedFilterCount = computed(() => advancedFilterFields.reduce((count, f
 }, 0))
 
 const handleSearch = () => {
+  exitDeleteMode()
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer)
     searchDebounceTimer = null
@@ -1108,21 +1137,8 @@ const confirmationMissingFields = computed(() => {
   return fields.filter(([, value]) => !value?.trim()).map(([label]) => label)
 })
 
-// 是否为新客户：没有关联的 client_id 但已填写客户全称
-const isNewClient = computed(() => !form.client_id && !!form.client_name)
-
 const rules = {
-  client_name: [{ required: true, message: '请输入客户全称', trigger: 'blur' }],
-  client_short_name: [{
-    validator: (_rule, value, callback) => {
-      if (isNewClient.value && !value?.trim()) {
-        callback(new Error('新客户必须填写客户简称'))
-      } else {
-        callback()
-      }
-    },
-    trigger: 'blur',
-  }],
+  client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
   status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
 }
@@ -1241,7 +1257,7 @@ const handleClientNameInput = () => {
   }
 }
 
-// 简称可直接录入；未填写全称时，以简称作为待完善客户的默认全称。
+// 简称可直接录入；客户全称可留空，后端创建客户时会以简称作为默认全称。
 const handleClientShortNameInput = (value) => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
@@ -1249,9 +1265,6 @@ const handleClientShortNameInput = (value) => {
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
-  }
-  if (!form.client_name?.trim() && value?.trim()) {
-    form.client_name = value.trim()
   }
 }
 
@@ -1268,11 +1281,14 @@ const handleClientShortNameClear = () => {
 
 // 用户点击清空按钮
 const handleClientNameClear = () => {
+  const hadSelectedClient = !!form.client_id
   form.client_id = null
   form.client_name = ''
   form.client_code = ''
-  form.client_short_name = ''
-  form.manager_contact = ''
+  if (hadSelectedClient) {
+    form.client_short_name = ''
+    form.manager_contact = ''
+  }
 }
 
 const loadUsers = async () => {
@@ -1436,17 +1452,6 @@ const handleEdit = async (row) => {
   dialogVisible.value = true
   await nextTick()
   await restoreDraftIfNeeded()
-}
-
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该咨询记录吗？', '提示', { type: 'warning' })
-    await consultationApi.deleteConsultation(row.id)
-    ElMessage.success('删除成功')
-    fetchData()
-  } catch (error) {
-    if (error !== 'cancel') ElMessage.error('删除失败')
-  }
 }
 
 const statusUpdatingId = ref(null)
@@ -1755,20 +1760,20 @@ onBeforeUnmount(() => {
 }
 
 .consultations-card :deep(.el-card__header) {
-  padding: 16px 20px;
+  padding: 10px 16px;
 }
 
 .consultations-card :deep(.el-card__body) {
-  padding: 20px;
+  padding: 12px 16px 14px;
 }
 
 .search-form {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px 16px;
-  margin-bottom: 16px;
-  padding: 16px;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   background: var(--el-fill-color-extra-light);
@@ -1914,6 +1919,17 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.client-short-name-link {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .today-consultation-time {
   font-weight: 600;
   letter-spacing: 0.2px;
@@ -1954,6 +1970,12 @@ onBeforeUnmount(() => {
 
 .client-short-name-field {
   width: 100%;
+}
+
+.client-short-name-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .client-short-name-hint {

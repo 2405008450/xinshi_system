@@ -10,6 +10,82 @@
   align-items: center;
 }
 
+/* 常用列表页采用更紧凑的标题栏与内容节奏，提升当前视口内的表格可见行数。 */
+.compact-list-card > .el-card__header {
+  padding: 10px 16px;
+}
+
+.compact-list-card > .el-card__body {
+  padding: 12px 16px 14px;
+}
+
+.compact-list-card .card-header {
+  min-height: 30px;
+}
+
+.compact-list-card .card-header .header-actions {
+  gap: 6px;
+}
+
+.compact-list-card .header-actions .batch-delete-toolbar {
+  gap: 6px;
+}
+
+.compact-list-card .header-actions .el-button {
+  min-height: 30px;
+  height: 30px;
+  padding: 5px 11px;
+  font-size: 13px;
+}
+
+.compact-list-card .header-actions .el-input__wrapper,
+.compact-list-card .header-actions .el-select__wrapper {
+  min-height: 30px;
+}
+
+.compact-list-card .header-actions .el-tag {
+  height: 26px;
+}
+
+.compact-list-card > .el-card__body > .search-form .el-form-item,
+.compact-list-card > .el-card__body > .search-bar .el-form-item {
+  margin-bottom: 4px;
+}
+
+.compact-list-card > .el-card__body > .search-form .el-form-item__label,
+.compact-list-card > .el-card__body > .search-bar .el-form-item__label {
+  height: 30px;
+  padding-right: 8px;
+  font-size: 13px;
+  line-height: 30px;
+}
+
+.compact-list-card > .el-card__body > .search-form .el-form-item__content,
+.compact-list-card > .el-card__body > .search-bar .el-form-item__content {
+  min-height: 30px;
+  line-height: 30px;
+}
+
+.compact-list-card > .el-card__body > .search-form .el-input__wrapper,
+.compact-list-card > .el-card__body > .search-form .el-select__wrapper,
+.compact-list-card > .el-card__body > .search-bar .el-input__wrapper,
+.compact-list-card > .el-card__body > .search-bar .el-select__wrapper {
+  min-height: 30px;
+  height: 30px;
+}
+
+.compact-list-card > .el-card__body > .search-form .el-button,
+.compact-list-card > .el-card__body > .search-bar .el-button {
+  min-height: 30px;
+  height: 30px;
+  padding: 5px 11px;
+  font-size: 13px;
+}
+
+.compact-list-card .el-pagination {
+  margin-top: 12px;
+}
+
 .header-left {
   display: flex;
   align-items: center;

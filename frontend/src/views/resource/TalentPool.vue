@@ -1,5 +1,5 @@
 <template>
-  <el-card class="talent-card">
+  <el-card class="talent-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>
@@ -57,18 +57,15 @@
     <el-table :data="rows" v-loading="loading" border>
       <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
-        <template #default="{ row }">
-          <div v-if="column.key === 'capabilityTypes'" class="tag-list"><el-tag v-for="item in row.capabilityTypes" :key="item" size="small">{{ capabilityLabel(item) }}</el-tag><span v-if="!row.capabilityTypes?.length">-</span></div>
-          <el-tag v-else-if="column.key === 'status'" :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
-          <el-tag v-else-if="column.key === 'duplicateReviewRequired' && row.duplicateReviewRequired" type="warning" size="small">待核重</el-tag>
-          <span v-else-if="column.key === 'duplicateReviewRequired'">-</span>
-          <span v-else>{{ display(row[column.key]) }}</span>
+        <template #header>
+          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+          <span v-else>{{ column.label }}</span>
         </template>
-      </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right">
         <template #default="{ row }">
-          <el-popover trigger="click" placement="left" :width="760" :title="`${row.fullName} 人才详情`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
-            <template #reference><el-button type="primary" link @click.stop>查看详情</el-button></template>
+          <el-popover v-if="column.key === 'fullName'" trigger="click" placement="left" :width="760" :title="`${row.fullName || '人才'} 人才详情`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
+            <template #reference>
+              <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${row.fullName || '-'}（点击查看详情）`" @click.stop>{{ row.fullName || '-' }}</el-button>
+            </template>
             <div class="detail-content" v-loading="detailLoadingId === row.id">
               <template v-if="detailFor(row)">
                 <h4>基础信息</h4>
@@ -86,9 +83,20 @@
               </template>
             </div>
           </el-popover>
+          <div v-else-if="column.key === 'capabilityTypes'" class="tag-list"><el-tag v-for="item in row.capabilityTypes" :key="item" size="small">{{ capabilityLabel(item) }}</el-tag><span v-if="!row.capabilityTypes?.length">-</span></div>
+          <el-tag v-else-if="column.key === 'status'" :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <el-tag v-else-if="column.key === 'duplicateReviewRequired' && row.duplicateReviewRequired" type="warning" size="small">待核重</el-tag>
+          <span v-else-if="column.key === 'duplicateReviewRequired'">-</span>
+          <span v-else>{{ tableDisplay(column, row) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="88" fixed="right" align="center"><template #default="{ row }"><el-button v-if="canWrite" type="primary" link @click="openEdit(row)">编辑</el-button><span v-else>-</span></template></el-table-column>
+      <el-table-column label="操作" width="88" fixed="right" align="center">
+        <template #default="{ row }">
+          <div v-if="canWrite" class="action-buttons">
+            <TableActionButton action="edit" @click="openEdit(row)" />
+          </div>
+        </template>
+      </el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
@@ -116,6 +124,8 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref
 import { useRoute, useRouter } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
 import * as talentApi from '@/api/talents'
+import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { hasPermission } from '@/utils/permission'
@@ -155,11 +165,43 @@ const capabilityText = values => values?.length ? values.map(capabilityLabel).jo
 const statusLabel = value => ({active:'活跃',standby:'备用',inactive:'停用'}[value] || value || '-')
 const statusType = value => ({active:'success',standby:'info',inactive:'danger'}[value] || 'info')
 const display = value => value === null || value === undefined || value === '' ? '-' : Array.isArray(value) ? (value.join('、') || '-') : value
+const formatDateTime = value => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  const pad = number => String(number).padStart(2, '0')
+  return `${date.getFullYear()}年${pad(date.getMonth()+1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+const tableDisplay = (column, row) => {
+  if (column.key === 'yearsExperience') return row.yearsExperience === null || row.yearsExperience === undefined ? '-' : `${row.yearsExperience}年`
+  if (column.type === 'datetime') return formatDateTime(row[column.key])
+  return display(row[column.key])
+}
 
 const ProfileDescription = defineComponent({props:{profile:Object,type:String},setup(props){const items=computed(()=>{const p=props.profile||{};if(props.type==='written')return [['语种方向',p.languages],['翻译方向',p.direction],['质量评分',p.qualityScore],['日产能',p.dailyWordCapacity],['云编辑',p.canCloudEdit===true?'支持':p.canCloudEdit===false?'不支持':'-'],['审校',p.canRevision===true?'支持':p.canRevision===false?'不支持':'-']];if(props.type==='interpretation')return [['语种方向',p.languages],['口译等级',p.interpretationLevel],['口译方式',(p.interpretationModes||[]).map(v=>v==='simultaneous'?'同传':'交传').join('、')],['质量评分',p.qualityScore]];if(props.type==='annotation')return [['任务类型',(p.taskTypes||[]).join('、')],['数据模态',(p.dataModalities||[]).join('、')],['工具经验',(p.tools||[]).join('、')],['日产能',p.dailyCapacity]];return [['行业',(p.industries||[]).join('、')],['职能',(p.functions||[]).join('、')],['岗位',(p.jobTitles||[]).join('、')],['工作年限',p.yearsExperience],['期望地点',(p.preferredLocations||[]).join('、')],['职业概述',p.summary]]});return()=>h(ElDescriptions,{column:2,border:true,size:'small'},()=>items.value.map(([label,value])=>h(ElDescriptionsItem,{label},()=>display(value))))}})
 
-const tableColumns=[{key:'resourceCode',label:'人才编号',width:140},{key:'fullName',label:'姓名',width:120},{key:'capabilityTypes',label:'专业能力',minWidth:180,tooltip:false},{key:'status',label:'状态',width:90},{key:'cooperationType',label:'合作形式',width:110},{key:'primaryPhone',label:'主要电话',width:150},{key:'primaryEmail',label:'主要邮箱',minWidth:200},{key:'duplicateReviewRequired',label:'核重状态',width:100}]
-const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents',tableColumns,['resourceCode','fullName','capabilityTypes','status','cooperationType','primaryPhone','duplicateReviewRequired'])
+const tableColumns=[
+  {key:'resourceCode',label:'人才编号',width:130},
+  {key:'fullName',label:'姓名',width:100,tooltip:false,clickHint:'点击姓名查看人才详情'},
+  {key:'capabilityTypes',label:'专业能力',width:130,tooltip:false},
+  {key:'languageDirections',label:'语种方向',width:180},
+  {key:'industries',label:'行业',width:150},
+  {key:'jobTitles',label:'岗位',width:150},
+  {key:'yearsExperience',label:'工作年限',width:100},
+  {key:'status',label:'状态',width:80},
+  {key:'cooperationType',label:'合作形式',width:100},
+  {key:'primaryPhone',label:'主要电话',width:140},
+  {key:'primaryEmail',label:'主要邮箱',width:200},
+  {key:'gender',label:'性别',width:80},
+  {key:'nationality',label:'国籍',width:100},
+  {key:'overallRating',label:'综合评级',width:120},
+  {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
+  {key:'updatedAt',label:'最近更新',width:170,type:'datetime'},
+  {key:'duplicateReviewRequired',label:'核重状态',width:100}
+]
+const legacyDefaultColumnKeys=['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
+const defaultColumnKeys=['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
+const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v3',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
 const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)))
 const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false)
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
@@ -183,7 +225,7 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(fetchData);o
 </script>
 
 <style scoped>
-.card-header,.header-actions,.resource-nav,.advanced-actions,.tag-list{display:flex;align-items:center}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.resource-nav{gap:6px;margin:-4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--el-border-color-lighter)}.resource-nav__item{margin-left:0!important;border:1px solid transparent!important;border-radius:var(--el-border-radius-base);color:var(--el-text-color-regular);font-weight:500;transition:color .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}.resource-nav__item:hover{border-color:var(--el-color-primary-light-8)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important}.resource-nav__item.is-current{border-color:var(--el-color-primary-light-7)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important;font-weight:600;box-shadow:inset 0 -2px 0 var(--el-color-primary)}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.talent-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.card-header,.header-actions,.resource-nav,.advanced-actions,.tag-list,.action-buttons{display:flex;align-items:center}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.resource-nav{gap:6px;margin:-4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--el-border-color-lighter)}.resource-nav__item{margin-left:0!important;border:1px solid transparent!important;border-radius:var(--el-border-radius-base);color:var(--el-text-color-regular);font-weight:500;transition:color .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}.resource-nav__item:hover{border-color:var(--el-color-primary-light-8)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important}.resource-nav__item.is-current{border-color:var(--el-color-primary-light-7)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important;font-weight:600;box-shadow:inset 0 -2px 0 var(--el-color-primary)}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.talent-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 @media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.resource-nav{align-items:flex-start;overflow-x:auto}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}}
 </style>
 

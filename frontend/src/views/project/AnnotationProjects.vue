@@ -1,11 +1,12 @@
 <template>
-  <el-card class="annotation-card">
+  <el-card class="annotation-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>标注项目详情</span>
         <div class="header-actions">
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
-          <el-button v-if="canWrite" type="primary" @click="handleAdd">新增标注项目</el-button>
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增标注项目</el-button>
         </div>
       </div>
     </template>
@@ -60,7 +61,8 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="tableData" v-loading="loading" border class="annotation-table project-detail-list-table">
+    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
       <el-table-column label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目详情" /></template>
@@ -198,11 +200,10 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
             <TableActionButton action="edit" @click="handleEdit(row)" />
-            <TableActionButton action="delete" @click="handleDelete(row)" />
           </div>
         </template>
       </el-table-column>
@@ -346,6 +347,7 @@ import * as clientApi from '@/api/clients'
 import * as talentApi from '@/api/talents'
 import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
@@ -355,6 +357,7 @@ import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { hasPermission } from '@/utils/permission'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
@@ -386,11 +389,12 @@ const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useT
 const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
 
 const loading=ref(false), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
-const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null)
+const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([])
 const projectStatusSavingIds=ref(new Set())
 const detailCache=reactive({}), pagination=reactive({page:1,limit:10,total:0})
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
 let requestController, requestId=0, searchTimer
 let autoNameTimer
@@ -420,7 +424,7 @@ const detailRow=(row)=>detailCache[row.id]||row
 
 const buildFilters=()=>{const [ds,de]=searchForm.dispatchedRange||[],[ss,se]=searchForm.submittedRange||[];const selection=searchForm.clientSelection||'';return {keyword:searchForm.keyword.trim()||undefined,project_status:searchForm.projectStatus||undefined,project_type:searchForm.projectType||undefined,language_id:searchForm.languageId||undefined,client_manager_id:searchForm.clientManagerId||undefined,dispatched_date_start:ds||undefined,dispatched_date_end:de||undefined,submitted_date_start:ss||undefined,submitted_date_end:se||undefined,client_id:selection.startsWith('client:')?selection.slice(7):undefined,sub_client_id:selection.startsWith('sub:')?selection.slice(4):undefined,assignee_person_id:searchForm.assigneePersonId||undefined,created_date_start:searchForm.createdRange?.[0]||undefined,created_date_end:searchForm.createdRange?.[1]||undefined,consultation_date_start:searchForm.consultationRange?.[0]||undefined,consultation_date_end:searchForm.consultationRange?.[1]||undefined,confirmation_date_start:searchForm.confirmationRange?.[0]||undefined,confirmation_date_end:searchForm.confirmationRange?.[1]||undefined}}
 const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const [rows,count]=await Promise.all([annotationApi.getAnnotationProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal}),annotationApi.getAnnotationProjectCount(filters,{signal:requestController.signal})]);if(current!==requestId)return;tableData.value=Array.isArray(rows)?rows:[];pagination.total=count?.total||0}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'加载标注项目失败')}finally{if(current===requestId)loading.value=false}}
-const handleSearch=()=>{clearTimeout(searchTimer);pagination.page=1;fetchData()}
+const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
 const clearAdvanced=()=>{Object.assign(searchForm,{projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]});handleSearch()}
 const resetSearch=()=>{Object.assign(searchForm,{keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]});handleSearch()}
@@ -449,7 +453,6 @@ const scrollEditorToTop=()=>dialogBodyRef.value?.parentElement?.scrollTo({top:0,
 const handleSubmit=async()=>{const valid=await formRef.value?.validate().catch(()=>false);if(!valid){scrollEditorToTop();return}submitLoading.value=true;try{const payload=buildPayload();const saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');dialogVisible.value=false;await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'保存失败');scrollEditorToTop()}finally{submitLoading.value=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,value);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
-const handleDelete=async(row)=>{try{await ElMessageBox.confirm(`确定删除标注项目“${row.orderNo}”吗？`,'删除确认',{type:'warning'});await annotationApi.deleteAnnotationProject(row.id);delete detailCache[row.id];ElMessage.success('删除成功');await fetchData()}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除失败')}}
 const resetForm=()=>{Object.assign(form,emptyForm());nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 
 const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`

@@ -1,11 +1,12 @@
 <template>
-  <el-card>
+  <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
         <span>招聘项目详情</span>
         <div class="header-actions">
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
-          <el-button v-if="canWrite" type="primary" @click="openAdd">新增招聘项目</el-button>
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="canWrite && !deleteMode" type="primary" @click="openAdd">新增招聘项目</el-button>
         </div>
       </div>
     </template>
@@ -34,7 +35,8 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="rows" v-loading="loading" border row-key="id" class="recruitment-list-table project-detail-list-table">
+    <el-table ref="projectTableRef" :data="rows" v-loading="loading" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
         <template #header>
@@ -104,7 +106,7 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /><TableActionButton action="delete" @click="removeProject(row)" /></div></template></el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /></div></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
@@ -304,9 +306,11 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
@@ -411,7 +415,7 @@ const detailItems = [
   {label:'更新时间',key:'updatedAt'},
 ]
 
-const rows = ref([]); const loading = ref(false); const users = ref([]); const clients = ref([]); const resumeSources = ref([]); const talentOptions = ref([]); const languages = ref([])
+const rows = ref([]); const loading = ref(false); const users = ref([]); const clients = ref([]); const resumeSources = ref([]); const talentOptions = ref([]); const languages = ref([]); const projectTableRef = ref(null)
 const activeUsers = computed(() => users.value.filter((item) => item.is_active !== false))
 const managerUserOptions = computed(() => { const current = users.value.find((item) => item.id === form.clientManagerId); return current && !current.is_active ? [current, ...activeUsers.value] : activeUsers.value })
 const userLabel = (user) => user.full_name || user.username
@@ -435,6 +439,7 @@ const clientOptions = computed(() => clients.value.flatMap((client) => [
 ]))
 
 const pagination = reactive({page:1,limit:20,total:0})
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:projectTableRef,pagination,deleteRow:(row)=>deleteRecruitmentProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),entityName:'招聘项目'})
 const searchForm = reactive({keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]})
 const projectStatusSavingIds = ref(new Set())
 const advancedVisible = ref(false)
@@ -466,7 +471,7 @@ const buildFilters = () => {
 }
 const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const [list,count]=await Promise.all([getRecruitmentProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}),getRecruitmentProjectCount(filters,{signal:controller.signal})]); if(current!==sequence)return; rows.value=list||[]; pagination.total=count?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.response?.data?.detail||'招聘项目加载失败') } finally { if(current===sequence)loading.value=false } }
 const handleTextSearch = (value) => { clearTimeout(searchTimer); if(!value)return handleSearch(); searchTimer=setTimeout(handleSearch,400) }
-const handleSearch = () => { clearTimeout(searchTimer); pagination.page=1; fetchData() }
+const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page=1; fetchData() }
 const resetSearch = () => { Object.assign(searchForm,{keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
 const clearAdvanced = () => { Object.assign(searchForm,{clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
@@ -551,7 +556,6 @@ const generateEmailSubject = () => {
 const saveProject = async () => { if(!formRef.value)return; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({behavior:'smooth',block:'center'}); return } saving.value=true; try { const payload=buildPayload(); if(form.id)await updateRecruitmentProject(form.id,payload); else await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); editorVisible.value=false; fetchData() } catch(error){ElMessage.error(error?.response?.data?.detail||'保存失败')} finally{saving.value=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
-const removeProject = async (row) => { try { await ElMessageBox.confirm(`确认删除招聘项目 ${row.orderNo} 吗？`,'提示',{type:'warning'}); await deleteRecruitmentProject(row.id); ElMessage.success('删除成功'); fetchData() } catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error?.response?.data?.detail||'删除失败')} }
 
 watch(
   () => [form.employmentRange, form.workLocation, form.positionTitle, form.languageDirections],

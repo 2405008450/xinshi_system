@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
         <span class="card-title">工作安排</span>
