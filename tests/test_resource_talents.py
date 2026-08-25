@@ -5,7 +5,7 @@ import pytest
 
 from annotation_schemas import AnnotationProjectCreate
 from recruitment_schemas import RecruitmentCandidateCreate
-from resource_schemas import ResourcePersonCreate
+from resource_schemas import ResourcePersonCreate, ResourcePersonStatusUpdate
 from resource_models import ResourcePerson
 from resource_service import extract_contact_identifiers, normalize_email, normalize_phone
 
@@ -81,6 +81,44 @@ def test_annotation_project_rejects_duplicate_person_assignments():
             {"person_id": person_id},
             {"person_id": person_id},
         ])
+
+
+def test_talent_status_patch_accepts_supported_values_only():
+    assert ResourcePersonStatusUpdate(status="active").status == "active"
+    with pytest.raises(ValueError):
+        ResourcePersonStatusUpdate(status="unknown")
+
+
+def test_inline_talent_status_update_skips_write_when_unchanged(monkeypatch):
+    from resource_service import update_talent_status
+
+    person = SimpleNamespace(id=uuid4(), status="standby")
+    wrote = {"called": False}
+    db = SimpleNamespace(flush=lambda: wrote.update(called=True), commit=lambda: wrote.update(called=True))
+    monkeypatch.setattr("resource_service.get_talent", lambda *_args: person)
+    monkeypatch.setattr("resource_service._sync_legacy_translator", lambda *_args: wrote.update(called=True))
+
+    updated = update_talent_status(db, person.id, "standby")
+
+    assert updated is person
+    assert wrote["called"] is False
+
+
+def test_inline_talent_status_update_writes_when_changed(monkeypatch):
+    from resource_service import update_talent_status
+
+    person = SimpleNamespace(id=uuid4(), status="standby", updated_at=None)
+    calls = []
+    db = SimpleNamespace(flush=lambda: calls.append("flush"), commit=lambda: calls.append("commit"))
+    monkeypatch.setattr("resource_service.get_talent", lambda *_args: person)
+    monkeypatch.setattr("resource_service._sync_legacy_translator", lambda *_args: calls.append("sync"))
+
+    updated = update_talent_status(db, person.id, "active")
+
+    assert updated is person
+    assert person.status == "active"
+    assert person.updated_at is not None
+    assert calls == ["flush", "sync", "commit"]
 
 
 def test_talent_list_summary_combines_professional_profile_fields():

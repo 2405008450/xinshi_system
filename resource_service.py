@@ -305,6 +305,22 @@ def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
     return get_talent(db, person.id)
 
 
+def update_talent_status(
+    db: Session, person_id: UUID, status: str
+) -> Optional[ResourcePerson]:
+    person = get_talent(db, person_id)
+    if not person:
+        return None
+    if person.status != status:
+        person.status = status
+        person.updated_at = datetime.now()
+        db.flush()
+        _sync_legacy_translator(db, person)
+        db.commit()
+        return get_talent(db, person.id)
+    return person
+
+
 def update_talent(
     db: Session, person_id: UUID, payload: ResourcePersonUpdate
 ) -> Optional[ResourcePerson]:

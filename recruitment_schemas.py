@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
 PROJECT_STATUSES = {
@@ -88,6 +89,7 @@ class RecruitmentProjectBase(BaseModel):
     social_post_request: Optional[str] = None
     resource_request: Optional[str] = None
     language_directions: list[RecruitmentLanguageDirectionInput] = Field(default_factory=list)
+    role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
 
     @field_validator("project_status")
     @classmethod
@@ -156,6 +158,7 @@ class RecruitmentProjectResponse(RecruitmentProjectBase):
     client_manager_name: Optional[str] = None
     client_manager_name_snapshot: Optional[str] = None
     candidate_count: int = 0
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     language_directions: list[RecruitmentLanguageDirectionResponse] = Field(default_factory=list)
     created_by: Optional[UUID] = None
     created_at: datetime

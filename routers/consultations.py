@@ -1,4 +1,5 @@
 from typing import List, Optional
+from uuid import uuid4
 from uuid import UUID
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,6 +25,7 @@ from interpretation_service import (
 from annotation_models import AnnotationProject
 from annotation_service import (
     ensure_annotation_project_for_consultation,
+    generate_annotation_order_no,
     is_annotation_type,
     is_translation_type,
     validate_consultation_annotation_type_change,
@@ -31,10 +33,19 @@ from annotation_service import (
 from recruitment_models import RecruitmentProject
 from recruitment_service import (
     ensure_recruitment_project_for_consultation,
+    generate_recruitment_order_no,
     is_recruitment_type,
     validate_consultation_recruitment_type_change,
 )
 from routers.auth import get_current_user, require_module_access
+from business_mail_schemas import BusinessMailSendRequest
+from business_mail_service import (
+    build_preview as build_mail_preview,
+    create_and_send,
+    serialize_mail,
+    validate_internal_users,
+)
+from consultation_intake import apply_intake, validated_intake
 
 router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies=[Depends(require_module_access("consultations:read", "consultations:write"))])
 
@@ -48,6 +59,12 @@ class ConsultationConfirmationFields(BaseModel):
     expected_order_no: str = Field(min_length=1, max_length=50)
     subject_prefix: Optional[str] = Field(default=None, max_length=50)
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
+    project_intake: dict = Field(default_factory=dict)
+    to_user_ids: List[UUID] = Field(default_factory=list)
+    cc_user_ids: List[UUID] = Field(default_factory=list)
+    email_subject: Optional[str] = Field(default=None, max_length=1000)
+    email_body: Optional[str] = Field(default=None, max_length=50000)
+    idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=100)
 
 
 class ConsultationConfirmationPreviewRequest(BaseModel):
@@ -59,6 +76,9 @@ class ConsultationConfirmationPreviewRequest(BaseModel):
     project_name: Optional[str] = Field(default=None, max_length=255)
     subject_prefix: Optional[str] = Field(default=None, max_length=50)
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
+    project_intake: dict = Field(default_factory=dict)
+    consultation_description: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class CreateConfirmedConsultationRequest(BaseModel):
@@ -82,6 +102,11 @@ class ConsultationConfirmationPreviewResponse(BaseModel):
     subject_parts: List[str]
     email_subject_preview: str
     missing_fields: List[str]
+    to_users: list[dict] = Field(default_factory=list)
+    cc_users: list[dict] = Field(default_factory=list)
+    email_body: str = ""
+    can_send: bool = False
+    blocking_reasons: List[str] = Field(default_factory=list)
 
 
 class ConsultationConfirmationResponse(BaseModel):
@@ -90,6 +115,7 @@ class ConsultationConfirmationResponse(BaseModel):
     project_id: UUID
     order_no: str
     email_subject_preview: str
+    mail: Optional[dict] = None
 
 
 CONSULTATION_CONFIRMED_STATUS = "success"
@@ -119,7 +145,11 @@ def _confirmation_project_type(value: Optional[str]) -> str:
         return "interpretation"
     if is_translation_type(value):
         return "translation"
-    raise ValueError("只有口译项目和笔译项目使用项目确认预览")
+    if is_annotation_type(value):
+        return "annotation"
+    if is_recruitment_type(value):
+        return "recruitment"
+    raise ValueError("只有笔译、口译、标注和招聘项目使用项目确认预览")
 
 
 def _clean_text(value: Optional[str]) -> str:
@@ -142,7 +172,7 @@ def _build_subject_preview(
         ("客户简称", client_short_name),
         ("负责人联系方式", manager_contact),
     ]
-    if project_type == "interpretation":
+    if project_type != "translation":
         values.append(("客户单号/标识", customer_order_no))
     values.append(("项目名称", project_name))
     parts = [_clean_text(value) for _label, value in values if _clean_text(value)]
@@ -183,7 +213,12 @@ def _confirmation_preview_values(
 
     existing_project = None
     if consultation:
-        project_model = InterpretationProject if project_type == "interpretation" else TranslationProject
+        project_model = {
+            "translation": TranslationProject,
+            "interpretation": InterpretationProject,
+            "annotation": AnnotationProject,
+            "recruitment": RecruitmentProject,
+        }[project_type]
         existing_project = db.query(project_model).filter(
             project_model.consultation_id == consultation.id
         ).first()
@@ -191,6 +226,8 @@ def _confirmation_preview_values(
     order_no = (
         existing_project.order_no if existing_project else
         generate_interpretation_order_no(db) if project_type == "interpretation" else
+        generate_annotation_order_no(db) if project_type == "annotation" else
+        generate_recruitment_order_no(db) if project_type == "recruitment" else
         generate_order_no(db)
     )
     project_name = _clean_text(payload.project_name) or _clean_text(
@@ -198,10 +235,10 @@ def _confirmation_preview_values(
     ) or build_auto_project_name(client_short_name)
     customer_order_no = (
         _clean_text(payload.customer_order_no)
-        if project_type == "interpretation"
+        if project_type != "translation"
         else ""
     )
-    if project_type == "interpretation" and not customer_order_no:
+    if project_type != "translation" and not customer_order_no:
         customer_order_no = _clean_text(getattr(existing_project, "customer_order_no", None))
 
     parts, subject, missing = _build_subject_preview(
@@ -213,6 +250,30 @@ def _confirmation_preview_values(
         customer_order_no=customer_order_no,
         project_name=project_name,
     )
+    source = {
+        **validated_intake(project_type, payload.project_intake),
+        "order_no": order_no,
+        "project_name": project_name,
+        "client_short_name": client_short_name,
+        "manager_contact": manager_contact,
+        "customer_order_no": customer_order_no,
+        "subject_prefix": payload.subject_prefix,
+        "consultation_description": payload.consultation_description,
+        "remarks": payload.remarks,
+    }
+    # 正式接口始终传入 SQLAlchemy Session；保留轻量级纯函数回退，便于主题生成单元测试。
+    if isinstance(db, Session):
+        mail_preview = build_mail_preview(db, project_type, source=source)
+    else:
+        mail_preview = {
+            "subject": subject,
+            "body": "",
+            "missing_fields": missing,
+            "to_users": [],
+            "cc_users": [],
+            "can_send": False,
+            "blocking_reasons": [],
+        }
     return {
         "project_type": project_type,
         "order_no": order_no,
@@ -222,8 +283,13 @@ def _confirmation_preview_values(
         "customer_order_no": customer_order_no or None,
         "subject_prefix": _clean_text(payload.subject_prefix) or None,
         "subject_parts": parts,
-        "email_subject_preview": subject,
-        "missing_fields": missing,
+        "email_subject_preview": mail_preview["subject"] or subject,
+        "missing_fields": mail_preview["missing_fields"] or missing,
+        "to_users": mail_preview["to_users"],
+        "cc_users": mail_preview["cc_users"],
+        "email_body": mail_preview["body"],
+        "can_send": mail_preview["can_send"],
+        "blocking_reasons": mail_preview["blocking_reasons"],
     }
 
 
@@ -233,17 +299,35 @@ def _confirm_consultation_project(
     confirmation: ConsultationConfirmationFields,
     created_by: UUID,
 ):
+    next_project_name = _clean_text(confirmation.project_name) or getattr(consultation, "project_name", None)
+    next_customer_order_no = _clean_text(confirmation.customer_order_no) or getattr(consultation, "customer_order_no", None)
+    next_project_intake = (
+        validated_intake(_confirmation_project_type(consultation.consultation_type), confirmation.project_intake)
+        if confirmation.project_intake
+        else (getattr(consultation, "project_intake", None) or {})
+    )
     preview_request = ConsultationConfirmationPreviewRequest(
         consultation_id=consultation.id,
         consultation_type=consultation.consultation_type,
         client_id=consultation.client_id,
         client_short_name=getattr(consultation, "client_short_name", None),
-        project_name=confirmation.project_name,
+        project_name=next_project_name,
         subject_prefix=confirmation.subject_prefix,
-        customer_order_no=confirmation.customer_order_no,
+        customer_order_no=next_customer_order_no,
+        project_intake=next_project_intake,
+        consultation_description=getattr(consultation, "consultation_description", None),
+        remarks=getattr(consultation, "remarks", None),
     )
     preview = _confirmation_preview_values(db, preview_request)
-    if preview["project_type"] == "interpretation":
+    if confirmation.to_user_ids:
+        validate_internal_users(db, confirmation.to_user_ids)
+        validate_internal_users(
+            db,
+            [user_id for user_id in confirmation.cc_user_ids if user_id not in set(confirmation.to_user_ids)],
+        )
+    if confirmation.to_user_ids and not preview.get("can_send", False):
+        raise ValueError("；".join(preview.get("blocking_reasons") or ["邮件发送条件不完整"]))
+    if preview["project_type"] != "translation":
         # 确认请求中的空值表示用户主动清空，不再回退到项目历史值。
         preview["customer_order_no"] = _clean_text(confirmation.customer_order_no) or None
         parts, subject, missing = _build_subject_preview(
@@ -258,7 +342,6 @@ def _confirm_consultation_project(
         preview.update(
             subject_parts=parts,
             email_subject_preview=subject,
-            missing_fields=missing,
         )
     if preview["order_no"] != confirmation.expected_order_no:
         raise HTTPException(
@@ -268,6 +351,13 @@ def _confirm_consultation_project(
                 "preview": preview,
             },
         )
+
+    # 只有订单号校验通过后才写回咨询，避免并发冲突留下半成品状态。
+    consultation.project_name = next_project_name
+    consultation.customer_order_no = next_customer_order_no
+    if confirmation.project_intake:
+        consultation.project_intake = next_project_intake
+        consultation.project_intake_version = 1
 
     if preview["project_type"] == "interpretation":
         project, _created = ensure_interpretation_project_for_consultation(
@@ -281,7 +371,7 @@ def _confirm_consultation_project(
         )
         project.customer_order_no = preview["customer_order_no"]
         db.flush()
-    else:
+    elif preview["project_type"] == "translation":
         project = db.query(TranslationProject).filter(
             TranslationProject.consultation_id == consultation.id
         ).first()
@@ -297,6 +387,8 @@ def _confirm_consultation_project(
                 task_type="笔译项目",
                 consultation_id=consultation.id,
                 client_id=consultation.client_id,
+                sub_client_id=consultation.sub_client_id,
+                customer_order_no=consultation.customer_order_no,
                 customer_reception_time=consultation.consultation_time,
                 project_status=PROJECT_CONFIRMED_STATUS,
                 email_subject_preview=preview["email_subject_preview"],
@@ -308,10 +400,44 @@ def _confirm_consultation_project(
                 commit=False,
                 order_no=preview["order_no"],
             )
+    elif preview["project_type"] == "annotation":
+        project, _created = ensure_annotation_project_for_consultation(
+            db, consultation, created_by, order_no=preview["order_no"],
+            project_name=preview["project_name"], email_subject_preview=preview["email_subject_preview"],
+        )
+    else:
+        project, _created = ensure_recruitment_project_for_consultation(
+            db, consultation, created_by, order_no=preview["order_no"],
+            project_name=preview["project_name"], email_subject_preview=preview["email_subject_preview"],
+        )
+    apply_intake(
+        db, project_type=preview["project_type"], project=project,
+        intake=confirmation.project_intake or consultation.project_intake,
+        sub_client_id=consultation.sub_client_id, contact_name=consultation.contact_name,
+        customer_order_no=consultation.customer_order_no or confirmation.customer_order_no,
+        updated_by=created_by,
+    )
     return project, preview
 
 
+def _send_confirmation_mail(db: Session, consultation, project, preview: dict, confirmation, actor_id: UUID):
+    if not confirmation.to_user_ids:
+        return None
+    payload = BusinessMailSendRequest(
+        project_type=preview["project_type"], project_id=project.id,
+        consultation_id=consultation.id, source_kind="consultation_confirmation",
+        to_user_ids=confirmation.to_user_ids, cc_user_ids=confirmation.cc_user_ids,
+        subject=(confirmation.email_subject or preview["email_subject_preview"]).strip(),
+        body=(confirmation.email_body or preview.get("email_body") or "").strip(),
+        idempotency_key=confirmation.idempotency_key or f"consultation-{consultation.id}-{uuid4()}",
+    )
+    return serialize_mail(create_and_send(db, payload, actor_id))
+
+
 def _attach_linked_project_ids(db: Session, consultation):
+    translation_project_id = db.query(TranslationProject.id).filter(
+        TranslationProject.consultation_id == consultation.id
+    ).scalar()
     interpretation_project_id = db.query(InterpretationProject.id).filter(
         InterpretationProject.consultation_id == consultation.id
     ).scalar()
@@ -321,6 +447,7 @@ def _attach_linked_project_ids(db: Session, consultation):
     recruitment_project_id = db.query(RecruitmentProject.id).filter(
         RecruitmentProject.consultation_id == consultation.id
     ).scalar()
+    consultation.translation_project_id = translation_project_id
     consultation.interpretation_project_id = interpretation_project_id
     consultation.annotation_project_id = annotation_project_id
     consultation.recruitment_project_id = recruitment_project_id
@@ -365,6 +492,9 @@ def create_confirmed_consultation(
             db, consultation, body.confirmation, current_user.id
         )
         db.commit()
+        mail = _send_confirmation_mail(
+            db, consultation, project, preview, body.confirmation, current_user.id
+        )
         saved = _attach_linked_project_ids(
             db, get_consultation(db, consultation.id)
         )
@@ -374,6 +504,7 @@ def create_confirmed_consultation(
             "project_id": project.id,
             "order_no": project.order_no,
             "email_subject_preview": preview["email_subject_preview"],
+            "mail": mail,
         }
     except HTTPException:
         db.rollback()
@@ -423,6 +554,9 @@ def update_confirmed_consultation(
             db, consultation, body.confirmation, current_user.id
         )
         db.commit()
+        mail = _send_confirmation_mail(
+            db, consultation, project, preview, body.confirmation, current_user.id
+        )
         saved = _attach_linked_project_ids(
             db, get_consultation(db, consultation_id)
         )
@@ -432,6 +566,7 @@ def update_confirmed_consultation(
             "project_id": project.id,
             "order_no": project.order_no,
             "email_subject_preview": preview["email_subject_preview"],
+            "mail": mail,
         }
     except HTTPException:
         db.rollback()

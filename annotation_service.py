@@ -87,6 +87,8 @@ def _project_options():
         .selectinload(AnnotationProjectPriceItem.source_language),
         selectinload(AnnotationProject.price_items)
         .selectinload(AnnotationProjectPriceItem.target_language),
+        selectinload(AnnotationProject.workbench_responsibilities)
+        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
     )
 
 
@@ -200,7 +202,7 @@ def count_annotation_projects(db: Session, **filters) -> int:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
-NESTED_FIELDS = {"language_items", "price_items", "assignees"}
+NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments"}
 
 
 def _resolve_client(db: Session, data: dict) -> None:
@@ -309,6 +311,10 @@ def create_annotation_project(
     )
     db.add(project)
     db.flush()
+    from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments)
+    validate_assignment_map(db, assignments)
+    ensure_project_responsibilities(db, 'annotation', project.id, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
     db.commit()
@@ -327,6 +333,10 @@ def update_annotation_project(
         data.pop(key, None)
     for key, value in data.items():
         setattr(project, key, value)
+    from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
+    validate_assignment_map(db, assignments)
+    ensure_active_project_responsibilities(db, 'annotation', project.id, project.project_status, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
     db.commit()
@@ -343,6 +353,8 @@ def update_annotation_project_status(
         return project
     project.project_status = project_status
     project.updated_at = datetime.now()
+    from project_workbench_service import ensure_active_project_responsibilities
+    ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -351,6 +363,8 @@ def delete_annotation_project(db: Session, project_id: UUID) -> bool:
     project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).first()
     if not project:
         return False
+    from project_workbench_service import cancel_pending_project_handovers
+    cancel_pending_project_handovers(db, 'annotation', project_id)
     db.delete(project)
     db.commit()
     return True
@@ -403,12 +417,18 @@ def preview_annotation_project_name(
 
 
 def ensure_annotation_project_for_consultation(
-    db: Session, consultation: Consultation, created_by: Optional[UUID]
+    db: Session, consultation: Consultation, created_by: Optional[UUID],
+    *, order_no: Optional[str] = None, project_name: Optional[str] = None,
+    email_subject_preview: Optional[str] = None,
 ) -> tuple[AnnotationProject, bool]:
     existing = db.query(AnnotationProject).filter(
         AnnotationProject.consultation_id == consultation.id
     ).first()
     if existing:
+        if project_name is not None:
+            existing.project_name = project_name
+        if email_subject_preview is not None:
+            existing.email_subject_preview = email_subject_preview
         return existing, False
     if db.query(InterpretationProject.id).filter(
         InterpretationProject.consultation_id == consultation.id
@@ -421,13 +441,14 @@ def ensure_annotation_project_for_consultation(
     if translation:
         raise ValueError("该咨询已生成笔译项目，请先执行标注历史迁移")
     project = AnnotationProject(
-        order_no=generate_annotation_order_no(db),
-        project_name=None,
+        order_no=order_no or generate_annotation_order_no(db),
+        project_name=project_name,
         consultation_id=consultation.id,
         client_id=consultation.client_id,
         project_status="pending_confirmation",
         customer_consultation_time=consultation.consultation_time,
         customer_confirmation_time=datetime.now(),
+        email_subject_preview=email_subject_preview,
         created_by=created_by,
     )
     db.add(project)

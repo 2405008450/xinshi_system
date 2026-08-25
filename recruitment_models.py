@@ -106,6 +106,30 @@ class RecruitmentProject(Base):
     candidates: Mapped[list["RecruitmentCandidate"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="RecruitmentCandidate.created_at"
     )
+    workbench_responsibilities = relationship(
+        "ProjectWorkbenchResponsibility",
+        back_populates="recruitment_project",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def role_assignments(self) -> list[dict]:
+        from project_roles import PROJECT_ROLE_DEFINITIONS
+        by_role = {item.role_code: item for item in (self.workbench_responsibilities or [])}
+        return [
+            {
+                "role_code": definition["role_code"],
+                "role_name": definition["role_name"],
+                "assignee_id": by_role.get(definition["role_code"]).assignee_id if by_role.get(definition["role_code"]) else None,
+                "assignee_name": (
+                    (by_role[definition["role_code"]].assignee.full_name or by_role[definition["role_code"]].assignee.username)
+                    if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee else None
+                ),
+                "assignment_type": "direct" if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee_id else "role_pool",
+            }
+            for definition in PROJECT_ROLE_DEFINITIONS
+            if definition["role_code"] in {"project_manager", "project_specialist", "project_assistant"}
+        ]
 
     @property
     def client_short_name(self):

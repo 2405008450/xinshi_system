@@ -5,7 +5,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import DateTime, ForeignKeyConstraint, Index, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Index, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,6 +50,63 @@ class WorkflowInstance(Base):
     sub_order = relationship('TranslationSubOrder', back_populates='workflow_instance', foreign_keys=[sub_order_id])
     current_assignee = relationship('AppUser', foreign_keys=[current_assignee_id])
     logs: Mapped[list['WorkflowLog']] = relationship('WorkflowLog', back_populates='workflow_instance', cascade='all, delete-orphan', order_by='WorkflowLog.created_at')
+
+
+class ProjectWorkbenchResponsibility(Base):
+    """口译、标注和招聘项目的内部协作责任。"""
+    __tablename__ = 'project_workbench_responsibility'
+    __table_args__ = (
+        ForeignKeyConstraint(['interpretation_project_id'], ['interpretation_project.id'], ondelete='CASCADE', name='fk_workbench_resp_interpretation'),
+        ForeignKeyConstraint(['annotation_project_id'], ['annotation_project.id'], ondelete='CASCADE', name='fk_workbench_resp_annotation'),
+        ForeignKeyConstraint(['recruitment_project_id'], ['recruitment_project.id'], ondelete='CASCADE', name='fk_workbench_resp_recruitment'),
+        ForeignKeyConstraint(['assignee_id'], ['app_user.id'], ondelete='SET NULL', name='fk_workbench_resp_assignee'),
+        PrimaryKeyConstraint('id', name='project_workbench_responsibility_pkey'),
+        CheckConstraint(
+            "(CASE WHEN interpretation_project_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN recruitment_project_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name='ck_workbench_resp_exactly_one_project',
+        ),
+        CheckConstraint(
+            "role_code IN ('project_manager', 'project_specialist', 'project_assistant')",
+            name='ck_workbench_resp_role_code',
+        ),
+        UniqueConstraint('interpretation_project_id', 'role_code', name='uq_workbench_resp_interpretation_role'),
+        UniqueConstraint('annotation_project_id', 'role_code', name='uq_workbench_resp_annotation_role'),
+        UniqueConstraint('recruitment_project_id', 'role_code', name='uq_workbench_resp_recruitment_role'),
+        Index('ix_workbench_resp_assignee', 'assignee_id'),
+        Index('ix_workbench_resp_role_assignee', 'role_code', 'assignee_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    interpretation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    recruitment_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    role_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    interpretation_project = relationship('InterpretationProject', back_populates='workbench_responsibilities')
+    annotation_project = relationship('AnnotationProject', back_populates='workbench_responsibilities')
+    recruitment_project = relationship('RecruitmentProject', back_populates='workbench_responsibilities')
+    assignee = relationship('AppUser', foreign_keys=[assignee_id])
+
+    @property
+    def project_type(self) -> str:
+        if self.interpretation_project_id:
+            return 'interpretation'
+        if self.annotation_project_id:
+            return 'annotation'
+        return 'recruitment'
+
+    @property
+    def project_id(self) -> Optional[uuid.UUID]:
+        return self.interpretation_project_id or self.annotation_project_id or self.recruitment_project_id
+
+    @property
+    def project(self):
+        return self.interpretation_project or self.annotation_project or self.recruitment_project
 
 
 class WorkflowLog(Base):
@@ -131,18 +188,27 @@ class WorkflowHandoverItem(Base):
     __table_args__ = (
         ForeignKeyConstraint(['request_id'], ['workflow_handover_request.id'], ondelete='CASCADE', name='fk_wf_handover_item_request'),
         ForeignKeyConstraint(['workflow_instance_id'], ['workflow_instance.id'], ondelete='CASCADE', name='fk_wf_handover_item_instance'),
+        ForeignKeyConstraint(['project_responsibility_id'], ['project_workbench_responsibility.id'], ondelete='CASCADE', name='fk_wf_handover_item_responsibility'),
         ForeignKeyConstraint(['expected_assignee_id'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_handover_item_assignee'),
         PrimaryKeyConstraint('id', name='workflow_handover_item_pkey'),
         UniqueConstraint('request_id', 'workflow_instance_id', name='uq_wf_handover_item'),
+        UniqueConstraint('request_id', 'project_responsibility_id', name='uq_wf_handover_item_responsibility'),
+        CheckConstraint(
+            '(workflow_instance_id IS NOT NULL AND project_responsibility_id IS NULL) OR '
+            '(workflow_instance_id IS NULL AND project_responsibility_id IS NOT NULL)',
+            name='ck_wf_handover_item_exactly_one_source',
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    workflow_instance_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    workflow_instance_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     expected_assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     request: Mapped['WorkflowHandoverRequest'] = relationship('WorkflowHandoverRequest', back_populates='items')
     workflow_instance: Mapped['WorkflowInstance'] = relationship('WorkflowInstance')
+    project_responsibility: Mapped[Optional['ProjectWorkbenchResponsibility']] = relationship('ProjectWorkbenchResponsibility')
 
 
 class WorkflowHandoverAttachment(Base):
@@ -199,14 +265,22 @@ class ProjectManagerHandoverItem(Base):
     __table_args__ = (
         ForeignKeyConstraint(['request_id'], ['project_manager_handover_request.id'], ondelete='CASCADE', name='fk_pm_handover_item_request'),
         ForeignKeyConstraint(['translation_project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_pm_handover_item_project'),
+        ForeignKeyConstraint(['project_responsibility_id'], ['project_workbench_responsibility.id'], ondelete='CASCADE', name='fk_pm_handover_item_responsibility'),
         ForeignKeyConstraint(['expected_manager_id'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_item_expected'),
         PrimaryKeyConstraint('id', name='project_manager_handover_item_pkey'),
         UniqueConstraint('request_id', 'translation_project_id', name='uq_pm_handover_item'),
+        UniqueConstraint('request_id', 'project_responsibility_id', name='uq_pm_handover_item_responsibility'),
+        CheckConstraint(
+            '(translation_project_id IS NOT NULL AND project_responsibility_id IS NULL) OR '
+            '(translation_project_id IS NULL AND project_responsibility_id IS NOT NULL)',
+            name='ck_pm_handover_item_exactly_one_source',
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    translation_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    translation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     expected_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     request: Mapped['ProjectManagerHandoverRequest'] = relationship(
@@ -214,4 +288,5 @@ class ProjectManagerHandoverItem(Base):
         back_populates='items',
     )
     project = relationship('TranslationProject')
+    project_responsibility: Mapped[Optional['ProjectWorkbenchResponsibility']] = relationship('ProjectWorkbenchResponsibility')
     expected_manager = relationship('AppUser', foreign_keys=[expected_manager_id])

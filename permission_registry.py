@@ -15,6 +15,8 @@ PERMISSION_GROUPS = [
             {"code": "system:roles:read", "name": "查看角色与权限"},
             {"code": "system:roles:write", "name": "管理角色与权限"},
             {"code": "system:user_roles:write", "name": "分配用户角色"},
+            {"code": "system:mail_settings:read", "name": "查看项目邮件设置"},
+            {"code": "system:mail_settings:write", "name": "管理项目邮件设置"},
         ],
     },
     {

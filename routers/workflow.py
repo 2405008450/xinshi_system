@@ -18,10 +18,14 @@ from workflow_crud import (
     get_project_manager_candidates,
     get_project_role_candidates,
     claim_management_projects,
+    claim_management_project_refs,
     get_transferable_tasks,
     get_eligible_transfer_users,
+    get_eligible_transfer_users_unified,
     create_handover_request,
+    create_handover_request_unified,
     create_project_manager_handover,
+    create_project_manager_handover_unified,
     decide_handover_request,
     decide_project_manager_handover,
     list_incoming_handover_requests,
@@ -30,7 +34,9 @@ from workflow_crud import (
     serialize_project_manager_handover,
     serialize_handover_request,
     transfer_workflow_tasks,
+    transfer_work_items,
     claim_role_pool_tasks,
+    claim_role_pool_work_items,
     init_workflow,
     set_difficulty,
     transition_forward,
@@ -67,6 +73,17 @@ from project_roles import get_stage_role
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
+
+
+def _split_work_item_refs(refs, legacy_ids):
+    workflow_ids = list(dict.fromkeys(legacy_ids or []))
+    responsibility_ids = []
+    for ref in refs or []:
+        if ref.source_kind == 'translation_workflow':
+            workflow_ids.append(ref.source_id)
+        else:
+            responsibility_ids.append(ref.source_id)
+    return list(dict.fromkeys(workflow_ids)), list(dict.fromkeys(responsibility_ids))
 
 
 def _serialize_transfer_users(db: Session, users: list[AppUser]) -> list[WorkflowTransferUser]:
@@ -205,11 +222,9 @@ def claim_management_projects_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        projects = claim_management_projects(
-            db,
-            current_user=current_user,
-            translation_project_ids=payload.translation_project_ids,
-        )
+        if payload.project_refs:
+            return claim_management_project_refs(db, current_user, payload.project_refs)
+        projects = claim_management_projects(db, current_user=current_user, translation_project_ids=payload.translation_project_ids)
         return [serialize_managed_project(project) for project in projects]
     except PermissionError as exc:
         db.rollback()
@@ -233,14 +248,15 @@ def create_project_manager_handover_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        request = create_project_manager_handover(
-            db,
-            requester=current_user,
-            translation_project_ids=payload.translation_project_ids,
-            target_manager_id=payload.target_manager_id,
-            reason=payload.reason,
-            note=payload.note,
-        )
+        if payload.project_refs:
+            request = create_project_manager_handover_unified(
+                db, current_user, payload.project_refs, payload.target_manager_id, payload.reason, payload.note
+            )
+        else:
+            request = create_project_manager_handover(
+                db, requester=current_user, translation_project_ids=payload.translation_project_ids,
+                target_manager_id=payload.target_manager_id, reason=payload.reason, note=payload.note,
+            )
         return serialize_project_manager_handover(request)
     except PermissionError as exc:
         db.rollback()
@@ -347,7 +363,8 @@ def get_eligible_transfer_users_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        users = get_eligible_transfer_users(db, payload.workflow_instance_ids)
+        workflow_ids, responsibility_ids = _split_work_item_refs(payload.work_item_refs, payload.workflow_instance_ids)
+        users = get_eligible_transfer_users_unified(db, workflow_ids, responsibility_ids)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return _serialize_transfer_users(db, users)
@@ -360,10 +377,12 @@ def handover_tasks_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        request = create_handover_request(
+        workflow_ids, responsibility_ids = _split_work_item_refs(payload.work_item_refs, payload.workflow_instance_ids)
+        request = create_handover_request_unified(
             db,
             requester=current_user,
-            workflow_instance_ids=payload.workflow_instance_ids,
+            workflow_instance_ids=workflow_ids,
+            project_responsibility_ids=responsibility_ids,
             target_user_id=payload.target_user_id,
             handover_type=payload.handover_type,
             reason_detail=payload.reason_detail,
@@ -451,10 +470,12 @@ def claim_tasks_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        return transfer_workflow_tasks(
+        workflow_ids, responsibility_ids = _split_work_item_refs(payload.work_item_refs, payload.workflow_instance_ids)
+        return transfer_work_items(
             db,
             operator=current_user,
-            workflow_instance_ids=payload.workflow_instance_ids,
+            workflow_instance_ids=workflow_ids,
+            project_responsibility_ids=responsibility_ids,
             action='claim',
             content=payload.content,
             content_json=payload.content_json,
@@ -479,7 +500,8 @@ def claim_role_pool_tasks_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        return claim_role_pool_tasks(db, current_user, payload.workflow_instance_ids)
+        workflow_ids, responsibility_ids = _split_work_item_refs(payload.work_item_refs, payload.workflow_instance_ids)
+        return claim_role_pool_work_items(db, current_user, workflow_ids, responsibility_ids)
     except PermissionError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc

@@ -58,13 +58,14 @@
         subtitle="管理项目与执行任务"
         storage-key="my-tasks"
       >
-        <ProjectManagerHandoverPanel v-if="canManageProjectOwnership" />
+        <ProjectManagerHandoverPanel v-if="canManageProjectOwnership" @open-project="handleOpenProject" />
         <div v-if="canManageProjectOwnership" class="task-subsection-title">执行任务与交接</div>
         <UnifiedTasksPanel
           :current-user-name="currentUserName"
           :items="workItems"
           :reference-date="scheduleDate"
           @open-chat="handleOpenProjectChat"
+          @open-project="handleOpenProject"
           @refresh="loadMyWorkItems"
         />
       </CollapsibleSection>
@@ -144,6 +145,18 @@ const weekdayLabel = computed(() => {
 function handleOpenProjectChat(projectId) {
   if (!projectId) return
   router.push({ path: '/translation', query: { projectId, tab: 'chat' } })
+}
+
+function handleOpenProject(item) {
+  const routeName = item?.detail_route_name || {
+    translation: 'TranslationProjectDetails',
+    interpretation: 'InterpretationProjectDetails',
+    annotation: 'AnnotationProjectDetails',
+    recruitment: 'RecruitmentProjectDetails'
+  }[item?.project_type || 'translation']
+  const projectId = item?.project_id || item?.translation_project_id
+  if (!routeName || !projectId) return
+  router.push({ name: routeName, query: { projectId } })
 }
 
 function getReferenceDate() {

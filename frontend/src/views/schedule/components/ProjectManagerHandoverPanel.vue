@@ -82,13 +82,16 @@
       size="small"
       max-height="460"
       class="workbench-data-table row-click-select-table"
-      row-key="translation_project_id"
+      :row-key="row => `${row.project_type || 'translation'}:${row.project_id || row.translation_project_id}`"
       @selection-change="selectedProjects = $event"
       @row-click="toggleProjectRowSelection"
     >
       <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" />
       <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
       <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column label="项目类型" width="90">
+        <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
+      </el-table-column>
       <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #default="{ row }">
           <div class="workbench-project-cell">
@@ -135,6 +138,12 @@
             {{ row.project_manager_name || '已绑定' }}
           </el-tag>
           <el-tag v-else type="warning" size="small" effect="plain">未绑定·可承接</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="150" fixed="right" align="center">
+        <template #default="{ row }">
+          <el-button type="primary" link size="small" @click.stop="$emit('open-project', row)">进入项目</el-button>
+          <el-button v-if="canRecordProgress(row)" type="primary" link size="small" @click.stop="openProgressDialog(row)">记录进展</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -188,6 +197,20 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="progressVisible" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
+      <el-form label-width="90px">
+        <el-form-item label="项目"><el-input :model-value="progressProject?.project_name || progressProject?.order_no" disabled /></el-form-item>
+        <el-form-item label="工作日期" required><el-date-picker v-model="progressForm.work_date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
+        <el-form-item label="进展内容" required><el-input v-model="progressForm.progress_content" type="textarea" :rows="4" maxlength="10000" show-word-limit /></el-form-item>
+        <el-form-item label="耗时（分钟）"><el-input-number v-model="progressForm.duration_minutes" :min="0" :max="1440" style="width: 100%" /></el-form-item>
+        <el-form-item label="工作结果"><el-input v-model="progressForm.result_content" type="textarea" :rows="2" maxlength="10000" show-word-limit /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="progressVisible = false">取消</el-button>
+        <el-button type="primary" :loading="progressSubmitting" @click="submitProgress">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -204,11 +227,25 @@ import {
   rejectProjectManagerHandoverAPI
 } from '@/api/workflow'
 import { hasRole } from '@/utils/permission'
+import { createWorkEntry } from '@/api/tasks'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
 import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
 import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
 
 const PROJECT_STATUS_LABELS = {
+  initial_follow_up: '初步跟进',
+  ended: '口译结束',
+  settled: '已结算',
+  trial: '试标中',
+  sent_to_client: '已发客户',
+  pending_setup: '新建待立项',
+  sourcing: '寻访阶段',
+  recommending: '简历推荐中',
+  interviewing: '面试进行中',
+  offer_negotiation: 'Offer谈判',
+  pending_onboard: '候选人待入职',
+  probation: '已入职保用期',
+  closed: '项目结案',
   pending: '待确认',
   pending_confirmation: '待确认',
   in_progress: '已确认',
@@ -231,6 +268,9 @@ const PROJECT_STATUS_LABELS = {
   paused: '已暂停'
 }
 const PROJECT_STATUS_TYPES = {
+  initial_follow_up: 'warning', ended: 'success', settled: 'success', trial: 'warning',
+  pending_setup: 'info', sourcing: 'primary', recommending: 'warning', interviewing: 'warning',
+  offer_negotiation: 'warning', pending_onboard: 'primary', probation: 'success', closed: 'success',
   pending: 'info', pending_confirmation: 'info',
   confirmed: 'primary', in_progress: 'primary', organized: 'primary',
   translator_assigned: 'warning', sent_to_translator: 'warning',
@@ -245,10 +285,43 @@ const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
 const getProjectStatusLabel = (status) => PROJECT_STATUS_LABELS[status] || status || '-'
 const getProjectStatusType = (status) => PROJECT_STATUS_TYPES[status] || 'info'
 
-const emit = defineEmits(['updated'])
+const emit = defineEmits(['updated', 'open-project'])
+const currentUserId = localStorage.getItem('user_id') || ''
 const projects = ref([])
 const incomingRequests = ref([])
 const managerCandidates = ref([])
+const progressVisible = ref(false)
+const progressSubmitting = ref(false)
+const progressProject = ref(null)
+const progressForm = ref({ work_date: '', progress_content: '', duration_minutes: 0, result_content: '' })
+const localDate = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+const canRecordProgress = (row) => Boolean(row.project_responsibility_id && String(row.project_manager_id || '') === currentUserId)
+const openProgressDialog = (row) => {
+  progressProject.value = row
+  progressForm.value = { work_date: localDate(), progress_content: '', duration_minutes: 0, result_content: '' }
+  progressVisible.value = true
+}
+const submitProgress = async () => {
+  if (!progressForm.value.work_date || !progressForm.value.progress_content.trim()) return ElMessage.warning('请填写工作日期和进展内容')
+  progressSubmitting.value = true
+  try {
+    await createWorkEntry({
+      ...progressForm.value,
+      progress_content: progressForm.value.progress_content.trim(),
+      result_content: progressForm.value.result_content.trim() || null,
+      project_responsibility_id: progressProject.value.project_responsibility_id
+    })
+    ElMessage.success('管理项目进展已记录')
+    progressVisible.value = false
+  } catch (error) {
+    ElMessage.error(error?.detail || error?.message || '记录进展失败')
+  } finally {
+    progressSubmitting.value = false
+  }
+}
 const selectedProjects = ref([])
 const handoverProjects = ref([])
 const projectTableRef = ref(null)
@@ -315,7 +388,10 @@ async function submitHandover() {
   submitting.value = true
   try {
     await createProjectManagerHandoverAPI({
-      translation_project_ids: handoverProjects.value.map(item => item.translation_project_id),
+      project_refs: handoverProjects.value.map(item => ({
+        project_type: item.project_type || 'translation',
+        project_id: item.project_id || item.translation_project_id
+      })),
       target_manager_id: targetManagerId.value,
       reason: reason.value.trim() || undefined,
       note: note.value.trim() || undefined
@@ -355,7 +431,7 @@ async function claimSelectedProjects() {
     )
     claiming.value = true
     await claimManagementProjectsAPI(
-      claimProjects.map(project => project.translation_project_id)
+      claimProjects
     )
     ElMessage.success(`已承接 ${claimProjects.length} 个管理项目`)
     clearProjectSelection()

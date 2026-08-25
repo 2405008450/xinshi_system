@@ -198,6 +198,14 @@ const handleNotificationClick = async (item) => {
     }
     if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
       router.push('/workbench')
+    } else if (item.related_project_type && item.related_entity_id) {
+      const routeName = {
+        translation: 'TranslationProjectDetails',
+        interpretation: 'InterpretationProjectDetails',
+        annotation: 'AnnotationProjectDetails',
+        recruitment: 'RecruitmentProjectDetails'
+      }[item.related_project_type]
+      if (routeName) router.push({ name: routeName, query: { projectId: item.related_entity_id } })
     } else if (item.related_project_id) {
       const targetTab = String(item.notification_type || '').startsWith('project_chat') ? 'chat' : 'overview'
       router.push({ path: '/translation', query: { projectId: item.related_project_id, tab: targetTab } })

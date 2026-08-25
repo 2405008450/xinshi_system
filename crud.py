@@ -1850,6 +1850,8 @@ def create_notifications_for_users(
     content: str,
     notification_type: str = 'workflow',
     related_project_id: Optional[UUID] = None,
+    related_project_type: Optional[str] = None,
+    related_entity_id: Optional[UUID] = None,
     commit: bool = True,
 ) -> List[AppNotification]:
     unique_user_ids = []
@@ -1867,6 +1869,8 @@ def create_notifications_for_users(
             content=content,
             notification_type=notification_type,
             related_project_id=related_project_id,
+            related_project_type=related_project_type or ('translation' if related_project_id else None),
+            related_entity_id=related_entity_id or related_project_id,
         )
         for user_id in unique_user_ids
     ]

@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
 PROJECT_TYPE_LABELS = {
@@ -138,6 +139,7 @@ class InterpretationProjectWrite(BaseModel):
     file_path: Optional[str] = None
     quotation_path: Optional[str] = None
     contract_path: Optional[str] = None
+    role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
     client_rating: Optional[str] = None
     client_rating_note: Optional[str] = None
     remarks: Optional[str] = None
@@ -259,6 +261,7 @@ class InterpretationProjectListResponse(BaseModel):
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
     project_status: str
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     customer_budget: Optional[str] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None

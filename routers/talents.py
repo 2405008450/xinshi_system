@@ -12,6 +12,7 @@ from resource_schemas import (
     ResourcePersonCreate,
     ResourcePersonDetailResponse,
     ResourcePersonListResponse,
+    ResourcePersonStatusUpdate,
     ResourcePersonUpdate,
 )
 from resource_service import (
@@ -23,6 +24,7 @@ from resource_service import (
     get_talents,
     update_recruitment_talent,
     update_talent,
+    update_talent_status,
 )
 from routers.auth import require_module_access
 
@@ -140,6 +142,16 @@ def update_talent_endpoint(
     return person
 
 
+@router.patch("/{person_id}/status", response_model=ResourcePersonDetailResponse)
+def update_talent_status_endpoint(
+    person_id: UUID, payload: ResourcePersonStatusUpdate, db: Session = Depends(get_db)
+):
+    person = update_talent_status(db, person_id, payload.status)
+    if not person:
+        raise HTTPException(status_code=404, detail="人才档案不存在")
+    return person
+
+
 def create_recruitment_talent_endpoint(
     payload: ResourcePersonCreate, db: Session = Depends(get_db)
 ):
@@ -188,5 +200,9 @@ recruitment_router.add_api_route(
 )
 recruitment_router.add_api_route(
     "/{person_id}", update_recruitment_talent_endpoint, methods=["PUT"],
+    response_model=ResourcePersonDetailResponse,
+)
+recruitment_router.add_api_route(
+    "/{person_id}/status", update_talent_status_endpoint, methods=["PATCH"],
     response_model=ResourcePersonDetailResponse,
 )

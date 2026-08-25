@@ -164,6 +164,8 @@ def _project_options():
         .selectinload(InterpretationProjectLanguageDirection.target_language),
         selectinload(InterpretationProject.interpreter_assignments)
         .selectinload(InterpretationProjectInterpreter.translator),
+        selectinload(InterpretationProject.workbench_responsibilities)
+        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
     )
 
 
@@ -298,7 +300,7 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
-NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments"}
+NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
 
 
 def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
@@ -366,6 +368,10 @@ def create_interpretation_project(
     )
     db.add(project)
     db.flush()
+    from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments)
+    validate_assignment_map(db, assignments)
+    ensure_project_responsibilities(db, 'interpretation', project.id, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
     db.commit()
@@ -384,6 +390,10 @@ def update_interpretation_project(
         data.pop(key, None)
     for key, value in data.items():
         setattr(project, key, value)
+    from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
+    validate_assignment_map(db, assignments)
+    ensure_active_project_responsibilities(db, 'interpretation', project.id, project.project_status, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
     db.commit()
@@ -400,6 +410,8 @@ def update_interpretation_project_status(
         return project
     project.project_status = project_status
     project.updated_at = datetime.now()
+    from project_workbench_service import ensure_active_project_responsibilities
+    ensure_active_project_responsibilities(db, 'interpretation', project.id, project_status)
     db.commit()
     return get_interpretation_project(db, project.id)
 
@@ -408,6 +420,8 @@ def delete_interpretation_project(db: Session, project_id: UUID) -> bool:
     project = db.query(InterpretationProject).filter(InterpretationProject.id == project_id).first()
     if not project:
         return False
+    from project_workbench_service import cancel_pending_project_handovers
+    cancel_pending_project_handovers(db, 'interpretation', project_id)
     db.delete(project)
     db.commit()
     return True

@@ -163,6 +163,10 @@ class ResourcePersonUpdate(ResourcePersonWrite):
     pass
 
 
+class ResourcePersonStatusUpdate(BaseModel):
+    status: ResourceStatus
+
+
 class WrittenTranslationProfileResponse(WrittenTranslationProfileInput):
     person_id: UUID
     model_config = ConfigDict(from_attributes=True)

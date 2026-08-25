@@ -136,6 +136,30 @@ class AnnotationProject(Base):
         back_populates="project", cascade="all, delete-orphan",
         order_by="AnnotationProjectAssignee.sequence_no",
     )
+    workbench_responsibilities = relationship(
+        "ProjectWorkbenchResponsibility",
+        back_populates="annotation_project",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def role_assignments(self) -> list[dict]:
+        from project_roles import PROJECT_ROLE_DEFINITIONS
+        by_role = {item.role_code: item for item in (self.workbench_responsibilities or [])}
+        return [
+            {
+                "role_code": definition["role_code"],
+                "role_name": definition["role_name"],
+                "assignee_id": by_role.get(definition["role_code"]).assignee_id if by_role.get(definition["role_code"]) else None,
+                "assignee_name": (
+                    (by_role[definition["role_code"]].assignee.full_name or by_role[definition["role_code"]].assignee.username)
+                    if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee else None
+                ),
+                "assignment_type": "direct" if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee_id else "role_pool",
+            }
+            for definition in PROJECT_ROLE_DEFINITIONS
+            if definition["role_code"] in {"project_manager", "project_specialist", "project_assistant"}
+        ]
 
     @property
     def selected_client(self):
@@ -365,12 +389,22 @@ class AnnotationProjectPriceItem(Base):
             return f"{self.source_language_label}→{self.target_language_label}"
         return self.source_language_label
 
+    def _normalize_display_unit(self) -> str:
+        """去除单位中与币种名称重复的前缀，如 '元/条' -> '条'"""
+        _CURRENCY_PREFIXES = ("元/", "美元/", "港币/", "欧元/", "英镑/", "日元/")
+        unit = self.unit
+        for prefix in _CURRENCY_PREFIXES:
+            if unit.startswith(prefix):
+                return unit[len(prefix):]
+        return unit
+
     @property
     def amount_display(self) -> str:
         from annotation_schemas import currency_symbol
 
         amount_text = format(self.amount.normalize(), "f")
-        return f"{currency_symbol(self.currency)}{amount_text}/{self.unit}"
+        display_unit = self._normalize_display_unit()
+        return f"{currency_symbol(self.currency)}{amount_text}/{display_unit}"
 
     @property
     def display(self) -> str:

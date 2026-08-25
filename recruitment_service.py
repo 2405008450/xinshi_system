@@ -41,7 +41,7 @@ from recruitment_schemas import (
 RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
-NESTED_FIELDS = {"language_directions"}
+NESTED_FIELDS = {"language_directions", "role_assignments"}
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
 
 
@@ -86,6 +86,8 @@ def _project_options():
         selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.owner),
         selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.resume_source),
         selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.communications),
+        selectinload(RecruitmentProject.workbench_responsibilities)
+        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
     )
 
 
@@ -299,6 +301,10 @@ def create_recruitment_project(
     project = RecruitmentProject(order_no=generate_recruitment_order_no(db), created_by=created_by, **data)
     db.add(project)
     db.flush()
+    from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments)
+    validate_assignment_map(db, assignments)
+    ensure_project_responsibilities(db, 'recruitment', project.id, assignments)
     _sync_languages(db, project, payload)
     _add_progress(db, project, operator_id=created_by, to_status=project.project_status, note="创建招聘项目")
     db.commit()
@@ -321,6 +327,10 @@ def update_recruitment_project(
     _set_client_manager(db, data, existing=project)
     for key, value in data.items():
         setattr(project, key, value)
+    from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
+    assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
+    validate_assignment_map(db, assignments)
+    ensure_active_project_responsibilities(db, 'recruitment', project.id, project.project_status, assignments)
     _sync_languages(db, project, payload)
     if old_status != project.project_status:
         _add_progress(
@@ -343,6 +353,8 @@ def update_recruitment_project_status(
         return project
     project.project_status = project_status
     project.updated_at = datetime.now()
+    from project_workbench_service import ensure_active_project_responsibilities
+    ensure_active_project_responsibilities(db, 'recruitment', project.id, project_status)
     _add_progress(
         db, project, operator_id=operator_id, from_status=old_status,
         to_status=project_status, note="项目状态变更",
@@ -355,6 +367,8 @@ def delete_recruitment_project(db: Session, project_id: UUID) -> bool:
     project = db.query(RecruitmentProject).filter(RecruitmentProject.id == project_id).first()
     if not project:
         return False
+    from project_workbench_service import cancel_pending_project_handovers
+    cancel_pending_project_handovers(db, 'recruitment', project_id)
     db.delete(project)
     db.commit()
     return True
@@ -645,10 +659,16 @@ def delete_candidate(db: Session, candidate_id: UUID) -> bool:
 
 
 def ensure_recruitment_project_for_consultation(
-    db: Session, consultation: Consultation, created_by: Optional[UUID]
+    db: Session, consultation: Consultation, created_by: Optional[UUID],
+    *, order_no: Optional[str] = None, project_name: Optional[str] = None,
+    email_subject_preview: Optional[str] = None,
 ) -> tuple[RecruitmentProject, bool]:
     existing = db.query(RecruitmentProject).filter(RecruitmentProject.consultation_id == consultation.id).first()
     if existing:
+        if project_name is not None:
+            existing.project_name = project_name
+        if email_subject_preview is not None:
+            existing.email_subject_preview = email_subject_preview
         return existing, False
     if db.query(TranslationProject.id).filter(TranslationProject.consultation_id == consultation.id).first():
         raise ValueError("该咨询已生成笔译项目，不能再生成招聘项目")
@@ -659,7 +679,8 @@ def ensure_recruitment_project_for_consultation(
     manager = _default_client_manager(db, consultation.client_id)
     now = datetime.now()
     project = RecruitmentProject(
-        order_no=generate_recruitment_order_no(db),
+        order_no=order_no or generate_recruitment_order_no(db),
+        project_name=project_name,
         consultation_id=consultation.id,
         client_id=consultation.client_id,
         client_manager_id=manager.id if manager else None,
@@ -668,6 +689,7 @@ def ensure_recruitment_project_for_consultation(
         target_onboard_type="date",
         customer_consultation_time=consultation.consultation_time,
         customer_confirmation_time=now,
+        email_subject_preview=email_subject_preview,
         created_by=created_by,
     )
     db.add(project)

@@ -155,12 +155,16 @@ class WorkEntry(Base):
             ["workflow_instance_id"], ["workflow_instance.id"], ondelete="CASCADE"
         ),
         ForeignKeyConstraint(
+            ["project_responsibility_id"], ["project_workbench_responsibility.id"], ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
             ["non_project_task_id"], ["non_project_task.id"], ondelete="CASCADE"
         ),
         PrimaryKeyConstraint("id"),
         CheckConstraint(
-            "(workflow_instance_id IS NOT NULL AND non_project_task_id IS NULL) OR "
-            "(workflow_instance_id IS NULL AND non_project_task_id IS NOT NULL)",
+            "(CASE WHEN workflow_instance_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN project_responsibility_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN non_project_task_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
             name="ck_work_entry_exactly_one_source",
         ),
         CheckConstraint("duration_minutes >= 0", name="ck_work_entry_duration"),
@@ -173,6 +177,7 @@ class WorkEntry(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     work_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     workflow_instance_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     non_project_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     progress_content: Mapped[str] = mapped_column(Text, nullable=False)
     duration_minutes: Mapped[int] = mapped_column(

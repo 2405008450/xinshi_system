@@ -11,8 +11,17 @@ import api from './index'
 export const getWorkflowConfigAPI = () => api.get('/workflow/config')
 export const getMyTasksAPI = () => api.get('/workflow/my-tasks')
 export const getManagementProjectsAPI = () => api.get('/workflow/management-projects')
-export const claimManagementProjectsAPI = (translationProjectIds) =>
-  api.post('/workflow/project-manager-claim', { translation_project_ids: translationProjectIds })
+const projectRefs = (projects) => projects.map(item => ({
+  project_type: item.project_type || 'translation',
+  project_id: item.project_id || item.translation_project_id
+}))
+const workItemRefs = (items) => items.map(item => ({
+  source_kind: item.source_kind || 'translation_workflow',
+  source_id: item.project_responsibility_id || item.workflow_instance_id || item.source_id
+}))
+
+export const claimManagementProjectsAPI = (projects) =>
+  api.post('/workflow/project-manager-claim', { project_refs: projectRefs(projects) })
 export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })
 export const getProjectRoleCandidatesAPI = (roleCode) =>
   api.get(`/workflow/role-candidates/${encodeURIComponent(roleCode)}`)
@@ -23,12 +32,18 @@ export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
 export const rejectProjectManagerHandoverAPI = (requestId, data = {}) =>
   api.post(`/workflow/project-manager-handover/${requestId}/reject`, data)
 export const getTransferableTasksAPI = (params = {}) => api.get('/workflow/transferable-tasks', { params })
-export const getEligibleTransferUsersAPI = (workflowInstanceIds) =>
-  api.post('/workflow/eligible-users', { workflow_instance_ids: workflowInstanceIds })
-export const handoverWorkflowTasksAPI = (data) => api.post('/workflow/handover', data)
-export const claimWorkflowTasksAPI = (data) => api.post('/workflow/claim', data)
-export const claimRolePoolTasksAPI = (workflowInstanceIds) =>
-  api.post('/workflow/role-pool-claim', { workflow_instance_ids: workflowInstanceIds })
+export const getEligibleTransferUsersAPI = (items) =>
+  api.post('/workflow/eligible-users', { work_item_refs: workItemRefs(items) })
+export const handoverWorkflowTasksAPI = (data) => api.post('/workflow/handover', {
+  ...data,
+  work_item_refs: data.items ? workItemRefs(data.items) : data.work_item_refs
+})
+export const claimWorkflowTasksAPI = (data) => api.post('/workflow/claim', {
+  ...data,
+  work_item_refs: data.items ? workItemRefs(data.items) : data.work_item_refs
+})
+export const claimRolePoolTasksAPI = (items) =>
+  api.post('/workflow/role-pool-claim', { work_item_refs: workItemRefs(items) })
 export const getIncomingHandoverRequestsAPI = () => api.get('/workflow/handover-requests/incoming')
 export const acceptHandoverRequestAPI = (requestId, data = {}) =>
   api.post(`/workflow/handover-requests/${requestId}/accept`, data)

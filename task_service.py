@@ -34,7 +34,7 @@ from task_schemas import (
     WorkEntryUpdate,
 )
 from workflow_crud import get_my_tasks
-from workflow_models import WorkflowInstance, WorkflowLog
+from workflow_models import ProjectWorkbenchResponsibility, WorkflowInstance, WorkflowLog
 
 
 BUSINESS_TZ = ZoneInfo("Asia/Hong_Kong")
@@ -276,6 +276,17 @@ def create_work_entry(
                 from_status="pending",
                 to_status="in_progress",
             )
+    elif payload.project_responsibility_id:
+        responsibility = db.query(ProjectWorkbenchResponsibility).filter(
+            ProjectWorkbenchResponsibility.id == payload.project_responsibility_id
+        ).first()
+        if not responsibility or responsibility.assignee_id != operator.id:
+            raise PermissionError("只能为当前由自己负责的项目责任填写工作记录")
+        from project_workbench_service import is_active_project
+        if not responsibility.project or not is_active_project(
+            responsibility.project_type, responsibility.project.project_status
+        ):
+            raise ValueError("该项目已不在工作台活跃范围")
     else:
         my_workflow_ids = {
             item["workflow_instance_id"] for item in get_my_tasks(db, operator.id)
@@ -287,6 +298,7 @@ def create_work_entry(
         user_id=operator.id,
         work_date=payload.work_date,
         workflow_instance_id=payload.workflow_instance_id,
+        project_responsibility_id=payload.project_responsibility_id,
         non_project_task_id=payload.non_project_task_id,
         progress_content=payload.progress_content.strip(),
         duration_minutes=payload.duration_minutes,
@@ -439,11 +451,12 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
     )
     items: list[dict] = []
     for task in get_my_tasks(db, current_user.id, include_all=is_super_admin):
+        project_source_id = task.get("workflow_instance_id") or task.get("project_responsibility_id")
         items.append(
             {
                 "source_type": "project",
-                "source_id": task["workflow_instance_id"],
-                "task_type": "项目任务",
+                "source_id": project_source_id,
+                "task_type": task.get("task_type") or "项目任务",
                 "task_name": task["sub_project_name"] or task["project_name"],
                 "assigner_name": None,
                 "assigned_at": None,
@@ -553,6 +566,28 @@ def _project_identity(db: Session, workflow_id: UUID) -> tuple[str, str, dict]:
     )
 
 
+def _responsibility_identity(db: Session, responsibility_id: UUID) -> tuple[str, str, dict]:
+    from project_workbench_service import serialize_responsibility
+    row = db.query(ProjectWorkbenchResponsibility).filter(
+        ProjectWorkbenchResponsibility.id == responsibility_id
+    ).first()
+    if not row or not row.project:
+        return "项目任务", "已删除的项目责任", {}
+    item = serialize_responsibility(db, row)
+    return (
+        item["task_type"],
+        item["project_name"],
+        {
+            "order_no": item["order_no"],
+            "project_name": item["project_name"],
+            "client_short_name": item["client_short_name"],
+            "project_type": item["project_type"],
+            "project_type_label": item["project_type_label"],
+            "responsibility_role_code": item["current_stage_role_code"],
+            "responsibility_role_name": item["current_stage_role_name"],
+            "project_responsibility_id": str(responsibility_id),
+        },
+    )
 def derive_daily_report_items(
     db: Session, user_id: UUID, report_date: datetime.date
 ) -> list[dict]:
@@ -566,6 +601,13 @@ def derive_daily_report_items(
             metadata = {"work_entry_id": str(entry.id)}
             non_project_with_entry.add(task.id)
             source_id = task.id
+        elif entry.project_responsibility_id:
+            task_type, task_name, metadata = _responsibility_identity(
+                db, entry.project_responsibility_id
+            )
+            source_type = "project"
+            source_id = entry.project_responsibility_id
+            metadata["work_entry_id"] = str(entry.id)
         else:
             task_type, task_name, metadata = _project_identity(
                 db, entry.workflow_instance_id

@@ -101,7 +101,7 @@
       </el-form-item>
     </el-form>
 
-    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
       <el-table-column label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
@@ -124,6 +124,7 @@
                   <el-descriptions-item label="订单号">{{ textValue(detailRow(row).orderNo) }}</el-descriptions-item>
                   <el-descriptions-item label="项目状态">{{ statusLabel(detailRow(row).projectStatus) }}</el-descriptions-item>
                   <el-descriptions-item label="项目名称" :span="2">{{ detailRow(row).projectName || '待完善' }}</el-descriptions-item>
+                  <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(detailRow(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="具体任务" :span="2">{{ textValue(detailRow(row).taskDescription) }}</el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="客户简称">{{ textValue(detailRow(row).clientShortName) }}</el-descriptions-item>
@@ -551,10 +552,12 @@
               </div>
             </el-form-item>
           </section>
+          <InternalProjectRolesForm v-model="form.roleAssignments" />
         </el-form>
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
@@ -596,11 +599,18 @@
       </el-table>
       <template #footer><el-button @click="languageManagerVisible = false">关闭</el-button></template>
     </el-dialog>
+    <BusinessMailComposer
+      v-model="mailComposerVisible"
+      project-type="interpretation"
+      :project-id="mailProjectId"
+      :consultation-id="mailConsultationId"
+    />
   </el-card>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
@@ -615,6 +625,8 @@ import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
+import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
@@ -623,6 +635,9 @@ import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 
 const canWrite = hasPermission('projects:write')
+const mailComposerVisible = ref(false)
+const mailProjectId = ref('')
+const mailConsultationId = ref('')
 const loading = ref(false)
 const submitLoading = ref(false)
 const projectStatusSavingIds = ref(new Set())
@@ -633,6 +648,8 @@ const languageManagerVisible = ref(false)
 const languageManagerLoading = ref(false)
 const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
+const route = useRoute()
+const highlightedProjectId = ref('')
 const dialogBodyRef = ref(null)
 const {
   fieldSearchRef,
@@ -777,7 +794,7 @@ const defaultForm = () => ({
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
   interpretationDomain: '', interpretationContent: '', filePath: '', quotationPath: '', contractPath: '',
   clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
-  timeRanges: [emptyTimeRange()], languageDirections: [], interpreterAssignments: [],
+  timeRanges: [emptyTimeRange()], languageDirections: [], interpreterAssignments: [], roleAssignments: [],
 })
 const form = reactive(defaultForm())
 const rules = { projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }] }
@@ -792,6 +809,10 @@ const selectableLanguages = computed(() => languages.value.filter(
 const statusLabel = (value) => statusMap[value] || value || '-'
 const statusType = (value) => ({ initial_follow_up: 'warning', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
+const internalRolesText = (row) => {
+  const labels = { project_manager: '项目经理', project_specialist: '项目专员', project_assistant: '项目助理' }
+  return (row.roleAssignments || []).map((item) => `${labels[item.roleCode] || item.roleName}：${item.assigneeName || '未分配'}`).join('；') || '-'
+}
 const arrayText = (value, separator = '；') => Array.isArray(value) && value.length ? value.join(separator) : '-'
 const formatDateTime = (value) => {
   if (!value) return '-'
@@ -896,6 +917,17 @@ const loadDetail = async (id, force = false) => {
   }
 }
 const detailRow = (row) => detailCache[row.id] || row
+const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
+const focusRouteProject = async () => {
+  const projectId = String(route.query.projectId || '')
+  if (!projectId) return
+  const detail = await loadDetail(projectId)
+  if (!detail) return
+  highlightedProjectId.value = projectId
+  searchForm.keyword = detail.orderNo || ''
+  pagination.page = 1
+  await fetchData()
+}
 
 const fetchClientSuggestions = fetchProjectClientSuggestions
 const handleClientSelect = (client) => {
@@ -1109,6 +1141,7 @@ const buildPayload = () => {
     emailSubjectPreview: form.emailSubjectPreview?.trim() || null,
     socialPostRequest: form.socialPostRequest?.trim() || null,
     resourceRequest: form.resourceRequest?.trim() || null,
+    roleAssignments: form.roleAssignments,
     ...nested,
   }
 }
@@ -1147,6 +1180,7 @@ const assignForm = (detail) => {
     timeRanges: detail.timeRanges?.length ? detail.timeRanges.map((item) => ({ scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, actualStart: item.actualStart || '', actualEnd: item.actualEnd || '' })) : [emptyTimeRange()],
     languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId })),
     interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
+    roleAssignments: detail.roleAssignments || [],
   })
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
@@ -1158,7 +1192,7 @@ const handleEdit = async (row) => {
   assignForm(detail)
   dialogVisible.value = true
 }
-const handleSubmit = async () => {
+const handleSubmit = async (sendAfterSave = false) => {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
   submitLoading.value = true
@@ -1171,6 +1205,11 @@ const handleSubmit = async () => {
     if (saved?.id) detailCache[saved.id] = saved
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
     dialogVisible.value = false
+    if (sendAfterSave) {
+      mailProjectId.value = saved?.id || form.id
+      mailConsultationId.value = saved?.consultationId || form.consultationId || ''
+      mailComposerVisible.value = true
+    }
     await fetchData()
   } catch (error) {
     const message = error.detail || error.message || '保存失败'
@@ -1226,11 +1265,12 @@ const projectPath = async (row) => (await loadDetail(row.id))?.filePath || ''
 const openProjectPath = async (row) => openPathValue(await projectPath(row))
 const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
-onMounted(async () => { await loadReferenceData(); await fetchData() })
+onMounted(async () => { await loadReferenceData(); await fetchData(); await focusRouteProject() })
 onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 </script>
 
 <style scoped>
+:deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .client-autocomplete-field { width: 100%; }
 .client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .client-suggestion { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; line-height: 1.45; }

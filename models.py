@@ -185,6 +185,7 @@ class Consultation(Base):
     __tablename__ = 'consultation'
     __table_args__ = (
         ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='SET NULL', name='fk_consultation_client'),
+        ForeignKeyConstraint(['sub_client_id'], ['sub_client.id'], ondelete='SET NULL', name='fk_consultation_sub_client'),
         ForeignKeyConstraint(['customer_service_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_customer_service'),
         ForeignKeyConstraint(['sales_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_sales_person'),
         ForeignKeyConstraint(['editor_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_editor'),
@@ -196,6 +197,12 @@ class Consultation(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     consultation_code: Mapped[str] = mapped_column(String(50), nullable=False)
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    contact_name: Mapped[Optional[str]] = mapped_column(String(255))
+    customer_order_no: Mapped[Optional[str]] = mapped_column(String(150))
+    project_name: Mapped[Optional[str]] = mapped_column(String(500))
+    project_intake: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    project_intake_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
     consultation_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     consultation_method: Mapped[Optional[str]] = mapped_column(String(50))
     client_source: Mapped[Optional[str]] = mapped_column(String(100))
@@ -867,6 +874,8 @@ class AppNotification(Base):
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
     read_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     related_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    related_project_type: Mapped[Optional[str]] = mapped_column(String(30))
+    related_entity_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     recipient: Mapped['AppUser'] = relationship('AppUser', back_populates='notifications')

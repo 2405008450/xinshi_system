@@ -285,6 +285,12 @@ class SubClientResponse(SubClientBase):
 class ConsultationBase(BaseModel):
     consultation_code: Optional[str] = None
     client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    customer_order_no: Optional[str] = Field(default=None, max_length=150)
+    project_name: Optional[str] = Field(default=None, max_length=500)
+    project_intake: dict = Field(default_factory=dict)
+    project_intake_version: int = 1
     consultation_time: Optional[datetime] = None
     consultation_method: Optional[str] = None
     client_source: Optional[str] = None
@@ -312,6 +318,12 @@ class ConsultationCreate(ConsultationBase):
 class ConsultationUpdate(BaseModel):
     consultation_code: Optional[str] = None
     client_id: Optional[UUID] = None
+    sub_client_id: Optional[UUID] = None
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    customer_order_no: Optional[str] = Field(default=None, max_length=150)
+    project_name: Optional[str] = Field(default=None, max_length=500)
+    project_intake: Optional[dict] = None
+    project_intake_version: Optional[int] = None
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
@@ -340,6 +352,7 @@ class ConsultationResponse(ConsultationBase):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     manager_contact: Optional[str] = None
+    translation_project_id: Optional[UUID] = None
     interpretation_project_id: Optional[UUID] = None
     annotation_project_id: Optional[UUID] = None
     recruitment_project_id: Optional[UUID] = None
@@ -1152,6 +1165,8 @@ class NotificationResponse(BaseModel):
     is_read: bool
     read_at: Optional[datetime] = None
     related_project_id: Optional[UUID] = None
+    related_project_type: Optional[str] = None
+    related_entity_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
 
     class Config:

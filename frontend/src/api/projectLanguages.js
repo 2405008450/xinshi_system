@@ -5,6 +5,9 @@ const normalize = (item) => ({
   label: item.label,
   isCustom: item.is_custom ?? item.isCustom ?? false,
   createdBy: item.created_by ?? item.createdBy ?? null,
+  code: item.code || '',
+  aliases: Array.isArray(item.aliases) ? item.aliases : [],
+  shortcuts: Array.isArray(item.shortcuts) ? item.shortcuts : [],
 })
 
 export const getProjectLanguages = () => (

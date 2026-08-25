@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
 ANNOTATION_PROJECT_TYPE_LABELS = {
@@ -185,6 +186,7 @@ class AnnotationProjectWrite(BaseModel):
     language_items: list[AnnotationLanguageItemInput] = Field(default_factory=list)
     price_items: list[AnnotationPriceItemInput] = Field(default_factory=list)
     assignees: list[AnnotationAssigneeInput] = Field(default_factory=list)
+    role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
 
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",
@@ -270,6 +272,7 @@ class AnnotationProjectListResponse(BaseModel):
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = None
     project_status: str
+    role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     potential_demand: Optional[str] = None
     project_path: Optional[str] = None
     quotation_path: Optional[str] = None

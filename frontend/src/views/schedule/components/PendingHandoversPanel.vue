@@ -49,6 +49,10 @@
 
         <div class="request-section-title">交接任务</div>
         <el-table :data="request.tasks || []" border size="small" max-height="260">
+          <el-table-column prop="project_type_label" label="项目类型" width="90">
+            <template #default="{ row }">{{ row.project_type_label || '笔译项目' }}</template>
+          </el-table-column>
+          <el-table-column prop="current_stage_role_name" label="责任角色" width="90" />
           <el-table-column prop="client_name" label="客户" min-width="140" show-overflow-tooltip />
           <el-table-column prop="project_name" label="母项目" min-width="170" show-overflow-tooltip />
           <el-table-column prop="sub_project_name" label="子项目" min-width="140" show-overflow-tooltip>

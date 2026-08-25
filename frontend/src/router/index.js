@@ -61,6 +61,12 @@ const routes = [
         redirect: '/interpretation-details'
       },
       {
+        path: 'mail-settings',
+        name: 'MailSettings',
+        component: () => import('../views/system/MailSettings.vue'),
+        meta: { title: '项目邮件设置', permissions: ['system:mail_settings:read'] }
+      },
+      {
         path: 'interpretation-details',
         name: 'InterpretationProjectDetails',
         component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),

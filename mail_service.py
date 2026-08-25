@@ -1,4 +1,4 @@
-"""稿件安排使用的 SMTP 邮件发送服务。"""
+"""项目邮件与稿件安排共用的 SMTP 邮件发送服务。"""
 from __future__ import annotations
 
 import os
@@ -8,7 +8,7 @@ import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
-from typing import Optional
+from typing import Iterable, Optional
 
 from email_validator import EmailNotValidError, validate_email
 
@@ -125,7 +125,7 @@ def get_mail_status() -> dict:
             "test_recipient_masked": mask_email(settings.test_recipient),
             "detail": "测试模式：邮件只发送到测试收件箱"
             if settings.mode == "test"
-            else "正式模式：邮件发送到译员邮箱",
+            else "正式模式：邮件发送到业务指定收件人",
         }
     except MailConfigurationError as exc:
         mode = _env("SMTP_MODE", "disabled").lower()
@@ -141,30 +141,47 @@ def get_mail_status() -> dict:
         }
 
 
-def send_plain_text_email(
+def _normalized_recipients(values: Iterable[str], field_name: str) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = _validated_email(value, field_name)
+        key = normalized.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(normalized)
+    return result
+
+
+def send_text_email(
     *,
-    recipient_email: Optional[str],
+    to_emails: Iterable[str],
+    cc_emails: Iterable[str] = (),
     subject: Optional[str],
     body: Optional[str],
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
-    """通过 SMTP 发送 UTF-8 纯文本邮件。
+    """通过 SMTP 发送支持 To/CC 的 UTF-8 纯文本邮件。
 
-    test 模式会强制覆盖收件人，避免联调期间误发给真实译员。
+    test 模式会强制覆盖全部收件人，避免联调期间误发给真实用户。
     """
     config = settings or SmtpSettings.from_env()
     config.validate()
 
     if config.mode == "test":
-        delivery_recipient = _validated_email(
+        delivery_to = [_validated_email(
             config.test_recipient,
             "SMTP_TEST_RECIPIENT",
-        )
+        )]
+        delivery_cc: list[str] = []
     else:
-        if not recipient_email:
-            raise MailConfigurationError("译员资料中缺少收件邮箱")
-        delivery_recipient = _validated_email(recipient_email, "译员收件邮箱")
+        delivery_to = _normalized_recipients(to_emails, "收件邮箱")
+        delivery_cc = _normalized_recipients(cc_emails, "抄送邮箱")
+        to_keys = {item.lower() for item in delivery_to}
+        delivery_cc = [item for item in delivery_cc if item.lower() not in to_keys]
+        if not delivery_to:
+            raise MailConfigurationError("至少需要一个有效的收件邮箱")
 
     sender_email = _validated_email(config.sender_email, "SMTP_FROM_EMAIL")
     normalized_reply_to = (
@@ -175,7 +192,9 @@ def send_plain_text_email(
 
     message = EmailMessage()
     message["From"] = formataddr((config.sender_name, sender_email))
-    message["To"] = delivery_recipient
+    message["To"] = ", ".join(delivery_to)
+    if delivery_cc:
+        message["Cc"] = ", ".join(delivery_cc)
     message["Subject"] = (
         f"[测试发送] {subject or '稿件安排'}"
         if config.mode == "test"
@@ -214,7 +233,25 @@ def send_plain_text_email(
         raise MailDeliveryError(f"SMTP 投递失败：{exc}") from exc
 
     return MailSendResult(
-        delivery_recipient=delivery_recipient,
+        delivery_recipient=", ".join([*delivery_to, *delivery_cc]),
         message_id=message_id,
         delivery_mode=config.mode,
+    )
+
+
+def send_plain_text_email(
+    *,
+    recipient_email: Optional[str],
+    subject: Optional[str],
+    body: Optional[str],
+    message_id: str,
+    settings: Optional[SmtpSettings] = None,
+) -> MailSendResult:
+    """兼容稿件安排的单收件人调用。"""
+    return send_text_email(
+        to_emails=[recipient_email] if recipient_email else [],
+        subject=subject,
+        body=body,
+        message_id=message_id,
+        settings=settings,
     )

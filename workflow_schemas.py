@@ -114,7 +114,13 @@ class WorkflowConfigResponse(BaseModel):
 class MyTaskItem(BaseModel):
     """待我处理列表中的单条项目（母订单或子订单）"""
 
-    workflow_instance_id: UUID
+    workflow_instance_id: Optional[UUID] = None
+    project_responsibility_id: Optional[UUID] = None
+    source_kind: str = 'translation_workflow'
+    project_type: str = 'translation'
+    project_type_label: str = '笔译项目'
+    project_id: Optional[UUID] = None
+    detail_route_name: Optional[str] = None
     translation_project_id: Optional[UUID] = None
     sub_order_id: Optional[UUID] = None
     order_no: str
@@ -145,7 +151,13 @@ class MyTaskItem(BaseModel):
 class ManagedProjectItem(BaseModel):
     """项目经理在管理层负责的母项目。"""
 
-    translation_project_id: UUID
+    translation_project_id: Optional[UUID] = None
+    project_responsibility_id: Optional[UUID] = None
+    source_kind: str = 'translation_project'
+    project_type: str = 'translation'
+    project_type_label: str = '笔译项目'
+    project_id: Optional[UUID] = None
+    detail_route_name: Optional[str] = None
     order_no: str
     project_name: str
     task_type: Optional[str] = None
@@ -164,15 +176,27 @@ class ManagedProjectItem(BaseModel):
     project_manager_name: Optional[str] = None
 
 
+class ProjectReference(BaseModel):
+    project_type: Literal['translation', 'interpretation', 'annotation', 'recruitment']
+    project_id: UUID
+
+
+class WorkItemReference(BaseModel):
+    source_kind: Literal['translation_workflow', 'project_responsibility']
+    source_id: UUID
+
+
 class ProjectManagerHandoverCreate(BaseModel):
-    translation_project_ids: list[UUID] = Field(min_length=1, max_length=100)
+    translation_project_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    project_refs: list[ProjectReference] = Field(default_factory=list, max_length=100)
     target_manager_id: UUID
     reason: Optional[str] = Field(default=None, max_length=500)
     note: Optional[str] = Field(default=None, max_length=5000)
 
 
 class ProjectManagerClaimRequest(BaseModel):
-    translation_project_ids: list[UUID] = Field(min_length=1, max_length=100)
+    translation_project_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    project_refs: list[ProjectReference] = Field(default_factory=list, max_length=100)
 
 
 class ProjectManagerHandoverDecisionRequest(BaseModel):
@@ -201,19 +225,22 @@ class WorkflowTransferContent(BaseModel):
 
 
 class WorkflowHandoverRequest(WorkflowTransferContent):
-    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    workflow_instance_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    work_item_refs: list[WorkItemReference] = Field(default_factory=list, max_length=100)
     target_user_id: UUID
     handover_type: Literal['daily_shift', 'weekend_holiday', 'leave_time_off', 'other']
     reason_detail: Optional[str] = Field(default=None, max_length=500)
 
 
 class WorkflowClaimRequest(WorkflowTransferContent):
-    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
-    expected_assignee_ids: dict[UUID, UUID]
+    workflow_instance_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    work_item_refs: list[WorkItemReference] = Field(default_factory=list, max_length=100)
+    expected_assignee_ids: dict[UUID, UUID] = Field(default_factory=dict)
 
 
 class WorkflowRolePoolClaimRequest(BaseModel):
-    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    workflow_instance_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    work_item_refs: list[WorkItemReference] = Field(default_factory=list, max_length=100)
 
 
 class WorkflowTransferUser(BaseModel):
@@ -227,13 +254,15 @@ class WorkflowTransferUser(BaseModel):
 
 
 class WorkflowEligibleUsersRequest(BaseModel):
-    workflow_instance_ids: list[UUID] = Field(min_length=1, max_length=100)
+    workflow_instance_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    work_item_refs: list[WorkItemReference] = Field(default_factory=list, max_length=100)
 
 
 class WorkflowTransferResult(BaseModel):
     action: str
     transferred_count: int
     workflow_instance_ids: list[UUID]
+    project_responsibility_ids: list[UUID] = Field(default_factory=list)
 
 
 class WorkflowHandoverAttachmentResponse(BaseModel):

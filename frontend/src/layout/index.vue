@@ -32,6 +32,10 @@
             <el-icon><Key /></el-icon>
             <template #title>角色管理</template>
           </el-menu-item>
+          <el-menu-item v-if="canViewMailSettings" index="/mail-settings">
+            <el-icon><Setting /></el-icon>
+            <template #title>项目邮件设置</template>
+          </el-menu-item>
           <el-divider class="menu-divider" />
         </template>
         <!-- 工作台 -->
@@ -140,7 +144,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Key, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { User, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
@@ -190,7 +194,8 @@ onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar
 const showFullMenu = computed(() => isSuperAdmin())
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
-const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value)
+const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
+const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value || canViewMailSettings.value)
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))

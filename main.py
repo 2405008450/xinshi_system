@@ -67,6 +67,7 @@ from resource_service import backfill_resource_people
 from recruitment_service import ensure_default_resume_sources
 from task_models import DailyReport, DailyReportItem, NonProjectTask, NonProjectTaskEvent, NonProjectTaskRecurrence, WorkEntry
 from workflow_models import (
+    ProjectWorkbenchResponsibility,
     ProjectManagerHandoverItem,
     ProjectManagerHandoverRequest,
     WorkflowHandoverAttachment,
@@ -74,6 +75,12 @@ from workflow_models import (
     WorkflowHandoverRequest,
 )
 from word_count_models import WordCountMetric
+from business_mail_models import (
+    BusinessMail, BusinessMailAttempt, BusinessMailRecipient,
+    MailRecipientGroup, MailRecipientGroupMember,
+    ProjectMailPolicy, ProjectMailPolicyGroup,
+)
+from routers import business_mails
 
 app = FastAPI()
 
@@ -118,6 +125,8 @@ app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
+app.include_router(business_mails.settings_router)
+app.include_router(business_mails.mail_router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
@@ -639,6 +648,21 @@ def ensure_role_permission_table():
         db.commit()
 
 
+def ensure_consultation_project_intake_columns():
+    """兼容直接启动升级，正式部署仍应执行对应 SQL 迁移。"""
+    statements = (
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS sub_client_id UUID",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255)",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS customer_order_no VARCHAR(150)",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_name VARCHAR(500)",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake_version INTEGER NOT NULL DEFAULT 1",
+    )
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def ensure_personal_task_permissions():
     """为普通角色开放个人任务/日报，项目经理额外获得分配权限。"""
     default_codes = ("tasks:read", "tasks:self_write", "reports:read", "reports:export")
@@ -681,8 +705,125 @@ def ensure_talent_permission_compatibility():
         db.commit()
 
 
+def ensure_multitype_workbench_schema():
+    """兼容未单独执行 20260825 工作台迁移的部署。"""
+    tables = set(inspect(engine).get_table_names())
+    required_projects = {"interpretation_project", "annotation_project", "recruitment_project"}
+    if not required_projects.issubset(tables):
+        return
+    ProjectWorkbenchResponsibility.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        if "workflow_handover_item" in tables:
+            conn.execute(text("ALTER TABLE workflow_handover_item ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
+            conn.execute(text("ALTER TABLE workflow_handover_item ALTER COLUMN workflow_instance_id DROP NOT NULL"))
+            conn.execute(text("""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_wf_handover_item_exactly_one_source'
+                          AND position('project_responsibility_id' in pg_get_constraintdef(oid)) = 0
+                    ) THEN
+                        ALTER TABLE workflow_handover_item DROP CONSTRAINT ck_wf_handover_item_exactly_one_source;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_wf_handover_item_exactly_one_source') THEN
+                        ALTER TABLE workflow_handover_item ADD CONSTRAINT ck_wf_handover_item_exactly_one_source CHECK (
+                            (workflow_instance_id IS NOT NULL AND project_responsibility_id IS NULL) OR
+                            (workflow_instance_id IS NULL AND project_responsibility_id IS NOT NULL)
+                        );
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_wf_handover_item_responsibility') THEN
+                        ALTER TABLE workflow_handover_item ADD CONSTRAINT fk_wf_handover_item_responsibility
+                            FOREIGN KEY (project_responsibility_id) REFERENCES project_workbench_responsibility(id) ON DELETE CASCADE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_wf_handover_item_responsibility') THEN
+                        ALTER TABLE workflow_handover_item ADD CONSTRAINT uq_wf_handover_item_responsibility
+                            UNIQUE (request_id, project_responsibility_id);
+                    END IF;
+                END $$;
+            """))
+        if "project_manager_handover_item" in tables:
+            conn.execute(text("ALTER TABLE project_manager_handover_item ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
+            conn.execute(text("ALTER TABLE project_manager_handover_item ALTER COLUMN translation_project_id DROP NOT NULL"))
+            conn.execute(text("""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_pm_handover_item_exactly_one_source'
+                          AND position('project_responsibility_id' in pg_get_constraintdef(oid)) = 0
+                    ) THEN
+                        ALTER TABLE project_manager_handover_item DROP CONSTRAINT ck_pm_handover_item_exactly_one_source;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_pm_handover_item_exactly_one_source') THEN
+                        ALTER TABLE project_manager_handover_item ADD CONSTRAINT ck_pm_handover_item_exactly_one_source CHECK (
+                            (translation_project_id IS NOT NULL AND project_responsibility_id IS NULL) OR
+                            (translation_project_id IS NULL AND project_responsibility_id IS NOT NULL)
+                        );
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pm_handover_item_responsibility') THEN
+                        ALTER TABLE project_manager_handover_item ADD CONSTRAINT fk_pm_handover_item_responsibility
+                            FOREIGN KEY (project_responsibility_id) REFERENCES project_workbench_responsibility(id) ON DELETE CASCADE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_pm_handover_item_responsibility') THEN
+                        ALTER TABLE project_manager_handover_item ADD CONSTRAINT uq_pm_handover_item_responsibility
+                            UNIQUE (request_id, project_responsibility_id);
+                    END IF;
+                END $$;
+            """))
+        if "work_entry" in tables:
+            conn.execute(text("ALTER TABLE work_entry ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
+            conn.execute(text("""
+                DO $$ BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_work_entry_exactly_one_source'
+                          AND position('project_responsibility_id' in pg_get_constraintdef(oid)) = 0
+                    ) THEN
+                        ALTER TABLE work_entry DROP CONSTRAINT ck_work_entry_exactly_one_source;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_work_entry_exactly_one_source') THEN
+                        ALTER TABLE work_entry ADD CONSTRAINT ck_work_entry_exactly_one_source CHECK (
+                            (CASE WHEN workflow_instance_id IS NOT NULL THEN 1 ELSE 0 END +
+                             CASE WHEN project_responsibility_id IS NOT NULL THEN 1 ELSE 0 END +
+                             CASE WHEN non_project_task_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+                        );
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_work_entry_project_responsibility') THEN
+                        ALTER TABLE work_entry ADD CONSTRAINT fk_work_entry_project_responsibility
+                            FOREIGN KEY (project_responsibility_id) REFERENCES project_workbench_responsibility(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """))
+        if "app_notification" in tables:
+            conn.execute(text("ALTER TABLE app_notification ADD COLUMN IF NOT EXISTS related_project_type VARCHAR(30)"))
+            conn.execute(text("ALTER TABLE app_notification ADD COLUMN IF NOT EXISTS related_entity_id UUID"))
+            conn.execute(text("""
+                UPDATE app_notification
+                SET related_project_type = 'translation', related_entity_id = related_project_id
+                WHERE related_project_id IS NOT NULL AND related_entity_id IS NULL
+            """))
+        conn.execute(text("""
+            INSERT INTO project_workbench_responsibility (interpretation_project_id, role_code)
+            SELECT p.id, r.role_code FROM interpretation_project p
+            CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
+            WHERE p.project_status IN ('initial_follow_up', 'in_progress') ON CONFLICT DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO project_workbench_responsibility (annotation_project_id, role_code)
+            SELECT p.id, r.role_code FROM annotation_project p
+            CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
+            WHERE p.project_status IN ('pending_confirmation', 'trial', 'in_progress', 'client_feedback') ON CONFLICT DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO project_workbench_responsibility (recruitment_project_id, role_code)
+            SELECT p.id, r.role_code FROM recruitment_project p
+            CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
+            WHERE p.project_status <> 'closed' ON CONFLICT DO NOTHING
+        """))
+
+
 @app.on_event("startup")
 def ensure_runtime_tables():
+    ensure_consultation_project_intake_columns()
     ClientContact.__table__.create(bind=engine, checkfirst=True)
     AppNotification.__table__.create(bind=engine, checkfirst=True)
     ChatProjectEnabled.__table__.create(bind=engine, checkfirst=True)
@@ -692,12 +833,10 @@ def ensure_runtime_tables():
     ChatProjectAttachment.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMessageAttachment.__table__.create(bind=engine, checkfirst=True)
     WorkflowHandoverRequest.__table__.create(bind=engine, checkfirst=True)
-    WorkflowHandoverItem.__table__.create(bind=engine, checkfirst=True)
     WorkflowHandoverAttachment.__table__.create(bind=engine, checkfirst=True)
     NonProjectTaskRecurrence.__table__.create(bind=engine, checkfirst=True)
     NonProjectTask.__table__.create(bind=engine, checkfirst=True)
     NonProjectTaskEvent.__table__.create(bind=engine, checkfirst=True)
-    WorkEntry.__table__.create(bind=engine, checkfirst=True)
     DailyReport.__table__.create(bind=engine, checkfirst=True)
     DailyReportItem.__table__.create(bind=engine, checkfirst=True)
     ManuscriptDispatch.__table__.create(bind=engine, checkfirst=True)
@@ -723,7 +862,6 @@ def ensure_runtime_tables():
     ensure_translation_project_columns()
     ProjectRoleAssignment.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverRequest.__table__.create(bind=engine, checkfirst=True)
-    ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
     InterpretationLanguage.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_language_columns()
     InterpretationProject.__table__.create(bind=engine, checkfirst=True)
@@ -739,6 +877,17 @@ def ensure_runtime_tables():
     RecruitmentResumeSource.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProject.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_project_columns()
+    ensure_multitype_workbench_schema()
+    WorkflowHandoverItem.__table__.create(bind=engine, checkfirst=True)
+    ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
+    WorkEntry.__table__.create(bind=engine, checkfirst=True)
+    MailRecipientGroup.__table__.create(bind=engine, checkfirst=True)
+    MailRecipientGroupMember.__table__.create(bind=engine, checkfirst=True)
+    ProjectMailPolicy.__table__.create(bind=engine, checkfirst=True)
+    ProjectMailPolicyGroup.__table__.create(bind=engine, checkfirst=True)
+    BusinessMail.__table__.create(bind=engine, checkfirst=True)
+    BusinessMailRecipient.__table__.create(bind=engine, checkfirst=True)
+    BusinessMailAttempt.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectProgress.__table__.create(bind=engine, checkfirst=True)
     RecruitmentCandidate.__table__.create(bind=engine, checkfirst=True)

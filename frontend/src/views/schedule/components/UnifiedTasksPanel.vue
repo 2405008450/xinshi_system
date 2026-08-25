@@ -12,6 +12,7 @@
         :current-user-name="currentUserName"
         :tasks-list="projectItems"
         @open-chat="$emit('open-chat', $event)"
+        @open-project="$emit('open-project', $event)"
         @record-work="openWorkEntry"
         @refresh="$emit('refresh')"
       />
@@ -245,7 +246,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   referenceDate: { type: String, default: '' }
 })
-const emit = defineEmits(['open-chat', 'refresh'])
+const emit = defineEmits(['open-chat', 'open-project', 'refresh'])
 
 const TASK_TYPES = ['非项目工作', '自定义']
 const FREQUENCY_LABEL = { daily: '每日', workday: '工作日', weekly: '每周', monthly: '每月' }
@@ -518,7 +519,9 @@ async function submitWorkEntry() {
   workEntrySubmitting.value = true
   try {
     const source = activeWorkItem.value.source_type === 'project'
-      ? { workflow_instance_id: activeWorkItem.value.workflow_instance_id || activeWorkItem.value.source_id }
+      ? (activeWorkItem.value.project_responsibility_id
+          ? { project_responsibility_id: activeWorkItem.value.project_responsibility_id }
+          : { workflow_instance_id: activeWorkItem.value.workflow_instance_id || activeWorkItem.value.source_id })
       : { non_project_task_id: activeWorkItem.value.source_id }
     await createWorkEntry({ ...workEntryForm, ...source })
     ElMessage.success('工作进展已记录')

@@ -3,6 +3,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,26 +11,49 @@ from sqlalchemy.orm import Session
 from database import get_db
 from interpretation_models import InterpretationLanguage
 from interpretation_schemas import InterpretationLanguageCreate, InterpretationLanguageResponse
+from language_catalog import get_searchable_language_variants
 from models import AppUser
-from routers.auth import get_current_user, require_any_permission, require_module_access
+from routers.auth import get_current_user, require_any_permission
 
 
 router = APIRouter(
     prefix="/projects/languages",
     tags=["project_languages"],
-    dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
 
 
-@router.get("", response_model=List[InterpretationLanguageResponse])
-@router.get("/", response_model=List[InterpretationLanguageResponse], include_in_schema=False)
+class ProjectLanguageResponse(InterpretationLanguageResponse):
+    """共享语种及其业务简称；自定义语种没有固定代码或简称。"""
+
+    code: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    shortcuts: list[str] = Field(default_factory=list)
+
+
+READ_LANGUAGE_DEPENDENCY = Depends(require_any_permission(
+    "projects:read", "projects:write", "consultations:read", "consultations:write"
+))
+
+
+@router.get("", response_model=List[ProjectLanguageResponse], dependencies=[READ_LANGUAGE_DEPENDENCY])
+@router.get("/", response_model=List[ProjectLanguageResponse], dependencies=[READ_LANGUAGE_DEPENDENCY], include_in_schema=False)
 def read_languages(include_inactive: bool = False, db: Session = Depends(get_db)):
     query = db.query(InterpretationLanguage)
     if not include_inactive:
         query = query.filter(InterpretationLanguage.is_active.is_(True))
-    return query.order_by(
+    languages = query.order_by(
         InterpretationLanguage.is_custom.asc(), InterpretationLanguage.label.asc()
     ).all()
+    variants = {item["label"]: item for item in get_searchable_language_variants()}
+    return [
+        {
+            **InterpretationLanguageResponse.model_validate(language).model_dump(),
+            "code": variants.get(language.label, {}).get("code"),
+            "aliases": variants.get(language.label, {}).get("aliases", []),
+            "shortcuts": variants.get(language.label, {}).get("shortcuts", []),
+        }
+        for language in languages
+    ]
 
 
 @router.post(

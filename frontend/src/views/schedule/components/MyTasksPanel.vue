@@ -2,6 +2,12 @@
   <div class="section-block">
     <div class="task-toolbar">
       <div v-if="tasksList.length" class="task-filters">
+        <el-select v-model="searchForm.project_type" placeholder="项目类型" clearable size="small" style="width: 120px">
+          <el-option label="笔译项目" value="translation" />
+          <el-option label="口译项目" value="interpretation" />
+          <el-option label="标注项目" value="annotation" />
+          <el-option label="招聘项目" value="recruitment" />
+        </el-select>
         <el-input v-model="searchForm.client" aria-label="按客户筛选" placeholder="客户简称" clearable size="small" />
         <el-input
           v-model="searchForm.project"
@@ -58,6 +64,7 @@
               {{ row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-') }}
             </span>
             <div class="workbench-project-cell__meta">
+              <el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag>
               <el-tag :type="row.entity_type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
                 {{ row.entity_type === 'suborder' ? '子订单' : '母项目' }}
               </el-tag>
@@ -70,7 +77,7 @@
       <el-table-column label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column label="客户交稿" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
+      <el-table-column label="计划节点" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <div class="deadline-cell">
             <span>{{ formatDeadline(getTaskDeadline(row)) }}</span>
@@ -86,7 +93,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="language_pair" label="翻译方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+      <el-table-column prop="language_pair" label="语言方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #default="{ row }">
           <LanguagePairText :value="row.language_pair" />
         </template>
@@ -122,8 +129,9 @@
           <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="100" align="center" fixed="right">
+      <el-table-column label="操作" width="150" align="center" fixed="right">
         <template #default="{ row }">
+          <el-button type="primary" link size="small" @click="$emit('open-project', row)">进入项目</el-button>
           <el-button
             v-if="projectMessageEnabled && row.translation_project_id"
             type="primary"
@@ -278,6 +286,19 @@ const STAGE_LABELS = {
 }
 
 const PROJECT_STATUS_LABELS = {
+  initial_follow_up: '初步跟进',
+  ended: '口译结束',
+  settled: '已结算',
+  trial: '试标中',
+  sent_to_client: '已发客户',
+  pending_setup: '新建待立项',
+  sourcing: '寻访阶段',
+  recommending: '简历推荐中',
+  interviewing: '面试进行中',
+  offer_negotiation: 'Offer谈判',
+  pending_onboard: '候选人待入职',
+  probation: '已入职保用期',
+  closed: '项目结案',
   pending: '待确认',
   pending_confirmation: '待确认',
   in_progress: '已确认',
@@ -301,6 +322,9 @@ const PROJECT_STATUS_LABELS = {
 }
 
 const PROJECT_STATUS_TYPES = {
+  initial_follow_up: 'warning', ended: 'success', settled: 'success', trial: 'warning',
+  pending_setup: 'info', sourcing: 'primary', recommending: 'warning', interviewing: 'warning',
+  offer_negotiation: 'warning', pending_onboard: 'primary', probation: 'success', closed: 'success',
   pending: 'info', pending_confirmation: 'info',
   confirmed: 'primary', in_progress: 'primary', organized: 'primary',
   translator_assigned: 'warning', sent_to_translator: 'warning',
@@ -325,7 +349,7 @@ const props = defineProps({
   tasksList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['open-chat', 'record-work', 'refresh'])
+const emit = defineEmits(['open-chat', 'open-project', 'record-work', 'refresh'])
 // 项目留言板块尚未开放，保留入口代码便于后续启用。
 const projectMessageEnabled = false
 // 流程阶段功能待启用，主表默认隐藏该列以节省横向空间，启用时改为 true。
@@ -363,6 +387,7 @@ const claimNote = ref(emptyNote())
 const claimFilters = reactive({ ownerUserId: '', keyword: '' })
 
 const searchForm = reactive({
+  project_type: '',
   client: '',
   project: '',
   language_pair: ''
@@ -385,6 +410,10 @@ const deadlineState = getWorkItemDeadlineState
 
 const filteredTasks = computed(() => {
   let list = props.tasksList.slice()
+
+  if (searchForm.project_type) {
+    list = list.filter(t => (t.project_type || 'translation') === searchForm.project_type)
+  }
 
   if (searchForm.client) {
     list = list.filter(t => [t.client_name, t.client_short_name].some(value => value && value.includes(searchForm.client)))
@@ -460,9 +489,7 @@ const openHandoverDialog = async () => {
   handoverNote.value = emptyNote()
   handoverVisible.value = true
   try {
-    eligibleUsers.value = await getEligibleTransferUsersAPI(
-      directSelectedTasks.value.map(task => task.workflow_instance_id)
-    )
+    eligibleUsers.value = await getEligibleTransferUsersAPI(directSelectedTasks.value)
   } catch (error) {
     eligibleUsers.value = []
     ElMessage.error(error?.detail || error?.message || '加载可交接用户失败')
@@ -480,7 +507,7 @@ const submitHandover = async () => {
   submittingHandover.value = true
   try {
     await handoverWorkflowTasksAPI({
-      workflow_instance_ids: directSelectedTasks.value.map(task => task.workflow_instance_id),
+      items: directSelectedTasks.value,
       target_user_id: handoverTargetUserId.value,
       handover_type: handoverType.value,
       reason_detail: handoverType.value === 'other' ? handoverReasonDetail.value.trim() : undefined,
@@ -517,7 +544,7 @@ const claimSelectedRolePoolTasks = async () => {
       { type: 'warning', confirmButtonText: '确认认领', cancelButtonText: '取消' }
     )
     claimingRolePool.value = true
-    await claimRolePoolTasksAPI(tasks.map(task => task.workflow_instance_id))
+    await claimRolePoolTasksAPI(tasks)
     ElMessage.success(`已认领 ${tasks.length} 项角色池任务`)
     selectedTasks.value = []
     taskTableRef.value?.clearSelection()
@@ -560,9 +587,9 @@ const submitClaim = async () => {
   submittingClaim.value = true
   try {
     await claimWorkflowTasksAPI({
-      workflow_instance_ids: claimSelectedTasks.value.map(task => task.workflow_instance_id),
+      items: claimSelectedTasks.value,
       expected_assignee_ids: Object.fromEntries(
-        claimSelectedTasks.value.map(task => [task.workflow_instance_id, task.current_assignee_id])
+        claimSelectedTasks.value.map(task => [task.project_responsibility_id || task.workflow_instance_id, task.current_assignee_id])
       ),
       content: claimNote.value.content,
       content_json: claimNote.value.contentJson,

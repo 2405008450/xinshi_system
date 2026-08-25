@@ -54,6 +54,7 @@
       :data="tableData"
       v-loading="loading"
       row-key="id"
+      :row-class-name="projectRowClass"
       border
       :expand-row-keys="expandedProjectRowKeys"
       @expand-change="handleProjectExpandChange"
@@ -563,7 +564,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="PM确认人 ID" data-field-key="pmConfirmedBy"><el-input v-model="form.pmConfirmedBy" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
                       <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="大项目经理确认"><el-input v-model="form.majorProjectManagerConfirmation" readonly placeholder="由“稿件安排”的确认安排操作自动记录" /></el-form-item></el-col>
@@ -675,6 +676,7 @@
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button v-if="canWriteProjects" :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
@@ -819,15 +821,22 @@
       </template>
     </el-dialog>
 
+    <BusinessMailComposer
+      v-model="mailComposerVisible"
+      project-type="translation"
+      :project-id="mailProjectId"
+      :consultation-id="mailConsultationId"
+    />
+
   </el-card>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, MagicStick } from '@element-plus/icons-vue'
-import { getProjects, getProjectCount, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
+import { getProjects, getProjectCount, getProject, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
@@ -837,6 +846,7 @@ import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
@@ -855,7 +865,12 @@ import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')
+const mailComposerVisible = ref(false)
+const mailProjectId = ref('')
+const mailConsultationId = ref('')
 const router = useRouter()
+const route = useRoute()
+const highlightedProjectId = ref('')
 const projectDialogTab = ref('basic')
 const projectBasicExpandedSections = ref(['project', 'business', 'execution'])
 const subOrderDialogTab = ref('basic')
@@ -1456,6 +1471,20 @@ const fetchData = async () => {
     if (sequence === requestSequence) loading.value = false
   }
 }
+const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
+const focusRouteProject = async () => {
+  const projectId = String(route.query.projectId || '')
+  if (!projectId) return
+  try {
+    const detail = await getProject(projectId)
+    highlightedProjectId.value = projectId
+    searchForm.orderNo = detail.orderNo || detail.order_no || ''
+    pagination.page = 1
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(error.detail || '定位笔译项目失败')
+  }
+}
 const refreshProjectSubOrders = async (projectId) => {
   if (!projectId) return
   const response = await getSubOrdersByProject(projectId)
@@ -1745,7 +1774,7 @@ const changeProjectStatus = async (row, value) => {
     setProjectStatusSaving(row.id, false)
   }
 }
-const handleSubmit = async () => {
+const handleSubmit = async (sendAfterSave = false) => {
   if (!formRef.value || submitLoading.value) return
   syncProjectName()
   const valid = await formRef.value.validate().catch((invalidFields) => {
@@ -1793,6 +1822,11 @@ const handleSubmit = async () => {
         : (isCreate ? '项目创建成功' : '项目更新成功')
     )
     dialogVisible.value = false
+    if (sendAfterSave) {
+      mailProjectId.value = savedProject?.id || payload.id
+      mailConsultationId.value = savedProject?.consultationId || payload.consultationId || ''
+      mailComposerVisible.value = true
+    }
 
     try {
       await fetchData()
@@ -1823,8 +1857,9 @@ const openBatchDialog = () => { resetBatchForm(); Object.assign(batchForm, { ...
 const createBatchSubProjectName = (index) => { const prefix = batchForm.subProjectNamePrefix || (form.projectName ? `${form.projectName}-子订单` : '子订单'); return `${prefix}${String(index).padStart(2, '0')}` }
 const handleBatchCreateSubOrders = async () => { if (!batchFormRef.value) return; const valid = await batchFormRef.value.validate().catch(() => false); if (!valid) return; try { for (let offset = 0; offset < batchForm.count; offset += 1) { const sequence = batchForm.startIndex + offset; const payload = buildSubOrderPayload({ ...batchForm, subProjectName: createBatchSubProjectName(sequence), remarks: '' }); await createSubOrder(payload) } batchDialogVisible.value = false; ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`); await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '批量新增失败') } }
 let clockTimer = null
-onMounted(() => {
-  fetchData()
+onMounted(async () => {
+  await fetchData()
+  await focusRouteProject()
   clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, MINUTE_MS)
 })
 onBeforeUnmount(() => {
@@ -1836,6 +1871,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+:deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .search-form {
   display: flex;
   flex-wrap: wrap;

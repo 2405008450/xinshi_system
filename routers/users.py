@@ -27,7 +27,7 @@ def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     return create_user(db=db, user=user)
 
 
-@router.get("/", response_model=List[AppUserResponse], dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
+@router.get("/", response_model=List[AppUserResponse], dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_users(
     skip: int = 0,
     limit: int = 100,

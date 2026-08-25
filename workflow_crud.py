@@ -9,7 +9,7 @@ import uuid as _uuid
 from uuid import UUID
 
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, Integer, Numeric, Uuid, and_, func, or_
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 
 from workflow_models import (
     ProjectManagerHandoverItem,
@@ -321,6 +321,22 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
         {task['workflow_instance_id'] for task in tasks},
     ))
 
+    for task in tasks:
+        task.setdefault('source_kind', 'translation_workflow')
+        task.setdefault('project_type', 'translation')
+        task.setdefault('project_type_label', '笔译项目')
+        task.setdefault('project_id', task.get('translation_project_id'))
+        task.setdefault('detail_route_name', 'TranslationProjectDetails')
+        task.setdefault('project_responsibility_id', None)
+
+    from project_workbench_service import get_responsibility_tasks
+    tasks.extend(get_responsibility_tasks(
+        db,
+        user_id,
+        roles,
+        include_all=can_view_all,
+    ))
+
     return tasks
 
 
@@ -334,6 +350,8 @@ def _serialize_notification(notification) -> dict:
         'notification_type': notification.notification_type,
         'is_read': notification.is_read,
         'related_project_id': str(notification.related_project_id) if notification.related_project_id else None,
+        'related_project_type': notification.related_project_type,
+        'related_entity_id': str(notification.related_entity_id) if notification.related_entity_id else None,
         'created_at': notification.created_at.isoformat() if notification.created_at else None,
     }
 
@@ -486,6 +504,14 @@ def get_transferable_tasks(
             if normalized_keyword not in haystack:
                 continue
         result.append(item)
+    from project_workbench_service import get_transferable_responsibility_tasks
+    result.extend(get_transferable_responsibility_tasks(
+        db,
+        user_id,
+        user_roles,
+        owner_user_id=owner_user_id,
+        keyword=keyword,
+    ))
     return result
 
 
@@ -510,6 +536,160 @@ def get_eligible_transfer_users(db: Session, workflow_instance_ids: list[UUID]) 
         if all(_user_can_take_stage(roles, instance.current_stage_key) for instance in instances):
             eligible.append(user)
     return eligible
+
+
+def get_eligible_transfer_users_unified(
+    db: Session,
+    workflow_instance_ids: list[UUID],
+    project_responsibility_ids: list[UUID],
+) -> list[AppUser]:
+    if not project_responsibility_ids:
+        return get_eligible_transfer_users(db, workflow_instance_ids)
+    from project_workbench_service import (
+        eligible_users_for_responsibilities,
+        ensure_same_responsibility_role,
+        get_responsibilities_by_ids,
+    )
+    rows = get_responsibilities_by_ids(db, project_responsibility_ids)
+    role_code = ensure_same_responsibility_role(rows)
+    if workflow_instance_ids:
+        instances = db.query(WorkflowInstance).filter(
+            WorkflowInstance.id.in_(workflow_instance_ids),
+            WorkflowInstance.current_assignee_id.is_not(None),
+            WorkflowInstance.current_stage_key != 'completed',
+        ).all()
+        if len(instances) != len(set(workflow_instance_ids)):
+            raise ValueError('部分任务不存在、已完成或不是直接分配任务')
+        stage_role = _ensure_same_stage_role(instances)
+        if stage_role['role_code'] != role_code:
+            raise ValueError('一次只能交接同一角色类型的任务，请按角色分别操作')
+    candidates = eligible_users_for_responsibilities(db, rows)
+    if not workflow_instance_ids:
+        return candidates
+    return [
+        user for user in candidates
+        if all(_user_can_take_stage(set(get_user_roles_with_role_names(db, user.id)), instance.current_stage_key) for instance in instances)
+    ]
+
+
+def create_handover_request_unified(
+    db: Session,
+    requester: AppUser,
+    workflow_instance_ids: list[UUID],
+    project_responsibility_ids: list[UUID],
+    target_user_id: UUID,
+    handover_type: str,
+    reason_detail: Optional[str] = None,
+    content: str = '',
+    content_json: Optional[dict] = None,
+    attachment_ids: Optional[list[UUID]] = None,
+) -> WorkflowHandoverRequest:
+    if not project_responsibility_ids:
+        return create_handover_request(
+            db, requester, workflow_instance_ids, target_user_id, handover_type,
+            reason_detail, content, content_json, attachment_ids,
+        )
+    if handover_type == 'other' and not (reason_detail or '').strip():
+        raise ValueError('选择“其他”时必须填写交接原因')
+    from project_workbench_service import (
+        ensure_same_responsibility_role,
+        get_responsibilities_by_ids,
+        is_active_project,
+        user_has_responsibility_role,
+    )
+    rows = get_responsibilities_by_ids(db, project_responsibility_ids, lock=True)
+    role_code = ensure_same_responsibility_role(rows)
+    if any(row.assignee_id != requester.id for row in rows):
+        raise PermissionError('只能交接当前用户直接负责的未完成任务')
+    if any(not row.project or not is_active_project(row.project_type, row.project.project_status) for row in rows):
+        raise LookupError('部分项目已不在工作台活跃范围')
+    instances = []
+    if workflow_instance_ids:
+        instances = db.query(WorkflowInstance).filter(
+            WorkflowInstance.id.in_(list(dict.fromkeys(workflow_instance_ids)))
+        ).with_for_update().all()
+        if len(instances) != len(set(workflow_instance_ids)):
+            raise LookupError('部分任务不存在')
+        if _ensure_same_stage_role(instances)['role_code'] != role_code:
+            raise ValueError('一次只能交接同一角色类型的任务，请按角色分别操作')
+        if any(instance.current_assignee_id != requester.id or instance.current_stage_key == 'completed' for instance in instances):
+            raise PermissionError('只能交接当前用户直接负责的未完成任务')
+    if target_user_id == requester.id:
+        raise ValueError('请选择其他接收人')
+    target = db.query(AppUser).filter(AppUser.id == target_user_id, AppUser.is_active == True).first()
+    if not target:
+        raise ValueError('接收用户不存在或已停用')
+    ensure_user_assignable(db, target.id)
+    if not user_has_responsibility_role(db, target.id, role_code):
+        raise PermissionError('接收用户不具备任务所需角色')
+    pending_resp = db.query(WorkflowHandoverItem.id).join(
+        WorkflowHandoverRequest, WorkflowHandoverRequest.id == WorkflowHandoverItem.request_id
+    ).filter(
+        WorkflowHandoverRequest.status == 'pending',
+        WorkflowHandoverItem.project_responsibility_id.in_([row.id for row in rows]),
+    ).first()
+    pending_wf = None
+    if instances:
+        pending_wf = db.query(WorkflowHandoverItem.id).join(
+            WorkflowHandoverRequest, WorkflowHandoverRequest.id == WorkflowHandoverItem.request_id
+        ).filter(
+            WorkflowHandoverRequest.status == 'pending',
+            WorkflowHandoverItem.workflow_instance_id.in_([item.id for item in instances]),
+        ).first()
+    if pending_resp or pending_wf:
+        raise LookupError('部分任务已有待确认交接，请勿重复提交')
+    attachment_ids = list(dict.fromkeys(attachment_ids or []))
+    attachments = db.query(ChatProjectAttachment).filter(
+        ChatProjectAttachment.id.in_(attachment_ids),
+        ChatProjectAttachment.uploaded_by == requester.id,
+    ).all() if attachment_ids else []
+    if len(attachments) != len(attachment_ids):
+        raise ValueError('部分图片不存在或不属于当前用户')
+    from project_chat_crud import normalize_rich_text_json, rich_text_to_plain
+    normalized_json = normalize_rich_text_json(content_json)
+    normalized_content = (content or '').strip()
+    if normalized_json:
+        normalized_content = rich_text_to_plain(normalized_json) or normalized_content
+    request = WorkflowHandoverRequest(
+        requester_id=requester.id,
+        target_user_id=target.id,
+        handover_type=handover_type,
+        reason_detail=(reason_detail or '').strip() or None,
+        content=normalized_content[:10000],
+        content_json=normalized_json,
+        status='pending',
+    )
+    db.add(request)
+    db.flush()
+    db.add_all([
+        *(WorkflowHandoverItem(
+            request_id=request.id,
+            workflow_instance_id=instance.id,
+            expected_assignee_id=requester.id,
+        ) for instance in instances),
+        *(WorkflowHandoverItem(
+            request_id=request.id,
+            project_responsibility_id=row.id,
+            expected_assignee_id=requester.id,
+        ) for row in rows),
+    ])
+    db.add_all(WorkflowHandoverAttachment(request_id=request.id, attachment_id=item.id) for item in attachments)
+    first = rows[0]
+    requester_name = requester.full_name or requester.username
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=[target.id],
+        title='待确认的项目交接',
+        content=f'{requester_name} 向你发起了 {len(rows) + len(instances)} 项任务交接，请进入“工作台”确认接收。',
+        notification_type='workflow_handover_pending',
+        related_project_type=first.project_type,
+        related_entity_id=first.project_id,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
 
 
 def create_handover_request(
@@ -641,6 +821,8 @@ def list_incoming_handover_requests(
             selectinload(WorkflowHandoverRequest.items)
             .selectinload(WorkflowHandoverItem.workflow_instance)
             .joinedload(WorkflowInstance.current_assignee),
+            selectinload(WorkflowHandoverRequest.items)
+            .selectinload(WorkflowHandoverItem.project_responsibility),
             selectinload(WorkflowHandoverRequest.attachment_links)
             .joinedload(WorkflowHandoverAttachment.attachment),
         )
@@ -665,10 +847,12 @@ def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
     tasks = []
     for item in request.items or []:
         instance = item.workflow_instance
-        if instance is None:
-            continue
-        # 查询列表已加载负责人；项目关系在此按需加载，保持响应与“我的任务”一致。
-        tasks.append(_serialize_transfer_task(instance))
+        if instance is not None:
+            # 查询列表已加载负责人；项目关系在此按需加载，保持响应与“我的任务”一致。
+            tasks.append(_serialize_transfer_task(instance))
+        elif item.project_responsibility is not None:
+            from project_workbench_service import serialize_responsibility
+            tasks.append(serialize_responsibility(object_session(request), item.project_responsibility))
     attachments = [
         {
             'id': link.attachment.id,
@@ -708,6 +892,12 @@ def serialize_managed_project(project: TranslationProject) -> dict:
     }
     return {
         'translation_project_id': project.id,
+        'project_responsibility_id': None,
+        'source_kind': 'translation_project',
+        'project_type': 'translation',
+        'project_type_label': '笔译项目',
+        'project_id': project.id,
+        'detail_route_name': 'TranslationProjectDetails',
         'order_no': project.order_no,
         'project_name': project.project_name,
         'task_type': project.task_type or '项目任务',
@@ -762,13 +952,26 @@ def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
             )
         )
 
-    return [
+    result = [
         serialize_managed_project(project)
         for project in query.order_by(
             TranslationProject.customer_deadline_time.asc().nullslast(),
             TranslationProject.created_at.desc(),
         ).all()
     ]
+    # 生产环境使用真实 Session；兼容现有服务层测试中的轻量查询替身。
+    if isinstance(db, Session):
+        from project_workbench_service import get_management_responsibilities
+        result.extend(get_management_responsibilities(
+            db,
+            current_user.id,
+            include_all=is_super,
+        ))
+    return sorted(result, key=lambda item: (
+        item.get('customer_deadline_time') is None,
+        item.get('customer_deadline_time') or datetime.datetime.max,
+        item.get('order_no') or '',
+    ))
 
 
 def get_project_manager_candidates(
@@ -860,6 +1063,58 @@ def claim_management_projects(
     return projects
 
 
+def claim_management_project_refs(
+    db: Session,
+    current_user: AppUser,
+    project_refs: list,
+) -> list[dict]:
+    translation_ids = [
+        ref.project_id if hasattr(ref, 'project_id') else ref['project_id']
+        for ref in project_refs
+        if (ref.project_type if hasattr(ref, 'project_type') else ref['project_type']) == 'translation'
+    ]
+    other_refs = [
+        ref for ref in project_refs
+        if (ref.project_type if hasattr(ref, 'project_type') else ref['project_type']) != 'translation'
+    ]
+    roles = set(get_user_roles_with_role_names(db, current_user.id))
+    if '项目经理' not in roles:
+        raise PermissionError('只有项目经理可以自主承接未绑定的管理项目')
+    ensure_user_assignable(db, current_user.id)
+    from project_workbench_service import (
+        get_manager_responsibilities_by_refs,
+        is_active_project,
+        serialize_responsibility,
+    )
+    rows = get_manager_responsibilities_by_refs(db, other_refs, lock=True)
+    if any(row.assignee_id is not None for row in rows):
+        raise LookupError('部分项目已被其他项目经理承接，请刷新后重试')
+    if any(not row.project or not is_active_project(row.project_type, row.project.project_status) for row in rows):
+        raise LookupError('部分管理项目已不再允许承接')
+    pending = db.query(ProjectManagerHandoverItem.id).join(
+        ProjectManagerHandoverRequest,
+        ProjectManagerHandoverRequest.id == ProjectManagerHandoverItem.request_id,
+    ).filter(
+        ProjectManagerHandoverRequest.status == 'pending',
+        ProjectManagerHandoverItem.project_responsibility_id.in_([row.id for row in rows]),
+    ).first() if rows else None
+    if pending:
+        raise LookupError('部分项目已有待确认的管理层交接，暂不能自主承接')
+    for row in rows:
+        row.assignee_id = current_user.id
+        row.updated_at = datetime.datetime.utcnow()
+    translation_projects = claim_management_projects(db, current_user, translation_ids) if translation_ids else []
+    if not translation_ids:
+        db.commit()
+    result = [serialize_managed_project(project) for project in translation_projects]
+    for row in rows:
+        item = serialize_responsibility(db, row)
+        item['project_manager_id'] = row.assignee_id
+        item['project_manager_name'] = item['current_assignee_name']
+        result.append(item)
+    return result
+
+
 def create_project_manager_handover(
     db: Session,
     requester: AppUser,
@@ -949,6 +1204,102 @@ def create_project_manager_handover(
     return request
 
 
+def create_project_manager_handover_unified(
+    db: Session,
+    requester: AppUser,
+    project_refs: list,
+    target_manager_id: UUID,
+    reason: Optional[str] = None,
+    note: Optional[str] = None,
+) -> ProjectManagerHandoverRequest:
+    translation_ids = [
+        ref.project_id if hasattr(ref, 'project_id') else ref['project_id']
+        for ref in project_refs
+        if (ref.project_type if hasattr(ref, 'project_type') else ref['project_type']) == 'translation'
+    ]
+    other_refs = [
+        ref for ref in project_refs
+        if (ref.project_type if hasattr(ref, 'project_type') else ref['project_type']) != 'translation'
+    ]
+    if not other_refs:
+        return create_project_manager_handover(
+            db, requester, translation_ids, target_manager_id, reason, note
+        )
+    requester_roles = set(get_user_roles_with_role_names(db, requester.id))
+    is_super = bool(requester_roles & SUPER_TRANSFER_ROLES)
+    if '项目经理' not in requester_roles and not is_super:
+        raise PermissionError('只有项目经理或超级管理员可以发起管理层项目交接')
+    if target_manager_id == requester.id:
+        raise ValueError('请选择其他项目经理作为接收人')
+    target = db.query(AppUser).filter(AppUser.id == target_manager_id, AppUser.is_active == True).first()
+    if not target or '项目经理' not in get_user_roles_with_role_names(db, target.id):
+        raise ValueError('接收人必须是启用中的项目经理')
+    ensure_user_assignable(db, target.id)
+    from project_workbench_service import get_manager_responsibilities_by_refs, is_active_project
+    rows = get_manager_responsibilities_by_refs(db, other_refs, lock=True)
+    if not is_super and any(row.assignee_id != requester.id for row in rows):
+        raise PermissionError('只能交接当前用户作为管理主负责人的项目')
+    if any(not row.project or not is_active_project(row.project_type, row.project.project_status) for row in rows):
+        raise LookupError('部分管理项目已不再允许交接')
+    projects = db.query(TranslationProject).filter(
+        TranslationProject.id.in_(translation_ids)
+    ).with_for_update().all() if translation_ids else []
+    if len(projects) != len(set(translation_ids)):
+        raise LookupError('部分管理项目不存在')
+    if not is_super and any(project.project_manager_id != requester.id for project in projects):
+        raise PermissionError('只能交接当前用户作为管理主负责人的项目')
+    pending = db.query(ProjectManagerHandoverItem.id).join(
+        ProjectManagerHandoverRequest,
+        ProjectManagerHandoverRequest.id == ProjectManagerHandoverItem.request_id,
+    ).filter(
+        ProjectManagerHandoverRequest.status == 'pending',
+        or_(
+            ProjectManagerHandoverItem.translation_project_id.in_(translation_ids) if translation_ids else False,
+            ProjectManagerHandoverItem.project_responsibility_id.in_([row.id for row in rows]),
+        ),
+    ).first()
+    if pending:
+        raise LookupError('部分项目已有待确认的管理层交接，请勿重复提交')
+    request = ProjectManagerHandoverRequest(
+        requester_id=requester.id,
+        target_manager_id=target.id,
+        reason=(reason or '').strip() or None,
+        note=(note or '').strip() or None,
+    )
+    db.add(request)
+    db.flush()
+    db.add_all([
+        *(ProjectManagerHandoverItem(
+            request_id=request.id,
+            translation_project_id=project.id,
+            expected_manager_id=project.project_manager_id,
+        ) for project in projects),
+        *(ProjectManagerHandoverItem(
+            request_id=request.id,
+            project_responsibility_id=row.id,
+            expected_manager_id=row.assignee_id,
+        ) for row in rows),
+    ])
+    first_type = rows[0].project_type if rows else 'translation'
+    first_id = rows[0].project_id if rows else (projects[0].id if projects else None)
+    requester_name = requester.full_name or requester.username
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=[target.id],
+        title='待确认的管理层项目交接',
+        content=f'{requester_name} 向你发起了 {len(rows) + len(projects)} 个项目的管理主负责人交接。',
+        notification_type='project_manager_handover_pending',
+        related_project_id=first_id if first_type == 'translation' else None,
+        related_project_type=first_type,
+        related_entity_id=first_id,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
+
+
 def list_incoming_project_manager_handovers(
     db: Session,
     target_manager_id: UUID,
@@ -961,6 +1312,8 @@ def list_incoming_project_manager_handovers(
             joinedload(ProjectManagerHandoverRequest.target_manager),
             selectinload(ProjectManagerHandoverRequest.items)
             .joinedload(ProjectManagerHandoverItem.project),
+            selectinload(ProjectManagerHandoverRequest.items)
+            .joinedload(ProjectManagerHandoverItem.project_responsibility),
         )
         .filter(
             ProjectManagerHandoverRequest.target_manager_id == target_manager_id,
@@ -993,11 +1346,26 @@ def serialize_project_manager_handover(request: ProjectManagerHandoverRequest) -
         'created_at': request.created_at,
         'decided_at': request.decided_at,
         'projects': [
-            serialize_managed_project(item.project)
-            for item in (request.items or [])
-            if item.project
+            *(
+                serialize_managed_project(item.project)
+                for item in (request.items or [])
+                if item.project
+            ),
+            *(
+                _serialize_managed_responsibility(item.project_responsibility, object_session(request))
+                for item in (request.items or [])
+                if item.project_responsibility
+            ),
         ],
     }
+
+
+def _serialize_managed_responsibility(responsibility, db: Session) -> dict:
+    from project_workbench_service import serialize_responsibility
+    item = serialize_responsibility(db, responsibility)
+    item['project_manager_id'] = responsibility.assignee_id
+    item['project_manager_name'] = item['current_assignee_name']
+    return item
 
 
 def decide_project_manager_handover(
@@ -1016,6 +1384,8 @@ def decide_project_manager_handover(
             joinedload(ProjectManagerHandoverRequest.target_manager),
             selectinload(ProjectManagerHandoverRequest.items)
             .joinedload(ProjectManagerHandoverItem.project),
+            selectinload(ProjectManagerHandoverRequest.items)
+            .joinedload(ProjectManagerHandoverItem.project_responsibility),
         )
         .filter(ProjectManagerHandoverRequest.id == request_id)
         # joinedload 会为申请人和接收人生成 LEFT OUTER JOIN。PostgreSQL 不允许
@@ -1037,6 +1407,7 @@ def decide_project_manager_handover(
         item_project_ids = [
             item.translation_project_id
             for item in (request.items or [])
+            if item.translation_project_id
         ]
         locked_projects = {
             project.id: project
@@ -1047,14 +1418,36 @@ def decide_project_manager_handover(
                 .all()
             )
         }
+        responsibility_ids = [
+            item.project_responsibility_id
+            for item in (request.items or [])
+            if item.project_responsibility_id
+        ]
+        from project_workbench_service import get_responsibilities_by_ids, is_active_project
+        locked_responsibilities = {
+            row.id: row for row in get_responsibilities_by_ids(db, responsibility_ids, lock=True)
+        } if responsibility_ids else {}
         for item in request.items or []:
+            if item.project_responsibility_id:
+                row = locked_responsibilities.get(item.project_responsibility_id)
+                if not row or not row.project:
+                    raise LookupError('交接申请中的项目已不存在')
+                if not is_active_project(row.project_type, row.project.project_status):
+                    raise LookupError('交接申请中的项目已结束')
+                if row.assignee_id != item.expected_manager_id:
+                    raise LookupError('部分项目的管理主负责人已变化，请拒绝后重新发起')
+                continue
             project = locked_projects.get(item.translation_project_id)
             if not project:
                 raise LookupError('交接申请中的项目已不存在')
             if project.project_manager_id != item.expected_manager_id:
                 raise LookupError('部分项目的管理主负责人已变化，请拒绝后重新发起')
         for item in request.items or []:
-            locked_projects[item.translation_project_id].project_manager_id = current_user.id
+            if item.project_responsibility_id:
+                locked_responsibilities[item.project_responsibility_id].assignee_id = current_user.id
+                locked_responsibilities[item.project_responsibility_id].updated_at = datetime.datetime.utcnow()
+            else:
+                locked_projects[item.translation_project_id].project_manager_id = current_user.id
         request.status = 'accepted'
     else:
         request.status = 'rejected'
@@ -1076,9 +1469,15 @@ def decide_project_manager_handover(
                 else f'{current_name} 拒绝了管理层项目交接。'
             ),
             notification_type=f'project_manager_handover_{request.status}',
-            related_project_id=(
-                request.items[0].translation_project_id
-                if request.items else None
+            related_project_id=(request.items[0].translation_project_id if request.items and request.items[0].translation_project_id else None),
+            related_project_type=(
+                request.items[0].project_responsibility.project_type
+                if request.items and request.items[0].project_responsibility else 'translation'
+            ),
+            related_entity_id=(
+                request.items[0].project_responsibility.project_id
+                if request.items and request.items[0].project_responsibility
+                else request.items[0].translation_project_id if request.items else None
             ),
             commit=False,
         )
@@ -1430,6 +1829,86 @@ def claim_role_pool_tasks(
     }
 
 
+def claim_role_pool_work_items(
+    db: Session,
+    operator: AppUser,
+    workflow_instance_ids: list[UUID],
+    project_responsibility_ids: list[UUID],
+) -> dict:
+    from project_workbench_service import claim_role_pool_responsibilities
+    generic = None
+    if project_responsibility_ids:
+        generic = claim_role_pool_responsibilities(
+            db, operator, project_responsibility_ids, commit=not workflow_instance_ids
+        )
+    if workflow_instance_ids:
+        workflow = claim_role_pool_tasks(db, operator, workflow_instance_ids)
+    else:
+        workflow = {
+            'action': 'role_pool_claim',
+            'transferred_count': 0,
+            'workflow_instance_ids': [],
+        }
+    return {
+        'action': 'role_pool_claim',
+        'transferred_count': workflow['transferred_count'] + (generic['transferred_count'] if generic else 0),
+        'workflow_instance_ids': workflow['workflow_instance_ids'],
+        'project_responsibility_ids': generic['project_responsibility_ids'] if generic else [],
+    }
+
+
+def transfer_work_items(
+    db: Session,
+    operator: AppUser,
+    workflow_instance_ids: list[UUID],
+    project_responsibility_ids: list[UUID],
+    *,
+    action: str,
+    target_user_id: Optional[UUID] = None,
+    content: str = '',
+    content_json: Optional[dict] = None,
+    attachment_ids: Optional[list[UUID]] = None,
+    expected_assignee_ids: Optional[dict[UUID, UUID]] = None,
+) -> dict:
+    from project_workbench_service import transfer_responsibilities
+    generic = None
+    if project_responsibility_ids:
+        generic = transfer_responsibilities(
+            db,
+            operator,
+            project_responsibility_ids,
+            action=action,
+            target_user_id=target_user_id,
+            expected_assignee_ids=expected_assignee_ids,
+            commit=not workflow_instance_ids,
+        )
+    if workflow_instance_ids:
+        workflow = transfer_workflow_tasks(
+            db,
+            operator,
+            workflow_instance_ids,
+            action,
+            target_user_id=target_user_id,
+            content=content,
+            content_json=content_json,
+            attachment_ids=attachment_ids,
+            expected_assignee_ids=expected_assignee_ids,
+        )
+    else:
+        workflow = {'transferred_count': 0, 'workflow_instance_ids': []}
+    notifications = []
+    if generic:
+        notifications.extend(generic.pop('_notifications', []))
+    if notifications:
+        _push_notifications(notifications)
+    return {
+        'action': action,
+        'transferred_count': workflow['transferred_count'] + (generic['transferred_count'] if generic else 0),
+        'workflow_instance_ids': workflow['workflow_instance_ids'],
+        'project_responsibility_ids': generic['project_responsibility_ids'] if generic else [],
+    }
+
+
 def decide_handover_request(
     db: Session,
     request_id: UUID,
@@ -1480,22 +1959,40 @@ def decide_handover_request(
                 *existing_nodes,
             ],
         }
-        result = transfer_workflow_tasks(
-            db,
-            operator=requester,
-            workflow_instance_ids=[item.workflow_instance_id for item in items],
-            action='handover',
-            target_user_id=target_user.id,
-            content=combined_content,
-            content_json=combined_content_json,
-            attachment_ids=attachment_ids,
-            expected_assignee_ids={
-                item.workflow_instance_id: item.expected_assignee_id
-                for item in items
-            },
-            commit=False,
-        )
-        notifications.extend(result.pop('_notifications', []))
+        workflow_items = [item for item in items if item.workflow_instance_id]
+        responsibility_items = [item for item in items if item.project_responsibility_id]
+        if workflow_items:
+            result = transfer_workflow_tasks(
+                db,
+                operator=requester,
+                workflow_instance_ids=[item.workflow_instance_id for item in workflow_items],
+                action='handover',
+                target_user_id=target_user.id,
+                content=combined_content,
+                content_json=combined_content_json,
+                attachment_ids=attachment_ids,
+                expected_assignee_ids={
+                    item.workflow_instance_id: item.expected_assignee_id
+                    for item in workflow_items
+                },
+                commit=False,
+            )
+            notifications.extend(result.pop('_notifications', []))
+        if responsibility_items:
+            from project_workbench_service import transfer_responsibilities
+            result = transfer_responsibilities(
+                db,
+                operator=requester,
+                responsibility_ids=[item.project_responsibility_id for item in responsibility_items],
+                action='handover',
+                target_user_id=target_user.id,
+                expected_assignee_ids={
+                    item.project_responsibility_id: item.expected_assignee_id
+                    for item in responsibility_items
+                },
+                commit=False,
+            )
+            notifications.extend(result.pop('_notifications', []))
         request.status = 'accepted'
     else:
         request.status = 'rejected'

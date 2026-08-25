@@ -33,7 +33,7 @@
       </el-form-item>
       <el-form-item label="状态">
         <el-select v-model="search.status" clearable placeholder="全部状态" style="width:140px" @change="searchNow">
-          <el-option label="活跃" value="active" /><el-option label="备用" value="standby" /><el-option label="停用" value="inactive" />
+          <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -84,6 +84,37 @@
             </div>
           </el-popover>
           <div v-else-if="column.key === 'capabilityTypes'" class="tag-list"><el-tag v-for="item in row.capabilityTypes" :key="item" size="small">{{ capabilityLabel(item) }}</el-tag><span v-if="!row.capabilityTypes?.length">-</span></div>
+          <el-dropdown
+            v-else-if="column.key === 'status' && canWrite"
+            trigger="click"
+            :disabled="statusSavingIds.has(row.id)"
+            @command="(command) => changeStatus(row, command)"
+          >
+            <el-tag
+              :type="statusType(row.status)"
+              size="small"
+              class="status-switch-tag"
+              :class="{ 'is-updating': statusSavingIds.has(row.id) }"
+            >
+              <span class="status-switch-text">{{ statusLabel(row.status) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in statusOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === row.status || statusSavingIds.has(row.id)"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="statusType(item.value)" size="small" effect="plain">{{ item.label }}</el-tag>
+                    <el-icon v-if="item.value === row.status" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-tag v-else-if="column.key === 'status'" :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           <el-tag v-else-if="column.key === 'duplicateReviewRequired' && row.duplicateReviewRequired" type="warning" size="small">待核重</el-tag>
           <span v-else-if="column.key === 'duplicateReviewRequired'">-</span>
@@ -103,7 +134,7 @@
     <el-dialog v-model="editorVisible" :title="editorTitle" width="min(980px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" @closed="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="105px">
         <div class="form-section"><h3>基础信息</h3>
-          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="姓名" prop="fullName"><el-input v-model="form.fullName" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="状态"><el-select v-model="form.status" style="width:100%"><el-option label="活跃" value="active" /><el-option label="备用" value="standby" /><el-option label="停用" value="inactive" /></el-select></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="姓名" prop="fullName"><el-input v-model="form.fullName" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="合作形式"><el-select v-model="form.cooperationType" clearable style="width:100%"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="主要电话"><el-input v-model="form.primaryPhone" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="主要邮箱"><el-input v-model="form.primaryEmail" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="简历路径"><el-input v-model="form.resumePath" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="其他联系方式"><el-input v-model="form.contactInfo" /></el-form-item></el-col></el-row>
           <el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="2" /></el-form-item>
@@ -123,6 +154,7 @@
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
+import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
@@ -150,19 +182,22 @@ const talentClient = computed(() => isRecruitmentPool.value ? {
   count: talentApi.getRecruitmentTalentCount,
   detail: talentApi.getRecruitmentTalent,
   create: talentApi.createRecruitmentTalent,
-  update: talentApi.updateRecruitmentTalent
+  update: talentApi.updateRecruitmentTalent,
+  patchStatus: talentApi.patchRecruitmentTalentStatus
 } : {
   list: talentApi.getTalents,
   count: talentApi.getTalentCount,
   detail: talentApi.getTalent,
   create: talentApi.createTalent,
-  update: talentApi.updateTalent
+  update: talentApi.updateTalent,
+  patchStatus: talentApi.patchTalentStatus
 })
 const cooperationOptions = ['全职','兼职','自由职业','外包']
 const capabilityLabels = {written_translation:'笔译',interpretation:'口译',annotation:'标注'}
 const capabilityLabel = value => capabilityLabels[value] || value
 const capabilityText = values => values?.length ? values.map(capabilityLabel).join('、') : '-'
-const statusLabel = value => ({active:'活跃',standby:'备用',inactive:'停用'}[value] || value || '-')
+const statusOptions = [{value:'active',label:'活跃'},{value:'standby',label:'备用'},{value:'inactive',label:'停用'}]
+const statusLabel = value => statusOptions.find(item => item.value === value)?.label || value || '-'
 const statusType = value => ({active:'success',standby:'info',inactive:'danger'}[value] || 'info')
 const display = value => value === null || value === undefined || value === '' ? '-' : Array.isArray(value) ? (value.join('、') || '-') : value
 const formatDateTime = value => {
@@ -188,7 +223,7 @@ const tableColumns=[
   {key:'industries',label:'行业',width:150},
   {key:'jobTitles',label:'岗位',width:150},
   {key:'yearsExperience',label:'工作年限',width:100},
-  {key:'status',label:'状态',width:80},
+  {key:'status',label:'状态',width:108,tooltip:false},
   {key:'cooperationType',label:'合作形式',width:100},
   {key:'primaryPhone',label:'主要电话',width:140},
   {key:'primaryEmail',label:'主要邮箱',width:200},
@@ -203,7 +238,7 @@ const legacyDefaultColumnKeys=['resourceCode','fullName','capabilityTypes','lang
 const defaultColumnKeys=['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v3',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
 const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)))
-const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false)
+const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false);const statusSavingIds=ref(new Set())
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
 const advancedCount=computed(()=>['cooperationType','industryKeyword','reviewRequired'].filter(key=>search[key]!==''&&search[key]!==null).length)
 let timer=null;let controller=null;let sequence=0
@@ -212,6 +247,8 @@ async function fetchData(){controller?.abort();controller=new AbortController();
 function searchNow(){clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function resetSearch(){Object.assign(search,{keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null});searchNow()}function clearAdvanced(){Object.assign(search,{cooperationType:'',industryKeyword:'',reviewRequired:null});searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
 async function loadDetail(id,force=false){if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{detailCache[id]=await talentClient.value.detail(id);return detailCache[id]}catch(error){ElMessage.error(error.detail||'加载人才详情失败')}finally{detailLoadingId.value=null}}
 const detailFor=row=>detailCache[row.id]||row
+function setStatusSaving(id,saving){const next=new Set(statusSavingIds.value);if(saving)next.add(id);else next.delete(id);statusSavingIds.value=next}
+async function changeStatus(row,value){if(!value||value===row.status)return;setStatusSaving(row.id,true);try{const updated=await talentClient.value.patchStatus(row.id,value);Object.assign(row,updated);if(detailCache[row.id])detailCache[row.id]={...detailCache[row.id],...updated};ElMessage.success('人才状态已更新');if(search.status&&search.status!==updated.status)await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'人才状态更新失败')}finally{setStatusSaving(row.id,false)}}
 
 const emptyForm=()=>({id:null,resourceCode:'',fullName:'',cooperationType:'',contactInfo:'',primaryPhone:'',primaryEmail:'',resumePath:'',remarks:'',status:'standby',capabilityTypes:capabilityType.value?[capabilityType.value]:[],writtenProfile:{languages:'',direction:'',domainSkills:[],qualityScore:'',defaultPriority:0,dailyAcceptCount:null,hourlySpeed:null,dailyWordCapacity:null,canCloudEdit:null,canRevision:null,availableTimeSlot:'',scheduleRemarks:''},interpretationProfile:{languages:'',direction:'',interpretationLevel:'',interpretationModes:[],domainSkills:[],qualityScore:'',evaluationSummary:''},annotationProfile:{taskTypes:[],dataModalities:[],tools:[],domainSkills:[],qualityScore:'',dailyCapacity:null,remarks:''},careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''}})
 const form=reactive(emptyForm());const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const rules={fullName:[{required:true,message:'请输入姓名',trigger:'blur'}]};const hasCapability=type=>form.capabilityTypes.includes(type)
@@ -225,7 +262,7 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(fetchData);o
 </script>
 
 <style scoped>
-.card-header,.header-actions,.resource-nav,.advanced-actions,.tag-list,.action-buttons{display:flex;align-items:center}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.resource-nav{gap:6px;margin:-4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--el-border-color-lighter)}.resource-nav__item{margin-left:0!important;border:1px solid transparent!important;border-radius:var(--el-border-radius-base);color:var(--el-text-color-regular);font-weight:500;transition:color .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}.resource-nav__item:hover{border-color:var(--el-color-primary-light-8)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important}.resource-nav__item.is-current{border-color:var(--el-color-primary-light-7)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important;font-weight:600;box-shadow:inset 0 -2px 0 var(--el-color-primary)}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.talent-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.card-header,.header-actions,.resource-nav,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.resource-nav{gap:6px;margin:-4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--el-border-color-lighter)}.resource-nav__item{margin-left:0!important;border:1px solid transparent!important;border-radius:var(--el-border-radius-base);color:var(--el-text-color-regular);font-weight:500;transition:color .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}.resource-nav__item:hover{border-color:var(--el-color-primary-light-8)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important}.resource-nav__item.is-current{border-color:var(--el-color-primary-light-7)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important;font-weight:600;box-shadow:inset 0 -2px 0 var(--el-color-primary)}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.talent-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 @media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.resource-nav{align-items:flex-start;overflow-x:auto}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}}
 </style>
 

@@ -401,6 +401,83 @@
           </el-col>
         </el-row>
 
+        <div v-if="isSupportedProjectType(form.consultation_type)" class="consultation-project-intake">
+          <h3>项目售前信息</h3>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12"><el-form-item label="项目名称" prop="project_name"><el-input v-model="form.project_name" placeholder="可留空并在确认前自动生成" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户单号/标识"><el-input v-model="form.customer_order_no" /></el-form-item></el-col>
+          </el-row>
+          <el-form-item label="联系人"><el-input v-model="form.contact_name" /></el-form-item>
+
+          <template v-if="isTranslationConsultationType(form.consultation_type)">
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="服务内容" required>
+                  <el-select v-model="form.project_intake.service_content" filterable allow-create default-first-option clearable placeholder="可选择翻译、排版，或输入自定义内容" style="width:100%">
+                    <el-option v-for="item in serviceContentOptions" :key="item" :label="item" :value="item" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="翻译方向" required><LanguagePairSelect v-model="form.project_intake.language_pair" /></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12"><el-form-item label="客户交期" required><el-date-picker v-model="form.project_intake.customer_deadline_time" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="form.project_intake.file_type_secondary" /></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="form.project_intake.priority" clearable style="width:100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="合同类型"><el-input v-model="form.project_intake.project_contract_type" clearable /></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12"><el-form-item label="合同状态"><el-input v-model="form.project_intake.project_contract_status" clearable /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="需提供报价单"><el-checkbox v-model="form.project_intake.quotation_required" @change="handleTranslationQuotationRequiredChange">需要提供项目报价单</el-checkbox></el-form-item></el-col>
+            </el-row>
+            <el-row v-if="form.project_intake.quotation_required" :gutter="20">
+              <el-col :xs="24" :md="8"><el-form-item label="报价单状态"><el-input v-model="form.project_intake.quotation_status" clearable /></el-form-item></el-col>
+              <el-col :xs="24" :md="16"><el-form-item label="报价单路径"><el-input v-model="form.project_intake.quotation_path" clearable placeholder="如：\\win-server\项目报价单" /></el-form-item></el-col>
+            </el-row>
+            <el-form-item label="客户专业要求"><el-input v-model="form.project_intake.customer_requirement_professional" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="客户特殊要求"><el-input v-model="form.project_intake.customer_requirement_special" type="textarea" :rows="2" /></el-form-item>
+          </template>
+
+          <template v-else-if="isInterpretationConsultationType(form.consultation_type)">
+            <el-form-item label="项目类型" required><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="具体任务"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="地点" required><el-select v-model="form.project_intake.locations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item>
+            <div class="intake-list-header"><span>预定时段</span><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
+            <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
+              <el-date-picker v-model="item.scheduled_start" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="开始时间" />
+              <el-date-picker v-model="item.scheduled_end" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="结束时间" />
+              <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
+            </div>
+            <div class="intake-list-header"><span>口译方向</span><el-button link type="primary" @click="addIntakeDirection">增加方向</el-button></div>
+            <div v-for="(item,index) in form.project_intake.language_directions" :key="index" class="intake-inline-row">
+              <el-select v-model="item.source_language_id" filterable placeholder="语种 A"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+              <el-select v-model="item.target_language_id" filterable placeholder="语种 B"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+              <el-button link type="danger" @click="form.project_intake.language_directions.splice(index,1)">删除</el-button>
+            </div>
+            <el-form-item label="译员人数" required><el-input-number v-model="form.project_intake.required_interpreter_count" :min="1" /></el-form-item>
+          </template>
+
+          <template v-else-if="isAnnotationConsultationType(form.consultation_type)">
+            <el-form-item label="项目类型" required><el-select v-model="form.project_intake.project_types" multiple filterable allow-create style="width:100%"><el-option v-for="item in annotationTypeOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+            <el-form-item label="具体任务" required><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="潜在需求量"><el-input v-model="form.project_intake.potential_demand" /></el-form-item>
+            <div class="intake-list-header"><span>语言范围</span><el-button link type="primary" @click="addAnnotationLanguage">增加语言</el-button></div>
+            <div v-for="(item,index) in form.project_intake.language_items" :key="index" class="intake-inline-row">
+              <el-select v-model="item.source_language_id" filterable placeholder="语种"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+              <el-select v-model="item.target_language_id" filterable clearable placeholder="目标语种（可选）"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+              <el-button link type="danger" @click="form.project_intake.language_items.splice(index,1)">删除</el-button>
+            </div>
+          </template>
+
+          <template v-else-if="isRecruitmentConsultationType(form.consultation_type)">
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" required><el-input v-model="form.project_intake.position_title" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="招聘人数" required><div class="intake-inline-row"><el-input-number v-model="form.project_intake.headcount_min" :min="1" /><span>至</span><el-input-number v-model="form.project_intake.headcount_max" :min="form.project_intake.headcount_min || 1" /></div></el-form-item></el-col></el-row>
+            <el-form-item label="职位描述"><el-input v-model="form.project_intake.job_description" type="textarea" :rows="3" /></el-form-item>
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="拟履职周期" required><el-date-picker v-model="form.project_intake.employment_range" type="daterange" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="工作地点" required><el-input v-model="form.project_intake.work_location" /></el-form-item></el-col></el-row>
+          </template>
+        </div>
+
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="负责人联系方式" prop="manager_contact">
@@ -473,6 +550,7 @@
                 allow-create
                 placeholder="请选择；其他项目可直接输入自定义类型"
                 style="width: 100%"
+                @change="handleConsultationTypeChange"
               >
                 <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
               </el-select>
@@ -540,83 +618,108 @@
           </el-col>
         </el-row>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="客服人员" prop="customer_service_id">
-              <el-select
-                v-model="form.customer_service_id"
-                filterable
-                clearable
-                placeholder="请选择客服人员"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :label="user.full_name || user.username"
-                  :value="user.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="销售人员" prop="sales_person_id">
-              <el-select
-                v-model="form.sales_person_id"
-                filterable
-                clearable
-                placeholder="请选择销售人员"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :label="user.full_name || user.username"
-                  :value="user.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <section class="personnel-assignment-section">
+          <button
+            type="button"
+            class="personnel-assignment-toggle"
+            :aria-expanded="personnelAssignmentExpanded"
+            @click="personnelAssignmentExpanded = !personnelAssignmentExpanded"
+          >
+            <span class="personnel-assignment-heading">
+              <span class="personnel-assignment-title">人员分配</span>
+              <span class="personnel-assignment-summary">{{ personnelAssignmentSummary }}</span>
+            </span>
+            <span class="personnel-assignment-action">
+              {{ personnelAssignmentExpanded ? '收起' : '展开调整' }}
+              <el-icon class="personnel-assignment-arrow" :class="{ 'is-expanded': personnelAssignmentExpanded }">
+                <ArrowDown />
+              </el-icon>
+            </span>
+          </button>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="编辑人" prop="editor_id">
-              <el-select
-                v-model="form.editor_id"
-                filterable
-                clearable
-                placeholder="请选择编辑人"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :label="user.full_name || user.username"
-                  :value="user.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="跟进人" prop="follow_up_person_id">
-              <el-select
-                v-model="form.follow_up_person_id"
-                filterable
-                clearable
-                placeholder="请选择跟进人"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="user in userOptions"
-                  :key="user.id"
-                  :label="user.full_name || user.username"
-                  :value="user.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <el-collapse-transition>
+            <div v-show="personnelAssignmentExpanded" class="personnel-assignment-fields">
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item label="客服人员" prop="customer_service_id">
+                    <el-select
+                      v-model="form.customer_service_id"
+                      filterable
+                      clearable
+                      placeholder="请选择客服人员"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="user in userOptions"
+                        :key="user.id"
+                        :label="user.full_name || user.username"
+                        :value="user.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="销售人员" prop="sales_person_id">
+                    <el-select
+                      v-model="form.sales_person_id"
+                      filterable
+                      clearable
+                      placeholder="请选择销售人员"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="user in userOptions"
+                        :key="user.id"
+                        :label="user.full_name || user.username"
+                        :value="user.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item label="编辑人" prop="editor_id">
+                    <el-select
+                      v-model="form.editor_id"
+                      filterable
+                      clearable
+                      placeholder="请选择编辑人"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="user in userOptions"
+                        :key="user.id"
+                        :label="user.full_name || user.username"
+                        :value="user.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item label="跟进人" prop="follow_up_person_id">
+                    <el-select
+                      v-model="form.follow_up_person_id"
+                      filterable
+                      clearable
+                      placeholder="请选择跟进人"
+                      style="width: 100%"
+                    >
+                      <el-option
+                        v-for="user in userOptions"
+                        :key="user.id"
+                        :label="user.full_name || user.username"
+                        :value="user.id"
+                      />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <div class="personnel-assignment-hint">默认使用当前用户；仅在需要转交或协作时调整。</div>
+            </div>
+          </el-collapse-transition>
+        </section>
 
         <el-form-item label="跟进状态" prop="follow_up_status">
           <el-input v-model="form.follow_up_status" />
@@ -646,7 +749,7 @@
       </template>
     </el-dialog>
 
-    <!-- 口译/笔译咨询确认中间层 -->
+    <!-- 四类咨询确认、建项与内部邮件发送中间层 -->
     <el-dialog
       v-model="confirmationDialogVisible"
       title="确认咨询并生成项目"
@@ -657,7 +760,7 @@
     >
       <div v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
         <el-alert
-          title="确认后将同时更新咨询状态、生成对应项目并保存邮件主题；取消不会改变咨询状态。"
+          title="确认后将更新咨询状态、生成对应项目并向内部用户发送邮件；投递失败不会回滚已生成项目。"
           type="info"
           :closable="false"
           show-icon
@@ -674,7 +777,7 @@
             prop="projectName"
             :rules="[{ required: true, message: '请输入项目名称', trigger: 'blur' }]"
           >
-            <el-input v-model="confirmationForm.projectName" maxlength="255" show-word-limit />
+            <el-input v-model="confirmationForm.projectName" maxlength="255" show-word-limit @input="regenerateConfirmationSubject" />
             <div class="project-name-hint">已按“客户简称-当前日期”预填，可在确认前修改。</div>
           </el-form-item>
           <el-form-item label="标题前缀">
@@ -684,25 +787,46 @@
               show-word-limit
               clearable
               placeholder="例如：***急***"
+              @input="regenerateConfirmationSubject"
             />
           </el-form-item>
-          <el-form-item v-if="confirmationPreview.project_type === 'interpretation'" label="客户单号/标识">
+          <el-form-item v-if="confirmationPreview.project_type !== 'translation'" label="客户单号/标识">
             <el-input
               v-model="confirmationForm.customerOrderNo"
               maxlength="150"
               show-word-limit
               clearable
+              @input="regenerateConfirmationSubject"
             />
           </el-form-item>
-          <el-form-item label="邮件主题预览">
-            <el-input :model-value="confirmationSubjectPreview" type="textarea" :rows="3" readonly />
+          <el-form-item label="收件人" required>
+            <InternalMailRecipientSelector
+              v-model="confirmationForm.toUserIds"
+              :users="validInternalUsers"
+              placeholder="请选择收件人"
+            />
+          </el-form-item>
+          <el-form-item label="抄送">
+            <InternalMailRecipientSelector
+              v-model="confirmationForm.ccUserIds"
+              :users="validInternalUsers"
+              :excluded-user-ids="confirmationForm.toUserIds"
+              placeholder="请选择抄送人"
+            />
+          </el-form-item>
+          <el-form-item label="邮件主题" required>
+            <el-input v-model="confirmationForm.emailSubject" type="textarea" :rows="2" maxlength="1000" />
+          </el-form-item>
+          <el-form-item label="邮件正文" required>
+            <el-input v-model="confirmationForm.emailBody" type="textarea" :rows="10" maxlength="50000" show-word-limit />
           </el-form-item>
           <el-form-item v-if="confirmationMissingFields.length" label="缺失字段">
             <div class="missing-field-list">
               <el-tag v-for="item in confirmationMissingFields" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
-              <span class="missing-field-hint">缺失项不会写入主题，但不影响确认。</span>
+              <span class="missing-field-hint">核心缺失项会阻止确认，其余字段只提示。</span>
             </div>
           </el-form-item>
+          <el-alert v-if="confirmationPreview.blocking_reasons?.length" :title="confirmationPreview.blocking_reasons.join('；')" type="error" :closable="false" show-icon />
         </el-form>
       </div>
       <template #footer>
@@ -710,9 +834,9 @@
         <el-button
           type="primary"
           :loading="confirmationSubmitting"
-          :disabled="confirmationPreviewLoading || !confirmationPreview.order_no"
+          :disabled="confirmationPreviewLoading || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length || !confirmationForm.emailSubject.trim() || !confirmationForm.emailBody.trim()"
           @click="handleConfirmConsultation"
-        >确认并生成项目</el-button>
+        >确认建项并发送邮件</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -722,13 +846,17 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
+import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
+import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -736,6 +864,7 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
 const formRef = ref(null)
 const userOptions = ref([])
+const languageOptions = ref([])
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const clientSearchLoading = ref(false)
@@ -746,10 +875,11 @@ const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
 const confirmationFormRef = ref(null)
 const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null })
-const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '' })
+const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
 const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
   project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
+  to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
 })
 const CONFIRMED_CONSULTATION_STATUS = 'success'
 const currentUserId = localStorage.getItem('user_id') || null
@@ -924,6 +1054,18 @@ const clearAdvancedFilters = () => {
   handleSearch()
 }
 
+const emptyProjectIntake = () => ({
+  service_content: '', language_pair: '', customer_deadline_time: '', file_type_secondary: '',
+  priority: '', project_contract_type: '', project_contract_status: '', quotation_required: false,
+  quotation_status: '', quotation_path: '',
+  customer_requirement_professional: '', customer_requirement_special: '',
+  project_types: [], task_description: '', locations: [], time_ranges: [], language_directions: [],
+  required_interpreter_count: null, potential_demand: '', language_items: [], price_items: [],
+  position_title: '', job_description: '', headcount_min: null, headcount_max: null,
+  employment_range: [], employment_start: null, employment_end: null, work_location: '',
+  target_onboard_type: 'date', target_onboard_date: null,
+})
+
 const defaultForm = () => ({
   id: null,
   client_id: null,
@@ -931,6 +1073,10 @@ const defaultForm = () => ({
   client_name: '',
   client_short_name: '',
   manager_contact: '',
+  contact_name: '',
+  customer_order_no: '',
+  project_name: '',
+  project_intake: emptyProjectIntake(),
   consultation_time: '',
   consultation_method: '',
   consultation_method_custom: '',
@@ -952,6 +1098,7 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const personnelAssignmentExpanded = ref(false)
 const activeDraftKey = ref(null)
 const draftSavingEnabled = ref(false)
 
@@ -1096,6 +1243,29 @@ const isRecruitmentConsultationType = (value) => (
 const isTranslationConsultationType = (value) => (
   ['笔译项目', 'translation', '笔译'].includes(value)
 )
+const isSupportedProjectType = (value) => (
+  isTranslationConsultationType(value) || isInterpretationConsultationType(value)
+  || isAnnotationConsultationType(value) || isRecruitmentConsultationType(value)
+)
+const interpretationTypeOptions = [
+  { value: 'onsite', label: '现场口译' }, { value: 'booth', label: '展会摊位口译' },
+  { value: 'exhibition_escort', label: '展会陪同口译' }, { value: 'escort', label: '陪同口译' },
+  { value: 'small_business_meeting', label: '小型商务会议口译' }, { value: 'consecutive', label: '会议交传口译' },
+  { value: 'simultaneous', label: '会议同传口译' }, { value: 'online_meeting', label: '线上会议口译' },
+  { value: 'online_simultaneous', label: '线上同传口译' },
+]
+const annotationTypeOptions = ['audio_collection','audio_annotation','audio_evaluation','text_evaluation','text_annotation','quality_inspection','listening_test','slot_deduction','generalization','translation']
+const serviceContentOptions = ['翻译', '排版']
+const priorityOptions = ['低', '中', '高', '紧急']
+const handleConsultationTypeChange = () => { form.project_intake = emptyProjectIntake() }
+const handleTranslationQuotationRequiredChange = (required) => {
+  if (required) return
+  form.project_intake.quotation_status = ''
+  form.project_intake.quotation_path = ''
+}
+const addIntakeTimeRange = () => form.project_intake.time_ranges.push({ scheduled_start: '', scheduled_end: '' })
+const addIntakeDirection = () => form.project_intake.language_directions.push({ source_language_id: '', target_language_id: '' })
+const addAnnotationLanguage = () => form.project_intake.language_items.push({ source_language_id: '', target_language_id: null })
 const projectRouteName = (consultationType) => {
   if (isTranslationConsultationType(consultationType)) return 'TranslationProjectDetails'
   if (isInterpretationConsultationType(consultationType)) return 'InterpretationProjectDetails'
@@ -1108,7 +1278,16 @@ const routeToProjectBoard = async (consultationType) => {
   if (name) await router.push({ name })
 }
 const confirmationTypeLabel = computed(() => (
-  confirmationPreview.project_type === 'interpretation' ? '口译项目' : '笔译项目'
+  ({ translation: '笔译项目', interpretation: '口译项目', annotation: '标注项目', recruitment: '招聘项目' }[confirmationPreview.project_type] || '-')
+))
+const validInternalUsers = computed(() => userOptions.value.filter((item) => item.is_active && item.email))
+const confirmationRecipientCount = computed(() => new Set([
+  ...confirmationForm.toUserIds,
+  ...confirmationForm.ccUserIds,
+]).size)
+const confirmationAllMembersSelected = computed(() => (
+  validInternalUsers.value.length > 1
+  && confirmationRecipientCount.value >= validInternalUsers.value.length
 ))
 const confirmationSubjectParts = computed(() => {
   const parts = [
@@ -1117,7 +1296,7 @@ const confirmationSubjectParts = computed(() => {
     confirmationPreview.client_short_name,
     confirmationPreview.manager_contact,
   ]
-  if (confirmationPreview.project_type === 'interpretation') {
+  if (confirmationPreview.project_type !== 'translation') {
     parts.push(confirmationForm.customerOrderNo)
   }
   parts.push(confirmationForm.projectName)
@@ -1125,17 +1304,9 @@ const confirmationSubjectParts = computed(() => {
 })
 const confirmationSubjectPreview = computed(() => confirmationSubjectParts.value.join('，'))
 const confirmationMissingFields = computed(() => {
-  const fields = [
-    ['订单号', confirmationPreview.order_no],
-    ['客户简称', confirmationPreview.client_short_name],
-    ['负责人联系方式', confirmationPreview.manager_contact],
-  ]
-  if (confirmationPreview.project_type === 'interpretation') {
-    fields.push(['客户单号/标识', confirmationForm.customerOrderNo])
-  }
-  fields.push(['项目名称', confirmationForm.projectName])
-  return fields.filter(([, value]) => !value?.trim()).map(([label]) => label)
+  return confirmationPreview.missing_fields || []
 })
+const regenerateConfirmationSubject = () => { confirmationForm.emailSubject = confirmationSubjectPreview.value }
 
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
@@ -1300,11 +1471,33 @@ const loadUsers = async () => {
   }
 }
 
+const loadLanguages = async () => {
+  try {
+    languageOptions.value = await getProjectLanguages()
+  } catch {
+    languageOptions.value = []
+  }
+}
+
 const getUserName = (id) => {
   if (!id) return '-'
   const user = userOptions.value.find((u) => u.id === id)
   return user ? (user.full_name || user.username) : id
 }
+
+const personnelAssignmentSummary = computed(() => {
+  const assignments = [
+    ['客服', form.customer_service_id],
+    ['销售', form.sales_person_id],
+    ['编辑', form.editor_id],
+    ['跟进', form.follow_up_person_id],
+  ].map(([label, id]) => [label, id ? getUserName(id) : '未指定'])
+  const names = assignments.map(([, name]) => name)
+  if (names.every((name) => name === names[0])) {
+    return `客服、销售、编辑、跟进均为 ${names[0]}`
+  }
+  return assignments.map(([label, name]) => `${label}：${name}`).join('｜')
+})
 
 const buildSearchFilters = () => {
   const [consultationDateStart, consultationDateEnd] = searchForm.consultation_date_range || []
@@ -1360,6 +1553,15 @@ const buildPayload = () => ({
   client_name: form.client_name?.trim() || null,
   client_short_name: form.client_short_name?.trim() || null,
   manager_contact: form.manager_contact?.trim() || null,
+  contact_name: form.contact_name?.trim() || null,
+  customer_order_no: form.customer_order_no?.trim() || null,
+  project_name: form.project_name?.trim() || null,
+  project_intake: {
+    ...form.project_intake,
+    employment_start: form.project_intake.employment_range?.[0] || form.project_intake.employment_start || null,
+    employment_end: form.project_intake.employment_range?.[1] || form.project_intake.employment_end || null,
+    employment_range: undefined,
+  },
   consultation_time: toNullable(form.consultation_time),
   consultation_method: toNullable(
     form.consultation_method === 'other'
@@ -1398,6 +1600,7 @@ const loadConsultationDetail = async (id) => {
 
 const handleAdd = async () => {
   dialogTitle.value = '新增咨询'
+  personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = 'create'
   resetForm()
@@ -1415,6 +1618,16 @@ const fillFormByRow = (row) => {
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
     manager_contact: row.manager_contact || '',
+    contact_name: row.contact_name || '',
+    customer_order_no: row.customer_order_no || '',
+    project_name: row.project_name || '',
+    project_intake: {
+      ...emptyProjectIntake(),
+      ...(row.project_intake || {}),
+      employment_range: row.project_intake?.employment_start && row.project_intake?.employment_end
+        ? [row.project_intake.employment_start, row.project_intake.employment_end]
+        : [],
+    },
     consultation_time: row.consultation_time || '',
     consultation_method: consultationMethod.method,
     consultation_method_custom: consultationMethod.custom,
@@ -1440,6 +1653,7 @@ const fillFormByRow = (row) => {
 
 const handleEdit = async (row) => {
   dialogTitle.value = '编辑咨询'
+  personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = `edit:${row.id}`
   try {
@@ -1458,13 +1672,13 @@ const statusUpdatingId = ref(null)
 
 // 列表内直接切换咨询状态：仅提交 status 字段（后端支持局部更新）。
 // 普通状态直接切换；切到「已确认」时保留与编辑弹窗一致的联动：
-// 笔译、口译先确认项目名称和邮件主题；标注、招聘由后端直接生成专用项目。
+// 四类项目统一确认建项信息并向内部用户发送邮件。
 const handleInlineStatusChange = async (row, newStatus) => {
   if (!newStatus || newStatus === row.status || statusUpdatingId.value === row.id) return
 
   if (
     newStatus === CONFIRMED_CONSULTATION_STATUS
-    && (isInterpretationConsultationType(row.consultation_type) || isTranslationConsultationType(row.consultation_type))
+    && isSupportedProjectType(row.consultation_type)
   ) {
     await openConfirmationDialog({
       mode: 'inline',
@@ -1536,7 +1750,7 @@ const handleSubmit = async () => {
       if (
         payload.status === CONFIRMED_CONSULTATION_STATUS
         && prevStatus !== CONFIRMED_CONSULTATION_STATUS
-        && (isInterpretationConsultationType(payload.consultation_type) || isTranslationConsultationType(payload.consultation_type))
+        && isSupportedProjectType(payload.consultation_type)
       ) {
         await openConfirmationDialog({
           mode: isUpdate ? 'update' : 'create',
@@ -1604,21 +1818,32 @@ const applyConfirmationPreview = (preview) => {
     customer_order_no: preview?.customer_order_no || '',
     email_subject_preview: preview?.email_subject_preview || '',
     missing_fields: Array.isArray(preview?.missing_fields) ? preview.missing_fields : [],
+    to_users: Array.isArray(preview?.to_users) ? preview.to_users : [],
+    cc_users: Array.isArray(preview?.cc_users) ? preview.cc_users : [],
+    email_body: preview?.email_body || '',
+    can_send: !!preview?.can_send,
+    blocking_reasons: Array.isArray(preview?.blocking_reasons) ? preview.blocking_reasons : [],
   })
   confirmationForm.projectName = preview?.project_name || confirmationForm.projectName
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
+  confirmationForm.emailSubject = preview?.email_subject_preview || ''
+  confirmationForm.emailBody = preview?.email_body || ''
+  confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
+  confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
 }
 
 const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource }) => {
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row })
   Object.assign(confirmationForm, {
-    projectName: buildAutoProjectName(previewSource?.client_short_name),
+    projectName: previewSource?.project_name || buildAutoProjectName(previewSource?.client_short_name),
     subjectPrefix: '',
-    customerOrderNo: '',
+    customerOrderNo: previewSource?.customer_order_no || '',
+    emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
   })
   Object.assign(confirmationPreview, {
     project_type: '', order_no: '', client_short_name: '', manager_contact: '',
     project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
+    to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
   })
   confirmationDialogVisible.value = true
   confirmationPreviewLoading.value = true
@@ -1631,7 +1856,10 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
       manager_contact: previewSource?.manager_contact?.trim() || null,
       project_name: confirmationForm.projectName || null,
       subject_prefix: null,
-      customer_order_no: null,
+      customer_order_no: confirmationForm.customerOrderNo || null,
+      project_intake: previewSource?.project_intake || {},
+      consultation_description: previewSource?.consultation_description || null,
+      remarks: previewSource?.remarks || null,
     })
     applyConfirmationPreview(preview)
     await nextTick()
@@ -1647,15 +1875,30 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
 const handleConfirmConsultation = async () => {
   if (!confirmationFormRef.value) return
   const valid = await confirmationFormRef.value.validate().catch(() => false)
-  if (!valid || !confirmationPreview.order_no) return
+  if (!valid || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length) return
+  if (confirmationAllMembersSelected.value) {
+    try {
+      await ElMessageBox.confirm(
+        `本邮件将发送给全体 ${validInternalUsers.value.length} 名内部成员，并同时确认建项。确认继续吗？`,
+        '全体成员发送确认',
+        { type: 'warning', confirmButtonText: '确认发送', cancelButtonText: '取消' },
+      )
+    } catch { return }
+  }
 
   const confirmation = {
     project_name: confirmationForm.projectName?.trim() || null,
     expected_order_no: confirmationPreview.order_no,
     subject_prefix: confirmationForm.subjectPrefix?.trim() || null,
-    customer_order_no: confirmationPreview.project_type === 'interpretation'
+    customer_order_no: confirmationPreview.project_type !== 'translation'
       ? confirmationForm.customerOrderNo?.trim() || null
       : null,
+    project_intake: confirmationContext.consultationPayload?.project_intake || confirmationContext.row?.project_intake || {},
+    to_user_ids: confirmationForm.toUserIds,
+    cc_user_ids: confirmationForm.ccUserIds.filter((id) => !confirmationForm.toUserIds.includes(id)),
+    email_subject: confirmationForm.emailSubject.trim(),
+    email_body: confirmationForm.emailBody.trim(),
+    idempotency_key: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   }
   confirmationSubmitting.value = true
   if (confirmationContext.mode === 'inline') {
@@ -1679,7 +1922,9 @@ const handleConfirmConsultation = async () => {
     }
     confirmationDialogVisible.value = false
     ElMessage.success(
-      `${result?.project_type === 'interpretation' ? '口译' : '笔译'}咨询已确认，项目和邮件主题已生成`
+      result?.mail?.status === 'sent'
+        ? `${confirmationTypeLabel.value}咨询已确认，项目已生成且内部邮件已发送`
+        : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
     )
     await fetchData()
     await routeToProjectBoard(result?.project_type)
@@ -1699,7 +1944,7 @@ const handleConfirmConsultation = async () => {
 
 const resetConfirmationDraft = () => {
   Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null })
-  Object.assign(confirmationForm, { projectName: '', subjectPrefix: '', customerOrderNo: '' })
+  Object.assign(confirmationForm, { projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
   confirmationFormRef.value?.clearValidate()
 }
 
@@ -1709,13 +1954,14 @@ const resetForm = () => {
 }
 
 const handleDialogClose = () => {
+  personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = null
   resetForm()
 }
 
 onMounted(async () => {
-  await loadUsers()
+  await Promise.all([loadUsers(), loadLanguages()])
   await fetchData()
 })
 
@@ -1758,6 +2004,13 @@ onBeforeUnmount(() => {
   padding-top: 8px;
   border-top: 1px solid var(--el-border-color-lighter);
 }
+
+.consultation-project-intake { margin: 14px 0 18px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-extra-light); }
+.consultation-project-intake h3 { margin: 0 0 16px; color: var(--el-text-color-primary); font-size: 15px; }
+.intake-list-header { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; color: var(--el-text-color-regular); font-size: 14px; font-weight: 500; }
+.intake-inline-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
+.intake-inline-row > .el-select, .intake-inline-row > .el-date-editor { flex: 1; }
+@media (max-width: 768px) { .intake-inline-row { align-items: stretch; flex-direction: column; } }
 
 .consultations-card :deep(.el-card__header) {
   padding: 10px 16px;
@@ -1908,6 +2161,94 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.personnel-assignment-section {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.personnel-assignment-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 0;
+  color: var(--el-text-color-primary);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.personnel-assignment-toggle:hover {
+  background: var(--el-fill-color-light);
+}
+
+.personnel-assignment-toggle:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: -2px;
+}
+
+.personnel-assignment-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.personnel-assignment-title {
+  flex: none;
+  font-weight: 600;
+}
+
+.personnel-assignment-summary {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personnel-assignment-action {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  color: var(--el-color-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.personnel-assignment-arrow {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+
+.personnel-assignment-arrow.is-expanded {
+  transform: rotate(180deg);
+}
+
+.personnel-assignment-fields {
+  padding: 16px 14px 2px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+}
+
+.personnel-assignment-hint {
+  margin: -4px 0 12px 120px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .detail-popover {
   max-height: 560px;
   overflow-y: auto;
@@ -2050,6 +2391,20 @@ onBeforeUnmount(() => {
 
   :global(.consultation-dialog .el-dialog__body) {
     padding: 16px 16px 4px;
+  }
+
+  .personnel-assignment-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .personnel-assignment-summary {
+    max-width: min(58vw, 420px);
+  }
+
+  .personnel-assignment-hint {
+    margin-left: 0;
   }
 }
 </style>

@@ -63,6 +63,12 @@ class WorkItemResponse(BaseModel):
     remark: Optional[str] = None
     available_actions: list[str] = Field(default_factory=list)
     workflow_instance_id: Optional[UUID] = None
+    project_responsibility_id: Optional[UUID] = None
+    source_kind: Optional[str] = None
+    project_type: Optional[str] = None
+    project_type_label: Optional[str] = None
+    project_id: Optional[UUID] = None
+    detail_route_name: Optional[str] = None
     translation_project_id: Optional[UUID] = None
     sub_order_id: Optional[UUID] = None
     order_no: Optional[str] = None
@@ -93,6 +99,7 @@ class TaskStatusChange(BaseModel):
 class WorkEntryCreate(BaseModel):
     work_date: date
     workflow_instance_id: Optional[UUID] = None
+    project_responsibility_id: Optional[UUID] = None
     non_project_task_id: Optional[UUID] = None
     progress_content: str = Field(min_length=1, max_length=10000)
     duration_minutes: int = Field(default=0, ge=0, le=1440)
@@ -100,8 +107,9 @@ class WorkEntryCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_source(self):
-        if (self.workflow_instance_id is None) == (self.non_project_task_id is None):
-            raise ValueError("项目任务和非项目任务必须且只能选择一个")
+        sources = [self.workflow_instance_id, self.project_responsibility_id, self.non_project_task_id]
+        if sum(value is not None for value in sources) != 1:
+            raise ValueError("项目责任、笔译工作流和非项目任务必须且只能选择一个")
         return self
 
 
@@ -117,6 +125,7 @@ class WorkEntryResponse(BaseModel):
     user_id: UUID
     work_date: date
     workflow_instance_id: Optional[UUID] = None
+    project_responsibility_id: Optional[UUID] = None
     non_project_task_id: Optional[UUID] = None
     progress_content: str
     duration_minutes: int

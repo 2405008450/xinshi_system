@@ -10,17 +10,20 @@
         collapse-tags-tooltip
         :max-collapse-tags="2"
         :placeholder="placeholder"
+        :filter-method="filterLanguagePairs"
         :loading="loading"
         :disabled="loading || loadingFailed"
         style="width: 100%"
+        @visible-change="handleVisibleChange"
       >
         <el-option
-          v-for="item in languagePairOptions"
+          v-for="item in filteredLanguagePairOptions"
           :key="item.value"
           :label="item.label"
           :value="item.value"
         >
           <span>{{ item.label }}</span>
+          <span v-if="item.shortLabel" class="language-pair-shortcut">{{ item.shortLabel }}</span>
           <el-tag v-if="item.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag>
         </el-option>
       </el-select>
@@ -56,6 +59,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 const languages = ref([])
+const searchKeyword = ref('')
 const loading = ref(false)
 const loadingFailed = ref(false)
 const createVisible = ref(false)
@@ -67,19 +71,74 @@ const parseLanguagePairs = (value) => {
   return [...new Set(String(value).split(/[；;，,、\n]+/).map((item) => item.trim()).filter(Boolean))]
 }
 
+const normalizeSearchText = (value) => String(value || '').toLocaleLowerCase().replace(/\s+/g, '')
+const normalizeDirectionQuery = (value) => normalizeSearchText(value).replace(
+  /翻译成为|翻译成|翻译为|转换成为|转换成|转换为|译成|译为|转成|转为|翻译|转换|->|=>|→|译|转|到|至/g,
+  ''
+)
+
+const getSearchNames = (language) => {
+  return {
+    code: language.code || '',
+    aliases: language.aliases || [],
+    shortcuts: language.shortcuts?.length ? language.shortcuts : [language.label],
+  }
+}
+
+const shortestShortcut = (values) => [...values].sort((a, b) => a.length - b.length)[0] || ''
+
 const languagePairOptions = computed(() => {
   const generated = languages.value.flatMap((source) => languages.value
     .filter((target) => target.id !== source.id)
-    .map((target) => ({
-      label: `${source.label}→${target.label}`,
-      value: `${source.label}→${target.label}`,
-      isCustom: source.isCustom || target.isCustom,
-    })))
+    .map((target) => {
+      const sourceSearch = getSearchNames(source)
+      const targetSearch = getSearchNames(target)
+      const value = `${source.label}→${target.label}`
+      return {
+        label: value,
+        value,
+        isCustom: source.isCustom || target.isCustom,
+        shortLabel: `${shortestShortcut(sourceSearch.shortcuts)}译${shortestShortcut(targetSearch.shortcuts)}`,
+        searchText: normalizeSearchText([
+          value,
+          sourceSearch.code,
+          targetSearch.code,
+          ...sourceSearch.aliases,
+          ...targetSearch.aliases,
+        ].join('|')),
+        directionSearchText: normalizeSearchText(
+          sourceSearch.shortcuts.flatMap((sourceShortcut) => (
+            targetSearch.shortcuts.map((targetShortcut) => `${sourceShortcut}${targetShortcut}`)
+          )).join('|')
+        ),
+      }
+    }))
   const known = new Set(generated.map((item) => item.value))
   const legacy = parseLanguagePairs(props.modelValue)
     .filter((value) => !known.has(value))
-    .map((value) => ({ label: value, value, isCustom: true }))
+    .map((value) => ({
+      label: value,
+      value,
+      isCustom: true,
+      shortLabel: '',
+      searchText: normalizeSearchText(value),
+      directionSearchText: normalizeDirectionQuery(value),
+    }))
   return [...legacy, ...generated]
+})
+
+const filteredLanguagePairOptions = computed(() => {
+  const tokens = String(searchKeyword.value || '')
+    .toLocaleLowerCase()
+    .split(/[\s|/]+/)
+    .map(normalizeSearchText)
+    .filter(Boolean)
+  if (!tokens.length) return languagePairOptions.value
+  return languagePairOptions.value.filter((item) => tokens.every((token) => {
+    const directionToken = normalizeDirectionQuery(token)
+    return item.searchText.includes(token)
+      || Boolean(directionToken && item.directionSearchText.includes(directionToken))
+  }))
 })
 
 const allowedLanguagePairSet = computed(() => new Set(languagePairOptions.value.map((item) => item.value)))
@@ -92,9 +151,14 @@ const selectedPairs = computed({
   },
 })
 
+const filterLanguagePairs = (query) => { searchKeyword.value = query || '' }
+const handleVisibleChange = (visible) => {
+  if (!visible) searchKeyword.value = ''
+}
+
 const hintText = computed(() => loadingFailed.value
   ? '语种候选项加载失败，请刷新页面后重试'
-  : '语种目录由笔译、口译和标注项目共享；自定义语种标记为“新”')
+  : '可输入“中英”“中译英”等简称搜索；语种目录由各类项目共享')
 
 const loadLanguages = async () => {
   loading.value = true
@@ -136,6 +200,7 @@ onMounted(loadLanguages)
 .language-pair-select__row { width: 100%; }
 .language-pair-select__row { display: flex; gap: 8px; align-items: flex-start; }
 .language-pair-select__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.language-pair-shortcut { float: right; margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
 .new-language-tag { float: right; margin-left: 8px; }
 .create-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
