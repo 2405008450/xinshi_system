@@ -13,6 +13,7 @@
     "@tiptap/vue-3": "^3.29.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/preset-sheets-data-validation": "0.25.1",
+    "@univerjs/preset-sheets-drawing": "0.25.1",
     "@univerjs/presets": "0.25.1",
     "axios": "^1.6.2",
     "element-plus": "^2.4.4",

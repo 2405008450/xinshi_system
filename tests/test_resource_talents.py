@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import uuid4
 from types import SimpleNamespace
 
@@ -5,9 +6,9 @@ import pytest
 
 from annotation_schemas import AnnotationProjectCreate
 from recruitment_schemas import RecruitmentCandidateCreate
-from resource_schemas import ResourcePersonCreate, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate
+from resource_schemas import ResourcePersonCreate, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate, TalentOptionResponse
 from resource_models import ResourcePerson
-from resource_service import extract_contact_identifiers, normalize_email, normalize_phone
+from resource_service import _sync_annotation_language_skills, extract_contact_identifiers, normalize_email, normalize_phone
 from routers.talent_options import ASSIGNABLE_TALENT_STATUSES, read_talent_options
 
 
@@ -84,6 +85,43 @@ def test_annotation_language_skill_requires_annotation_capability_and_distinct_l
                 "target_language_id": language_id,
             }],
         )
+
+
+def test_annotation_language_skill_sync_reuses_unchanged_rows_and_applies_diff(monkeypatch):
+    monkeypatch.setattr(
+        "resource_service.ResourceAnnotationLanguageSkill",
+        lambda **values: SimpleNamespace(**values),
+    )
+    kept_source, removed_source, added_source = uuid4(), uuid4(), uuid4()
+    kept = SimpleNamespace(source_language_id=kept_source, target_language_id=None)
+    removed = SimpleNamespace(source_language_id=removed_source, target_language_id=None)
+    person = SimpleNamespace(annotation_language_skills=[kept, removed])
+    payload = ResourcePersonCreate(
+        full_name="差量更新标注员",
+        capabilities=[{"capability_type": "annotation"}],
+        annotation_language_skills=[
+            {"source_language_id": kept_source},
+            {"source_language_id": added_source},
+        ],
+    )
+
+    class LanguageQuery:
+        def filter(self, *_args):
+            return self
+
+        def all(self):
+            return [(kept_source,), (added_source,)]
+
+    db = SimpleNamespace(query=lambda *_args: LanguageQuery())
+
+    _sync_annotation_language_skills(db, person, payload)
+
+    assert person.annotation_language_skills[0] is kept
+    assert removed not in person.annotation_language_skills
+    assert {
+        (item.source_language_id, item.target_language_id)
+        for item in person.annotation_language_skills
+    } == {(kept_source, None), (added_source, None)}
 
 
 def test_new_annotator_requires_annotation_language_skill():
@@ -170,6 +208,19 @@ def test_talent_name_patch_requires_a_non_blank_name():
 
 def test_project_talent_options_include_active_and_standby_people():
     assert ASSIGNABLE_TALENT_STATUSES == ("active", "standby")
+
+
+def test_project_talent_options_expose_gender_and_birth_date_for_derived_columns():
+    option = TalentOptionResponse(
+        id=uuid4(),
+        full_name="测试人才",
+        status="active",
+        gender="女",
+        birth_date="2000-09-01",
+    )
+
+    assert option.gender == "女"
+    assert option.birth_date == date(2000, 9, 1)
 
 
 def test_project_talent_options_apply_assignable_status_filter(monkeypatch):

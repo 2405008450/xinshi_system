@@ -35,6 +35,7 @@ services:
       DB_PASSWORD: "XinShi@2026#PgS3cure!"
       DB_NAME: xinshi_system
       CHAT_UPLOAD_DIR: "/app/data/chat_uploads"
+      ANNOTATION_CUSTOM_FIELD_IMAGE_DIR: "/app/data/annotation_custom_field_images"
       SMTP_MODE: "${SMTP_MODE:-disabled}"
       SMTP_HOST: "${SMTP_HOST:-}"
       SMTP_PORT: "${SMTP_PORT:-587}"
@@ -48,6 +49,7 @@ services:
       SMTP_TEST_RECIPIENT: "${SMTP_TEST_RECIPIENT:-}"
     volumes:
       - chat_uploads:/app/data/chat_uploads
+      - annotation_custom_field_images:/app/data/annotation_custom_field_images
     ports:
       - "8000:8000"
     depends_on:
@@ -71,4 +73,6 @@ volumes:
   pgdata:
     driver: local
   chat_uploads:
+    driver: local
+  annotation_custom_field_images:
     driver: local

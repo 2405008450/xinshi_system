@@ -1,12 +1,13 @@
 <template>
   <div class="annotation-workflow-page">
-    <el-card class="workflow-card">
+    <el-card class="workflow-card compact-list-card">
       <template #header>
         <div class="card-header">
           <div><h2>标注流程</h2><p>默认展示全部项目的进行状态；选择项目后仅查看该项目</p></div>
           <div class="header-actions">
             <CustomFieldManager v-if="projectId" table-code="assignment" :project-id="projectId" @changed="loadFields" />
-            <el-button v-if="canWrite" type="primary" @click="openEditor()">新增安排</el-button>
+            <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+            <el-button v-if="canWrite && !deleteMode" type="primary" @click="openEditor()">新增安排</el-button>
           </div>
         </div>
       </template>
@@ -23,7 +24,8 @@
         <el-button type="primary" @click="loadRows">查询</el-button><el-button @click="resetFilters">重置</el-button>
       </div>
 
-      <el-table :data="rows" v-loading="loading" border row-key="id">
+      <el-table ref="workflowTableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+        <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
         <el-table-column type="index" label="序号" width="70" align="center" />
         <el-table-column prop="projectOrderNo" label="订单号" width="130" />
         <el-table-column prop="projectName" label="项目名称" min-width="180" show-overflow-tooltip />
@@ -39,7 +41,7 @@
         <el-table-column label="进行状态" width="100"><template #default="{row}"><el-tag :type="assignmentStatusType(row.assignmentStatus)" size="small">{{ assignmentStatusLabels[row.assignmentStatus]||'-' }}</el-tag></template></el-table-column>
         <el-table-column v-for="field in customFields" :key="field.id" :label="field.fieldLabel" min-width="130" show-overflow-tooltip><template #default="{row}">{{ customText(row.customValues?.[field.id]) }}</template></el-table-column>
         <el-table-column label="详情" width="90" fixed="right"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760" title="正式标注安排详情"><template #reference><el-button link type="primary">查看详情</el-button></template><div class="detail"><el-descriptions :column="2" border size="small"><el-descriptions-item label="订单号">{{ row.projectOrderNo||'-' }}</el-descriptions-item><el-descriptions-item label="项目名称">{{ row.projectName||'-' }}</el-descriptions-item><el-descriptions-item label="客户简称">{{ row.clientShortName||'-' }}</el-descriptions-item><el-descriptions-item label="角色">{{ roleLabels[row.assignmentRole] }}</el-descriptions-item><el-descriptions-item label="人员">{{ row.personName }}（{{ row.resourceCode||'-' }}）</el-descriptions-item><el-descriptions-item label="进行状态">{{ assignmentStatusLabels[row.assignmentStatus]||'-' }}</el-descriptions-item><el-descriptions-item label="语种">{{ row.languageDisplay||'-' }}</el-descriptions-item><el-descriptions-item label="音频长度">{{ amountText(row.audioDurationValue,row.audioDurationUnit,durationUnitLabels) }}</el-descriptions-item><el-descriptions-item label="人员价格" :span="2">{{ priceText(row.amount,row.unit,row.currency) }}</el-descriptions-item><el-descriptions-item label="质量评分">{{ row.qualityScore||'-' }}</el-descriptions-item><el-descriptions-item label="评价备注" :span="2">{{ row.evaluationNote||'-' }}</el-descriptions-item><el-descriptions-item v-for="field in customFields" :key="field.id" :label="field.fieldLabel" :span="2">{{ customText(row.customValues?.[field.id]) }}</el-descriptions-item></el-descriptions></div></el-popover></template></el-table-column>
-        <el-table-column label="操作" width="130" fixed="right" align="center"><template #default="{row}"><el-button v-if="canWrite" link type="primary" @click="openEditor(row)">编辑</el-button><el-button v-if="canWrite" link type="danger" @click="removeRow(row)">删除</el-button></template></el-table-column>
+        <el-table-column v-if="!deleteMode" label="操作" width="90" fixed="right" align="center"><template #default="{row}"><el-button v-if="canWrite" link type="primary" @click="openEditor(row)">编辑</el-button></template></el-table-column>
       </el-table>
       <el-empty v-if="!loading&&!rows.length" :description="projectId?'该项目暂无正式标注安排':'暂无正式标注安排'" />
     </el-card>
@@ -67,19 +69,22 @@
 <script setup>
 import { computed,onBeforeUnmount,onMounted,reactive,ref } from 'vue'
 import { Filter } from '@element-plus/icons-vue'
-import { ElMessage,ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import * as annotationApi from '@/api/annotationProjects'
 import * as opsApi from '@/api/annotationOps'
 import { getProjectTalentOptions } from '@/api/talents'
 import { hasPermission } from '@/utils/permission'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import AnnotationCustomFieldInputs from '@/components/annotation/AnnotationCustomFieldInputs.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 
-const projects=ref([]),talents=ref([]),rows=ref([]),customFields=ref([]),editorFields=ref([]),projectId=ref(''),languageItemId=ref(''),roleFilter=ref(''),statusFilter=ref(''),keyword=ref(''),loading=ref(false),dialogVisible=ref(false),saving=ref(false),languageFilterVisible=ref(false),formRef=ref()
+const projects=ref([]),talents=ref([]),rows=ref([]),customFields=ref([]),editorFields=ref([]),projectId=ref(''),languageItemId=ref(''),roleFilter=ref(''),statusFilter=ref(''),keyword=ref(''),loading=ref(false),dialogVisible=ref(false),saving=ref(false),languageFilterVisible=ref(false),formRef=ref(),workflowTableRef=ref(null)
 let keywordTimer,requestController,requestId=0
 const roleLabels={annotator:'标注员',quality_inspector:'质检员'},durationUnitLabels={second:'秒',minute:'分钟',hour:'小时'},priceUnitLabels={item:'条',second:'秒',minute:'分钟',hour:'小时'}
 const assignmentStatusLabels={assigned:'已安排',in_progress:'进行中',completed:'已完成',cancelled:'已取消'}
 const canWrite=computed(()=>hasPermission('projects:write'))
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:workflowTableRef,deleteRow:(row)=>opsApi.deleteAnnotationWorkflow(row.projectId,row.id),getLabel:(row)=>`${row.personName || '未命名人员'}的${roleLabels[row.assignmentRole] || '标注'}安排`,reload:()=>loadRows(),entityName:'标注流程记录'})
 const filterProject=computed(()=>projects.value.find(item=>item.id===projectId.value))
 const editorProject=computed(()=>projects.value.find(item=>item.id===form.projectId))
 const languageItems=computed(()=>editorProject.value?.languageItems||[])
@@ -98,7 +103,6 @@ const clearLanguageFilter=()=>{languageItemId.value='';languageFilterVisible.val
 const editorProjectChanged=async()=>{form.languageItemId=null;form.customValues={};editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[]}
 const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?{...row,projectId:row.projectId,customValues:{...(row.customValues||{})}}:{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
 const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{const data=payload();form.id?await opsApi.updateAnnotationWorkflow(form.projectId,form.id,data):await opsApi.createAnnotationWorkflow(form.projectId,data);dialogVisible.value=false;ElMessage.success('正式安排已保存');await loadRows()}catch(error){ElMessage.error(error.detail||error.message||'保存失败')}finally{saving.value=false}}
-const removeRow=async row=>{await ElMessageBox.confirm(`删除 ${row.personName} 的${roleLabels[row.assignmentRole]}安排？`,'确认删除');await opsApi.deleteAnnotationWorkflow(row.projectId,row.id);ElMessage.success('已删除');await loadRows()}
 const amountText=(amount,unit,labels)=>amount===null||amount===undefined?'-':`${amount} ${labels[unit]||unit||''}`
 const priceText=(amount,unit,currency)=>amount===null||amount===undefined?'-':`${amount} ${currency||'CNY'} / ${priceUnitLabels[unit]||unit||'-'}`
 const customText=value=>Array.isArray(value)?value.join('、'):value===true?'是':value===false?'否':value??'-'

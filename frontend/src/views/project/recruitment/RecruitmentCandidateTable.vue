@@ -223,6 +223,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
+import { launchOpenPath } from '@/utils/openPath'
 import {
   createRecruitmentCandidateCommunication,
   createRecruitmentResumeSource,
@@ -371,19 +372,18 @@ const saveSource = async (row, value) => {
 }
 
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN').format(new Date(`${value}T00:00:00`)) : '-'
-const toOpenPathHref = (path) => `openpath://${encodeURIComponent(String(path).replace(/^\\\\/, '')).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')}`
 const requirePath = (path) => {
   const value = String(path || '').trim()
   if (!value) ElMessage.warning('该人选暂无简历路径')
   return value
 }
-const openResume = (path) => { const value = requirePath(path); if (value) window.location.href = toOpenPathHref(value) }
+const openResume = (path) => { const value = requirePath(path); if (value) launchOpenPath(value) }
 const resumeDirectory = (path) => {
   const value = path.replace(/[\\/]+$/, '')
   const name = value.split(/[\\/]/).pop() || ''
   return /\.[^\\/.]+$/.test(name) ? value.slice(0, Math.max(value.lastIndexOf('\\'), value.lastIndexOf('/'))) : value
 }
-const openResumeFolder = (path) => { const value = requirePath(path); if (value) window.location.href = toOpenPathHref(resumeDirectory(value)) }
+const openResumeFolder = (path) => { const value = requirePath(path); if (value) launchOpenPath(resumeDirectory(value)) }
 const copyResumePath = async (path) => {
   const value = requirePath(path)
   if (!value) return

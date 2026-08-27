@@ -35,7 +35,7 @@
 | 任务与日报 | 6 | `non_project_task_recurrence`, `non_project_task`, `non_project_task_event`, `work_entry`, `daily_report`, `daily_report_item` |
 | 排班与请假 | 2 | `work_schedule`, `employee_leave` |
 | 稿件安排 | 3 | `manuscript_dispatch`, `manuscript_arrangement`, `manuscript_delivery_milestone` |
-| 标注运营 | 14 | `annotation_project`, `annotation_project_language_item`, `annotation_project_price_item`, `annotation_project_assignee`, `annotation_project_status_history`, `annotation_platform`, `annotation_platform_account`, `annotation_account_assignment`, `annotation_account_assignment_language`, `annotation_account_password_history`, `annotation_credential_access_log`, `annotation_trial_record`, `annotation_assignee_rate`, `annotation_custom_field_definition` |
+| 标注运营 | 16 | `annotation_project`, `annotation_project_language_item`, `annotation_project_price_item`, `annotation_project_assignee`, `annotation_project_status_history`, `annotation_platform`, `annotation_platform_account`, `annotation_account_assignment`, `annotation_account_assignment_language`, `annotation_custom_field_image`, `annotation_account_assignment_image`, `annotation_account_password_history`, `annotation_credential_access_log`, `annotation_trial_record`, `annotation_assignee_rate`, `annotation_custom_field_definition` |
 | 资源需求 | 3 | `resource_request`, `resource_request_item`, `resource_request_progress_log` |
 
 ## 4. 核心业务关系

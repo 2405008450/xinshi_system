@@ -678,7 +678,7 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
-        <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading" @click="handleSubmit">保存</el-button>
+        <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
     </el-dialog>
 
@@ -862,6 +862,7 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
+import { launchOpenPath } from '@/utils/openPath'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -1560,10 +1561,6 @@ const getOriginalPath = async (row) => {
   const files = await getProjectFilesByProject(row.id, { skip: 0, limit: 1 })
   return Array.isArray(files) ? String(files[0]?.storage_path || '').trim() : ''
 }
-const toOpenPathHref = (path) => {
-  const stripped = path.replace(/^\\\\/, '')
-  return `openpath://${encodeURIComponent(stripped).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')}`
-}
 const openOriginalPath = async (row) => {
   try {
     const path = await getOriginalPath(row)
@@ -1571,7 +1568,7 @@ const openOriginalPath = async (row) => {
       ElMessage.warning('该订单暂无原文路径')
       return
     }
-    window.location.href = toOpenPathHref(path)
+    launchOpenPath(path)
   } catch (error) {
     ElMessage.error(error.detail || error.message || '获取原文路径失败')
   }

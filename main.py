@@ -82,16 +82,19 @@ from business_mail_models import (
 )
 from annotation_ops_models import (
     AnnotationAccountAssignment,
+    AnnotationAccountAssignmentImage,
     AnnotationAccountAssignmentLanguage,
     AnnotationAccountPasswordHistory,
     AnnotationAssigneeRate,
     AnnotationCustomFieldDefinition,
+    AnnotationCustomFieldImage,
     AnnotationCredentialAccessLog,
     AnnotationPlatform,
     AnnotationPlatformAccount,
     AnnotationProjectStatusHistory,
     AnnotationTrialRecord,
 )
+from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
 from resource_request_models import ResourceRequest, ResourceRequestItem, ResourceRequestProgressLog
 from routers import business_mails
 
@@ -495,10 +498,26 @@ def ensure_annotation_custom_field_scope_constraint():
                 ALTER TABLE annotation_custom_field_definition
                   ADD CONSTRAINT ck_annotation_custom_field_scope CHECK(
                     (table_code IN ('project','account') AND project_id IS NULL) OR
-                    (table_code IN ('trial','assignment') AND project_id IS NOT NULL)
+                    (table_code IN ('trial','assignment','account_assignment') AND project_id IS NOT NULL)
                   );
               END IF;
             END $$
+        """))
+
+
+def ensure_annotation_custom_field_type_constraint():
+    """为已有数据库开放仅限项目账号表使用的图片字段类型。"""
+    if "annotation_custom_field_definition" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            ALTER TABLE annotation_custom_field_definition
+              DROP CONSTRAINT IF EXISTS ck_annotation_custom_field_type;
+            ALTER TABLE annotation_custom_field_definition
+              ADD CONSTRAINT ck_annotation_custom_field_type CHECK (
+                data_type IN ('text','number','date','datetime','boolean','single_select','multi_select','url')
+                OR (data_type = 'image' AND table_code = 'account_assignment')
+              )
         """))
 
 
@@ -947,6 +966,12 @@ def ensure_multitype_workbench_schema():
 
 @app.on_event("startup")
 def ensure_runtime_tables():
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_app_user_email_normalized
+            ON app_user (lower(btrim(email)))
+            WHERE email IS NOT NULL AND btrim(email) <> ''
+        """))
     ensure_consultation_project_intake_columns()
     ClientContact.__table__.create(bind=engine, checkfirst=True)
     AppNotification.__table__.create(bind=engine, checkfirst=True)
@@ -1011,6 +1036,10 @@ def ensure_runtime_tables():
     AnnotationAssigneeRate.__table__.create(bind=engine, checkfirst=True)
     AnnotationCustomFieldDefinition.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_custom_field_scope_constraint()
+    ensure_annotation_custom_field_type_constraint()
+    AnnotationCustomFieldImage.__table__.create(bind=engine, checkfirst=True)
+    AnnotationAccountAssignmentImage.__table__.create(bind=engine, checkfirst=True)
+    cleanup_orphan_custom_field_images()
     RecruitmentResumeSource.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProject.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_project_columns()

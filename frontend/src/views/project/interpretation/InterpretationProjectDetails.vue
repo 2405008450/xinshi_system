@@ -559,7 +559,7 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="handleSubmit">保存</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
     </el-dialog>
 
@@ -634,6 +634,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { launchOpenPath } from '@/utils/openPath'
 
 const canWrite = hasPermission('projects:write')
 const mailComposerVisible = ref(false)
@@ -1255,10 +1256,9 @@ watch(
   { deep: true },
 )
 
-const toOpenPathHref = (path) => `openpath://${encodeURIComponent(String(path).replace(/^\\\\/, '')).replace(/%5C/gi, '\\').replace(/%2F/gi, '/')}`
 const openPathValue = (path) => {
   if (!path?.trim()) return ElMessage.warning('暂无可打开的路径')
-  window.location.href = toOpenPathHref(path.trim())
+  launchOpenPath(path.trim())
 }
 const copyPathValue = async (path) => {
   if (!path?.trim()) return ElMessage.warning('暂无可复制的路径')

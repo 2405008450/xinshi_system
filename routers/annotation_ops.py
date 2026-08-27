@@ -4,10 +4,19 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from annotation_custom_field_service import create_custom_field, deactivate_custom_field, list_custom_fields, update_custom_field
+from annotation_custom_field_image_service import (
+    IMAGE_SIGNATURES,
+    MAX_IMAGE_BYTES,
+    create_custom_field_image,
+    delete_pending_custom_field_image,
+    get_accessible_custom_field_image,
+    get_custom_field_image_dir,
+)
 from annotation_account_import_service import (
     decode_json_list, decode_json_object, import_accounts, parse_import_payload,
 )
@@ -17,7 +26,7 @@ from annotation_ops_schemas import (
     AnnotationWorkflowResponse, AnnotationWorkflowWrite,
     AssigneeRateResponse, AssigneeRateWrite, CredentialBatchRevealItem, CredentialBatchRevealRequest,
     CredentialRevealRequest, CredentialRevealResponse,
-    CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
+    CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
     ReleaseAllResponse, StatusHistoryResponse, TrialResponse, TrialWrite,
 )
 from annotation_ops_service import (
@@ -352,6 +361,75 @@ def edit_field(field_id: UUID, payload: CustomFieldWrite, db: Session = Depends(
 @project_router.delete("/custom-fields/{field_id}", status_code=204, dependencies=[Depends(require_any_permission("projects:write"))])
 def deactivate_field(field_id: UUID, db: Session = Depends(get_db)):
     if not deactivate_custom_field(db, field_id): raise HTTPException(404, "动态字段不存在")
+
+
+@account_router.post(
+    "/custom-field-images",
+    response_model=CustomFieldImageResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_any_permission("annotation_accounts:write"))],
+)
+async def upload_custom_field_image(
+    project_id: UUID = Form(...),
+    field_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    content_type = (file.content_type or "").lower()
+    if content_type not in IMAGE_SIGNATURES:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "仅支持 JPEG、PNG、GIF、WebP 图片")
+    content = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "单张图片不能超过 10MB")
+    try:
+        return create_custom_field_image(
+            db,
+            project_id=project_id,
+            field_id=field_id,
+            uploaded_by=user.id,
+            original_name=file.filename or "image",
+            content_type=content_type,
+            content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@account_router.get(
+    "/custom-field-images/{image_id}",
+    dependencies=[Depends(require_any_permission("annotation_accounts:read", "annotation_accounts:write"))],
+)
+def read_custom_field_image(
+    image_id: UUID,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    image = get_accessible_custom_field_image(db, image_id, user.id)
+    if not image:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "图片不存在")
+    path = get_custom_field_image_dir() / image.storage_name
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "图片文件不存在")
+    return FileResponse(path, media_type=image.content_type, filename=image.original_name, content_disposition_type="inline")
+
+
+@account_router.delete(
+    "/custom-field-images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_any_permission("annotation_accounts:write"))],
+)
+def remove_pending_custom_field_image(
+    image_id: UUID,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    try:
+        deleted = delete_pending_custom_field_image(db, image_id, user.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "待保存图片不存在")
 
 
 router.include_router(account_router)

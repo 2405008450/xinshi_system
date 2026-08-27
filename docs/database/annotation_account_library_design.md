@@ -35,6 +35,8 @@ erDiagram
   annotation_project o|--o{ annotation_account_assignment : context
   annotation_account_assignment ||--o{ annotation_account_assignment_language : languages
   annotation_project_language_item ||--o{ annotation_account_assignment_language : catalog
+  annotation_account_assignment ||--o{ annotation_account_assignment_image : images
+  annotation_custom_field_image ||--o{ annotation_account_assignment_image : history_refs
   annotation_platform_account ||--o{ annotation_account_password_history : password_history
   annotation_platform_account ||--o{ annotation_credential_access_log : reveal_audit
   annotation_platform_account o|--o{ annotation_trial_record : trial_account
@@ -99,6 +101,10 @@ erDiagram
 
 记录 `account_id`、查看用户、查看时间、原因和客户端 IP。只有成功读取完整凭据后才形成一条查看审计。
 
+### 4.7 项目账号动态图片
+
+`annotation_custom_field_image` 保存项目、字段、上传者、随机存储名、MIME 和文件大小；`annotation_account_assignment_image` 以 `assignment_id + field_definition_id` 唯一约束保证每格单图。图片替换或清空只调整当前分配的关联，已释放分配的历史关联不受影响。未关联超过 24 小时的资源和无数据库记录的遗留文件由启动清理任务回收。
+
 ## 5. 现有表调整
 
 ### 5.1 `annotation_trial_record`
@@ -113,7 +119,7 @@ erDiagram
 
 ### 5.2 `annotation_custom_field_definition`
 
-作用域规则调整为：`project/account` 必须全局，`trial/assignment/account_assignment` 必须指定项目。迁移脚本按 `field_key` 合并存量账号字段定义，并把成员 `custom_values` 中的旧字段 UUID 映射到保留定义。
+作用域规则调整为：`project/account` 必须全局，`trial/assignment/account_assignment` 必须指定项目。`image` 类型仅允许 `account_assignment`，值为图片 UUID 或 `null`。迁移脚本按 `field_key` 合并存量账号字段定义，并把成员 `custom_values` 中的旧字段 UUID 映射到保留定义。
 
 ### 5.3 旧表生命周期
 

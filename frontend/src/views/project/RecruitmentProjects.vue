@@ -237,7 +237,7 @@
           </div>
         </el-form>
       </div>
-      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject">保存</el-button></div></template>
+      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button></div></template>
     </el-dialog>
 
     <el-dialog v-model="jobDescriptionEditorVisible" title="编辑职位描述" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body class="job-description-dialog">
@@ -325,6 +325,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { launchOpenPath } from '@/utils/openPath'
 import { getClients } from '@/api/clients'
 import { getUsers } from '@/api/users'
 import { getRecruitmentTalents } from '@/api/talents'
@@ -631,8 +632,7 @@ const languageText=(row)=>(row.languageDirections||[]).map((item)=>item.label).j
 const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
 const periodText=(row)=>fullPeriodText(row)
 const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
-const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`
-const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');window.location.href=toOpenPathHref(path.trim())}
+const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');launchOpenPath(path.trim())}
 const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{await navigator.clipboard.writeText(path.trim());ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 
 onMounted(async()=>{const [userRows,clientRows,sourceRows,talents,languageRows]=await Promise.all([getUsers({skip:0,limit:500}),getClients({skip:0,limit:500}),getRecruitmentResumeSources(),getRecruitmentTalents({skip:0,limit:500}),getProjectLanguages()]).catch(()=>[[],[],[],[],[]]);users.value=userRows||[];clients.value=clientRows||[];resumeSources.value=sourceRows||[];talentOptions.value=talents||[];languages.value=languageRows||[];await fetchData();await focusRouteProject()})

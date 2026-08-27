@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Integer,
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Integer,
     Numeric, PrimaryKeyConstraint, String, Text, UniqueConstraint, Uuid, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -174,6 +174,45 @@ class AnnotationAccountAssignmentLanguage(Base):
     language_item = relationship("AnnotationProjectLanguageItem")
 
 
+class AnnotationCustomFieldImage(Base):
+    __tablename__ = "annotation_custom_field_image"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_custom_field_image_pkey"),
+        ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_custom_image_project"),
+        ForeignKeyConstraint(["field_definition_id"], ["annotation_custom_field_definition.id"], ondelete="CASCADE", name="fk_annotation_custom_image_field"),
+        ForeignKeyConstraint(["uploaded_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_custom_image_uploader"),
+        UniqueConstraint("storage_name", name="uq_annotation_custom_image_storage"),
+        Index("ix_annotation_custom_image_project_field", "project_id", "field_definition_id"),
+        Index("ix_annotation_custom_image_created_at", "created_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    field_definition_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+class AnnotationAccountAssignmentImage(Base):
+    __tablename__ = "annotation_account_assignment_image"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_account_assignment_image_pkey"),
+        ForeignKeyConstraint(["assignment_id"], ["annotation_account_assignment.id"], ondelete="CASCADE", name="fk_annotation_assignment_image_assignment"),
+        ForeignKeyConstraint(["field_definition_id"], ["annotation_custom_field_definition.id"], ondelete="CASCADE", name="fk_annotation_assignment_image_field"),
+        ForeignKeyConstraint(["image_id"], ["annotation_custom_field_image.id"], ondelete="CASCADE", name="fk_annotation_assignment_image_image"),
+        UniqueConstraint("assignment_id", "field_definition_id", name="uq_annotation_assignment_image_field"),
+        Index("ix_annotation_assignment_image_image", "image_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    assignment_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    field_definition_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    image_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class AnnotationAccountPasswordHistory(Base):
     __tablename__ = "annotation_account_password_history"
     __table_args__ = (
@@ -268,7 +307,11 @@ class AnnotationCustomFieldDefinition(Base):
         ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_custom_field_project"),
         ForeignKeyConstraint(["created_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_custom_field_creator"),
         CheckConstraint("table_code IN ('project','account','trial','assignment','account_assignment')", name="ck_annotation_custom_field_table"),
-        CheckConstraint("data_type IN ('text','number','date','datetime','boolean','single_select','multi_select','url')", name="ck_annotation_custom_field_type"),
+        CheckConstraint(
+            "data_type IN ('text','number','date','datetime','boolean','single_select','multi_select','url') "
+            "OR (data_type = 'image' AND table_code = 'account_assignment')",
+            name="ck_annotation_custom_field_type",
+        ),
         CheckConstraint("sequence_no > 0", name="ck_annotation_custom_field_sequence"),
         CheckConstraint(
             "(table_code IN ('project','account') AND project_id IS NULL) OR "

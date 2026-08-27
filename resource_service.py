@@ -241,9 +241,22 @@ def _sync_annotation_language_skills(db: Session, person: ResourcePerson, payloa
         }
         if found != language_ids:
             raise ValueError("标注语种/方言中包含不存在的语种")
-    person.annotation_language_skills = [
-        ResourceAnnotationLanguageSkill(**item.model_dump()) for item in incoming
-    ]
+    existing_by_key = {
+        (item.source_language_id, item.target_language_id): item
+        for item in person.annotation_language_skills
+    }
+    incoming_by_key = {
+        (item.source_language_id, item.target_language_id): item
+        for item in incoming
+    }
+    for key, row in list(existing_by_key.items()):
+        if key not in incoming_by_key:
+            person.annotation_language_skills.remove(row)
+    for key, item in incoming_by_key.items():
+        if key not in existing_by_key:
+            person.annotation_language_skills.append(
+                ResourceAnnotationLanguageSkill(**item.model_dump())
+            )
 
 
 def _legacy_translation_type(capability_types: set[str]) -> Optional[str]:

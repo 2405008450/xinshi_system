@@ -420,6 +420,7 @@ import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFiel
 import { hasPermission } from '@/utils/permission'
 import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { launchOpenPath } from '@/utils/openPath'
 
 const canWrite = hasPermission('projects:write')
 const route = useRoute()
@@ -536,8 +537,7 @@ const openStatusDialog=(row,value)=>{if(!value||value===row.projectStatus)return
 const confirmStatusChange=async()=>{const row=statusTargetRow.value;if(!row||!statusForm.projectStatus||!statusForm.effectiveOn)return;statusSubmitting.value=true;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,statusForm);Object.assign(row,updated);detailCache[row.id]=updated;delete statusHistoryCache[row.id];statusDialogVisible.value=false;ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{statusSubmitting.value=false;setProjectStatusSaving(row.id,false)}}
 const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.value=[];nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 
-const toOpenPathHref=(path)=>`openpath://${encodeURIComponent(String(path).replace(/^\\\\/,'')).replace(/%5C/gi,'\\').replace(/%2F/gi,'/')}`
-const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');window.location.href=toOpenPathHref(value)}
+const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');launchOpenPath(value)}
 const copyPathValue=async(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可复制的路径');try{await navigator.clipboard.writeText(value);ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 const projectPath=async(row)=>(await loadDetail(row.id))?.projectPath||''
 const openProjectPath=async(row)=>openPathValue(await projectPath(row))

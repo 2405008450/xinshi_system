@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 import annotation_custom_field_service as custom_field_service
-from annotation_custom_field_service import _resequence, _validate_scope
+from annotation_custom_field_service import _resequence, _validate_scope, deactivate_custom_field
 from annotation_models import AnnotationProjectAssignee
 from annotation_ops_models import (
     AnnotationCustomFieldDefinition,
@@ -41,6 +41,28 @@ def test_custom_field_resequence_never_uses_invalid_negative_positions(monkeypat
 
     assert [row.sequence_no for row in rows] == [2, 3, 1]
     assert all(row.sequence_no > 0 for row in rows)
+
+
+def test_custom_field_delete_is_recoverable_soft_deactivation():
+    field_id = uuid4()
+    row = SimpleNamespace(id=field_id, is_active=True, updated_at=None)
+
+    class FakeDb:
+        committed = False
+
+        def get(self, _model, value):
+            return row if value == field_id else None
+
+        def commit(self):
+            self.committed = True
+
+        def delete(self, _row):
+            raise AssertionError("动态字段不允许物理删除")
+
+    db = FakeDb()
+    assert deactivate_custom_field(db, field_id) is True
+    assert row.is_active is False
+    assert db.committed is True
 
 
 def test_trial_and_workflow_rows_reuse_project_details_through_foreign_keys():

@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text, Time, UniqueConstraint, Uuid, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text, Time, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -59,6 +59,14 @@ class AppUser(Base):
         back_populates='employee',
         foreign_keys='EmployeeLeave.employee_id',
     )
+
+
+Index(
+    'uq_app_user_email_normalized',
+    func.lower(func.btrim(AppUser.email)),
+    unique=True,
+    postgresql_where=AppUser.email.is_not(None) & (func.btrim(AppUser.email) != ''),
+)
 
 
 class Role(Base):

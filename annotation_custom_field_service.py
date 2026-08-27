@@ -138,6 +138,7 @@ def validate_custom_values(
     project_id: Optional[UUID],
     values: dict[str, Any],
     existing_values: Optional[dict[str, Any]] = None,
+    user_id: Optional[UUID] = None,
 ) -> dict[str, Any]:
     """校验动态字段，并在编辑时保留已经停用的历史值。"""
     active_definitions = list_custom_fields(db, table_code, project_id)
@@ -155,6 +156,17 @@ def validate_custom_values(
             if key not in existing_values or existing_values[key] != value:
                 raise ValueError(f"动态字段“{definition.field_label}”已停用，不能修改")
             normalized[key] = existing_values[key]
+        elif definition.data_type == "image":
+            from annotation_custom_field_image_service import normalize_image_value
+
+            normalized[key] = normalize_image_value(
+                db,
+                definition,
+                project_id,
+                value,
+                user_id=user_id,
+                existing_value=existing_values.get(key),
+            )
         else:
             normalized[key] = _normalize_value(definition, value)
     for key, value in existing_values.items():

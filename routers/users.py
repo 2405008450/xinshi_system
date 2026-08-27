@@ -1,11 +1,13 @@
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import EmailStr
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
 from crud import (
-    get_user, get_user_by_username, get_users, count_users,
+    get_user, get_user_by_email, get_user_by_username, get_users, count_users,
     create_user, update_user, reset_user_password, delete_user
 )
 from schemas import AppUserCreate, AppUserUpdate, AppUserPasswordReset, AppUserResponse
@@ -13,6 +15,18 @@ from routers.auth import require_any_permission, require_permission, require_sup
 from leave_service import assignment_disabled_reason, get_active_leave_map
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+EMAIL_ALREADY_BOUND_DETAIL = "该邮箱已被其他用户绑定，请使用其他邮箱"
+
+
+def _raise_user_integrity_error(exc: IntegrityError) -> None:
+    constraint_name = getattr(getattr(getattr(exc, "orig", None), "diag", None), "constraint_name", None)
+    if constraint_name == "uq_app_user_email_normalized":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=EMAIL_ALREADY_BOUND_DETAIL) from exc
+    if constraint_name == "app_user_username_key":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在") from exc
+    raise exc
 
 
 @router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("system:users:write"))])
@@ -24,7 +38,16 @@ def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered"
         )
-    return create_user(db=db, user=user)
+    if get_user_by_email(db, user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=EMAIL_ALREADY_BOUND_DETAIL,
+        )
+    try:
+        return create_user(db=db, user=user)
+    except IntegrityError as exc:
+        db.rollback()
+        _raise_user_integrity_error(exc)
 
 
 @router.get("/", response_model=List[AppUserResponse], dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
@@ -84,6 +107,21 @@ def read_user_count(
     }
 
 
+@router.get("/email-availability", dependencies=[Depends(require_permission("system:users:write"))])
+def check_user_email_availability(
+    email: EmailStr = Query(...),
+    exclude_user_id: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {
+        "available": get_user_by_email(
+            db,
+            str(email),
+            exclude_user_id=exclude_user_id,
+        ) is None
+    }
+
+
 @router.get("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_user(user_id: UUID, db: Session = Depends(get_db)):
     db_user = get_user(db, user_id=user_id)
@@ -101,7 +139,20 @@ def update_user_endpoint(
     user_update: AppUserUpdate,
     db: Session = Depends(get_db)
 ):
-    db_user = update_user(db, user_id=user_id, user_update=user_update)
+    if "email" in user_update.model_fields_set and get_user_by_email(
+        db,
+        user_update.email,
+        exclude_user_id=user_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=EMAIL_ALREADY_BOUND_DETAIL,
+        )
+    try:
+        db_user = update_user(db, user_id=user_id, user_update=user_update)
+    except IntegrityError as exc:
+        db.rollback()
+        _raise_user_integrity_error(exc)
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

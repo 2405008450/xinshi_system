@@ -86,6 +86,7 @@ export function useBatchDelete({
   }
 
   const restoreFailedSelection = async (failures) => {
+    selectedRows.value = failures.map(({ row }) => row)
     const failedIds = new Set(failures.map(({ row }) => row?.id))
     await nextTick()
     clearTableSelection()

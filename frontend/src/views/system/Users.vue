@@ -320,23 +320,27 @@ const form = reactive({
   is_active: true
 })
 
-const validateEmail = (_rule, value, callback) => {
+const validateEmail = async (_rule, value) => {
   const email = String(value || '').trim()
-  if (!email) {
-    callback()
-    return
-  }
+  if (!email) return
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    callback(new Error('请输入正确的邮箱地址'))
-    return
+    throw new Error('请输入正确的邮箱地址')
   }
-  callback()
+  try {
+    const result = await userApi.checkEmailAvailability(email, form.id)
+    if (!result.available) {
+      throw new Error('该邮箱已被其他用户绑定，请使用其他邮箱')
+    }
+  } catch (error) {
+    if (error instanceof Error) throw error
+    throw new Error(error.detail || '邮箱校验失败，请稍后重试')
+  }
 }
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  email: [{ validator: validateEmail, trigger: ['blur', 'change'] }]
+  email: [{ validator: validateEmail, trigger: 'blur' }]
 }
 
 let searchTimer = null

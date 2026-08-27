@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from annotation_custom_field_service import validate_custom_values
+from annotation_custom_field_image_service import sync_assignment_image_links, validate_image_value_ownership
 from annotation_models import AnnotationProject, AnnotationProjectAssignee, AnnotationProjectLanguageItem
 from annotation_ops_models import (
     AnnotationAccountAssignment, AnnotationAccountAssignmentLanguage,
@@ -436,13 +437,15 @@ def _apply_assignment(db: Session, account: AnnotationPlatformAccount, payload, 
         language_ids=language_ids,
         exclude_account_id=account.id,
     )
+    raw_custom_values = getattr(payload, "custom_values", {}) or {}
+    validate_image_value_ownership(db, payload.project_id, raw_custom_values, assigned_by)
     row = AnnotationAccountAssignment(
         account_id=account.id, person_id=payload.person_id, project_id=payload.project_id,
         assigned_on=payload.assigned_on, assignment_note=(payload.assignment_note or "").strip() or None,
         assigned_by=assigned_by,
         custom_values=validate_custom_values(
             db, "account_assignment", payload.project_id,
-            getattr(payload, "custom_values", {}) or {}, None,
+            raw_custom_values, None,
         ),
     )
     row.languages = [AnnotationAccountAssignmentLanguage(language_item_id=value) for value in language_ids]
@@ -457,6 +460,8 @@ def assign_account(db: Session, account_id: UUID, payload, assigned_by: UUID | N
     if not account:
         return None
     row = _apply_assignment(db, account, payload, assigned_by)
+    db.flush()
+    sync_assignment_image_links(db, row.id, row.project_id, row.custom_values)
     db.commit()
     refreshed = db.query(AnnotationAccountAssignment).options(
         joinedload(AnnotationAccountAssignment.person), joinedload(AnnotationAccountAssignment.project),
@@ -658,6 +663,10 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                             for value in desired_languages
                         ]
                         active.updated_at = datetime.now()
+                    validate_image_value_ownership(
+                        db, item.project_id, item.assignment_custom_values,
+                        user_id, active.custom_values,
+                    )
                     active.custom_values = validate_custom_values(
                         db, "account_assignment", item.project_id,
                         item.assignment_custom_values, active.custom_values,
@@ -678,6 +687,9 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                             custom_values=item.assignment_custom_values,
                         ), user_id)
                     else:
+                        validate_image_value_ownership(
+                            db, item.project_id, item.assignment_custom_values, user_id,
+                        )
                         context = AnnotationAccountAssignment(
                             account_id=account.id,
                             person_id=None,
@@ -698,6 +710,13 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                     db.flush()
 
                 active_after_save = _active_assignment_for_update(db, account.id)
+                if active_after_save and item.project_id:
+                    sync_assignment_image_links(
+                        db,
+                        active_after_save.id,
+                        item.project_id,
+                        active_after_save.custom_values,
+                    )
                 has_person_assignment = bool(active_after_save and active_after_save.person_id)
                 account.account_status = "assigned" if has_person_assignment else (
                     "available" if item.account.account_status == "assigned" else item.account.account_status

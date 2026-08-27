@@ -402,8 +402,10 @@ class CustomFieldWrite(BaseModel):
     def validate_definition(self):
         if self.table_code not in {"project", "account", "trial", "assignment", "account_assignment"}:
             raise ValueError("不支持的动态字段业务表")
-        if self.data_type not in {"text", "number", "date", "datetime", "boolean", "single_select", "multi_select", "url"}:
+        if self.data_type not in {"text", "number", "date", "datetime", "boolean", "single_select", "multi_select", "url", "image"}:
             raise ValueError("不支持的动态字段类型")
+        if self.data_type == "image" and self.table_code != "account_assignment":
+            raise ValueError("图片字段仅支持项目账号表")
         if self.data_type in {"single_select", "multi_select"} and not self.options:
             raise ValueError("选择型字段必须配置选项")
         return self
@@ -415,4 +417,15 @@ class CustomFieldResponse(CustomFieldWrite):
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomFieldImageResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    field_definition_id: UUID
+    original_name: str
+    content_type: str
+    file_size: int
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)

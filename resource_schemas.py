@@ -285,6 +285,8 @@ class TalentOptionResponse(BaseModel):
     full_name: str
     cooperation_type: Optional[str] = None
     status: ResourceStatus
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
     annotation_language_skills: list[AnnotationLanguageSkillResponse] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 

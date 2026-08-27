@@ -1034,6 +1034,36 @@
 | `assignment_id` | `uuid` | PK；FK → annotation_account_assignment.id；非空 | — | 账号分配 |
 | `language_item_id` | `uuid` | PK；FK → annotation_project_language_item.id；非空 | — | 项目语种 |
 
+### `annotation_custom_field_image`
+
+项目账号动态图片字段的受控文件元数据；原文件保存在 `ANNOTATION_CUSTOM_FIELD_IMAGE_DIR`。
+
+| 字段 | 类型 | 约束 | 默认值 | 中文说明 |
+|---|---|---|---|---|
+| `id` | `uuid` | PK；非空 | `gen_random_uuid()` | 图片 UUID |
+| `project_id` | `uuid` | FK → annotation_project.id；非空 | — | 所属项目 |
+| `field_definition_id` | `uuid` | FK → annotation_custom_field_definition.id；非空 | — | 图片动态字段 |
+| `uploaded_by` | `uuid` | FK → app_user.id；可空 | — | 上传用户 |
+| `original_name` | `varchar(255)` | 非空 | — | 原始文件名 |
+| `storage_name` | `varchar(255)` | UQ；非空 | — | 服务端随机文件名 |
+| `content_type` | `varchar(100)` | 非空 | — | 已校验 MIME |
+| `file_size` | `bigint` | 非空 | — | 文件字节数 |
+| `created_at` | `timestamp` | 非空 | `当前时间` | 上传时间 |
+
+### `annotation_account_assignment_image`
+
+项目账号分配、动态字段与图片的关联；同一分配的同一字段最多一张图片，释放后的分配仍保留关联。
+
+| 字段 | 类型 | 约束 | 默认值 | 中文说明 |
+|---|---|---|---|---|
+| `id` | `uuid` | PK；非空 | `gen_random_uuid()` | 关联 UUID |
+| `assignment_id` | `uuid` | FK → annotation_account_assignment.id；非空 | — | 账号分配履历 |
+| `field_definition_id` | `uuid` | FK → annotation_custom_field_definition.id；非空 | — | 图片动态字段 |
+| `image_id` | `uuid` | FK → annotation_custom_field_image.id；非空 | — | 图片资源 |
+| `created_at` | `timestamp` | 非空 | `当前时间` | 关联时间 |
+
+表级规则：组合唯一：`assignment_id`, `field_definition_id`。
+
 ### `annotation_account_password_history`
 
 账号历史密码明文及修改履历。
@@ -1120,7 +1150,7 @@
 | `created_at` | `timestamp` | 非空 | `当前时间` | 创建时间 |
 | `updated_at` | `timestamp` | 非空 | `当前时间` | 最后更新时间 |
 
-表级规则：CHECK：`sequence_no > 0`；CHECK：`table_code::text = ANY (ARRAY['project'::character varying, 'account'::character varying, 'trial'::character varying, 'assignment'::character varying]::text[])`；CHECK：项目和账号字段的 `project_id` 必须为空，试标和正式安排字段的 `project_id` 必须非空；CHECK：`data_type::text = ANY (ARRAY['text'::character varying, 'number'::character varying, 'date'::character varying, 'datetime'::character varying, 'boolean'::character varying, 'single_select'::character varying, 'multi_select'::character varying, 'url'::character varying]::text[])`；索引 `ix_annotation_custom_field_sequence`：`project_id`, `table_code`, `sequence_no`；唯一索引 `uq_annotation_custom_field_scope_key`：`project_id`, `table_code`, `field_key`。
+表级规则：CHECK：`sequence_no > 0`；`table_code` 支持 `project/account/trial/assignment/account_assignment`；项目和账号字段的 `project_id` 必须为空，试标、正式安排和项目账号字段的 `project_id` 必须非空；普通字段类型支持 `text/number/date/datetime/boolean/single_select/multi_select/url`，`image` 仅允许 `account_assignment`；索引 `ix_annotation_custom_field_sequence`：`project_id`, `table_code`, `sequence_no`；唯一索引 `uq_annotation_custom_field_scope_key`：`project_id`, `table_code`, `field_key`。
 
 ## 资源需求
 

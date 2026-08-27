@@ -353,56 +353,229 @@
       class="consultation-dialog"
       width="min(960px, calc(100vw - 32px))"
       top="5vh"
+      @opened="resetConsultationDialogScroll"
       @close="handleDialogClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="客户简称" prop="client_short_name">
-              <div class="client-short-name-field">
-                <div class="client-short-name-control">
-                  <el-autocomplete
-                    v-model="form.client_short_name"
-                    :fetch-suggestions="searchClientsByShortName"
-                    placeholder="输入简称联想客户，无匹配时保存后自动新增"
-                    style="flex: 1;"
-                    value-key="client_short_name"
+        <section class="consultation-form-section consultation-form-section--primary">
+          <div class="consultation-form-section__header">
+            <h3>咨询基本信息</h3>
+            <span>请先选择咨询类型，后续售前字段将按项目类型显示</span>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="咨询类型" prop="consultation_type">
+                <el-select
+                  v-model="form.consultation_type"
+                  filterable
+                  allow-create
+                  placeholder="请选择；其他项目可直接输入自定义类型"
+                  style="width: 100%"
+                  @change="handleConsultationTypeChange"
+                >
+                  <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="客户来源" prop="client_source">
+                <el-input v-model="form.client_source" placeholder="请输入客户来源" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <div v-if="isTranslationConsultationType(form.consultation_type)" class="consultation-confirmation-fields">
+            <div class="consultation-confirmation-fields__title">
+              笔译确认关键信息
+              <span>将用于“已确认”后的邮件预览</span>
+            </div>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="服务内容" required>
+                  <el-select
+                    v-model="form.project_intake.service_content"
+                    filterable
+                    allow-create
+                    default-first-option
                     clearable
-                    @select="handleExistingClientSelect"
-                    @clear="handleClientShortNameClear"
-                    @input="handleClientShortNameInput"
+                    placeholder="可选择翻译、排版，或输入自定义内容"
+                    style="width: 100%"
                   >
-                    <template #default="{ item }">
-                      <div class="client-suggestion">
-                        <span>{{ item.client_short_name || item.client_name }}</span>
-                        <span class="client-suggestion-meta">
-                          {{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}
-                        </span>
-                      </div>
-                    </template>
-                  </el-autocomplete>
-                  <el-tag v-if="form.client_id" type="success" size="small" effect="plain">老客户</el-tag>
-                  <el-tag v-else-if="form.client_short_name" type="warning" size="small" effect="plain">新客户</el-tag>
+                    <el-option v-for="item in serviceContentOptions" :key="item" :label="item" :value="item" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="翻译方向" required>
+                  <LanguagePairSelect v-model="form.project_intake.language_pair" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="客户交期" required>
+                  <el-date-picker
+                    v-model="form.project_intake.customer_deadline_time"
+                    type="datetime"
+                    value-format="YYYY-MM-DDTHH:mm:ss"
+                    style="width: 100%"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="咨询方式" prop="consultation_method">
+                <div class="consultation-method-field">
+                  <el-select v-model="form.consultation_method" placeholder="请选择">
+                    <el-option
+                      v-for="item in consultationMethodOptions"
+                      :key="item.value"
+                      :label="item.label"
+                      :value="item.value"
+                    />
+                  </el-select>
+                  <el-input
+                    v-if="form.consultation_method === 'other'"
+                    v-model="form.consultation_method_custom"
+                    placeholder="请输入其他咨询方式"
+                    clearable
+                  />
                 </div>
-                <div class="client-short-name-hint">
-                  未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="咨询时间" prop="consultation_time">
+                <el-date-picker
+                  v-model="form.consultation_time"
+                  type="datetime"
+                  placeholder="选择日期时间"
+                  style="width: 100%"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="来源关键词" prop="source_keyword">
+                <el-input v-model="form.source_keyword" placeholder="请输入来源渠道或推广关键词" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="咨询状态" prop="status">
+                <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
+                  <el-option
+                    v-for="item in consultationStatusOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-form-item label="咨询描述" prop="consultation_description">
+            <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="请简要记录客户的咨询需求" />
+          </el-form-item>
+        </section>
+
+        <section class="consultation-form-section">
+          <div class="consultation-form-section__header">
+            <h3>客户信息</h3>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="客户简称" prop="client_short_name">
+                <div class="client-short-name-field">
+                  <div class="client-short-name-control">
+                    <el-autocomplete
+                      v-model="form.client_short_name"
+                      :fetch-suggestions="searchClientsByShortName"
+                      placeholder="输入简称联想客户，无匹配时保存后自动新增"
+                      style="flex: 1;"
+                      value-key="client_short_name"
+                      clearable
+                      @select="handleExistingClientSelect"
+                      @clear="handleClientShortNameClear"
+                      @input="handleClientShortNameInput"
+                    >
+                      <template #default="{ item }">
+                        <div class="client-suggestion">
+                          <span>{{ item.client_short_name || item.client_name }}</span>
+                          <span class="client-suggestion-meta">
+                            {{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}
+                          </span>
+                        </div>
+                      </template>
+                    </el-autocomplete>
+                    <el-tag v-if="form.client_id" type="success" size="small" effect="plain">老客户</el-tag>
+                    <el-tag v-else-if="form.client_short_name" type="warning" size="small" effect="plain">新客户</el-tag>
+                  </div>
+                  <div class="client-short-name-hint">
+                    未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
+                  </div>
                 </div>
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户编号">
-              <el-input
-                v-model="form.client_code"
-                disabled
-                :placeholder="!form.client_id && form.client_short_name ? '保存后自动生成' : '选择老客户后自动填充'"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="客户编号">
+                <el-input
+                  v-model="form.client_code"
+                  disabled
+                  :placeholder="!form.client_id && form.client_short_name ? '保存后自动生成' : '选择老客户后自动填充'"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="客户全称" prop="client_name">
+                <el-autocomplete
+                  v-model="form.client_name"
+                  :fetch-suggestions="searchClientsByName"
+                  placeholder="可选填客户全称"
+                  value-key="client_name"
+                  clearable
+                  style="width: 100%"
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientNameClear"
+                  @input="handleClientNameInput"
+                >
+                  <template #default="{ item }">
+                    <div class="client-suggestion">
+                      <span>{{ item.client_name }}</span>
+                      <span class="client-suggestion-meta">{{ item.client_code }}</span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="负责人联系方式" prop="manager_contact">
+                <el-input
+                  v-model="form.manager_contact"
+                  maxlength="100"
+                  clearable
+                  placeholder="请输入客户负责人联系方式"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </section>
 
         <div v-if="isSupportedProjectType(form.consultation_type)" class="consultation-project-intake">
-          <h3>项目售前信息</h3>
+          <div class="consultation-form-section__header">
+            <h3>项目售前信息</h3>
+            <span>以下内容随咨询类型变化，用于后续确认建项</span>
+          </div>
           <el-row :gutter="20">
             <el-col :xs="24" :md="12"><el-form-item label="项目名称" prop="project_name"><el-input v-model="form.project_name" placeholder="可留空并在确认前自动生成" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="客户单号/标识"><el-input v-model="form.customer_order_no" /></el-form-item></el-col>
@@ -411,27 +584,14 @@
 
           <template v-if="isTranslationConsultationType(form.consultation_type)">
             <el-row :gutter="20">
-              <el-col :xs="24" :md="12">
-                <el-form-item label="服务内容" required>
-                  <el-select v-model="form.project_intake.service_content" filterable allow-create default-first-option clearable placeholder="可选择翻译、排版，或输入自定义内容" style="width:100%">
-                    <el-option v-for="item in serviceContentOptions" :key="item" :label="item" :value="item" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="翻译方向" required><LanguagePairSelect v-model="form.project_intake.language_pair" /></el-form-item></el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :xs="24" :md="12"><el-form-item label="客户交期" required><el-date-picker v-model="form.project_intake.customer_deadline_time" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="form.project_intake.file_type_secondary" /></el-form-item></el-col>
-            </el-row>
-            <el-row :gutter="20">
               <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="form.project_intake.priority" clearable style="width:100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="合同类型"><el-input v-model="form.project_intake.project_contract_type" clearable /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="20">
+              <el-col :xs="24" :md="12"><el-form-item label="合同类型"><el-input v-model="form.project_intake.project_contract_type" clearable /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="合同状态"><el-input v-model="form.project_intake.project_contract_status" clearable /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="需提供报价单"><el-checkbox v-model="form.project_intake.quotation_required" @change="handleTranslationQuotationRequiredChange">需要提供项目报价单</el-checkbox></el-form-item></el-col>
             </el-row>
+            <el-form-item label="需提供报价单"><el-checkbox v-model="form.project_intake.quotation_required" @change="handleTranslationQuotationRequiredChange">需要提供项目报价单</el-checkbox></el-form-item>
             <el-row v-if="form.project_intake.quotation_required" :gutter="20">
               <el-col :xs="24" :md="8"><el-form-item label="报价单状态"><el-input v-model="form.project_intake.quotation_status" clearable /></el-form-item></el-col>
               <el-col :xs="24" :md="16"><el-form-item label="报价单路径"><el-input v-model="form.project_intake.quotation_path" clearable placeholder="如：\\win-server\项目报价单" /></el-form-item></el-col>
@@ -478,128 +638,25 @@
           </template>
         </div>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="负责人联系方式" prop="manager_contact">
-              <el-input
-                v-model="form.manager_contact"
-                maxlength="100"
-                clearable
-                placeholder="请输入客户负责人联系方式"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <section class="consultation-form-section">
+          <div class="consultation-form-section__header">
+            <h3>跟进信息</h3>
+          </div>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="客户全称" prop="client_name">
-              <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
-                <el-autocomplete
-                  v-model="form.client_name"
-                  :fetch-suggestions="searchClientsByName"
-                  placeholder="可选填客户全称"
-                  value-key="client_name"
-                  clearable
-                  style="flex: 1;"
-                  @select="handleExistingClientSelect"
-                  @clear="handleClientNameClear"
-                  @input="handleClientNameInput"
-                >
-                  <template #default="{ item }">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                      <span>{{ item.client_name }}</span>
-                      <span style="color: #909399; font-size: 12px; margin-left: 10px;">{{ item.client_code }}</span>
-                    </div>
-                  </template>
-                </el-autocomplete>
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="咨询时间" prop="consultation_time">
-              <el-date-picker
-                v-model="form.consultation_time"
-                type="datetime"
-                placeholder="选择日期时间"
-                style="width: 100%"
-                value-format="YYYY-MM-DD HH:mm:ss"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="处理方式" prop="handling_method">
+                <el-input v-model="form.handling_method" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="跟进状态" prop="follow_up_status">
+                <el-input v-model="form.follow_up_status" />
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="咨询状态" prop="status">
-              <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
-                <el-option
-                  v-for="item in consultationStatusOptions"
-                  :key="item.value"
-                  :label="item.label"
-                  :value="item.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="咨询类型" prop="consultation_type">
-              <el-select
-                v-model="form.consultation_type"
-                filterable
-                allow-create
-                placeholder="请选择；其他项目可直接输入自定义类型"
-                style="width: 100%"
-                @change="handleConsultationTypeChange"
-              >
-                <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="客户来源" prop="client_source">
-              <el-input v-model="form.client_source" placeholder="请输入客户来源" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="来源关键词" prop="source_keyword">
-              <el-input v-model="form.source_keyword" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="咨询方式" prop="consultation_method">
-              <div class="consultation-method-field">
-                <el-select v-model="form.consultation_method" placeholder="请选择">
-                  <el-option
-                    v-for="item in consultationMethodOptions"
-                    :key="item.value"
-                    :label="item.label"
-                    :value="item.value"
-                  />
-                </el-select>
-                <el-input
-                  v-if="form.consultation_method === 'other'"
-                  v-model="form.consultation_method_custom"
-                  placeholder="请输入其他咨询方式"
-                  clearable
-                />
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="处理方式" prop="handling_method">
-              <el-input v-model="form.handling_method" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="20">
+          <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="跟进次数" prop="follow_up_count">
               <el-input-number v-model="form.follow_up_count" :min="0" style="width:100%" />
@@ -616,9 +673,9 @@
               />
             </el-form-item>
           </el-col>
-        </el-row>
+          </el-row>
 
-        <section class="personnel-assignment-section">
+          <section class="personnel-assignment-section">
           <button
             type="button"
             class="personnel-assignment-toggle"
@@ -719,28 +776,21 @@
               <div class="personnel-assignment-hint">默认使用当前用户；仅在需要转交或协作时调整。</div>
             </div>
           </el-collapse-transition>
+          </section>
+
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="跟进备注" prop="follow_up_remarks">
+                <el-input v-model="form.follow_up_remarks" type="textarea" :rows="2" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="备注" prop="remarks">
+                <el-input v-model="form.remarks" type="textarea" :rows="2" />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </section>
-
-        <el-form-item label="跟进状态" prop="follow_up_status">
-          <el-input v-model="form.follow_up_status" />
-        </el-form-item>
-
-        <el-form-item label="咨询描述" prop="consultation_description">
-          <el-input v-model="form.consultation_description" type="textarea" :rows="3" />
-        </el-form-item>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="跟进备注" prop="follow_up_remarks">
-              <el-input v-model="form.follow_up_remarks" type="textarea" :rows="2" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="备注" prop="remarks">
-              <el-input v-model="form.remarks" type="textarea" :rows="2" />
-            </el-form-item>
-          </el-col>
-        </el-row>
       </el-form>
 
       <template #footer>
@@ -1960,6 +2010,11 @@ const handleDialogClose = () => {
   resetForm()
 }
 
+const resetConsultationDialogScroll = () => {
+  const dialogBody = formRef.value?.$el?.closest('.el-dialog__body')
+  if (dialogBody) dialogBody.scrollTop = 0
+}
+
 onMounted(async () => {
   await Promise.all([loadUsers(), loadLanguages()])
   await fetchData()
@@ -2005,8 +2060,64 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--el-border-color-lighter);
 }
 
-.consultation-project-intake { margin: 14px 0 18px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-extra-light); }
-.consultation-project-intake h3 { margin: 0 0 16px; color: var(--el-text-color-primary); font-size: 15px; }
+.consultation-form-section,
+.consultation-project-intake {
+  margin: 0 0 16px;
+  padding: 16px 16px 2px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.consultation-form-section--primary {
+  border-color: var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-9);
+}
+
+.consultation-confirmation-fields {
+  margin-bottom: 18px;
+  padding: 14px 14px 0;
+  border: 1px solid var(--el-color-warning-light-7);
+  border-radius: 6px;
+  background: var(--el-color-warning-light-9);
+}
+
+.consultation-confirmation-fields__title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 14px;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.consultation-confirmation-fields__title span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.consultation-form-section__header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0 0 16px;
+}
+
+.consultation-form-section__header h3 {
+  margin: 0;
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+}
+
+.consultation-form-section__header span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 .intake-list-header { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; color: var(--el-text-color-regular); font-size: 14px; font-weight: 500; }
 .intake-inline-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
 .intake-inline-row > .el-select, .intake-inline-row > .el-date-editor { flex: 1; }

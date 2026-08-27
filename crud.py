@@ -52,6 +52,28 @@ def get_user_by_username(db: Session, username: str) -> Optional[AppUser]:
     return db.query(AppUser).filter(AppUser.username == username).first()
 
 
+def normalize_user_email(email: Optional[str]) -> Optional[str]:
+    normalized = str(email or "").strip().casefold()
+    return normalized or None
+
+
+def get_user_by_email(
+    db: Session,
+    email: Optional[str],
+    *,
+    exclude_user_id: Optional[UUID] = None,
+) -> Optional[AppUser]:
+    normalized = normalize_user_email(email)
+    if not normalized:
+        return None
+    query = db.query(AppUser).filter(
+        func.lower(func.btrim(AppUser.email)) == normalized
+    )
+    if exclude_user_id is not None:
+        query = query.filter(AppUser.id != exclude_user_id)
+    return query.first()
+
+
 def get_users(
     db: Session,
     skip: int = 0,
@@ -98,7 +120,7 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
         username=user.username,
         password_hash=hashed,
         full_name=user.full_name,
-        email=user.email,
+        email=normalize_user_email(user.email),
         is_active=user.is_active,
         department=user.department,
     )
@@ -114,6 +136,8 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
         return None
     
     update_data = user_update.model_dump(exclude_unset=True)
+    if "email" in update_data:
+        update_data["email"] = normalize_user_email(update_data["email"])
 
     for field, value in update_data.items():
         setattr(db_user, field, value)

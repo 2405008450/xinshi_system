@@ -58,3 +58,14 @@ export const getCustomFields = (tableCode, projectId = null, includeInactive = f
 export const createCustomField = (data) => post('/annotation-ops/custom-fields', data)
 export const updateCustomField = (id, data) => put(`/annotation-ops/custom-fields/${id}`, data)
 export const deleteCustomField = (id) => api.delete(`/annotation-ops/custom-fields/${id}`)
+export const uploadCustomFieldImage = (projectId, fieldId, file) => {
+  const form = new FormData()
+  form.append('project_id', projectId)
+  form.append('field_id', fieldId)
+  form.append('file', file)
+  return api.post('/annotation-ops/custom-field-images', form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }).then((res) => convert(res, camel))
+}
+export const getCustomFieldImageBlob = (id) => api.get(`/annotation-ops/custom-field-images/${id}`, { responseType: 'blob' })
+export const deletePendingCustomFieldImage = (id) => api.delete(`/annotation-ops/custom-field-images/${id}`)

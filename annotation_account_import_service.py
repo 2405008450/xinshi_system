@@ -286,6 +286,20 @@ def parse_import_payload(
     rows = _parse_rows(sheet, selected_header_row, headers, normalized_mapping)
     _, project_id, platform_id, _ = _validate_defaults(db, defaults)
     existing_fields = list_custom_fields(db, "account_assignment", project_id, include_inactive=True)
+    fields_by_id = {str(item.id): item for item in existing_fields}
+    mapped_image_fields = [
+        fields_by_id.get(str(rule.get("fieldId")))
+        for rule in normalized_mapping
+        if rule.get("target") == "custom" and rule.get("fieldId")
+    ]
+    if any(item and item.data_type == "image" for item in mapped_image_fields):
+        raise ValueError("图片字段不支持通过 XLSX 文本或嵌入图片导入，请在项目账号表中上传")
+    required_image_fields = [
+        item.field_label for item in existing_fields
+        if item.is_active and item.is_required and item.data_type == "image"
+    ]
+    if required_image_fields:
+        raise ValueError(f"项目存在必填图片字段，请改用项目账号表录入：{'、'.join(required_image_fields)}")
     previews = _preview_actions(db, rows, platform_id)
     required_fields = [item for item in existing_fields if item.is_active and item.is_required]
     mapped_required = {
@@ -305,7 +319,11 @@ def parse_import_payload(
         "sheets": workbook.sheetnames, "sheetName": selected_name, "headerRow": selected_header_row,
         "headers": headers, "mapping": normalized_mapping,
         "projectFields": [
-            {"id": str(item.id), "fieldKey": item.field_key, "fieldLabel": item.field_label, "dataType": item.data_type}
+            {
+                "id": str(item.id), "fieldKey": item.field_key,
+                "fieldLabel": item.field_label, "dataType": item.data_type,
+                "importable": item.data_type != "image",
+            }
             for item in existing_fields if item.is_active
         ],
         "rows": previews,

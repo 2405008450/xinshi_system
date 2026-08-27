@@ -50,7 +50,7 @@
               <el-option label="忽略" value="ignore" />
               <el-option label="登录账号" value="login_account" /><el-option label="密码" value="password" />
               <el-option label="账号昵称" value="nickname" /><el-option label="分配人员姓名" value="person_name" /><el-option label="人才性别" value="gender" />
-              <el-option-group label="已有项目字段"><el-option v-for="field in previewData.projectFields" :key="field.id" :label="field.fieldLabel" :value="`custom:${field.id}`" /></el-option-group>
+              <el-option-group label="已有项目字段"><el-option v-for="field in previewData.projectFields" :key="field.id" :label="field.importable===false?`${field.fieldLabel}（图片不支持导入）`:field.fieldLabel" :value="`custom:${field.id}`" :disabled="field.importable===false" /></el-option-group>
               <el-option label="新建项目字段" value="new_custom" />
             </el-select>
           </template>
