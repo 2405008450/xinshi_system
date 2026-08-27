@@ -15,6 +15,7 @@ export const getTalentCount = (params, config = {}) => api.get('/talents/count',
 export const getTalent = (id) => api.get(`/talents/${id}`).then(fromApi)
 export const createTalent = (data) => api.post('/talents/', toApi(data)).then(fromApi)
 export const updateTalent = (id, data) => api.put(`/talents/${id}`, toApi(data)).then(fromApi)
+export const patchTalentName = (id, fullName) => api.patch(`/talents/${id}/name`, toApi({ fullName })).then(fromApi)
 export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/status`, toApi({ status })).then(fromApi)
 export const checkTalentDuplicates = (params) => api.get('/talents/duplicates', { params }).then(fromApi)
 

@@ -254,9 +254,10 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWriteProjects" class="action-buttons">
+            <el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button>
             <TableActionButton action="edit" @click="handleEdit(row)" />
           </div>
         </template>
@@ -870,6 +871,7 @@ const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const router = useRouter()
 const route = useRoute()
+const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'translation', sourceProjectId: row.id } })
 const highlightedProjectId = ref('')
 const projectDialogTab = ref('basic')
 const projectBasicExpandedSections = ref(['project', 'business', 'execution'])

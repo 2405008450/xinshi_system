@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" modified="2026-07-29T15:49:50+08:00" agent="Codex database documentation generator" version="24.7.17" type="device" compressed="false">
+<mxfile host="app.diagrams.net" modified="2026-08-25T18:56:37+08:00" agent="Codex database documentation generator" version="24.7.17" type="device" compressed="false">
   <diagram id="page-1" name="系统总览">
     <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3300" pageHeight="2400" math="0" shadow="0">
       <root>
@@ -34,6 +34,12 @@
         </mxCell>
         <mxCell id="m10" value="&lt;b style='font-size:16px'&gt;稿件安排&lt;/b&gt;&lt;hr&gt;manuscript_dispatch&lt;br&gt;manuscript_arrangement&lt;br&gt;manuscript_delivery_milestone" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#ead1dc;strokeColor=#a64d79;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="430" y="700" width="330" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="m11" value="&lt;b style='font-size:16px'&gt;标注运营&lt;/b&gt;&lt;hr&gt;annotation_project&lt;br&gt;annotation_project_language_item&lt;br&gt;annotation_project_price_item&lt;br&gt;annotation_project_assignee&lt;br&gt;annotation_project_status_history&lt;br&gt;annotation_platform&lt;br&gt;annotation_platform_account&lt;br&gt;annotation_account_assignment&lt;br&gt;annotation_account_assignment_language&lt;br&gt;annotation_account_password_history&lt;br&gt;annotation_credential_access_log&lt;br&gt;annotation_trial_record&lt;br&gt;annotation_assignee_rate&lt;br&gt;annotation_custom_field_definition" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#d5e8d4;strokeColor=#2d7d46;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="820" y="700" width="330" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="m12" value="&lt;b style='font-size:16px'&gt;资源需求&lt;/b&gt;&lt;hr&gt;resource_request&lt;br&gt;resource_request_item&lt;br&gt;resource_request_progress_log" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fillColor=#fff2cc;strokeColor=#b8860b;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="700" width="330" height="230" as="geometry" />
         </mxCell>
         <mxCell id="oe1" value="人员负责" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="m1" target="m2">
           <mxGeometry relative="1" as="geometry" />
@@ -85,7 +91,7 @@
         <mxCell id="t4" value="&lt;b style='font-size:14px'&gt;role_permission&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;角色拥有的细粒度权限&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] role_id: uuid&lt;br&gt;[UQ] permission_code: varchar(100)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="30" width="340" height="158" as="geometry" />
         </mxCell>
-        <mxCell id="t5" value="&lt;b style='font-size:14px'&gt;client&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;母客户/主客户档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] client_code: varchar(50)&lt;br&gt;client_name: varchar(255)&lt;br&gt;client_short_name: varchar(100)&lt;br&gt;client_manager: varchar(100)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t5" value="&lt;b style='font-size:14px'&gt;client&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;母客户/主客户档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] client_code: varchar(50)&lt;br&gt;client_name: varchar(255)&lt;br&gt;client_short_name: varchar(100)&lt;br&gt;english_name: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="330" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t6" value="&lt;b style='font-size:14px'&gt;sub_client&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;母客户下属的子客户档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_client_id: uuid&lt;br&gt;[UQ] sub_client_code: varchar(60)&lt;br&gt;client_name: varchar(255)&lt;br&gt;client_short_name: varchar(100)&lt;br&gt;english_name: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
@@ -94,22 +100,22 @@
         <mxCell id="t7" value="&lt;b style='font-size:14px'&gt;client_contact&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;客户拜访与跟进记录&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] client_id: uuid&lt;br&gt;client_code: varchar(50)&lt;br&gt;client_name: varchar(255)&lt;br&gt;client_short_name: varchar(100)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="810" y="330" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t8" value="&lt;b style='font-size:14px'&gt;consultation&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;售前咨询、来源及跟进过程&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] consultation_code: varchar(50)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;consultation_time: timestamp&lt;br&gt;consultation_method: varchar(50)&lt;br&gt;client_source: varchar(100)&lt;br&gt;[FK] customer_service_id: uuid&lt;br&gt;[FK] sales_person_id: uuid&lt;br&gt;[FK] editor_id: uuid&lt;br&gt;[FK] follow_up_person_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t8" value="&lt;b style='font-size:14px'&gt;consultation&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;售前咨询、来源及跟进过程&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] consultation_code: varchar(50)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;[FK] sub_client_id: uuid&lt;br&gt;contact_name: varchar(255)&lt;br&gt;customer_order_no: varchar(150)&lt;br&gt;project_name: varchar(500)&lt;br&gt;[FK] customer_service_id: uuid&lt;br&gt;[FK] sales_person_id: uuid&lt;br&gt;[FK] editor_id: uuid&lt;br&gt;[FK] follow_up_person_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="330" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t9" value="&lt;b style='font-size:14px'&gt;translator&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员资源、能力、联系方式及可用性档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] translator_code: varchar(50)&lt;br&gt;translator_name: varchar(255)&lt;br&gt;cooperation_type: varchar(50)&lt;br&gt;contact_info: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t9" value="&lt;b style='font-size:14px'&gt;translator&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员资源、能力、联系方式及可用性档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] resource_person_id: uuid&lt;br&gt;[UQ] translator_code: varchar(50)&lt;br&gt;translator_name: varchar(255)&lt;br&gt;cooperation_type: varchar(50)&lt;br&gt;contact_info: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="630" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t10" value="&lt;b style='font-size:14px'&gt;translator_schedule&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员按日的可用时段和剩余产能&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] translator_id: uuid&lt;br&gt;[UQ] schedule_date: date&lt;br&gt;available_time_slot: varchar(100)&lt;br&gt;remaining_capacity: integer&lt;br&gt;source_type: varchar(30)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t10" value="&lt;b style='font-size:14px'&gt;translator_schedule&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员按日的可用时段和剩余产能&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] translator_id: uuid&lt;br&gt;[UQ] schedule_date: date&lt;br&gt;availability_status: varchar(30)&lt;br&gt;available_time_slot: varchar(100)&lt;br&gt;remaining_capacity: integer" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="630" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t11" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;customer_reception_time: timestamp&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t11" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;task_type: varchar(50)&lt;br&gt;[FK/UQ] consultation_id: uuid&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;[FK] sub_client_id: uuid&lt;br&gt;[FK] project_manager_id: uuid&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="810" y="630" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t12" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;language_pair: varchar(100)&lt;br&gt;word_count: bigint&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t12" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;language_pair: varchar(500)&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="630" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t13" value="&lt;b style='font-size:14px'&gt;project_file&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;项目文件及各生产环节路径&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;file_name: varchar(255)&lt;br&gt;storage_path: text&lt;br&gt;file_type: varchar(50)&lt;br&gt;[FK] uploaded_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t13" value="&lt;b style='font-size:14px'&gt;project_file&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;项目文件及各生产环节路径&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;file_name: varchar(255)&lt;br&gt;storage_path: text&lt;br&gt;dispatch_path: text&lt;br&gt;[FK] uploaded_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="930" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t14" value="&lt;b style='font-size:14px'&gt;finance_record&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;项目维度的报价、结算和开票信息&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] project_id: uuid&lt;br&gt;[FK] sales_person_id: uuid&lt;br&gt;[FK] follow_up_person_id: uuid&lt;br&gt;settlement_method: varchar(50)&lt;br&gt;unit_price_excl_tax: numeric(14, 2)&lt;br&gt;unit_price_incl_tax: numeric(14, 2)&lt;br&gt;[FK] edited_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
@@ -148,52 +154,64 @@
         <mxCell id="e10" value="sales_person_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e11" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t10">
+        <mxCell id="e11" value="sub_client_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e12" value="client_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t5" target="t11">
+        <mxCell id="e12" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t10">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e13" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
+        <mxCell id="e13" value="client_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t5" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e14" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
+        <mxCell id="e14" value="consultation_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t8" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e15" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t11">
+        <mxCell id="e15" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e16" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t12">
+        <mxCell id="e16" value="project_manager_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e17" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t12">
+        <mxCell id="e17" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e18" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t12">
+        <mxCell id="e18" value="sub_client_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e19" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t13">
+        <mxCell id="e19" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e20" value="uploaded_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t13">
+        <mxCell id="e20" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t12">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="edited_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+        <mxCell id="e21" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t12">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e22" value="follow_up_person_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+        <mxCell id="e22" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t9" target="t12">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e23" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t14">
+        <mxCell id="e23" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e24" value="sales_person_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+        <mxCell id="e24" value="uploaded_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e25" value="confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t15">
+        <mxCell id="e25" value="edited_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e26" value="finance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t14" target="t15">
+        <mxCell id="e26" value="follow_up_person_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e27" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t11" target="t14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e28" value="sales_person_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e29" value="confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e30" value="finance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t14" target="t15">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
@@ -207,13 +225,13 @@
         <mxCell id="t1" value="&lt;b style='font-size:14px'&gt;app_user&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;系统登录用户、人员基础信息及固定任务配置&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] username: varchar(100)&lt;br&gt;password_hash: varchar(255)&lt;br&gt;full_name: varchar(255)&lt;br&gt;email: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t2" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;customer_reception_time: timestamp&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t2" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;task_type: varchar(50)&lt;br&gt;[FK/UQ] consultation_id: uuid&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;[FK] sub_client_id: uuid&lt;br&gt;[FK] project_manager_id: uuid&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t3" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;language_pair: varchar(100)&lt;br&gt;word_count: bigint&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t3" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;language_pair: varchar(500)&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="810" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t4" value="&lt;b style='font-size:14px'&gt;workflow_instance&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单或子订单当前工作流状态&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;difficulty: varchar(20)&lt;br&gt;file_editable: boolean&lt;br&gt;current_stage_key: varchar(50)&lt;br&gt;[FK] current_assignee_id: uuid&lt;br&gt;[FK] sub_order_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t4" value="&lt;b style='font-size:14px'&gt;workflow_instance&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单或子订单当前工作流状态&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;[FK] sub_order_id: uuid&lt;br&gt;difficulty: varchar(20)&lt;br&gt;file_editable: boolean&lt;br&gt;current_stage_key: varchar(50)&lt;br&gt;[FK] current_assignee_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="30" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t5" value="&lt;b style='font-size:14px'&gt;workflow_log&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;工作流阶段流转审计日志&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] workflow_instance_id: uuid&lt;br&gt;[FK] operator_id: uuid&lt;br&gt;from_stage: varchar(50)&lt;br&gt;to_stage: varchar(50)&lt;br&gt;direction: varchar(20)&lt;br&gt;[FK] next_assignee_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
@@ -222,8 +240,8 @@
         <mxCell id="t6" value="&lt;b style='font-size:14px'&gt;workflow_handover_request&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;请假/离职等场景的工作交接申请&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] requester_id: uuid&lt;br&gt;[FK] target_user_id: uuid&lt;br&gt;handover_type: varchar(30)&lt;br&gt;reason_detail: varchar(500)&lt;br&gt;content: text&lt;br&gt;[FK] decided_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="330" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t7" value="&lt;b style='font-size:14px'&gt;workflow_handover_item&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;交接申请所包含的工作流实例&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] request_id: uuid&lt;br&gt;[FK/UQ] workflow_instance_id: uuid&lt;br&gt;[FK] expected_assignee_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="810" y="330" width="340" height="158" as="geometry" />
+        <mxCell id="t7" value="&lt;b style='font-size:14px'&gt;workflow_handover_item&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;交接申请所包含的工作流实例&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] request_id: uuid&lt;br&gt;[FK/UQ] workflow_instance_id: uuid&lt;br&gt;[FK/UQ] project_responsibility_id: uuid&lt;br&gt;[FK] expected_assignee_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="810" y="330" width="340" height="175" as="geometry" />
         </mxCell>
         <mxCell id="t8" value="&lt;b style='font-size:14px'&gt;workflow_handover_attachment&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;交接申请与聊天附件的关联&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] request_id: uuid&lt;br&gt;[FK/UQ] attachment_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="330" width="340" height="145" as="geometry" />
@@ -249,88 +267,91 @@
         <mxCell id="e1" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t2">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e2" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t2">
+        <mxCell id="e2" value="project_manager_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t2">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e3" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
+        <mxCell id="e3" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t2">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e4" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t3">
+        <mxCell id="e4" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e5" value="current_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t4">
+        <mxCell id="e5" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e6" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t4">
+        <mxCell id="e6" value="current_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e7" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t4">
+        <mxCell id="e7" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e8" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t5">
+        <mxCell id="e8" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e9" value="next_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
+        <mxCell id="e9" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e10" value="operator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
+        <mxCell id="e10" value="next_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e11" value="decided_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
+        <mxCell id="e11" value="operator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e12" value="requester_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
+        <mxCell id="e12" value="decided_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e13" value="target_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
+        <mxCell id="e13" value="requester_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e14" value="expected_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
+        <mxCell id="e14" value="target_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e15" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t7">
+        <mxCell id="e15" value="expected_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e16" value="request_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t7">
+        <mxCell id="e16" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e17" value="attachment_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t12" target="t8">
+        <mxCell id="e17" value="request_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e18" value="request_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t8">
+        <mxCell id="e18" value="attachment_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t12" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e19" value="enabled_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t9">
+        <mxCell id="e19" value="request_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e20" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t9">
+        <mxCell id="e20" value="enabled_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t9">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t10">
+        <mxCell id="e21" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t9">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e22" value="sender_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t10">
+        <mxCell id="e22" value="project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t10">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e23" value="message_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t11">
+        <mxCell id="e23" value="sender_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t10">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e24" value="mentioned_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
+        <mxCell id="e24" value="message_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e25" value="uploaded_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t12">
+        <mxCell id="e25" value="mentioned_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e26" value="attachment_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t12" target="t13">
+        <mxCell id="e26" value="uploaded_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t12">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e27" value="message_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t13">
+        <mxCell id="e27" value="attachment_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t12" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e28" value="related_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t14">
+        <mxCell id="e28" value="message_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e29" value="recipient_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+        <mxCell id="e29" value="related_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e30" value="recipient_user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
@@ -344,16 +365,16 @@
         <mxCell id="t1" value="&lt;b style='font-size:14px'&gt;app_user&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;系统登录用户、人员基础信息及固定任务配置&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] username: varchar(100)&lt;br&gt;password_hash: varchar(255)&lt;br&gt;full_name: varchar(255)&lt;br&gt;email: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t2" value="&lt;b style='font-size:14px'&gt;translator&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员资源、能力、联系方式及可用性档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] translator_code: varchar(50)&lt;br&gt;translator_name: varchar(255)&lt;br&gt;cooperation_type: varchar(50)&lt;br&gt;contact_info: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t2" value="&lt;b style='font-size:14px'&gt;translator&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;译员资源、能力、联系方式及可用性档案&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] resource_person_id: uuid&lt;br&gt;[UQ] translator_code: varchar(50)&lt;br&gt;translator_name: varchar(255)&lt;br&gt;cooperation_type: varchar(50)&lt;br&gt;contact_info: varchar(255)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t3" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;customer_reception_time: timestamp&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t3" value="&lt;b style='font-size:14px'&gt;translation_project&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;翻译主订单及各生产阶段进度&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] order_no: varchar(50)&lt;br&gt;project_name: varchar(255)&lt;br&gt;task_type: varchar(50)&lt;br&gt;[FK/UQ] consultation_id: uuid&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;[FK] client_id: uuid&lt;br&gt;[FK] sub_client_id: uuid&lt;br&gt;[FK] project_manager_id: uuid&lt;br&gt;[FK] pm_confirmed_by: uuid&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="810" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t4" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;language_pair: varchar(100)&lt;br&gt;word_count: bigint&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t4" value="&lt;b style='font-size:14px'&gt;translation_sub_order&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单拆分后的子订单&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] parent_project_id: uuid&lt;br&gt;[UQ] sub_order_no: varchar(60)&lt;br&gt;sub_project_name: varchar(255)&lt;br&gt;file_type_secondary: varchar(100)&lt;br&gt;language_pair: varchar(500)&lt;br&gt;[FK] translator_id: uuid&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="30" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t5" value="&lt;b style='font-size:14px'&gt;workflow_instance&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单或子订单当前工作流状态&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;difficulty: varchar(20)&lt;br&gt;file_editable: boolean&lt;br&gt;current_stage_key: varchar(50)&lt;br&gt;[FK] current_assignee_id: uuid&lt;br&gt;[FK] sub_order_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t5" value="&lt;b style='font-size:14px'&gt;workflow_instance&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;主订单或子订单当前工作流状态&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;[FK] sub_order_id: uuid&lt;br&gt;difficulty: varchar(20)&lt;br&gt;file_editable: boolean&lt;br&gt;current_stage_key: varchar(50)&lt;br&gt;[FK] current_assignee_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="330" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t6" value="&lt;b style='font-size:14px'&gt;non_project_task_recurrence&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;非项目周期任务模板&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;task_type: varchar(50)&lt;br&gt;task_name: varchar(255)&lt;br&gt;[FK] assigner_id: uuid&lt;br&gt;[FK] assignee_id: uuid&lt;br&gt;frequency: varchar(20)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#cce5ff;strokeColor=#4a86e8;fontSize=11;" vertex="1" parent="1">
@@ -365,7 +386,7 @@
         <mxCell id="t8" value="&lt;b style='font-size:14px'&gt;non_project_task_event&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;非项目任务状态变更事件&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] task_id: uuid&lt;br&gt;[FK] operator_id: uuid&lt;br&gt;event_type: varchar(30)&lt;br&gt;from_status: varchar(20)&lt;br&gt;to_status: varchar(20)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#cce5ff;strokeColor=#4a86e8;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="330" width="340" height="226" as="geometry" />
         </mxCell>
-        <mxCell id="t9" value="&lt;b style='font-size:14px'&gt;work_entry&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;用户每日项目/非项目工作投入记录&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] user_id: uuid&lt;br&gt;work_date: date&lt;br&gt;[FK] workflow_instance_id: uuid&lt;br&gt;[FK] non_project_task_id: uuid&lt;br&gt;progress_content: text&lt;br&gt;duration_minutes: integer" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#cce5ff;strokeColor=#4a86e8;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t9" value="&lt;b style='font-size:14px'&gt;work_entry&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;用户每日项目/非项目工作投入记录&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] user_id: uuid&lt;br&gt;work_date: date&lt;br&gt;[FK] workflow_instance_id: uuid&lt;br&gt;[FK] project_responsibility_id: uuid&lt;br&gt;[FK] non_project_task_id: uuid&lt;br&gt;progress_content: text&lt;br&gt;duration_minutes: integer" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#cce5ff;strokeColor=#4a86e8;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="30" y="630" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t10" value="&lt;b style='font-size:14px'&gt;daily_report&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;用户日清日报头及定稿状态&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] user_id: uuid&lt;br&gt;[UQ] report_date: date&lt;br&gt;status: varchar(20)&lt;br&gt;supplemental_note: text&lt;br&gt;generated_at: timestamp" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#cce5ff;strokeColor=#4a86e8;fontSize=11;" vertex="1" parent="1">
@@ -377,13 +398,13 @@
         <mxCell id="t12" value="&lt;b style='font-size:14px'&gt;work_schedule&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;部门每日排班快照及紧急任务表&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[UQ] schedule_date: date&lt;br&gt;shift_table: jsonb&lt;br&gt;leave_notes: jsonb&lt;br&gt;urgent_table_zh_en: jsonb" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fce5cd;strokeColor=#e69138;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1200" y="630" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t13" value="&lt;b style='font-size:14px'&gt;employee_leave&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;员工请假区间记录&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;employee_id: uuid&lt;br&gt;employee_name: varchar(100)&lt;br&gt;start_date: date" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fce5cd;strokeColor=#e69138;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="30" y="930" width="340" height="226" as="geometry" />
+        <mxCell id="t13" value="&lt;b style='font-size:14px'&gt;employee_leave&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;员工请假区间记录&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK] employee_id: uuid&lt;br&gt;employee_name: varchar(100)&lt;br&gt;start_date: timestamp&lt;br&gt;end_date: timestamp&lt;br&gt;[FK] created_by: uuid&lt;br&gt;[FK] updated_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#fce5cd;strokeColor=#e69138;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="30" y="930" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t14" value="&lt;b style='font-size:14px'&gt;manuscript_dispatch&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;一次主订单/子订单稿件派发批次&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;entity_type: varchar(20)&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;[FK] sub_order_id: uuid&lt;br&gt;order_no_snapshot: varchar(80)&lt;br&gt;project_name_snapshot: varchar(255)&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#ead1dc;strokeColor=#a64d79;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="420" y="930" width="340" height="243" as="geometry" />
         </mxCell>
-        <mxCell id="t15" value="&lt;b style='font-size:14px'&gt;manuscript_arrangement&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;派发批次内针对译员的稿件安排与邮件结果&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;entity_type: varchar(20)&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;[FK] sub_order_id: uuid&lt;br&gt;[FK/UQ] translator_id: uuid&lt;br&gt;order_no_snapshot: varchar(80)&lt;br&gt;project_name_snapshot: varchar(255)&lt;br&gt;[FK] created_by: uuid&lt;br&gt;[FK/UQ] dispatch_id: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#ead1dc;strokeColor=#a64d79;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="t15" value="&lt;b style='font-size:14px'&gt;manuscript_arrangement&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;派发批次内针对译员的稿件安排与邮件结果&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] dispatch_id: uuid&lt;br&gt;entity_type: varchar(20)&lt;br&gt;[FK] translation_project_id: uuid&lt;br&gt;[FK] sub_order_id: uuid&lt;br&gt;[FK/UQ] translator_id: uuid&lt;br&gt;order_no_snapshot: varchar(80)&lt;br&gt;project_name_snapshot: varchar(255)&lt;br&gt;[FK] created_by: uuid" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#ead1dc;strokeColor=#a64d79;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="810" y="930" width="340" height="243" as="geometry" />
         </mxCell>
         <mxCell id="t16" value="&lt;b style='font-size:14px'&gt;manuscript_delivery_milestone&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;稿件安排的阶段性/最终交付节点&lt;/span&gt;&lt;hr&gt;[PK] id: uuid&lt;br&gt;[FK/UQ] arrangement_id: uuid&lt;br&gt;milestone_type: varchar(20)&lt;br&gt;name: varchar(100)&lt;br&gt;[UQ] sequence_no: integer&lt;br&gt;planned_at: timestamp" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=8;fillColor=#ead1dc;strokeColor=#a64d79;fontSize=11;" vertex="1" parent="1">
@@ -392,91 +413,103 @@
         <mxCell id="e1" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e2" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
+        <mxCell id="e2" value="project_manager_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e3" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t3">
+        <mxCell id="e3" value="pm_confirmed_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e4" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t4">
+        <mxCell id="e4" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e5" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t4">
+        <mxCell id="e5" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e6" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t4">
+        <mxCell id="e6" value="parent_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e7" value="current_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
+        <mxCell id="e7" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t4">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e8" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t5">
+        <mxCell id="e8" value="current_assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e9" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t5">
+        <mxCell id="e9" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e10" value="assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
+        <mxCell id="e10" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t5">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e11" value="assigner_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
+        <mxCell id="e11" value="assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e12" value="assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
+        <mxCell id="e12" value="assigner_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t6">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e13" value="assigner_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
+        <mxCell id="e13" value="assignee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e14" value="recurrence_template_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t7">
+        <mxCell id="e14" value="assigner_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e15" value="operator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t8">
+        <mxCell id="e15" value="recurrence_template_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t6" target="t7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e16" value="task_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t7" target="t8">
+        <mxCell id="e16" value="operator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e17" value="non_project_task_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t7" target="t9">
+        <mxCell id="e17" value="task_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t7" target="t8">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e18" value="user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t9">
+        <mxCell id="e18" value="non_project_task_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t7" target="t9">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e19" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t5" target="t9">
+        <mxCell id="e19" value="user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t9">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e20" value="user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t10">
+        <mxCell id="e20" value="workflow_instance_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t5" target="t9">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="report_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t11">
+        <mxCell id="e21" value="user_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t10">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e22" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
+        <mxCell id="e22" value="report_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t10" target="t11">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e23" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t14">
+        <mxCell id="e23" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e24" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t14">
+        <mxCell id="e24" value="employee_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e25" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t15">
+        <mxCell id="e25" value="updated_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t13">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e26" value="dispatch_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t14" target="t15">
+        <mxCell id="e26" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t14">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e27" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t15">
+        <mxCell id="e27" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t14">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e28" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t15">
+        <mxCell id="e28" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t14">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e29" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t15">
+        <mxCell id="e29" value="created_by" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t1" target="t15">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e30" value="arrangement_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t15" target="t16">
+        <mxCell id="e30" value="dispatch_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t14" target="t15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e31" value="translation_project_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t3" target="t15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e32" value="sub_order_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t4" target="t15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e33" value="translator_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t2" target="t15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e34" value="arrangement_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=ERmany;startArrow=ERone;startFill=0;endFill=0;strokeColor=#666666;fontSize=9;" edge="1" parent="1" source="t15" target="t16">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>

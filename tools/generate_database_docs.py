@@ -27,7 +27,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-for module_name in ("models", "workflow_models", "task_models", "manuscript_models"):
+for module_name in (
+    "models", "interpretation_models", "recruitment_models", "resource_models",
+    "annotation_models", "annotation_ops_models", "resource_request_models",
+    "workflow_models", "task_models", "manuscript_models", "business_mail_models",
+    "word_count_models",
+):
     importlib.import_module(module_name)
 
 from database import engine  # noqa: E402
@@ -74,6 +79,19 @@ TABLE_PURPOSES = {
     "manuscript_dispatch": "一次主订单/子订单稿件派发批次",
     "manuscript_arrangement": "派发批次内针对译员的稿件安排与邮件结果",
     "manuscript_delivery_milestone": "稿件安排的阶段性/最终交付节点",
+    "annotation_project_status_history": "标注项目状态实际生效日期与变更履历",
+    "annotation_platform": "客户级标注平台资产",
+    "annotation_platform_account": "标注平台账号资产（凭据明文存储）",
+    "annotation_account_assignment": "账号与标注员、项目的分配履历",
+    "annotation_account_assignment_language": "账号分配所覆盖的项目语种",
+    "annotation_account_password_history": "账号历史密码明文与修改履历",
+    "annotation_credential_access_log": "账号明文凭据查看审计",
+    "annotation_trial_record": "标注员分轮次试标过程与结果",
+    "annotation_assignee_rate": "正式标注或质检安排的人员计价",
+    "annotation_custom_field_definition": "标注域动态业务字段定义",
+    "resource_request": "跨业务来源的资源需求主记录与快照",
+    "resource_request_item": "资源需求的语种、人数与要求明细",
+    "resource_request_progress_log": "资源开拓进度变化履历",
 }
 
 MODULES = {
@@ -111,6 +129,14 @@ MODULES = {
         "manuscript_arrangement",
         "manuscript_delivery_milestone",
     ],
+    "标注运营": [
+        "annotation_project", "annotation_project_language_item", "annotation_project_price_item",
+        "annotation_project_assignee", "annotation_project_status_history", "annotation_platform",
+        "annotation_platform_account", "annotation_account_assignment", "annotation_account_assignment_language",
+        "annotation_account_password_history", "annotation_credential_access_log",
+        "annotation_trial_record", "annotation_assignee_rate", "annotation_custom_field_definition",
+    ],
+    "资源需求": ["resource_request", "resource_request_item", "resource_request_progress_log"],
 }
 
 MODULE_COLORS = {
@@ -124,6 +150,8 @@ MODULE_COLORS = {
     "任务与日报": ("#cce5ff", "#4a86e8"),
     "排班与请假": ("#fce5cd", "#e69138"),
     "稿件安排": ("#ead1dc", "#a64d79"),
+    "标注运营": ("#d5e8d4", "#2d7d46"),
+    "资源需求": ("#fff2cc", "#b8860b"),
 }
 
 FIELD_DESCRIPTIONS = {
@@ -143,6 +171,34 @@ FIELD_DESCRIPTIONS = {
     "user_id": "关联用户",
     "role_id": "关联角色",
     "client_id": "关联客户",
+    "origin_project_id": "首次登记来源标注项目",
+    "platform_url_normalized": "用于客户内查重的平台规范化链接",
+    "login_notes": "登录、验证码和二次验证说明",
+    "parent_account_id": "备用账号所关联的主账号",
+    "birth_date": "出生日期，用于动态计算年龄",
+    "native_place": "籍贯",
+    "residence_address": "现居地址",
+    "dialects": "掌握的方言",
+    "dialect_regions": "方言对应地域",
+    "login_account": "登录账号明文",
+    "login_account_normalized": "用于平台内查重的规范化登录账号",
+    "password": "登录密码明文",
+    "account_status": "账号状态",
+    "registration_status": "平台注册状态",
+    "account_source": "账号来源",
+    "expires_on": "账号到期日期",
+    "account_id": "关联标注账号资产",
+    "assigned_on": "分配开始日期",
+    "released_on": "释放日期；空表示当前使用中",
+    "release_reason": "释放原因",
+    "assignment_note": "账号分配说明",
+    "assigned_by": "执行分配的系统用户",
+    "effective_from": "历史密码原生效时间",
+    "replaced_at": "密码被替换时间",
+    "changed_by": "执行变更的系统用户",
+    "accessed_at": "明文凭据查看时间",
+    "access_reason": "明文凭据查看原因",
+    "client_ip": "查看者客户端 IP",
     "parent_client_id": "所属母客户",
     "translator_id": "关联译员",
     "translation_project_id": "关联翻译主订单",

@@ -323,7 +323,7 @@ const form = reactive({
 const validateEmail = (_rule, value, callback) => {
   const email = String(value || '').trim()
   if (!email) {
-    callback(new Error('邮箱不能为空'))
+    callback()
     return
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -561,7 +561,7 @@ const handleSubmit = async () => {
     try {
       const payload = {
         ...form,
-        email: form.email.trim()
+        email: form.email.trim() || null
       }
       if (form.id) {
         const updateData = { ...payload }

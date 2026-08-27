@@ -19,7 +19,7 @@ from workflow_models import ProjectWorkbenchResponsibility
     [
         ("interpretation", "initial_follow_up", True),
         ("interpretation", "ended", False),
-        ("annotation", "sent_to_client", False),
+        ("annotation", "sent_to_client", True),
         ("annotation", "client_feedback", True),
         ("recruitment", "probation", True),
         ("recruitment", "closed", False),

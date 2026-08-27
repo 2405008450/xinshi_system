@@ -1,0 +1,10 @@
+BEGIN;
+
+ALTER TABLE resource_person
+    ADD COLUMN IF NOT EXISTS birth_date DATE,
+    ADD COLUMN IF NOT EXISTS native_place VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS residence_address VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS dialects JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS dialect_regions JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+COMMIT;

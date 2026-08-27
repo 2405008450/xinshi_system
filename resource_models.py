@@ -10,6 +10,7 @@ from typing import Optional
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -61,6 +62,15 @@ class ResourcePerson(Base):
     other_contact: Mapped[Optional[str]] = mapped_column(String(255))
     resume_path: Mapped[Optional[str]] = mapped_column(Text)
     gender: Mapped[Optional[str]] = mapped_column(String(20))
+    birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    native_place: Mapped[Optional[str]] = mapped_column(String(255))
+    residence_address: Mapped[Optional[str]] = mapped_column(String(500))
+    dialects: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    dialect_regions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     height: Mapped[Optional[str]] = mapped_column(String(50))
     appearance: Mapped[Optional[str]] = mapped_column(String(255))
     nationality: Mapped[Optional[str]] = mapped_column(String(100))
@@ -93,6 +103,9 @@ class ResourcePerson(Base):
     annotation_profile: Mapped[Optional["AnnotationProfile"]] = relationship(
         back_populates="person", cascade="all, delete-orphan", uselist=False
     )
+    annotation_language_skills: Mapped[list["ResourceAnnotationLanguageSkill"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan"
+    )
     career_profile: Mapped[Optional["ResourceCareerProfile"]] = relationship(
         back_populates="person", cascade="all, delete-orphan", uselist=False
     )
@@ -110,6 +123,10 @@ class ResourcePerson(Base):
             if value and value not in values:
                 values.append(value)
         return values
+
+    @property
+    def annotation_language_directions(self) -> list[str]:
+        return [item.display for item in self.annotation_language_skills]
 
     @property
     def industries(self) -> list[str]:
@@ -253,6 +270,74 @@ class AnnotationProfile(Base):
     remarks: Mapped[Optional[str]] = mapped_column(Text)
 
     person: Mapped[ResourcePerson] = relationship(back_populates="annotation_profile")
+
+
+class ResourceAnnotationLanguageSkill(Base):
+    """标注员可承接的单语/方言或双语方向。"""
+
+    __tablename__ = "resource_annotation_language_skill"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_annotation_language_skill_pkey"),
+        ForeignKeyConstraint(
+            ["person_id"], ["resource_person.id"], ondelete="CASCADE",
+            name="fk_resource_annotation_language_person",
+        ),
+        ForeignKeyConstraint(
+            ["source_language_id"], ["interpretation_language.id"], ondelete="RESTRICT",
+            name="fk_resource_annotation_language_source",
+        ),
+        ForeignKeyConstraint(
+            ["target_language_id"], ["interpretation_language.id"], ondelete="RESTRICT",
+            name="fk_resource_annotation_language_target",
+        ),
+        CheckConstraint(
+            "target_language_id IS NULL OR source_language_id <> target_language_id",
+            name="ck_resource_annotation_language_distinct",
+        ),
+        Index(
+            "uq_resource_annotation_language_single", "person_id", "source_language_id",
+            unique=True, postgresql_where=text("target_language_id IS NULL"),
+            sqlite_where=text("target_language_id IS NULL"),
+        ),
+        Index(
+            "uq_resource_annotation_language_pair", "person_id", "source_language_id",
+            "target_language_id", unique=True,
+            postgresql_where=text("target_language_id IS NOT NULL"),
+            sqlite_where=text("target_language_id IS NOT NULL"),
+        ),
+        Index("ix_resource_annotation_language_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    target_language_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="annotation_language_skills")
+    source_language = relationship("InterpretationLanguage", foreign_keys=[source_language_id])
+    target_language = relationship("InterpretationLanguage", foreign_keys=[target_language_id])
+
+    @property
+    def source_language_label(self) -> str:
+        return self.source_language.label
+
+    @property
+    def target_language_label(self) -> Optional[str]:
+        return self.target_language.label if self.target_language else None
+
+    @property
+    def display(self) -> str:
+        if self.target_language_label:
+            return f"{self.source_language_label}→{self.target_language_label}"
+        return self.source_language_label
 
 
 class ResourceCareerProfile(Base):

@@ -9,6 +9,7 @@ from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -68,6 +69,14 @@ class AnnotationProject(Base):
             "OR task_submitted_at >= task_dispatched_at",
             name="ck_annotation_project_task_times",
         ),
+        CheckConstraint(
+            "project_status IN ('initial_consultation','consultation_no_result',"
+            "'resource_sourcing','resource_sourcing_cancelled','trial_preparation',"
+            "'trial_in_progress','trial_passed','trial_failed','trial_partially_passed',"
+            "'project_in_progress','sent_to_client','client_feedback','cancelled',"
+            "'partially_cancelled')",
+            name="ck_annotation_project_status",
+        ),
         Index("ix_annotation_project_status", "project_status"),
         Index("ix_annotation_project_client", "client_id"),
         Index("ix_annotation_project_client_manager", "client_manager_id"),
@@ -90,7 +99,14 @@ class AnnotationProject(Base):
     customer_order_no: Mapped[Optional[str]] = mapped_column(String(150))
     email_subject_preview: Mapped[Optional[str]] = mapped_column(String(1000))
     project_status: Mapped[str] = mapped_column(
-        String(50), nullable=False, server_default=text("'pending_confirmation'")
+        String(50), nullable=False, server_default=text("'initial_consultation'")
+    )
+    language_region: Mapped[Optional[str]] = mapped_column(String(255))
+    status_effective_on: Mapped[datetime.date] = mapped_column(
+        Date, nullable=False, server_default=text("CURRENT_DATE")
+    )
+    custom_values: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     potential_demand: Mapped[Optional[str]] = mapped_column(Text)
     project_path: Mapped[Optional[str]] = mapped_column(Text)
@@ -241,8 +257,29 @@ class AnnotationProjectAssignee(Base):
             ["person_id"], ["resource_person.id"], ondelete="RESTRICT",
             name="fk_annotation_assignee_person",
         ),
-        UniqueConstraint("project_id", "person_id", name="uq_annotation_project_assignee"),
+        ForeignKeyConstraint(
+            ["language_item_id"], ["annotation_project_language_item.id"], ondelete="RESTRICT",
+            name="fk_annotation_assignee_language_item",
+        ),
         UniqueConstraint("project_id", "sequence_no", name="uq_annotation_assignee_sequence"),
+        CheckConstraint(
+            "assignment_role IN ('annotator', 'quality_inspector')",
+            name="ck_annotation_assignee_role",
+        ),
+        CheckConstraint(
+            "audio_duration_value IS NULL OR audio_duration_value >= 0",
+            name="ck_annotation_assignee_audio_duration_value",
+        ),
+        CheckConstraint(
+            "audio_duration_unit IS NULL OR audio_duration_unit IN ('second', 'minute', 'hour')",
+            name="ck_annotation_assignee_audio_duration_unit",
+        ),
+        Index(
+            "uq_annotation_project_assignee_scope",
+            "project_id", "person_id", "language_item_id", "assignment_role",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
         Index("ix_annotation_assignee_person", "person_id"),
     )
 
@@ -257,9 +294,31 @@ class AnnotationProjectAssignee(Base):
     )
     quality_score: Mapped[Optional[str]] = mapped_column(String(50))
     evaluation_note: Mapped[Optional[str]] = mapped_column(Text)
+    assignment_role: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'annotator'")
+    )
+    language_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    audio_duration_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 3))
+    audio_duration_unit: Mapped[Optional[str]] = mapped_column(String(20))
+    custom_values: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
 
     project: Mapped[AnnotationProject] = relationship(back_populates="assignees")
     person: Mapped[ResourcePerson] = relationship(ResourcePerson)
+    language_item: Mapped[Optional["AnnotationProjectLanguageItem"]] = relationship(
+        "AnnotationProjectLanguageItem", foreign_keys=[language_item_id]
+    )
+    rate = relationship(
+        "AnnotationAssigneeRate", back_populates="assignee", uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @property
     def person_name(self) -> str:

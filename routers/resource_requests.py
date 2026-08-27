@@ -1,0 +1,89 @@
+"""资源需求管理 API。"""
+
+from typing import List, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import AppUser
+from resource_request_schemas import ResourceProgressLogResponse, ResourceProgressUpdate, ResourceRequestResponse, ResourceRequestSourcePrefillResponse, ResourceRequestWrite
+from resource_request_service import (
+    count_resource_requests, create_resource_request, delete_resource_request,
+    get_resource_request, get_resource_request_source_prefill, list_progress_logs, list_resource_requests,
+    update_resource_progress, update_resource_request,
+)
+from routers.auth import get_current_user, require_any_permission, require_module_access
+
+
+router = APIRouter(
+    prefix="/resource-requests", tags=["resource_requests"],
+    dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
+)
+
+
+def _filters(keyword=None, source_type=None, request_category=None, request_status=None, priority=None, owner_id=None):
+    return dict(keyword=keyword, source_type=source_type, request_category=request_category, request_status=request_status, priority=priority, owner_id=owner_id)
+
+
+@router.get("/", response_model=List[ResourceRequestResponse])
+def read_requests(skip: int = 0, limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None, source_type: Optional[str] = None, request_category: Optional[str] = None, request_status: Optional[str] = None, priority: Optional[str] = None, owner_id: Optional[UUID] = None, db: Session = Depends(get_db)):
+    return list_resource_requests(db, skip=skip, limit=limit, **_filters(keyword, source_type, request_category, request_status, priority, owner_id))
+
+
+@router.get("/count")
+def read_count(keyword: Optional[str] = None, source_type: Optional[str] = None, request_category: Optional[str] = None, request_status: Optional[str] = None, priority: Optional[str] = None, owner_id: Optional[UUID] = None, db: Session = Depends(get_db)):
+    return {"total": count_resource_requests(db, **_filters(keyword, source_type, request_category, request_status, priority, owner_id))}
+
+
+@router.get("/source-prefill", response_model=ResourceRequestSourcePrefillResponse)
+def read_source_prefill(source_type: str, source_project_id: UUID, db: Session = Depends(get_db)):
+    try:
+        value = get_resource_request_source_prefill(db, source_type, source_project_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not value:
+        raise HTTPException(404, "来源项目不存在")
+    return value
+
+
+@router.post("/", response_model=ResourceRequestResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
+def create_request(payload: ResourceRequestWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    try: return create_resource_request(db, payload, user.id)
+    except (ValueError, IntegrityError) as exc:
+        db.rollback(); raise HTTPException(400, str(exc))
+
+
+@router.get("/{request_id}", response_model=ResourceRequestResponse)
+def read_request(request_id: UUID, db: Session = Depends(get_db)):
+    row = get_resource_request(db, request_id)
+    if not row: raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.put("/{request_id}", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def edit_request(request_id: UUID, payload: ResourceRequestWrite, db: Session = Depends(get_db)):
+    try: row = update_resource_request(db, request_id, payload)
+    except (ValueError, IntegrityError) as exc:
+        db.rollback(); raise HTTPException(400, str(exc))
+    if not row: raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.patch("/{request_id}/progress", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def edit_progress(request_id: UUID, payload: ResourceProgressUpdate, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    row = update_resource_progress(db, request_id, payload, user.id)
+    if not row: raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.get("/{request_id}/progress-logs", response_model=List[ResourceProgressLogResponse])
+def progress_logs(request_id: UUID, db: Session = Depends(get_db)):
+    return list_progress_logs(db, request_id)
+
+
+@router.delete("/{request_id}", status_code=204, dependencies=[Depends(require_any_permission("projects:write"))])
+def remove_request(request_id: UUID, db: Session = Depends(get_db)):
+    if not delete_resource_request(db, request_id): raise HTTPException(404, "资源需求不存在")

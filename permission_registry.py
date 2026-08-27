@@ -30,6 +30,14 @@ PERMISSION_GROUPS = [
         ],
     },
     {
+        "group": "标注账号",
+        "permissions": [
+            {"code": "annotation_accounts:read", "name": "查看标注平台与账号"},
+            {"code": "annotation_accounts:write", "name": "管理标注平台、账号与分配"},
+            {"code": "annotation_accounts:reveal", "name": "查看标注账号明文凭据"},
+        ],
+    },
+    {
         "group": "客户管理",
         "permissions": [
             {"code": "clients:read", "name": "查看客户"},

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Sequence
 from uuid import UUID
 
 from sqlalchemy import String, func, or_
 from sqlalchemy.orm import Session, selectinload
 
+from interpretation_models import InterpretationLanguage
 from resource_models import (
     AnnotationProfile,
     InterpretationProfile,
+    ResourceAnnotationLanguageSkill,
     ResourceCapability,
     ResourceCareerProfile,
     ResourcePerson,
@@ -60,6 +62,12 @@ def _person_options():
         selectinload(ResourcePerson.written_profile),
         selectinload(ResourcePerson.interpretation_profile),
         selectinload(ResourcePerson.annotation_profile),
+        selectinload(ResourcePerson.annotation_language_skills).joinedload(
+            ResourceAnnotationLanguageSkill.source_language
+        ),
+        selectinload(ResourcePerson.annotation_language_skills).joinedload(
+            ResourceAnnotationLanguageSkill.target_language
+        ),
         selectinload(ResourcePerson.career_profile),
     )
 
@@ -78,6 +86,7 @@ def _talent_query(
     *,
     keyword: Optional[str] = None,
     status: Optional[str] = None,
+    statuses: Optional[Sequence[str]] = None,
     capability_type: Optional[str] = None,
     capability_status: Optional[str] = None,
     cooperation_type: Optional[str] = None,
@@ -102,6 +111,8 @@ def _talent_query(
         ))
     if status:
         query = query.filter(ResourcePerson.status == status)
+    elif statuses:
+        query = query.filter(ResourcePerson.status.in_(tuple(statuses)))
     if cooperation_type:
         query = query.filter(ResourcePerson.cooperation_type == cooperation_type)
     if industry_keyword:
@@ -215,6 +226,26 @@ def _sync_profiles(db: Session, person: ResourcePerson, payload) -> None:
                 setattr(current, key, value)
 
 
+def _sync_annotation_language_skills(db: Session, person: ResourcePerson, payload) -> None:
+    incoming = payload.annotation_language_skills
+    language_ids = {
+        value
+        for item in incoming
+        for value in (item.source_language_id, item.target_language_id)
+        if value is not None
+    }
+    if language_ids:
+        found = {
+            value for (value,) in db.query(InterpretationLanguage.id)
+            .filter(InterpretationLanguage.id.in_(language_ids)).all()
+        }
+        if found != language_ids:
+            raise ValueError("标注语种/方言中包含不存在的语种")
+    person.annotation_language_skills = [
+        ResourceAnnotationLanguageSkill(**item.model_dump()) for item in incoming
+    ]
+
+
 def _legacy_translation_type(capability_types: set[str]) -> Optional[str]:
     if {"written_translation", "interpretation"}.issubset(capability_types):
         return "笔译/口译"
@@ -290,7 +321,7 @@ def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
     })
     person = ResourcePerson(
         duplicate_review_required=bool(duplicates and payload.allow_duplicate), **data
@@ -299,10 +330,28 @@ def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
     db.flush()
     _sync_capabilities(db, person, payload)
     _sync_profiles(db, person, payload)
+    _sync_annotation_language_skills(db, person, payload)
     db.flush()
     _sync_legacy_translator(db, person)
     db.commit()
     return get_talent(db, person.id)
+
+
+def update_talent_name(
+    db: Session, person_id: UUID, full_name: str
+) -> Optional[ResourcePerson]:
+    """只修改姓名，避免账号页快速纠错时覆盖人才档案的其他字段。"""
+    person = get_talent(db, person_id)
+    if not person:
+        return None
+    if person.full_name != full_name:
+        person.full_name = full_name
+        person.updated_at = datetime.now()
+        db.flush()
+        _sync_legacy_translator(db, person)
+        db.commit()
+        return get_talent(db, person.id)
+    return person
 
 
 def update_talent_status(
@@ -334,7 +383,7 @@ def update_talent(
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
     })
     for key, value in data.items():
         setattr(person, key, value)
@@ -342,6 +391,7 @@ def update_talent(
         person.duplicate_review_required = True
     _sync_capabilities(db, person, payload)
     _sync_profiles(db, person, payload)
+    _sync_annotation_language_skills(db, person, payload)
     person.updated_at = datetime.now()
     db.flush()
     _sync_legacy_translator(db, person)
@@ -363,7 +413,7 @@ def update_recruitment_talent(
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
     })
     for key, value in data.items():
         setattr(person, key, value)

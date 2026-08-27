@@ -85,6 +85,7 @@ export function hasPermission(permissionOrPermissions, userPermissions) {
  */
 export function getDefaultRoute() {
   if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
+  if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
   if (hasPermission('system:users:read')) return '/users'
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'

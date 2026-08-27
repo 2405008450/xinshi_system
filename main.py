@@ -27,7 +27,7 @@ from models import (
     TranslatorSchedule,
 )
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
@@ -80,6 +80,19 @@ from business_mail_models import (
     MailRecipientGroup, MailRecipientGroupMember,
     ProjectMailPolicy, ProjectMailPolicyGroup,
 )
+from annotation_ops_models import (
+    AnnotationAccountAssignment,
+    AnnotationAccountAssignmentLanguage,
+    AnnotationAccountPasswordHistory,
+    AnnotationAssigneeRate,
+    AnnotationCustomFieldDefinition,
+    AnnotationCredentialAccessLog,
+    AnnotationPlatform,
+    AnnotationPlatformAccount,
+    AnnotationProjectStatusHistory,
+    AnnotationTrialRecord,
+)
+from resource_request_models import ResourceRequest, ResourceRequestItem, ResourceRequestProgressLog
 from routers import business_mails
 
 app = FastAPI()
@@ -99,6 +112,8 @@ app.include_router(roles.router)
 app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)
 app.include_router(annotation_projects.router)
+app.include_router(annotation_ops.router)
+app.include_router(resource_requests.router)
 app.include_router(recruitment_projects.router)
 app.include_router(project_languages.router)
 app.include_router(user_roles.router)
@@ -220,6 +235,45 @@ INTERPRETATION_REQUIREMENT_COLUMN_STATEMENTS = (
 )
 ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS email_subject_preview VARCHAR(1000)",
+    "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS language_region VARCHAR(255)",
+    "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS status_effective_on DATE NOT NULL DEFAULT CURRENT_DATE",
+    "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "UPDATE annotation_project SET project_status=CASE project_status WHEN 'pending_confirmation' THEN 'initial_consultation' WHEN 'trial' THEN 'trial_in_progress' WHEN 'in_progress' THEN 'project_in_progress' ELSE project_status END WHERE project_status IN ('pending_confirmation','trial','in_progress')",
+    "ALTER TABLE annotation_project ALTER COLUMN project_status SET DEFAULT 'initial_consultation'",
+    """
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_project_status') THEN
+        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled'));
+      END IF;
+    END $$
+    """,
+)
+ANNOTATION_ASSIGNEE_COLUMN_STATEMENTS = (
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS assignment_role VARCHAR(30) NOT NULL DEFAULT 'annotator'",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS language_item_id UUID",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS audio_duration_value NUMERIC(18,3)",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS audio_duration_unit VARCHAR(20)",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE annotation_project_assignee ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE annotation_project_assignee DROP CONSTRAINT IF EXISTS uq_annotation_project_assignee",
+    """
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_annotation_assignee_language_item') THEN
+        ALTER TABLE annotation_project_assignee ADD CONSTRAINT fk_annotation_assignee_language_item FOREIGN KEY(language_item_id) REFERENCES annotation_project_language_item(id) ON DELETE RESTRICT;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_assignee_role') THEN
+        ALTER TABLE annotation_project_assignee ADD CONSTRAINT ck_annotation_assignee_role CHECK(assignment_role IN ('annotator','quality_inspector'));
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_assignee_audio_duration_value') THEN
+        ALTER TABLE annotation_project_assignee ADD CONSTRAINT ck_annotation_assignee_audio_duration_value CHECK(audio_duration_value IS NULL OR audio_duration_value >= 0);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_assignee_audio_duration_unit') THEN
+        ALTER TABLE annotation_project_assignee ADD CONSTRAINT ck_annotation_assignee_audio_duration_unit CHECK(audio_duration_unit IS NULL OR audio_duration_unit IN ('second','minute','hour'));
+      END IF;
+    END $$
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_annotation_project_assignee_scope ON annotation_project_assignee(project_id, person_id, language_item_id, assignment_role) NULLS NOT DISTINCT",
 )
 RESOURCE_COMPAT_COLUMN_STATEMENTS = (
     "ALTER TABLE translator ADD COLUMN IF NOT EXISTS resource_person_id UUID",
@@ -396,6 +450,76 @@ def ensure_annotation_project_columns():
             conn.execute(text("ALTER TABLE annotation_project_price_item ALTER COLUMN currency DROP NOT NULL"))
             conn.execute(text("ALTER TABLE annotation_project_price_item ALTER COLUMN currency DROP DEFAULT"))
             conn.execute(text("UPDATE annotation_project_price_item SET currency = NULL WHERE currency = 'CNY'"))
+
+
+def ensure_annotation_assignee_columns():
+    """补齐正式标注安排第三阶段字段，并替换旧唯一约束。"""
+    if "annotation_project_assignee" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in ANNOTATION_ASSIGNEE_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_annotation_status_history_seed():
+    """为升级前已有项目补齐首条状态履历。"""
+    required = {"annotation_project", "annotation_project_status_history"}
+    if not required.issubset(set(inspect(engine).get_table_names())):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO annotation_project_status_history
+                (project_id, from_status, to_status, effective_on, changed_by, changed_at)
+            SELECT p.id, NULL, p.project_status,
+                   COALESCE(p.status_effective_on, p.created_at::date),
+                   p.created_by, p.created_at
+            FROM annotation_project p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM annotation_project_status_history h
+                WHERE h.project_id = p.id
+            )
+        """))
+
+
+def ensure_annotation_custom_field_scope_constraint():
+    """确保动态字段作用域规则在数据库层同样生效。"""
+    if "annotation_custom_field_definition" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            DO $$ BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname='ck_annotation_custom_field_scope'
+              ) THEN
+                ALTER TABLE annotation_custom_field_definition
+                  ADD CONSTRAINT ck_annotation_custom_field_scope CHECK(
+                    (table_code IN ('project','account') AND project_id IS NULL) OR
+                    (table_code IN ('trial','assignment') AND project_id IS NOT NULL)
+                  );
+              END IF;
+            END $$
+        """))
+
+
+def ensure_resource_request_view():
+    """创建资源需求统一展示视图。"""
+    required = {"resource_request", "annotation_project", "recruitment_project", "interpretation_project", "translation_project"}
+    if not required.issubset(set(inspect(engine).get_table_names())):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE OR REPLACE VIEW v_resource_request_display AS
+            SELECT r.*,
+              COALESCE(ap.project_status, rp.project_status, ip.project_status, tp.project_status) AS current_project_status,
+              COALESCE(ap.order_no, rp.order_no, ip.order_no, tp.order_no) AS current_order_no,
+              COALESCE(ap.project_name, rp.project_name, ip.project_name, tp.project_name, r.other_source_name) AS current_project_name
+            FROM resource_request r
+            LEFT JOIN annotation_project ap ON ap.id=r.annotation_project_id
+            LEFT JOIN recruitment_project rp ON rp.id=r.recruitment_project_id
+            LEFT JOIN interpretation_project ip ON ip.id=r.interpretation_project_id
+            LEFT JOIN translation_project tp ON tp.id=r.translation_project_id
+        """))
 
 
 def ensure_recruitment_project_columns():
@@ -811,7 +935,7 @@ def ensure_multitype_workbench_schema():
             INSERT INTO project_workbench_responsibility (annotation_project_id, role_code)
             SELECT p.id, r.role_code FROM annotation_project p
             CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
-            WHERE p.project_status IN ('pending_confirmation', 'trial', 'in_progress', 'client_feedback') ON CONFLICT DO NOTHING
+            WHERE p.project_status IN ('initial_consultation', 'resource_sourcing', 'trial_preparation', 'trial_in_progress', 'trial_passed', 'trial_partially_passed', 'project_in_progress', 'sent_to_client', 'client_feedback') ON CONFLICT DO NOTHING
         """))
         conn.execute(text("""
             INSERT INTO project_workbench_responsibility (recruitment_project_id, role_code)
@@ -874,6 +998,19 @@ def ensure_runtime_tables():
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectPriceItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectAssignee.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_assignee_columns()
+    AnnotationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_status_history_seed()
+    AnnotationPlatform.__table__.create(bind=engine, checkfirst=True)
+    AnnotationPlatformAccount.__table__.create(bind=engine, checkfirst=True)
+    AnnotationAccountAssignment.__table__.create(bind=engine, checkfirst=True)
+    AnnotationAccountAssignmentLanguage.__table__.create(bind=engine, checkfirst=True)
+    AnnotationAccountPasswordHistory.__table__.create(bind=engine, checkfirst=True)
+    AnnotationCredentialAccessLog.__table__.create(bind=engine, checkfirst=True)
+    AnnotationTrialRecord.__table__.create(bind=engine, checkfirst=True)
+    AnnotationAssigneeRate.__table__.create(bind=engine, checkfirst=True)
+    AnnotationCustomFieldDefinition.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_custom_field_scope_constraint()
     RecruitmentResumeSource.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProject.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_project_columns()
@@ -895,6 +1032,10 @@ def ensure_runtime_tables():
     RecruitmentCandidateCommunication.__table__.create(bind=engine, checkfirst=True)
     ensure_recruitment_communication_columns()
     RecruitmentCandidateInterview.__table__.create(bind=engine, checkfirst=True)
+    ResourceRequest.__table__.create(bind=engine, checkfirst=True)
+    ResourceRequestItem.__table__.create(bind=engine, checkfirst=True)
+    ResourceRequestProgressLog.__table__.create(bind=engine, checkfirst=True)
+    ensure_resource_request_view()
     with engine.begin() as conn:
         conn.execute(text("""
             INSERT INTO recruitment_candidate_interview

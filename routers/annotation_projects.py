@@ -213,9 +213,10 @@ def update_project(
     project_id: UUID,
     payload: AnnotationProjectUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        project = update_annotation_project(db, project_id, payload)
+        project = update_annotation_project(db, project_id, payload, current_user.id)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
@@ -232,8 +233,16 @@ def update_project_status(
     project_id: UUID,
     payload: AnnotationProjectStatusUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
-    project = update_annotation_project_status(db, project_id, payload.project_status)
+    project = update_annotation_project_status(
+        db,
+        project_id,
+        payload.project_status,
+        payload.effective_on,
+        payload.change_note,
+        current_user.id,
+    )
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     return project

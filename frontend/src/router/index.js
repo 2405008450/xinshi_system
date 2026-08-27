@@ -79,8 +79,30 @@ const routes = [
       {
         path: 'annotation-details',
         name: 'AnnotationProjectDetails',
-        component: () => import('../views/project/AnnotationProjects.vue'),
-        meta: { title: '标注项目详情', permissions: ['projects:read'] }
+        component: () => import('../views/project/AnnotationWorkspace.vue'),
+        meta: {
+          title: '标注项目详情',
+          permissions: ['projects:read', 'annotation_accounts:read', 'annotation_accounts:write']
+        }
+      },
+      {
+        path: 'annotation-accounts',
+        name: 'AnnotationAccounts',
+        redirect: to => ({
+          name: 'AnnotationProjectDetails',
+          query: { ...to.query, section: 'accounts' }
+        })
+      },
+      {
+        path: 'annotation-trials',
+        name: 'AnnotationTrials',
+        redirect: { path: '/annotation-details', query: { section: 'trials' } }
+      },
+      {
+        path: 'resource-requests',
+        name: 'ResourceRequests',
+        component: () => import('../views/resource/ResourceRequests.vue'),
+        meta: { title: '资源需求管理', permissions: ['projects:read'] }
       },
       {
         path: 'recruitment',

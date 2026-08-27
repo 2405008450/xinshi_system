@@ -20,6 +20,8 @@ router = APIRouter(
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
 
+ASSIGNABLE_TALENT_STATUSES = ("active", "standby")
+
 
 @router.get("/", response_model=List[TalentOptionResponse])
 def read_talent_options(
@@ -32,7 +34,7 @@ def read_talent_options(
         db,
         limit=limit,
         keyword=keyword,
-        status="active",
+        statuses=ASSIGNABLE_TALENT_STATUSES,
         capability_type=capability_type,
         capability_status="active",
     )

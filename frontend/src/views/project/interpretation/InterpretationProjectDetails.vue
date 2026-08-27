@@ -297,9 +297,10 @@
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
+            <el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button>
             <TableActionButton action="edit" @click="handleEdit(row)" />
           </div>
         </template>
@@ -610,7 +611,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
@@ -649,6 +650,8 @@ const languageManagerLoading = ref(false)
 const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
 const route = useRoute()
+const router = useRouter()
+const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'interpretation', sourceProjectId: row.id } })
 const highlightedProjectId = ref('')
 const dialogBodyRef = ref(null)
 const {

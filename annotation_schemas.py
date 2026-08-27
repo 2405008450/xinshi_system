@@ -1,6 +1,6 @@
 """标注项目 API 数据契约。"""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -22,9 +22,16 @@ ANNOTATION_PROJECT_TYPE_LABELS = {
     "translation": "翻译",
 }
 ANNOTATION_PROJECT_STATUSES = {
-    "pending_confirmation",
-    "trial",
-    "in_progress",
+    "initial_consultation",
+    "consultation_no_result",
+    "resource_sourcing",
+    "resource_sourcing_cancelled",
+    "trial_preparation",
+    "trial_in_progress",
+    "trial_passed",
+    "trial_failed",
+    "trial_partially_passed",
+    "project_in_progress",
     "sent_to_client",
     "client_feedback",
     "cancelled",
@@ -55,6 +62,7 @@ def currency_symbol(code=None) -> str:
 
 
 class AnnotationLanguageItemInput(BaseModel):
+    id: Optional[UUID] = None
     source_language_id: UUID
     target_language_id: Optional[UUID] = None
 
@@ -79,6 +87,7 @@ class AnnotationLanguageItemResponse(AnnotationLanguageItemInput):
 
 
 class AnnotationPriceItemInput(BaseModel):
+    id: Optional[UUID] = None
     project_type: Optional[str] = None
     source_language_id: Optional[UUID] = None
     target_language_id: Optional[UUID] = None
@@ -135,7 +144,13 @@ class AnnotationPriceItemResponse(AnnotationPriceItemInput):
 
 
 class AnnotationAssigneeInput(BaseModel):
+    id: Optional[UUID] = None
     person_id: UUID
+    assignment_role: str = "annotator"
+    language_item_id: Optional[UUID] = None
+    audio_duration_value: Optional[Decimal] = Field(default=None, ge=0, max_digits=18, decimal_places=3)
+    audio_duration_unit: Optional[str] = None
+    custom_values: dict = Field(default_factory=dict)
     assignment_status: str = "assigned"
     quality_score: Optional[str] = None
     evaluation_note: Optional[str] = None
@@ -147,10 +162,33 @@ class AnnotationAssigneeInput(BaseModel):
             raise ValueError("不支持的标注人员安排状态")
         return value
 
+    @field_validator("assignment_role")
+    @classmethod
+    def validate_role(cls, value):
+        if value not in {"annotator", "quality_inspector"}:
+            raise ValueError("不支持的正式安排角色")
+        return value
+
+    @field_validator("audio_duration_unit")
+    @classmethod
+    def validate_duration_unit(cls, value):
+        if value is not None and value not in {"second", "minute", "hour"}:
+            raise ValueError("不支持的音频时长单位")
+        return value
+
     @field_validator("quality_score", "evaluation_note", mode="before")
     @classmethod
     def normalize_optional_text(cls, value):
         return _nullable_text(value)
+
+
+class AnnotationAssigneeRateInline(BaseModel):
+    id: UUID
+    amount: Decimal
+    currency: Optional[str] = None
+    unit: str
+    remarks: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnnotationAssigneeResponse(AnnotationAssigneeInput):
@@ -158,6 +196,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
     sequence_no: int
     person_name: str
     resource_code: Optional[str] = None
+    rate: Optional[AnnotationAssigneeRateInline] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -173,7 +212,10 @@ class AnnotationProjectWrite(BaseModel):
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = Field(default=None, max_length=1000)
-    project_status: str = "pending_confirmation"
+    project_status: str = "initial_consultation"
+    language_region: Optional[str] = None
+    status_effective_on: date = Field(default_factory=date.today)
+    custom_values: dict = Field(default_factory=dict)
     potential_demand: Optional[str] = None
     project_path: Optional[str] = None
     quotation_path: Optional[str] = None
@@ -191,7 +233,7 @@ class AnnotationProjectWrite(BaseModel):
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",
         "client_code", "contact_name", "customer_order_no", "email_subject_preview", "potential_demand",
-        "project_path", "quotation_path", "contract_path",
+        "project_path", "quotation_path", "contract_path", "language_region",
         mode="before",
     )
     @classmethod
@@ -235,9 +277,12 @@ class AnnotationProjectWrite(BaseModel):
                 raise ValueError("价格明细引用了当前项目未选择的项目类型")
             if item.language_key and item.language_key not in language_key_set:
                 raise ValueError("价格明细引用了当前项目未选择的语言项")
-        person_ids = [item.person_id for item in self.assignees]
-        if len(person_ids) != len(set(person_ids)):
-            raise ValueError("同一标注人员不能重复安排")
+        assignee_keys = [
+            (item.person_id, item.language_item_id, item.assignment_role)
+            for item in self.assignees
+        ]
+        if len(assignee_keys) != len(set(assignee_keys)):
+            raise ValueError("同一人员、语种与角色不能重复安排")
         return self
 
 
@@ -251,6 +296,8 @@ class AnnotationProjectUpdate(AnnotationProjectWrite):
 
 class AnnotationProjectStatusUpdate(BaseModel):
     project_status: str
+    effective_on: date = Field(default_factory=date.today)
+    change_note: Optional[str] = None
 
     @field_validator("project_status")
     @classmethod
@@ -258,6 +305,11 @@ class AnnotationProjectStatusUpdate(BaseModel):
         if value not in ANNOTATION_PROJECT_STATUSES:
             raise ValueError("不支持的标注项目状态")
         return value
+
+    @field_validator("change_note", mode="before")
+    @classmethod
+    def normalize_note(cls, value):
+        return _nullable_text(value)
 
 
 class AnnotationProjectListResponse(BaseModel):
@@ -272,7 +324,11 @@ class AnnotationProjectListResponse(BaseModel):
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = None
     project_status: str
+    language_region: Optional[str] = None
+    status_effective_on: date
+    custom_values: dict = Field(default_factory=dict)
     role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
+    language_items: list[AnnotationLanguageItemResponse] = Field(default_factory=list)
     potential_demand: Optional[str] = None
     project_path: Optional[str] = None
     quotation_path: Optional[str] = None
@@ -310,6 +366,7 @@ class AnnotationNamePreviewRequest(BaseModel):
     client_short_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list)
     language_items: list[AnnotationLanguageItemInput] = Field(default_factory=list)
+    name_date: Optional[date] = None
 
     @field_validator("client_short_name", mode="before")
     @classmethod

@@ -21,8 +21,8 @@ export const getAnnotationProjectCount = (params, config = {}) => (
   api.get('/projects/annotation/count', { ...config, params })
 )
 
-export const getAnnotationProject = (id) => (
-  api.get(`/projects/annotation/${id}`).then((res) => convertKeys(res, toCamelCase))
+export const getAnnotationProject = (id, config = {}) => (
+  api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const createAnnotationProject = (data) => (
@@ -33,8 +33,8 @@ export const updateAnnotationProject = (id, data) => (
   api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
-export const updateAnnotationProjectStatus = (id, projectStatus) => (
-  api.patch(`/projects/annotation/${id}/status`, { project_status: projectStatus }).then((res) => convertKeys(res, toCamelCase))
+export const updateAnnotationProjectStatus = (id, payload) => (
+  api.patch(`/projects/annotation/${id}/status`, convertKeys(payload, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const deleteAnnotationProject = (id) => api.delete(`/projects/annotation/${id}`)

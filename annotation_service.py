@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -12,6 +12,8 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
 import workflow_models  # noqa: F401  注册笔译项目既有关系
+import recruitment_models  # noqa: F401  注册统一工作台招聘项目关系
+import annotation_ops_models  # noqa: F401  注册标注运营关系
 from annotation_models import (
     AnnotationProject,
     AnnotationProjectAssignee,
@@ -281,28 +283,62 @@ def _validate_annotation_assignees(db: Session, payload) -> None:
 def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
     _validate_write_references(db, payload)
     _validate_annotation_assignees(db, payload)
-    project.language_items.clear()
-    project.price_items.clear()
-    project.assignees.clear()
+
+    collections = (
+        (project.language_items, payload.language_items, AnnotationProjectLanguageItem, "语种"),
+        (project.price_items, payload.price_items, AnnotationProjectPriceItem, "价格"),
+        (project.assignees, payload.assignees, AnnotationProjectAssignee, "人员安排"),
+    )
+
+    # 先把现有排序号移到负数区间，避免交换顺序时触发项目内 sequence_no 唯一约束。
+    for current_rows, _items, _model, _label in collections:
+        for index, row in enumerate(current_rows, start=1):
+            row.sequence_no = -index
     db.flush()
-    project.language_items = [
-        AnnotationProjectLanguageItem(sequence_no=index, **item.model_dump())
-        for index, item in enumerate(payload.language_items, start=1)
-    ]
-    project.price_items = [
-        AnnotationProjectPriceItem(sequence_no=index, **item.model_dump())
-        for index, item in enumerate(payload.price_items, start=1)
-    ]
-    project.assignees = [
-        AnnotationProjectAssignee(sequence_no=index, **item.model_dump())
-        for index, item in enumerate(payload.assignees, start=1)
-    ]
+
+    for current_rows, items, model, label in collections:
+        current_by_id = {row.id: row for row in current_rows}
+        requested_ids = {item.id for item in items if item.id is not None}
+        unknown_ids = requested_ids - set(current_by_id)
+        if unknown_ids:
+            raise ValueError(f"{label}明细包含不属于当前项目的记录")
+
+        for row in list(current_rows):
+            if row.id not in requested_ids:
+                current_rows.remove(row)
+
+        for index, item in enumerate(items, start=1):
+            values = item.model_dump(exclude={"id"})
+            row = current_by_id.get(item.id) if item.id else None
+            if model is AnnotationProjectAssignee:
+                from annotation_custom_field_service import validate_custom_values
+                values["custom_values"] = validate_custom_values(
+                    db, "assignment", project.id, values.get("custom_values") or {},
+                    row.custom_values if row else None,
+                )
+            if row is None:
+                row = model()
+                current_rows.append(row)
+            for key, value in values.items():
+                setattr(row, key, value)
+            row.sequence_no = index
+            if hasattr(row, "updated_at"):
+                row.updated_at = datetime.now()
+
+    language_item_ids = {item.id for item in project.language_items if item.id is not None}
+    for assignee in project.assignees:
+        if assignee.language_item_id and assignee.language_item_id not in language_item_ids:
+            raise ValueError("人员安排引用了不属于当前项目的语种")
 
 
 def create_annotation_project(
     db: Session, payload: AnnotationProjectCreate, created_by: Optional[UUID]
 ) -> AnnotationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
+    from annotation_custom_field_service import validate_custom_values
+    data["custom_values"] = validate_custom_values(
+        db, "project", None, data.get("custom_values") or {},
+    )
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
@@ -311,6 +347,14 @@ def create_annotation_project(
     )
     db.add(project)
     db.flush()
+    from annotation_ops_models import AnnotationProjectStatusHistory
+    db.add(AnnotationProjectStatusHistory(
+        project_id=project.id,
+        from_status=None,
+        to_status=project.project_status,
+        effective_on=project.status_effective_on,
+        changed_by=created_by,
+    ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
     validate_assignment_map(db, assignments)
@@ -322,17 +366,36 @@ def create_annotation_project(
 
 
 def update_annotation_project(
-    db: Session, project_id: UUID, payload: AnnotationProjectUpdate
+    db: Session, project_id: UUID, payload: AnnotationProjectUpdate,
+    changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     project = get_annotation_project(db, project_id)
     if not project:
         return None
     data = payload.model_dump(exclude=NESTED_FIELDS)
+    from annotation_custom_field_service import validate_custom_values
+    data["custom_values"] = validate_custom_values(
+        db, "project", None, data.get("custom_values") or {}, project.custom_values,
+    )
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
+    previous_status = project.project_status
+    previous_effective_on = project.status_effective_on
     for key, value in data.items():
         setattr(project, key, value)
+    if (
+        project.project_status != previous_status
+        or project.status_effective_on != previous_effective_on
+    ):
+        from annotation_ops_models import AnnotationProjectStatusHistory
+        db.add(AnnotationProjectStatusHistory(
+            project_id=project.id,
+            from_status=previous_status,
+            to_status=project.project_status,
+            effective_on=project.status_effective_on,
+            changed_by=changed_by,
+        ))
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
     validate_assignment_map(db, assignments)
@@ -344,15 +407,34 @@ def update_annotation_project(
 
 
 def update_annotation_project_status(
-    db: Session, project_id: UUID, project_status: str
+    db: Session,
+    project_id: UUID,
+    project_status: str,
+    effective_on: date,
+    change_note: Optional[str] = None,
+    changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     project = get_annotation_project(db, project_id)
     if not project:
         return None
-    if project.project_status == project_status:
+    if (
+        project.project_status == project_status
+        and project.status_effective_on == effective_on
+    ):
         return project
+    previous_status = project.project_status
     project.project_status = project_status
+    project.status_effective_on = effective_on
     project.updated_at = datetime.now()
+    from annotation_ops_models import AnnotationProjectStatusHistory
+    db.add(AnnotationProjectStatusHistory(
+        project_id=project.id,
+        from_status=previous_status,
+        to_status=project_status,
+        effective_on=effective_on,
+        changed_by=changed_by,
+        change_note=change_note,
+    ))
     from project_workbench_service import ensure_active_project_responsibilities
     ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
     db.commit()
@@ -392,7 +474,10 @@ def _language_labels(db: Session, language_items) -> list[str]:
 
 
 def build_annotation_project_name(
-    client_short_name: Optional[str], project_types: list[str], language_labels: list[str]
+    client_short_name: Optional[str],
+    project_types: list[str],
+    language_labels: list[str],
+    name_date: Optional[date] = None,
 ) -> str:
     parts = [(client_short_name or "").strip()]
     if language_labels:
@@ -403,7 +488,11 @@ def build_annotation_project_name(
     type_labels = [ANNOTATION_PROJECT_TYPE_LABELS[value] for value in project_types]
     if type_labels:
         parts.append("、".join(type_labels))
-    return "-".join(part for part in parts if part)
+    business_text = "-".join(part for part in parts if part)
+    if not business_text:
+        return ""
+    project_date = name_date or datetime.now(ZoneInfo("Asia/Hong_Kong")).date()
+    return f"【{project_date:%Y%m%d}-{business_text}】"
 
 
 def preview_annotation_project_name(
@@ -413,6 +502,7 @@ def preview_annotation_project_name(
         payload.client_short_name,
         payload.project_types,
         _language_labels(db, payload.language_items),
+        payload.name_date,
     )
 
 
@@ -445,7 +535,7 @@ def ensure_annotation_project_for_consultation(
         project_name=project_name,
         consultation_id=consultation.id,
         client_id=consultation.client_id,
-        project_status="pending_confirmation",
+        project_status="initial_consultation",
         customer_consultation_time=consultation.consultation_time,
         customer_confirmation_time=datetime.now(),
         email_subject_preview=email_subject_preview,
@@ -477,11 +567,11 @@ def validate_consultation_annotation_type_change(
 
 
 LEGACY_STATUS_MAP = {
-    "pending": "pending_confirmation",
-    "pending_confirmation": "pending_confirmation",
-    "confirmed": "pending_confirmation",
-    "trial": "trial",
-    "trial_translation": "trial",
+    "pending": "initial_consultation",
+    "pending_confirmation": "initial_consultation",
+    "confirmed": "initial_consultation",
+    "trial": "trial_in_progress",
+    "trial_translation": "trial_in_progress",
     "sent_to_client": "sent_to_client",
     "feedback_sent_to_client": "sent_to_client",
     "completed": "sent_to_client",
@@ -492,7 +582,7 @@ LEGACY_STATUS_MAP = {
 
 
 def _legacy_status(value: Optional[str]) -> str:
-    return LEGACY_STATUS_MAP.get(value or "", "in_progress")
+    return LEGACY_STATUS_MAP.get(value or "", "project_in_progress")
 
 
 def _get_or_create_language(db: Session, label: str) -> InterpretationLanguage:

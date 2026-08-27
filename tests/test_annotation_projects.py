@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -7,7 +7,7 @@ import pytest
 
 import workflow_models  # noqa: F401
 from annotation_models import AnnotationProject, AnnotationProjectPriceItem
-from annotation_schemas import AnnotationProjectCreate
+from annotation_schemas import AnnotationProjectCreate, AnnotationProjectListResponse
 from annotation_service import (
     build_annotation_project_name,
     ensure_annotation_project_for_consultation,
@@ -56,7 +56,40 @@ def test_annotation_project_name_lists_first_three_directions():
         "测试客户",
         ["audio_annotation", "quality_inspection"],
         ["英文", "粤语→普通话", "日文→中文", "法文→中文"],
-    ) == "测试客户-英文、粤语→普通话、日文→中文等方向-音频标注、质检"
+        date(2026, 8, 13),
+    ) == "【20260813-测试客户-英文、粤语→普通话、日文→中文等方向-音频标注、质检】"
+
+
+def test_annotation_project_name_stays_empty_without_business_fields():
+    assert build_annotation_project_name("", [], [], date(2026, 8, 13)) == ""
+
+
+def test_annotation_project_list_response_keeps_language_items():
+    language_id = uuid4()
+    response = AnnotationProjectListResponse.model_validate(
+        SimpleNamespace(
+            id=uuid4(),
+            order_no="AP-260826-001",
+            project_status="initial_consultation",
+            status_effective_on=date(2026, 8, 26),
+            language_items=[
+                SimpleNamespace(
+                    id=uuid4(),
+                    source_language_id=language_id,
+                    target_language_id=None,
+                    sequence_no=1,
+                    source_language_label="温州话",
+                    target_language_label=None,
+                    display="温州话",
+                )
+            ],
+            created_at=datetime(2026, 8, 26, 9),
+            updated_at=datetime(2026, 8, 26, 9),
+        )
+    )
+
+    assert response.language_items[0].source_language_id == language_id
+    assert response.language_items[0].display == "温州话"
 
 
 def test_customer_price_summary_shows_amount_only():
@@ -224,5 +257,5 @@ def test_confirmed_annotation_consultation_creation_is_idempotent(monkeypatch):
     assert created is True
     assert created_again is False
     assert project is same_project
-    assert project.project_status == "pending_confirmation"
+    assert project.project_status == "initial_consultation"
     assert len(db.added) == 1

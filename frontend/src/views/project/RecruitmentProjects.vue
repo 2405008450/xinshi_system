@@ -106,7 +106,7 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><TableActionButton action="edit" @click="openEdit(row)" /></div></template></el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button><TableActionButton action="edit" @click="openEdit(row)" /></div></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
@@ -305,7 +305,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
@@ -336,12 +336,14 @@ import {
   getRecruitmentProjects, getRecruitmentResumeSources, patchRecruitmentProjectStatus, previewRecruitmentProjectName, updateRecruitmentCandidate,
   updateRecruitmentProject,
 } from '@/api/recruitmentProjects'
-import RecruitmentLanguageDirections from './recruitment/RecruitmentLanguageDirections.vue'
+import RecruitmentLanguageDirections from '@/components/common/LanguageDirectionsEditor.vue'
 import RecruitmentCandidateTable from './recruitment/RecruitmentCandidateTable.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 
 const canWrite = hasPermission('projects:write')
 const route = useRoute()
+const router = useRouter()
+const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'recruitment', sourceProjectId: row.id } })
 const highlightedProjectId = ref('')
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')

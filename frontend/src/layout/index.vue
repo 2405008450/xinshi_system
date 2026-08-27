@@ -43,6 +43,10 @@
           <el-icon><ChatLineRound /></el-icon>
           <template #title>工作台</template>
         </el-menu-item>
+        <el-menu-item v-if="showConsultations" index="/consultations">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>新咨询管理</template>
+        </el-menu-item>
         
         <!-- 项目管理：扁平菜单 -->
         <el-menu-item v-if="showTranslationMenu" index="/translation-details">
@@ -56,6 +60,10 @@
         <el-menu-item v-if="showTranslationMenu" index="/annotation-details">
           <el-icon><Document /></el-icon>
           <template #title>标注项目详情</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/resource-requests">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>资源需求管理</template>
         </el-menu-item>
         <el-menu-item v-if="showTranslationMenu" index="/recruitment-details">
           <el-icon><Document /></el-icon>
@@ -79,10 +87,6 @@
         <el-menu-item v-if="showClients" index="/clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
-        </el-menu-item>
-        <el-menu-item v-if="showConsultations" index="/consultations">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>新咨询管理</template>
         </el-menu-item>
         <template v-if="showPendingModules">
           <el-divider class="menu-divider" />
@@ -144,7 +148,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { User, UserFilled, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'

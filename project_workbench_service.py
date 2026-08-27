@@ -32,7 +32,11 @@ PROJECT_DETAIL_ROUTES = {
 }
 ACTIVE_STATUSES = {
     'interpretation': {'initial_follow_up', 'in_progress'},
-    'annotation': {'pending_confirmation', 'trial', 'in_progress', 'client_feedback'},
+    'annotation': {
+        'initial_consultation', 'resource_sourcing', 'trial_preparation',
+        'trial_in_progress', 'trial_passed', 'trial_partially_passed',
+        'project_in_progress', 'sent_to_client', 'client_feedback',
+    },
 }
 
 
