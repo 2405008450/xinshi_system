@@ -108,18 +108,33 @@ def _active_assignment(row: AnnotationPlatformAccount):
     return next((item for item in row.assignments if item.released_on is None), None)
 
 
+def _mask_login_account(value: str | None) -> str | None:
+    """列表只返回可识别但不可直接使用的登录账号。"""
+    if not value:
+        return None
+    if "@" in value:
+        local, domain = value.split("@", 1)
+        visible = local[:2] if len(local) > 2 else local[:1]
+        return f"{visible}{'*' * max(3, len(local) - len(visible))}@{domain}"
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:2]}{'*' * max(3, len(value) - 4)}{value[-2:]}"
+
+
 def _assignment_dict(row: AnnotationAccountAssignment) -> dict:
     language_rows = sorted(row.languages, key=lambda item: str(item.language_item_id))
     return {
         "id": row.id, "account_id": row.account_id, "person_id": row.person_id,
         "person_name": getattr(row.person, "full_name", None),
         "resource_code": getattr(row.person, "resource_code", None),
+        "person_gender": getattr(row.person, "gender", None),
         "project_id": row.project_id, "project_name": getattr(row.project, "project_name", None),
         "assigned_on": row.assigned_on, "released_on": row.released_on,
         "release_reason": row.release_reason, "assignment_note": row.assignment_note,
         "assigned_by": row.assigned_by,
         "language_item_ids": [item.language_item_id for item in language_rows],
         "language_labels": [getattr(item.language_item, "display", None) for item in language_rows if getattr(item, "language_item", None)],
+        "custom_values": row.custom_values or {},
         "created_at": row.created_at, "updated_at": row.updated_at,
     }
 
@@ -130,7 +145,8 @@ def _account_dict(row: AnnotationPlatformAccount) -> dict:
     return {
         "id": row.id, "platform_id": row.platform_id, "parent_account_id": row.parent_account_id,
         "owner_id": row.owner_id, "owner_name": (row.owner.full_name or row.owner.username) if row.owner else None,
-        "nickname": row.nickname, "login_account": row.login_account, "password": row.password,
+        "nickname": row.nickname, "masked_login_account": _mask_login_account(row.login_account),
+        "login_account": row.login_account, "password": row.password,
         "account_status": row.account_status,
         "registration_status": row.registration_status, "account_source": row.account_source,
         "expires_on": row.expires_on, "remarks": row.remarks, "sequence_no": row.sequence_no,
@@ -142,6 +158,8 @@ def _account_dict(row: AnnotationPlatformAccount) -> dict:
         "person_id": assignment_data.get("person_id"), "person_name": assignment_data.get("person_name"),
         "resource_code": assignment_data.get("resource_code"), "project_id": assignment_data.get("project_id"),
         "project_name": assignment_data.get("project_name"), "assigned_on": assignment_data.get("assigned_on"),
+        "person_gender": assignment_data.get("person_gender"),
+        "assignment_custom_values": assignment_data.get("custom_values", {}),
         "language_item_ids": assignment_data.get("language_item_ids", []),
         "language_labels": assignment_data.get("language_labels", []),
         "created_at": row.created_at, "updated_at": row.updated_at,
@@ -422,6 +440,10 @@ def _apply_assignment(db: Session, account: AnnotationPlatformAccount, payload, 
         account_id=account.id, person_id=payload.person_id, project_id=payload.project_id,
         assigned_on=payload.assigned_on, assignment_note=(payload.assignment_note or "").strip() or None,
         assigned_by=assigned_by,
+        custom_values=validate_custom_values(
+            db, "account_assignment", payload.project_id,
+            getattr(payload, "custom_values", {}) or {}, None,
+        ),
     )
     row.languages = [AnnotationAccountAssignmentLanguage(language_item_id=value) for value in language_ids]
     db.add(row)
@@ -623,18 +645,23 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                     current_languages = {row.language_item_id for row in active.languages}
                     if current_languages != set(desired_languages):
                         _validate_assignment_languages(db, item.project_id, desired_languages)
-                        _validate_annotator_assignment(
-                            db,
-                            person_id=item.person_id,
-                            project_id=item.project_id,
-                            language_ids=desired_languages,
-                            exclude_account_id=account.id,
-                        )
+                        if item.person_id:
+                            _validate_annotator_assignment(
+                                db,
+                                person_id=item.person_id,
+                                project_id=item.project_id,
+                                language_ids=desired_languages,
+                                exclude_account_id=account.id,
+                            )
                         active.languages = [
                             AnnotationAccountAssignmentLanguage(language_item_id=value)
                             for value in desired_languages
                         ]
                         active.updated_at = datetime.now()
+                    active.custom_values = validate_custom_values(
+                        db, "account_assignment", item.project_id,
+                        item.assignment_custom_values, active.custom_values,
+                    )
                 else:
                     if active:
                         _apply_release(db, account, SimpleNamespace(
@@ -648,6 +675,7 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                             person_id=item.person_id, project_id=item.project_id,
                             assigned_on=date.today(), assignment_note="在线表格分配",
                             language_item_ids=desired_languages,
+                            custom_values=item.assignment_custom_values,
                         ), user_id)
                     else:
                         context = AnnotationAccountAssignment(
@@ -657,6 +685,10 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                             assigned_on=date.today(),
                             assignment_note="在线表格设置项目和适用语言",
                             assigned_by=user_id,
+                            custom_values=validate_custom_values(
+                                db, "account_assignment", item.project_id,
+                                item.assignment_custom_values, None,
+                            ),
                         )
                         context.languages = [
                             AnnotationAccountAssignmentLanguage(language_item_id=value)

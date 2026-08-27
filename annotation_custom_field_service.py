@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from annotation_ops_models import AnnotationCustomFieldDefinition
 
 
-PROJECT_SCOPED_TABLES = {"trial", "assignment"}
+PROJECT_SCOPED_TABLES = {"trial", "assignment", "account_assignment"}
 GLOBAL_SCOPED_TABLES = {"project", "account"}
 ALLOWED_TABLES = PROJECT_SCOPED_TABLES | GLOBAL_SCOPED_TABLES
 
@@ -23,7 +23,7 @@ def _validate_scope(table_code: str, project_id: Optional[UUID]) -> None:
     if table_code not in ALLOWED_TABLES:
         raise ValueError("不支持的动态字段业务表")
     if table_code in PROJECT_SCOPED_TABLES and project_id is None:
-        raise ValueError("试标和正式安排动态字段必须指定项目")
+        raise ValueError("试标、正式安排和项目账号动态字段必须指定项目")
     if table_code in GLOBAL_SCOPED_TABLES and project_id is not None:
         raise ValueError("项目和账号动态字段必须是全局字段，不能指定项目")
 
@@ -42,9 +42,6 @@ def list_custom_fields(db: Session, table_code: str, project_id: Optional[UUID],
 def _resequence(db: Session, table_code: str, project_id: Optional[UUID], ordered_ids: list[UUID]) -> None:
     rows = list_custom_fields(db, table_code, project_id, include_inactive=True)
     by_id = {row.id: row for row in rows}
-    for index, row in enumerate(rows, start=1):
-        row.sequence_no = -index
-    db.flush()
     for index, field_id in enumerate(ordered_ids, start=1):
         by_id[field_id].sequence_no = index
 

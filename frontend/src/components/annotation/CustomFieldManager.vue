@@ -1,6 +1,6 @@
 <template>
   <el-popover v-model:visible="visible" trigger="click" placement="bottom-end" :width="520">
-    <template #reference><el-button>动态字段</el-button></template>
+    <template #reference><el-button :disabled="disabled">{{ buttonLabel }}</el-button></template>
     <div class="manager" v-loading="loading">
       <div class="manager__header"><strong>动态字段管理</strong><el-button type="primary" link @click="startAdd">新增字段</el-button></div>
       <el-table :data="fields" size="small" max-height="320">
@@ -18,11 +18,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createCustomField, deleteCustomField, getCustomFields, updateCustomField } from '@/api/annotationOps'
 
-const props = defineProps({ tableCode:{type:String,required:true}, projectId:{type:String,default:''} })
+const props = defineProps({ tableCode:{type:String,required:true}, projectId:{type:String,default:''}, buttonLabel:{type:String,default:'动态字段'}, disabled:{type:Boolean,default:false} })
 const emit = defineEmits(['changed'])
 const visible=ref(false),dialogVisible=ref(false),loading=ref(false),saving=ref(false),editingId=ref(''),fields=ref([])
 const types=[['text','文本'],['number','数字'],['date','日期'],['datetime','日期时间'],['boolean','是/否'],['single_select','单选'],['multi_select','多选'],['url','链接']].map(([value,label])=>({value,label}))
@@ -34,6 +34,7 @@ const startEdit=(row)=>{editingId.value=row.id;Object.assign(form,empty(),row);d
 const save=async()=>{if(!form.fieldKey.trim()||!form.fieldLabel.trim())return ElMessage.warning('请填写字段键和显示名称');saving.value=true;try{const action=editingId.value?updateCustomField(editingId.value,form):createCustomField(form);await action;ElMessage.success('动态字段已保存');dialogVisible.value=false;await load();emit('changed')}catch(error){ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
 const disable=async(row)=>{await ElMessageBox.confirm(`停用“${row.fieldLabel}”？历史值会保留。`,'确认停用');await deleteCustomField(row.id);await load();emit('changed')}
 onMounted(load)
+watch(()=>[props.tableCode,props.projectId],()=>load())
 </script>
 
 <style scoped>.manager__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}</style>

@@ -79,6 +79,7 @@ class AccountResponse(BaseModel):
     owner_id: Optional[UUID] = None
     owner_name: Optional[str] = None
     nickname: Optional[str] = None
+    masked_login_account: Optional[str] = None
     login_account: Optional[str] = None
     password: Optional[str] = None
     account_status: str
@@ -102,6 +103,8 @@ class AccountResponse(BaseModel):
     project_id: Optional[UUID] = None
     project_name: Optional[str] = None
     assigned_on: Optional[date] = None
+    person_gender: Optional[str] = None
+    assignment_custom_values: dict[str, Any] = Field(default_factory=dict)
     language_item_ids: list[UUID] = Field(default_factory=list)
     language_labels: list[str] = Field(default_factory=list)
     created_at: datetime
@@ -156,6 +159,7 @@ class AccountAssignmentWrite(BaseModel):
     assigned_on: date = Field(default_factory=date.today)
     assignment_note: Optional[str] = None
     language_item_ids: list[UUID] = Field(default_factory=list)
+    custom_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class AccountReleaseWrite(BaseModel):
@@ -178,6 +182,7 @@ class AccountBatchRow(BaseModel):
     person_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
     language_item_ids: list[UUID] = Field(default_factory=list)
+    assignment_custom_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class AccountBatchWrite(BaseModel):
@@ -209,6 +214,7 @@ class AccountAssignmentResponse(BaseModel):
     person_id: Optional[UUID] = None
     person_name: Optional[str] = None
     resource_code: Optional[str] = None
+    person_gender: Optional[str] = None
     project_id: Optional[UUID] = None
     project_name: Optional[str] = None
     assigned_on: date
@@ -218,6 +224,7 @@ class AccountAssignmentResponse(BaseModel):
     assigned_by: Optional[UUID] = None
     language_item_ids: list[UUID] = Field(default_factory=list)
     language_labels: list[str] = Field(default_factory=list)
+    custom_values: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -393,7 +400,7 @@ class CustomFieldWrite(BaseModel):
 
     @model_validator(mode="after")
     def validate_definition(self):
-        if self.table_code not in {"project", "account", "trial", "assignment"}:
+        if self.table_code not in {"project", "account", "trial", "assignment", "account_assignment"}:
             raise ValueError("不支持的动态字段业务表")
         if self.data_type not in {"text", "number", "date", "datetime", "boolean", "single_select", "multi_select", "url"}:
             raise ValueError("不支持的动态字段类型")

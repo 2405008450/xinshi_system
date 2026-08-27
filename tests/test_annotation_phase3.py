@@ -3,7 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from annotation_custom_field_service import _validate_scope
+import annotation_custom_field_service as custom_field_service
+from annotation_custom_field_service import _resequence, _validate_scope
 from annotation_models import AnnotationProjectAssignee
 from annotation_ops_models import (
     AnnotationCustomFieldDefinition,
@@ -30,6 +31,16 @@ def test_custom_field_scope_is_enforced_by_service_and_model():
         constraint.name for constraint in AnnotationCustomFieldDefinition.__table__.constraints
     }
     assert "ck_annotation_custom_field_scope" in constraint_names
+
+
+def test_custom_field_resequence_never_uses_invalid_negative_positions(monkeypatch):
+    rows = [SimpleNamespace(id=uuid4(), sequence_no=index) for index in range(1, 4)]
+    monkeypatch.setattr(custom_field_service, "list_custom_fields", lambda *_args, **_kwargs: rows)
+
+    _resequence(SimpleNamespace(), "account_assignment", uuid4(), [rows[2].id, rows[0].id, rows[1].id])
+
+    assert [row.sequence_no for row in rows] == [2, 3, 1]
+    assert all(row.sequence_no > 0 for row in rows)
 
 
 def test_trial_and_workflow_rows_reuse_project_details_through_foreign_keys():

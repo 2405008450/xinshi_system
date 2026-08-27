@@ -149,6 +149,10 @@ class AnnotationAccountAssignment(Base):
     released_on: Mapped[Optional[datetime.date]] = mapped_column(Date)
     release_reason: Mapped[Optional[str]] = mapped_column(String(30))
     assignment_note: Mapped[Optional[str]] = mapped_column(Text)
+    # 项目账号表的扩展列属于本次项目分配，账号释放后仍随履历保留。
+    custom_values: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     assigned_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
@@ -263,12 +267,12 @@ class AnnotationCustomFieldDefinition(Base):
         PrimaryKeyConstraint("id", name="annotation_custom_field_definition_pkey"),
         ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_custom_field_project"),
         ForeignKeyConstraint(["created_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_custom_field_creator"),
-        CheckConstraint("table_code IN ('project','account','trial','assignment')", name="ck_annotation_custom_field_table"),
+        CheckConstraint("table_code IN ('project','account','trial','assignment','account_assignment')", name="ck_annotation_custom_field_table"),
         CheckConstraint("data_type IN ('text','number','date','datetime','boolean','single_select','multi_select','url')", name="ck_annotation_custom_field_type"),
         CheckConstraint("sequence_no > 0", name="ck_annotation_custom_field_sequence"),
         CheckConstraint(
             "(table_code IN ('project','account') AND project_id IS NULL) OR "
-            "(table_code IN ('trial','assignment') AND project_id IS NOT NULL)",
+            "(table_code IN ('trial','assignment','account_assignment') AND project_id IS NOT NULL)",
             name="ck_annotation_custom_field_scope",
         ),
         Index("uq_annotation_custom_field_scope_key", "project_id", "table_code", "field_key", unique=True, postgresql_nulls_not_distinct=True),

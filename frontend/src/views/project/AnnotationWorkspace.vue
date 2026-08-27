@@ -1,6 +1,6 @@
 <template>
-  <div class="annotation-workspace">
-    <el-card class="workspace-navigation" shadow="never">
+  <div class="annotation-workspace" :class="{ 'annotation-workspace--focus': focusMode && activeSection === 'accounts' }">
+    <el-card v-show="!(focusMode && activeSection === 'accounts')" class="workspace-navigation" shadow="never">
       <el-tabs v-model="activeSection" @tab-change="handleSectionChange">
         <el-tab-pane v-if="canViewProjects" label="项目详情" name="projects" />
         <el-tab-pane v-if="canViewAccounts" label="标注员账号" name="accounts" />
@@ -10,7 +10,7 @@
     </el-card>
 
     <keep-alive>
-      <component :is="activeComponent" />
+      <component :is="activeComponent" @focus-mode-change="handleFocusModeChange" />
     </keep-alive>
   </div>
 </template>
@@ -27,6 +27,7 @@ import { hasPermission } from '../../utils/permission'
 const route = useRoute()
 const router = useRouter()
 const activeSection = ref('projects')
+const focusMode = ref(false)
 const canViewProjects = computed(() => hasPermission('projects:read'))
 const canViewAccounts = computed(() => hasPermission(['annotation_accounts:read', 'annotation_accounts:write']))
 const availableSections = computed(() => new Set([
@@ -48,15 +49,21 @@ watch(
   () => route.query.section,
   (section) => {
     activeSection.value = availableSections.value.has(section) ? section : defaultSection()
+    if (activeSection.value !== 'accounts') focusMode.value = false
   },
   { immediate: true },
 )
 
 const handleSectionChange = (section) => {
+  if (section !== 'accounts') focusMode.value = false
   const nextQuery = { ...route.query }
   if (section === 'projects') delete nextQuery.section
   else nextQuery.section = section
   router.replace({ name: 'AnnotationProjectDetails', query: nextQuery })
+}
+
+const handleFocusModeChange = (value) => {
+  focusMode.value = Boolean(value)
 }
 </script>
 
@@ -65,6 +72,10 @@ const handleSectionChange = (section) => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.annotation-workspace--focus {
+  gap: 0;
 }
 
 .workspace-navigation :deep(.el-card__body) {

@@ -61,6 +61,27 @@ def test_account_update_accepts_blank_secrets_as_no_change():
     assert payload.password is None
 
 
+def test_account_list_response_contains_plaintext_credentials():
+    now = datetime(2026, 8, 27)
+    account = SimpleNamespace(
+        id=uuid4(), platform_id=uuid4(), parent_account_id=None, owner_id=None,
+        owner=None, nickname="测试账号", login_account="plain-login",
+        password="plain-password", account_status="available",
+        registration_status="registered", account_source="client_provided",
+        expires_on=None, remarks=None, sequence_no=1, custom_values={},
+        password_updated_at=now, assignments=[], created_at=now, updated_at=now,
+        platform=SimpleNamespace(
+            platform_name="测试平台", platform_url="https://example.com",
+            client_id=uuid4(), sub_client_id=None,
+        ),
+    )
+
+    response = service._account_dict(account)
+
+    assert response["login_account"] == "plain-login"
+    assert response["password"] == "plain-password"
+
+
 def test_password_history_and_reveal_audit_models_keep_plaintext_and_actor():
     history_columns = AnnotationAccountPasswordHistory.__table__.c
     audit_columns = AnnotationCredentialAccessLog.__table__.c
@@ -101,6 +122,7 @@ def test_password_update_archives_previous_plaintext(monkeypatch):
     monkeypatch.setattr(service, "validate_custom_values", lambda *args: {})
     monkeypatch.setattr(service, "_account_query", lambda *args, **kwargs: ResultQuery())
     monkeypatch.setattr(service, "_account_dict", lambda row: {"id": row.id})
+    monkeypatch.setattr(service, "validate_custom_values", lambda _db, _table, _project, values, _existing=None: values)
     payload = AccountWrite(
         platform_id=platform_id, nickname="新昵称", password="new-password",
         account_status="available",
@@ -193,6 +215,7 @@ def test_batch_save_keeps_valid_unassigned_row_when_another_row_fails(monkeypatc
     monkeypatch.setattr(service, "_active_assignment_for_update", lambda *args: None)
     monkeypatch.setattr(service, "_account_query", lambda *args, **kwargs: ResultQuery())
     monkeypatch.setattr(service, "_account_dict", lambda row: {"id": row.id})
+    monkeypatch.setattr(service, "validate_custom_values", lambda _db, _table, _project, values, _existing=None: values)
     payload = AccountBatchWrite(client_id=client_id, rows=[
         {
             "row_key": "ok",

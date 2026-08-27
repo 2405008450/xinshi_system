@@ -20,6 +20,19 @@ export const getAccounts = (params = {}, config = {}) => get('/annotation-ops/ac
 export const getAccountCount = (params = {}, config = {}) => get('/annotation-ops/accounts/count', params, config)
 export const createAccount = (data) => post('/annotation-ops/accounts', data)
 export const batchSaveAccounts = (data) => post('/annotation-ops/accounts/batch-save', data)
+export const revealAccount = (id, data = {}) => post(`/annotation-ops/accounts/${id}/reveal`, data)
+export const revealAccountsBatch = (data) => post('/annotation-ops/accounts/batch-reveal', data)
+const accountImportForm = (file, options) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('defaults_json', JSON.stringify(options.defaults || {}))
+  if (options.sheetName) form.append('sheet_name', options.sheetName)
+  if (options.headerRow) form.append('header_row', String(options.headerRow))
+  if (options.mapping) form.append('mapping_json', JSON.stringify(options.mapping))
+  return form
+}
+export const previewAccountImport = (file, options) => post('/annotation-ops/accounts/import/preview', accountImportForm(file, options))
+export const importAccounts = (file, options) => post('/annotation-ops/accounts/import', accountImportForm(file, options))
 export const getAnnotatorOccupancy = (projectId = null) => get('/annotation-ops/accounts/annotator-occupancy', { projectId: projectId || undefined })
 export const updateAccount = (id, data) => put(`/annotation-ops/accounts/${id}`, data)
 export const deleteAccount = (id) => api.delete(`/annotation-ops/accounts/${id}`)

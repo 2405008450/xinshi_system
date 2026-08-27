@@ -1018,6 +1018,7 @@
 | `released_on` | `date` | 可空 | — | 释放日期 |
 | `release_reason` | `varchar(30)` | 可空 | — | 释放原因 |
 | `assignment_note` | `text` | 可空 | — | 分配说明 |
+| `custom_values` | `jsonb` | 非空 | `'{}'` | 项目账号动态字段值，释放后随履历保留 |
 | `assigned_by` | `uuid` | FK → app_user.id；可空 | — | 分配操作人 |
 | `created_at` | `timestamp` | 非空 | `当前时间` | 创建时间 |
 | `updated_at` | `timestamp` | 非空 | `当前时间` | 最后更新时间 |

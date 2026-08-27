@@ -3,11 +3,14 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from annotation_custom_field_service import create_custom_field, deactivate_custom_field, list_custom_fields, update_custom_field
+from annotation_account_import_service import (
+    decode_json_list, decode_json_object, import_accounts, parse_import_payload,
+)
 from annotation_ops_schemas import (
     AccountAnnotatorOccupancyResponse, AccountAssignmentResponse, AccountAssignmentWrite, AccountBatchResult, AccountBatchWrite, AccountReleaseWrite,
     AccountPersonProfileResponse, AccountResponse, AccountStatsResponse, AccountWrite,
@@ -113,6 +116,53 @@ def save_accounts_batch(payload: AccountBatchWrite, db: Session = Depends(get_db
     return batch_save_accounts(db, payload.client_id, payload.rows, user.id)
 
 
+@account_router.post(
+    "/accounts/import/preview",
+    dependencies=[Depends(require_any_permission("annotation_accounts:write"))],
+)
+async def preview_accounts_import(
+    file: UploadFile = File(...), defaults_json: str = Form(...),
+    sheet_name: Optional[str] = Form(None), header_row: Optional[int] = Form(None),
+    mapping_json: Optional[str] = Form(None), db: Session = Depends(get_db),
+):
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "暂时只支持 .xlsx 文件")
+    content = await file.read()
+    try:
+        result = parse_import_payload(
+            db, content, decode_json_object(defaults_json, "批次默认值"),
+            sheet_name=sheet_name, header_row=header_row,
+            mapping=decode_json_list(mapping_json, "字段映射"),
+        )
+        result.pop("_parsedRows", None)
+        return result
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@account_router.post(
+    "/accounts/import",
+    dependencies=[Depends(require_any_permission("annotation_accounts:write"))],
+)
+async def commit_accounts_import(
+    file: UploadFile = File(...), defaults_json: str = Form(...),
+    sheet_name: Optional[str] = Form(None), header_row: Optional[int] = Form(None),
+    mapping_json: str = Form(...), db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "暂时只支持 .xlsx 文件")
+    content = await file.read()
+    try:
+        return import_accounts(
+            db, content, decode_json_object(defaults_json, "批次默认值"), user.id,
+            sheet_name=sheet_name, header_row=header_row,
+            mapping=decode_json_list(mapping_json, "字段映射"),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @account_router.get(
     "/accounts/annotator-occupancy",
     response_model=List[AccountAnnotatorOccupancyResponse],
@@ -122,7 +172,10 @@ def annotator_occupancy(project_id: Optional[UUID] = None, db: Session = Depends
     return list_annotator_occupancy(db, project_id)
 
 
-@account_router.post("/accounts/batch-reveal", response_model=List[CredentialBatchRevealItem])
+@account_router.post(
+    "/accounts/batch-reveal", response_model=List[CredentialBatchRevealItem],
+    dependencies=[Depends(require_any_permission("annotation_accounts:reveal"))],
+)
 def reveal_accounts_batch(payload: CredentialBatchRevealRequest, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     return reveal_credentials_batch(
         db, payload.account_ids, user, payload.access_reason,
@@ -161,7 +214,10 @@ def assignments(account_id: UUID, db: Session = Depends(get_db)):
     return list_account_assignments(db, account_id)
 
 
-@account_router.post("/accounts/{account_id}/reveal", response_model=CredentialRevealResponse)
+@account_router.post(
+    "/accounts/{account_id}/reveal", response_model=CredentialRevealResponse,
+    dependencies=[Depends(require_any_permission("annotation_accounts:reveal"))],
+)
 def reveal(account_id: UUID, payload: CredentialRevealRequest, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     row = _run(db, lambda: reveal_credential(db, account_id, user, payload.access_reason, request.client.host if request.client else None))
     if not row: raise HTTPException(404, "平台账号不存在")
