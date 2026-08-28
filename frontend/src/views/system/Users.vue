@@ -117,7 +117,7 @@
         label-width="100px"
       >
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" :disabled="!!form.id" />
+          <el-input v-model="form.username" />
         </el-form-item>
         <el-form-item label="密码" prop="password" v-if="!form.id">
           <el-input v-model="form.password" type="password" />
