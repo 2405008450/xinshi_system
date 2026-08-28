@@ -33,24 +33,42 @@
       :rows="report.items"
       :editable="editable"
       :loading="loading"
+      height="clamp(520px, calc(100vh - 300px), 900px)"
       @dirty-change="dirtyCount = $event"
       @selection-change="selectedIndexes = $event"
     />
 
-    <el-form label-position="top" class="supplement-form">
-      <el-form-item label="补充说明">
-        <el-input
-          v-model="report.supplemental_note"
-          type="textarea"
-          :rows="3"
-          maxlength="10000"
-          show-word-limit
-          :disabled="!editable"
-          placeholder="可补充会议、沟通、异常情况或明日计划"
-          @input="supplementDirty = true"
-        />
-      </el-form-item>
-    </el-form>
+    <section class="supplement-section">
+      <button
+        type="button"
+        class="supplement-trigger"
+        :aria-expanded="supplementExpanded"
+        @click="supplementExpanded = !supplementExpanded"
+      >
+        <span class="supplement-trigger__title">补充说明</span>
+        <span v-if="report.supplemental_note" class="supplement-trigger__status">已填写</span>
+        <span class="supplement-trigger__hint">{{ supplementExpanded ? '收起' : '点击展开' }}</span>
+        <el-icon class="supplement-trigger__arrow" :class="{ 'is-expanded': supplementExpanded }">
+          <ArrowDown />
+        </el-icon>
+      </button>
+      <el-collapse-transition>
+        <el-form v-show="supplementExpanded" label-position="top" class="supplement-form">
+          <el-form-item>
+            <el-input
+              v-model="report.supplemental_note"
+              type="textarea"
+              :rows="3"
+              maxlength="10000"
+              show-word-limit
+              :disabled="!editable"
+              placeholder="可补充会议、沟通、异常情况或明日计划"
+              @input="supplementDirty = true"
+            />
+          </el-form-item>
+        </el-form>
+      </el-collapse-transition>
+    </section>
 
     <el-dialog
       v-model="mailAccountDialog"
@@ -176,6 +194,7 @@ const sending = ref(false)
 const accountSaving = ref(false)
 const dirtyCount = ref(0)
 const supplementDirty = ref(false)
+const supplementExpanded = ref(false)
 const selectedIndexes = ref([])
 const sheetRef = ref(null)
 const mailSheetRef = ref(null)
@@ -385,6 +404,7 @@ function beforeUnload(event) {
 
 watch(() => props.reportDate, async () => {
   if (hasUnsavedChanges.value) ElMessage.warning('日期已切换，上一日期未保存的日报修改已放弃')
+  supplementExpanded.value = false
   await loadReport(false)
 })
 onMounted(() => { loadReport(false); loadMailAccount(); window.addEventListener('beforeunload', beforeUnload) })
@@ -392,6 +412,6 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>
 
 <style scoped>
-.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-form{margin-top:10px}.supplement-form :deep(.el-form-item){margin-bottom:0}.account-summary,.mail-meta{margin:14px 0}.recipient-tag{margin:2px 6px 2px 0}.mail-form{margin-top:14px}.mail-preview-content{min-height:300px}.readonly-note{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;white-space:pre-wrap;word-break:break-word}.footer-spacer{flex:1}:global(.daily-report-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.daily-report-dialog .el-dialog__header),:global(.daily-report-dialog .el-dialog__footer){flex:none}:global(.daily-report-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.daily-report-dialog .el-dialog__footer){display:flex;align-items:center;border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
+.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}.account-summary,.mail-meta{margin:14px 0}.recipient-tag{margin:2px 6px 2px 0}.mail-form{margin-top:14px}.mail-preview-content{min-height:300px}.readonly-note{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;white-space:pre-wrap;word-break:break-word}.footer-spacer{flex:1}:global(.daily-report-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.daily-report-dialog .el-dialog__header),:global(.daily-report-dialog .el-dialog__footer){flex:none}:global(.daily-report-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.daily-report-dialog .el-dialog__footer){display:flex;align-items:center;border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
 @media(max-width:768px){.report-toolbar{align-items:flex-start;flex-direction:column}.toolbar-primary{width:100%}.toolbar-actions{width:100%;justify-content:flex-start}.mail-meta{--el-descriptions-table-border:var(--el-border-color-lighter)}}
 </style>
