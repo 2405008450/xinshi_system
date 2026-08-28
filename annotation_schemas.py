@@ -291,7 +291,7 @@ class AnnotationProjectCreate(AnnotationProjectWrite):
 
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
-    pass
+    expected_updated_at: Optional[datetime] = None
 
 
 class AnnotationProjectStatusUpdate(BaseModel):

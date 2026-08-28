@@ -24,8 +24,8 @@
               <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
             </div>
           </el-popover>
-          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
-          <el-button v-if="!deleteMode" type="primary" @click="handleAdd">新增客户</el-button>
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增客户</el-button>
         </div>
       </div>
     </template>
@@ -184,7 +184,7 @@
               <el-table-column prop="client_short_name" label="客户简称" />
               <el-table-column prop="client_manager" label="客户负责人" />
               <el-table-column prop="manager_contact" label="负责人联系方式" />
-              <el-table-column label="操作" width="88" align="center">
+              <el-table-column v-if="canWrite" label="操作" width="88" align="center">
                 <template #default="{ row: subRow }">
                   <TableActionButton action="edit" @click="handleEditSub(subRow, row)" />
                   <TableActionButton action="delete" @click="handleDeleteSub(subRow, row)" />
@@ -315,7 +315,7 @@
           <span v-else>{{ row[column.key] || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
         </template>
@@ -442,12 +442,12 @@
 
         <el-divider v-if="form.id">子客户管理</el-divider>
         <div v-if="form.id" style="margin-bottom: 20px; padding: 0 40px;">
-          <el-button type="success" size="small" @click="handleAddSub">添加子客户</el-button>
+          <el-button v-if="canWrite" type="success" size="small" @click="handleAddSub">添加子客户</el-button>
           <el-table :data="form.sub_clients" border size="small" style="margin-top: 10px;">
             <el-table-column prop="sub_client_code" label="子客户编号" width="160" />
             <el-table-column prop="client_name" label="客户全称" />
             <el-table-column prop="client_manager" label="负责人" />
-            <el-table-column label="操作" width="88" align="center">
+            <el-table-column v-if="canWrite" label="操作" width="88" align="center">
               <template #default="{ row: subRow }">
                 <TableActionButton action="edit" @click="handleEditSub(subRow, form)" />
                 <TableActionButton action="delete" @click="handleDeleteSub(subRow, form)" />
@@ -527,10 +527,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import { hasPermission } from '@/utils/permission'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 
 const loading = ref(false)
+const canWrite = hasPermission('clients:write')
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增客户')
@@ -641,7 +643,8 @@ const defaultClientForm = () => ({
   client_status: 'pending',
   cooperation_start_date: '',
   remarks: '',
-  sub_clients: []
+  sub_clients: [],
+  updated_at: null,
 })
 
 const form = reactive(defaultClientForm())
@@ -892,8 +895,7 @@ const fetchData = async () => {
     }
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || requestId !== clientsRequestId) return
-    tableData.value = []
-    pagination.total = 0
+    ElMessage.error(error?.detail || '网络异常，客户列表未刷新，请检查网络后重试')
   } finally {
     if (requestId === clientsRequestId) loading.value = false
   }
@@ -954,7 +956,8 @@ const handleEdit = (row) => {
     client_status: row.client_status || 'pending',
     cooperation_start_date: row.cooperation_start_date || '',
     remarks: row.remarks || '',
-    sub_clients: row.sub_clients || []
+    sub_clients: row.sub_clients || [],
+    updated_at: row.updated_at || null,
   })
   dialogVisible.value = true
 }
@@ -969,6 +972,9 @@ const handleSubmit = async () => {
         const submitData = { ...form }
         delete submitData.id
         delete submitData.sub_clients
+        delete submitData.created_at
+        submitData.expected_updated_at = form.updated_at || null
+        delete submitData.updated_at
         // 日期选择器未填写时会产生空字符串，后端 Optional[datetime] 需要 null。
         submitData.cooperation_start_date = submitData.cooperation_start_date || null
         if (form.id) {
@@ -1057,6 +1063,9 @@ const handleSubSubmit = async () => {
       try {
         const submitData = { ...subForm }
         delete submitData.id
+        delete submitData.created_at
+        submitData.expected_updated_at = subForm.updated_at || null
+        delete submitData.updated_at
         if (subForm.id) {
           await clientApi.updateSubClient(subForm.id, submitData)
           ElMessage.success('更新子客户成功')

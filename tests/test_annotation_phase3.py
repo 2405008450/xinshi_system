@@ -228,7 +228,7 @@ def test_resource_request_item_reorder_moves_old_sequences_out_of_the_way():
         [_PayloadItem(second_id, "第二条提前"), _PayloadItem(first_id, "第一条后移")],
     )
 
-    assert db.snapshots == [[-1, -2]]
+    assert db.snapshots == [[1_000_000 + 1, 1_000_000 + 2]]
     assert second.sequence_no == 1
     assert first.sequence_no == 2
 

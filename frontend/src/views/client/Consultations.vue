@@ -21,8 +21,10 @@
               <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
             </div>
           </el-popover>
-          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
-          <el-button v-if="!deleteMode" type="primary" @click="handleAdd">新增咨询</el-button>
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-tooltip content="快捷键：N" placement="bottom" :disabled="!canWrite || deleteMode">
+            <el-button v-if="canWrite && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增咨询</el-button>
+          </el-tooltip>
         </div>
       </div>
     </template>
@@ -180,6 +182,7 @@
             placement="left"
             :width="760"
             trigger="click"
+            popper-class="consultation-detail-popover"
             :title="`${row.client_short_name || '客户'} 咨询详情`"
             @show="loadConsultationDetail(row.id)"
           >
@@ -191,7 +194,7 @@
                 :title="`${row.client_short_name || '-'}（点击查看详情）`"
                 @click.stop
               >
-                {{ row.client_short_name || '-' }}
+                {{ row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-') }}
               </el-button>
             </template>
             <div class="detail-popover" v-loading="detailLoadingId === row.id">
@@ -207,6 +210,9 @@
                 </el-descriptions-item>
                 <el-descriptions-item label="客户简称">
                   <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="子客户">
+                  <span class="detail-value">{{ getDetailRow(row).sub_client_short_name || getDetailRow(row).sub_client_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).consultation_time) }}</span>
@@ -329,7 +335,7 @@
           <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
         </template>
@@ -442,7 +448,7 @@
             <el-col :span="12">
               <el-form-item label="咨询方式" prop="consultation_method">
                 <div class="consultation-method-field">
-                  <el-select v-model="form.consultation_method" placeholder="请选择">
+                  <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
                     <el-option
                       v-for="item in consultationMethodOptions"
                       :key="item.value"
@@ -547,6 +553,27 @@
             </el-col>
           </el-row>
 
+          <el-row v-if="form.client_id" :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="子客户">
+                <el-select
+                  v-model="form.sub_client_id"
+                  clearable
+                  filterable
+                  placeholder="不选则关联母客户"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="item in availableSubClients"
+                    :key="item.id"
+                    :label="`${item.client_short_name || item.client_name}${item.sub_client_code ? `（${item.sub_client_code}）` : ''}`"
+                    :value="item.id"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
           <el-row :gutter="20">
             <el-col :span="12">
               <el-form-item label="客户全称" prop="client_name">
@@ -595,7 +622,7 @@
             <el-col :xs="24" :md="12"><el-form-item label="项目名称" prop="project_name"><el-input v-model="form.project_name" placeholder="可留空并在确认前自动生成" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="客户单号/标识"><el-input v-model="form.customer_order_no" /></el-form-item></el-col>
           </el-row>
-          <el-form-item label="联系人"><el-input v-model="form.contact_name" /></el-form-item>
+          <el-form-item label="子客户/联系人"><el-input v-model="form.contact_name" /></el-form-item>
 
           <template v-if="isTranslationConsultationType(form.consultation_type)">
             <el-row :gutter="20">
@@ -616,15 +643,19 @@
           </template>
 
           <template v-else-if="isInterpretationConsultationType(form.consultation_type)">
-            <el-form-item label="项目类型" required><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="项目类型" prop="project_intake.project_types" required><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
             <el-form-item label="具体任务"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
-            <el-form-item label="地点" required><el-select v-model="form.project_intake.locations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item>
-            <div class="intake-list-header"><span>预定时段</span><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
-            <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
-              <el-date-picker v-model="item.scheduled_start" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="开始时间" />
-              <el-date-picker v-model="item.scheduled_end" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="结束时间" />
-              <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
-            </div>
+            <el-form-item label="地点" prop="project_intake.locations" required><el-select v-model="form.project_intake.locations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item>
+            <el-form-item label="预定时段" prop="project_intake.time_ranges" required>
+              <div class="intake-list-field">
+                <div class="intake-list-header intake-list-header--field"><span>至少保留一个有效时段</span><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
+                <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
+                  <el-date-picker v-model="item.scheduled_start" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="开始时间" />
+                  <el-date-picker v-model="item.scheduled_end" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="结束时间" />
+                  <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
+                </div>
+              </div>
+            </el-form-item>
             <el-form-item label="口译方向" prop="project_intake.language_directions" required>
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field">
@@ -643,25 +674,43 @@
                 </div>
               </div>
             </el-form-item>
-            <el-form-item label="译员人数" required><el-input-number v-model="form.project_intake.required_interpreter_count" :min="1" /></el-form-item>
+            <el-form-item label="译员人数" prop="project_intake.required_interpreter_count" required><el-input-number v-model="form.project_intake.required_interpreter_count" :min="1" /></el-form-item>
           </template>
 
           <template v-else-if="isAnnotationConsultationType(form.consultation_type)">
-            <el-form-item label="项目类型" required><el-select v-model="form.project_intake.project_types" multiple filterable allow-create style="width:100%"><el-option v-for="item in annotationTypeOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-            <el-form-item label="具体任务" required><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="项目类型" prop="project_intake.project_types" required><el-select v-model="form.project_intake.project_types" multiple filterable allow-create style="width:100%"><el-option v-for="item in annotationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="具体任务" prop="project_intake.task_description" required><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="潜在需求量"><el-input v-model="form.project_intake.potential_demand" /></el-form-item>
-            <div class="intake-list-header"><span>语言范围</span><el-button link type="primary" @click="addAnnotationLanguage">增加语言</el-button></div>
-            <div v-for="(item,index) in form.project_intake.language_items" :key="index" class="intake-inline-row">
-              <el-select v-model="item.source_language_id" filterable placeholder="语种"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
-              <el-select v-model="item.target_language_id" filterable clearable placeholder="目标语种（可选）"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
-              <el-button link type="danger" @click="form.project_intake.language_items.splice(index,1)">删除</el-button>
-            </div>
+            <el-form-item label="语言范围" prop="project_intake.language_items" required>
+              <div class="intake-list-field">
+                <div class="intake-list-header intake-list-header--field"><span>至少保留一组语种</span><el-button link type="primary" @click="addAnnotationLanguage">增加语言</el-button></div>
+                <div v-for="(item,index) in form.project_intake.language_items" :key="index" class="intake-inline-row">
+                  <el-select v-model="item.source_language_id" filterable placeholder="语种"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-select v-model="item.target_language_id" filterable clearable placeholder="目标语种（可选）"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-button link type="danger" @click="form.project_intake.language_items.splice(index,1)">删除</el-button>
+                </div>
+              </div>
+            </el-form-item>
           </template>
 
           <template v-else-if="isRecruitmentConsultationType(form.consultation_type)">
-            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" required><el-input v-model="form.project_intake.position_title" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="招聘人数" required><div class="intake-inline-row"><el-input-number v-model="form.project_intake.headcount_min" :min="1" /><span>至</span><el-input-number v-model="form.project_intake.headcount_max" :min="form.project_intake.headcount_min || 1" /></div></el-form-item></el-col></el-row>
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="project_intake.position_title" required><el-input v-model="form.project_intake.position_title" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="project_intake.headcount_min" required><div class="intake-inline-row"><el-input-number v-model="form.project_intake.headcount_min" :min="1" /><span>至</span><el-input-number v-model="form.project_intake.headcount_max" :min="form.project_intake.headcount_min || 1" /></div></el-form-item></el-col></el-row>
             <el-form-item label="职位描述"><el-input v-model="form.project_intake.job_description" type="textarea" :rows="3" /></el-form-item>
-            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="拟履职周期" required><el-date-picker v-model="form.project_intake.employment_range" type="daterange" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="工作地点" required><el-input v-model="form.project_intake.work_location" /></el-form-item></el-col></el-row>
+            <el-form-item label="外语/翻译方向" prop="project_intake.language_directions">
+              <div class="intake-list-field">
+                <div class="intake-list-header intake-list-header--field"><span>可选，确认建项时会同步到招聘项目</span><el-button link type="primary" @click="addRecruitmentDirection">增加方向</el-button></div>
+                <div v-for="(item,index) in form.project_intake.language_directions" :key="index" class="intake-inline-row">
+                  <el-select v-model="item.direction_type" style="width:126px" @change="item.direction_type==='single' && (item.target_language_id='')">
+                    <el-option label="单语/方言" value="single" />
+                    <el-option label="翻译方向" value="translation" />
+                  </el-select>
+                  <el-select v-model="item.source_language_id" filterable placeholder="语种/方言"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-select v-if="item.direction_type==='translation'" v-model="item.target_language_id" filterable placeholder="目标语种"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-button link type="danger" @click="form.project_intake.language_directions.splice(index,1)">删除</el-button>
+                </div>
+              </div>
+            </el-form-item>
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="拟履职周期" prop="project_intake.employment_range" required><el-date-picker v-model="form.project_intake.employment_range" type="daterange" value-format="YYYY-MM-DD" clearable style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="工作地点" prop="project_intake.work_location" required><el-input v-model="form.project_intake.work_location" /></el-form-item></el-col></el-row>
           </template>
         </div>
 
@@ -823,7 +872,8 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button v-if="!form.id" @click="handleSubmit(true)">保存并继续新增</el-button>
+        <el-button type="primary" @click="handleSubmit()">确定</el-button>
       </template>
     </el-dialog>
 
@@ -924,7 +974,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import * as clientApi from '@/api/clients'
@@ -938,6 +988,7 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import { hasPermission } from '@/utils/permission'
 
 const router = useRouter()
 const loading = ref(false)
@@ -963,7 +1014,7 @@ const confirmationDialogVisible = ref(false)
 const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
 const confirmationFormRef = ref(null)
-const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null })
+const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
 const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
 const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
@@ -1166,6 +1217,7 @@ const ensureInterpretationDirection = (projectIntake = form.project_intake) => {
 const defaultForm = () => ({
   id: null,
   client_id: null,
+  sub_client_id: null,
   client_code: '',
   client_name: '',
   client_short_name: '',
@@ -1192,9 +1244,12 @@ const defaultForm = () => ({
   follow_up_status: '',
   follow_up_remarks: '',
   follow_up_person_id: currentUserId,
+  updated_at: null,
 })
 
 const form = reactive(defaultForm())
+const canWrite = hasPermission('consultations:write')
+const availableSubClients = ref([])
 const personnelAssignmentExpanded = ref(false)
 const activeDraftKey = ref(null)
 const draftSavingEnabled = ref(false)
@@ -1358,7 +1413,18 @@ const interpretationTypeOptions = [
   { value: 'simultaneous', label: '会议同传口译' }, { value: 'online_meeting', label: '线上会议口译' },
   { value: 'online_simultaneous', label: '线上同传口译' },
 ]
-const annotationTypeOptions = ['audio_collection','audio_annotation','audio_evaluation','text_evaluation','text_annotation','quality_inspection','listening_test','slot_deduction','generalization','translation']
+const annotationTypeOptions = [
+  { value: 'audio_collection', label: '音频采集' },
+  { value: 'audio_annotation', label: '音频标注' },
+  { value: 'audio_evaluation', label: '音频评测' },
+  { value: 'text_evaluation', label: '文本评测' },
+  { value: 'text_annotation', label: '文本标注' },
+  { value: 'quality_inspection', label: '质检' },
+  { value: 'listening_test', label: '测听' },
+  { value: 'slot_deduction', label: '扣槽' },
+  { value: 'generalization', label: '泛化' },
+  { value: 'translation', label: '翻译' },
+]
 const serviceContentOptions = ['翻译', '排版']
 const priorityOptions = ['低', '中', '高', '紧急']
 const handleConsultationTypeChange = (consultationType) => {
@@ -1377,6 +1443,7 @@ const removeIntakeDirection = (index) => {
   form.project_intake.language_directions.splice(index, 1)
 }
 const addAnnotationLanguage = () => form.project_intake.language_items.push({ source_language_id: '', target_language_id: null })
+const addRecruitmentDirection = () => form.project_intake.language_directions.push({ direction_type: 'single', source_language_id: '', target_language_id: '' })
 const projectRouteName = (consultationType) => {
   if (isTranslationConsultationType(consultationType)) return 'TranslationProjectDetails'
   if (isInterpretationConsultationType(consultationType)) return 'InterpretationProjectDetails'
@@ -1435,11 +1502,96 @@ const validateInterpretationDirections = (_rule, value, callback) => {
   callback()
 }
 
+const validateWhen = (match, validator) => (_rule, value, callback) => {
+  if (!match()) return callback()
+  return validator(_rule, value, callback)
+}
+const requireIntakeText = (message) => (_rule, value, callback) => {
+  if (String(value || '').trim()) return callback()
+  callback(new Error(message))
+}
+const requireIntakeArray = (message) => (_rule, value, callback) => {
+  if (Array.isArray(value) && value.length) return callback()
+  callback(new Error(message))
+}
+const validateInterpretationTimeRanges = (_rule, value, callback) => {
+  if (!Array.isArray(value) || !value.length) {
+    callback(new Error('请至少保留一个预定时段'))
+    return
+  }
+  if (value.some((item) => !item?.scheduled_start || !item?.scheduled_end)) {
+    callback(new Error('请填写完整的预定时段'))
+    return
+  }
+  callback()
+}
+const validateAnnotationLanguages = (_rule, value, callback) => {
+  if (!Array.isArray(value) || !value.length) {
+    callback(new Error('请至少选择一组语言范围'))
+    return
+  }
+  if (value.some((item) => !item?.source_language_id)) {
+    callback(new Error('请选择完整的语言范围'))
+    return
+  }
+  callback()
+}
+const validateRecruitmentHeadcount = (_rule, value, callback) => {
+  if (value || form.project_intake.headcount_max) return callback()
+  callback(new Error('请填写招聘人数'))
+}
+
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
   status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
   'project_intake.language_directions': [{ validator: validateInterpretationDirections, trigger: 'change' }],
+  'project_intake.project_types': [{
+    validator: validateWhen(
+      () => isInterpretationConsultationType(form.consultation_type) || isAnnotationConsultationType(form.consultation_type),
+      requireIntakeArray('请选择项目类型'),
+    ),
+    trigger: 'change',
+  }],
+  'project_intake.locations': [{
+    validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), requireIntakeArray('请选择地点')),
+    trigger: 'change',
+  }],
+  'project_intake.time_ranges': [{
+    validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), validateInterpretationTimeRanges),
+    trigger: 'change',
+  }],
+  'project_intake.required_interpreter_count': [{
+    validator: validateWhen(
+      () => isInterpretationConsultationType(form.consultation_type),
+      (_rule, value, callback) => { if (value) return callback(); callback(new Error('请填写译员人数')) },
+    ),
+    trigger: 'change',
+  }],
+  'project_intake.task_description': [{
+    validator: validateWhen(() => isAnnotationConsultationType(form.consultation_type), requireIntakeText('请填写具体任务')),
+    trigger: 'blur',
+  }],
+  'project_intake.language_items': [{
+    validator: validateWhen(() => isAnnotationConsultationType(form.consultation_type), validateAnnotationLanguages),
+    trigger: 'change',
+  }],
+  'project_intake.position_title': [{
+    validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeText('请填写职位名称/类型')),
+    trigger: 'blur',
+  }],
+  'project_intake.headcount_min': [{
+    validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), validateRecruitmentHeadcount),
+    trigger: 'change',
+  }],
+  'project_intake.employment_range': [{
+    validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeArray('请选择拟履职周期')),
+    trigger: 'change',
+  }],
+  'project_intake.work_location': [{
+    validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeText('请填写工作地点')),
+    trigger: 'blur',
+  }],
 }
 
 const getStatusType = (status) => {
@@ -1539,17 +1691,35 @@ const searchClientsByShortName = async (queryString, cb) => {
 // 用户从下拉列表选中了已有客户
 const handleExistingClientSelect = (item) => {
   form.client_id = item.id
+  form.sub_client_id = null
   form.client_name = item.client_name
   form.client_code = item.client_code || ''
   form.client_short_name = item.client_short_name || ''
   form.manager_contact = item.manager_contact || ''
+  availableSubClients.value = item.sub_clients || []
+  if (!availableSubClients.value.length) loadSubClients(item.id)
+}
+
+const loadSubClients = async (clientId) => {
+  if (!clientId) {
+    availableSubClients.value = []
+    return
+  }
+  try {
+    const detail = await clientApi.getClient(clientId)
+    availableSubClients.value = detail?.sub_clients || []
+  } catch {
+    availableSubClients.value = []
+  }
 }
 
 // 用户手动输入（重新输入时清空已关联的客户）
 const handleClientNameInput = () => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
+  form.sub_client_id = null
   form.client_code = ''
+  availableSubClients.value = []
   if (hadSelectedClient) {
     form.client_short_name = ''
     form.manager_contact = ''
@@ -1560,7 +1730,9 @@ const handleClientNameInput = () => {
 const handleClientShortNameInput = (value) => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
+  form.sub_client_id = null
   form.client_code = ''
+  availableSubClients.value = []
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
@@ -1570,7 +1742,9 @@ const handleClientShortNameInput = (value) => {
 const handleClientShortNameClear = () => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
+  form.sub_client_id = null
   form.client_code = ''
+  availableSubClients.value = []
   form.client_short_name = ''
   if (hadSelectedClient) {
     form.client_name = ''
@@ -1673,19 +1847,20 @@ const fetchData = async () => {
     if (requestId !== consultationRequestId) return
     tableData.value = Array.isArray(res) ? res : []
     pagination.total = countRes?.total || tableData.value.length
-  } catch {
+  } catch (error) {
     if (requestId !== consultationRequestId) return
-    tableData.value = []
-    pagination.total = 0
+    if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError') return
+    ElMessage.error(error?.detail || '网络异常，咨询列表未刷新，请检查网络后重试')
   } finally {
     if (requestId === consultationRequestId) loading.value = false
   }
 }
 
-const toNullable = (v) => (v === '' ? null : v)
+const toNullable = (v) => (v === '' || v === undefined ? null : v)
 
 const buildPayload = () => ({
   client_id: form.client_id,
+  sub_client_id: toNullable(form.sub_client_id),
   client_code: form.client_code?.trim() || null,
   client_name: form.client_name?.trim() || null,
   client_short_name: form.client_short_name?.trim() || null,
@@ -1695,14 +1870,14 @@ const buildPayload = () => ({
   project_name: form.project_name?.trim() || null,
   project_intake: {
     ...form.project_intake,
-    employment_start: form.project_intake.employment_range?.[0] || form.project_intake.employment_start || null,
-    employment_end: form.project_intake.employment_range?.[1] || form.project_intake.employment_end || null,
+    employment_start: form.project_intake.employment_range?.[0] || null,
+    employment_end: form.project_intake.employment_range?.[1] || null,
     employment_range: undefined,
   },
   consultation_time: toNullable(form.consultation_time),
   consultation_method: toNullable(
     form.consultation_method === 'other'
-      ? form.consultation_method_custom?.trim() || 'other'
+      ? (form.consultation_method_custom?.trim() || null)
       : form.consultation_method
   ),
   client_source: toNullable(form.client_source),
@@ -1720,6 +1895,7 @@ const buildPayload = () => ({
   follow_up_status: toNullable(form.follow_up_status),
   follow_up_remarks: toNullable(form.follow_up_remarks),
   follow_up_person_id: toNullable(form.follow_up_person_id),
+  expected_updated_at: form.updated_at || null,
 })
 
 const loadConsultationDetail = async (id) => {
@@ -1763,6 +1939,7 @@ const fillFormByRow = (row) => {
   Object.assign(form, {
     id: row.id,
     client_id: row.client_id || null,
+    sub_client_id: row.sub_client_id || null,
     client_code: row.client_code || '',
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
@@ -1789,7 +1966,9 @@ const fillFormByRow = (row) => {
     follow_up_status: row.follow_up_status || '',
     follow_up_remarks: row.follow_up_remarks || '',
     follow_up_person_id: row.follow_up_person_id || currentUserId,
+    updated_at: row.updated_at || null,
   })
+  loadSubClients(row.client_id)
 }
 
 const handleEdit = async (row) => {
@@ -1874,7 +2053,7 @@ const handleInlineStatusChange = async (row, newStatus) => {
   }
 }
 
-const handleSubmit = async () => {
+const handleSubmit = async (continueCreate = false) => {
   if (!formRef.value) return
 
   await formRef.value.validate(async (valid) => {
@@ -1882,6 +2061,7 @@ const handleSubmit = async () => {
     try {
       const payload = buildPayload()
       const isUpdate = !!form.id
+      const shouldContinueCreate = continueCreate === true && !isUpdate
       // 记录提交前咨询的旧状态（用于判断是否首次变为已确认）
       const prevStatus = isUpdate
         ? (detailCache[form.id]?.status ?? tableData.value.find((r) => r.id === form.id)?.status)
@@ -1900,6 +2080,7 @@ const handleSubmit = async () => {
           consultationPayload: payload,
           row: null,
           previewSource: payload,
+          continueCreate: shouldContinueCreate,
         })
         return
       }
@@ -1911,7 +2092,7 @@ const handleSubmit = async () => {
       } else {
         const created = await consultationApi.createConsultation(payload)
         savedConsultation = created
-        ElMessage.success('创建成功')
+        ElMessage.success(shouldContinueCreate ? '创建成功，可继续录入下一条' : '创建成功')
         // 新建咨询也支持立即确认并生成项目详情。
         if (payload.status === CONFIRMED_CONSULTATION_STATUS && created?.id) {
           if (isRecruitmentConsultationType(payload.consultation_type)) {
@@ -1921,8 +2102,17 @@ const handleSubmit = async () => {
       }
       draftSavingEnabled.value = false
       removeDraft(activeDraftKey.value)
-      dialogVisible.value = false
-      await fetchData()
+      if (shouldContinueCreate) {
+        // 连续录入：保持弹窗打开并重置表单，草稿键切回 create 以继续记录新草稿。
+        activeDraftKey.value = 'create'
+        resetForm()
+        await fetchData()
+        await nextTick()
+        resetConsultationDialogScroll()
+      } else {
+        dialogVisible.value = false
+        await fetchData()
+      }
 
       // 若编辑时首次改为「已确认」，使用统一命名规则预填项目名称并二次确认。
       if (
@@ -1974,8 +2164,8 @@ const applyConfirmationPreview = (preview) => {
   confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
 }
 
-const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource }) => {
-  Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row })
+const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource, continueCreate = false }) => {
+  Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
     projectName: previewSource?.project_name || buildAutoProjectName(previewSource?.client_short_name),
     subjectPrefix: '',
@@ -2060,7 +2250,14 @@ const handleConfirmConsultation = async () => {
     if (confirmationContext.mode === 'create' || confirmationContext.mode === 'update') {
       draftSavingEnabled.value = false
       removeDraft(activeDraftKey.value)
-      dialogVisible.value = false
+      if (confirmationContext.mode === 'create' && confirmationContext.continueCreate) {
+        // 连续录入：确认建项成功后同样保持主弹窗打开并重置表单。
+        activeDraftKey.value = 'create'
+        resetForm()
+        nextTick(resetConsultationDialogScroll)
+      } else {
+        dialogVisible.value = false
+      }
     }
     confirmationDialogVisible.value = false
     ElMessage.success(
@@ -2085,7 +2282,7 @@ const handleConfirmConsultation = async () => {
 }
 
 const resetConfirmationDraft = () => {
-  Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null })
+  Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
   Object.assign(confirmationForm, { projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
   confirmationFormRef.value?.clearValidate()
 }
@@ -2108,12 +2305,29 @@ const resetConsultationDialogScroll = () => {
   if (dialogBody) dialogBody.scrollTop = 0
 }
 
+const isEditableTarget = (target) => {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+}
+
+const handleGlobalKeydown = (event) => {
+  if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return
+  if (event.key?.toLowerCase() !== 'n') return
+  if (isEditableTarget(event.target)) return
+  if (!canWrite || deleteMode.value || dialogVisible.value || confirmationDialogVisible.value) return
+  event.preventDefault()
+  handleAdd()
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleGlobalKeydown)
   await Promise.all([loadUsers(), loadLanguages()])
   await fetchData()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   consultationSearchController?.abort()
 })
@@ -2320,7 +2534,8 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-:global(.consultation-advanced-filter-popover) {
+:global(.consultation-advanced-filter-popover),
+:global(.consultation-detail-popover) {
   max-width: calc(100vw - 32px);
 }
 

@@ -158,8 +158,19 @@ def generate_resource_request_no(db: Session, current_time: Optional[datetime] =
     prefix = f"RR-{day}-"
     if db.get_bind().dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"resource-request:{day}"})
-    last_no = db.query(ResourceRequest.request_no).filter(ResourceRequest.request_no.like(f"{prefix}%")).order_by(ResourceRequest.request_no.desc()).scalar()
-    sequence = int(last_no.rsplit("-", 1)[-1]) + 1 if last_no else 1
+    last_no = (
+        db.query(ResourceRequest.request_no)
+        .filter(ResourceRequest.request_no.like(f"{prefix}%"))
+        .order_by(ResourceRequest.request_no.desc())
+        .limit(1)
+        .scalar()
+    )
+    sequence = 1
+    if last_no:
+        try:
+            sequence = int(last_no.rsplit("-", 1)[-1]) + 1
+        except ValueError:
+            sequence = 1
     return f"{prefix}{sequence:03d}"
 
 
@@ -188,9 +199,10 @@ def _sync_items(db: Session, request: ResourceRequest, payload_items) -> None:
         raise ValueError("资源需求明细包含不属于当前请求的记录")
 
     # 先临时移开原排序号，避免交换两条明细顺序时触发唯一约束。
+    # sequence_no 有 > 0 约束，不能使用负数；使用远离正常序号的正数区间。
     if by_id:
         for index, row in enumerate(request.items, start=1):
-            row.sequence_no = -index
+            row.sequence_no = 1_000_000 + index
         db.flush()
     for row in list(request.items):
         if row.id not in requested_ids:

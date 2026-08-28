@@ -201,22 +201,11 @@
           <el-tag v-else-if="column.key === 'projectStatus'" :type="getStatusType(row.projectStatus)">
             {{ getStatusLabel(row.projectStatus) }}
           </el-tag>
-          <div
+          <DeadlineHintCell
             v-else-if="column.key === 'customerDeadlineTime'"
-            class="deadline-cell"
-            :title="formatDateTime(row.customerDeadlineTime)"
-          >
-            <span class="deadline-cell__time">{{ formatDateTime(row.customerDeadlineTime) }}</span>
-            <el-tag
-              v-if="getDeadlineDisplay(row).label"
-              :type="getDeadlineDisplay(row).type"
-              size="small"
-              effect="light"
-              class="deadline-cell__tag"
-            >
-              {{ getDeadlineDisplay(row).label }}
-            </el-tag>
-          </div>
+            :deadline="row.customerDeadlineTime"
+            :status="row.projectStatus"
+          />
           <div
             v-else-if="column.key === 'languagePair'"
             class="compact-cell-value"
@@ -279,7 +268,7 @@
       v-model="dialogVisible"
       class="project-editor-dialog"
       width="min(1160px, calc(100vw - 32px))"
-      top="4vh"
+      top="5vh"
       @closed="onProjectDialogClosed"
     >
       <template #header>
@@ -391,7 +380,7 @@
                       </div>
                     </el-form-item>
                   </el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="客户编号" data-field-key="clientCode"><el-input v-model="form.clientCode" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
@@ -847,6 +836,7 @@ import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
@@ -862,8 +852,9 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
-import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
+import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { launchOpenPath } from '@/utils/openPath'
+import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -1134,7 +1125,7 @@ const tableColumnOverrides = {
   priority: { minWidth: 80 },
   wordCountMatrix: { label: '字数统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目字数统计' },
   customerReceptionTime: { minWidth: 150 },
-  customerDeadlineTime: { width: 115, minWidth: 110, showOverflowTooltip: false },
+  customerDeadlineTime: { width: 148, minWidth: 140, showOverflowTooltip: false },
   sentToClientTime: { minWidth: 150 },
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
@@ -1195,81 +1186,7 @@ const getStatusType = (status) => ({
   partially_cancelled: 'danger',
   paused: 'warning'
 }[normalizeStatus(status)] || 'info')
-const BUSINESS_TIME_ZONE = 'Asia/Hong_Kong'
-const BUSINESS_TIME_OFFSET = '+08:00'
-const MINUTE_MS = 60 * 1000
-const HOUR_MS = 60 * MINUTE_MS
-const DAY_MS = 24 * HOUR_MS
-const nowTick = ref(Date.now())
-const deliveredStatuses = new Set(['sent_to_client', 'client_feedback', 'feedback_sent_to_client'])
-const endedStatuses = new Set(['cancelled', 'partially_cancelled'])
 
-const parseBusinessDateTime = (value) => {
-  if (!value) return null
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : new Date(value.getTime())
-  const text = String(value).trim()
-  const timezoneSuffixPattern = /(Z|[+-]\d{2}:?\d{2})$/i
-  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text) && !timezoneSuffixPattern.test(text)
-    ? `${text.replace(' ', 'T')}${BUSINESS_TIME_OFFSET}`
-    : text
-  const date = new Date(normalized)
-  return Number.isNaN(date.getTime()) ? null : date
-}
-const getBusinessDateParts = (value) => {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return { year: Number(values.year), month: Number(values.month), day: Number(values.day) }
-}
-const toDateKey = ({ year, month, day }) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-const shiftDateKey = (parts, days) => {
-  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days))
-  return toDateKey({ year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() })
-}
-const formatDateTime = (value) => {
-  if (!value) return '-'
-  const date = parseBusinessDateTime(value)
-  return date
-    ? new Intl.DateTimeFormat('zh-CN', { timeZone: BUSINESS_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' }).format(date)
-    : String(value)
-}
-const formatRemainingDuration = (milliseconds, rounding = 'ceil') => {
-  const duration = Math.abs(milliseconds)
-  const roundValue = rounding === 'floor' ? Math.floor : Math.ceil
-  if (duration < HOUR_MS) return `${Math.max(1, roundValue(duration / MINUTE_MS))} 分钟`
-  if (duration < DAY_MS) return `${Math.max(1, roundValue(duration / HOUR_MS))} 小时`
-  return `${Math.max(1, roundValue(duration / DAY_MS))} 天`
-}
-const getDeadlineDisplay = (row) => {
-  const deadline = parseBusinessDateTime(row?.customerDeadlineTime)
-  if (!deadline) return { label: '', type: 'info' }
-  const status = normalizeStatus(row?.projectStatus)
-  if (deliveredStatuses.has(status)) return { label: '已交付', type: 'success' }
-  if (endedStatuses.has(status)) return { label: '已结束', type: 'info' }
-
-  const difference = deadline.getTime() - nowTick.value
-  if (Math.abs(difference) < MINUTE_MS) return { label: '现在截止', type: 'warning' }
-  if (difference < 0) return { label: `已逾期 ${formatRemainingDuration(difference, 'floor')}`, type: 'danger' }
-
-  const todayParts = getBusinessDateParts(nowTick.value)
-  const deadlineParts = getBusinessDateParts(deadline)
-  let prefix = ''
-  if (todayParts && deadlineParts) {
-    const deadlineKey = toDateKey(deadlineParts)
-    if (deadlineKey === toDateKey(todayParts)) prefix = '今天截止 · '
-    else if (deadlineKey === shiftDateKey(todayParts, 1)) prefix = '明天截止 · '
-  }
-  return {
-    label: `${prefix}剩 ${formatRemainingDuration(difference)}`,
-    type: prefix ? 'warning' : 'info',
-  }
-}
 function formatWordCountSummary(target = {}) {
   return formatWordCountMatrix(target.wordCountMatrix)
 }
@@ -1408,6 +1325,9 @@ const cleanPayload = (payload) => {
   delete result.clientManager
   delete result.managerContact
   delete result.subjectPrefix
+  delete result.createdAt
+  result.expectedUpdatedAt = result.updatedAt || null
+  delete result.updatedAt
   delete result.projectManagerName
   result.quotationRequired = Boolean(result.quotationRequired)
   if (!result.quotationRequired) {
@@ -1468,9 +1388,7 @@ const fetchData = async () => {
     pagination.total = countResponse?.total || tableData.value.length
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || sequence !== requestSequence) return
-    tableData.value = []
-    pagination.total = 0
-    ElMessage.error(error.detail || error.message || 'Failed to load projects')
+    ElMessage.error(error.detail || error.message || '网络异常，项目列表未刷新，请检查网络后重试')
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -1729,6 +1647,7 @@ const handleEdit = async (row) => {
   clearFieldSearch()
   await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
   assignReactive(form, createEmptyProjectForm, row)
+  form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
   currentProjectSubOrders.value = Array.isArray(row.subOrders) ? [...row.subOrders] : []
   projectNameManuallyEdited.value = Boolean(form.projectName) && !isAutoProjectName(form.projectName, form.clientShortName)
   syncProjectName()
@@ -1856,16 +1775,13 @@ const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`
 const openBatchDialog = () => { resetBatchForm(); Object.assign(batchForm, { ...createBatchForm(), ...createSubOrderDefaultsFromProject(), subProjectNamePrefix: form.projectName ? `${form.projectName}-子订单` : '' }); batchDialogVisible.value = true }
 const createBatchSubProjectName = (index) => { const prefix = batchForm.subProjectNamePrefix || (form.projectName ? `${form.projectName}-子订单` : '子订单'); return `${prefix}${String(index).padStart(2, '0')}` }
 const handleBatchCreateSubOrders = async () => { if (!batchFormRef.value) return; const valid = await batchFormRef.value.validate().catch(() => false); if (!valid) return; try { for (let offset = 0; offset < batchForm.count; offset += 1) { const sequence = batchForm.startIndex + offset; const payload = buildSubOrderPayload({ ...batchForm, subProjectName: createBatchSubProjectName(sequence), remarks: '' }); await createSubOrder(payload) } batchDialogVisible.value = false; ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`); await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '批量新增失败') } }
-let clockTimer = null
 onMounted(async () => {
   await fetchData()
   await focusRouteProject()
-  clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, MINUTE_MS)
 })
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   clearFieldSearchHighlight()
-  if (clockTimer) window.clearInterval(clockTimer)
   requestController?.abort()
 })
 </script>
@@ -1904,9 +1820,6 @@ onBeforeUnmount(() => {
 .status-switch-tag.is-updating { pointer-events: none; opacity: 0.55; }
 .status-option-row { display: inline-flex; align-items: center; gap: 8px; width: 100%; }
 .status-current-icon { color: var(--el-color-primary); }
-.deadline-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 2px 0; }
-.deadline-cell__time { max-width: 100%; overflow: hidden; font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.deadline-cell__tag { max-width: 100%; }
 .compact-cell-value { display: flex; align-items: center; min-width: 0; gap: 5px; white-space: nowrap; }
 .compact-cell-value__primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .compact-cell-value__count { flex-shrink: 0; padding: 0 5px; border-radius: 8px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-size: 12px; line-height: 18px; }
@@ -1925,7 +1838,7 @@ onBeforeUnmount(() => {
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }
-:global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 92vh; overflow: hidden; }
+:global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
 :global(.project-editor-dialog .el-dialog__body) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }

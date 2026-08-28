@@ -246,6 +246,10 @@ def update_project_status(
     dependencies=[Depends(require_any_permission("projects:write"))],
 )
 def delete_project(project_id: UUID, db: Session = Depends(get_db)):
-    if not delete_interpretation_project(db, project_id):
-        raise HTTPException(status_code=404, detail="口译项目不存在")
+    try:
+        if not delete_interpretation_project(db, project_id):
+            raise HTTPException(status_code=404, detail="口译项目不存在")
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="无法删除该口译项目：仍被资源需求等业务数据引用，请先处理关联记录")
     return None

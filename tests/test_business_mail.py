@@ -149,3 +149,26 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
     assert "onsite" not in preview["body"]
     assert "datetime.datetime" not in preview["body"]
     assert str(source_language_id) not in preview["body"]
+
+
+def test_annotation_preview_uses_chinese_types_and_readable_languages(monkeypatch):
+    source_language_id = uuid4()
+    db = _InterpretationPreviewDb([
+        SimpleNamespace(id=source_language_id, label="泉州闽南语"),
+    ])
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(db, "annotation", source={
+        "order_no": "AP-260828-001",
+        "project_name": "GRAY-标注",
+        "project_types": ["audio_collection", "text_annotation"],
+        "task_description": "听音转写",
+        "language_items": [{"source_language_id": source_language_id}],
+    })
+
+    assert "项目类型：音频采集；文本标注" in preview["body"]
+    assert "语言范围：泉州闽南语" in preview["body"]
+    assert "audio_collection" not in preview["body"]
+    assert "source_language_id" not in preview["body"]
+    assert str(source_language_id) not in preview["body"]

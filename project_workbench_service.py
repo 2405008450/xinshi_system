@@ -129,27 +129,45 @@ def cancel_pending_project_handovers(
         ProjectManagerHandoverRequest,
         WorkflowHandoverItem,
         WorkflowHandoverRequest,
+        WorkflowInstance,
     )
 
-    fk_name = _project_fk_name(project_type)
-    responsibility_ids = [
-        value for (value,) in db.query(ProjectWorkbenchResponsibility.id).filter(
-            getattr(ProjectWorkbenchResponsibility, fk_name) == project_id
-        ).all()
-    ]
-    if not responsibility_ids:
-        return
     now = datetime.datetime.utcnow()
-    workflow_request_ids = [
-        value for (value,) in db.query(WorkflowHandoverItem.request_id).filter(
-            WorkflowHandoverItem.project_responsibility_id.in_(responsibility_ids)
-        ).all()
-    ]
-    manager_request_ids = [
-        value for (value,) in db.query(ProjectManagerHandoverItem.request_id).filter(
-            ProjectManagerHandoverItem.project_responsibility_id.in_(responsibility_ids)
-        ).all()
-    ]
+    if project_type == 'translation':
+        instance_ids = [
+            value for (value,) in db.query(WorkflowInstance.id).filter(
+                WorkflowInstance.translation_project_id == project_id
+            ).all()
+        ]
+        workflow_request_ids = [
+            value for (value,) in db.query(WorkflowHandoverItem.request_id).filter(
+                WorkflowHandoverItem.workflow_instance_id.in_(instance_ids)
+            ).all()
+        ] if instance_ids else []
+        manager_request_ids = [
+            value for (value,) in db.query(ProjectManagerHandoverItem.request_id).filter(
+                ProjectManagerHandoverItem.translation_project_id == project_id
+            ).all()
+        ]
+    else:
+        fk_name = _project_fk_name(project_type)
+        responsibility_ids = [
+            value for (value,) in db.query(ProjectWorkbenchResponsibility.id).filter(
+                getattr(ProjectWorkbenchResponsibility, fk_name) == project_id
+            ).all()
+        ]
+        if not responsibility_ids:
+            return
+        workflow_request_ids = [
+            value for (value,) in db.query(WorkflowHandoverItem.request_id).filter(
+                WorkflowHandoverItem.project_responsibility_id.in_(responsibility_ids)
+            ).all()
+        ]
+        manager_request_ids = [
+            value for (value,) in db.query(ProjectManagerHandoverItem.request_id).filter(
+                ProjectManagerHandoverItem.project_responsibility_id.in_(responsibility_ids)
+            ).all()
+        ]
     if workflow_request_ids:
         db.query(WorkflowHandoverRequest).filter(
             WorkflowHandoverRequest.id.in_(workflow_request_ids),
@@ -329,14 +347,24 @@ def get_responsibility_tasks(db: Session, user_id: UUID, roles: set[str], *, inc
         ProjectWorkbenchResponsibility.role_code.in_(['project_specialist', 'project_assistant'])
     )
     if not include_all:
-        if not role_codes:
+        from workflow_delegation_service import delegated_source_ids
+        _, delegated_responsibility_ids = delegated_source_ids(db, user_id)
+        if not role_codes and not delegated_responsibility_ids:
             return []
+        responsibility_scope = [
+            ProjectWorkbenchResponsibility.assignee_id == user_id,
+            ProjectWorkbenchResponsibility.assignee_id.is_(None),
+        ]
+        if delegated_responsibility_ids:
+            responsibility_scope.append(
+                ProjectWorkbenchResponsibility.id.in_(delegated_responsibility_ids)
+            )
         query = query.filter(
-            ProjectWorkbenchResponsibility.role_code.in_(role_codes),
             or_(
-                ProjectWorkbenchResponsibility.assignee_id == user_id,
-                ProjectWorkbenchResponsibility.assignee_id.is_(None),
+                ProjectWorkbenchResponsibility.role_code.in_(role_codes),
+                ProjectWorkbenchResponsibility.id.in_(delegated_responsibility_ids or {None}),
             ),
+            or_(*responsibility_scope),
         )
     result = []
     for row in query.all():

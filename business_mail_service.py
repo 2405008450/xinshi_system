@@ -21,7 +21,9 @@ from business_mail_models import (
     ProjectMailPolicy,
     ProjectMailPolicyGroup,
 )
+from daily_report_mail_models import DailyReportMailPolicyGroup
 from interpretation_models import InterpretationLanguage, InterpretationProject
+from annotation_schemas import ANNOTATION_PROJECT_TYPE_LABELS
 from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LABELS
 from mail_service import SmtpSettings, send_text_email
 from models import AppUser, Consultation, TranslationProject
@@ -74,6 +76,27 @@ def _format_mail_datetime(value) -> str:
         return text_value
 
 
+def _item_get(item, *keys):
+    if isinstance(item, dict):
+        for key in keys:
+            if key in item and item[key] not in (None, ""):
+                return item[key]
+        return None
+    for key in keys:
+        value = getattr(item, key, None)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _language_labels(db: Session, language_ids: set) -> dict:
+    cleaned = {language_id for language_id in language_ids if language_id}
+    if not cleaned:
+        return {}
+    rows = db.query(InterpretationLanguage).filter(InterpretationLanguage.id.in_(cleaned)).all()
+    return {str(row.id): row.label for row in rows}
+
+
 def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
     """将口译售前内部值转换为邮件中可直接阅读的业务文本。"""
     normalized = dict(values)
@@ -89,8 +112,8 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
             if _clean(item):
                 time_ranges.append(_clean(item))
             continue
-        start = _format_mail_datetime(_nested_value(item, "scheduled_start"))
-        end = _format_mail_datetime(_nested_value(item, "scheduled_end"))
+        start = _format_mail_datetime(_item_get(item, "scheduled_start", "scheduledStart"))
+        end = _format_mail_datetime(_item_get(item, "scheduled_end", "scheduledEnd"))
         if start and end:
             time_ranges.append(f"{start} 至 {end}")
     normalized["time_ranges"] = time_ranges
@@ -101,17 +124,12 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
         for item in raw_directions
         if not isinstance(item, str)
         for language_id in (
-            _nested_value(item, "source_language_id"),
-            _nested_value(item, "target_language_id"),
+            _item_get(item, "source_language_id", "sourceLanguageId"),
+            _item_get(item, "target_language_id", "targetLanguageId"),
         )
         if language_id
     }
-    language_labels = {}
-    if direction_ids:
-        rows = db.query(InterpretationLanguage).filter(
-            InterpretationLanguage.id.in_(direction_ids)
-        ).all()
-        language_labels = {str(row.id): row.label for row in rows}
+    language_labels = _language_labels(db, direction_ids)
 
     directions = []
     for item in raw_directions:
@@ -119,13 +137,58 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
             if _clean(item):
                 directions.append(_clean(item))
             continue
-        source_id = _nested_value(item, "source_language_id")
-        target_id = _nested_value(item, "target_language_id")
+        source_id = _item_get(item, "source_language_id", "sourceLanguageId")
+        target_id = _item_get(item, "target_language_id", "targetLanguageId")
         source_label = language_labels.get(str(source_id), "")
         target_label = language_labels.get(str(target_id), "")
         if source_label and target_label:
             directions.append(f"{source_label} ↔ {target_label}")
     normalized["language_directions"] = directions
+    return normalized
+
+
+def _normalize_language_item_texts(db: Session, raw_items) -> list[str]:
+    items = []
+    language_ids = {
+        language_id
+        for item in (raw_items or [])
+        if not isinstance(item, str)
+        for language_id in (
+            _item_get(item, "source_language_id", "sourceLanguageId"),
+            _item_get(item, "target_language_id", "targetLanguageId"),
+        )
+        if language_id
+    }
+    labels = _language_labels(db, language_ids)
+    for item in raw_items or []:
+        if isinstance(item, str):
+            if _clean(item):
+                items.append(_clean(item))
+            continue
+        source_label = labels.get(str(_item_get(item, "source_language_id", "sourceLanguageId") or ""), "")
+        target_label = labels.get(str(_item_get(item, "target_language_id", "targetLanguageId") or ""), "")
+        if source_label and target_label:
+            items.append(f"{source_label} → {target_label}")
+        elif source_label:
+            items.append(source_label)
+    return items
+
+
+def _normalize_annotation_mail_values(db: Session, values: dict) -> dict:
+    """将标注售前内部值转换为邮件中可直接阅读的业务文本。"""
+    normalized = dict(values)
+    normalized["project_types"] = [
+        ANNOTATION_PROJECT_TYPE_LABELS.get(_clean(item), _clean(item))
+        for item in (values.get("project_types") or [])
+        if _clean(item)
+    ]
+    normalized["language_items"] = _normalize_language_item_texts(db, values.get("language_items"))
+    return normalized
+
+
+def _normalize_recruitment_mail_values(db: Session, values: dict) -> dict:
+    normalized = dict(values)
+    normalized["language_directions"] = _normalize_language_item_texts(db, values.get("language_directions"))
     return normalized
 
 
@@ -220,6 +283,8 @@ def delete_group(db: Session, group_id: UUID) -> bool:
         return False
     if db.query(ProjectMailPolicyGroup.id).filter(ProjectMailPolicyGroup.group_id == group_id).first():
         raise ValueError("邮件组正在被项目邮件策略使用，请先解除引用")
+    if db.query(DailyReportMailPolicyGroup.id).filter(DailyReportMailPolicyGroup.group_id == group_id).first():
+        raise ValueError("邮件组正在被工作报告收件策略使用，请先解除引用")
     db.delete(group)
     db.commit()
     return True
@@ -354,6 +419,10 @@ def build_preview(db: Session, project_type: str, *, project_id: Optional[UUID] 
         values = {**_project_source(project_type, project), **values}
     if project_type == "interpretation":
         values = _normalize_interpretation_mail_values(db, values)
+    elif project_type == "annotation":
+        values = _normalize_annotation_mail_values(db, values)
+    elif project_type == "recruitment":
+        values = _normalize_recruitment_mail_values(db, values)
     blocking: list[str] = []
     try:
         to_users, cc_users = policy_recipients(db, project_type)

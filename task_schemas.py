@@ -90,6 +90,12 @@ class WorkItemResponse(BaseModel):
     customer_deadline_time: Optional[datetime] = None
     language_pair: Optional[str] = None
     entity_type: Optional[str] = None
+    transfer_mode: Optional[Literal["permanent", "delegation"]] = None
+    delegation_id: Optional[UUID] = None
+    original_assignee_id: Optional[UUID] = None
+    original_assignee_name: Optional[str] = None
+    delegation_end_at: Optional[datetime] = None
+    delegation_overdue: bool = False
 
 
 class TaskStatusChange(BaseModel):
@@ -180,7 +186,7 @@ class RecurrenceResponse(BaseModel):
 
 
 class DailyReportItemInput(BaseModel):
-    source_type: Literal["project", "non_project", "manual"]
+    source_type: Literal["project", "non_project", "manual", "system_event"]
     source_id: Optional[UUID] = None
     task_type: str = Field(min_length=1, max_length=50)
     task_name: str = Field(min_length=1, max_length=255)

@@ -36,3 +36,25 @@ export const notifyEmailSubjectGenerated = (form, ElMessage) => {
   }
   return true
 }
+
+export const extractSubjectPrefix = (preview, form = {}) => {
+  const previewText = String(preview || '').trim()
+  const existing = String(form.subjectPrefix || '').trim()
+  if (existing) return existing
+  if (!previewText) return ''
+  const known = [
+    form.orderNo,
+    form.clientShortName,
+    form.managerContact,
+    form.customerOrderNo,
+    form.projectName,
+  ].map((value) => String(value || '').trim()).filter(Boolean)
+  const parts = previewText.split('，').map((item) => item.trim()).filter(Boolean)
+  if (!parts.length) return ''
+  const orderNo = String(form.orderNo || '').trim()
+  if (orderNo && parts[0] === orderNo) return ''
+  if (orderNo && parts.length >= 2 && parts[1] === orderNo) return parts[0]
+  if (known.includes(parts[0])) return ''
+  return parts[0]
+}
+

@@ -1,10 +1,10 @@
 <template>
   <div>
-    <el-tabs v-model="sourceFilter" class="source-tabs">
-      <el-tab-pane :label="`全部（${items.length}）`" name="all" />
-      <el-tab-pane :label="`项目任务（${projectItems.length}）`" name="project" />
-      <el-tab-pane :label="`非项目任务（${nonProjectItems.length}）`" name="non_project" />
-    </el-tabs>
+    <el-radio-group v-model="sourceFilter" size="small" class="source-filter">
+      <el-radio-button value="all">全部（{{ items.length }}）</el-radio-button>
+      <el-radio-button value="project">项目任务（{{ projectItems.length }}）</el-radio-button>
+      <el-radio-button value="non_project">非项目任务（{{ nonProjectItems.length }}）</el-radio-button>
+    </el-radio-group>
 
     <section v-if="sourceFilter !== 'non_project'">
       <div v-if="sourceFilter === 'all'" class="subsection-title">项目任务</div>
@@ -56,13 +56,9 @@
         <el-table-column label="安排时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.assigned_at) }}</template>
         </el-table-column>
-        <el-table-column label="预定完成时间" width="165">
+        <el-table-column label="预定完成时间" width="168">
           <template #default="{ row }">
-            <div class="deadline-cell">
-              <span>{{ formatDateTime(row.planned_completion_at) }}</span>
-              <el-tag v-if="deadlineState(row) === DEADLINE_STATE.OVERDUE" type="danger" size="small" effect="dark">已逾期</el-tag>
-              <el-tag v-else-if="deadlineState(row) === DEADLINE_STATE.URGENT" type="warning" size="small" effect="dark">24小时内</el-tag>
-            </div>
+            <DeadlineHintCell :deadline="row.planned_completion_at" :status="row.status" mode="task" />
           </template>
         </el-table-column>
         <el-table-column label="实际完成时间" width="165">
@@ -227,6 +223,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import MyTasksPanel from './MyTasksPanel.vue'
 import { getUsers } from '@/api/users'
 import {
@@ -543,9 +540,7 @@ function formatDateTime(value) {
 </script>
 
 <style scoped>
-.source-tabs { margin-bottom: 8px; }
-.source-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
-.source-tabs :deep(.el-tabs__item) { height: 34px; padding: 0 14px; }
+.source-filter { margin-bottom: 8px; }
 .subsection-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
 .non-project-section { margin-top: 4px; }
 .non-project-toolbar {
@@ -558,7 +553,6 @@ function formatDateTime(value) {
 .toolbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .compact-empty { padding: 12px 0 8px; }
 .compact-empty :deep(.el-empty__description) { margin-top: 6px; }
-.deadline-cell { display: grid; justify-items: start; gap: 4px; font-size: 12px; }
 .non-project-table :deep(.overdue-row),
 .non-project-table :deep(.overdue-row td) { background-color: var(--el-color-danger-light-9) !important; }
 .non-project-table :deep(.overdue-row:hover),

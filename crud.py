@@ -1,6 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime, time, timedelta
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import Integer, String, and_, case, cast, func, or_
 
@@ -27,6 +28,7 @@ from passlib.context import CryptContext
 import hashlib
 from utils import generate_order_no
 from department_utils import department_filter_values
+from concurrency import VERSION_FIELD, assert_fresh
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -447,8 +449,16 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     db_client = get_client(db, client_id)
     if not db_client:
         return None
-    for field, value in client_update.model_dump(exclude_unset=True).items():
+    update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD})
+    assert_fresh(db_client, client_update.expected_updated_at)
+    if "client_code" in update_data:
+        next_code = (update_data["client_code"] or "").strip()
+        if not next_code:
+            raise ValueError("客户编号不能为空")
+        update_data["client_code"] = next_code
+    for field, value in update_data.items():
         setattr(db_client, field, value)
+    db_client.updated_at = datetime.now()
     db.commit()
     db.refresh(db_client)
     return db_client
@@ -575,8 +585,16 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     db_sub = get_sub_client(db, sub_id)
     if not db_sub:
         return None
-    for field, value in sub_update.model_dump(exclude_unset=True).items():
+    update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD})
+    assert_fresh(db_sub, sub_update.expected_updated_at)
+    if "sub_client_code" in update_data:
+        next_code = (update_data["sub_client_code"] or "").strip()
+        if not next_code:
+            raise ValueError("子客户编号不能为空")
+        update_data["sub_client_code"] = next_code
+    for field, value in update_data.items():
         setattr(db_sub, field, value)
+    db_sub.updated_at = datetime.now()
     db.commit()
     db.refresh(db_sub)
     return db_sub
@@ -1655,8 +1673,9 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     role_assignments = project_update.role_assignments if role_assignments_provided else None
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'},
+        exclude={'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments', VERSION_FIELD},
     )
+    assert_fresh(db_project, project_update.expected_updated_at)
     if 'translator_id' in update_data:
         _validate_written_translator(db, update_data.get('translator_id'))
     if role_assignments_provided:
@@ -1708,6 +1727,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         setattr(db_project, field, value)
     if role_assignments_provided:
         _sync_project_role_assignments(db, db_project, role_assignments)
+    db_project.updated_at = datetime.now()
     
     db.commit()
     db.refresh(db_project)
@@ -1720,6 +1740,8 @@ def delete_translation_project(db: Session, project_id: UUID) -> bool:
     db_project = get_translation_project(db, project_id)
     if not db_project:
         return False
+    from project_workbench_service import cancel_pending_project_handovers
+    cancel_pending_project_handovers(db, 'translation', project_id)
     db.delete(db_project)
     db.commit()
     return True
@@ -2212,6 +2234,26 @@ def generate_consultation_code(db: Session) -> str:
     return f"{prefix}{new_seq:03d}"
 
 
+def _attach_consultation_client_fields(
+    consultation: Consultation,
+    client_code,
+    client_name,
+    client_short_name,
+    manager_contact,
+    sub_client: Optional[SubClient] = None,
+) -> Consultation:
+    consultation.client_code = client_code
+    consultation.client_name = client_name
+    consultation.client_short_name = client_short_name
+    consultation.manager_contact = manager_contact
+    consultation.sub_client_code = sub_client.sub_client_code if sub_client else None
+    consultation.sub_client_name = sub_client.client_name if sub_client else None
+    consultation.sub_client_short_name = sub_client.client_short_name if sub_client else None
+    if sub_client and sub_client.manager_contact:
+        consultation.manager_contact = sub_client.manager_contact
+    return consultation
+
+
 def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultation]:
     result = db.query(
         Consultation,
@@ -2219,15 +2261,16 @@ def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultatio
         Client.client_name,
         Client.client_short_name,
         Client.manager_contact,
-    ).outerjoin(Client, Consultation.client_id == Client.id).filter(Consultation.id == consultation_id).first()
+        SubClient,
+    ).outerjoin(Client, Consultation.client_id == Client.id).outerjoin(
+        SubClient, Consultation.sub_client_id == SubClient.id
+    ).filter(Consultation.id == consultation_id).first()
     if not result:
         return None
-    consultation, client_code, client_name, client_short_name, manager_contact = result
-    consultation.client_code = client_code
-    consultation.client_name = client_name
-    consultation.client_short_name = client_short_name
-    consultation.manager_contact = manager_contact
-    return consultation
+    consultation, client_code, client_name, client_short_name, manager_contact, sub_client = result
+    return _attach_consultation_client_fields(
+        consultation, client_code, client_name, client_short_name, manager_contact, sub_client,
+    )
 
 
 CONSULTATION_TYPE_FILTER_ALIASES = {
@@ -2268,6 +2311,8 @@ def _apply_consultation_filters(
             query = query.filter(or_(
                 Client.client_name.ilike(keyword_pattern),
                 Client.client_short_name.ilike(keyword_pattern),
+                SubClient.client_name.ilike(keyword_pattern),
+                SubClient.client_short_name.ilike(keyword_pattern),
             ))
     if status:
         query = query.filter(Consultation.status == status)
@@ -2320,7 +2365,10 @@ def get_consultations(
         Client.client_name,
         Client.client_short_name,
         Client.manager_contact,
-    ).outerjoin(Client, Consultation.client_id == Client.id)
+        SubClient,
+    ).outerjoin(Client, Consultation.client_id == Client.id).outerjoin(
+        SubClient, Consultation.sub_client_id == SubClient.id
+    )
     query = _apply_consultation_filters(
         query,
         consultation_code=consultation_code,
@@ -2340,12 +2388,10 @@ def get_consultations(
     results = query.order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
     
     consultations = []
-    for consultation, client_code, db_client_name, client_short_name, manager_contact in results:
-        consultation.client_code = client_code
-        consultation.client_name = db_client_name
-        consultation.client_short_name = client_short_name
-        consultation.manager_contact = manager_contact
-        consultations.append(consultation)
+    for consultation, client_code, db_client_name, client_short_name, manager_contact, sub_client in results:
+        consultations.append(_attach_consultation_client_fields(
+            consultation, client_code, db_client_name, client_short_name, manager_contact, sub_client,
+        ))
     return consultations
 
 
@@ -2364,7 +2410,9 @@ def count_consultations(
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
 ) -> int:
-    query = db.query(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id)
+    query = db.query(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id).outerjoin(
+        SubClient, Consultation.sub_client_id == SubClient.id
+    )
     query = _apply_consultation_filters(
         query,
         consultation_code=consultation_code,
@@ -2437,8 +2485,9 @@ def update_consultation(
         return None
     update_data = consultation_update.model_dump(
         exclude_unset=True,
-        exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact'},
+        exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact', VERSION_FIELD},
     )
+    assert_fresh(db_consultation, consultation_update.expected_updated_at)
     has_client_input = bool(
         (consultation_update.client_short_name or '').strip()
         or (consultation_update.client_code or '').strip()
@@ -2476,6 +2525,19 @@ def delete_consultation(db: Session, consultation_id: UUID) -> bool:
     db_consultation = get_consultation(db, consultation_id)
     if not db_consultation:
         return False
+    if (db_consultation.status or "").strip() == "success":
+        raise ValueError("已确认的咨询不能删除，请保留与项目、邮件的审计链路")
+    from annotation_models import AnnotationProject
+    from interpretation_models import InterpretationProject
+    from recruitment_models import RecruitmentProject
+    linked = (
+        db.query(TranslationProject.id).filter(TranslationProject.consultation_id == consultation_id).first()
+        or db.query(InterpretationProject.id).filter(InterpretationProject.consultation_id == consultation_id).first()
+        or db.query(AnnotationProject.id).filter(AnnotationProject.consultation_id == consultation_id).first()
+        or db.query(RecruitmentProject.id).filter(RecruitmentProject.consultation_id == consultation_id).first()
+    )
+    if linked:
+        raise ValueError("该咨询已生成项目，不能删除")
     db.delete(db_consultation)
     db.commit()
     return True
@@ -2563,6 +2625,11 @@ def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> Trans
         updated_by=sub_order.created_by,
     )
     _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
+
+    from workflow_crud import init_workflow
+
+    # 子订单与母订单一致：初始工作流必须同事务落库，否则子订单不会出现在工作台。
+    init_workflow(db, sub_order_id=db_sub.id, commit=False)
     db.commit()
     return get_sub_order(db, db_sub.id)
 
@@ -2576,6 +2643,7 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
         _validate_written_translator(db, update_data.get('translator_id'))
     for field, value in update_data.items():
         setattr(db_sub, field, value)
+    db_sub.updated_at = datetime.now()
     db.commit()
     return get_sub_order(db, db_sub.id)
 

@@ -19,6 +19,7 @@ from workflow_models import (
     WorkflowHandoverRequest,
     WorkflowInstance,
     WorkflowLog,
+    WorkflowTaskDelegation,
 )
 from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave, ProjectRoleAssignment
 from leave_service import ensure_user_assignable
@@ -206,6 +207,15 @@ def _get_manuscript_responsibility_tasks(
         })
     return tasks
 
+def _workflow_task_assignment_type(instance: WorkflowInstance, user_id: UUID) -> str:
+    """根据实际负责人区分本人任务、角色池任务和他人任务。"""
+    if instance.current_assignee_id == user_id:
+        return 'direct'
+    if instance.current_assignee_id is None:
+        return 'role_pool'
+    return 'overview'
+
+
 def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> list:
     """查询未完成的工作流实例；超级管理员可按需查看全部执行任务。"""
     roles = set(get_user_roles_with_role_names(db, user_id))
@@ -213,16 +223,25 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
     is_customer_specialist = '客户专员' in roles
     group_filters = [WorkflowInstance.group_assign_role == role for role in roles] if roles else []
 
+    from workflow_delegation_service import delegated_source_ids
+    delegated_workflow_ids, _ = delegated_source_ids(db, user_id)
+
     if can_view_all:
         scope_conditions = []
     else:
         if is_customer_specialist:
             base_conditions = [
                 WorkflowInstance.current_assignee_id == user_id,
-                (WorkflowInstance.current_stage_key == 'reception') & (WorkflowInstance.difficulty == None),
+                and_(
+                    WorkflowInstance.current_assignee_id.is_(None),
+                    WorkflowInstance.current_stage_key == 'reception',
+                    WorkflowInstance.difficulty == None,
+                ),
             ]
         else:
             base_conditions = [WorkflowInstance.current_assignee_id == user_id]
+        if delegated_workflow_ids:
+            base_conditions.append(WorkflowInstance.id.in_(delegated_workflow_ids))
         filter_cond = or_(*base_conditions, *group_filters) if group_filters else or_(*base_conditions)
         scope_conditions = [filter_cond]
 
@@ -266,13 +285,9 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
                 if wf.current_assignee else None
             ),
             'group_assign_role': wf.group_assign_role,
-            'assignment_type': (
-                'direct' if wf.current_assignee_id == user_id
-                else 'overview' if can_view_all
-                else 'role_pool'
-            ),
+            'assignment_type': _workflow_task_assignment_type(wf, user_id),
             'difficulty': wf.difficulty,
-            'project_status': wf.project_status,
+            'project_status': proj.project_status,
             'customer_deadline_time': proj.customer_deadline_time,
             'language_pair': proj.language_pair,
             'entity_type': 'project',
@@ -301,13 +316,9 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
                 if wf.current_assignee else None
             ),
             'group_assign_role': wf.group_assign_role,
-            'assignment_type': (
-                'direct' if wf.current_assignee_id == user_id
-                else 'overview' if can_view_all
-                else 'role_pool'
-            ),
+            'assignment_type': _workflow_task_assignment_type(wf, user_id),
             'difficulty': wf.difficulty,
-            'project_status': wf.project_status,
+            'project_status': proj.project_status,
             'customer_deadline_time': sub.customer_deadline_time,
             'language_pair': sub.language_pair,
             'entity_type': 'suborder',
@@ -337,7 +348,8 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
         include_all=can_view_all,
     ))
 
-    return tasks
+    from workflow_delegation_service import enrich_work_items_with_delegation
+    return enrich_work_items_with_delegation(db, tasks, user_id, include_all=can_view_all)
 
 
 # ========== 初始化 ==========
@@ -583,11 +595,20 @@ def create_handover_request_unified(
     content: str = '',
     content_json: Optional[dict] = None,
     attachment_ids: Optional[list[UUID]] = None,
+    transfer_mode: str = 'permanent',
+    delegation_end_at: Optional[datetime.datetime] = None,
 ) -> WorkflowHandoverRequest:
+    if transfer_mode not in {'permanent', 'delegation'}:
+        raise ValueError('不支持的交接模式')
+    if transfer_mode == 'delegation' and (
+        delegation_end_at is None or delegation_end_at <= datetime.datetime.now()
+    ):
+        raise ValueError('临时代办计划结束时间必须晚于当前时间')
     if not project_responsibility_ids:
         return create_handover_request(
             db, requester, workflow_instance_ids, target_user_id, handover_type,
             reason_detail, content, content_json, attachment_ids,
+            transfer_mode, delegation_end_at,
         )
     if handover_type == 'other' and not (reason_detail or '').strip():
         raise ValueError('选择“其他”时必须填写交接原因')
@@ -601,6 +622,12 @@ def create_handover_request_unified(
     role_code = ensure_same_responsibility_role(rows)
     if any(row.assignee_id != requester.id for row in rows):
         raise PermissionError('只能交接当前用户直接负责的未完成任务')
+    active_delegation = db.query(WorkflowTaskDelegation.id).filter(
+        WorkflowTaskDelegation.project_responsibility_id.in_([row.id for row in rows]),
+        WorkflowTaskDelegation.status == 'active',
+    ).first()
+    if active_delegation:
+        raise LookupError('部分任务正在临时代办中，请先归还后再发起新的交接')
     if any(not row.project or not is_active_project(row.project_type, row.project.project_status) for row in rows):
         raise LookupError('部分项目已不在工作台活跃范围')
     instances = []
@@ -654,6 +681,8 @@ def create_handover_request_unified(
         requester_id=requester.id,
         target_user_id=target.id,
         handover_type=handover_type,
+        transfer_mode=transfer_mode,
+        delegation_end_at=delegation_end_at,
         reason_detail=(reason_detail or '').strip() or None,
         content=normalized_content[:10000],
         content_json=normalized_json,
@@ -702,7 +731,15 @@ def create_handover_request(
     content: str = '',
     content_json: Optional[dict] = None,
     attachment_ids: Optional[list[UUID]] = None,
+    transfer_mode: str = 'permanent',
+    delegation_end_at: Optional[datetime.datetime] = None,
 ) -> WorkflowHandoverRequest:
+    if transfer_mode not in {'permanent', 'delegation'}:
+        raise ValueError('不支持的交接模式')
+    if transfer_mode == 'delegation' and (
+        delegation_end_at is None or delegation_end_at <= datetime.datetime.now()
+    ):
+        raise ValueError('临时代办计划结束时间必须晚于当前时间')
     if handover_type == 'other' and not (reason_detail or '').strip():
         raise ValueError('选择“其他”时必须填写交接原因')
     unique_ids = list(dict.fromkeys(workflow_instance_ids))
@@ -720,6 +757,12 @@ def create_handover_request(
         for instance in instances
     ):
         raise PermissionError('只能交接当前用户直接负责的未完成任务')
+    active_delegation = db.query(WorkflowTaskDelegation.id).filter(
+        WorkflowTaskDelegation.workflow_instance_id.in_(unique_ids),
+        WorkflowTaskDelegation.status == 'active',
+    ).first()
+    if active_delegation:
+        raise LookupError('部分任务正在临时代办中，请先归还后再发起新的交接')
     if target_user_id == requester.id:
         raise ValueError('请选择其他接收人')
 
@@ -767,6 +810,8 @@ def create_handover_request(
         requester_id=requester.id,
         target_user_id=target.id,
         handover_type=handover_type,
+        transfer_mode=transfer_mode,
+        delegation_end_at=delegation_end_at,
         reason_detail=(reason_detail or '').strip() or None,
         content=normalized_content[:10000],
         content_json=normalized_content_json,
@@ -870,6 +915,8 @@ def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
         'target_user_id': request.target_user_id,
         'target_user_name': target_name,
         'handover_type': request.handover_type,
+        'transfer_mode': request.transfer_mode or 'permanent',
+        'delegation_end_at': request.delegation_end_at,
         'reason_detail': request.reason_detail,
         'content': request.content,
         'content_json': request.content_json,
@@ -1993,6 +2040,8 @@ def decide_handover_request(
                 commit=False,
             )
             notifications.extend(result.pop('_notifications', []))
+        from workflow_delegation_service import register_accepted_handover
+        register_accepted_handover(db, request)
         request.status = 'accepted'
     else:
         request.status = 'rejected'

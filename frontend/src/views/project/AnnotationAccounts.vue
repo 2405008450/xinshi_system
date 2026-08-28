@@ -13,10 +13,10 @@
           </div>
         </div>
         <div class="actions header-actions">
-          <CustomFieldManager v-if="!projectDeleteMode" table-code="account_assignment" :project-id="projectId" button-label="动态字段" scope-hint="字段仅作用于当前项目；固定列不可删除，自定义列停用后历史数据仍会保留。" auto-field-key :disabled="sheetLocked || !projectId" @changed="handleProjectFieldsChanged" />
-          <el-button v-if="!projectDeleteMode" :disabled="sheetLocked||!effectiveClientId||!projectId||!platforms.length" @click="importVisible=true">导入</el-button>
-          <BatchDeleteToolbar v-if="!sheetLocked" :active="projectDeleteMode" :selected-count="projectSelectedRows.length" :loading="projectDeleting" @enter="enterProjectDeleteMode" @exit="exitProjectDeleteMode" @confirm="confirmProjectBatchDelete" />
-          <el-button v-if="!projectDeleteMode" type="primary" :disabled="saving||!effectiveClientId||!platforms.length" @click="addProjectSheetRow">新增账号</el-button>
+          <CustomFieldManager v-if="canWrite && !projectDeleteMode" table-code="account_assignment" :project-id="projectId" button-label="动态字段" scope-hint="字段仅作用于当前项目；固定列不可删除，自定义列停用后历史数据仍会保留。" auto-field-key :disabled="sheetLocked || !projectId" @changed="handleProjectFieldsChanged" />
+          <el-button v-if="canWrite && !projectDeleteMode" :disabled="sheetLocked||!effectiveClientId||!projectId||!platforms.length" @click="importVisible=true">导入</el-button>
+          <BatchDeleteToolbar v-if="canWrite && !sheetLocked" :active="projectDeleteMode" :selected-count="projectSelectedRows.length" :loading="projectDeleting" @enter="enterProjectDeleteMode" @exit="exitProjectDeleteMode" @confirm="confirmProjectBatchDelete" />
+          <el-button v-if="canWrite && !projectDeleteMode" type="primary" :disabled="saving||!effectiveClientId||!platforms.length" @click="addProjectSheetRow">新增账号</el-button>
         </div>
       </div>
       <div v-else class="header card-header">
@@ -24,7 +24,7 @@
         <div class="actions header-actions">
           <el-radio-group v-model="viewMode" size="small" :disabled="sheetLocked" @change="viewModeChanged"><el-radio-button value="assets">账号预览</el-radio-button><el-radio-button value="project" :disabled="!projectId">项目账号表</el-radio-button></el-radio-group>
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" @reset="resetColumns" />
-          <el-popover v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
+          <el-popover v-if="canWrite" v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
             <template #reference><el-button :disabled="!effectiveClientId">平台管理</el-button></template>
             <div class="platform-manager">
               <div class="panel-title"><strong>客户平台</strong><el-button link type="primary" @click="openPlatform()">新增平台</el-button></div>
@@ -35,7 +35,7 @@
               </div>
             </div>
           </el-popover>
-          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
         </div>
       </div>
     </template>
@@ -149,7 +149,7 @@
           </el-descriptions><h4>分配履历</h4><el-table :data="assignmentCache[row.id] || []" size="small" max-height="260" v-loading="assignmentLoading===row.id"><el-table-column prop="personName" label="标注员" /><el-table-column prop="projectName" label="项目" /><el-table-column prop="assignedOn" label="分配日期" width="110" /><el-table-column prop="releasedOn" label="释放日期" width="110"><template #default="scope">{{ scope.row.releasedOn || '使用中' }}</template></el-table-column></el-table></div>
         </el-popover>
       </template></el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="110" fixed="right"><template #default="{row}"><el-button link type="primary" @click="openAccount(row)">{{ viewMode==='project' ? '编辑项目记录' : '编辑' }}</el-button></template></el-table-column>
+      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="110" fixed="right"><template #default="{row}"><el-button link type="primary" @click="openAccount(row)">{{ viewMode==='project' ? '编辑项目记录' : '编辑' }}</el-button></template></el-table-column>
     </el-table>
     <div v-if="viewMode==='assets'" class="pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="reload" @size-change="pageSizeChanged" /></div>
   </el-card>
@@ -220,10 +220,12 @@ import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { hasPermission } from '@/utils/permission'
 
 const emit=defineEmits(['focus-mode-change'])
 const ProjectAccountSpreadsheet=defineAsyncComponent(()=>import('@/components/annotation/ProjectAccountSpreadsheet.vue'))
 const PROJECT_SHEET_MAX_ROWS=500
+const canWrite=hasPermission('annotation_accounts:write')
 
 const clients=ref([]),projects=ref([]),platforms=ref([]),rows=ref([]),talents=ref([]),users=ref([]),projectCustomFields=ref([]),projectSpreadsheetRef=ref(null)
 const route=useRoute()

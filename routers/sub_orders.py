@@ -1,6 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -41,7 +41,7 @@ def create_sub_order_endpoint(
 @router.get("/", response_model=List[TranslationSubOrderResponse])
 def read_all_sub_orders(
     skip: int = 0,
-    limit: int = 200,
+    limit: int = Query(200, ge=1, le=500),
     sub_order_no: Optional[str] = None,
     project_name: Optional[str] = None,
     db: Session = Depends(get_db)

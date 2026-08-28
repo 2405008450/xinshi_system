@@ -997,8 +997,7 @@ const fetchData = async () => {
     pagination.total = countRes?.total || 0
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || requestId !== translatorsRequestId) return
-    tableData.value = []
-    pagination.total = 0
+    ElMessage.error(error?.detail || '网络异常，译员列表未刷新，请检查网络后重试')
   } finally {
     if (requestId === translatorsRequestId) loading.value = false
   }

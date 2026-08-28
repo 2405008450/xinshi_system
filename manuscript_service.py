@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from crud import get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
+from concurrency import assert_fresh
 from mail_service import send_plain_text_email
 from manuscript_models import (
     ManuscriptArrangement,
@@ -1189,6 +1190,7 @@ def update_dispatch(
         return None
     if dispatch.status != "draft":
         raise ValueError("只有草稿批次可以整体编辑")
+    assert_fresh(dispatch, payload.expected_updated_at)
 
     existing_project, existing_sub_order = _load_entity(
         db,

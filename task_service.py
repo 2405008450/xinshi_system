@@ -23,6 +23,7 @@ from task_models import (
     NonProjectTaskEvent,
     NonProjectTaskRecurrence,
     WorkEntry,
+    TaskActivityEvent,
 )
 from task_schemas import (
     DailyReportItemInput,
@@ -443,6 +444,9 @@ def generate_recurrence_instances(
 
 
 def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
+    from workflow_delegation_service import close_completed_delegations, notify_overdue_delegations
+    close_completed_delegations(db)
+    notify_overdue_delegations(db)
     is_super_admin = ALL_PERMISSION in get_user_permission_codes(db, current_user.id)
     generate_recurrence_instances(
         db,
@@ -452,6 +456,12 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
     items: list[dict] = []
     for task in get_my_tasks(db, current_user.id, include_all=is_super_admin):
         project_source_id = task.get("workflow_instance_id") or task.get("project_responsibility_id")
+        assignment_type = task.get("assignment_type")
+        available_actions = ["enter_project"]
+        if assignment_type == "direct":
+            available_actions.extend(["work_entry", "handover"])
+        if task.get("delegation_id") and assignment_type in {"direct", "delegated_out"}:
+            available_actions.append("return_delegation")
         items.append(
             {
                 "source_type": "project",
@@ -464,7 +474,7 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
                 "actual_completion_at": None,
                 "status": task["project_status"] or "pending",
                 "remark": None,
-                "available_actions": ["enter_project", "work_entry", "handover"],
+                "available_actions": available_actions,
                 **task,
             }
         )
@@ -667,6 +677,9 @@ def derive_daily_report_items(
         .all()
     )
     for log in logs:
+        if log.direction == "handover":
+            # 交接由双方独立的系统活动事件进入日报，避免原负责人重复出现两行。
+            continue
         task_type, task_name, metadata = _project_identity(
             db, log.workflow_instance_id
         )
@@ -690,6 +703,15 @@ def derive_daily_report_items(
                 "display_metadata": metadata,
             }
         )
+
+    events = db.query(TaskActivityEvent).filter(
+        TaskActivityEvent.user_id == user_id,
+        TaskActivityEvent.occurred_at >= start,
+        TaskActivityEvent.occurred_at < end,
+    ).order_by(TaskActivityEvent.occurred_at, TaskActivityEvent.id).all()
+    if events:
+        from task_activity_service import activity_to_report_item
+        items.extend(activity_to_report_item(event) for event in events)
     return items
 
 
@@ -793,11 +815,13 @@ def save_daily_report(
         db.add(report)
         db.flush()
     report.supplemental_note = payload.supplemental_note
-    raw_items = (
-        [item.model_dump() for item in payload.items]
-        if payload.items is not None
-        else derive_daily_report_items(db, user.id, report_date)
-    )
+    if payload.items is not None:
+        raw_items = merge_daily_report_items(
+            [item.model_dump() for item in payload.items],
+            derive_daily_report_items(db, user.id, report_date),
+        )
+    else:
+        raw_items = derive_daily_report_items(db, user.id, report_date)
     report.items.clear()
     db.flush()
     for index, item in enumerate(raw_items):
@@ -813,6 +837,43 @@ def save_daily_report(
         .filter(DailyReport.id == report.id)
         .first()
     )
+
+
+def merge_daily_report_items(client_items: list[dict], derived_items: list[dict]) -> list[dict]:
+    """保留用户内容，但用数据库派生事件替换全部客户端系统事件。"""
+    result = [item for item in client_items if item.get("source_type") != "system_event"]
+    result.extend(
+        {**item, "duration_minutes": 0}
+        for item in derived_items
+        if item.get("source_type") == "system_event"
+    )
+    return result
+
+
+def withdraw_daily_report(
+    db: Session, user: AppUser, report_date: datetime.date
+) -> DailyReport:
+    from daily_report_mail_models import DailyReportMailDelivery
+
+    report = db.query(DailyReport).filter(
+        DailyReport.user_id == user.id,
+        DailyReport.report_date == report_date,
+    ).with_for_update().first()
+    if not report:
+        raise LookupError("日报不存在")
+    if report.status != "finalized":
+        raise ValueError("只有已确认日报可以撤回")
+    sent = db.query(DailyReportMailDelivery.id).filter(
+        DailyReportMailDelivery.report_id == report.id,
+        DailyReportMailDelivery.status == "sent",
+    ).first()
+    if sent:
+        raise ValueError("日报邮件已经发送，不能撤回或修改")
+    report.status = "draft"
+    report.finalized_at = None
+    report.updated_at = business_now()
+    db.commit()
+    return report
 
 
 def report_to_xlsx(report: DailyReport) -> bytes:
@@ -867,6 +928,20 @@ def report_to_xlsx(report: DailyReport) -> bytes:
                 horizontal="right" if col == 5 else "left",
             )
         sheet.cell(row=row_index, column=5).number_format = "0"
+
+    total_minutes = sum(max(0, int(item.duration_minutes or 0)) for item in report.items)
+    total_hours = f"{total_minutes / 60:.2f}".rstrip("0").rstrip(".")
+    summary_row = 5 + len(report.items)
+    sheet.merge_cells(start_row=summary_row, start_column=1, end_row=summary_row, end_column=4)
+    sheet.cell(row=summary_row, column=1, value="当日工作耗时合计")
+    sheet.cell(row=summary_row, column=5, value=f"{total_hours} 小时（{total_minutes} 分钟）")
+    sheet.merge_cells(start_row=summary_row, start_column=6, end_row=summary_row, end_column=7)
+    for col in range(1, 8):
+        cell = sheet.cell(row=summary_row, column=col)
+        cell.font = Font(name="微软雅黑", size=10, bold=True, color="166534")
+        cell.fill = PatternFill("solid", fgColor="ECFDF5")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sheet.row_dimensions[summary_row].height = 28
 
     widths = [14, 28, 38, 32, 14, 22, 14]
     for index, width in enumerate(widths, 1):

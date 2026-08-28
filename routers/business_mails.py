@@ -11,6 +11,8 @@ from business_mail_schemas import (
     BusinessMailSendRequest, MailRecipientGroupResponse, MailRecipientGroupWrite,
     ProjectMailPolicyResponse, ProjectMailPolicyWrite, ProjectMailStatusResponse,
 )
+from daily_report_mail_schemas import DailyReportMailPolicyResponse, DailyReportMailPolicyWrite
+from daily_report_mail_service import list_daily_report_policies, save_daily_report_policy
 from business_mail_service import (
     build_preview, create_and_send, delete_group, list_groups, list_mails,
     retry_mail, save_group, save_policy, serialize_group, serialize_mail,
@@ -85,6 +87,24 @@ def read_policy(project_type: str, db: Session = Depends(get_db)):
 def update_policy(project_type: str, payload: ProjectMailPolicyWrite, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
         return serialize_policy(save_policy(db, project_type, payload, current_user.id), project_type)
+    except Exception as exc:
+        db.rollback(); _raise(exc)
+
+
+@settings_router.get("/daily-report-policies", response_model=list[DailyReportMailPolicyResponse])
+def read_daily_report_policies(db: Session = Depends(get_db)):
+    return list_daily_report_policies(db)
+
+
+@settings_router.put("/daily-report-policies/{user_id}", response_model=DailyReportMailPolicyResponse)
+def update_daily_report_policy(
+    user_id: UUID,
+    payload: DailyReportMailPolicyWrite,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        return save_daily_report_policy(db, user_id, payload, current_user.id)
     except Exception as exc:
         db.rollback(); _raise(exc)
 

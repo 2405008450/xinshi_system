@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
+from concurrency import VERSION_FIELD, assert_fresh
+
 import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作流关系
 from interpretation_models import (
     InterpretationLanguage,
@@ -384,7 +386,8 @@ def update_interpretation_project(
     project = get_interpretation_project(db, project_id)
     if not project:
         return None
-    data = payload.model_dump(exclude=NESTED_FIELDS)
+    assert_fresh(project, payload.expected_updated_at)
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)

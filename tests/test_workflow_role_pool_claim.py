@@ -67,6 +67,20 @@ class MultiModelQuery(FakeQuery):
         return self
 
 
+def test_workflow_task_assignment_type_uses_actual_assignee():
+    user_id = uuid4()
+
+    assert workflow_crud._workflow_task_assignment_type(
+        SimpleNamespace(current_assignee_id=user_id), user_id
+    ) == 'direct'
+    assert workflow_crud._workflow_task_assignment_type(
+        SimpleNamespace(current_assignee_id=None), user_id
+    ) == 'role_pool'
+    assert workflow_crud._workflow_task_assignment_type(
+        SimpleNamespace(current_assignee_id=uuid4()), user_id
+    ) == 'overview'
+
+
 def test_customer_specialist_can_claim_matching_role_pool_task(monkeypatch):
     user = SimpleNamespace(id=uuid4(), full_name='测试专员', username='specialist')
     instance = SimpleNamespace(

@@ -5,7 +5,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from schemas import ProjectRoleAssignmentResponse
 
@@ -143,6 +143,12 @@ class MyTaskItem(BaseModel):
     language_pair: Optional[str] = None
     entity_type: Optional[str] = 'project'   # 'project' | 'suborder'
     role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
+    transfer_mode: Optional[Literal['permanent', 'delegation']] = None
+    delegation_id: Optional[UUID] = None
+    original_assignee_id: Optional[UUID] = None
+    original_assignee_name: Optional[str] = None
+    delegation_end_at: Optional[datetime] = None
+    delegation_overdue: bool = False
 
     class Config:
         from_attributes = True
@@ -230,6 +236,16 @@ class WorkflowHandoverRequest(WorkflowTransferContent):
     target_user_id: UUID
     handover_type: Literal['daily_shift', 'weekend_holiday', 'leave_time_off', 'other']
     reason_detail: Optional[str] = Field(default=None, max_length=500)
+    transfer_mode: Literal['permanent', 'delegation'] = 'permanent'
+    delegation_end_at: Optional[datetime] = None
+
+    @model_validator(mode='after')
+    def validate_transfer_mode(self):
+        if self.transfer_mode == 'delegation' and self.delegation_end_at is None:
+            raise ValueError('临时代办必须填写计划结束时间')
+        if self.transfer_mode == 'permanent':
+            self.delegation_end_at = None
+        return self
 
 
 class WorkflowClaimRequest(WorkflowTransferContent):
@@ -279,6 +295,8 @@ class WorkflowHandoverRequestResponse(BaseModel):
     target_user_id: UUID
     target_user_name: Optional[str] = None
     handover_type: str
+    transfer_mode: Literal['permanent', 'delegation'] = 'permanent'
+    delegation_end_at: Optional[datetime] = None
     reason_detail: Optional[str] = None
     content: str
     content_json: Optional[dict] = None
@@ -291,4 +309,9 @@ class WorkflowHandoverRequestResponse(BaseModel):
 
 
 class WorkflowHandoverDecisionRequest(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class WorkflowDelegationReturnRequest(BaseModel):
+    delegation_ids: list[UUID] = Field(min_length=1, max_length=100)
     note: Optional[str] = Field(default=None, max_length=500)

@@ -140,14 +140,14 @@ def _assignment_dict(row: AnnotationAccountAssignment) -> dict:
     }
 
 
-def _account_dict(row: AnnotationPlatformAccount) -> dict:
+def _account_dict(row: AnnotationPlatformAccount, *, reveal: bool = False) -> dict:
     assignment = _active_assignment(row)
     assignment_data = _assignment_dict(assignment) if assignment else {}
     return {
         "id": row.id, "platform_id": row.platform_id, "parent_account_id": row.parent_account_id,
         "owner_id": row.owner_id, "owner_name": (row.owner.full_name or row.owner.username) if row.owner else None,
         "nickname": row.nickname, "masked_login_account": _mask_login_account(row.login_account),
-        "login_account": row.login_account, "password": row.password,
+        "login_account": row.login_account if reveal else None, "password": row.password if reveal else None,
         "account_status": row.account_status,
         "registration_status": row.registration_status, "account_source": row.account_source,
         "expires_on": row.expires_on, "remarks": row.remarks, "sequence_no": row.sequence_no,
@@ -223,9 +223,9 @@ def _account_query(
     return query
 
 
-def list_accounts(db: Session, skip: int = 0, limit: int = 100, **filters):
+def list_accounts(db: Session, skip: int = 0, limit: int = 100, reveal: bool = False, **filters):
     rows = _account_query(db, **filters).order_by(AnnotationPlatform.sequence_no, AnnotationPlatformAccount.sequence_no).offset(skip).limit(limit).all()
-    return [_account_dict(row) for row in rows]
+    return [_account_dict(row, reveal=reveal) for row in rows]
 
 
 def count_accounts(db: Session, **filters) -> int:
@@ -768,12 +768,12 @@ def account_stats(db: Session, client_id: UUID | None = None, expiring_days: int
     } for row in rows]
 
 
-def list_person_accounts(db: Session, person_id: UUID, include_history: bool = False):
+def list_person_accounts(db: Session, person_id: UUID, include_history: bool = False, reveal: bool = False):
     if include_history:
         ids = db.query(AnnotationAccountAssignment.account_id).filter(AnnotationAccountAssignment.person_id == person_id)
         rows = _account_query(db).filter(AnnotationPlatformAccount.id.in_(ids)).all()
-        return [_account_dict(row) for row in rows]
-    return list_accounts(db, person_id=person_id, skip=0, limit=500)
+        return [_account_dict(row, reveal=reveal) for row in rows]
+    return list_accounts(db, person_id=person_id, skip=0, limit=500, reveal=reveal)
 
 
 def release_all_person_accounts(db: Session, person_id: UUID, payload):

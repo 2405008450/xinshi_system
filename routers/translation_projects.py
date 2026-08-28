@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, DatabaseError
 
@@ -98,7 +98,7 @@ def read_project_count(
 @router.get("/", response_model=List[TranslationProjectResponse])
 def read_projects(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     created_by: Optional[UUID] = None,
     project_name: Optional[str] = None,
     order_no: Optional[str] = None,
@@ -156,7 +156,14 @@ def update_project_endpoint(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project_endpoint(project_id: UUID, db: Session = Depends(get_db)):
-    success = delete_translation_project(db, project_id=project_id)
+    try:
+        success = delete_translation_project(db, project_id=project_id)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="无法删除该笔译项目：仍被资源需求等业务数据引用，请先处理关联记录",
+        )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

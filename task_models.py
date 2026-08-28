@@ -239,7 +239,7 @@ class DailyReportItem(Base):
         ForeignKeyConstraint(["report_id"], ["daily_report.id"], ondelete="CASCADE"),
         PrimaryKeyConstraint("id"),
         CheckConstraint(
-            "source_type IN ('project', 'non_project', 'manual')",
+            "source_type IN ('project', 'non_project', 'manual', 'system_event')",
             name="ck_daily_report_item_source_type",
         ),
     )
@@ -264,3 +264,44 @@ class DailyReportItem(Base):
     )
 
     report: Mapped["DailyReport"] = relationship("DailyReport", back_populates="items")
+
+
+class TaskActivityEvent(Base):
+    """供个人日报汇总的不可编辑系统活动事件。"""
+
+    __tablename__ = "task_activity_event"
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id"], ["app_user.id"], ondelete="CASCADE", name="fk_task_activity_user"),
+        ForeignKeyConstraint(["counterpart_user_id"], ["app_user.id"], ondelete="SET NULL", name="fk_task_activity_counterpart"),
+        ForeignKeyConstraint(["workflow_instance_id"], ["workflow_instance.id"], ondelete="CASCADE", name="fk_task_activity_instance"),
+        ForeignKeyConstraint(["project_responsibility_id"], ["project_workbench_responsibility.id"], ondelete="CASCADE", name="fk_task_activity_responsibility"),
+        ForeignKeyConstraint(["handover_request_id"], ["workflow_handover_request.id"], ondelete="SET NULL", name="fk_task_activity_handover"),
+        ForeignKeyConstraint(["delegation_id"], ["workflow_task_delegation.id"], ondelete="SET NULL", name="fk_task_activity_delegation"),
+        PrimaryKeyConstraint("id", name="task_activity_event_pkey"),
+        UniqueConstraint("event_key", name="uq_task_activity_event_key"),
+        CheckConstraint(
+            "(workflow_instance_id IS NOT NULL AND project_responsibility_id IS NULL) OR "
+            "(workflow_instance_id IS NULL AND project_responsibility_id IS NOT NULL)",
+            name="ck_task_activity_exactly_one_source",
+        ),
+        CheckConstraint(
+            "event_type IN ('handover_out','handover_in','return_out','return_in')",
+            name="ck_task_activity_event_type",
+        ),
+        Index("ix_task_activity_user_occurred", "user_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    event_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    counterpart_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    workflow_instance_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    handover_request_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    delegation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    task_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    task_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    display_metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    occurred_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))

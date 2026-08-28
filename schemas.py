@@ -8,6 +8,25 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 from language_catalog import normalize_language_pairs
 from department_utils import normalize_department
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
+import re
+
+_PROGRESS_PERCENT_RE = re.compile(r"^(?:100|[0-9]|[1-9][0-9])%$")
+
+
+def normalize_progress_percent(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        number = int(text)
+        if 0 <= number <= 100:
+            return f"{number}%"
+        raise ValueError("进度必须是 0% 到 100%")
+    if not _PROGRESS_PERCENT_RE.fullmatch(text):
+        raise ValueError("进度必须是 0% 到 100% 的百分比")
+    return text
 
 
 # Auth Schemas
@@ -172,6 +191,7 @@ class ClientUpdate(BaseModel):
     client_status: Optional[str] = None
     cooperation_start_date: Optional[datetime] = None
     remarks: Optional[str] = None
+    expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
     id: UUID
@@ -255,6 +275,7 @@ class SubClientCreate(SubClientBase):
     parent_client_id: UUID
 
 class SubClientUpdate(BaseModel):
+    sub_client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     english_name: Optional[str] = None
@@ -270,6 +291,7 @@ class SubClientUpdate(BaseModel):
     client_status: Optional[str] = None
     cooperation_start_date: Optional[datetime] = None
     remarks: Optional[str] = None
+    expected_updated_at: Optional[datetime] = None
 
 class SubClientResponse(SubClientBase):
     id: UUID
@@ -345,6 +367,7 @@ class ConsultationUpdate(BaseModel):
     follow_up_status: Optional[str] = None
     follow_up_remarks: Optional[str] = None
     follow_up_person_id: Optional[UUID] = None
+    expected_updated_at: Optional[datetime] = None
 
 class ConsultationResponse(ConsultationBase):
     id: UUID
@@ -358,6 +381,9 @@ class ConsultationResponse(ConsultationBase):
     recruitment_project_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    sub_client_code: Optional[str] = None
+    sub_client_name: Optional[str] = None
+    sub_client_short_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -653,6 +679,14 @@ class TranslationProjectBase(BaseModel):
     def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
         return normalize_language_pairs(value)
 
+    @field_validator(
+        'translator_delivery_progress', 'pre_review_qc_progress', 'review1_progress',
+        'review2_progress', 'post_review_qc_progress', 'layout_progress', 'consolidation_progress',
+    )
+    @classmethod
+    def validate_progress(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_progress_percent(value)
+
 class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
@@ -699,11 +733,20 @@ class TranslationProjectUpdate(BaseModel):
     network_file_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
     role_assignments: Optional[list[ProjectRoleAssignmentInput]] = None
+    expected_updated_at: Optional[datetime] = None
 
     @field_validator('language_pair')
     @classmethod
     def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
         return normalize_language_pairs(value)
+
+    @field_validator(
+        'translator_delivery_progress', 'pre_review_qc_progress', 'review1_progress',
+        'review2_progress', 'post_review_qc_progress', 'layout_progress', 'consolidation_progress',
+    )
+    @classmethod
+    def validate_progress(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_progress_percent(value)
 
 class ProjectAssignedTranslatorResponse(BaseModel):
     arrangement_id: UUID
@@ -823,6 +866,14 @@ class TranslationSubOrderCreate(BaseModel):
     def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
         return normalize_language_pairs(value)
 
+    @field_validator(
+        'translator_delivery_progress', 'pre_review_qc_progress', 'review_progress', 'review1_progress',
+        'review2_progress', 'post_review_qc_progress', 'layout_progress', 'consolidation_progress',
+    )
+    @classmethod
+    def validate_progress(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_progress_percent(value)
+
 
 class TranslationSubOrderUpdate(BaseModel):
     sub_project_name: Optional[str] = None
@@ -851,6 +902,14 @@ class TranslationSubOrderUpdate(BaseModel):
     @classmethod
     def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
         return normalize_language_pairs(value)
+
+    @field_validator(
+        'translator_delivery_progress', 'pre_review_qc_progress', 'review_progress', 'review1_progress',
+        'review2_progress', 'post_review_qc_progress', 'layout_progress', 'consolidation_progress',
+    )
+    @classmethod
+    def validate_progress(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_progress_percent(value)
 
 
 # UserRole Schemas

@@ -69,11 +69,6 @@
           <el-icon><Tickets /></el-icon>
           <template #title>稿件安排</template>
         </el-menu-item>
-        <!-- 排班管理：所有员工可查看（编辑权限在页面内控制） -->
-        <el-menu-item v-if="showSchedule" index="/work-schedule">
-          <el-icon><Calendar /></el-icon>
-          <template #title>排班管理</template>
-        </el-menu-item>
         <!-- 译员信息：所有员工可查看 -->
         <el-menu-item v-if="showResourceManagement" index="/resource-management/talents">
           <el-icon><Avatar /></el-icon>
@@ -148,7 +143,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, Calendar, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { User, UserFilled, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
@@ -203,9 +198,6 @@ const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value |
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
-/** 是否显示「排班管理」（所有员工可以查看） */
-const showSchedule = computed(() => hasPermission('schedule:read'))
-
 /** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
 const showTranslationMenu = computed(() => hasPermission('projects:read'))
 
@@ -231,6 +223,8 @@ const displayName = computed(() => {
 
 /** 当前激活的菜单项 */
 const pendingModulePaths = new Set([
+  '/work-schedule',
+  '/admin/schedule',
   '/dashboard',
   '/translation',
   '/other',

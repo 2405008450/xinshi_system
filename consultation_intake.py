@@ -52,15 +52,16 @@ SCALAR_FIELDS = {
 
 def validated_intake(project_type: str, intake: Optional[dict]) -> dict:
     data = dict(intake or {})
+    # JSONB 与邮件预览都需要可 json.dumps 的结构；mode="json" 会把 date/datetime/UUID 转成字符串。
     if project_type == "interpretation":
-        return InterpretationProjectUpdate(**data).model_dump(exclude={"interpreter_assignments"})
+        return InterpretationProjectUpdate(**data).model_dump(mode="json", exclude={"interpreter_assignments", "expected_updated_at"})
     if project_type == "annotation":
-        return AnnotationProjectUpdate(**data).model_dump(exclude={"assignees"})
+        return AnnotationProjectUpdate(**data).model_dump(mode="json", exclude={"assignees", "expected_updated_at"})
     if project_type == "recruitment":
-        return RecruitmentProjectUpdate(**data).model_dump()
+        return RecruitmentProjectUpdate(**data).model_dump(mode="json", exclude={"expected_updated_at"})
     if project_type == "translation":
         if "word_count_matrix" in data:
-            data["word_count_matrix"] = WordCountCreateMatrix.model_validate(data["word_count_matrix"]).model_dump()
+            data["word_count_matrix"] = WordCountCreateMatrix.model_validate(data["word_count_matrix"]).model_dump(mode="json")
         return {key: value for key, value in data.items() if key in {*SCALAR_FIELDS[project_type], "word_count_matrix"}}
     raise ValueError("不支持的项目类型")
 

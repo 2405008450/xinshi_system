@@ -236,7 +236,7 @@ class InterpretationProjectCreate(InterpretationProjectWrite):
 
 
 class InterpretationProjectUpdate(InterpretationProjectWrite):
-    pass
+    expected_updated_at: Optional[datetime] = None
 
 
 class InterpretationProjectStatusUpdate(BaseModel):

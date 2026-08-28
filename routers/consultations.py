@@ -2,8 +2,9 @@ from typing import List, Optional
 from uuid import uuid4
 from uuid import UUID
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -657,7 +658,7 @@ def read_consultation_count(
 @router.get("/", response_model=List[ConsultationResponse])
 def read_consultations(
     skip: int = 0, 
-    limit: int = 100, 
+    limit: int = Query(100, ge=1, le=500), 
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -825,7 +826,13 @@ def create_project_from_consultation(
 
 @router.delete("/{consultation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_consultation_endpoint(consultation_id: UUID, db: Session = Depends(get_db)):
-    success = delete_consultation(db, consultation_id=consultation_id)
+    try:
+        success = delete_consultation(db, consultation_id=consultation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该咨询仍被其他业务数据引用，不能删除")
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
     return None

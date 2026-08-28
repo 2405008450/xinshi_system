@@ -2,6 +2,7 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -22,7 +23,7 @@ def create_client_endpoint(client: ClientCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=List[ClientResponse])
 def read_clients(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     client_code: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
     client_short_name: Optional[str] = Query(None),
@@ -112,14 +113,21 @@ def read_client(client_id: UUID, db: Session = Depends(get_db)):
 
 @router.put("/{client_id}", response_model=ClientResponse)
 def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Session = Depends(get_db)):
-    db_client = update_client(db, client_id=client_id, client_update=client_update)
+    try:
+        db_client = update_client(db, client_id=client_id, client_update=client_update)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
     return db_client
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db)):
-    success = delete_client(db, client_id=client_id)
+    try:
+        success = delete_client(db, client_id=client_id)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="无法删除该客户：仍被咨询或项目引用，请先处理关联记录")
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
     return None
@@ -134,7 +142,10 @@ def create_sub_client_endpoint(client_id: UUID, sub_client: SubClientCreate, db:
 
 @router.put("/sub_clients/{sub_id}", response_model=SubClientResponse)
 def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db)):
-    db_sub = update_sub_client(db, sub_id=sub_id, sub_update=sub_client_update)
+    try:
+        db_sub = update_sub_client(db, sub_id=sub_id, sub_update=sub_client_update)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_sub:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sub client not found")
     return db_sub

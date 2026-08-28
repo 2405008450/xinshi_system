@@ -2,8 +2,9 @@ import datetime as dt
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -26,6 +27,7 @@ from models import (
     RolePermission,
     TranslatorSchedule,
 )
+from concurrency import StaleUpdateError
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
 from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
@@ -80,6 +82,14 @@ from business_mail_models import (
     MailRecipientGroup, MailRecipientGroupMember,
     ProjectMailPolicy, ProjectMailPolicyGroup,
 )
+from daily_report_mail_models import (
+    DailyReportMailAttempt,
+    DailyReportMailDelivery,
+    DailyReportMailPolicy,
+    DailyReportMailPolicyGroup,
+    DailyReportMailRecipient,
+    UserMailAccount,
+)
 from annotation_ops_models import (
     AnnotationAccountAssignment,
     AnnotationAccountAssignmentImage,
@@ -99,6 +109,12 @@ from resource_request_models import ResourceRequest, ResourceRequestItem, Resour
 from routers import business_mails
 
 app = FastAPI()
+
+
+@app.exception_handler(StaleUpdateError)
+async def stale_update_handler(_request: Request, exc: StaleUpdateError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -1054,6 +1070,16 @@ def ensure_runtime_tables():
     BusinessMail.__table__.create(bind=engine, checkfirst=True)
     BusinessMailRecipient.__table__.create(bind=engine, checkfirst=True)
     BusinessMailAttempt.__table__.create(bind=engine, checkfirst=True)
+    UserMailAccount.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE user_mail_account ADD COLUMN IF NOT EXISTS email_snapshot VARCHAR(255)"))
+        conn.execute(text("UPDATE user_mail_account SET email_snapshot = app_user.email FROM app_user WHERE user_mail_account.user_id = app_user.id AND user_mail_account.email_snapshot IS NULL"))
+        conn.execute(text("ALTER TABLE user_mail_account ALTER COLUMN email_snapshot SET NOT NULL"))
+    DailyReportMailPolicy.__table__.create(bind=engine, checkfirst=True)
+    DailyReportMailPolicyGroup.__table__.create(bind=engine, checkfirst=True)
+    DailyReportMailDelivery.__table__.create(bind=engine, checkfirst=True)
+    DailyReportMailRecipient.__table__.create(bind=engine, checkfirst=True)
+    DailyReportMailAttempt.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectProgress.__table__.create(bind=engine, checkfirst=True)
     RecruitmentCandidate.__table__.create(bind=engine, checkfirst=True)

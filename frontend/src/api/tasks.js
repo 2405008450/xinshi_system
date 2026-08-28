@@ -23,5 +23,18 @@ export const saveDailyReport = (reportDate, data) =>
   api.put(`/daily-reports/${reportDate}`, data)
 export const finalizeDailyReport = (reportDate, data) =>
   api.post(`/daily-reports/${reportDate}/finalize`, data)
+export const withdrawDailyReport = (reportDate) =>
+  api.post(`/daily-reports/${reportDate}/withdraw`)
 export const exportDailyReport = (reportDate) =>
   api.get(`/daily-reports/${reportDate}/export`, { responseType: 'blob' })
+export const getDailyReportMailAccount = () => api.get('/daily-reports/mail-account')
+export const saveDailyReportMailAccount = (authorizationCode) =>
+  api.put('/daily-reports/mail-account', { authorization_code: authorizationCode })
+export const verifyDailyReportMailAccount = () => api.post('/daily-reports/mail-account/verify')
+export const deleteDailyReportMailAccount = () => api.delete('/daily-reports/mail-account')
+export const previewDailyReportMail = (reportDate) =>
+  api.get(`/daily-reports/${reportDate}/mail-preview`)
+export const sendDailyReportMail = (reportDate, data) =>
+  api.post(`/daily-reports/${reportDate}/send`, data, { timeout: 30000 })
+export const getDailyReportDeliveries = (reportDate) =>
+  api.get(`/daily-reports/${reportDate}/deliveries`)

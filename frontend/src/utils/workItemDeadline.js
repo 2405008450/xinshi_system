@@ -1,5 +1,21 @@
 const OPEN_NON_PROJECT_STATUSES = new Set(['pending', 'in_progress'])
-const TERMINAL_PROJECT_STATUSES = new Set(['completed', 'cancelled', 'partially_cancelled', 'terminated'])
+// 这些状态下客户交稿节点已经完成或项目已经结束，不再触发整行逾期/紧急高亮。
+// 同时保留旧状态别名，兼容工作台历史数据尚未完成状态迁移的情况。
+const RELEASED_PROJECT_DEADLINE_STATUSES = new Set([
+  'completed',
+  'sent_to_client',
+  'client_feedback',
+  'feedback_sent_to_client',
+  'ended',
+  'settled',
+  'closed',
+  'consultation_no_result',
+  'resource_sourcing_cancelled',
+  'trial_failed',
+  'cancelled',
+  'partially_cancelled',
+  'terminated'
+])
 
 export const DEADLINE_STATE = Object.freeze({
   OVERDUE: 'overdue',
@@ -18,7 +34,8 @@ export function isWorkItemOpen(item) {
   if (item?.source_type === 'non_project') {
     return OPEN_NON_PROJECT_STATUSES.has(item?.status)
   }
-  return !TERMINAL_PROJECT_STATUSES.has(item?.project_status || item?.status)
+  const status = String(item?.project_status || item?.status || '').trim()
+  return !RELEASED_PROJECT_DEADLINE_STATUSES.has(status)
 }
 
 export function getWorkItemDeadlineState(item, now = new Date()) {

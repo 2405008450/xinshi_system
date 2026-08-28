@@ -24,11 +24,19 @@
           <el-table-column prop="order_no" label="订单号" width="145" show-overflow-tooltip />
           <el-table-column prop="project_name" label="项目名称" min-width="170" show-overflow-tooltip />
           <el-table-column prop="client_short_name" label="客户" width="100" show-overflow-tooltip />
-          <el-table-column label="客户交稿" width="145">
-            <template #default="{ row }">{{ formatDateTime(row.customer_deadline_time) }}</template>
+          <el-table-column label="客户交稿" width="168">
+            <template #default="{ row }">
+              <DeadlineHintCell :deadline="row.customer_deadline_time" :status="row.project_status" />
+            </template>
           </el-table-column>
-          <el-table-column label="项目状态" width="100">
-            <template #default="{ row }"><el-tag :type="getProjectStatusType(row.project_status)" size="small" effect="plain">{{ getProjectStatusLabel(row.project_status) }}</el-tag></template>
+          <el-table-column label="项目状态" width="132">
+            <template #default="{ row }">
+              <ProjectStatusSwitch
+                :project-type="resolveProjectType(row)"
+                :project-id="resolveProjectId(row)"
+                :status="row.project_status"
+              />
+            </template>
           </el-table-column>
           <el-table-column label="翻译方向" width="105">
             <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
@@ -77,7 +85,7 @@
     <el-table
       ref="projectTableRef"
       v-loading="loading"
-      :data="projects"
+      :data="filteredProjects"
       border
       size="small"
       max-height="460"
@@ -86,13 +94,30 @@
       @selection-change="selectedProjects = $event"
       @row-click="toggleProjectRowSelection"
     >
+      <template #empty>
+        <span>{{ projects.length ? '没有符合当前筛选条件的管理项目' : '暂无负责或可承接的管理项目' }}</span>
+      </template>
       <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" />
       <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
       <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
       <el-table-column label="项目类型" width="90">
+        <template #header>
+          <ColumnHeaderFilter label="项目类型" :active="!!filters.project_types.length" :width="220" @clear="filters.project_types = []">
+            <el-checkbox-group v-model="filters.project_types" class="column-option-list">
+              <el-checkbox v-for="option in PROJECT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
       </el-table-column>
       <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+        <template #header>
+          <ColumnHeaderFilter label="项目 / 任务" :active="!!filters.project" :width="240" @clear="filters.project = ''">
+            <el-input v-model="filters.project" clearable size="small" placeholder="项目、任务或订单号" />
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <div class="workbench-project-cell">
             <span class="workbench-project-cell__title" :title="row.project_name || '-'">{{ row.project_name || '-' }}</span>
@@ -103,17 +128,54 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="client_short_name" label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip />
+      <el-table-column prop="client_short_name" label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
+        <template #header>
+          <ColumnHeaderFilter label="客户" :active="!!filters.client" :width="220" @clear="filters.client = ''">
+            <el-input v-model="filters.client" clearable size="small" placeholder="客户全称或简称" />
+          </ColumnHeaderFilter>
+        </template>
+      </el-table-column>
       <el-table-column label="客户交稿" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
-        <template #default="{ row }">{{ formatDateTime(row.customer_deadline_time) }}</template>
+        <template #default="{ row }">
+          <DeadlineHintCell :deadline="row.customer_deadline_time" :status="row.project_status" />
+        </template>
       </el-table-column>
       <el-table-column label="项目状态" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
-        <template #default="{ row }"><el-tag :type="getProjectStatusType(row.project_status)" size="small" effect="plain">{{ getProjectStatusLabel(row.project_status) }}</el-tag></template>
+        <template #header>
+          <ColumnHeaderFilter label="项目状态" :active="!!filters.project_statuses.length" :width="260" @clear="filters.project_statuses = []">
+            <el-checkbox-group v-model="filters.project_statuses" class="column-option-list">
+              <el-checkbox v-for="option in projectStatusFilterOptions" :key="option.value" :value="option.value">
+                {{ option.label }}（{{ option.count }}）
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
+        <template #default="{ row }">
+          <ProjectStatusSwitch
+            :project-type="resolveProjectType(row)"
+            :project-id="resolveProjectId(row)"
+            :status="row.project_status"
+            :writable="canWriteProjects"
+            @updated="handleProjectStatusUpdated"
+          />
+        </template>
       </el-table-column>
       <el-table-column label="翻译方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+        <template #header>
+          <ColumnHeaderFilter label="翻译方向" :active="!!filters.language_pair" :width="220" @clear="filters.language_pair = ''">
+            <el-input v-model="filters.language_pair" clearable size="small" placeholder="按翻译方向筛选" />
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
       </el-table-column>
       <el-table-column label="难度" :width="WORKBENCH_COLUMN_WIDTHS.difficulty">
+        <template #header>
+          <ColumnHeaderFilter label="难度" :active="!!filters.difficulties.length" :width="180" @clear="filters.difficulties = []">
+            <el-checkbox-group v-model="filters.difficulties" class="column-option-list">
+              <el-checkbox v-for="option in DIFFICULTY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
             {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
@@ -122,6 +184,15 @@
         </template>
       </el-table-column>
       <el-table-column prop="current_assignee_name" label="当前负责人" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+        <template #header>
+          <ColumnHeaderFilter label="当前负责人" :active="!!filters.assignees.length" :width="240" @clear="filters.assignees = []">
+            <el-checkbox-group v-model="filters.assignees" class="column-option-list">
+              <el-checkbox v-for="option in assigneeFilterOptions" :key="option.value" :value="option.value">
+                {{ option.label }}（{{ option.count }}）
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <ProjectRoleAssigneesPopover
             :current-assignee-name="row.current_assignee_name || ''"
@@ -133,6 +204,15 @@
         </template>
       </el-table-column>
       <el-table-column prop="project_manager_name" label="管理归属" width="110">
+        <template #header>
+          <ColumnHeaderFilter label="管理归属" :active="!!filters.managers.length" :width="240" placement="bottom-end" @clear="filters.managers = []">
+            <el-checkbox-group v-model="filters.managers" class="column-option-list">
+              <el-checkbox v-for="option in managerFilterOptions" :key="option.value" :value="option.value">
+                {{ option.label }}（{{ option.count }}）
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <el-tag v-if="row.project_manager_id" type="success" size="small" effect="plain">
             {{ row.project_manager_name || '已绑定' }}
@@ -215,7 +295,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   acceptProjectManagerHandoverAPI,
@@ -226,73 +306,51 @@ import {
   getProjectManagerCandidatesAPI,
   rejectProjectManagerHandoverAPI
 } from '@/api/workflow'
-import { hasRole } from '@/utils/permission'
+import { hasRole, hasPermission } from '@/utils/permission'
 import { createWorkEntry } from '@/api/tasks'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
+import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
+import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
+import ColumnHeaderFilter from '@/components/common/ColumnHeaderFilter.vue'
 import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
+import {
+  getProjectStatusLabel,
+  normalizeProjectStatus,
+  resolveProjectId,
+  resolveProjectType
+} from '@/utils/projectStatus'
 import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
 
-const PROJECT_STATUS_LABELS = {
-  initial_follow_up: '初步跟进',
-  ended: '口译结束',
-  settled: '已结算',
-  trial: '试标中',
-  sent_to_client: '已发客户',
-  pending_setup: '新建待立项',
-  sourcing: '寻访阶段',
-  recommending: '简历推荐中',
-  interviewing: '面试进行中',
-  offer_negotiation: 'Offer谈判',
-  pending_onboard: '候选人待入职',
-  probation: '已入职保用期',
-  closed: '项目结案',
-  pending: '待确认',
-  pending_confirmation: '待确认',
-  initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果',
-  resource_sourcing: '资源开拓', resource_sourcing_cancelled: '取消资源开拓',
-  trial_preparation: '试标准备', trial_in_progress: '试标中', trial_passed: '试标通过',
-  trial_failed: '试标未通过', trial_partially_passed: '部分试标通过', project_in_progress: '项目进行中',
-  in_progress: '已确认',
-  confirmed: '已确认',
-  organized: '已整理',
-  translator_assigned: '已排译员',
-  sent_to_translator: '已发译员',
-  translator_returned: '译员发回',
-  special_checked: '已专检',
-  typeset: '已排版',
-  special_checked_typeset: '已专检排版',
-  reviewed: '已审核',
-  completed: '已发客户',
-  sent_to_client: '已发客户',
-  client_feedback: '客户反馈',
-  feedback_sent_to_client: '反馈后发客户',
-  cancelled: '已取消',
-  partially_cancelled: '已部分取消',
-  terminated: '已取消',
-  paused: '已暂停'
-}
-const PROJECT_STATUS_TYPES = {
-  initial_follow_up: 'warning', ended: 'success', settled: 'success', trial: 'warning',
-  pending_setup: 'info', sourcing: 'primary', recommending: 'warning', interviewing: 'warning',
-  offer_negotiation: 'warning', pending_onboard: 'primary', probation: 'success', closed: 'success',
-  pending: 'info', pending_confirmation: 'info',
-  initial_consultation: 'info', consultation_no_result: 'info', resource_sourcing: 'primary',
-  resource_sourcing_cancelled: 'danger', trial_preparation: 'warning', trial_in_progress: 'warning',
-  trial_passed: 'success', trial_failed: 'danger', trial_partially_passed: 'warning', project_in_progress: 'primary',
-  confirmed: 'primary', in_progress: 'primary', organized: 'primary',
-  translator_assigned: 'warning', sent_to_translator: 'warning',
-  translator_returned: 'primary', special_checked: 'primary', typeset: 'primary',
-  special_checked_typeset: 'primary', reviewed: 'success', completed: 'success',
-  sent_to_client: 'success', client_feedback: 'success', feedback_sent_to_client: 'success',
-  cancelled: 'danger', partially_cancelled: 'danger', terminated: 'danger', paused: 'warning'
-}
 const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
 const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
-
-const getProjectStatusLabel = (status) => PROJECT_STATUS_LABELS[status] || status || '-'
-const getProjectStatusType = (status) => PROJECT_STATUS_TYPES[status] || 'info'
+const DIFFICULTY_OPTIONS = [
+  { value: 'simple', label: '简单' },
+  { value: 'normal', label: '普通' },
+  { value: 'complex', label: '复杂' },
+  { value: 'unset', label: '未设置' }
+]
+const PROJECT_TYPE_OPTIONS = [
+  { label: '笔译项目', value: 'translation' },
+  { label: '口译项目', value: 'interpretation' },
+  { label: '标注项目', value: 'annotation' },
+  { label: '招聘项目', value: 'recruitment' }
+]
+const PROJECT_TYPE_VALUES = PROJECT_TYPE_OPTIONS.map(option => option.value)
+const PROJECT_TYPE_LABELS = Object.fromEntries(PROJECT_TYPE_OPTIONS.map(option => [option.value, option.label]))
 
 const emit = defineEmits(['updated', 'open-project'])
+const canWriteProjects = hasPermission('projects:write')
+
+async function handleProjectStatusUpdated(payload) {
+  const projectId = String(payload?.projectId || '')
+  if (projectId) {
+    projects.value.forEach((item) => {
+      if (String(resolveProjectId(item)) === projectId) item.project_status = payload.status
+    })
+  }
+  await loadData()
+  emit('updated')
+}
 const currentUserId = localStorage.getItem('user_id') || ''
 const projects = ref([])
 const incomingRequests = ref([])
@@ -340,6 +398,113 @@ const targetManagerId = ref('')
 const reason = ref('')
 const note = ref('')
 const canSelfClaim = hasRole('项目经理')
+
+const FILTER_STORAGE_KEY = `workbench-filters:management-projects:${currentUserId || 'anonymous'}`
+
+function projectStatusFilterKey(row) {
+  const projectType = resolveProjectType(row)
+  return `${projectType}:${normalizeProjectStatus(projectType, row?.project_status)}`
+}
+
+function personFilterKey(id, name, emptyKey) {
+  if (id) return `user:${id}`
+  if (name) return `name:${name}`
+  return emptyKey
+}
+
+function readStoredFilters() {
+  const fallback = {
+    project_types: [], project_statuses: [], assignees: [], managers: [], difficulties: [],
+    project: '', client: '', language_pair: ''
+  }
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || 'null')
+    if (!parsed || typeof parsed !== 'object') return fallback
+    return {
+      project_types: Array.isArray(parsed.project_types) ? parsed.project_types.filter(value => PROJECT_TYPE_VALUES.includes(value)) : [],
+      project_statuses: Array.isArray(parsed.project_statuses) ? parsed.project_statuses.filter(value => typeof value === 'string' && value.includes(':')) : [],
+      assignees: Array.isArray(parsed.assignees) ? parsed.assignees.filter(value => typeof value === 'string') : [],
+      managers: Array.isArray(parsed.managers) ? parsed.managers.filter(value => typeof value === 'string') : [],
+      difficulties: Array.isArray(parsed.difficulties) ? parsed.difficulties.filter(value => DIFFICULTY_OPTIONS.some(option => option.value === value)) : [],
+      project: typeof parsed.project === 'string' ? parsed.project : '',
+      client: typeof parsed.client === 'string' ? parsed.client : '',
+      language_pair: typeof parsed.language_pair === 'string' ? parsed.language_pair : ''
+    }
+  } catch {
+    localStorage.removeItem(FILTER_STORAGE_KEY)
+    return fallback
+  }
+}
+
+const filters = reactive(readStoredFilters())
+
+function buildPersonOptions(idField, nameField, emptyKey, emptyLabel) {
+  const options = new Map()
+  projects.value.forEach((row) => {
+    const value = personFilterKey(row[idField], row[nameField], emptyKey)
+    const existing = options.get(value)
+    if (existing) {
+      existing.count += 1
+    } else {
+      options.set(value, { value, label: value === emptyKey ? emptyLabel : (row[nameField] || '未知人员'), count: 1 })
+    }
+  })
+  return Array.from(options.values()).sort((left, right) => {
+    if (left.value === emptyKey) return 1
+    if (right.value === emptyKey) return -1
+    return left.label.localeCompare(right.label, 'zh-CN')
+  })
+}
+
+const assigneeFilterOptions = computed(() => buildPersonOptions(
+  'current_assignee_id', 'current_assignee_name', 'unassigned', '待认领（角色池）'
+))
+const managerFilterOptions = computed(() => buildPersonOptions(
+  'project_manager_id', 'project_manager_name', 'unbound', '未绑定·可承接'
+))
+const projectStatusFilterOptions = computed(() => {
+  const options = new Map()
+  projects.value.forEach((row) => {
+    const projectType = resolveProjectType(row)
+    const status = normalizeProjectStatus(projectType, row.project_status)
+    if (!status) return
+    const value = projectStatusFilterKey(row)
+    const existing = options.get(value)
+    if (existing) existing.count += 1
+    else options.set(value, {
+      value,
+      label: `${PROJECT_TYPE_LABELS[projectType] || '项目'} · ${getProjectStatusLabel(projectType, status)}`,
+      count: 1
+    })
+  })
+  return Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
+})
+
+const filteredProjects = computed(() => {
+  const projectKeyword = filters.project.trim().toLowerCase()
+  const clientKeyword = filters.client.trim().toLowerCase()
+  const languageKeyword = filters.language_pair.trim().toLowerCase()
+  return projects.value.filter((row) => {
+    const projectType = resolveProjectType(row)
+    if (filters.project_types.length && !filters.project_types.includes(projectType)) return false
+    if (filters.project_statuses.length && !filters.project_statuses.includes(projectStatusFilterKey(row))) return false
+    if (filters.assignees.length && !filters.assignees.includes(personFilterKey(row.current_assignee_id, row.current_assignee_name, 'unassigned'))) return false
+    if (filters.managers.length && !filters.managers.includes(personFilterKey(row.project_manager_id, row.project_manager_name, 'unbound'))) return false
+    const difficulty = row.difficulty || 'unset'
+    if (filters.difficulties.length && !filters.difficulties.includes(difficulty)) return false
+    if (projectKeyword && ![row.project_name, row.task_type, row.order_no].some(value => String(value || '').toLowerCase().includes(projectKeyword))) return false
+    if (clientKeyword && ![row.client_name, row.client_short_name].some(value => String(value || '').toLowerCase().includes(clientKeyword))) return false
+    if (languageKeyword && !String(row.language_pair || '').toLowerCase().includes(languageKeyword)) return false
+    return true
+  })
+})
+
+watch(filters, (value) => {
+  clearProjectSelection()
+  try {
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(value))
+  } catch {}
+})
 const claimableSelectedProjects = computed(() => (
   canSelfClaim
     ? selectedProjects.value.filter(project => !project.project_manager_id)
@@ -422,7 +587,7 @@ function clearProjectSelection() {
 }
 
 function toggleProjectRowSelection(row, _column, event) {
-  if (event?.target?.closest?.('button, a, input, textarea, select, label, .el-checkbox, .el-radio, .el-switch')) return
+  if (event?.target?.closest?.('button, a, input, textarea, select, label, .el-checkbox, .el-radio, .el-switch, .el-dropdown, .project-status-switch')) return
   const selected = selectedProjects.value.includes(row)
   projectTableRef.value?.toggleRowSelection(row, !selected)
 }
@@ -514,6 +679,17 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.column-option-list {
+  display: grid;
+  gap: 4px;
+}
+
+.column-option-list :deep(.el-checkbox) {
+  height: auto;
+  margin-right: 0;
+  white-space: normal;
 }
 
 .incoming-list {

@@ -23,22 +23,18 @@
         <div class="stat-chip danger">
           <span class="stat-chip__label">逾期任务</span>
           <strong>{{ overdueTasks.length }}</strong>
-          <small>超过预定完成时间</small>
         </div>
         <div class="stat-chip warning">
           <span class="stat-chip__label">即将到期</span>
           <strong>{{ urgentTasks.length }}</strong>
-          <small>24 小时内</small>
         </div>
         <div class="stat-chip info">
           <span class="stat-chip__label">项目待办</span>
           <strong>{{ projectPendingCount }}</strong>
-          <small>直接负责与角色池任务</small>
         </div>
         <div class="stat-chip neutral">
           <span class="stat-chip__label">我的待办</span>
           <strong>{{ pendingWorkItemCount }}</strong>
-          <small>项目与非项目任务</small>
         </div>
         <el-badge
           :value="onLeaveCount"
@@ -53,31 +49,40 @@
         </el-badge>
       </div>
 
-      <CollapsibleSection
-        title="我的任务"
-        subtitle="管理项目与执行任务"
-        storage-key="my-tasks"
-      >
-        <ProjectManagerHandoverPanel v-if="canManageProjectOwnership" @open-project="handleOpenProject" />
-        <div v-if="canManageProjectOwnership" class="task-subsection-title">执行任务与交接</div>
-        <UnifiedTasksPanel
-          :current-user-name="currentUserName"
-          :items="workItems"
-          :reference-date="scheduleDate"
-          @open-chat="handleOpenProjectChat"
-          @open-project="handleOpenProject"
-          @refresh="loadMyWorkItems"
-        />
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="个人工作日报"
-        subtitle="汇总、补充、确认并导出当日工作"
-        storage-key="daily-report"
-        :default-open="false"
-      >
-        <DailyReportPanel :report-date="scheduleDate" />
-      </CollapsibleSection>
+      <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
+        <el-tab-pane name="tasks">
+          <template #label>
+            <span>我的任务<template v-if="pendingWorkItemCount">（{{ pendingWorkItemCount }}）</template></span>
+          </template>
+          <ProjectManagerHandoverPanel v-if="canManageProjectOwnership" @open-project="handleOpenProject" />
+          <div v-if="canManageProjectOwnership" class="task-subsection-title">执行任务与交接</div>
+          <UnifiedTasksPanel
+            :current-user-name="currentUserName"
+            :items="workItems"
+            :reference-date="scheduleDate"
+            @open-chat="handleOpenProjectChat"
+            @open-project="handleOpenProject"
+            @refresh="loadMyWorkItems"
+          />
+        </el-tab-pane>
+        <el-tab-pane name="daily-report" lazy>
+          <template #label>
+            <span class="daily-report-tab-label">
+              个人工作日报
+              <el-tag
+                v-if="dailyReportStatusTag"
+                :type="dailyReportStatusTag.type"
+                size="small"
+                effect="plain"
+                class="daily-report-tab-label__tag"
+              >
+                {{ dailyReportStatusTag.text }}
+              </el-tag>
+            </span>
+          </template>
+          <DailyReportPanel :report-date="scheduleDate" @status-change="onDailyReportStatus" />
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <ShiftMatrixDialog
@@ -98,7 +103,6 @@ import ShiftMatrixDialog from './components/ShiftMatrixDialog.vue'
 import MyShiftStatus from './components/MyShiftStatus.vue'
 import PendingHandoversPanel from './components/PendingHandoversPanel.vue'
 import ProjectManagerHandoverPanel from './components/ProjectManagerHandoverPanel.vue'
-import CollapsibleSection from './components/CollapsibleSection.vue'
 import { getMyWorkItems } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
@@ -111,6 +115,20 @@ const dayLeaveRecords = ref([])
 const workItems = ref([])
 const currentUserName = ref('')
 const matrixVisible = ref(false)
+
+const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
+const MAIN_TAB_NAMES = ['tasks', 'daily-report']
+
+function readInitialMainTab() {
+  try {
+    const stored = localStorage.getItem(MAIN_TAB_STORAGE_KEY)
+    if (stored && MAIN_TAB_NAMES.includes(stored)) return stored
+  } catch {}
+  return 'tasks'
+}
+
+const activeSection = ref(readInitialMainTab())
+const dailyReportStatus = ref(null)
 const canManageProjectOwnership = computed(() => hasRole('项目经理') || isSuperAdmin())
 const currentUserId = (() => {
   try {
@@ -136,6 +154,24 @@ const personalOpenWorkItems = computed(() => workItems.value.filter(item => {
 }))
 const projectPendingCount = computed(() => personalOpenWorkItems.value.filter(item => item.source_type === 'project').length)
 const pendingWorkItemCount = computed(() => personalOpenWorkItems.value.length)
+
+const dailyReportStatusTag = computed(() => {
+  const status = dailyReportStatus.value
+  if (!status || status.date !== scheduleDate.value) return null
+  return status.status === 'finalized'
+    ? { text: '已确认', type: 'success' }
+    : { text: '草稿', type: 'info' }
+})
+
+function onDailyReportStatus(payload) {
+  dailyReportStatus.value = payload || null
+}
+
+watch(activeSection, (value) => {
+  try {
+    localStorage.setItem(MAIN_TAB_STORAGE_KEY, value)
+  } catch {}
+})
 
 const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
@@ -287,31 +323,22 @@ onMounted(() => {
 }
 
 .stat-chip {
-  flex: 1 1 130px;
-  min-width: 130px;
-  min-height: 54px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  flex: 1 1 100px;
+  min-width: 100px;
+  padding: 4px 10px;
+  border-radius: 6px;
   border: 1px solid #cbd5e1;
   background: #fff;
   box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  column-gap: 10px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .stat-chip strong {
-  grid-column: 2;
-  grid-row: 1 / 3;
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
-}
-
-.stat-chip small {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 
 .stat-chip.danger { border-left: 4px solid var(--el-color-danger); background: #fff8f8; }
@@ -320,7 +347,7 @@ onMounted(() => {
 .stat-chip.neutral { border-left: 4px solid #64748b; background: #f8fafc; }
 
 .stat-chip__label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--el-text-color-secondary);
 }
@@ -423,6 +450,53 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+}
+
+.workbench-tabs {
+  margin-bottom: 8px;
+  border: 1px solid #b8c3d1;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgb(15 23 42 / 8%);
+  overflow: hidden;
+}
+
+.workbench-tabs :deep(.el-tabs__header) {
+  margin: 0;
+  background: #475569;
+  border-bottom: 0;
+}
+
+.workbench-tabs :deep(.el-tabs__item) {
+  height: 38px;
+  padding: 0 16px;
+  color: #dbe4ee;
+  font-size: 14px;
+}
+
+.workbench-tabs :deep(.el-tabs__item:hover) {
+  color: #fff;
+}
+
+.workbench-tabs :deep(.el-tabs__item.is-active) {
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+  border-right-color: #b8c3d1;
+  border-left-color: #b8c3d1;
+}
+
+.workbench-tabs :deep(.el-tabs__content) {
+  padding: 10px 12px 12px;
+}
+
+.daily-report-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-report-tab-label__tag {
+  flex: none;
 }
 
 .workbench-card :deep(.el-button:not(.is-circle):not(.is-link)) {

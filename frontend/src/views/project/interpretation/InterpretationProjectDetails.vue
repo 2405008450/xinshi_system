@@ -632,7 +632,7 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
-import { notifyEmailSubjectGenerated } from '@/utils/emailSubject'
+import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { launchOpenPath } from '@/utils/openPath'
@@ -880,9 +880,7 @@ const fetchData = async () => {
     pagination.total = count?.total || 0
   } catch (error) {
     if (currentId !== requestId || error?.code === 'ERR_CANCELED') return
-    tableData.value = []
-    pagination.total = 0
-    ElMessage.error(error.detail || '加载口译项目失败')
+    ElMessage.error(error.detail || '网络异常，口译项目列表未刷新，请检查网络后重试')
   } finally {
     if (currentId === requestId) loading.value = false
   }
@@ -1144,6 +1142,7 @@ const buildPayload = () => {
     clientRatingNote: form.clientRatingNote?.trim() || null,
     remarks: form.remarks?.trim() || null,
     emailSubjectPreview: form.emailSubjectPreview?.trim() || null,
+    expectedUpdatedAt: form.updatedAt || null,
     socialPostRequest: form.socialPostRequest?.trim() || null,
     resourceRequest: form.resourceRequest?.trim() || null,
     roleAssignments: form.roleAssignments,
@@ -1187,6 +1186,7 @@ const assignForm = (detail) => {
     interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
     roleAssignments: detail.roleAssignments || [],
   })
+  form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form)
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const handleAdd = () => { dialogTitle.value = '新增口译项目'; resetForm(); dialogVisible.value = true }

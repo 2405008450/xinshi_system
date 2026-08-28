@@ -182,7 +182,7 @@ def find_duplicate_talents(
         if not match_fields:
             continue
         result.append({
-            "id": person.id,
+            "id": str(person.id),
             "resource_code": person.resource_code,
             "full_name": person.full_name,
             "primary_phone": person.primary_phone,

@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
+from concurrency import VERSION_FIELD, assert_fresh
+
 import workflow_models  # noqa: F401  注册笔译项目既有关系
 import recruitment_models  # noqa: F401  注册统一工作台招聘项目关系
 import annotation_ops_models  # noqa: F401  注册标注运营关系
@@ -290,10 +292,10 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
         (project.assignees, payload.assignees, AnnotationProjectAssignee, "人员安排"),
     )
 
-    # 先把现有排序号移到负数区间，避免交换顺序时触发项目内 sequence_no 唯一约束。
+    # 先把现有排序号移到远离正常区间的正数，避免交换顺序时触发项目内 sequence_no 唯一约束。
     for current_rows, _items, _model, _label in collections:
         for index, row in enumerate(current_rows, start=1):
-            row.sequence_no = -index
+            row.sequence_no = 1_000_000 + index
     db.flush()
 
     for current_rows, items, model, label in collections:
@@ -372,7 +374,8 @@ def update_annotation_project(
     project = get_annotation_project(db, project_id)
     if not project:
         return None
-    data = payload.model_dump(exclude=NESTED_FIELDS)
+    assert_fresh(project, payload.expected_updated_at)
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
         db, "project", None, data.get("custom_values") or {}, project.custom_values,

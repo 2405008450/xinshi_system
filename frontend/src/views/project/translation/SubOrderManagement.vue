@@ -51,7 +51,14 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="900px" @closed="resetSubOrderForm">
+    <el-dialog
+      v-model="dialogVisible"
+      class="suborder-editor-dialog"
+      :title="dialogTitle"
+      width="min(900px, calc(100vw - 32px))"
+      top="5vh"
+      @closed="resetSubOrderForm"
+    >
       <el-form ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="130px">
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="母订单号"><el-input :model-value="project.orderNo || route.query.orderNo" disabled /></el-form-item></el-col>
@@ -104,7 +111,14 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="batchDialogVisible" title="批量新增子订单" width="860px" @closed="resetBatchForm">
+    <el-dialog
+      v-model="batchDialogVisible"
+      class="suborder-editor-dialog"
+      title="批量新增子订单"
+      width="min(860px, calc(100vw - 32px))"
+      top="5vh"
+      @closed="resetBatchForm"
+    >
       <el-form ref="batchFormRef" :model="batchForm" :rules="batchRules" label-width="140px">
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="生成数量" prop="count"><el-input-number v-model="batchForm.count" :min="1" :max="100" style="width: 100%" /></el-form-item></el-col>
@@ -145,6 +159,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
 import { getProject } from '@/api/projects'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
+import TableActionButton from '@/components/common/TableActionButton.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
@@ -200,7 +215,7 @@ const handleDelete = async (row) => { try { await ElMessageBox.confirm(`确认�
 const openBatchDialog = () => { resetBatchForm(); assignReactive(batchForm, { ...createBatchForm(), ...buildDefaultsFromProject(), subProjectNamePrefix: project.projectName ? `${project.projectName}-子订单` : '' }); batchDialogVisible.value = true }
 const createBatchSubProjectName = (index) => { const prefix = batchForm.subProjectNamePrefix || (project.projectName ? `${project.projectName}-子订单` : '子订单'); return `${prefix}${String(index).padStart(2, '0')}` }
 const handleBatchCreate = async () => { if (!batchFormRef.value) return; const valid = await batchFormRef.value.validate().catch(() => false); if (!valid) return; try { for (let offset = 0; offset < batchForm.count; offset += 1) { const sequence = batchForm.startIndex + offset; await createSubOrder(buildPayload({ ...batchForm, subProjectName: createBatchSubProjectName(sequence), remarks: '' })) } batchDialogVisible.value = false; ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`); await fetchSubOrders() } catch (error) { ElMessage.error(error.detail || error.message || '批量新增失败') } }
-const DetailPopover = defineComponent({ name: 'DetailPopover', props: { row: { type: Object, required: true }, title: { type: String, default: '详情' }, items: { type: Array, default: () => [] } }, setup(props) { return () => h(ElPopover, { placement: 'left', width: 720, trigger: 'click', title: props.title }, { reference: () => h(ElButton, { type: 'info', size: 'small', link: true }, () => '查看详情'), default: () => h('div', { class: 'detail-popover' }, h(ElDescriptions, { column: 2, border: true }, () => props.items.map((item) => h(ElDescriptionsItem, { key: item.key, label: item.label, span: item.span || 1 }, () => item.type === 'status' ? h(ElTag, { type: getStatusType(props.row[item.key]) }, () => getStatusLabel(props.row[item.key])) : h('span', { class: 'detail-value' }, displayValue(item.formatter ? item.formatter(props.row[item.key], props.row) : props.row[item.key])))))) }) } })
+const DetailPopover = defineComponent({ name: 'DetailPopover', props: { row: { type: Object, required: true }, title: { type: String, default: '详情' }, items: { type: Array, default: () => [] } }, setup(props) { return () => h(ElPopover, { placement: 'left', width: 720, trigger: 'click', title: props.title, popperClass: 'suborder-detail-popover', fallbackPlacements: ['bottom', 'top', 'right'], popperOptions: { modifiers: [{ name: 'preventOverflow', options: { padding: 16, boundary: 'viewport' } }] } }, { reference: () => h(ElButton, { type: 'info', size: 'small', link: true }, () => '查看详情'), default: () => h('div', { class: 'detail-popover' }, h(ElDescriptions, { column: 2, border: true, size: 'small' }, () => props.items.map((item) => h(ElDescriptionsItem, { key: item.key, label: item.label, span: item.span || 1 }, () => item.type === 'status' ? h(ElTag, { type: getStatusType(props.row[item.key]) }, () => getStatusLabel(props.row[item.key])) : h('span', { class: 'detail-value' }, displayValue(item.formatter ? item.formatter(props.row[item.key], props.row) : props.row[item.key])))))) }) } })
 onMounted(loadData)
 </script>
 
@@ -209,7 +224,41 @@ onMounted(loadData)
 .page-title { font-size: 18px; font-weight: 600; }
 .page-subtitle { margin-top: 4px; color: #909399; }
 .page-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.detail-popover { max-height: 620px; overflow-y: auto; }
-.detail-value { color: #606266; word-break: break-all; }
+.detail-popover { max-height: 560px; overflow-y: auto; }
+.detail-value { color: #606266; word-break: break-word; white-space: normal; }
 .word-count-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+
+:global(.suborder-editor-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  overflow: hidden;
+}
+:global(.suborder-editor-dialog .el-dialog__header),
+:global(.suborder-editor-dialog .el-dialog__footer) {
+  flex: none;
+}
+:global(.suborder-editor-dialog .el-dialog__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+:global(.suborder-editor-dialog .el-dialog__footer) {
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.04);
+}
+:global(.suborder-detail-popover) {
+  max-width: calc(100vw - 32px) !important;
+}
+@media (max-width: 768px) {
+  :global(.suborder-detail-popover.el-popper) {
+    position: fixed !important;
+    left: 16px !important;
+    right: 16px !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+  }
+}
 </style>

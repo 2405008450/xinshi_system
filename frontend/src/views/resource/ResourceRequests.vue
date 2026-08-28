@@ -15,7 +15,8 @@
               hint="序号、详情和操作列固定显示；订单号、客户编号等字段默认隐藏，可按需启用。"
               @reset="resetColumns"
             />
-            <el-button type="primary" @click="openEditor()">新增资源需求</el-button>
+            <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+            <el-button v-if="canWrite && !deleteMode" type="primary" @click="openEditor()">新增资源需求</el-button>
           </div>
         </div>
       </template>
@@ -58,7 +59,8 @@
         </el-popover>
       </div>
 
-      <el-table :data="rows" v-loading="loading" border>
+      <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+        <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
         <el-table-column type="index" label="序号" width="64" fixed="left" :index="rowIndex" />
         <el-table-column
           v-for="column in visibleColumns"
@@ -81,6 +83,7 @@
             <LanguageItemsPopover v-else-if="column.key === 'requiredCount'" :items="row.items || []" :languages="languages" mode="count" />
             <LanguageItemsPopover v-else-if="column.key === 'requestDetail'" :items="row.items || []" :languages="languages" mode="detail" :request-detail="row.requestDetail" />
             <el-tag v-else-if="column.key === 'priority'" :type="priorityType(row.priority)" size="small">{{ priorityLabels[row.priority] || '-' }}</el-tag>
+            <span v-else-if="column.key === 'ownerName'">{{ ownerName(row) }}</span>
             <el-progress v-else-if="column.key === 'progress'" :percentage="row.progressPercent" :stroke-width="10" />
             <el-tag v-else-if="column.key === 'requestStatus'" :type="statusType(row.requestStatus)" size="small">{{ statusLabels[row.requestStatus] || '-' }}</el-tag>
             <span v-else-if="column.key === 'requestedAt'">{{ formatDate(row.requestedAt) }}</span>
@@ -88,7 +91,7 @@
         </el-table-column>
         <el-table-column label="详情" width="90" fixed="right" align="center">
           <template #default="{ row }">
-            <el-popover trigger="click" placement="left" :width="760" title="资源需求详情" @show="loadDetail(row)">
+            <el-popover trigger="click" placement="left" :width="760" :fallback-placements="['bottom', 'top', 'right']" :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 16, boundary: 'viewport' } }] }" title="资源需求详情" popper-class="resource-detail-popover" @show="loadDetail(row)">
               <template #reference><el-button link type="primary">查看详情</el-button></template>
               <div class="detail" v-loading="detailLoading === row.id">
                 <el-descriptions :column="2" border size="small">
@@ -100,6 +103,7 @@
                   <el-descriptions-item label="需求项目">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="客户编号">{{ detailOf(row).clientCodeSnapshot || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="客户简称">{{ detailOf(row).clientShortNameSnapshot || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="负责人">{{ ownerName(detailOf(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="优先级">{{ priorityLabels[detailOf(row).priority] || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="发起时间">{{ formatDate(detailOf(row).requestedAt) }}</el-descriptions-item>
                   <el-descriptions-item v-if="detailOf(row).requestDetail" label="需求详情" :span="2"><div class="pre">{{ detailOf(row).requestDetail }}</div></el-descriptions-item>
@@ -109,7 +113,7 @@
             </el-popover>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right" align="center">
+        <el-table-column v-if="canWrite && !deleteMode" label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openProgress(row)">更新进度</el-button>
             <el-button link type="primary" @click="openEditor(row)">编辑</el-button>
@@ -194,7 +198,10 @@ import { getProjects as getTranslationProjects } from '@/api/projects'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import { getUsers } from '@/api/users'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useBatchDelete } from '@/composables/useBatchDelete'
+import { hasPermission } from '@/utils/permission'
 
 const languageText = (items, languages) => {
   const label = (id) => languages.find((item) => item.id === id)?.label || '-'
@@ -220,7 +227,7 @@ const LanguageItemsPopover = defineComponent({
     return () => {
       if (props.alwaysExpanded) return props.items.length ? table() : h('span', '-')
       if (props.items.length <= 1) return h('span', { class: 'cell-summary' }, summary.value)
-      return h(ElPopover, { trigger: 'click', placement: 'left', width: 680 }, { reference: () => h(ElButton, { link: true, type: 'primary' }, () => summary.value), default: table })
+      return h(ElPopover, { trigger: 'click', placement: 'left', width: 680, popperClass: 'resource-items-popover' }, { reference: () => h(ElButton, { link: true, type: 'primary' }, () => summary.value), default: table })
     }
   },
 })
@@ -243,6 +250,8 @@ const detailCache = reactive({})
 const showRequestDetail = ref(false)
 const formRef = ref(null)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
+const tableRef = ref(null)
+const canWrite = hasPermission('projects:write')
 const searchForm = reactive({ keyword: '', requestStatus: '', sourceType: '', requestCategory: '', priority: '', ownerId: '' })
 const form = reactive({})
 const sourceInfo = reactive({ projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
@@ -260,6 +269,7 @@ const projectStatusLabels = {
   initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓', resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过', project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈', partially_cancelled: '已部分取消',
   pending_setup: '待启动', sourcing: '寻访中', recommending: '推荐中', interviewing: '面试中', offer_negotiation: 'Offer协商中', pending_onboard: '待入职', probation: '试用期', closed: '已关闭',
   initial_follow_up: '初步跟进中', in_progress: '进行中', ended: '已结束', settled: '已结款', active: '进行中', completed: '已完成', cancelled: '已取消',
+  pending_confirmation: '待确认', confirmed: '已确认', organized: '已整理', translator_assigned: '已排译员', sent_to_translator: '已发译员', translator_returned: '译员发回', special_checked: '已专检', typeset: '已排版', special_checked_typeset: '已专检排版', reviewed: '已审核', feedback_sent_to_client: '反馈后发客户', paused: '已暂停',
 }
 
 const tableColumns = [
@@ -271,6 +281,7 @@ const tableColumns = [
   { key: 'projectName', label: '需求项目', minWidth: 190 },
   { key: 'clientCode', label: '客户编号', width: 120 },
   { key: 'clientShortName', label: '客户简称', width: 110 },
+  { key: 'ownerName', label: '负责人', width: 110 },
   { key: 'languages', label: '需求语种', minWidth: 170 },
   { key: 'requiredCount', label: '需求人数', minWidth: 135 },
   { key: 'requestDetail', label: '需求详情', minWidth: 180 },
@@ -281,6 +292,7 @@ const tableColumns = [
 ]
 const defaultColumnKeys = ['projectType', 'projectStatus', 'projectName', 'clientShortName', 'languages', 'requiredCount', 'requestDetail']
 const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumns('resource-requests', tableColumns, defaultColumnKeys)
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
 const visibleColumns = computed(() => tableColumns.filter((column) => selectedColumnKeys.value.includes(column.key)))
 const advancedCount = computed(() => [searchForm.sourceType, searchForm.requestCategory, searchForm.priority, searchForm.ownerId].filter(Boolean).length)
 const availableProjects = computed(() => projects[form.sourceType] || [])
@@ -298,7 +310,7 @@ let requestId = 0
 const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'submitted', ownerId: '', items: [] })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const params = () => ({ keyword: searchForm.keyword.trim() || undefined, request_status: searchForm.requestStatus || undefined, source_type: searchForm.sourceType || undefined, request_category: searchForm.requestCategory || undefined, priority: searchForm.priority || undefined, owner_id: searchForm.ownerId || undefined })
-const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current = ++requestId; loading.value = true; try { const filters = params(); const [list, count] = await Promise.all([api.getResourceRequests({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: controller.signal }), api.getResourceRequestCount(filters, { signal: controller.signal })]); if (current !== requestId) return; rows.value = list; pagination.total = count.total || 0 } catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '加载资源需求失败') } finally { if (current === requestId) loading.value = false } }
+const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current = ++requestId; loading.value = true; try { const filters = params(); const [list, count] = await Promise.all([api.getResourceRequests({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: controller.signal }), api.getResourceRequestCount(filters, { signal: controller.signal })]); if (current !== requestId) return; rows.value = list; pagination.total = count.total || 0 } catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '网络异常，资源需求列表未刷新，请检查网络后重试') } finally { if (current === requestId) loading.value = false } }
 const search = () => { clearTimeout(timer); pagination.page = 1; fetchData() }
 const onKeyword = (value) => { clearTimeout(timer); if (!value) return search(); timer = setTimeout(search, 400) }
 const reset = () => { Object.assign(searchForm, { keyword: '', requestStatus: '', sourceType: '', requestCategory: '', priority: '', ownerId: '' }); search() }
@@ -306,6 +318,12 @@ const clearAdvanced = () => { Object.assign(searchForm, { sourceType: '', reques
 const updateAdvancedWidth = () => { advancedWidth.value = Math.max(280, Math.min(760, window.innerWidth - 32)) }
 const rowIndex = (index) => (pagination.page - 1) * pagination.limit + index + 1
 const userName = (user) => user.full_name || user.fullName || user.username
+const ownerName = (row) => {
+  const ownerId = row.ownerId || row.owner_id
+  if (!ownerId) return '-'
+  const user = users.value.find((item) => item.id === ownerId)
+  return user ? userName(user) : '-'
+}
 const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const languageOptionLabel = (language) => language.isCustom ? `${language.label}（自定义）` : language.label
 const priorityType = (value) => ({ high: 'danger', medium: 'warning', low: 'info' }[value])
@@ -315,7 +333,17 @@ const projectStatusLabel = (value) => projectStatusLabels[value] || value || '-'
 const projectTypesText = (row) => row.sourceProjectTypesSnapshot?.length ? row.sourceProjectTypesSnapshot.map(projectTypeLabel).join('、') : (categoryLabels[row.requestCategory] || sourceLabels[row.sourceType] || '-')
 const projectStatusText = (row) => projectStatusLabel(row.currentProjectStatus || row.sourceStatusSnapshot)
 const detailOf = (row) => detailCache[row.id] || row
-const loadDetail = async (row) => { if (detailCache[row.id]) return; detailLoading.value = row.id; try { detailCache[row.id] = await api.getResourceRequest(row.id) } finally { detailLoading.value = '' } }
+const loadDetail = async (row) => {
+  if (detailCache[row.id]) return
+  detailLoading.value = row.id
+  try {
+    detailCache[row.id] = await api.getResourceRequest(row.id)
+  } catch (error) {
+    ElMessage.error(error.detail || '加载资源需求详情失败')
+  } finally {
+    detailLoading.value = ''
+  }
+}
 
 const sourceChanged = () => { form.sourceProjectId = ''; form.otherProjectTypes = []; form.requestCategory = form.sourceType === 'annotation' ? 'annotation_trial' : form.sourceType; form.requestDetail = ''; form.items = []; showRequestDetail.value = false; resetSourceInfo(); nextTick(() => formRef.value?.clearValidate()) }
 const sourceProjectChanged = async (projectId) => {
@@ -443,4 +471,15 @@ onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); window.removeE
 .resource-dialog .el-dialog__header, .resource-dialog .el-dialog__footer { flex-shrink: 0; }
 .resource-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
 .resource-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -4px 12px rgb(0 0 0 / 4%); }
+.resource-detail-popover, .resource-items-popover { max-width: calc(100vw - 32px) !important; }
+@media (max-width: 768px) {
+  .resource-detail-popover.el-popper, .resource-items-popover.el-popper {
+    position: fixed !important;
+    left: 16px !important;
+    right: 16px !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+  }
+}
 </style>

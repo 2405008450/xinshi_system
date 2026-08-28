@@ -39,7 +39,19 @@ const startAdd=()=>{editingId.value='';Object.assign(form,empty(),{fieldKey:prop
 const startEdit=(row)=>{editingId.value=row.id;Object.assign(form,empty(),row);dialogVisible.value=true}
 const payload=source=>({projectId:source.projectId||null,tableCode:source.tableCode,fieldKey:source.fieldKey,fieldLabel:source.fieldLabel.trim(),dataType:source.dataType,options:source.options||[],sequenceNo:source.sequenceNo||null,isRequired:Boolean(source.isRequired),isActive:Boolean(source.isActive)})
 const save=async()=>{if(!form.fieldKey.trim()||!form.fieldLabel.trim())return ElMessage.warning('请填写字段名称');saving.value=true;try{const data=payload(form);const action=editingId.value?updateCustomField(editingId.value,data):createCustomField(data);await action;ElMessage.success('动态字段已保存');dialogVisible.value=false;await load();emit('changed')}catch(error){ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
-const disable=async(row)=>{try{await ElMessageBox.confirm(`停用“${row.fieldLabel}”？该列会从当前项目表隐藏，但历史值会保留。`,'受限删除',{type:'warning',confirmButtonText:'确认停用',cancelButtonText:'取消'});await deleteCustomField(row.id);await load();emit('changed');ElMessage.success('字段已停用，历史值已保留')}catch(error){if(!['cancel','close'].includes(error))ElMessage.error(error.detail||'停用失败')}}
+const disable=async(row)=>{
+  visible.value=false
+  try{
+    await ElMessageBox.confirm(`停用“${row.fieldLabel}”？该列会从当前项目表隐藏，但历史值会保留。`,'受限删除',{type:'warning',confirmButtonText:'确认停用',cancelButtonText:'取消'})
+    await deleteCustomField(row.id)
+    await load()
+    emit('changed')
+    ElMessage.success('字段已停用，历史值已保留')
+  }catch(error){
+    if(error==='cancel'||error==='close') return
+    ElMessage.error(error.detail||error.message||'停用失败')
+  }
+}
 const restore=async(row)=>{saving.value=true;try{await updateCustomField(row.id,payload({...row,isActive:true}));await load();emit('changed');ElMessage.success('字段已恢复')}catch(error){ElMessage.error(error.detail||'恢复失败')}finally{saving.value=false}}
 onMounted(load)
 watch(()=>[props.tableCode,props.projectId],()=>load())

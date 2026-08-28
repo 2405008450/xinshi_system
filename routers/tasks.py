@@ -9,6 +9,23 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
+from daily_report_mail_schemas import (
+    DailyReportMailAccountStatus,
+    DailyReportMailAccountWrite,
+    DailyReportMailDeliveryResponse,
+    DailyReportMailPreviewResponse,
+    DailyReportMailSendRequest,
+)
+from daily_report_mail_service import (
+    build_daily_report_mail_preview,
+    delete_mail_account,
+    list_daily_report_deliveries,
+    save_mail_account,
+    send_daily_report_mail,
+    serialize_delivery,
+    serialize_mail_account,
+    verify_mail_account,
+)
 from models import AppUser
 from permission_service import user_has_permission
 from routers.auth import get_current_user, require_permission
@@ -44,6 +61,7 @@ from task_service import (
     serialize_report,
     update_non_project_task,
     update_work_entry,
+    withdraw_daily_report,
 )
 
 
@@ -281,6 +299,63 @@ def report_preview(
     return preview_daily_report(db, current_user, report_date, refresh=refresh)
 
 
+@reports_router.get(
+    "/mail-account",
+    response_model=DailyReportMailAccountStatus,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def read_mail_account(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return serialize_mail_account(db, current_user)
+
+
+@reports_router.put(
+    "/mail-account",
+    response_model=DailyReportMailAccountStatus,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def bind_mail_account(
+    payload: DailyReportMailAccountWrite,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return save_mail_account(db, current_user, payload.authorization_code)
+    except Exception as exc:
+        db.rollback()
+        raise _http_error(exc) from exc
+
+
+@reports_router.post(
+    "/mail-account/verify",
+    response_model=DailyReportMailAccountStatus,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def verify_current_mail_account(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return verify_mail_account(db, current_user)
+    except Exception as exc:
+        db.rollback()
+        raise _http_error(exc) from exc
+
+
+@reports_router.delete(
+    "/mail-account",
+    status_code=204,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def remove_mail_account(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    delete_mail_account(db, current_user)
+
+
 @reports_router.put(
     "/{report_date}",
     response_model=DailyReportResponse,
@@ -319,6 +394,73 @@ def finalize_report(
         )
     except ValueError as exc:
         raise _http_error(exc) from exc
+
+
+@reports_router.post(
+    "/{report_date}/withdraw",
+    response_model=DailyReportResponse,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def withdraw_report(
+    report_date: date,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return serialize_report(withdraw_daily_report(db, current_user, report_date))
+    except (LookupError, ValueError) as exc:
+        db.rollback()
+        raise _http_error(exc) from exc
+
+
+@reports_router.get(
+    "/{report_date}/mail-preview",
+    response_model=DailyReportMailPreviewResponse,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def report_mail_preview(
+    report_date: date,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return build_daily_report_mail_preview(db, current_user, report_date)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@reports_router.post(
+    "/{report_date}/send",
+    response_model=DailyReportMailDeliveryResponse,
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def send_report_mail(
+    report_date: date,
+    payload: DailyReportMailSendRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return serialize_delivery(send_daily_report_mail(db, current_user, report_date, payload))
+    except Exception as exc:
+        db.rollback()
+        raise _http_error(exc) from exc
+
+
+@reports_router.get(
+    "/{report_date}/deliveries",
+    response_model=list[DailyReportMailDeliveryResponse],
+    dependencies=[Depends(require_permission("reports:read"))],
+)
+def report_mail_deliveries(
+    report_date: date,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return [
+        serialize_delivery(item)
+        for item in list_daily_report_deliveries(db, current_user.id, report_date)
+    ]
 
 
 @reports_router.get(

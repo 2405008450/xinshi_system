@@ -12,6 +12,8 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from concurrency import VERSION_FIELD, assert_fresh
+
 import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作流关系
 from annotation_models import AnnotationProject
 from interpretation_models import InterpretationLanguage, InterpretationProject
@@ -317,8 +319,9 @@ def update_recruitment_project(
     project = get_recruitment_project(db, project_id)
     if not project:
         return None
+    assert_fresh(project, payload.expected_updated_at)
     old_status = project.project_status
-    data = payload.model_dump(exclude=NESTED_FIELDS)
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     # 来源咨询一经建项即不可通过普通编辑解绑或换绑。
     data.pop("consultation_id", None)
     _resolve_client(db, data)

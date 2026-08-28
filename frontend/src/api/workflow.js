@@ -31,7 +31,8 @@ export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
   api.post(`/workflow/project-manager-handover/${requestId}/accept`, data)
 export const rejectProjectManagerHandoverAPI = (requestId, data = {}) =>
   api.post(`/workflow/project-manager-handover/${requestId}/reject`, data)
-export const getTransferableTasksAPI = (params = {}) => api.get('/workflow/transferable-tasks', { params })
+export const getTransferableTasksAPI = (params = {}, config = {}) =>
+  api.get('/workflow/transferable-tasks', { params, ...config })
 export const getEligibleTransferUsersAPI = (items) =>
   api.post('/workflow/eligible-users', { work_item_refs: workItemRefs(items) })
 export const handoverWorkflowTasksAPI = (data) => api.post('/workflow/handover', {
@@ -49,6 +50,8 @@ export const acceptHandoverRequestAPI = (requestId, data = {}) =>
   api.post(`/workflow/handover-requests/${requestId}/accept`, data)
 export const rejectHandoverRequestAPI = (requestId, data = {}) =>
   api.post(`/workflow/handover-requests/${requestId}/reject`, data)
+export const returnDelegatedTasksAPI = (delegationIds, note = '') =>
+  api.post('/workflow/delegations/return', { delegation_ids: delegationIds, note: note || undefined })
 export const getWorkflowStateAPI = (projectId) => api.get(`/workflow/${projectId}`)
 export const initWorkflowAPI = (projectId) => api.post(`/workflow/${projectId}/init`)
 export const setDifficultyAPI = (projectId, data) => api.post(`/workflow/${projectId}/set-difficulty`, data)

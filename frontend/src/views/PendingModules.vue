@@ -39,6 +39,7 @@ const moduleGroups = [
     title: '通用模块',
     items: [
       { name: '数据看板', path: '/dashboard', description: '暂时停用，待后续完善', public: true },
+      { name: '排班管理', path: '/work-schedule', description: '暂时停用，待后续完善', permission: 'schedule:read' },
     ],
   },
   {

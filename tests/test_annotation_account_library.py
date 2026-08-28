@@ -61,7 +61,7 @@ def test_account_update_accepts_blank_secrets_as_no_change():
     assert payload.password is None
 
 
-def test_account_list_response_contains_plaintext_credentials():
+def test_account_list_response_redacts_credentials_by_default():
     now = datetime(2026, 8, 27)
     account = SimpleNamespace(
         id=uuid4(), platform_id=uuid4(), parent_account_id=None, owner_id=None,
@@ -77,6 +77,30 @@ def test_account_list_response_contains_plaintext_credentials():
     )
 
     response = service._account_dict(account)
+
+    assert response["login_account"] is None
+    assert response["password"] is None
+    assert response["has_login_account"] is True
+    assert response["has_password"] is True
+    assert response["masked_login_account"]
+
+
+def test_account_dict_includes_plaintext_when_revealed():
+    now = datetime(2026, 8, 27)
+    account = SimpleNamespace(
+        id=uuid4(), platform_id=uuid4(), parent_account_id=None, owner_id=None,
+        owner=None, nickname="测试账号", login_account="plain-login",
+        password="plain-password", account_status="available",
+        registration_status="registered", account_source="client_provided",
+        expires_on=None, remarks=None, sequence_no=1, custom_values={},
+        password_updated_at=now, assignments=[], created_at=now, updated_at=now,
+        platform=SimpleNamespace(
+            platform_name="测试平台", platform_url="https://example.com",
+            client_id=uuid4(), sub_client_id=None,
+        ),
+    )
+
+    response = service._account_dict(account, reveal=True)
 
     assert response["login_account"] == "plain-login"
     assert response["password"] == "plain-password"

@@ -38,10 +38,11 @@
                       size="small"
                       clearable
                       placeholder="订单号、项目或客户"
-                      @keyup.enter="loadContext"
-                      @clear="loadContext"
+                      @input="onProjectKeywordInput"
+                      @keyup.enter="runProjectSearch"
+                      @clear="runProjectSearch"
                     />
-                    <el-button size="small" type="primary" :loading="contextLoading" @click="loadContext">查询</el-button>
+                    <el-button size="small" type="primary" :loading="contextLoading" @click="runProjectSearch">查询</el-button>
                     <span class="panel-tools__divider" />
                   </template>
                   <el-tooltip :content="mailStatus.detail || '正在读取邮件配置'" placement="bottom">
@@ -227,13 +228,24 @@
               </span>
               <span v-else>请先从左上方选择稿件</span>
             </div>
-            <el-tag
-              v-if="selectedProjectDispatch"
-              :type="dispatchStatusMeta(selectedProjectDispatch.status).type"
-              size="small"
-            >
-              {{ dispatchStatusMeta(selectedProjectDispatch.status).label }}
-            </el-tag>
+            <div class="legacy-assignment-panel__actions">
+              <el-tag
+                v-if="selectedProjectDispatch"
+                :type="dispatchStatusMeta(selectedProjectDispatch.status).type"
+                size="small"
+              >
+                {{ dispatchStatusMeta(selectedProjectDispatch.status).label }}
+              </el-tag>
+              <el-button
+                v-if="canWrite && canManageSelectedProject && selectedProjectDispatch && selectedProjectDispatch.status !== 'draft'"
+                type="primary"
+                link
+                size="small"
+                @click="startNewBatch"
+              >
+                新建下一批次
+              </el-button>
+            </div>
           </div>
         </template>
 
@@ -808,10 +820,11 @@
               size="small"
               clearable
               placeholder="搜索订单、项目、译员或邮箱"
-              @keyup.enter="loadDispatches"
-              @clear="loadDispatches"
+              @input="onDispatchKeywordInput"
+              @keyup.enter="runDispatchSearch"
+              @clear="runDispatchSearch"
             />
-            <el-button size="small" :loading="recordsLoading" @click="loadDispatches">查询</el-button>
+            <el-button size="small" :loading="recordsLoading" @click="runDispatchSearch">查询</el-button>
           </div>
         </div>
       </template>
@@ -1334,7 +1347,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   cancelManuscriptDispatch,
@@ -1413,6 +1426,14 @@ function toggleProjectPanel() {
 }
 
 const canWrite = computed(() => hasPermission('projects:write'))
+const creatingNewBatch = ref(false)
+const SEARCH_DEBOUNCE_MS = 400
+let projectSearchTimer = null
+let dispatchSearchTimer = null
+let contextRequestId = 0
+let dispatchRequestId = 0
+let contextController = null
+let dispatchController = null
 const canManageSelectedProject = computed(() => (
   canWrite.value && Boolean(selectedProject.value?.can_manage_manuscript)
 ))
@@ -1439,12 +1460,14 @@ function ensureCanManage(target = selectedProject.value) {
 
 function activeDispatchFor(project) {
   const target = projectIdentity(project)
-  return dispatches.value.find(
+  const items = dispatches.value.filter(
     (item) => projectIdentity(item) === target && item.status !== 'cancelled'
-  ) || null
+  )
+  return items.find((item) => item.status === 'draft') || items[0] || null
 }
 
 const selectedProjectDispatch = computed(() => {
+  if (creatingNewBatch.value) return null
   return selectedProject.value ? activeDispatchFor(selectedProject.value) : null
 })
 
@@ -1775,7 +1798,8 @@ const mailStatus = reactive({
 const dispatchForm = reactive({
   id: '',
   remarks: '',
-  arrangements: []
+  arrangements: [],
+  updated_at: null
 })
 
 watch(
@@ -2082,7 +2106,6 @@ async function handleWordCountMatrixSaved() {
   if (freshProject) selectedProject.value = freshProject
   const freshDispatch = selectedProjectDispatch.value
   if (freshDispatch && dispatchForm.id === freshDispatch.id) hydrateDispatchForm(freshDispatch)
-  else applySingleTranslatorEstimateDefault()
   await loadActiveMailPreview()
 }
 
@@ -2325,7 +2348,7 @@ function sumField(dispatch, field, nullWhenEmpty = false) {
 }
 
 function resetDispatchForm() {
-  Object.assign(dispatchForm, { id: '', remarks: '', arrangements: [] })
+  Object.assign(dispatchForm, { id: '', remarks: '', arrangements: [], updated_at: null })
   selectedTranslatorIds.value = []
   activeArrangementTranslatorId.value = ''
   workbenchStage.value = 'arrange'
@@ -2334,6 +2357,7 @@ function resetDispatchForm() {
 function hydrateDispatchForm(row, { asNew = false } = {}) {
   dispatchForm.id = asNew ? '' : row.id
   dispatchForm.remarks = row.remarks || ''
+  dispatchForm.updated_at = asNew ? null : (row.updated_at || null)
   dispatchForm.arrangements = (row.arrangements || []).map((item) => ({
     id: item.id,
     translator_id: item.translator_id,
@@ -2369,6 +2393,7 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
 }
 
 function prepareWorkbenchForProject() {
+  creatingNewBatch.value = false
   const existing = selectedProjectDispatch.value
   if (existing) {
     hydrateDispatchForm(existing)
@@ -2387,6 +2412,21 @@ function prepareWorkbenchForProject() {
   syncSelectedTranslators(selectedTranslatorIds.value)
   activeArrangementTranslatorId.value =
     dispatchForm.arrangements[0]?.translator_id || ''
+}
+
+function startNewBatch() {
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择订单')
+    return
+  }
+  if (!ensureCanManage()) return
+  creatingNewBatch.value = true
+  resetDispatchForm()
+  selectedTranslatorIds.value = workspaceSelectedTranslators.value.map((item) => item.id)
+  syncSelectedTranslators(selectedTranslatorIds.value)
+  applySingleTranslatorEstimateDefault()
+  activeArrangementTranslatorId.value = dispatchForm.arrangements[0]?.translator_id || ''
+  workbenchStage.value = 'arrange'
 }
 
 function openCreateDialog() {
@@ -2473,6 +2513,7 @@ function buildDispatchPayload() {
         ? selectedProject.value.sub_order_id
         : null,
     remarks: dispatchForm.remarks || null,
+    expected_updated_at: dispatchForm.id ? dispatchForm.updated_at || null : undefined,
     arrangements: dispatchForm.arrangements.map((item) => ({
       translator_id: item.translator_id,
       planned: item.planned,
@@ -2512,7 +2553,9 @@ async function saveDraft(shouldConfirm) {
     const saved = dispatchForm.id
       ? await updateManuscriptDispatch(dispatchForm.id, payload)
       : await createManuscriptDispatch(payload)
+    creatingNewBatch.value = false
     dispatchForm.id = saved.id
+    dispatchForm.updated_at = saved.updated_at || null
     if (shouldConfirm) {
       await confirmManuscriptDispatch(saved.id)
       ElMessage.success('派稿批次已确认，订单状态已更新为“已排译员”')
@@ -2521,6 +2564,7 @@ async function saveDraft(shouldConfirm) {
     }
     dispatchDialogVisible.value = false
     await Promise.all([loadContext(), loadDispatches()])
+    prepareWorkbenchForProject()
     if (shouldConfirm) workbenchStage.value = 'send'
   } catch (error) {
     ElMessage.error(error.detail || '保存稿件安排失败')
@@ -2679,13 +2723,59 @@ async function saveSettlement() {
   }
 }
 
+function isAbortError(error) {
+  return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError'
+}
+
+function onProjectKeywordInput(value) {
+  clearTimeout(projectSearchTimer)
+  projectSearchTimer = null
+  if (!String(value || '').trim()) {
+    loadContext()
+    return
+  }
+  projectSearchTimer = setTimeout(() => {
+    projectSearchTimer = null
+    loadContext()
+  }, SEARCH_DEBOUNCE_MS)
+}
+
+function runProjectSearch() {
+  clearTimeout(projectSearchTimer)
+  projectSearchTimer = null
+  loadContext()
+}
+
+function onDispatchKeywordInput(value) {
+  clearTimeout(dispatchSearchTimer)
+  dispatchSearchTimer = null
+  if (!String(value || '').trim()) {
+    loadDispatches()
+    return
+  }
+  dispatchSearchTimer = setTimeout(() => {
+    dispatchSearchTimer = null
+    loadDispatches()
+  }, SEARCH_DEBOUNCE_MS)
+}
+
+function runDispatchSearch() {
+  clearTimeout(dispatchSearchTimer)
+  dispatchSearchTimer = null
+  loadDispatches()
+}
+
 async function loadContext() {
+  contextController?.abort()
+  contextController = new AbortController()
+  const requestId = ++contextRequestId
   contextLoading.value = true
   try {
     const response = await getManuscriptContext({
       keyword: projectKeyword.value.trim() || undefined,
       project_limit: 100
-    })
+    }, { signal: contextController.signal })
+    if (requestId !== contextRequestId) return
     activeProjects.value = Array.isArray(response?.active_projects?.items)
       ? response.active_projects.items.filter(canShowInManuscriptArrangements)
       : []
@@ -2697,24 +2787,30 @@ async function loadContext() {
       ) || null
     }
   } catch (error) {
-    ElMessage.error(error.detail || '加载项目和译员信息失败')
+    if (requestId !== contextRequestId || isAbortError(error)) return
+    ElMessage.error(error.detail || '加载项目和译员信息失败，请检查网络后重试')
   } finally {
-    contextLoading.value = false
+    if (requestId === contextRequestId) contextLoading.value = false
   }
 }
 
 async function loadDispatches() {
+  dispatchController?.abort()
+  dispatchController = new AbortController()
+  const requestId = ++dispatchRequestId
   recordsLoading.value = true
   try {
     const response = await getManuscriptDispatches({
       limit: 500,
       keyword: dispatchKeyword.value.trim() || undefined
-    })
+    }, { signal: dispatchController.signal })
+    if (requestId !== dispatchRequestId) return
     dispatches.value = Array.isArray(response) ? response : []
   } catch (error) {
-    ElMessage.error(error.detail || '加载稿件安排记录失败')
+    if (requestId !== dispatchRequestId || isAbortError(error)) return
+    ElMessage.error(error.detail || '加载稿件安排记录失败，请检查网络后重试')
   } finally {
-    recordsLoading.value = false
+    if (requestId === dispatchRequestId) recordsLoading.value = false
   }
 }
 
@@ -2735,6 +2831,7 @@ async function loadAll() {
   loading.value = true
   try {
     await Promise.all([loadContext(), loadDispatches(), loadMailStatus()])
+    if (selectedProject.value) prepareWorkbenchForProject()
     await loadActiveMailPreview()
   } finally {
     loading.value = false
@@ -2742,6 +2839,12 @@ async function loadAll() {
 }
 
 onMounted(loadAll)
+onBeforeUnmount(() => {
+  clearTimeout(projectSearchTimer)
+  clearTimeout(dispatchSearchTimer)
+  contextController?.abort()
+  dispatchController?.abort()
+})
 </script>
 
 <style scoped>
@@ -2979,6 +3082,13 @@ onMounted(loadAll)
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.legacy-assignment-panel__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
 }
 
 .legacy-assignment-body {

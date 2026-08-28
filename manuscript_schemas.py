@@ -170,7 +170,7 @@ class ManuscriptDispatchCreate(BaseModel):
 
 
 class ManuscriptDispatchUpdate(ManuscriptDispatchCreate):
-    pass
+    expected_updated_at: Optional[datetime] = None
 
 
 class ManuscriptArrangementCreate(BaseModel):

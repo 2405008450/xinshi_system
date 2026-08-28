@@ -17,7 +17,12 @@
               <strong>{{ request.requester_name || '未知用户' }}</strong>
               <span>向你发起了 {{ request.tasks?.length || 0 }} 项任务交接</span>
             </div>
-            <el-tag type="warning" effect="plain">{{ handoverTypeLabel(request.handover_type) }}</el-tag>
+            <div class="request-card__tags">
+              <el-tag :type="request.transfer_mode === 'delegation' ? 'primary' : 'warning'" effect="plain">
+                {{ request.transfer_mode === 'delegation' ? '临时代办' : '永久转交' }}
+              </el-tag>
+              <el-tag type="warning" effect="plain">{{ handoverTypeLabel(request.handover_type) }}</el-tag>
+            </div>
           </div>
         </template>
 
@@ -25,6 +30,9 @@
           <el-descriptions-item label="发起时间">{{ formatDateTime(request.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="交接原因">
             {{ request.handover_type === 'other' ? request.reason_detail : handoverTypeLabel(request.handover_type) }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="request.transfer_mode === 'delegation'" label="计划代办至" :span="2">
+            {{ formatDateTime(request.delegation_end_at) }}（到期仅提醒，不自动归还）
           </el-descriptions-item>
         </el-descriptions>
 
@@ -166,7 +174,9 @@ const handleDecision = async (request, decision) => {
   try {
     await ElMessageBox.confirm(
       decision === 'accept'
-        ? '确认后所列任务将正式转交给你，是否继续？'
+        ? (request.transfer_mode === 'delegation'
+            ? `确认后你将临时代办所列任务，计划至 ${formatDateTime(request.delegation_end_at)}，是否继续？`
+            : '确认后所列任务将永久转交给你，是否继续？')
         : '拒绝后任务仍由原负责人处理，是否继续？',
       actionLabel,
       { type: decision === 'accept' ? 'warning' : 'error', confirmButtonText: actionLabel, cancelButtonText: '取消' }
@@ -261,6 +271,12 @@ defineExpose({ refresh: loadRequests })
 
 .request-card__header > div {
   justify-content: flex-start;
+}
+
+.request-card__tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .request-note,

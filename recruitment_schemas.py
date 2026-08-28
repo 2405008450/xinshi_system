@@ -134,7 +134,7 @@ class RecruitmentProjectCreate(RecruitmentProjectBase):
 
 
 class RecruitmentProjectUpdate(RecruitmentProjectBase):
-    pass
+    expected_updated_at: Optional[datetime] = None
 
 
 class RecruitmentProjectStatusUpdate(BaseModel):

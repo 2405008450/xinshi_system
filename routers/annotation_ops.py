@@ -38,7 +38,12 @@ from annotation_ops_service import (
 )
 from database import get_db
 from models import AppUser
+from permission_service import user_has_permission
 from routers.auth import get_current_user, require_any_permission, require_module_access
+
+
+def _can_reveal_accounts(db: Session, user: AppUser) -> bool:
+    return user_has_permission(db, user.id, "annotation_accounts:reveal")
 
 
 router = APIRouter(prefix="/annotation-ops", tags=["annotation_ops"])
@@ -99,9 +104,12 @@ def accounts(
     assignment_state: Optional[str] = None, account_status: Optional[str] = None,
     registration_status: Optional[str] = None, language_item_id: Optional[UUID] = None,
     keyword: Optional[str] = None, skip: int = 0, limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db), user: AppUser = Depends(get_current_user),
 ):
-    return list_accounts(db, skip, limit, **_account_filters(client_id, platform_id, project_id, person_id, assignment_state, account_status, registration_status, language_item_id, keyword))
+    return list_accounts(
+        db, skip, limit, reveal=_can_reveal_accounts(db, user),
+        **_account_filters(client_id, platform_id, project_id, person_id, assignment_state, account_status, registration_status, language_item_id, keyword),
+    )
 
 
 @account_router.get("/accounts/count", dependencies=[Depends(require_any_permission("annotation_accounts:read", "annotation_accounts:write"))])
@@ -239,8 +247,8 @@ def stats(client_id: Optional[UUID] = None, expiring_days: int = Query(30, ge=1,
 
 
 @account_router.get("/persons/{person_id}/accounts", response_model=List[AccountResponse], dependencies=[Depends(require_any_permission("annotation_accounts:read", "annotation_accounts:write"))])
-def person_accounts(person_id: UUID, include_history: bool = False, db: Session = Depends(get_db)):
-    return list_person_accounts(db, person_id, include_history)
+def person_accounts(person_id: UUID, include_history: bool = False, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return list_person_accounts(db, person_id, include_history, reveal=_can_reveal_accounts(db, user))
 
 
 @account_router.get(

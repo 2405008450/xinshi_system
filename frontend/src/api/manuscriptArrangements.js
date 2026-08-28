@@ -1,7 +1,7 @@
 import api from './index'
 
-export const getManuscriptContext = (params = {}) =>
-  api.get('/manuscript-arrangements/context', { params })
+export const getManuscriptContext = (params = {}, config = {}) =>
+  api.get('/manuscript-arrangements/context', { params, ...config })
 
 export const getManuscriptMailStatus = () =>
   api.get('/manuscript-arrangements/mail-status')
@@ -9,8 +9,8 @@ export const getManuscriptMailStatus = () =>
 export const getManuscriptArrangements = (params = {}) =>
   api.get('/manuscript-arrangements', { params })
 
-export const getManuscriptDispatches = (params = {}) =>
-  api.get('/manuscript-arrangements/batches', { params })
+export const getManuscriptDispatches = (params = {}, config = {}) =>
+  api.get('/manuscript-arrangements/batches', { params, ...config })
 
 export const createManuscriptDispatch = (data) =>
   api.post('/manuscript-arrangements/batches', data)

@@ -39,7 +39,9 @@
           <el-tag v-else type="info" size="small" effect="plain">角色池</el-tag>
         </div>
       </div>
-      <div class="role-popover__hint">临时任务交接只改变当前处理人，不修改以上项目固定角色。</div>
+      <div class="role-popover__hint">
+        客户专员显示当前接单阶段的承接人；临时任务交接只改变当前处理人，不修改其他项目固定角色。
+      </div>
     </div>
   </el-popover>
 </template>
@@ -48,6 +50,7 @@
 import { computed } from 'vue'
 
 const PROJECT_ROLES = [
+  { roleCode: 'customer_specialist', roleName: '客户专员' },
   { roleCode: 'project_manager', roleName: '项目经理' },
   { roleCode: 'project_specialist', roleName: '项目专员' },
   { roleCode: 'project_assistant', roleName: '项目助理' },
@@ -69,11 +72,17 @@ const normalizedRoles = computed(() => {
   ]))
   return PROJECT_ROLES.map((definition) => {
     const source = byCode[definition.roleCode] || {}
+    const isCurrentCustomerSpecialist = definition.roleCode === 'customer_specialist'
+      && props.currentStageRoleCode === definition.roleCode
+    const currentStageAssigneeId = isCurrentCustomerSpecialist && props.currentAssigneeName
+      ? 'current-stage-assignee'
+      : ''
     return {
       ...definition,
       roleName: source.roleName || source.role_name || definition.roleName,
-      assigneeId: source.assigneeId || source.assignee_id || '',
-      assigneeName: source.assigneeName || source.assignee_name || ''
+      assigneeId: source.assigneeId || source.assignee_id || currentStageAssigneeId,
+      assigneeName: source.assigneeName || source.assignee_name
+        || (isCurrentCustomerSpecialist ? props.currentAssigneeName : '')
     }
   })
 })

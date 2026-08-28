@@ -43,6 +43,7 @@ from workflow_crud import (
     rollback,
     update_stage_data,
 )
+from workflow_delegation_service import return_delegations
 from workflow_schemas import (
     WorkflowInitRequest,
     SetDifficultyRequest,
@@ -67,6 +68,7 @@ from workflow_schemas import (
     WorkflowEligibleUsersRequest,
     WorkflowTransferResult,
     WorkflowTransferUser,
+    WorkflowDelegationReturnRequest,
 )
 from models import AppUser
 from project_roles import get_stage_role
@@ -385,6 +387,8 @@ def handover_tasks_endpoint(
             project_responsibility_ids=responsibility_ids,
             target_user_id=payload.target_user_id,
             handover_type=payload.handover_type,
+            transfer_mode=payload.transfer_mode,
+            delegation_end_at=payload.delegation_end_at,
             reason_detail=payload.reason_detail,
             content=payload.content,
             content_json=payload.content_json,
@@ -452,6 +456,25 @@ def reject_handover_request_endpoint(
         decided = decide_handover_request(db, request_id, current_user, 'reject', payload.note)
         db.expire_all()
         return serialize_handover_request(decided)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/delegations/return", response_model=WorkflowTransferResult)
+def return_delegated_tasks_endpoint(
+    payload: WorkflowDelegationReturnRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return return_delegations(db, payload.delegation_ids, current_user, payload.note)
     except PermissionError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc

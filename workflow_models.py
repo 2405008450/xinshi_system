@@ -152,6 +152,10 @@ class WorkflowHandoverRequest(Base):
         ForeignKeyConstraint(['target_user_id'], ['app_user.id'], ondelete='CASCADE', name='fk_wf_handover_target'),
         ForeignKeyConstraint(['decided_by'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_handover_decider'),
         PrimaryKeyConstraint('id', name='workflow_handover_request_pkey'),
+        CheckConstraint(
+            "transfer_mode IN ('permanent', 'delegation')",
+            name='ck_wf_handover_transfer_mode',
+        ),
         Index('ix_wf_handover_target_status', 'target_user_id', 'status'),
     )
 
@@ -159,6 +163,10 @@ class WorkflowHandoverRequest(Base):
     requester_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     target_user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     handover_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    transfer_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'permanent'")
+    )
+    delegation_end_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     reason_detail: Mapped[Optional[str]] = mapped_column(String(500))
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     content_json: Mapped[Optional[dict]] = mapped_column(JSONB)
@@ -209,6 +217,65 @@ class WorkflowHandoverItem(Base):
     request: Mapped['WorkflowHandoverRequest'] = relationship('WorkflowHandoverRequest', back_populates='items')
     workflow_instance: Mapped['WorkflowInstance'] = relationship('WorkflowInstance')
     project_responsibility: Mapped[Optional['ProjectWorkbenchResponsibility']] = relationship('ProjectWorkbenchResponsibility')
+
+
+class WorkflowTaskDelegation(Base):
+    """临时代办关系；任务仍只有一个当前执行负责人。"""
+
+    __tablename__ = 'workflow_task_delegation'
+    __table_args__ = (
+        ForeignKeyConstraint(['handover_request_id'], ['workflow_handover_request.id'], ondelete='CASCADE', name='fk_wf_delegation_request'),
+        ForeignKeyConstraint(['workflow_instance_id'], ['workflow_instance.id'], ondelete='CASCADE', name='fk_wf_delegation_instance'),
+        ForeignKeyConstraint(['project_responsibility_id'], ['project_workbench_responsibility.id'], ondelete='CASCADE', name='fk_wf_delegation_responsibility'),
+        ForeignKeyConstraint(['original_assignee_id'], ['app_user.id'], ondelete='RESTRICT', name='fk_wf_delegation_original'),
+        ForeignKeyConstraint(['delegate_assignee_id'], ['app_user.id'], ondelete='RESTRICT', name='fk_wf_delegation_delegate'),
+        ForeignKeyConstraint(['ended_by_id'], ['app_user.id'], ondelete='SET NULL', name='fk_wf_delegation_ended_by'),
+        PrimaryKeyConstraint('id', name='workflow_task_delegation_pkey'),
+        CheckConstraint(
+            '(workflow_instance_id IS NOT NULL AND project_responsibility_id IS NULL) OR '
+            '(workflow_instance_id IS NULL AND project_responsibility_id IS NOT NULL)',
+            name='ck_wf_delegation_exactly_one_source',
+        ),
+        CheckConstraint(
+            "status IN ('active', 'returned', 'completed', 'cancelled')",
+            name='ck_wf_delegation_status',
+        ),
+        Index('ix_wf_delegation_original_status', 'original_assignee_id', 'status'),
+        Index('ix_wf_delegation_delegate_status', 'delegate_assignee_id', 'status'),
+        Index(
+            'uq_wf_delegation_active_instance',
+            'workflow_instance_id',
+            unique=True,
+            postgresql_where=text("status = 'active' AND workflow_instance_id IS NOT NULL"),
+        ),
+        Index(
+            'uq_wf_delegation_active_responsibility',
+            'project_responsibility_id',
+            unique=True,
+            postgresql_where=text("status = 'active' AND project_responsibility_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    handover_request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    workflow_instance_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    original_assignee_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    delegate_assignee_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    planned_end_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'active'"))
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    ended_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    ended_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    end_note: Mapped[Optional[str]] = mapped_column(String(500))
+    overdue_notified_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+    request: Mapped['WorkflowHandoverRequest'] = relationship('WorkflowHandoverRequest')
+    workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance')
+    project_responsibility: Mapped[Optional['ProjectWorkbenchResponsibility']] = relationship('ProjectWorkbenchResponsibility')
+    original_assignee = relationship('AppUser', foreign_keys=[original_assignee_id])
+    delegate_assignee = relationship('AppUser', foreign_keys=[delegate_assignee_id])
+    ended_by = relationship('AppUser', foreign_keys=[ended_by_id])
 
 
 class WorkflowHandoverAttachment(Base):

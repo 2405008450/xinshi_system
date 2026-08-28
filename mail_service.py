@@ -159,6 +159,7 @@ def send_text_email(
     cc_emails: Iterable[str] = (),
     subject: Optional[str],
     body: Optional[str],
+    html_body: Optional[str] = None,
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
@@ -204,6 +205,8 @@ def send_text_email(
     if normalized_reply_to:
         message["Reply-To"] = normalized_reply_to
     message.set_content(body or "", subtype="plain", charset="utf-8")
+    if html_body:
+        message.add_alternative(html_body, subtype="html", charset="utf-8")
 
     context = ssl.create_default_context()
     try:
@@ -237,6 +240,36 @@ def send_text_email(
         message_id=message_id,
         delivery_mode=config.mode,
     )
+
+
+def verify_smtp_settings(settings: SmtpSettings) -> None:
+    """仅验证 SMTP 连接与授权，不发送邮件。"""
+    settings.validate()
+    context = ssl.create_default_context()
+    try:
+        if settings.security == "ssl":
+            smtp_client = smtplib.SMTP_SSL(
+                settings.host,
+                settings.port,
+                timeout=settings.timeout_seconds,
+                context=context,
+            )
+        else:
+            smtp_client = smtplib.SMTP(
+                settings.host,
+                settings.port,
+                timeout=settings.timeout_seconds,
+            )
+        with smtp_client as client:
+            client.ehlo()
+            if settings.security == "starttls":
+                client.starttls(context=context)
+                client.ehlo()
+            if settings.username:
+                client.login(settings.username, settings.password)
+            client.noop()
+    except (smtplib.SMTPException, OSError, socket.timeout) as exc:
+        raise MailDeliveryError(f"SMTP 授权验证失败：{exc}") from exc
 
 
 def send_plain_text_email(
