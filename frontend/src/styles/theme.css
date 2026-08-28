@@ -31,6 +31,17 @@
 
   --ui-zoom: 1;
 
+  /* 表单字段状态：白底可填，灰底只读。详见 UI_GUIDELINES.md 5.4 */
+  --field-bg-editable: var(--color-surface);
+  --field-bg-readonly: var(--color-surface-muted);
+  --field-border: var(--color-border);
+  --field-border-hover: #cbd5e1;
+  --field-border-focus: var(--color-primary);
+  --field-text-editable: var(--color-text-primary);
+  --field-text-readonly: var(--color-text-secondary);
+  --field-text-locked: #94a3b8;
+  --field-icon: #94a3b8;
+
   --el-color-primary: var(--color-primary);
   --el-color-primary-light-3: #64748b;
   --el-color-primary-light-5: #94a3b8;
@@ -55,4 +66,19 @@
   --el-bg-color-page: var(--color-page-bg);
   --el-fill-color-light: var(--color-surface-muted);
   --el-fill-color-lighter: var(--color-page-bg);
+
+  /* 补齐 Element Plus 未覆盖的冷灰值，统一到 slate 色系。
+     注意：--el-disabled-text-color 刻意保持在淡色区间，禁用的复选框、
+     单选框和按钮必须看起来不可用；只读字段的深色文字由 common.css 的
+     .field-readonly 精确控制，不在此处全局加深。 */
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #94a3b8;
+  /* Element Plus 默认把输入框文字设为 --el-text-color-regular(#475569)，
+     与只读字段同色而无法区分。可编辑输入框的值属于关键数据，提到 #111827。 */
+  --el-input-text-color: var(--field-text-editable);
+  --el-fill-color: var(--color-surface-muted);
+  --el-fill-color-extra-light: var(--color-page-bg);
+  --el-fill-color-dark: var(--color-border);
+  --el-disabled-bg-color: var(--field-bg-readonly);
+  --el-disabled-border-color: var(--field-border);
 }

@@ -219,25 +219,29 @@ import datetime as dt
 
 def generate_client_code(db: Session) -> str:
     today = dt.datetime.now()
-    yy = today.strftime("%y")
-    mmdd = today.strftime("%m%d")
-    prefix = f"CL-{yy}-{mmdd}-"
+    date_text = today.strftime("%y%m%d")
+    prefix = f"CL-{date_text}-"
+    legacy_prefix = f"CL-{today.strftime('%y-%m%d')}-"
+    last_records = [
+        (
+            db.query(Client)
+            .filter(Client.client_code.like(f"{current_prefix}%"))
+            .order_by(Client.client_code.desc())
+            .first()
+        )
+        for current_prefix in (prefix, legacy_prefix)
+    ]
 
-    last_record = (
-        db.query(Client)
-        .filter(Client.client_code.like(f"{prefix}%"))
-        .order_by(Client.client_code.desc())
-        .first()
-    )
-
-    if last_record and last_record.client_code:
+    sequences = []
+    for record in last_records:
+        if not record or not record.client_code:
+            continue
         try:
-            seq_str = last_record.client_code.split("-")[-1]
-            new_seq = int(seq_str) + 1
+            sequences.append(int(record.client_code.rsplit("-", 1)[-1]))
         except ValueError:
-            new_seq = 1
-    else:
-        new_seq = 1
+            continue
+
+    new_seq = max(sequences, default=0) + 1
 
     return f"{prefix}{new_seq:03d}"
 
@@ -383,6 +387,9 @@ def get_clients(
                 Client.client_short_name.asc(),
             )
         )
+    else:
+        # 客户列表默认按创建时间倒序，确保新建客户出现在第一页顶部。
+        query = query.order_by(Client.created_at.desc(), Client.id.desc())
     return query.offset(skip).limit(limit).all()
 
 

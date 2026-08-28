@@ -55,7 +55,7 @@
       <el-form ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="130px">
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="母订单号"><el-input :model-value="project.orderNo || route.query.orderNo" disabled /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="子订单号"><el-input v-model="subOrderForm.subOrderNo" disabled placeholder="保存后自动生成" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="子订单号"><ReadonlyField :model-value="subOrderForm.subOrderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="子项目名称" prop="subProjectName"><el-input v-model="subOrderForm.subProjectName" /></el-form-item></el-col>
@@ -147,6 +147,7 @@ import { getProject } from '@/api/projects'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
 
 const route = useRoute()

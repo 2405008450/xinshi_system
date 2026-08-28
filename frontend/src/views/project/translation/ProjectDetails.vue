@@ -307,7 +307,7 @@
                     </template>
                     <div class="project-basic-collapse__body">
                       <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="订单号"><el-input v-model="form.orderNo" disabled /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="状态" prop="projectStatus" data-field-key="projectStatus"><el-select v-model="form.projectStatus" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value === 'pending_confirmation'" /></el-select></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
@@ -358,7 +358,7 @@
                       </el-select>
                     </el-form-item>
                   </el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="来源咨询 ID"><el-input v-model="form.consultationId" readonly placeholder="手工新增项目无来源咨询" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="来源咨询 ID"><ReadonlyField :model-value="form.consultationId" source="auto" placeholder="手工新增项目无来源咨询" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12">
@@ -395,10 +395,10 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="客户负责人"><el-input v-model="form.clientManager" readonly placeholder="选择客户后从客户表自动带出" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="客户负责人"><ReadonlyField :model-value="form.clientManager" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" readonly placeholder="选择客户后从客户表自动带出" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="负责人联系方式"><ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24">
@@ -555,7 +555,7 @@
                 <el-row :gutter="16">
                   <el-col :xs="24">
                     <el-form-item label="已分配译员">
-                      <el-input :model-value="formatAssignedTranslators(form.assignedTranslators, form.translatorName)" readonly placeholder="由“稿件安排”模块统一维护" />
+                      <ReadonlyField :model-value="formatAssignedTranslators(form.assignedTranslators, form.translatorName)" source="auto" placeholder="由“稿件安排”模块统一维护" />
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -568,7 +568,7 @@
                   <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
                       <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="大项目经理确认"><el-input v-model="form.majorProjectManagerConfirmation" readonly placeholder="由“稿件安排”的确认安排操作自动记录" /></el-form-item></el-col>
+                  <el-col :xs="24"><el-form-item label="大项目经理确认"><ReadonlyField :model-value="form.majorProjectManagerConfirmation" source="auto" placeholder="由“稿件安排”的确认安排操作自动记录" /></el-form-item></el-col>
                       </el-row>
                     </div>
                   </el-collapse-item>
@@ -689,8 +689,8 @@
             <el-tab-pane label="基础信息" name="basic">
               <div class="form-section">
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="母订单号"><el-input :model-value="form.orderNo" disabled /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="子订单号"><el-input v-model="subOrderForm.subOrderNo" disabled placeholder="保存后自动生成" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="母订单号"><ReadonlyField :model-value="form.orderNo" source="auto" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="子订单号"><ReadonlyField :model-value="subOrderForm.subOrderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="子项目名称" prop="subProjectName"><el-input v-model="subOrderForm.subProjectName" /></el-form-item></el-col>
@@ -719,7 +719,7 @@
             <el-tab-pane label="分配与预估" name="assignment">
               <div class="form-section">
                 <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="已分配译员"><el-input :model-value="formatAssignedTranslators(subOrderForm.assignedTranslators, subOrderForm.translatorName)" readonly placeholder="请在“稿件安排”模块中分配译员" /></el-form-item></el-col>
+                  <el-col :xs="24"><el-form-item label="已分配译员"><ReadonlyField :model-value="formatAssignedTranslators(subOrderForm.assignedTranslators, subOrderForm.translatorName)" source="auto" placeholder="请在“稿件安排”模块中分配译员" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
@@ -857,6 +857,7 @@ import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'

@@ -242,7 +242,7 @@
           <section class="form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="订单号"><el-input v-model="form.orderNo" disabled placeholder="保存后自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="状态生效日期"><el-date-picker v-model="form.statusEffectiveOn" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="语言地区"><el-input v-model="form.languageRegion" placeholder="例如：肇庆" /></el-form-item></el-col>
@@ -287,8 +287,8 @@
                   </div>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" placeholder="新客户不填则自动生成" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" placeholder="新客户可补充全称" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField v-model="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField v-model="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="联系人"><el-input v-model="form.contactName" placeholder="填写联系人姓名或联系方式" /></el-form-item></el-col>
@@ -412,6 +412,7 @@ import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'

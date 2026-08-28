@@ -340,7 +340,7 @@
           <section class="form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="订单号"><el-input v-model="form.orderNo" disabled placeholder="保存后自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目状态" prop="projectStatus">
                   <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
@@ -406,17 +406,17 @@
                   </div>
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-input v-model="form.currentClientManager" disabled /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><ReadonlyField :model-value="form.currentClientManager" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户领域"><el-input v-model="form.clientDomain" disabled /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><el-input v-model="form.managerContact" disabled /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
@@ -628,6 +628,7 @@ import TableActionButton from '@/components/common/TableActionButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'

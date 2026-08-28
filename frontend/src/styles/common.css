@@ -131,6 +131,50 @@
   height: 22px;
 }
 
+/* 表单只读字段：白底表示待填写，灰底表示系统给值。
+   样式挂在外层自定义 class 上，因为 readonly 不会产生 .is-disabled 类。
+   规范见 AGENTS.md「只读与自动生成字段范式」。 */
+
+/* 系统生成或自动带出：底层是 readonly，保留选中复制能力 */
+.field-readonly .el-input__wrapper,
+.field-readonly .el-textarea__inner,
+.field-readonly .el-select__wrapper {
+  background-color: var(--field-bg-readonly);
+  box-shadow: 0 0 0 1px var(--field-border) inset;
+  cursor: default;
+}
+
+.field-readonly .el-input__inner,
+.field-readonly .el-textarea__inner {
+  /* -webkit-text-fill-color 覆盖部分浏览器对 readonly 输入框的降饱和处理 */
+  color: var(--field-text-readonly);
+  -webkit-text-fill-color: var(--field-text-readonly);
+  cursor: default;
+}
+
+/* 只读字段不给可编辑的边框反馈；readonly 仍可聚焦，聚焦态保持中性 */
+.field-readonly .el-input__wrapper:hover,
+.field-readonly .el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--field-border) inset;
+}
+
+.field-readonly .el-input__wrapper.is-focus,
+.field-readonly .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--field-border-hover) inset;
+}
+
+/* 前置条件未满足：底层是 disabled，灰底、淡字、not-allowed 光标和
+   Tab 跳过均由 Element Plus 依据 theme.css 的 --el-disabled-* 变量处理，
+   此处只需恢复后缀图标的悬浮能力（EP 对禁用后缀设了 pointer-events: none）。 */
+.field-locked .el-input__suffix-inner {
+  pointer-events: auto;
+}
+
+.field-readonly .el-input__suffix,
+.field-locked .el-input__suffix {
+  color: var(--field-icon);
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

@@ -61,10 +61,6 @@
           <el-icon><Document /></el-icon>
           <template #title>标注项目详情</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/resource-requests">
-          <el-icon><UserFilled /></el-icon>
-          <template #title>资源需求管理</template>
-        </el-menu-item>
         <el-menu-item v-if="showTranslationMenu" index="/recruitment-details">
           <el-icon><Document /></el-icon>
           <template #title>招聘项目详情</template>
@@ -87,6 +83,10 @@
         <el-menu-item v-if="showClients" index="/clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
+        </el-menu-item>
+        <el-menu-item v-if="showTranslationMenu" index="/resource-requests">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>资源需求管理</template>
         </el-menu-item>
         <template v-if="showPendingModules">
           <el-divider class="menu-divider" />

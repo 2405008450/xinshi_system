@@ -977,6 +977,7 @@ const handleSubmit = async () => {
           ElMessage.success('更新成功')
         } else {
           await clientApi.createClient(submitData)
+          pagination.page = 1
           ElMessage.success('创建成功')
         }
         if (!form.id) {

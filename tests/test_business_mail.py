@@ -1,10 +1,15 @@
+from datetime import datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 import mail_service
+import business_mail_service
+from business_mail_service import build_preview
 from business_mail_schemas import BusinessMailSendRequest, MailRecipientGroupWrite
+from interpretation_models import InterpretationLanguage
 from mail_service import SmtpSettings, send_text_email
 
 
@@ -84,3 +89,63 @@ def test_recipient_group_requires_name_and_internal_members():
     with pytest.raises(ValidationError):
         MailRecipientGroupWrite(name="   ", user_ids=[])
 
+
+class _LanguageQuery:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def filter(self, *_args):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+class _InterpretationPreviewDb:
+    def __init__(self, languages):
+        self.languages = languages
+
+    def query(self, target):
+        assert target is InterpretationLanguage
+        return _LanguageQuery(self.languages)
+
+
+def test_interpretation_preview_uses_business_labels_instead_of_internal_values(monkeypatch):
+    source_language_id = uuid4()
+    target_language_id = uuid4()
+    db = _InterpretationPreviewDb([
+        SimpleNamespace(id=source_language_id, label="英语"),
+        SimpleNamespace(id=target_language_id, label="中文（简体）"),
+    ])
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(db, "interpretation", source={
+        "order_no": "IP-260827-001",
+        "project_name": "Jimmy-260827",
+        "client_short_name": "Jimmy",
+        "manager_contact": "10086",
+        "project_types": ["onsite"],
+        "time_ranges": [{
+            "scheduled_start": datetime(2026, 8, 28, 0, 0),
+            "scheduled_end": datetime(2026, 8, 30, 0, 0),
+            "actual_start": None,
+            "actual_end": None,
+        }],
+        "locations": ["阿拉斯加"],
+        "language_directions": [{
+            "source_language_id": source_language_id,
+            "target_language_id": target_language_id,
+        }],
+        "required_interpreter_count": 1,
+        "consultation_description": "英语展会陪同",
+    })
+
+    assert "项目类型：口译" in preview["body"]
+    assert "口译类型：现场口译" in preview["body"]
+    assert "预定时段：2026-08-28 00:00 至 2026-08-30 00:00" in preview["body"]
+    assert "口译方向：英语 ↔ 中文（简体）" in preview["body"]
+    assert preview["body"].count("项目类型：") == 1
+    assert "onsite" not in preview["body"]
+    assert "datetime.datetime" not in preview["body"]
+    assert str(source_language_id) not in preview["body"]

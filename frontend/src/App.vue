@@ -109,6 +109,17 @@ select {
 }
 
 /* 表单 */
+
+/* Element Plus 在 .el-input / .el-textarea 作用域内把 --el-input-text-color
+   重定义为 --el-text-color-regular(本系统 #475569)，会遮蔽 :root 上的设置，
+   且与只读字段同色而无法区分。必须在同一作用域覆盖。
+   加 :root 前缀把特异性提到 0,2,0 压过 EP 的 0,1,0——本文件的样式在开发模式下
+   先于 element-plus 注入，靠源码顺序无法取胜，且构建后顺序还会变化。 */
+:root .el-input,
+:root .el-textarea {
+  --el-input-text-color: var(--field-text-editable);
+}
+
 .el-input__wrapper,
 .el-select__wrapper,
 .el-textarea__inner {
@@ -116,15 +127,15 @@ select {
   transition: box-shadow 180ms ease;
 }
 
-.el-input__wrapper:hover,
-.el-select__wrapper:hover {
-  box-shadow: 0 0 0 1px #cbd5e1 inset;
+.el-input__wrapper:not(.is-disabled):hover,
+.el-select__wrapper:not(.is-disabled):hover {
+  box-shadow: 0 0 0 1px var(--field-border-hover) inset;
 }
 
 .el-input__wrapper.is-focus,
 .el-select__wrapper.is-focused,
 .el-textarea__inner:focus {
-  box-shadow: 0 0 0 1px var(--color-primary) inset;
+  box-shadow: 0 0 0 1px var(--field-border-focus) inset;
 }
 
 .el-form-item__label {

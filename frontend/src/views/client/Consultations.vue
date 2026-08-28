@@ -349,15 +349,27 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogTitle"
       class="consultation-dialog"
-      width="min(960px, calc(100vw - 32px))"
+      width="min(1040px, calc(100vw - 32px))"
       top="5vh"
       @opened="resetConsultationDialogScroll"
       @close="handleDialogClose"
     >
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="dialogTitle"
+          subtitle="搜索并快速定位表单字段"
+          :fetch-suggestions="fetchFieldSuggestions"
+          placeholder="搜索字段，如客户交期"
+          @select="handleLocateConsultationField"
+          @clear="clearFieldSearch"
+        />
+      </template>
+      <div ref="consultationEditorRef" class="consultation-editor">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <section class="consultation-form-section consultation-form-section--primary">
+        <section class="form-section consultation-form-section consultation-form-section--primary">
           <div class="consultation-form-section__header">
             <h3>咨询基本信息</h3>
             <span>请先选择咨询类型，后续售前字段将按项目类型显示</span>
@@ -485,7 +497,7 @@
           </el-form-item>
         </section>
 
-        <section class="consultation-form-section">
+        <section class="form-section consultation-form-section consultation-form-section--plain">
           <div class="consultation-form-section__header">
             <h3>客户信息</h3>
           </div>
@@ -526,10 +538,10 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="客户编号">
-                <el-input
-                  v-model="form.client_code"
-                  disabled
-                  :placeholder="!form.client_id && form.client_short_name ? '保存后自动生成' : '选择老客户后自动填充'"
+                <ReadonlyField
+                  :model-value="form.client_code"
+                  source="auto"
+                  :placeholder="!form.client_id && form.client_short_name ? '保存后自动生成' : '选择客户后自动带出'"
                 />
               </el-form-item>
             </el-col>
@@ -571,7 +583,10 @@
           </el-row>
         </section>
 
-        <div v-if="isSupportedProjectType(form.consultation_type)" class="consultation-project-intake">
+        <div
+          v-if="isSupportedProjectType(form.consultation_type)"
+          class="form-section consultation-project-intake consultation-form-section--plain"
+        >
           <div class="consultation-form-section__header">
             <h3>项目售前信息</h3>
             <span>以下内容随咨询类型变化，用于后续确认建项</span>
@@ -610,12 +625,24 @@
               <el-date-picker v-model="item.scheduled_end" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="结束时间" />
               <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
             </div>
-            <div class="intake-list-header"><span>口译方向</span><el-button link type="primary" @click="addIntakeDirection">增加方向</el-button></div>
-            <div v-for="(item,index) in form.project_intake.language_directions" :key="index" class="intake-inline-row">
-              <el-select v-model="item.source_language_id" filterable placeholder="语种 A"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
-              <el-select v-model="item.target_language_id" filterable placeholder="语种 B"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
-              <el-button link type="danger" @click="form.project_intake.language_directions.splice(index,1)">删除</el-button>
-            </div>
+            <el-form-item label="口译方向" prop="project_intake.language_directions" required>
+              <div class="intake-list-field">
+                <div class="intake-list-header intake-list-header--field">
+                  <span>至少选择一组完整语种</span>
+                  <el-button link type="primary" @click="addIntakeDirection">增加方向</el-button>
+                </div>
+                <div v-for="(item,index) in form.project_intake.language_directions" :key="index" class="intake-inline-row">
+                  <el-select v-model="item.source_language_id" filterable placeholder="语种 A"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-select v-model="item.target_language_id" filterable placeholder="语种 B"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="form.project_intake.language_directions.length === 1"
+                    @click="removeIntakeDirection(index)"
+                  >删除</el-button>
+                </div>
+              </div>
+            </el-form-item>
             <el-form-item label="译员人数" required><el-input-number v-model="form.project_intake.required_interpreter_count" :min="1" /></el-form-item>
           </template>
 
@@ -638,7 +665,7 @@
           </template>
         </div>
 
-        <section class="consultation-form-section">
+        <section class="form-section consultation-form-section">
           <div class="consultation-form-section__header">
             <h3>跟进信息</h3>
           </div>
@@ -792,6 +819,7 @@
           </el-row>
         </section>
       </el-form>
+      </div>
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -904,15 +932,26 @@ import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 
 const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
 const formRef = ref(null)
+const consultationEditorRef = ref(null)
+const {
+  fieldSearchRef,
+  fieldSearchKeyword,
+  fetchFieldSuggestions,
+  locateDialogField,
+  clearFieldSearch,
+} = useDialogFieldSearch(consultationEditorRef)
 const userOptions = ref([])
 const languageOptions = ref([])
 const detailCache = reactive({})
@@ -1116,6 +1155,14 @@ const emptyProjectIntake = () => ({
   target_onboard_type: 'date', target_onboard_date: null,
 })
 
+const emptyLanguageDirection = () => ({ source_language_id: '', target_language_id: '' })
+
+const ensureInterpretationDirection = (projectIntake = form.project_intake) => {
+  if (!Array.isArray(projectIntake.language_directions) || !projectIntake.language_directions.length) {
+    projectIntake.language_directions = [emptyLanguageDirection()]
+  }
+}
+
 const defaultForm = () => ({
   id: null,
   client_id: null,
@@ -1219,6 +1266,13 @@ const restoreDraftIfNeeded = async () => {
       form.consultation_method_custom = form.consultation_method
       form.consultation_method = 'other'
     }
+    if (isInterpretationConsultationType(form.consultation_type)) {
+      form.project_intake = {
+        ...emptyProjectIntake(),
+        ...(form.project_intake || {}),
+      }
+      ensureInterpretationDirection()
+    }
   } catch {
     removeDraft(draftKey)
   } finally {
@@ -1307,14 +1361,21 @@ const interpretationTypeOptions = [
 const annotationTypeOptions = ['audio_collection','audio_annotation','audio_evaluation','text_evaluation','text_annotation','quality_inspection','listening_test','slot_deduction','generalization','translation']
 const serviceContentOptions = ['翻译', '排版']
 const priorityOptions = ['低', '中', '高', '紧急']
-const handleConsultationTypeChange = () => { form.project_intake = emptyProjectIntake() }
+const handleConsultationTypeChange = (consultationType) => {
+  form.project_intake = emptyProjectIntake()
+  if (isInterpretationConsultationType(consultationType)) ensureInterpretationDirection()
+}
 const handleTranslationQuotationRequiredChange = (required) => {
   if (required) return
   form.project_intake.quotation_status = ''
   form.project_intake.quotation_path = ''
 }
 const addIntakeTimeRange = () => form.project_intake.time_ranges.push({ scheduled_start: '', scheduled_end: '' })
-const addIntakeDirection = () => form.project_intake.language_directions.push({ source_language_id: '', target_language_id: '' })
+const addIntakeDirection = () => form.project_intake.language_directions.push(emptyLanguageDirection())
+const removeIntakeDirection = (index) => {
+  if (form.project_intake.language_directions.length <= 1) return
+  form.project_intake.language_directions.splice(index, 1)
+}
 const addAnnotationLanguage = () => form.project_intake.language_items.push({ source_language_id: '', target_language_id: null })
 const projectRouteName = (consultationType) => {
   if (isTranslationConsultationType(consultationType)) return 'TranslationProjectDetails'
@@ -1358,10 +1419,27 @@ const confirmationMissingFields = computed(() => {
 })
 const regenerateConfirmationSubject = () => { confirmationForm.emailSubject = confirmationSubjectPreview.value }
 
+const validateInterpretationDirections = (_rule, value, callback) => {
+  if (!isInterpretationConsultationType(form.consultation_type)) {
+    callback()
+    return
+  }
+  if (!Array.isArray(value) || !value.length) {
+    callback(new Error('请选择口译方向'))
+    return
+  }
+  if (value.some((item) => !item?.source_language_id || !item?.target_language_id)) {
+    callback(new Error('请选择完整的口译方向'))
+    return
+  }
+  callback()
+}
+
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
   status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
+  'project_intake.language_directions': [{ validator: validateInterpretationDirections, trigger: 'change' }],
 }
 
 const getStatusType = (status) => {
@@ -1549,6 +1627,15 @@ const personnelAssignmentSummary = computed(() => {
   return assignments.map(([label, name]) => `${label}：${name}`).join('｜')
 })
 
+const personnelFieldLabels = new Set(['客服人员', '销售人员', '编辑人', '跟进人'])
+const handleLocateConsultationField = async (item) => {
+  if (personnelFieldLabels.has(item?.searchLabel)) {
+    personnelAssignmentExpanded.value = true
+    await nextTick()
+  }
+  await locateDialogField(item)
+}
+
 const buildSearchFilters = () => {
   const [consultationDateStart, consultationDateEnd] = searchForm.consultation_date_range || []
   return {
@@ -1650,6 +1737,7 @@ const loadConsultationDetail = async (id) => {
 
 const handleAdd = async () => {
   dialogTitle.value = '新增咨询'
+  clearFieldSearch()
   personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = 'create'
@@ -1661,6 +1749,17 @@ const handleAdd = async () => {
 
 const fillFormByRow = (row) => {
   const consultationMethod = normalizeConsultationMethod(row.consultation_method)
+  const consultationType = consultationTypeLabel(row.consultation_type) === '-'
+    ? ''
+    : consultationTypeLabel(row.consultation_type)
+  const projectIntake = {
+    ...emptyProjectIntake(),
+    ...(row.project_intake || {}),
+    employment_range: row.project_intake?.employment_start && row.project_intake?.employment_end
+      ? [row.project_intake.employment_start, row.project_intake.employment_end]
+      : [],
+  }
+  if (isInterpretationConsultationType(consultationType)) ensureInterpretationDirection(projectIntake)
   Object.assign(form, {
     id: row.id,
     client_id: row.client_id || null,
@@ -1671,13 +1770,7 @@ const fillFormByRow = (row) => {
     contact_name: row.contact_name || '',
     customer_order_no: row.customer_order_no || '',
     project_name: row.project_name || '',
-    project_intake: {
-      ...emptyProjectIntake(),
-      ...(row.project_intake || {}),
-      employment_range: row.project_intake?.employment_start && row.project_intake?.employment_end
-        ? [row.project_intake.employment_start, row.project_intake.employment_end]
-        : [],
-    },
+    project_intake: projectIntake,
     consultation_time: row.consultation_time || '',
     consultation_method: consultationMethod.method,
     consultation_method_custom: consultationMethod.custom,
@@ -1685,9 +1778,7 @@ const fillFormByRow = (row) => {
     source_keyword: row.source_keyword || '',
     consultation_description: row.consultation_description || '',
     status: row.status || 'following',
-    consultation_type: consultationTypeLabel(row.consultation_type) === '-'
-      ? ''
-      : consultationTypeLabel(row.consultation_type),
+    consultation_type: consultationType,
     handling_method: row.handling_method || '',
     remarks: row.remarks || '',
     customer_service_id: row.customer_service_id || currentUserId,
@@ -1703,6 +1794,7 @@ const fillFormByRow = (row) => {
 
 const handleEdit = async (row) => {
   dialogTitle.value = '编辑咨询'
+  clearFieldSearch()
   personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = `edit:${row.id}`
@@ -2004,6 +2096,7 @@ const resetForm = () => {
 }
 
 const handleDialogClose = () => {
+  clearFieldSearch()
   personnelAssignmentExpanded.value = false
   draftSavingEnabled.value = false
   activeDraftKey.value = null
@@ -2060,26 +2153,39 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--el-border-color-lighter);
 }
 
+.consultation-editor {
+  padding: 0 6px;
+}
+
 .consultation-form-section,
 .consultation-project-intake {
-  margin: 0 0 16px;
-  padding: 16px 16px 2px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
+  position: relative;
+  margin: 0;
+  padding: 22px 8px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.consultation-editor .form-section + .form-section {
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .consultation-form-section--primary {
-  border-color: var(--el-color-primary-light-7);
-  background: var(--el-color-primary-light-9);
+  padding-top: 4px;
+}
+
+.consultation-form-section--plain {
+  background: transparent;
 }
 
 .consultation-confirmation-fields {
-  margin-bottom: 18px;
-  padding: 14px 14px 0;
-  border: 1px solid var(--el-color-warning-light-7);
-  border-radius: 6px;
-  background: var(--el-color-warning-light-9);
+  margin: 2px 0 18px;
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px dashed var(--el-border-color-lighter);
+  border-radius: 0;
+  background: transparent;
 }
 
 .consultation-confirmation-fields__title {
@@ -2087,9 +2193,9 @@ onBeforeUnmount(() => {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px 10px;
-  margin-bottom: 14px;
-  color: var(--el-text-color-primary);
-  font-size: 14px;
+  margin: 0 0 14px 4px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -2104,13 +2210,27 @@ onBeforeUnmount(() => {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px 12px;
-  margin: 0 0 16px;
+  margin: 0 0 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
 }
 
 .consultation-form-section__header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   color: var(--el-text-color-primary);
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.consultation-form-section__header h3::before {
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--el-color-primary);
+  content: '';
 }
 
 .consultation-form-section__header span {
@@ -2119,6 +2239,9 @@ onBeforeUnmount(() => {
 }
 
 .intake-list-header { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; color: var(--el-text-color-regular); font-size: 14px; font-weight: 500; }
+.intake-list-field { width: 100%; }
+.intake-list-header--field { margin-top: 0; }
+.intake-list-header--field > span { color: var(--el-text-color-secondary); font-size: 12px; font-weight: 400; }
 .intake-inline-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
 .intake-inline-row > .el-select, .intake-inline-row > .el-date-editor { flex: 1; }
 @media (max-width: 768px) { .intake-inline-row { align-items: stretch; flex-direction: column; } }

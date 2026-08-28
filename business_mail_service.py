@@ -21,7 +21,8 @@ from business_mail_models import (
     ProjectMailPolicy,
     ProjectMailPolicyGroup,
 )
-from interpretation_models import InterpretationProject
+from interpretation_models import InterpretationLanguage, InterpretationProject
+from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LABELS
 from mail_service import SmtpSettings, send_text_email
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
@@ -53,6 +54,79 @@ def _clean(value) -> str:
     if isinstance(value, (list, tuple)):
         return "；".join(_clean(item) for item in value if _clean(item))
     return str(value).strip()
+
+
+def _nested_value(item, key):
+    if isinstance(item, dict):
+        return item.get(key)
+    return getattr(item, key, None)
+
+
+def _format_mail_datetime(value) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    text_value = _clean(value)
+    if not text_value:
+        return ""
+    try:
+        return datetime.fromisoformat(text_value.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return text_value
+
+
+def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
+    """将口译售前内部值转换为邮件中可直接阅读的业务文本。"""
+    normalized = dict(values)
+    normalized["project_types"] = [
+        INTERPRETATION_TYPE_LABELS.get(_clean(item), _clean(item))
+        for item in (values.get("project_types") or [])
+        if _clean(item)
+    ]
+
+    time_ranges = []
+    for item in values.get("time_ranges") or []:
+        if isinstance(item, str):
+            if _clean(item):
+                time_ranges.append(_clean(item))
+            continue
+        start = _format_mail_datetime(_nested_value(item, "scheduled_start"))
+        end = _format_mail_datetime(_nested_value(item, "scheduled_end"))
+        if start and end:
+            time_ranges.append(f"{start} 至 {end}")
+    normalized["time_ranges"] = time_ranges
+
+    raw_directions = values.get("language_directions") or []
+    direction_ids = {
+        language_id
+        for item in raw_directions
+        if not isinstance(item, str)
+        for language_id in (
+            _nested_value(item, "source_language_id"),
+            _nested_value(item, "target_language_id"),
+        )
+        if language_id
+    }
+    language_labels = {}
+    if direction_ids:
+        rows = db.query(InterpretationLanguage).filter(
+            InterpretationLanguage.id.in_(direction_ids)
+        ).all()
+        language_labels = {str(row.id): row.label for row in rows}
+
+    directions = []
+    for item in raw_directions:
+        if isinstance(item, str):
+            if _clean(item):
+                directions.append(_clean(item))
+            continue
+        source_id = _nested_value(item, "source_language_id")
+        target_id = _nested_value(item, "target_language_id")
+        source_label = language_labels.get(str(source_id), "")
+        target_label = language_labels.get(str(target_id), "")
+        if source_label and target_label:
+            directions.append(f"{source_label} ↔ {target_label}")
+    normalized["language_directions"] = directions
+    return normalized
 
 
 def _valid_email(value: Optional[str]) -> Optional[str]:
@@ -263,7 +337,7 @@ CORE_FIELDS = {
 
 BODY_LABELS = {
     "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交期", "customer_deadline_time"), ("优先级", "priority"), ("专业要求", "customer_requirement_professional"), ("特殊要求", "customer_requirement_special")),
-    "interpretation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("译员人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
+    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("译员人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
 }
@@ -278,6 +352,8 @@ def build_preview(db: Session, project_type: str, *, project_id: Optional[UUID] 
         if not project:
             raise LookupError("项目不存在")
         values = {**_project_source(project_type, project), **values}
+    if project_type == "interpretation":
+        values = _normalize_interpretation_mail_values(db, values)
     blocking: list[str] = []
     try:
         to_users, cc_users = policy_recipients(db, project_type)
