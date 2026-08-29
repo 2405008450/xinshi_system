@@ -1,6 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -10,7 +10,7 @@ from crud import (
     create_sub_order, update_sub_order, delete_sub_order
 )
 from schemas import TranslationSubOrderCreate, TranslationSubOrderUpdate, TranslationSubOrderResponse
-from models import AppUser
+from models import AppUser, TranslationSubOrder
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
@@ -21,16 +21,32 @@ def create_sub_order_endpoint(
     sub_order: TranslationSubOrderCreate,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
 ):
+    if idempotency_key:
+        existing = db.query(TranslationSubOrder).filter(
+            TranslationSubOrder.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_sub_order(db, existing.id)
     try:
         return create_sub_order(
             db=db,
             sub_order=sub_order.model_copy(update={"created_by": current_user.id}),
+            idempotency_key=idempotency_key,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except IntegrityError as e:
         db.rollback()
+        if idempotency_key:
+            existing = db.query(TranslationSubOrder).filter(
+                TranslationSubOrder.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_sub_order(db, existing.id)
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误: {error_msg}")
     except Exception as e:

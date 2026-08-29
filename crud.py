@@ -435,11 +435,13 @@ def count_clients(
     return query.count()
 
 
-def create_client(db: Session, client: ClientCreate) -> Client:
+def create_client(
+    db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
+) -> Client:
     data = client.model_dump()
     if not data.get('client_code'):
         data['client_code'] = generate_client_code(db)
-    db_client = Client(**data)
+    db_client = Client(idempotency_key=idempotency_key, **data)
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
@@ -511,9 +513,11 @@ def count_client_contacts(db: Session) -> int:
     return db.query(ClientContact.id).count()
 
 
-def create_client_contact(db: Session, contact: ClientContactCreate) -> ClientContact:
+def create_client_contact(
+    db: Session, contact: ClientContactCreate, idempotency_key: Optional[str] = None,
+) -> ClientContact:
     data = _fill_client_contact_fields(db, contact.model_dump())
-    db_contact = ClientContact(**data)
+    db_contact = ClientContact(idempotency_key=idempotency_key, **data)
     db.add(db_contact)
     db.commit()
     db.refresh(db_contact)
@@ -572,10 +576,14 @@ def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
 def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
     return db.query(SubClient).filter(SubClient.id == sub_client_id).first()
 
-def create_sub_client(db: Session, sub_client: SubClientCreate) -> SubClient:
+def create_sub_client(
+    db: Session, sub_client: SubClientCreate, idempotency_key: Optional[str] = None,
+) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
     data = sub_client.model_dump(exclude={'sub_client_code'})
-    db_sub = SubClient(sub_client_code=sub_code, **data)
+    db_sub = SubClient(
+        sub_client_code=sub_code, idempotency_key=idempotency_key, **data,
+    )
     db.add(db_sub)
     db.commit()
     db.refresh(db_sub)
@@ -2616,11 +2624,16 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
     return sub_orders
 
 
-def create_sub_order(db: Session, sub_order: TranslationSubOrderCreate) -> TranslationSubOrder:
+def create_sub_order(
+    db: Session, sub_order: TranslationSubOrderCreate,
+    idempotency_key: Optional[str] = None,
+) -> TranslationSubOrder:
     sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
     data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix'})
     _validate_written_translator(db, data.get('translator_id'))
-    db_sub = TranslationSubOrder(sub_order_no=sub_order_no, **data)
+    db_sub = TranslationSubOrder(
+        sub_order_no=sub_order_no, idempotency_key=idempotency_key, **data,
+    )
     db.add(db_sub)
     db.flush()
     from word_count_service import save_created_entity_matrix

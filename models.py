@@ -98,10 +98,12 @@ class Client(Base):
     __tablename__ = 'client'
     __table_args__ = (
         PrimaryKeyConstraint('id', name='client_pkey'),
-        UniqueConstraint('client_code', name='client_client_code_key')
+        UniqueConstraint('client_code', name='client_client_code_key'),
+        UniqueConstraint('idempotency_key', name='uq_client_idempotency_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     client_code: Mapped[str] = mapped_column(String(50), nullable=False)
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
     client_short_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -132,9 +134,11 @@ class ClientContact(Base):
     __table_args__ = (
         ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='SET NULL', name='fk_client_contact_client'),
         PrimaryKeyConstraint('id', name='client_contact_pkey'),
+        UniqueConstraint('idempotency_key', name='uq_client_contact_idempotency_key'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     client_code: Mapped[Optional[str]] = mapped_column(String(50))
     client_name: Mapped[Optional[str]] = mapped_column(String(255))
@@ -161,10 +165,12 @@ class SubClient(Base):
     __table_args__ = (
         ForeignKeyConstraint(['parent_client_id'], ['client.id'], ondelete='CASCADE', name='fk_sub_client_parent'),
         PrimaryKeyConstraint('id', name='sub_client_pkey'),
-        UniqueConstraint('sub_client_code', name='sub_client_code_key')
+        UniqueConstraint('sub_client_code', name='sub_client_code_key'),
+        UniqueConstraint('idempotency_key', name='uq_sub_client_idempotency_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     parent_client_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     sub_client_code: Mapped[str] = mapped_column(String(60), nullable=False)
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -620,10 +626,12 @@ class TranslationSubOrder(Base):
         ForeignKeyConstraint(['translator_id'], ['translator.id'], ondelete='SET NULL', name='fk_sub_order_translator'),
         ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_sub_order_creator'),
         PrimaryKeyConstraint('id', name='translation_sub_order_pkey'),
-        UniqueConstraint('sub_order_no', name='translation_sub_order_no_key')
+        UniqueConstraint('sub_order_no', name='translation_sub_order_no_key'),
+        UniqueConstraint('idempotency_key', name='uq_translation_sub_order_idempotency_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     parent_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     sub_order_no: Mapped[str] = mapped_column(String(60), nullable=False)  # 如 TP-260302-014.001
     sub_project_name: Mapped[Optional[str]] = mapped_column(String(255))

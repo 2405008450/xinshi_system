@@ -38,6 +38,7 @@ class ResourcePerson(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="resource_person_pkey"),
         UniqueConstraint("resource_code", name="uq_resource_person_code"),
+        UniqueConstraint("idempotency_key", name="uq_resource_person_idempotency_key"),
         CheckConstraint(
             "status IN ('active', 'standby', 'inactive')",
             name="ck_resource_person_status",
@@ -51,6 +52,7 @@ class ResourcePerson(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     resource_code: Mapped[Optional[str]] = mapped_column(String(50))
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))

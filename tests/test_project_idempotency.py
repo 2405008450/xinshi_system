@@ -10,19 +10,31 @@ import main
 from sqlalchemy.exc import IntegrityError
 from annotation_models import AnnotationProject
 from annotation_service import create_annotation_project
-from crud import create_translation_project
+from crud import (
+    create_client,
+    create_client_contact,
+    create_sub_client,
+    create_sub_order,
+    create_translation_project,
+)
 from interpretation_models import InterpretationProject
 from interpretation_service import create_interpretation_project
-from models import TranslationProject
+from models import Client, ClientContact, SubClient, TranslationProject, TranslationSubOrder
 from recruitment_models import RecruitmentProject
 from recruitment_service import create_recruitment_project
 from resource_request_models import ResourceRequest
 from resource_request_service import create_resource_request
+from resource_models import ResourcePerson
+from resource_service import create_talent
 from routers import (
     annotation_projects as annotation_router,
+    client_contacts as contact_router,
+    clients as client_router,
     interpretation_projects as interpretation_router,
     recruitment_projects as recruitment_router,
     resource_requests as resource_router,
+    sub_orders as sub_order_router,
+    talents as talent_router,
     translation_projects as translation_router,
 )
 
@@ -33,6 +45,11 @@ CREATE_PATHS = (
     "/projects/annotation/",
     "/projects/recruitment/",
     "/resource-requests/",
+    "/clients/",
+    "/clients/{client_id}/sub_clients",
+    "/client-contacts/",
+    "/talents/",
+    "/sub-orders/",
 )
 
 IDEMPOTENT_MODELS = (
@@ -41,6 +58,11 @@ IDEMPOTENT_MODELS = (
     AnnotationProject,
     RecruitmentProject,
     ResourceRequest,
+    Client,
+    SubClient,
+    ClientContact,
+    ResourcePerson,
+    TranslationSubOrder,
 )
 
 CREATE_SERVICES = (
@@ -49,14 +71,24 @@ CREATE_SERVICES = (
     create_annotation_project,
     create_recruitment_project,
     create_resource_request,
+    create_client,
+    create_sub_client,
+    create_client_contact,
+    create_talent,
+    create_sub_order,
 )
 
 ROUTER_CASES = (
-    (translation_router, "create_project_endpoint", "create_translation_project", "get_translation_project"),
-    (interpretation_router, "create_project", "create_interpretation_project", "get_interpretation_project"),
-    (annotation_router, "create_project", "create_annotation_project", "get_annotation_project"),
-    (recruitment_router, "create_project", "create_recruitment_project", "get_recruitment_project"),
-    (resource_router, "create_request", "create_resource_request", "get_resource_request"),
+    (translation_router, "create_project_endpoint", "create_translation_project", "get_translation_project", "user"),
+    (interpretation_router, "create_project", "create_interpretation_project", "get_interpretation_project", "user"),
+    (annotation_router, "create_project", "create_annotation_project", "get_annotation_project", "user"),
+    (recruitment_router, "create_project", "create_recruitment_project", "get_recruitment_project", "user"),
+    (resource_router, "create_request", "create_resource_request", "get_resource_request", "user"),
+    (client_router, "create_client_endpoint", "create_client", "get_client", "plain"),
+    (client_router, "create_sub_client_endpoint", "create_sub_client", "get_sub_client", "sub_client"),
+    (contact_router, "create_client_contact_endpoint", "create_client_contact", "get_client_contact", "plain"),
+    (talent_router, "create_talent_endpoint", "create_talent", "get_talent", "plain"),
+    (sub_order_router, "create_sub_order_endpoint", "create_sub_order", "get_sub_order", "user"),
 )
 
 
@@ -84,8 +116,20 @@ class _FakeDb:
 
 
 class _Payload:
+    parent_client_id = "parent-id"
+
     def model_copy(self, **_kwargs):
         return self
+
+
+def _invoke_endpoint(module, endpoint_name, style, db):
+    endpoint = getattr(module, endpoint_name)
+    payload = _Payload()
+    if style == "user":
+        return endpoint(payload, db, SimpleNamespace(id="user-id"), "same-key-123")
+    if style == "sub_client":
+        return endpoint("parent-id", payload, db, "same-key-123")
+    return endpoint(payload, db, "same-key-123")
 
 
 @pytest.mark.parametrize("path", CREATE_PATHS)
@@ -121,9 +165,9 @@ def test_create_service_accepts_optional_idempotency_key(service):
     assert parameter.default is None
 
 
-@pytest.mark.parametrize("module,endpoint_name,service_name,getter_name", ROUTER_CASES)
+@pytest.mark.parametrize("module,endpoint_name,service_name,getter_name,style", ROUTER_CASES)
 def test_create_endpoint_replays_existing_record(
-    monkeypatch, module, endpoint_name, service_name, getter_name,
+    monkeypatch, module, endpoint_name, service_name, getter_name, style,
 ):
     existing = SimpleNamespace(id="existing-id")
     db = _FakeDb([existing])
@@ -134,16 +178,14 @@ def test_create_endpoint_replays_existing_record(
         lambda *_args, **_kwargs: pytest.fail("已有幂等记录时不应再次调用创建服务"),
     )
 
-    result = getattr(module, endpoint_name)(
-        _Payload(), db, SimpleNamespace(id="user-id"), "same-key-123",
-    )
+    result = _invoke_endpoint(module, endpoint_name, style, db)
 
     assert result == expected
 
 
-@pytest.mark.parametrize("module,endpoint_name,service_name,getter_name", ROUTER_CASES)
+@pytest.mark.parametrize("module,endpoint_name,service_name,getter_name,style", ROUTER_CASES)
 def test_create_endpoint_replays_winner_after_unique_conflict(
-    monkeypatch, module, endpoint_name, service_name, getter_name,
+    monkeypatch, module, endpoint_name, service_name, getter_name, style,
 ):
     existing = SimpleNamespace(id="winner-id")
     db = _FakeDb([None, existing])
@@ -155,9 +197,7 @@ def test_create_endpoint_replays_winner_after_unique_conflict(
 
     monkeypatch.setattr(module, service_name, raise_unique_conflict)
 
-    result = getattr(module, endpoint_name)(
-        _Payload(), db, SimpleNamespace(id="user-id"), "same-key-123",
-    )
+    result = _invoke_endpoint(module, endpoint_name, style, db)
 
     assert result == expected
     assert db.rolled_back is True

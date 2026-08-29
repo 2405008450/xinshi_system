@@ -1,4 +1,8 @@
 import api from './index'
+import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const clientCreateState = { key: '', signature: '' }
+const subClientCreateState = { key: '', signature: '' }
 
 export const getClients = (params, config = {}) => {
   return api.get('/clients/', { ...config, params })
@@ -12,8 +16,13 @@ export const getClient = (id) => {
   return api.get(`/clients/${id}`)
 }
 
-export const createClient = (data) => {
-  return api.post('/clients/', data)
+export const createClient = async (data) => {
+  const key = resolveIdempotencyKey(clientCreateState, data)
+  const response = await api.post('/clients/', data, {
+    headers: { 'X-Idempotency-Key': key },
+  })
+  clearIdempotencyKey(clientCreateState, key)
+  return response
 }
 
 export const updateClient = (id, data) => {
@@ -24,8 +33,13 @@ export const deleteClient = (id) => {
   return api.delete(`/clients/${id}`)
 }
 
-export const createSubClient = (clientId, data) => {
-  return api.post(`/clients/${clientId}/sub_clients`, data)
+export const createSubClient = async (clientId, data) => {
+  const key = resolveIdempotencyKey(subClientCreateState, { clientId, data })
+  const response = await api.post(`/clients/${clientId}/sub_clients`, data, {
+    headers: { 'X-Idempotency-Key': key },
+  })
+  clearIdempotencyKey(subClientCreateState, key)
+  return response
 }
 
 export const updateSubClient = (subId, data) => {

@@ -3,7 +3,8 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -31,6 +32,7 @@ from resource_service import (
     update_talent_status,
 )
 from routers.auth import require_module_access
+from resource_models import ResourcePerson
 
 
 router = APIRouter(
@@ -112,14 +114,41 @@ def check_duplicates(
 
 
 @router.post("/", response_model=ResourcePersonDetailResponse, status_code=status.HTTP_201_CREATED)
-def create_talent_endpoint(payload: ResourcePersonCreate, db: Session = Depends(get_db)):
+def create_talent_endpoint(
+    payload: ResourcePersonCreate,
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
+):
+    if idempotency_key:
+        existing = db.query(ResourcePerson).filter(
+            ResourcePerson.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_talent(db, existing.id)
     try:
-        return create_talent(db, payload)
+        return create_talent(db, payload, idempotency_key=idempotency_key)
     except TalentDuplicateError as exc:
         db.rollback()
+        if idempotency_key:
+            existing = db.query(ResourcePerson).filter(
+                ResourcePerson.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_talent(db, existing.id)
         raise HTTPException(status_code=409, detail={
             "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
         })
+    except IntegrityError as exc:
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(ResourcePerson).filter(
+                ResourcePerson.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_talent(db, existing.id)
+        raise HTTPException(status_code=400, detail=str(exc.orig))
 
 
 @router.get("/{person_id}", response_model=ResourcePersonDetailResponse)

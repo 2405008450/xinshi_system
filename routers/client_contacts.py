@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,18 +16,39 @@ from crud import (
 from database import get_db
 from routers.auth import require_module_access
 from schemas import ClientContactCreate, ClientContactResponse, ClientContactUpdate
+from models import ClientContact
 
 router = APIRouter(prefix="/client-contacts", tags=["client-contacts"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 
 
 @router.post("/", response_model=ClientContactResponse, status_code=status.HTTP_201_CREATED)
-def create_client_contact_endpoint(contact: ClientContactCreate, db: Session = Depends(get_db)):
+def create_client_contact_endpoint(
+    contact: ClientContactCreate,
+    db: Session = Depends(get_db),
+    idempotency_key: str | None = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
+):
+    if idempotency_key:
+        existing = db.query(ClientContact).filter(
+            ClientContact.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_client_contact(db, existing.id)
     try:
-        return create_client_contact(db=db, contact=contact)
+        return create_client_contact(
+            db=db, contact=contact, idempotency_key=idempotency_key,
+        )
     except HTTPException:
         raise
     except IntegrityError as e:
         db.rollback()
+        if idempotency_key:
+            existing = db.query(ClientContact).filter(
+                ClientContact.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_client_contact(db, existing.id)
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Database integrity error: {error_msg}")
     except DatabaseError as e:

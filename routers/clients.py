@@ -1,7 +1,7 @@
 from datetime import date
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -13,12 +13,31 @@ from crud import (
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
 from routers.auth import require_module_access
+from models import Client, SubClient
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
-def create_client_endpoint(client: ClientCreate, db: Session = Depends(get_db)):
-    return create_client(db=db, client=client)
+def create_client_endpoint(
+    client: ClientCreate,
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
+):
+    if idempotency_key:
+        existing = db.query(Client).filter(Client.idempotency_key == idempotency_key).first()
+        if existing:
+            return get_client(db, existing.id)
+    try:
+        return create_client(db=db, client=client, idempotency_key=idempotency_key)
+    except IntegrityError as exc:
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(Client).filter(Client.idempotency_key == idempotency_key).first()
+            if existing:
+                return get_client(db, existing.id)
+        raise HTTPException(status_code=400, detail=str(exc.orig))
 
 @router.get("/", response_model=List[ClientResponse])
 def read_clients(
@@ -135,10 +154,35 @@ def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db)):
 # --- Sub Client Endpoints ---
 
 @router.post("/{client_id}/sub_clients", response_model=SubClientResponse, status_code=status.HTTP_201_CREATED)
-def create_sub_client_endpoint(client_id: UUID, sub_client: SubClientCreate, db: Session = Depends(get_db)):
+def create_sub_client_endpoint(
+    client_id: UUID,
+    sub_client: SubClientCreate,
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
+):
     if sub_client.parent_client_id != client_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path ID and Body ID mismatch")
-    return create_sub_client(db=db, sub_client=sub_client)
+    if idempotency_key:
+        existing = db.query(SubClient).filter(
+            SubClient.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_sub_client(db, existing.id)
+    try:
+        return create_sub_client(
+            db=db, sub_client=sub_client, idempotency_key=idempotency_key,
+        )
+    except IntegrityError as exc:
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(SubClient).filter(
+                SubClient.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_sub_client(db, existing.id)
+        raise HTTPException(status_code=400, detail=str(exc.orig))
 
 @router.put("/sub_clients/{sub_id}", response_model=SubClientResponse)
 def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db)):

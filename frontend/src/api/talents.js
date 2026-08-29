@@ -1,4 +1,7 @@
 import api from './index'
+import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const talentCreateState = { key: '', signature: '' }
 
 const convertKeys = (value, converter) => {
   if (Array.isArray(value)) return value.map((item) => convertKeys(item, converter))
@@ -13,7 +16,15 @@ const toApi = (value) => convertKeys(value, toSnakeCase)
 export const getTalents = (params, config = {}) => api.get('/talents/', { ...config, params }).then(fromApi)
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalent = (id) => api.get(`/talents/${id}`).then(fromApi)
-export const createTalent = (data) => api.post('/talents/', toApi(data)).then(fromApi)
+export const createTalent = async (data) => {
+  const payload = toApi(data)
+  const key = resolveIdempotencyKey(talentCreateState, payload)
+  const response = await api.post('/talents/', payload, {
+    headers: { 'X-Idempotency-Key': key },
+  })
+  clearIdempotencyKey(talentCreateState, key)
+  return fromApi(response)
+}
 export const updateTalent = (id, data) => api.put(`/talents/${id}`, toApi(data)).then(fromApi)
 export const patchTalentName = (id, fullName) => api.patch(`/talents/${id}/name`, toApi({ fullName })).then(fromApi)
 export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/status`, toApi({ status })).then(fromApi)

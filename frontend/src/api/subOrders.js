@@ -1,4 +1,7 @@
 import api from './index'
+import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const subOrderCreateState = { key: '', signature: '' }
 
 function toCamelCase(str) {
     return str.replace(/([-_][a-z])/g, (group) =>
@@ -37,8 +40,14 @@ export const getSubOrder = (id) => {
     return api.get(`/sub-orders/${id}`).then(res => convertKeys(res, toCamelCase))
 }
 
-export const createSubOrder = (data) => {
-    return api.post('/sub-orders/', convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+export const createSubOrder = async (data) => {
+    const payload = convertKeys(data, toSnakeCase)
+    const key = resolveIdempotencyKey(subOrderCreateState, payload)
+    const response = await api.post('/sub-orders/', payload, {
+        headers: { 'X-Idempotency-Key': key },
+    })
+    clearIdempotencyKey(subOrderCreateState, key)
+    return convertKeys(response, toCamelCase)
 }
 
 export const updateSubOrder = (id, data) => {

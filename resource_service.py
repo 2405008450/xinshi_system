@@ -400,7 +400,9 @@ def _sync_legacy_translator(db: Session, person: ResourcePerson) -> None:
             setattr(translator, key, value)
 
 
-def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
+def create_talent(
+    db: Session, payload: ResourcePersonCreate, idempotency_key: Optional[str] = None,
+) -> ResourcePerson:
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email
     )
@@ -411,7 +413,8 @@ def create_talent(db: Session, payload: ResourcePersonCreate) -> ResourcePerson:
         "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
     })
     person = ResourcePerson(
-        duplicate_review_required=bool(duplicates and payload.allow_duplicate), **data
+        duplicate_review_required=bool(duplicates and payload.allow_duplicate),
+        idempotency_key=idempotency_key, **data,
     )
     db.add(person)
     db.flush()
