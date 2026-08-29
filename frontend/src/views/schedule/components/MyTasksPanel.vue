@@ -89,8 +89,8 @@
             </span>
             <div class="workbench-project-cell__meta">
               <el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag>
-              <el-tag :type="row.entity_type === 'suborder' ? 'warning' : 'primary'" size="small" effect="plain">
-                {{ row.entity_type === 'suborder' ? '子订单' : '母项目' }}
+              <el-tag v-if="row.entity_type === 'suborder'" type="warning" size="small" effect="plain">
+                子订单
               </el-tag>
               <span>{{ row.task_type || '项目任务' }}</span>
               <span v-if="row.entity_type === 'suborder' && row.project_name">母项目：{{ row.project_name }}</span>
@@ -421,8 +421,10 @@ import {
   DEADLINE_STATE,
   compareWorkItemsByDeadline,
   getWorkItemDeadline,
-  getWorkItemDeadlineState
+  getWorkItemDeadlineState,
+  isWorkItemOpen
 } from '@/utils/workItemDeadline'
+import { isDefaultVisibleWorkItem, isRolePoolWorkItem } from '@/utils/workItemScope'
 import {
   claimWorkflowTasksAPI,
   claimRolePoolTasksAPI,
@@ -599,17 +601,11 @@ const getTaskDeadline = getWorkItemDeadline
 const deadlineState = getWorkItemDeadlineState
 
 function isRolePoolTask(row) {
-  return !row?.current_assignee_id && (
-    row?.assignment_type === 'role_pool' || !!row?.group_assign_role
-  )
+  return isRolePoolWorkItem(row)
 }
 
 function isDefaultVisibleTask(row) {
-  if (isRolePoolTask(row)) return true
-  if (row?.current_assignee_id && currentUserId) {
-    return String(row.current_assignee_id) === currentUserId
-  }
-  return ['direct', 'project_role', 'delegated_out'].includes(row?.assignment_type)
+  return isDefaultVisibleWorkItem(row, currentUserId)
 }
 
 function isCurrentUserResponsible(row) {
@@ -626,15 +622,17 @@ function compareProjectTasks(left, right, now) {
   return compareWorkItemsByDeadline(left, right, now)
 }
 
-const delegatedOutTasks = computed(() => props.tasksList.filter(row => row.assignment_type === 'delegated_out'))
+const openTasks = computed(() => props.tasksList.filter(isWorkItemOpen))
+
+const delegatedOutTasks = computed(() => openTasks.value.filter(row => row.assignment_type === 'delegated_out'))
 
 const hiddenOverviewTaskCount = computed(() => (
-  props.tasksList.filter(row => !isDefaultVisibleTask(row)).length
+  openTasks.value.filter(row => !isDefaultVisibleTask(row)).length
 ))
 
 const projectStatusFilterOptions = computed(() => {
   const options = new Map()
-  props.tasksList.forEach((row) => {
+  openTasks.value.forEach((row) => {
     const projectType = resolveProjectType(row)
     const status = normalizeProjectStatus(projectType, row?.project_status)
     if (!status) return
@@ -661,7 +659,7 @@ const projectStatusFilterOptions = computed(() => {
 
 const assigneeFilterOptions = computed(() => {
   const options = new Map()
-  props.tasksList.forEach((row) => {
+  openTasks.value.forEach((row) => {
     const value = assigneeFilterKey(row)
     const existing = options.get(value)
     if (existing) {
@@ -684,7 +682,7 @@ const assigneeFilterOptions = computed(() => {
 const filteredTasks = computed(() => {
   let list = showDelegatedOnly.value
     ? delegatedOutTasks.value
-    : props.tasksList.filter(row => showAllTasks.value || isDefaultVisibleTask(row))
+    : openTasks.value.filter(row => showAllTasks.value || isDefaultVisibleTask(row))
 
   if (searchForm.project_types.length) {
     list = list.filter(t => searchForm.project_types.includes(t.project_type || 'translation'))

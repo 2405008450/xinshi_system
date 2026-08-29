@@ -108,6 +108,7 @@ import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
+import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const router = useRouter()
 const scheduleDate = ref('')
@@ -151,7 +152,10 @@ const onLeaveCount = computed(() => dayLeaveRecords.value.length)
 
 const personalOpenWorkItems = computed(() => workItems.value.filter(item => {
   if (!isWorkItemOpen(item)) return false
-  return item.source_type !== 'non_project' || String(item.assignee_id || '') === currentUserId
+  if (item.source_type === 'non_project') {
+    return String(item.assignee_id || '') === currentUserId
+  }
+  return isDefaultVisibleWorkItem(item, currentUserId)
 }))
 const projectPendingCount = computed(() => personalOpenWorkItems.value.filter(item => item.source_type === 'project').length)
 const pendingWorkItemCount = computed(() => personalOpenWorkItems.value.length)
