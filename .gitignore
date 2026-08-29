@@ -83,3 +83,5 @@ blob-report/
 # Local inspection / scratch files
 /db_inspect_output.txt
 *.http
+.claude/
+docs/
