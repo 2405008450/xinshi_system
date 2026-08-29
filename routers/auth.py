@@ -1,8 +1,11 @@
 import os
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy import delete, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -16,6 +19,7 @@ from auth_security import (
     throttle_exception,
 )
 from database import get_db
+from auth_security_models import RevokedAccessToken
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
@@ -110,10 +114,10 @@ def authenticate_user(db: Session, username: str, password: str, request: Reques
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -123,7 +127,10 @@ def get_user_from_token_value(db: Session, token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get('sub')
-        if not username:
+        jti: str = payload.get('jti')
+        if not username or not jti:
+            return None
+        if db.get(RevokedAccessToken, hashlib.sha256(jti.encode("utf-8")).hexdigest()) is not None:
             return None
     except JWTError:
         return None
@@ -144,6 +151,39 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """撤销当前访问令牌；重复退出保持幂等。"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        expires_at = payload.get("exp")
+        user_id = payload.get("user_id")
+        if not jti or not expires_at:
+            raise _credential_exception()
+    except JWTError:
+        raise _credential_exception()
+
+    jti_hash = hashlib.sha256(jti.encode("utf-8")).hexdigest()
+    db.execute(delete(RevokedAccessToken).where(RevokedAccessToken.expires_at < func.now()))
+    if db.get(RevokedAccessToken, jti_hash) is None:
+        parsed_user_id = None
+        try:
+            parsed_user_id = uuid.UUID(user_id) if user_id else None
+        except (TypeError, ValueError):
+            pass
+        db.add(RevokedAccessToken(
+            jti_hash=jti_hash,
+            user_id=parsed_user_id,
+            expires_at=datetime.fromtimestamp(expires_at, timezone.utc),
+        ))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 并发重复退出可能同时插入同一 JTI，唯一约束冲突等同于撤销成功。
+            db.rollback()
 
 
 def require_super_admin(

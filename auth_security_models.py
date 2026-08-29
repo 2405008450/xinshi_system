@@ -57,3 +57,20 @@ class LoginSecurityEvent(Base):
     source_failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     blocked_until: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RevokedAccessToken(Base):
+    """已主动撤销的访问令牌，仅保存 JTI 摘要，不落库原始令牌。"""
+
+    __tablename__ = "revoked_access_token"
+    __table_args__ = (
+        PrimaryKeyConstraint("jti_hash", name="revoked_access_token_pkey"),
+        Index("ix_revoked_access_token_expires_at", "expires_at"),
+    )
+
+    jti_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

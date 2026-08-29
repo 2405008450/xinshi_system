@@ -16,6 +16,7 @@ import task_models  # noqa: F401
 import word_count_models  # noqa: F401
 import workflow_models  # noqa: F401
 import annotation_ops_service as service
+from routers import annotation_ops as annotation_ops_router
 from annotation_ops_models import (
     AnnotationAccountAssignment,
     AnnotationAccountPasswordHistory,
@@ -470,6 +471,49 @@ def test_annotation_account_permissions_are_independent():
         "annotation_accounts:reveal",
     } <= PERMISSION_CODES
     assert "annotation_accounts:reveal" != "projects:write"
+
+
+@pytest.mark.parametrize(
+    ("role", "can_reveal"),
+    (("read_only", False), ("credential_reviewer", True), ("super_admin", True)),
+)
+def test_account_list_response_respects_reveal_permission(monkeypatch, role, can_reveal):
+    """列表响应必须由独立 reveal 权限决定，普通读取权限不得获得明文凭据。"""
+    user = SimpleNamespace(id=uuid4(), role=role)
+    monkeypatch.setattr(
+        annotation_ops_router,
+        "user_has_permission",
+        lambda _db, _user_id, permission: can_reveal and permission == "annotation_accounts:reveal",
+    )
+    monkeypatch.setattr(
+        annotation_ops_router,
+        "list_accounts",
+        lambda _db, _skip, _limit, reveal, **_filters: [{
+            "login_account": "full-account" if reveal else None,
+            "password": "full-password" if reveal else None,
+            "masked_login_account": "fu***nt",
+        }],
+    )
+
+    response = annotation_ops_router.accounts(
+        client_id=None,
+        platform_id=None,
+        project_id=None,
+        person_id=None,
+        assignment_state=None,
+        account_status=None,
+        registration_status=None,
+        language_item_id=None,
+        keyword=None,
+        skip=0,
+        limit=100,
+        db=SimpleNamespace(),
+        user=user,
+    )[0]
+
+    assert (response["login_account"] is not None) is can_reveal
+    assert (response["password"] is not None) is can_reveal
+    assert response["masked_login_account"] == "fu***nt"
 
 
 def test_account_person_profile_exposes_locale_fields_and_computes_age(monkeypatch):

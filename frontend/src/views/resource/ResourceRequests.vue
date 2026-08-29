@@ -59,6 +59,14 @@
         </el-popover>
       </div>
 
+      <el-alert v-if="listError" class="list-error" type="error" show-icon :closable="false">
+        <template #title>资源需求列表加载失败</template>
+        <div class="list-error__content">
+          <span>{{ listError }}</span>
+          <el-button link type="primary" :loading="loading" @click="fetchData">重新加载</el-button>
+        </div>
+      </el-alert>
+
       <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
         <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
         <el-table-column type="index" label="序号" width="64" fixed="left" :index="rowIndex" />
@@ -239,6 +247,7 @@ const users = ref([])
 const languages = ref([])
 const projects = reactive({ annotation: [], recruitment: [], interpretation: [], translation: [] })
 const loading = ref(false)
+const listError = ref('')
 const prefillLoading = ref(false)
 const advancedVisible = ref(false)
 const advancedWidth = ref(760)
@@ -310,7 +319,30 @@ let requestId = 0
 const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'submitted', ownerId: '', items: [] })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const params = () => ({ keyword: searchForm.keyword.trim() || undefined, request_status: searchForm.requestStatus || undefined, source_type: searchForm.sourceType || undefined, request_category: searchForm.requestCategory || undefined, priority: searchForm.priority || undefined, owner_id: searchForm.ownerId || undefined })
-const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current = ++requestId; loading.value = true; try { const filters = params(); const [list, count] = await Promise.all([api.getResourceRequests({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: controller.signal }), api.getResourceRequestCount(filters, { signal: controller.signal })]); if (current !== requestId) return; rows.value = list; pagination.total = count.total || 0 } catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '网络异常，资源需求列表未刷新，请检查网络后重试') } finally { if (current === requestId) loading.value = false } }
+const fetchData = async () => {
+  controller?.abort()
+  controller = new AbortController()
+  const current = ++requestId
+  loading.value = true
+  listError.value = ''
+  try {
+    const filters = params()
+    const [list, count] = await Promise.all([
+      api.getResourceRequests({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: controller.signal }),
+      api.getResourceRequestCount(filters, { signal: controller.signal }),
+    ])
+    if (current !== requestId) return
+    rows.value = list
+    pagination.total = count.total || 0
+  } catch (error) {
+    if (error.code !== 'ERR_CANCELED' && current === requestId) {
+      listError.value = error.detail || '网络异常，资源需求列表未刷新，请检查网络后重试'
+      ElMessage.error(listError.value)
+    }
+  } finally {
+    if (current === requestId) loading.value = false
+  }
+}
 const search = () => { clearTimeout(timer); pagination.page = 1; fetchData() }
 const onKeyword = (value) => { clearTimeout(timer); if (!value) return search(); timer = setTimeout(search, 400) }
 const reset = () => { Object.assign(searchForm, { keyword: '', requestStatus: '', sourceType: '', requestCategory: '', priority: '', ownerId: '' }); search() }
@@ -450,6 +482,8 @@ onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); window.removeE
 .header h2 { margin: 0; }
 .header p { margin: 4px 0 0; color: var(--el-text-color-secondary); }
 .filters { margin-bottom: 16px; flex-wrap: wrap; }
+.list-error { margin-bottom: 16px; }
+.list-error__content { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .count { margin-left: 5px; padding: 1px 6px; border-radius: 9px; color: #fff; background: var(--el-color-primary); font-size: 11px; }
 .advanced { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .advanced__header { position: sticky; top: 0; z-index: 1; margin-bottom: 12px; background: var(--el-bg-color-overlay); }

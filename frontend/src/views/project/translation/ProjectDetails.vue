@@ -243,6 +243,11 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="详情" width="100" fixed="right" align="center">
+        <template #default="{ row }">
+          <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType" />
+        </template>
+      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWriteProjects" class="action-buttons">
@@ -671,7 +676,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="subOrderDialogVisible" :title="subOrderDialogTitle" width="1040px" top="6vh" @closed="resetSubOrderForm">
+    <el-dialog v-model="subOrderDialogVisible" class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="resetSubOrderForm">
       <div class="editor-body">
         <el-form ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="120px">
           <el-tabs v-model="subOrderDialogTab" class="editor-tabs">
@@ -764,26 +769,26 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="batchDialogVisible" title="批量新增子订单" width="860px" @closed="resetBatchForm">
+    <el-dialog v-model="batchDialogVisible" class="suborder-editor-dialog" title="批量新增子订单" width="min(860px, calc(100vw - 32px))" top="5vh" @closed="resetBatchForm">
       <el-form ref="batchFormRef" :model="batchForm" :rules="batchRules" label-width="140px">
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="生成数量" prop="count"><el-input-number v-model="batchForm.count" :min="1" :max="50" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="起始序号"><el-input-number v-model="batchForm.startIndex" :min="1" style="width: 100%" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="生成数量" prop="count"><el-input-number v-model="batchForm.count" :min="1" :max="50" style="width: 100%" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="起始序号"><el-input-number v-model="batchForm.startIndex" :min="1" style="width: 100%" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="子项目名前缀"><el-input v-model="batchForm.subProjectNamePrefix" placeholder="留空则按 母项目名称-子订单01 自动生成" /></el-form-item></el-col>
         </el-row>
         <el-divider content-position="left">批量公共字段</el-divider>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="状态"><el-select v-model="batchForm.status" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="优先级"><el-select v-model="batchForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="状态"><el-select v-model="batchForm.status" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="batchForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="文本类型"><el-input v-model="batchForm.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="batchForm.languagePair" :show-hint="false" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="batchForm.fileTypeSecondary" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="batchForm.languagePair" :show-hint="false" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item label="字数摘要">
               <div class="word-count-summary">
                 <span>{{ formatWordCountSummary(batchForm) }}</span>
@@ -793,11 +798,11 @@
               </div>
             </el-form-item>
           </el-col>
-          <el-col :span="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="batchForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="batchForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="发客户时间"><el-date-picker v-model="batchForm.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="译员ID"><el-input v-model="batchForm.translatorId" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="batchForm.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="译员ID"><el-input v-model="batchForm.translatorId" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="24">
@@ -1048,6 +1053,7 @@ const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo
 const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', translatorId: '', status: 'pending_confirmation' })
 const loading = ref(false)
 const submitLoading = ref(false)
+let submitLocked = false
 const dialogVisible = ref(false)
 const subOrderDialogVisible = ref(false)
 const batchDialogVisible = ref(false)
@@ -1697,7 +1703,8 @@ const changeProjectStatus = async (row, value) => {
   }
 }
 const handleSubmit = async (sendAfterSave = false) => {
-  if (!formRef.value || submitLoading.value) return
+  if (!formRef.value || submitLocked) return
+  submitLocked = true
   syncProjectName()
   const valid = await formRef.value.validate().catch((invalidFields) => {
     if (invalidFields?.projectStatus) {
@@ -1708,11 +1715,15 @@ const handleSubmit = async (sendAfterSave = false) => {
     }
     return false
   })
-  if (!valid) return
+  if (!valid) {
+    submitLocked = false
+    return
+  }
 
   const pathGroupValid = await projectFilesTabRef.value?.validatePathGroup()
   if (pathGroupValid === false) {
     projectDialogTab.value = 'files'
+    submitLocked = false
     return
   }
 
@@ -1763,6 +1774,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     )
   } finally {
     submitLoading.value = false
+    submitLocked = false
   }
 }
 const onProjectDialogClosed = () => { resetProjectForm(); resetSubOrderForm(); resetBatchForm(); currentProjectSubOrders.value = [] }
@@ -1842,6 +1854,11 @@ onBeforeUnmount(() => {
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }
 :global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
+:global(.suborder-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
+:global(.suborder-editor-dialog .el-dialog__header),
+:global(.suborder-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
+:global(.suborder-editor-dialog .el-dialog__body) { flex: 1; min-height: 0; overflow-y: auto; }
+:global(.suborder-editor-dialog .el-dialog__footer) { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgb(0 0 0 / 4%); }
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
 :global(.project-editor-dialog .el-dialog__body) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }

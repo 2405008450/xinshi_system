@@ -1149,7 +1149,7 @@ def claim_management_project_refs(
         raise LookupError('部分项目已有待确认的管理层交接，暂不能自主承接')
     for row in rows:
         row.assignee_id = current_user.id
-        row.updated_at = datetime.datetime.utcnow()
+        row.updated_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     translation_projects = claim_management_projects(db, current_user, translation_ids) if translation_ids else []
     if not translation_ids:
         db.commit()
@@ -1492,7 +1492,7 @@ def decide_project_manager_handover(
         for item in request.items or []:
             if item.project_responsibility_id:
                 locked_responsibilities[item.project_responsibility_id].assignee_id = current_user.id
-                locked_responsibilities[item.project_responsibility_id].updated_at = datetime.datetime.utcnow()
+                locked_responsibilities[item.project_responsibility_id].updated_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
             else:
                 locked_projects[item.translation_project_id].project_manager_id = current_user.id
         request.status = 'accepted'
@@ -1645,7 +1645,7 @@ def transfer_workflow_tasks(
         ))
         instance.current_assignee_id = target.id
         instance.group_assign_role = None
-        instance.updated_at = _dt.datetime.utcnow()
+        instance.updated_at = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
         grouped.setdefault(project_id, {'project': project, 'tasks': [], 'sources': set()})
         grouped[project_id]['tasks'].append({
             'workflow_instance_id': str(instance.id),
@@ -1866,7 +1866,7 @@ def claim_role_pool_tasks(
         ))
         instance.current_assignee_id = operator.id
         instance.group_assign_role = None
-        instance.updated_at = _dt.datetime.utcnow()
+        instance.updated_at = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
 
     db.commit()
     return {
@@ -2048,7 +2048,7 @@ def decide_handover_request(
 
     request.decision_note = (note or '').strip() or None
     request.decided_by = target_user.id
-    request.decided_at = _dt.datetime.utcnow()
+    request.decided_at = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
     target_name = target_user.full_name or target_user.username
     if request.requester_id:
         notifications.extend(create_notifications_for_users(

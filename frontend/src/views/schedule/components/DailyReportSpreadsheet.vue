@@ -6,7 +6,8 @@
 
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets'
+import { LocaleType, mergeLocales } from '@univerjs/core'
+import { createUniver } from '@/utils/createUniver'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import '@univerjs/preset-sheets-core/lib/index.css'

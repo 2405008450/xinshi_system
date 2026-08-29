@@ -3,7 +3,7 @@ from datetime import datetime, date, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
@@ -112,8 +112,7 @@ class AppUserResponse(AppUserBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Role Schemas
@@ -135,8 +134,7 @@ class RoleResponse(RoleBase):
     id: UUID
     permissions: list[str] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RolePermissionsUpdate(BaseModel):
@@ -200,8 +198,7 @@ class ClientResponse(ClientBase):
     updated_at: Optional[datetime] = None
     sub_clients: list['SubClientResponse'] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ClientContactBase(BaseModel):
@@ -249,8 +246,7 @@ class ClientContactResponse(ClientContactBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # SubClient Schemas
@@ -300,8 +296,7 @@ class SubClientResponse(SubClientBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Consultation Schemas
@@ -386,8 +381,7 @@ class ConsultationResponse(ConsultationBase):
     sub_client_name: Optional[str] = None
     sub_client_short_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Translator Schemas
@@ -493,8 +487,7 @@ class TranslatorResponse(TranslatorFieldsBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TranslatorScheduleBase(BaseModel):
@@ -528,8 +521,7 @@ class TranslatorScheduleResponse(TranslatorScheduleBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 SHIFT_CODES = {
@@ -808,8 +800,7 @@ class TranslationSubOrderResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TranslationProjectResponse(TranslationProjectBase):
@@ -836,8 +827,7 @@ class TranslationProjectResponse(TranslationProjectBase):
     project_file_attribute_level3: Optional[str] = None
     project_file_difficulty: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # TranslationSubOrder Schemas
@@ -937,8 +927,7 @@ class UserRoleResponse(UserRoleBase):
     id: UUID
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserRoleDetailResponse(UserRoleResponse):
@@ -1007,8 +996,7 @@ class ProjectFileResponse(ProjectFileBase):
     project_name: Optional[str] = None
     project_status: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # WorkSchedule Schemas
@@ -1047,8 +1035,7 @@ class WorkScheduleResponse(WorkScheduleBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== 璇峰亣 Schemas ==========
@@ -1087,8 +1074,7 @@ class EmployeeLeaveResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========== 璐㈠姟 Schemas ==========
@@ -1125,8 +1111,7 @@ class FinancePaymentResponse(FinancePaymentBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FinanceRecordBase(BaseModel):
@@ -1167,8 +1152,7 @@ class FinanceRecordResponse(FinanceRecordBase):
     updated_at: Optional[datetime] = None
     payments: list[FinancePaymentResponse] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FinanceEntryPayload(BaseModel):
@@ -1220,8 +1204,7 @@ class FinanceRecordDisplayResponse(BaseModel):
     # 浜哄憳鍚嶇О锛堝墠绔睍绀虹敤锛?    sales_person_name: Optional[str] = None
     follow_up_person_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 
@@ -1239,8 +1222,7 @@ class NotificationResponse(BaseModel):
     related_entity_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProjectChatSettingsUpdateRequest(BaseModel):
     enabled: bool

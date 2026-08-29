@@ -149,6 +149,7 @@ import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
+import { logout } from '@/api/auth'
 import packageInfo from '../../package.json'
 
 const route = useRoute()
@@ -284,6 +285,11 @@ const handleLogout = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
+    try {
+      await logout()
+    } catch {
+      // 即使服务端暂时不可用，也要完成本地退出。
+    }
     localStorage.removeItem('token')
     localStorage.removeItem('user_roles')
     localStorage.removeItem('user_permissions')

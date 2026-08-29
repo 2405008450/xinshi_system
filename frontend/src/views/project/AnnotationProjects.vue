@@ -217,6 +217,19 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="详情" width="100" fixed="right" align="center">
+        <template #default="{ row }">
+          <BusinessDetailPopover
+            :row="detailRow(row)"
+            :title="`${row.orderNo || '标注项目'} 详情`"
+            :items="annotationListDetailItems"
+            :loading="detailLoadingId === row.id"
+            :status-label="statusLabel"
+            :status-type="statusType"
+            @show="loadDetailWithHistory(row.id)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
@@ -406,6 +419,7 @@ import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
@@ -456,11 +470,19 @@ const staticTableColumns = [
 ]
 const { fields:projectCustomFields, tableColumns:customTableColumns, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
+const annotationListDetailItems = computed(() => tableColumns.value.map((column) => ({
+  ...column,
+  type: column.key === 'projectStatus' ? 'status' : undefined,
+  formatter: column.customField
+    ? (_value, row) => customFieldText(row.customValues?.[column.customField.id])
+    : undefined,
+})))
 const defaultColumns = ['orderNo','projectName','projectTypes','taskDescription','projectStatus','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt','clientManagerName']
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v4',tableColumns,defaultColumns)
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
+let submitLocked=false
 const statusDialogVisible=ref(false), statusSubmitting=ref(false), statusTargetRow=ref(null)
 const statusForm=reactive({projectStatus:'',effectiveOn:'',changeNote:''})
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null)
@@ -536,7 +558,7 @@ const resetEditorScroll=async()=>{await nextTick();dialogBodyRef.value?.parentEl
 const handleAdd=async()=>{dialogTitle.value='新增标注项目';resetForm();nameManuallyEdited.value=false;dialogVisible.value=true;await resetEditorScroll()}
 const handleEdit=async(row)=>{const detail=await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`编辑标注项目 · ${detail.orderNo}`;assignForm(detail);await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll()}
 const scrollEditorToTop=()=>dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})
-const handleSubmit=async(sendAfterSave=false)=>{const valid=await formRef.value?.validate().catch(()=>false);if(!valid){scrollEditorToTop();return}submitLoading.value=true;try{const payload=buildPayload();let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'保存失败');scrollEditorToTop()}finally{submitLoading.value=false}}
+const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;scrollEditorToTop();return}submitLoading.value=true;try{const payload=buildPayload();let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'保存失败');scrollEditorToTop()}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const openStatusDialog=(row,value)=>{if(!value||value===row.projectStatus)return;statusTargetRow.value=row;Object.assign(statusForm,{projectStatus:value,effectiveOn:today(),changeNote:''});statusDialogVisible.value=true}
 const confirmStatusChange=async()=>{const row=statusTargetRow.value;if(!row||!statusForm.projectStatus||!statusForm.effectiveOn)return;statusSubmitting.value=true;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,statusForm);Object.assign(row,updated);detailCache[row.id]=updated;delete statusHistoryCache[row.id];statusDialogVisible.value=false;ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{statusSubmitting.value=false;setProjectStatusSaving(row.id,false)}}

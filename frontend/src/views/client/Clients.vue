@@ -315,6 +315,17 @@
           <span v-else>{{ row[column.key] || '-' }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="详情" width="100" fixed="right" align="center">
+        <template #default="{ row }">
+          <BusinessDetailPopover
+            :row="getDetailRow(row)"
+            :title="`${row.client_short_name || row.client_name || '客户'} 客户详情`"
+            :items="clientDetailItems"
+            :loading="detailLoadingId === row.id"
+            @show="loadClientDetail(row.id)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
@@ -547,6 +558,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { hasPermission } from '@/utils/permission'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -581,6 +593,11 @@ const clientColumnOptions = [
   { key: 'client_status', label: '客户状态', width: 120 },
   { key: 'cooperation_start_date', label: '开始合作时间', width: 180 },
   { key: 'remarks', label: '备注', width: 220 }
+]
+const clientDetailItems = [
+  ...clientColumnOptions,
+  { key: 'created_at', label: '创建时间', width: 180 },
+  { key: 'updated_at', label: '更新时间', width: 180 },
 ]
 const legacyDefaultVisibleColumnKeys = [
   'client_short_name',

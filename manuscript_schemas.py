@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from path_security import validate_managed_path
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
@@ -97,8 +97,7 @@ class ManuscriptMilestoneResponse(ManuscriptMilestoneInput):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManuscriptAssignmentInput(BaseModel):
@@ -259,8 +258,7 @@ class ManuscriptArrangementResponse(BaseModel):
     send_error: Optional[str] = None
     milestones: list[ManuscriptMilestoneResponse] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManuscriptDispatchResponse(BaseModel):
@@ -286,8 +284,7 @@ class ManuscriptDispatchResponse(BaseModel):
     manuscript_access_reason: Optional[str] = None
     arrangements: list[ManuscriptArrangementResponse] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManuscriptBatchSendResponse(BaseModel):

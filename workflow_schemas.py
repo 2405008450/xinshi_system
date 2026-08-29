@@ -5,7 +5,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from schemas import ProjectRoleAssignmentResponse
 
@@ -77,8 +77,7 @@ class WorkflowLogResponse(BaseModel):
     next_assignee_name: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowStateResponse(BaseModel):
@@ -103,8 +102,7 @@ class WorkflowStateResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkflowConfigResponse(BaseModel):
@@ -150,8 +148,7 @@ class MyTaskItem(BaseModel):
     delegation_end_at: Optional[datetime] = None
     delegation_overdue: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ManagedProjectItem(BaseModel):

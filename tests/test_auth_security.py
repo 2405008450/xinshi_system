@@ -12,7 +12,7 @@ os.environ.setdefault("SECRET_KEY", "unit-test-secret-not-for-production")
 
 import auth_security
 import main as _main  # 导入完整模型注册表，避免仅加载局部模型时关系解析不完整。
-from auth_security_models import LoginSecurityEvent, LoginThrottleState
+from auth_security_models import LoginSecurityEvent, LoginThrottleState, RevokedAccessToken
 from database import get_db
 from routers import auth as auth_router
 
@@ -42,6 +42,7 @@ def _session_factory():
     )
     LoginThrottleState.__table__.create(engine)
     LoginSecurityEvent.__table__.create(engine)
+    RevokedAccessToken.__table__.create(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
@@ -147,6 +148,23 @@ def test_forwarded_address_is_used_only_for_trusted_proxy(monkeypatch):
     assert auth_security.get_client_address(
         _request("198.51.100.7", "203.0.113.8")
     ) == "198.51.100.7"
+
+
+def test_revoked_access_token_is_rejected(monkeypatch):
+    sessions = _session_factory()
+    user = type("User", (), {"is_active": True})()
+    monkeypatch.setattr(auth_router, "get_user_by_username", lambda *_args, **_kwargs: user)
+    token = auth_router.create_access_token({"sub": "gray_user"})
+    payload = auth_router.jwt.decode(
+        token, auth_router.SECRET_KEY, algorithms=[auth_router.ALGORITHM]
+    )
+    assert payload.get("jti")
+
+    with sessions() as db:
+        assert auth_router.get_user_from_token_value(db, token) is user
+        auth_router.logout(token=token, db=db)
+        auth_router.logout(token=token, db=db)
+        assert auth_router.get_user_from_token_value(db, token) is None
 
 
 def test_json_login_switches_from_401_to_429_with_retry_after(monkeypatch):

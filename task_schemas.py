@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from schemas import ProjectRoleAssignmentResponse
 
@@ -139,8 +139,7 @@ class WorkEntryResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecurrenceCreate(BaseModel):
@@ -181,8 +180,7 @@ class RecurrenceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DailyReportItemInput(BaseModel):

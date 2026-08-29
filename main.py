@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from database import engine, get_db
 from auth_security import cleanup_login_security_data
-from auth_security_models import LoginSecurityEvent, LoginThrottleState
+from auth_security_models import LoginSecurityEvent, LoginThrottleState, RevokedAccessToken
 from manuscript_models import (
     ManuscriptArrangement,
     ManuscriptDeliveryMilestone,
@@ -1018,6 +1018,7 @@ def ensure_runtime_tables():
         return
     LoginThrottleState.__table__.create(bind=engine, checkfirst=True)
     LoginSecurityEvent.__table__.create(bind=engine, checkfirst=True)
+    RevokedAccessToken.__table__.create(bind=engine, checkfirst=True)
     with Session(engine) as db:
         cleanup_login_security_data(db)
     with engine.begin() as conn:

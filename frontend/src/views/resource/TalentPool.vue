@@ -135,6 +135,19 @@
           <span v-else>{{ tableDisplay(column, row) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="详情" width="100" fixed="right" align="center">
+        <template #default="{ row }">
+          <BusinessDetailPopover
+            :row="detailFor(row)"
+            :title="`${row.fullName || '人才'} 人才详情`"
+            :items="talentListDetailItems"
+            :loading="detailLoadingId === row.id"
+            :status-label="statusLabel"
+            :status-type="statusType"
+            @show="loadDetail(row.id)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
@@ -207,6 +220,7 @@ import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'ele
 import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
@@ -298,6 +312,23 @@ const tableColumns=[
   {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
   {key:'updatedAt',label:'最近更新',width:170,type:'datetime'},
   {key:'duplicateReviewRequired',label:'核重状态',width:100}
+]
+const talentListDetailItems = [
+  ...tableColumns.map((column) => ({
+    ...column,
+    type: column.key === 'status' ? 'status' : undefined,
+    formatter: column.key === 'capabilityTypes'
+      ? (value) => capabilityText(value)
+      : column.key === 'age'
+        ? (_value, row) => ageOf(row.birthDate)
+        : undefined,
+  })),
+  {key:'secondaryPhone',label:'备用电话'},
+  {key:'secondaryEmail',label:'备用邮箱'},
+  {key:'height',label:'身高'},
+  {key:'appearance',label:'外貌'},
+  {key:'ethnicity',label:'民族'},
+  {key:'remarks',label:'备注',span:2},
 ]
 const legacyDefaultColumnKeys=['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 const defaultColumnKeys=['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']

@@ -5,13 +5,14 @@
     :width="800"
     :title="title"
     popper-class="business-detail-popover"
+    @show="emit('show')"
   >
     <template #reference>
       <slot name="reference">
         <el-button type="primary" link>查看详情</el-button>
       </slot>
     </template>
-    <div class="business-detail-popover__content">
+    <div v-loading="loading" class="business-detail-popover__content">
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item
           v-for="item in items"
@@ -30,12 +31,15 @@
 </template>
 
 <script setup>
+const emit = defineEmits(['show'])
+
 const props = defineProps({
   row: { type: Object, required: true },
   title: { type: String, default: '详情' },
   items: { type: Array, default: () => [] },
   statusLabel: { type: Function, default: (value) => value || '-' },
-  statusType: { type: Function, default: () => 'info' }
+  statusType: { type: Function, default: () => 'info' },
+  loading: { type: Boolean, default: false }
 })
 
 const formatValue = (item) => {

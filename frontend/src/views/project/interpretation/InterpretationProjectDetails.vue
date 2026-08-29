@@ -297,6 +297,19 @@
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
+      <el-table-column label="详情" width="100" fixed="right" align="center">
+        <template #default="{ row }">
+          <BusinessDetailPopover
+            :row="detailRow(row)"
+            title="口译项目详情"
+            :items="interpretationListDetailItems"
+            :loading="detailLoadingId === row.id"
+            :status-label="statusLabel"
+            :status-type="statusType"
+            @show="loadDetail(row.id)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
@@ -619,6 +632,7 @@ import * as clientApi from '@/api/clients'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
@@ -643,6 +657,7 @@ const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const loading = ref(true)
 const submitLoading = ref(false)
+let submitLocked = false
 const projectStatusSavingIds = ref(new Set())
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
@@ -751,6 +766,10 @@ const tableColumns = [
   { key: 'createdAt', label: '创建时间', minWidth: 150 },
   { key: 'updatedAt', label: '更新时间', minWidth: 150 },
 ]
+const interpretationListDetailItems = tableColumns.map((column) => ({
+  ...column,
+  type: column.key === 'projectStatus' ? 'status' : undefined,
+}))
 const defaultColumns = [
   'orderNo', 'projectName', 'taskDescription', 'currentClientManager', 'projectStatus', 'clientShortName',
   'languageDirectionsDisplay', 'customerBudget', 'assignedInterpretersDisplay',
@@ -1201,8 +1220,13 @@ const handleEdit = async (row) => {
   await resetEditorScroll()
 }
 const handleSubmit = async (sendAfterSave = false) => {
+  if (submitLocked) return
+  submitLocked = true
   const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!valid) {
+    submitLocked = false
+    return
+  }
   submitLoading.value = true
   try {
     const payload = buildPayload()
@@ -1225,6 +1249,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     if (message.includes('时间')) dialogBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
   } finally {
     submitLoading.value = false
+    submitLocked = false
   }
 }
 const setProjectStatusSaving = (id, saving) => {
