@@ -1,16 +1,17 @@
 <template>
-  <div>
+  <div class="unified-tasks-panel">
     <el-radio-group v-model="sourceFilter" size="small" class="source-filter">
-      <el-radio-button value="all">全部（{{ items.length }}）</el-radio-button>
-      <el-radio-button value="project">项目任务（{{ projectItems.length }}）</el-radio-button>
-      <el-radio-button value="non_project">非项目任务（{{ nonProjectItems.length }}）</el-radio-button>
+      <el-radio-button value="all">全部（{{ visibleTaskCount }}）</el-radio-button>
+      <el-radio-button value="project">项目任务（{{ projectVisibleCount }}）</el-radio-button>
+      <el-radio-button value="non_project">非项目任务（{{ filteredNonProjectItems.length }}）</el-radio-button>
     </el-radio-group>
 
-    <section v-if="sourceFilter !== 'non_project'">
+    <section v-show="sourceFilter !== 'non_project'">
       <div v-if="sourceFilter === 'all'" class="subsection-title">项目任务</div>
       <MyTasksPanel
         :current-user-name="currentUserName"
         :tasks-list="projectItems"
+        @visible-count-change="projectVisibleCount = $event"
         @open-chat="$emit('open-chat', $event)"
         @open-project="$emit('open-project', $event)"
         @record-work="openWorkEntry"
@@ -240,6 +241,7 @@ import { DEADLINE_STATE, compareWorkItemsByDeadline, getWorkItemDeadlineState } 
 
 const props = defineProps({
   currentUserName: { type: String, default: '' },
+  currentUserId: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   referenceDate: { type: String, default: '' }
 })
@@ -251,15 +253,19 @@ const STATUS_LABEL = { pending: '待处理', in_progress: '进行中', completed
 const STATUS_TYPE = { pending: 'info', in_progress: 'primary', completed: 'success', cancelled: 'danger' }
 
 const sourceFilter = ref('all')
+const projectVisibleCount = ref(0)
 const keyword = ref('')
 const nonProjectStatusFilter = ref('open')
 const canAssign = computed(() => isSuperAdmin() || hasRole('项目经理'))
 const projectItems = computed(() => props.items.filter(item => item.source_type === 'project'))
 const nonProjectItems = computed(() => props.items.filter(item => item.source_type === 'non_project'))
+const personalNonProjectItems = computed(() => nonProjectItems.value.filter(item => (
+  !props.currentUserId || String(item.assignee_id || '') === props.currentUserId
+)))
 const filteredNonProjectItems = computed(() => {
   const statusFilter = nonProjectStatusFilter.value
   const value = keyword.value.trim().toLowerCase()
-  const list = nonProjectItems.value.filter(item => {
+  const list = personalNonProjectItems.value.filter(item => {
     const statusMatches = statusFilter === 'all'
       || (statusFilter === 'open' && ['pending', 'in_progress'].includes(item.status))
       || item.status === statusFilter
@@ -271,6 +277,7 @@ const filteredNonProjectItems = computed(() => {
   const now = new Date()
   return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
 })
+const visibleTaskCount = computed(() => projectVisibleCount.value + filteredNonProjectItems.value.length)
 
 const deadlineState = getWorkItemDeadlineState
 
@@ -540,8 +547,21 @@ function formatDateTime(value) {
 </script>
 
 <style scoped>
+.unified-tasks-panel {
+  position: relative;
+}
+
 .source-filter { margin-bottom: 8px; }
 .subsection-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
+
+@media (min-width: 1280px) {
+  .unified-tasks-panel :deep(.task-toolbar) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin-bottom: 0;
+  }
+}
 .non-project-section { margin-top: 4px; }
 .non-project-toolbar {
   display: flex;

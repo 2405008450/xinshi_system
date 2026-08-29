@@ -578,7 +578,7 @@ const handleLogout = async () => {
 
 .main-content {
   background: var(--color-page-bg);
-  padding: 24px;
+  padding: 12px 24px 24px;
   overflow-y: auto;
 }
 
@@ -659,7 +659,7 @@ const handleLogout = async () => {
   }
   
   .main-content {
-    padding: 16px;
+    padding: 12px 16px 16px;
   }
 
   .username {

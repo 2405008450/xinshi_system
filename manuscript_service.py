@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from crud import get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
 from concurrency import assert_fresh
-from mail_service import send_plain_text_email
+from mail_service import MailAttachment, send_plain_text_email
 from manuscript_models import (
     ManuscriptArrangement,
     ManuscriptDeliveryMilestone,
@@ -1501,6 +1501,7 @@ def send_arrangement(
     db: Session,
     arrangement_id: UUID,
     current_user: AppUser,
+    attachment: Optional[MailAttachment] = None,
 ) -> Optional[ManuscriptArrangement]:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
@@ -1552,6 +1553,7 @@ def send_arrangement(
             recipient_email=arrangement.recipient_email,
             subject=arrangement.email_subject,
             body=arrangement.email_body,
+            attachment=attachment,
             message_id=message_id,
         )
     except Exception as exc:
@@ -1580,6 +1582,7 @@ def send_dispatch(
     db: Session,
     dispatch_id: UUID,
     current_user: AppUser,
+    attachment: Optional[MailAttachment] = None,
 ) -> tuple[ManuscriptDispatch, int, int, int]:
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
@@ -1602,7 +1605,12 @@ def send_dispatch(
             skipped_count += 1
             continue
         try:
-            send_arrangement(db, arrangement.id, current_user)
+            send_arrangement(
+                db,
+                arrangement.id,
+                current_user,
+                attachment=attachment,
+            )
             sent_count += 1
         except Exception:
             failed_count += 1

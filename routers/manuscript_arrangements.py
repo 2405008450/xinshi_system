@@ -1,12 +1,18 @@
 """稿件安排 API。"""
+import re
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from mail_service import MailConfigurationError, MailDeliveryError, get_mail_status
+from mail_service import (
+    MailAttachment,
+    MailConfigurationError,
+    MailDeliveryError,
+    get_mail_status,
+)
 from manuscript_schemas import (
     ManuscriptArrangementContext,
     ManuscriptArrangementCreate,
@@ -51,6 +57,45 @@ router = APIRouter(
         Depends(require_module_access("projects:read", "projects:write"))
     ],
 )
+
+MAX_MANUSCRIPT_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+
+def validate_manuscript_attachment(
+    filename: Optional[str],
+    content_type: Optional[str],
+    content: bytes,
+) -> MailAttachment:
+    """校验并规范化一次性稿件附件。"""
+    if not content:
+        raise HTTPException(status_code=400, detail="上传文件内容为空")
+    if len(content) > MAX_MANUSCRIPT_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=413, detail="上传文件不能超过 10MB")
+    normalized_name = (filename or "附件").replace("\\", "/").rsplit("/", 1)[-1]
+    normalized_name = re.sub(r"[\x00-\x1f\x7f]", "_", normalized_name).strip()
+    if not normalized_name:
+        normalized_name = "附件"
+    return MailAttachment(
+        filename=normalized_name[:255],
+        content=content,
+        content_type=content_type or "application/octet-stream",
+    )
+
+
+async def _read_manuscript_attachment(
+    upload: Optional[UploadFile],
+) -> Optional[MailAttachment]:
+    if upload is None:
+        return None
+    try:
+        content = await upload.read(MAX_MANUSCRIPT_ATTACHMENT_BYTES + 1)
+        return validate_manuscript_attachment(
+            upload.filename,
+            upload.content_type,
+            content,
+        )
+    finally:
+        await upload.close()
 
 
 def _raise_business_error(exc: Exception) -> None:
@@ -183,16 +228,19 @@ def cancel_dispatch_endpoint(
     "/batches/{dispatch_id}/send",
     response_model=ManuscriptBatchSendResponse,
 )
-def send_dispatch_endpoint(
+async def send_dispatch_endpoint(
     dispatch_id: UUID,
+    attachment: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    mail_attachment = await _read_manuscript_attachment(attachment)
     try:
         dispatch, sent_count, failed_count, skipped_count = send_dispatch(
             db,
             dispatch_id,
             current_user,
+            attachment=mail_attachment,
         )
     except Exception as exc:
         db.rollback()
@@ -209,9 +257,10 @@ def send_dispatch_endpoint(
     "/batches/{dispatch_id}/arrangements/{arrangement_id}/send",
     response_model=ManuscriptArrangementResponse,
 )
-def send_dispatch_arrangement_endpoint(
+async def send_dispatch_arrangement_endpoint(
     dispatch_id: UUID,
     arrangement_id: UUID,
+    attachment: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -219,7 +268,12 @@ def send_dispatch_arrangement_endpoint(
     if not current or current.dispatch_id != dispatch_id:
         raise HTTPException(status_code=404, detail="译员派稿明细不存在")
     try:
-        arrangement = send_arrangement(db, arrangement_id, current_user)
+        arrangement = send_arrangement(
+            db,
+            arrangement_id,
+            current_user,
+            attachment=await _read_manuscript_attachment(attachment),
+        )
     except Exception as exc:
         _raise_business_error(exc)
     return arrangement
@@ -348,13 +402,19 @@ def update_arrangement_endpoint(
     "/{arrangement_id}/send",
     response_model=ManuscriptArrangementResponse,
 )
-def send_arrangement_endpoint(
+async def send_arrangement_endpoint(
     arrangement_id: UUID,
+    attachment: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        arrangement = send_arrangement(db, arrangement_id, current_user)
+        arrangement = send_arrangement(
+            db,
+            arrangement_id,
+            current_user,
+            attachment=await _read_manuscript_attachment(attachment),
+        )
     except Exception as exc:
         _raise_business_error(exc)
     if not arrangement:

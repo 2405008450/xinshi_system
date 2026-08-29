@@ -3,6 +3,10 @@
     <el-dropdown
       v-if="canSwitch"
       trigger="click"
+      placement="bottom-start"
+      max-height="min(360px, calc(100vh - 32px))"
+      popper-class="project-status-dropdown-popper"
+      :popper-options="STATUS_DROPDOWN_POPPER_OPTIONS"
       :disabled="saving"
       @command="changeStatus"
     >
@@ -50,6 +54,21 @@ import {
   isProjectStatusOptionDisabled,
   normalizeProjectStatus,
 } from '@/utils/projectStatus'
+
+// 使用视口固定定位，避免长菜单成为页面滚动溢出的一部分；
+// 菜单高度由 el-dropdown 的 max-height 控制，超出后在菜单内部滚动。
+const STATUS_DROPDOWN_POPPER_OPTIONS = {
+  strategy: 'fixed',
+  modifiers: [
+    {
+      name: 'preventOverflow',
+      options: {
+        rootBoundary: 'viewport',
+        padding: 8,
+      },
+    },
+  ],
+}
 
 const props = defineProps({
   projectType: { type: String, default: 'translation' },
@@ -167,5 +186,9 @@ async function changeStatus(value) {
 
 .status-current-icon {
   color: var(--el-color-primary);
+}
+
+:global(.project-status-dropdown-popper .el-scrollbar__wrap) {
+  overscroll-behavior: contain;
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <el-card class="workbench-card" shadow="never">
+  <el-card class="workbench-card">
     <template #header>
       <ScheduleHeader
         title="工作台"
@@ -29,7 +29,7 @@
           <strong>{{ urgentTasks.length }}</strong>
         </div>
         <div class="stat-chip info">
-          <span class="stat-chip__label">项目待办</span>
+          <span class="stat-chip__label">执行项目待办</span>
           <strong>{{ projectPendingCount }}</strong>
         </div>
         <div class="stat-chip neutral">
@@ -52,18 +52,76 @@
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
         <el-tab-pane name="tasks">
           <template #label>
-            <span>我的任务<template v-if="pendingWorkItemCount">（{{ pendingWorkItemCount }}）</template></span>
+            <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template></span>
           </template>
-          <ProjectManagerHandoverPanel v-if="canManageProjectOwnership" @open-project="handleOpenProject" />
-          <div v-if="canManageProjectOwnership" class="task-subsection-title">执行任务与交接</div>
-          <UnifiedTasksPanel
-            :current-user-name="currentUserName"
-            :items="workItems"
-            :reference-date="scheduleDate"
-            @open-chat="handleOpenProjectChat"
-            @open-project="handleOpenProject"
-            @refresh="loadMyWorkItems"
-          />
+          <section v-if="canManageProjectOwnership" class="workbench-section">
+            <button
+              type="button"
+              class="workbench-section__header"
+              :aria-expanded="managementExpanded"
+              @click="managementExpanded = !managementExpanded"
+            >
+              <span class="workbench-section__heading">
+                <span class="workbench-section__eyebrow">管理层</span>
+                <span>
+                  <strong>管理项目与交接</strong>
+                  <small>管理归属、承接与项目进展</small>
+                </span>
+              </span>
+              <span class="workbench-section__header-actions">
+                <span class="workbench-section__summary">{{ managementProjectCount }} 个项目</span>
+                <span class="workbench-section__toggle-text">{{ managementExpanded ? '收起' : '展开' }}</span>
+                <el-icon class="workbench-section__arrow" :class="{ 'is-expanded': managementExpanded }">
+                  <ArrowDown />
+                </el-icon>
+              </span>
+            </button>
+            <el-collapse-transition>
+              <div v-show="managementExpanded" class="workbench-section__body">
+                <ProjectManagerHandoverPanel
+                  @visible-count-change="managementProjectCount = $event"
+                  @open-project="handleOpenProject"
+                />
+              </div>
+            </el-collapse-transition>
+          </section>
+
+          <section class="workbench-section">
+            <button
+              type="button"
+              class="workbench-section__header"
+              :aria-expanded="executionExpanded"
+              @click="executionExpanded = !executionExpanded"
+            >
+              <span class="workbench-section__heading">
+                <span class="workbench-section__eyebrow is-execution">执行层</span>
+                <span>
+                  <strong>执行任务与交接</strong>
+                  <small>项目任务、个人任务与执行交接</small>
+                </span>
+              </span>
+              <span class="workbench-section__header-actions">
+                <span class="workbench-section__summary">{{ pendingWorkItemCount }} 项待办</span>
+                <span class="workbench-section__toggle-text">{{ executionExpanded ? '收起' : '展开' }}</span>
+                <el-icon class="workbench-section__arrow" :class="{ 'is-expanded': executionExpanded }">
+                  <ArrowDown />
+                </el-icon>
+              </span>
+            </button>
+            <el-collapse-transition>
+              <div v-show="executionExpanded" class="workbench-section__body">
+                <UnifiedTasksPanel
+                  :current-user-name="currentUserName"
+                  :current-user-id="currentUserId"
+                  :items="workItems"
+                  :reference-date="scheduleDate"
+                  @open-chat="handleOpenProjectChat"
+                  @open-project="handleOpenProject"
+                  @refresh="loadMyWorkItems"
+                />
+              </div>
+            </el-collapse-transition>
+          </section>
         </el-tab-pane>
         <el-tab-pane name="daily-report" lazy>
           <template #label>
@@ -96,6 +154,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ArrowDown } from '@element-plus/icons-vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
 import UnifiedTasksPanel from './components/UnifiedTasksPanel.vue'
 import DailyReportPanel from './components/DailyReportPanel.vue'
@@ -116,6 +175,9 @@ const dayLeaveRecords = ref([])
 const workItems = ref([])
 const currentUserName = ref('')
 const matrixVisible = ref(false)
+const managementProjectCount = ref(0)
+const managementExpanded = ref(true)
+const executionExpanded = ref(true)
 
 const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
 const MAIN_TAB_NAMES = ['tasks', 'daily-report']
@@ -159,6 +221,9 @@ const personalOpenWorkItems = computed(() => workItems.value.filter(item => {
 }))
 const projectPendingCount = computed(() => personalOpenWorkItems.value.filter(item => item.source_type === 'project').length)
 const pendingWorkItemCount = computed(() => personalOpenWorkItems.value.length)
+const taskTabCount = computed(() => (
+  canManageProjectOwnership.value ? managementProjectCount.value : pendingWorkItemCount.value
+))
 
 const dailyReportStatusTag = computed(() => {
   const status = dailyReportStatus.value
@@ -299,8 +364,8 @@ onMounted(() => {
 
 <style scoped>
 .workbench-card {
-  border-color: #cbd5e1;
-  background: #e9eef4;
+  border-color: var(--color-border);
+  background: var(--color-surface);
 }
 
 .workbench-card :deep(.el-card__header) {
@@ -447,14 +512,124 @@ onMounted(() => {
   min-height: 48px;
 }
 
-.task-subsection-title {
-  margin: 8px 0 4px;
-  padding: 7px 10px;
-  border-left: 3px solid #475569;
-  background: #eef2f6;
-  font-size: 13px;
-  font-weight: 600;
+.workbench-section {
+  overflow: hidden;
+  border: 1px solid #d5dde7;
+  border-radius: 7px;
+  background: var(--el-bg-color);
+}
+
+.workbench-section + .workbench-section {
+  margin-top: 10px;
+}
+
+.workbench-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: #f5f7fa;
   color: var(--el-text-color-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.workbench-section__header[aria-expanded='true'] {
+  border-bottom-color: #e2e8f0;
+}
+
+.workbench-section__header:hover {
+  background: #eef3f8;
+}
+
+.workbench-section__header:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-3);
+  outline-offset: -2px;
+}
+
+.workbench-section__heading,
+.workbench-section__header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.workbench-section__heading {
+  min-width: 0;
+  gap: 10px;
+}
+
+.workbench-section__heading > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workbench-section__heading strong {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.workbench-section__heading small {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-section__eyebrow {
+  flex: none;
+  padding: 3px 7px;
+  border: 1px solid #a8c7e8;
+  border-radius: 4px;
+  background: #edf6ff;
+  color: #315f8c;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.workbench-section__eyebrow.is-execution {
+  border-color: #b9d6c1;
+  background: #f0f8f2;
+  color: #39714a;
+}
+
+.workbench-section__header-actions {
+  flex: none;
+  gap: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.workbench-section__summary {
+  padding-right: 8px;
+  border-right: 1px solid #d8dee7;
+}
+
+.workbench-section__toggle-text {
+  min-width: 24px;
+}
+
+.workbench-section__arrow {
+  transition: transform 0.2s ease;
+}
+
+.workbench-section__arrow.is-expanded {
+  transform: rotate(180deg);
+}
+
+.workbench-section__body {
+  padding: 8px 10px 0;
 }
 
 .workbench-tabs {
@@ -519,6 +694,16 @@ onMounted(() => {
   .workbench-card :deep(.el-card__header),
   .workbench-card :deep(.el-card__body) {
     padding: 10px;
+  }
+
+  .workbench-section__header {
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .workbench-section__heading small,
+  .workbench-section__summary {
+    display: none;
   }
 }
 </style>

@@ -50,8 +50,8 @@
 import { computed } from 'vue'
 
 const PROJECT_ROLES = [
-  { roleCode: 'customer_specialist', roleName: '客户专员' },
   { roleCode: 'project_manager', roleName: '项目经理' },
+  { roleCode: 'customer_specialist', roleName: '客户专员' },
   { roleCode: 'project_specialist', roleName: '项目专员' },
   { roleCode: 'project_assistant', roleName: '项目助理' },
   { roleCode: 'layout_specialist', roleName: '排版专员' }

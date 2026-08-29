@@ -21,15 +21,20 @@
         <div v-if="request.reason" class="request-note">原因：{{ request.reason }}</div>
         <div v-if="request.note" class="request-note">说明：{{ request.note }}</div>
         <el-table :data="request.projects || []" border size="small" class="request-projects">
-          <el-table-column prop="order_no" label="订单号" width="145" show-overflow-tooltip />
-          <el-table-column prop="project_name" label="项目名称" min-width="170" show-overflow-tooltip />
-          <el-table-column prop="client_short_name" label="客户" width="100" show-overflow-tooltip />
-          <el-table-column label="客户交稿" width="168">
+          <el-table-column prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" width="145" show-overflow-tooltip />
+          <el-table-column :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
+            <template #default="{ row }">{{ row.project_type_label || '笔译项目' }}</template>
+          </el-table-column>
+          <el-table-column :label="WORKBENCH_FIELD_LABELS.projectTask" min-width="170">
+            <template #default="{ row }"><WorkbenchProjectTaskCell :row="row" /></template>
+          </el-table-column>
+          <el-table-column prop="client_short_name" :label="WORKBENCH_FIELD_LABELS.client" width="100" show-overflow-tooltip />
+          <el-table-column :label="WORKBENCH_FIELD_LABELS.projectNode" width="168">
             <template #default="{ row }">
               <DeadlineHintCell :deadline="row.customer_deadline_time" :status="row.project_status" />
             </template>
           </el-table-column>
-          <el-table-column label="项目状态" width="132">
+          <el-table-column :label="WORKBENCH_FIELD_LABELS.projectStatus" width="132">
             <template #default="{ row }">
               <ProjectStatusSwitch
                 :project-type="resolveProjectType(row)"
@@ -38,16 +43,8 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="翻译方向" width="105">
+          <el-table-column :label="WORKBENCH_FIELD_LABELS.languageDirection" width="105">
             <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
-          </el-table-column>
-          <el-table-column label="难度" width="68">
-            <template #default="{ row }">
-              <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
-                {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
-              </el-tag>
-              <span v-else>-</span>
-            </template>
           </el-table-column>
         </el-table>
         <div class="request-actions">
@@ -58,11 +55,11 @@
     </div>
 
     <div class="panel-title">
-      <span>我负责及可承接的管理项目</span>
+      <span>我负责及可承接的管理项目（{{ filteredProjects.length }}）</span>
       <div class="panel-actions">
         <el-button
           v-if="canSelfClaim"
-          type="success"
+          type="primary"
           plain
           size="small"
           :loading="claiming"
@@ -85,10 +82,9 @@
     <el-table
       ref="projectTableRef"
       v-loading="loading"
-      :data="filteredProjects"
+      :data="pagedProjects"
       border
       size="small"
-      max-height="460"
       class="workbench-data-table row-click-select-table"
       :row-key="row => `${row.project_type || 'translation'}:${row.project_id || row.translation_project_id}`"
       @selection-change="selectedProjects = $event"
@@ -98,13 +94,18 @@
         <span>{{ projects.length ? '没有符合当前筛选条件的管理项目' : '暂无负责或可承接的管理项目' }}</span>
       </template>
       <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" />
-      <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
-      <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
-      <el-table-column label="项目类型" width="90">
+      <el-table-column
+        type="index"
+        label="序号"
+        :width="WORKBENCH_COLUMN_WIDTHS.index"
+        :index="getProjectIndex"
+      />
+      <el-table-column prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
         <template #header>
-          <ColumnHeaderFilter label="项目类型" :active="!!filters.project_types.length" :width="220" @clear="filters.project_types = []">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.projectType" :active="!!filters.project_types.length" :width="220" @clear="filters.project_types = []">
             <el-checkbox-group v-model="filters.project_types" class="column-option-list">
-              <el-checkbox v-for="option in PROJECT_TYPE_OPTIONS" :key="option.value" :value="option.value">
+              <el-checkbox v-for="option in WORKBENCH_PROJECT_TYPE_OPTIONS" :key="option.value" :value="option.value">
                 {{ option.label }}
               </el-checkbox>
             </el-checkbox-group>
@@ -112,37 +113,31 @@
         </template>
         <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
       </el-table-column>
-      <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #header>
-          <ColumnHeaderFilter label="项目 / 任务" :active="!!filters.project" :width="240" @clear="filters.project = ''">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.projectTask" :active="!!filters.project" :width="240" @clear="filters.project = ''">
             <el-input v-model="filters.project" clearable size="small" placeholder="项目、任务或订单号" />
           </ColumnHeaderFilter>
         </template>
         <template #default="{ row }">
-          <div class="workbench-project-cell">
-            <span class="workbench-project-cell__title" :title="row.project_name || '-'">{{ row.project_name || '-' }}</span>
-            <div class="workbench-project-cell__meta">
-              <el-tag size="small" effect="plain">母项目</el-tag>
-              <span>{{ row.task_type || '项目任务' }}</span>
-            </div>
-          </div>
+          <WorkbenchProjectTaskCell :row="row" />
         </template>
       </el-table-column>
-      <el-table-column prop="client_short_name" label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
+      <el-table-column prop="client_short_name" :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #header>
-          <ColumnHeaderFilter label="客户" :active="!!filters.client" :width="220" @clear="filters.client = ''">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.client" :active="!!filters.client" :width="220" @clear="filters.client = ''">
             <el-input v-model="filters.client" clearable size="small" placeholder="客户全称或简称" />
           </ColumnHeaderFilter>
         </template>
       </el-table-column>
-      <el-table-column label="客户交稿" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <DeadlineHintCell :deadline="row.customer_deadline_time" :status="row.project_status" />
         </template>
       </el-table-column>
-      <el-table-column label="项目状态" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
         <template #header>
-          <ColumnHeaderFilter label="项目状态" :active="!!filters.project_statuses.length" :width="260" @clear="filters.project_statuses = []">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.projectStatus" :active="!!filters.project_statuses.length" :width="260" @clear="filters.project_statuses = []">
             <el-checkbox-group v-model="filters.project_statuses" class="column-option-list">
               <el-checkbox v-for="option in projectStatusFilterOptions" :key="option.value" :value="option.value">
                 {{ option.label }}（{{ option.count }}）
@@ -160,32 +155,17 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="翻译方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #header>
-          <ColumnHeaderFilter label="翻译方向" :active="!!filters.language_pair" :width="220" @clear="filters.language_pair = ''">
-            <el-input v-model="filters.language_pair" clearable size="small" placeholder="按翻译方向筛选" />
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.languageDirection" :active="!!filters.language_pair" :width="220" @clear="filters.language_pair = ''">
+            <el-input v-model="filters.language_pair" clearable size="small" placeholder="按语言方向筛选" />
           </ColumnHeaderFilter>
         </template>
         <template #default="{ row }"><LanguagePairText :value="row.language_pair" /></template>
       </el-table-column>
-      <el-table-column label="难度" :width="WORKBENCH_COLUMN_WIDTHS.difficulty">
+      <el-table-column prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
         <template #header>
-          <ColumnHeaderFilter label="难度" :active="!!filters.difficulties.length" :width="180" @clear="filters.difficulties = []">
-            <el-checkbox-group v-model="filters.difficulties" class="column-option-list">
-              <el-checkbox v-for="option in DIFFICULTY_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</el-checkbox>
-            </el-checkbox-group>
-          </ColumnHeaderFilter>
-        </template>
-        <template #default="{ row }">
-          <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
-            {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
-          </el-tag>
-          <span v-else>-</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="current_assignee_name" label="当前负责人" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
-        <template #header>
-          <ColumnHeaderFilter label="当前负责人" :active="!!filters.assignees.length" :width="240" @clear="filters.assignees = []">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.currentAssignee" :active="!!filters.assignees.length" :width="240" @clear="filters.assignees = []">
             <el-checkbox-group v-model="filters.assignees" class="column-option-list">
               <el-checkbox v-for="option in assigneeFilterOptions" :key="option.value" :value="option.value">
                 {{ option.label }}（{{ option.count }}）
@@ -203,9 +183,9 @@
           />
         </template>
       </el-table-column>
-      <el-table-column prop="project_manager_name" label="管理归属" width="110">
+      <el-table-column prop="project_manager_name" :label="WORKBENCH_FIELD_LABELS.managementOwnership" width="110">
         <template #header>
-          <ColumnHeaderFilter label="管理归属" :active="!!filters.managers.length" :width="240" placement="bottom-end" @clear="filters.managers = []">
+          <ColumnHeaderFilter :label="WORKBENCH_FIELD_LABELS.managementOwnership" :active="!!filters.managers.length" :width="240" placement="bottom-end" @clear="filters.managers = []">
             <el-checkbox-group v-model="filters.managers" class="column-option-list">
               <el-checkbox v-for="option in managerFilterOptions" :key="option.value" :value="option.value">
                 {{ option.label }}（{{ option.count }}）
@@ -220,13 +200,24 @@
           <el-tag v-else type="warning" size="small" effect="plain">未绑定·可承接</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" fixed="right" align="center">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.operation" width="150" fixed="right" align="center">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click.stop="$emit('open-project', row)">进入项目</el-button>
           <el-button v-if="canRecordProgress(row)" type="primary" link size="small" @click.stop="openProgressDialog(row)">记录进展</el-button>
         </template>
       </el-table-column>
     </el-table>
+    <div v-if="filteredProjects.length" class="management-pagination">
+      <el-pagination
+        v-model:current-page="currentPage"
+        :page-size="PAGE_SIZE"
+        :total="filteredProjects.length"
+        layout="total, prev, pager, next"
+        size="small"
+        background
+        @current-change="handleProjectPageChange"
+      />
+    </div>
     <el-empty v-if="!loading && !projects.length" description="暂无负责或可承接的管理项目" :image-size="72" />
 
     <el-dialog
@@ -314,31 +305,21 @@ import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
 import ColumnHeaderFilter from '@/components/common/ColumnHeaderFilter.vue'
 import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
 import {
+  WORKBENCH_FIELD_LABELS,
+  WORKBENCH_PROJECT_TYPE_LABELS,
+  WORKBENCH_PROJECT_TYPE_OPTIONS,
+  WORKBENCH_PROJECT_TYPE_VALUES
+} from '@/constants/workbenchFields'
+import {
   getProjectStatusLabel,
   normalizeProjectStatus,
   resolveProjectId,
   resolveProjectType
 } from '@/utils/projectStatus'
 import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
+import WorkbenchProjectTaskCell from './WorkbenchProjectTaskCell.vue'
 
-const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
-const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
-const DIFFICULTY_OPTIONS = [
-  { value: 'simple', label: '简单' },
-  { value: 'normal', label: '普通' },
-  { value: 'complex', label: '复杂' },
-  { value: 'unset', label: '未设置' }
-]
-const PROJECT_TYPE_OPTIONS = [
-  { label: '笔译项目', value: 'translation' },
-  { label: '口译项目', value: 'interpretation' },
-  { label: '标注项目', value: 'annotation' },
-  { label: '招聘项目', value: 'recruitment' }
-]
-const PROJECT_TYPE_VALUES = PROJECT_TYPE_OPTIONS.map(option => option.value)
-const PROJECT_TYPE_LABELS = Object.fromEntries(PROJECT_TYPE_OPTIONS.map(option => [option.value, option.label]))
-
-const emit = defineEmits(['updated', 'open-project'])
+const emit = defineEmits(['updated', 'open-project', 'visible-count-change'])
 const canWriteProjects = hasPermission('projects:write')
 
 async function handleProjectStatusUpdated(payload) {
@@ -390,6 +371,8 @@ const submitProgress = async () => {
 const selectedProjects = ref([])
 const handoverProjects = ref([])
 const projectTableRef = ref(null)
+const currentPage = ref(1)
+const PAGE_SIZE = 10
 const loading = ref(false)
 const submitting = ref(false)
 const claiming = ref(false)
@@ -414,18 +397,17 @@ function personFilterKey(id, name, emptyKey) {
 
 function readStoredFilters() {
   const fallback = {
-    project_types: [], project_statuses: [], assignees: [], managers: [], difficulties: [],
+    project_types: [], project_statuses: [], assignees: [], managers: [],
     project: '', client: '', language_pair: ''
   }
   try {
     const parsed = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || 'null')
     if (!parsed || typeof parsed !== 'object') return fallback
     return {
-      project_types: Array.isArray(parsed.project_types) ? parsed.project_types.filter(value => PROJECT_TYPE_VALUES.includes(value)) : [],
+      project_types: Array.isArray(parsed.project_types) ? parsed.project_types.filter(value => WORKBENCH_PROJECT_TYPE_VALUES.includes(value)) : [],
       project_statuses: Array.isArray(parsed.project_statuses) ? parsed.project_statuses.filter(value => typeof value === 'string' && value.includes(':')) : [],
       assignees: Array.isArray(parsed.assignees) ? parsed.assignees.filter(value => typeof value === 'string') : [],
       managers: Array.isArray(parsed.managers) ? parsed.managers.filter(value => typeof value === 'string') : [],
-      difficulties: Array.isArray(parsed.difficulties) ? parsed.difficulties.filter(value => DIFFICULTY_OPTIONS.some(option => option.value === value)) : [],
       project: typeof parsed.project === 'string' ? parsed.project : '',
       client: typeof parsed.client === 'string' ? parsed.client : '',
       language_pair: typeof parsed.language_pair === 'string' ? parsed.language_pair : ''
@@ -473,7 +455,7 @@ const projectStatusFilterOptions = computed(() => {
     if (existing) existing.count += 1
     else options.set(value, {
       value,
-      label: `${PROJECT_TYPE_LABELS[projectType] || '项目'} · ${getProjectStatusLabel(projectType, status)}`,
+      label: `${WORKBENCH_PROJECT_TYPE_LABELS[projectType] || '项目'} · ${getProjectStatusLabel(projectType, status)}`,
       count: 1
     })
   })
@@ -490,8 +472,6 @@ const filteredProjects = computed(() => {
     if (filters.project_statuses.length && !filters.project_statuses.includes(projectStatusFilterKey(row))) return false
     if (filters.assignees.length && !filters.assignees.includes(personFilterKey(row.current_assignee_id, row.current_assignee_name, 'unassigned'))) return false
     if (filters.managers.length && !filters.managers.includes(personFilterKey(row.project_manager_id, row.project_manager_name, 'unbound'))) return false
-    const difficulty = row.difficulty || 'unset'
-    if (filters.difficulties.length && !filters.difficulties.includes(difficulty)) return false
     if (projectKeyword && ![row.project_name, row.task_type, row.order_no].some(value => String(value || '').toLowerCase().includes(projectKeyword))) return false
     if (clientKeyword && ![row.client_name, row.client_short_name].some(value => String(value || '').toLowerCase().includes(clientKeyword))) return false
     if (languageKeyword && !String(row.language_pair || '').toLowerCase().includes(languageKeyword)) return false
@@ -499,12 +479,32 @@ const filteredProjects = computed(() => {
   })
 })
 
+const pagedProjects = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filteredProjects.value.slice(start, start + PAGE_SIZE)
+})
+
+function getProjectIndex(index) {
+  return (currentPage.value - 1) * PAGE_SIZE + index + 1
+}
+
+function handleProjectPageChange() {
+  clearProjectSelection()
+}
+
 watch(filters, (value) => {
+  currentPage.value = 1
   clearProjectSelection()
   try {
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(value))
   } catch {}
 })
+
+watch(() => filteredProjects.value.length, (total) => {
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  if (currentPage.value > lastPage) currentPage.value = lastPage
+  emit('visible-count-change', total)
+}, { immediate: true })
 const claimableSelectedProjects = computed(() => (
   canSelfClaim
     ? selectedProjects.value.filter(project => !project.project_manager_id)
@@ -658,7 +658,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .management-handover {
-  margin-bottom: 10px;
+  margin-bottom: 4px;
 }
 
 .panel-title,
@@ -679,6 +679,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.management-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin: 8px 0 12px;
 }
 
 .column-option-list {

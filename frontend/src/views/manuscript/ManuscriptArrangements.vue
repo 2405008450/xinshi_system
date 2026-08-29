@@ -807,7 +807,7 @@
       </div>
     </el-card>
 
-    <el-card class="panel-card records-panel" shadow="never">
+    <el-card class="panel-card records-panel">
       <template #header>
         <div class="panel-header">
           <div>
@@ -1258,6 +1258,26 @@
           show-icon
         />
 
+        <div v-if="mailSendPreview.preview.arrangement_id" class="mail-attachment-upload">
+          <label>邮件附件（可选）</label>
+          <el-upload
+            v-model:file-list="mailAttachmentList"
+            :auto-upload="false"
+            :limit="1"
+            :disabled="mailSendPreviewSending"
+            :on-change="handleMailAttachmentChange"
+            :on-remove="handleMailAttachmentRemove"
+            :on-exceed="handleMailAttachmentExceed"
+          >
+            <el-button :disabled="mailSendPreviewSending">选择文件</el-button>
+            <template #tip>
+              <div class="el-upload__tip">
+                单个文件不超过 10MB；文件仅用于本次发送，不依赖局域网共享路径。批量发送时将附到每封邮件中。
+              </div>
+            </template>
+          </el-upload>
+        </div>
+
         <el-descriptions v-if="mailSendPreview.preview.arrangement_id" :column="1" border size="small">
           <el-descriptions-item label="译员">
             {{ mailSendPreview.assignment?.translator_name_snapshot || '-' }}
@@ -1524,6 +1544,9 @@ const mailSendPreviewLoading = ref(false)
 const mailSendPreviewSending = ref(false)
 const mailSendPreviewError = ref('')
 const mailSendPreviewMode = ref('single')
+const MAX_MAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const mailAttachmentFile = ref(null)
+const mailAttachmentList = ref([])
 const mailPreview = reactive({
   arrangement_id: '',
   recipient_email: '',
@@ -1597,6 +1620,8 @@ function clearMailSendPreview() {
   mailSendPreviewMode.value = 'single'
   mailSendPreview.dispatch = null
   mailSendPreview.assignment = null
+  mailAttachmentFile.value = null
+  mailAttachmentList.value = []
   Object.assign(mailSendPreview.preview, {
     arrangement_id: '',
     recipient_email: '',
@@ -1605,6 +1630,35 @@ function clearMailSendPreview() {
     dispatch_path: '',
     reference_file_path_one: ''
   })
+}
+
+function handleMailAttachmentChange(uploadFile) {
+  const rawFile = uploadFile?.raw
+  if (!rawFile) {
+    mailAttachmentFile.value = null
+    return
+  }
+  if (rawFile.size > MAX_MAIL_ATTACHMENT_BYTES) {
+    mailAttachmentFile.value = null
+    mailAttachmentList.value = []
+    ElMessage.error('上传文件不能超过 10MB')
+    return
+  }
+  if (rawFile.size === 0) {
+    mailAttachmentFile.value = null
+    mailAttachmentList.value = []
+    ElMessage.error('不能上传空文件')
+    return
+  }
+  mailAttachmentFile.value = rawFile
+}
+
+function handleMailAttachmentRemove() {
+  mailAttachmentFile.value = null
+}
+
+function handleMailAttachmentExceed() {
+  ElMessage.warning('每次发送只能上传一个附件，请先移除已选文件')
 }
 
 async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
@@ -2607,7 +2661,7 @@ async function sendBatch(row) {
   }
   try {
     sendingBatchId.value = row.id
-    const result = await sendManuscriptDispatch(row.id)
+    const result = await sendManuscriptDispatch(row.id, mailAttachmentFile.value)
     if (result.failed_count) {
       ElMessage.warning(`发送完成：成功 ${result.sent_count}，失败 ${result.failed_count}，跳过 ${result.skipped_count}`)
     } else {
@@ -2631,7 +2685,11 @@ async function sendAssignment(dispatch, assignment) {
   }
   try {
     sendingId.value = assignment.id
-    await sendManuscriptAssignment(dispatch.id, assignment.id)
+    await sendManuscriptAssignment(
+      dispatch.id,
+      assignment.id,
+      mailAttachmentFile.value
+    )
     ElMessage.success('邮件发送成功')
     await Promise.all([loadContext(), loadDispatches()])
     return true
@@ -2929,8 +2987,10 @@ onBeforeUnmount(() => {
   height: calc(100vh - 200px);
   min-height: 480px;
   overflow: hidden;
-  border: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  border: 1px solid var(--color-border);
+  border-radius: var(--el-card-border-radius, 4px);
+  background: var(--color-surface);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .legacy-workbench__left {
@@ -3266,6 +3326,28 @@ onBeforeUnmount(() => {
 
 .mail-send-preview-body > .el-alert {
   margin-bottom: 12px;
+}
+
+.mail-attachment-upload {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-lighter);
+}
+
+.mail-attachment-upload > label {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 32px;
+}
+
+.mail-attachment-upload :deep(.el-upload-list) {
+  margin-bottom: 0;
 }
 
 .mail-send-preview-body :deep(.el-descriptions__content) {

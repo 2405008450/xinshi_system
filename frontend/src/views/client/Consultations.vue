@@ -335,19 +335,6 @@
           <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right" align="center">
-        <template #default="{ row }">
-          <BusinessDetailPopover
-            :row="getDetailRow(row)"
-            :title="`${row.client_short_name || '客户'} 咨询详情`"
-            :items="consultationDetailItems"
-            :loading="detailLoadingId === row.id"
-            :status-label="getStatusText"
-            :status-type="getStatusType"
-            @show="loadConsultationDetail(row.id)"
-          />
-        </template>
-      </el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton action="edit" @click="handleEdit(row)" />
@@ -990,7 +977,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
-import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
@@ -1068,17 +1054,6 @@ const consultationColumnOptions = [
   { key: 'created_at', label: '创建时间', width: 180, type: 'datetime' },
   { key: 'updated_at', label: '更新时间', width: 180, type: 'datetime' },
 ]
-const consultationDetailItems = consultationColumnOptions.map((column) => ({
-  ...column,
-  type: column.key === 'status' ? 'status' : undefined,
-  formatter: column.type === 'user'
-    ? (value) => getUserName(value)
-    : column.key === 'consultation_method'
-      ? (value) => consultationMethodLabel(value)
-      : column.key === 'consultation_type'
-        ? (value) => consultationTypeLabel(value)
-        : undefined,
-}))
 const defaultVisibleColumnKeys = [
   'status',
   'client_short_name',

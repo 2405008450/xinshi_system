@@ -1,13 +1,7 @@
 <template>
-  <div class="section-block">
+  <div class="section-block" :class="{ 'is-multi-page': filteredTasks.length > PAGE_SIZE }">
     <div class="task-toolbar">
       <div class="task-toolbar__actions">
-        <el-button size="small" :type="showDelegatedOnly ? 'primary' : 'default'" plain @click="toggleDelegatedScope">
-          我委托的任务（{{ delegatedOutTasks.length }}）
-        </el-button>
-        <el-button size="small" plain @click="toggleTaskScope">
-          {{ showAllTasks ? '只看我的任务' : `显示全部任务（${hiddenOverviewTaskCount}）` }}
-        </el-button>
         <el-button
           v-if="canOperateWorkflow"
           type="primary"
@@ -19,14 +13,14 @@
         </el-button>
         <el-button
           v-if="canOperateWorkflow"
-          type="success"
+          type="primary"
           plain
           size="small"
           :loading="claimingRolePool"
           :disabled="!rolePoolSelectedTasks.length"
           @click="claimSelectedRolePoolTasks"
         >认领任务（{{ rolePoolSelectedTasks.length }}）</el-button>
-        <el-button v-if="canOperateWorkflow" type="warning" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
+        <el-button v-if="canOperateWorkflow" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
       </div>
     </div>
 
@@ -45,70 +39,66 @@
         <span class="table-filter-empty">没有符合当前筛选条件的任务，可调整列头筛选条件</span>
       </template>
       <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" :selectable="isTaskSelectable" />
-      <el-table-column type="index" label="序号" :width="WORKBENCH_COLUMN_WIDTHS.index" />
-      <el-table-column prop="order_no" label="订单号" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
-      <el-table-column label="项目 / 任务" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+      <el-table-column
+        type="index"
+        label="序号"
+        :width="WORKBENCH_COLUMN_WIDTHS.index"
+        :index="getTaskIndex"
+      />
+      <el-table-column prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
         <template #header>
           <ColumnHeaderFilter
-            label="项目 / 任务"
-            :active="projectFilterActive"
-            :width="260"
-            @clear="clearProjectFilters"
+            :label="WORKBENCH_FIELD_LABELS.projectType"
+            :active="!!searchForm.project_types.length"
+            :width="220"
+            @clear="searchForm.project_types = []"
           >
-            <div>
-              <div class="column-header-filter__group-label">项目类型</div>
-              <el-checkbox-group v-model="searchForm.project_types" class="project-type-filter-group">
-                <el-checkbox
-                  v-for="option in PROJECT_TYPE_OPTIONS"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </el-checkbox>
-              </el-checkbox-group>
-            </div>
-            <div>
-              <div class="column-header-filter__group-label">关键词</div>
-              <el-input
-                v-model="searchForm.project"
-                placeholder="项目、子项目或订单号"
-                clearable
-                size="small"
-                @change="normalizeProjectSearch"
-              />
-            </div>
+            <el-checkbox-group v-model="searchForm.project_types" class="project-type-filter-group">
+              <el-checkbox
+                v-for="option in WORKBENCH_PROJECT_TYPE_OPTIONS"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
+        <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
+      </el-table-column>
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+        <template #header>
+          <ColumnHeaderFilter
+            :label="WORKBENCH_FIELD_LABELS.projectTask"
+            :active="!!projectSearchKeyword"
+            :width="240"
+            @clear="searchForm.project = ''"
+          >
+            <el-input
+              v-model="searchForm.project"
+              placeholder="项目、子项目或订单号"
+              clearable
+              size="small"
+              @change="normalizeProjectSearch"
+            />
           </ColumnHeaderFilter>
         </template>
         <template #default="{ row }">
-          <div class="workbench-project-cell">
-            <span
-              class="workbench-project-cell__title"
-              :title="row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-')"
-            >
-              {{ row.entity_type === 'suborder' ? (row.sub_project_name || row.project_name || '-') : (row.project_name || '-') }}
-            </span>
-            <div class="workbench-project-cell__meta">
-              <el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag>
-              <el-tag v-if="row.entity_type === 'suborder'" type="warning" size="small" effect="plain">
-                子订单
-              </el-tag>
-              <span>{{ row.task_type || '项目任务' }}</span>
-              <span v-if="row.entity_type === 'suborder' && row.project_name">母项目：{{ row.project_name }}</span>
-            </div>
-          </div>
+          <WorkbenchProjectTaskCell :row="row" />
         </template>
       </el-table-column>
-      <el-table-column label="客户" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #header>
           <ColumnHeaderFilter
-            label="客户"
+            :label="WORKBENCH_FIELD_LABELS.client"
             :active="!!searchForm.client"
             :width="220"
             @clear="searchForm.client = ''"
           >
             <el-input
               v-model="searchForm.client"
-              placeholder="按客户简称筛选"
+              placeholder="客户全称或简称"
               clearable
               size="small"
             />
@@ -116,15 +106,15 @@
         </template>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column label="计划节点" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <DeadlineHintCell :deadline="getTaskDeadline(row)" :status="row.project_status" />
         </template>
       </el-table-column>
-      <el-table-column prop="project_status" label="项目状态" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
+      <el-table-column prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
         <template #header>
           <ColumnHeaderFilter
-            label="项目状态"
+            :label="WORKBENCH_FIELD_LABELS.projectStatus"
             :active="!!searchForm.project_statuses.length"
             :width="260"
             @clear="searchForm.project_statuses = []"
@@ -151,20 +141,17 @@
           />
         </template>
       </el-table-column>
-      <el-table-column prop="current_stage_role_name" label="所属角色" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
-      </el-table-column>
-      <el-table-column prop="language_pair" label="语言方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+      <el-table-column prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #header>
           <ColumnHeaderFilter
-            label="语言方向"
+            :label="WORKBENCH_FIELD_LABELS.languageDirection"
             :active="!!searchForm.language_pair"
             :width="220"
             @clear="searchForm.language_pair = ''"
           >
             <el-input
               v-model="searchForm.language_pair"
-              placeholder="按翻译方向筛选"
+              placeholder="按语言方向筛选"
               clearable
               size="small"
             />
@@ -174,18 +161,10 @@
           <LanguagePairText :value="row.language_pair" />
         </template>
       </el-table-column>
-      <el-table-column prop="difficulty" label="难度" :width="WORKBENCH_COLUMN_WIDTHS.difficulty">
-        <template #default="{ row }">
-          <el-tag v-if="row.difficulty" :type="DIFFICULTY_TYPE[row.difficulty] || ''" size="small" effect="plain">
-            {{ DIFFICULTY_LABEL[row.difficulty] || row.difficulty }}
-          </el-tag>
-          <span v-else>-</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="current_assignee_name" label="当前负责人" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+      <el-table-column prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
         <template #header>
           <ColumnHeaderFilter
-            label="当前负责人"
+            :label="WORKBENCH_FIELD_LABELS.currentAssignee"
             :active="!!searchForm.assignees.length"
             :width="240"
             @clear="searchForm.assignees = []"
@@ -223,7 +202,28 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="分配" width="84">
+      <el-table-column prop="current_stage_role_name" :label="WORKBENCH_FIELD_LABELS.currentRole" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
+      </el-table-column>
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
+        <template #header>
+          <ColumnHeaderFilter
+            :label="WORKBENCH_FIELD_LABELS.assignmentMethod"
+            :active="!!searchForm.assignment_scopes.length"
+            :width="220"
+            @clear="searchForm.assignment_scopes = []"
+          >
+            <el-checkbox-group v-model="searchForm.assignment_scopes" class="assignment-scope-filter-group">
+              <el-checkbox
+                v-for="option in assignmentScopeFilterOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}（{{ option.count }}）
+              </el-checkbox>
+            </el-checkbox-group>
+          </ColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <el-tag :type="assignmentTagType(row)" size="small" effect="plain">
             {{ assignmentLabel(row) }}
@@ -235,7 +235,7 @@
           <el-tag size="small" effect="plain">{{ formatStage(row.current_stage_key) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="190" align="center" fixed="right">
+      <el-table-column :label="WORKBENCH_FIELD_LABELS.operation" width="190" align="center" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click="$emit('open-project', row)">进入项目</el-button>
           <el-button
@@ -258,7 +258,7 @@
         :page-size="PAGE_SIZE"
         :total="filteredTasks.length"
         layout="total, prev, pager, next"
-        small
+        size="small"
         background
         @current-change="handlePageChange"
       />
@@ -409,6 +409,12 @@ import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
 import ColumnHeaderFilter from '@/components/common/ColumnHeaderFilter.vue'
 import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
+import {
+  WORKBENCH_FIELD_LABELS,
+  WORKBENCH_PROJECT_TYPE_LABELS,
+  WORKBENCH_PROJECT_TYPE_OPTIONS,
+  WORKBENCH_PROJECT_TYPE_VALUES
+} from '@/constants/workbenchFields'
 import { hasPermission } from '@/utils/permission'
 import {
   getProjectStatusLabel,
@@ -417,6 +423,7 @@ import {
   resolveProjectType
 } from '@/utils/projectStatus'
 import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
+import WorkbenchProjectTaskCell from './WorkbenchProjectTaskCell.vue'
 import {
   DEADLINE_STATE,
   compareWorkItemsByDeadline,
@@ -446,9 +453,6 @@ const STAGE_LABELS = {
   completed: '完成'
 }
 
-const DIFFICULTY_LABEL = { simple: '简单', normal: '普通', complex: '复杂' }
-const DIFFICULTY_TYPE = { simple: 'success', normal: '', complex: 'danger' }
-
 function formatStage(stageKey) {
   return STAGE_LABELS[stageKey] || stageKey || '-'
 }
@@ -458,7 +462,7 @@ const props = defineProps({
   tasksList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['open-chat', 'open-project', 'record-work', 'refresh'])
+const emit = defineEmits(['open-chat', 'open-project', 'record-work', 'refresh', 'visible-count-change'])
 const canWriteProjects = hasPermission('projects:write')
 const canOperateWorkflow = hasPermission(['projects:read', 'workflow:operate'])
 
@@ -481,8 +485,6 @@ const projectMessageEnabled = false
 const stageColumnEnabled = false
 
 const selectedTasks = ref([])
-const showAllTasks = ref(false)
-const showDelegatedOnly = ref(false)
 const currentPage = ref(1)
 const PAGE_SIZE = 10
 const claimingRolePool = ref(false)
@@ -521,15 +523,6 @@ let claimSearchTimer = null
 let claimRequestId = 0
 let claimController = null
 
-const PROJECT_TYPE_OPTIONS = [
-  { label: '笔译项目', value: 'translation' },
-  { label: '口译项目', value: 'interpretation' },
-  { label: '标注项目', value: 'annotation' },
-  { label: '招聘项目', value: 'recruitment' }
-]
-const PROJECT_TYPE_VALUES = PROJECT_TYPE_OPTIONS.map(option => option.value)
-const PROJECT_TYPE_LABELS = Object.fromEntries(PROJECT_TYPE_OPTIONS.map(option => [option.value, option.label]))
-
 function projectStatusFilterKey(row) {
   const projectType = resolveProjectType(row)
   return `${projectType}:${normalizeProjectStatus(projectType, row?.project_status)}`
@@ -538,7 +531,7 @@ function projectStatusFilterKey(row) {
 function isValidStoredStatusKey(value) {
   if (typeof value !== 'string') return false
   const [projectType, status] = value.split(':', 2)
-  return PROJECT_TYPE_VALUES.includes(projectType) && !!status
+  return WORKBENCH_PROJECT_TYPE_VALUES.includes(projectType) && !!status
 }
 
 function assigneeFilterKey(row) {
@@ -553,26 +546,40 @@ function isValidStoredAssigneeKey(value) {
   )
 }
 
+const ASSIGNMENT_SCOPE_DEFINITIONS = [
+  { value: 'mine', label: '我的任务' },
+  { value: 'role_pool', label: '角色池任务' },
+  { value: 'delegated_out', label: '我已委托' },
+  { value: 'overview', label: '全局查看' }
+]
+
+function isValidStoredAssignmentScope(value) {
+  return ASSIGNMENT_SCOPE_DEFINITIONS.some(option => option.value === value)
+}
+
 // 筛选条件按“页面 + 当前用户”持久化，不同登录用户互不影响（例如只负责口译项目的用户）
 const FILTER_STORAGE_KEY = `workbench-filters:my-tasks:${
   localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
 }`
 
 function readStoredFilters() {
-  const fallback = { project_types: [], project_statuses: [], assignees: [], client: '', project: '', language_pair: '' }
+  const fallback = { project_types: [], project_statuses: [], assignees: [], assignment_scopes: [], client: '', project: '', language_pair: '' }
   try {
     const raw = localStorage.getItem(FILTER_STORAGE_KEY)
     if (!raw) return fallback
     const parsed = JSON.parse(raw)
     return {
       project_types: Array.isArray(parsed.project_types)
-        ? parsed.project_types.filter(value => PROJECT_TYPE_VALUES.includes(value))
+        ? parsed.project_types.filter(value => WORKBENCH_PROJECT_TYPE_VALUES.includes(value))
         : [],
       project_statuses: Array.isArray(parsed.project_statuses)
         ? parsed.project_statuses.filter(isValidStoredStatusKey)
         : [],
       assignees: Array.isArray(parsed.assignees)
         ? parsed.assignees.filter(isValidStoredAssigneeKey)
+        : [],
+      assignment_scopes: Array.isArray(parsed.assignment_scopes)
+        ? parsed.assignment_scopes.filter(isValidStoredAssignmentScope)
         : [],
       client: typeof parsed.client === 'string' ? parsed.client : '',
       project: typeof parsed.project === 'string' ? parsed.project : '',
@@ -586,12 +593,6 @@ function readStoredFilters() {
 
 const searchForm = reactive(readStoredFilters())
 const projectSearchKeyword = computed(() => searchForm.project.trim())
-const projectFilterActive = computed(() => !!(searchForm.project_types.length || projectSearchKeyword.value))
-
-function clearProjectFilters() {
-  searchForm.project_types = []
-  searchForm.project = ''
-}
 
 function normalizeProjectSearch() {
   searchForm.project = projectSearchKeyword.value
@@ -624,11 +625,24 @@ function compareProjectTasks(left, right, now) {
 
 const openTasks = computed(() => props.tasksList.filter(isWorkItemOpen))
 
-const delegatedOutTasks = computed(() => openTasks.value.filter(row => row.assignment_type === 'delegated_out'))
+function assignmentScopeKey(row) {
+  if (row?.assignment_type === 'delegated_out') return 'delegated_out'
+  if (isRolePoolTask(row)) return 'role_pool'
+  if (row?.assignment_type === 'overview') return 'overview'
+  if (isCurrentUserResponsible(row)) return 'mine'
+  return 'overview'
+}
 
-const hiddenOverviewTaskCount = computed(() => (
-  openTasks.value.filter(row => !isDefaultVisibleTask(row)).length
-))
+const assignmentScopeFilterOptions = computed(() => {
+  const counts = Object.fromEntries(ASSIGNMENT_SCOPE_DEFINITIONS.map(option => [option.value, 0]))
+  openTasks.value.forEach((row) => {
+    counts[assignmentScopeKey(row)] += 1
+  })
+  return ASSIGNMENT_SCOPE_DEFINITIONS.map(option => ({
+    ...option,
+    count: counts[option.value]
+  }))
+})
 
 const projectStatusFilterOptions = computed(() => {
   const options = new Map()
@@ -644,14 +658,14 @@ const projectStatusFilterOptions = computed(() => {
     }
     options.set(value, {
       value,
-      label: `${PROJECT_TYPE_LABELS[projectType] || '项目'} · ${getProjectStatusLabel(projectType, status)}`,
+      label: `${WORKBENCH_PROJECT_TYPE_LABELS[projectType] || '项目'} · ${getProjectStatusLabel(projectType, status)}`,
       count: 1,
       projectType,
       status
     })
   })
   return Array.from(options.values()).sort((left, right) => {
-    const typeDifference = PROJECT_TYPE_VALUES.indexOf(left.projectType) - PROJECT_TYPE_VALUES.indexOf(right.projectType)
+    const typeDifference = WORKBENCH_PROJECT_TYPE_VALUES.indexOf(left.projectType) - WORKBENCH_PROJECT_TYPE_VALUES.indexOf(right.projectType)
     if (typeDifference) return typeDifference
     return left.label.localeCompare(right.label, 'zh-CN')
   })
@@ -680,9 +694,9 @@ const assigneeFilterOptions = computed(() => {
 })
 
 const filteredTasks = computed(() => {
-  let list = showDelegatedOnly.value
-    ? delegatedOutTasks.value
-    : openTasks.value.filter(row => showAllTasks.value || isDefaultVisibleTask(row))
+  let list = searchForm.assignment_scopes.length
+    ? openTasks.value.filter(row => searchForm.assignment_scopes.includes(assignmentScopeKey(row)))
+    : openTasks.value.filter(isDefaultVisibleTask)
 
   if (searchForm.project_types.length) {
     list = list.filter(t => searchForm.project_types.includes(t.project_type || 'translation'))
@@ -712,23 +726,13 @@ const pagedTasks = computed(() => {
   return filteredTasks.value.slice(start, start + PAGE_SIZE)
 })
 
+function getTaskIndex(index) {
+  return (currentPage.value - 1) * PAGE_SIZE + index + 1
+}
+
 function clearTaskSelection() {
   selectedTasks.value = []
   taskTableRef.value?.clearSelection()
-}
-
-function toggleTaskScope() {
-  showDelegatedOnly.value = false
-  showAllTasks.value = !showAllTasks.value
-  currentPage.value = 1
-  clearTaskSelection()
-}
-
-function toggleDelegatedScope() {
-  showDelegatedOnly.value = !showDelegatedOnly.value
-  if (showDelegatedOnly.value) showAllTasks.value = false
-  currentPage.value = 1
-  clearTaskSelection()
 }
 
 function handlePageChange() {
@@ -740,9 +744,10 @@ watch(searchForm, (value) => {
   clearTaskSelection()
   try {
     localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({
-      project_types: value.project_types.filter(item => PROJECT_TYPE_VALUES.includes(item)),
+      project_types: value.project_types.filter(item => WORKBENCH_PROJECT_TYPE_VALUES.includes(item)),
       project_statuses: value.project_statuses.filter(isValidStoredStatusKey),
       assignees: value.assignees.filter(isValidStoredAssigneeKey),
+      assignment_scopes: value.assignment_scopes.filter(isValidStoredAssignmentScope),
       client: value.client,
       project: value.project,
       language_pair: value.language_pair
@@ -753,7 +758,8 @@ watch(searchForm, (value) => {
 watch(() => filteredTasks.value.length, (total) => {
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
   if (currentPage.value > lastPage) currentPage.value = lastPage
-})
+  emit('visible-count-change', total)
+}, { immediate: true })
 
 function rowClassName({ row }) {
   const state = deadlineState(row)
@@ -1001,6 +1007,11 @@ onBeforeUnmount(() => {
 .section-block { margin-bottom: 10px; }
 .data-table { margin-bottom: 12px; }
 
+/* 多页切换时预留一页表格的展示空间，避免末页行数较少导致下方区域明显跳动。 */
+.section-block.is-multi-page {
+  min-height: 590px;
+}
+
 .task-toolbar {
   display: flex;
   align-items: center;
@@ -1021,13 +1032,15 @@ onBeforeUnmount(() => {
 }
 
 .project-status-filter-group,
-.assignee-filter-group {
+.assignee-filter-group,
+.assignment-scope-filter-group {
   display: grid;
   gap: 4px;
 }
 
 .project-status-filter-group :deep(.el-checkbox),
-.assignee-filter-group :deep(.el-checkbox) {
+.assignee-filter-group :deep(.el-checkbox),
+.assignment-scope-filter-group :deep(.el-checkbox) {
   height: auto;
   margin-right: 0;
   white-space: normal;
@@ -1140,6 +1153,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  .section-block.is-multi-page {
+    min-height: 0;
+  }
+
   .task-toolbar {
     align-items: stretch;
     flex-direction: column;

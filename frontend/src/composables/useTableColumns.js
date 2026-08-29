@@ -4,7 +4,13 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
   const resolvedColumns = computed(() => unref(columns) || [])
   const validKeys = computed(() => new Set(resolvedColumns.value.map((column) => column.key)))
   const normalizedDefaults = computed(() => (unref(defaultKeys) || []).filter((key) => validKeys.value.has(key)))
-  const normalizedLegacyDefaults = computed(() => (unref(options.legacyDefaultKeys) || []).filter((key) => validKeys.value.has(key)))
+  const normalizedLegacyDefaults = computed(() => {
+    const legacyDefaults = unref(options.legacyDefaultKeys) || []
+    const legacyGroups = Array.isArray(legacyDefaults[0]) ? legacyDefaults : [legacyDefaults]
+    return legacyGroups
+      .map((keys) => keys.filter((key) => validKeys.value.has(key)))
+      .filter((keys) => keys.length > 0)
+  })
   const userKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
   const storageKey = `table-columns:${moduleKey}:${userKey}`
 
@@ -15,9 +21,10 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
       const parsed = JSON.parse(raw)
       if (!Array.isArray(parsed)) throw new Error('invalid column settings')
       const filtered = parsed.filter((key) => validKeys.value.has(key))
-      const isLegacyDefault = normalizedLegacyDefaults.value.length > 0
-        && filtered.length === normalizedLegacyDefaults.value.length
-        && normalizedLegacyDefaults.value.every((key) => filtered.includes(key))
+      const isLegacyDefault = normalizedLegacyDefaults.value.some((legacyKeys) => (
+        filtered.length === legacyKeys.length
+        && legacyKeys.every((key) => filtered.includes(key))
+      ))
       if (isLegacyDefault) {
         localStorage.setItem(storageKey, JSON.stringify(normalizedDefaults.value))
         return [...normalizedDefaults.value]

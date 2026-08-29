@@ -110,6 +110,15 @@ class MailSendResult:
     delivery_mode: str
 
 
+@dataclass(frozen=True)
+class MailAttachment:
+    """邮件附件；内容仅在本次请求内存中使用，不负责持久化。"""
+
+    filename: str
+    content: bytes
+    content_type: str = "application/octet-stream"
+
+
 def get_mail_status() -> dict:
     """返回不包含密码的邮件配置状态。"""
     try:
@@ -160,6 +169,7 @@ def send_text_email(
     subject: Optional[str],
     body: Optional[str],
     html_body: Optional[str] = None,
+    attachments: Iterable[MailAttachment] = (),
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
@@ -207,6 +217,20 @@ def send_text_email(
     message.set_content(body or "", subtype="plain", charset="utf-8")
     if html_body:
         message.add_alternative(html_body, subtype="html", charset="utf-8")
+    for attachment in attachments:
+        content_type = (attachment.content_type or "").partition(";")[0].strip().lower()
+        if "/" in content_type:
+            maintype, subtype = content_type.split("/", 1)
+        else:
+            maintype, subtype = "application", "octet-stream"
+        if not maintype or not subtype:
+            maintype, subtype = "application", "octet-stream"
+        message.add_attachment(
+            attachment.content,
+            maintype=maintype,
+            subtype=subtype,
+            filename=attachment.filename,
+        )
 
     context = ssl.create_default_context()
     try:
@@ -277,6 +301,7 @@ def send_plain_text_email(
     recipient_email: Optional[str],
     subject: Optional[str],
     body: Optional[str],
+    attachment: Optional[MailAttachment] = None,
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
@@ -285,6 +310,7 @@ def send_plain_text_email(
         to_emails=[recipient_email] if recipient_email else [],
         subject=subject,
         body=body,
+        attachments=[attachment] if attachment else [],
         message_id=message_id,
         settings=settings,
     )

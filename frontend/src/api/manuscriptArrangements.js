@@ -24,11 +24,31 @@ export const confirmManuscriptDispatch = (id) =>
 export const cancelManuscriptDispatch = (id) =>
   api.post(`/manuscript-arrangements/batches/${id}/cancel`)
 
-export const sendManuscriptDispatch = (id) =>
-  api.post(`/manuscript-arrangements/batches/${id}/send`)
+const buildAttachmentForm = (attachment) => {
+  const formData = new FormData()
+  if (attachment) formData.append('attachment', attachment)
+  return formData
+}
 
-export const sendManuscriptAssignment = (dispatchId, arrangementId) =>
-  api.post(`/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/send`)
+const attachmentRequestConfig = {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  // 批量发送会逐封投递，上传大附件时需要覆盖完整发送耗时。
+  timeout: 300000
+}
+
+export const sendManuscriptDispatch = (id, attachment = null) =>
+  api.post(
+    `/manuscript-arrangements/batches/${id}/send`,
+    buildAttachmentForm(attachment),
+    attachmentRequestConfig
+  )
+
+export const sendManuscriptAssignment = (dispatchId, arrangementId, attachment = null) =>
+  api.post(
+    `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/send`,
+    buildAttachmentForm(attachment),
+    attachmentRequestConfig
+  )
 
 export const getManuscriptMailPreview = (dispatchId, arrangementId) =>
   api.get(
@@ -50,8 +70,12 @@ export const createManuscriptArrangement = (data) =>
 export const updateManuscriptArrangement = (id, data) =>
   api.put(`/manuscript-arrangements/${id}`, data)
 
-export const sendManuscriptArrangement = (id) =>
-  api.post(`/manuscript-arrangements/${id}/send`)
+export const sendManuscriptArrangement = (id, attachment = null) =>
+  api.post(
+    `/manuscript-arrangements/${id}/send`,
+    buildAttachmentForm(attachment),
+    attachmentRequestConfig
+  )
 
 export const deleteManuscriptArrangement = (id) =>
   api.delete(`/manuscript-arrangements/${id}`)

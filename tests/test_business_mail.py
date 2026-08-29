@@ -10,7 +10,7 @@ import business_mail_service
 from business_mail_service import build_preview
 from business_mail_schemas import BusinessMailSendRequest, MailRecipientGroupWrite
 from interpretation_models import InterpretationLanguage
-from mail_service import SmtpSettings, send_text_email
+from mail_service import MailAttachment, SmtpSettings, send_text_email
 
 
 class _FakeSmtp:
@@ -70,6 +70,28 @@ def test_test_mode_overrides_all_business_recipients(monkeypatch):
     assert _FakeSmtp.last_message["To"] == "safe@example.com"
     assert _FakeSmtp.last_message["Cc"] is None
     assert _FakeSmtp.last_message["Subject"] == "[测试发送] 新项目"
+
+
+def test_send_text_email_adds_uploaded_attachment(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+
+    send_text_email(
+        to_emails=["employee1@example.com"],
+        subject="稿件安排",
+        body="请查收附件",
+        attachments=[MailAttachment(
+            filename="测试稿件.docx",
+            content=b"document-content",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )],
+        message_id="<attachment-test@xinshi-system.local>",
+        settings=_settings(),
+    )
+
+    attachments = list(_FakeSmtp.last_message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "测试稿件.docx"
+    assert attachments[0].get_payload(decode=True) == b"document-content"
 
 
 def test_business_mail_payload_rejects_header_injection():

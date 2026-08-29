@@ -12,7 +12,7 @@
               v-model="selectedColumnKeys"
               :columns="tableColumns"
               :column-count="2"
-              hint="序号、详情和操作列固定显示；订单号、客户编号等字段默认隐藏，可按需启用。"
+              hint="序号和操作列固定显示；客户编号等低频字段默认隐藏，可按需启用。"
               @reset="resetColumns"
             />
             <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -79,28 +79,22 @@
           :show-overflow-tooltip="column.tooltip !== false"
         >
           <template #default="{ row }">
-            <span v-if="column.key === 'requestNo'">{{ row.requestNo || '-' }}</span>
-            <span v-else-if="column.key === 'sourceType'">{{ sourceLabels[row.sourceType] || '-' }}</span>
-            <span v-else-if="column.key === 'projectType'">{{ projectTypesText(row) }}</span>
-            <el-tag v-else-if="column.key === 'projectStatus'" size="small" type="info">{{ projectStatusText(row) }}</el-tag>
-            <span v-else-if="column.key === 'orderNo'">{{ row.currentOrderNo || row.sourceOrderNoSnapshot || '-' }}</span>
-            <span v-else-if="column.key === 'projectName'">{{ row.currentProjectName || row.sourceProjectNameSnapshot || '-' }}</span>
-            <span v-else-if="column.key === 'clientCode'">{{ row.clientCodeSnapshot || '-' }}</span>
-            <span v-else-if="column.key === 'clientShortName'">{{ row.clientShortNameSnapshot || '-' }}</span>
-            <LanguageItemsPopover v-else-if="column.key === 'languages'" :items="row.items || []" :languages="languages" mode="language" />
-            <LanguageItemsPopover v-else-if="column.key === 'requiredCount'" :items="row.items || []" :languages="languages" mode="count" />
-            <LanguageItemsPopover v-else-if="column.key === 'requestDetail'" :items="row.items || []" :languages="languages" mode="detail" :request-detail="row.requestDetail" />
-            <el-tag v-else-if="column.key === 'priority'" :type="priorityType(row.priority)" size="small">{{ priorityLabels[row.priority] || '-' }}</el-tag>
-            <span v-else-if="column.key === 'ownerName'">{{ ownerName(row) }}</span>
-            <el-progress v-else-if="column.key === 'progress'" :percentage="row.progressPercent" :stroke-width="10" />
-            <el-tag v-else-if="column.key === 'requestStatus'" :type="statusType(row.requestStatus)" size="small">{{ statusLabels[row.requestStatus] || '-' }}</el-tag>
-            <span v-else-if="column.key === 'requestedAt'">{{ formatDate(row.requestedAt) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="详情" width="90" fixed="right" align="center">
-          <template #default="{ row }">
-            <el-popover trigger="click" placement="left" :width="760" :fallback-placements="['bottom', 'top', 'right']" :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 16, boundary: 'viewport' } }] }" title="资源需求详情" popper-class="resource-detail-popover" @show="loadDetail(row)">
-              <template #reference><el-button link type="primary">查看详情</el-button></template>
+            <el-popover
+              v-if="column.key === 'requestNo'"
+              trigger="click"
+              placement="left"
+              :width="760"
+              :fallback-placements="['bottom', 'top', 'right']"
+              :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 16, boundary: 'viewport' } }] }"
+              title="资源需求详情"
+              popper-class="resource-detail-popover"
+              @show="loadDetail(row)"
+            >
+              <template #reference>
+                <el-button link type="primary" class="business-clickable-cell" :title="`${row.requestNo || '-'}（点击查看详情）`" @click.stop>
+                  {{ row.requestNo || '-' }}
+                </el-button>
+              </template>
               <div class="detail" v-loading="detailLoading === row.id">
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="请求编号">{{ detailOf(row).requestNo || '-' }}</el-descriptions-item>
@@ -119,6 +113,21 @@
                 </el-descriptions>
               </div>
             </el-popover>
+            <span v-else-if="column.key === 'sourceType'">{{ sourceLabels[row.sourceType] || '-' }}</span>
+            <span v-else-if="column.key === 'projectType'">{{ projectTypesText(row) }}</span>
+            <el-tag v-else-if="column.key === 'projectStatus'" size="small" type="info">{{ projectStatusText(row) }}</el-tag>
+            <span v-else-if="column.key === 'orderNo'">{{ row.currentOrderNo || row.sourceOrderNoSnapshot || '-' }}</span>
+            <span v-else-if="column.key === 'projectName'">{{ row.currentProjectName || row.sourceProjectNameSnapshot || '-' }}</span>
+            <span v-else-if="column.key === 'clientCode'">{{ row.clientCodeSnapshot || '-' }}</span>
+            <span v-else-if="column.key === 'clientShortName'">{{ row.clientShortNameSnapshot || '-' }}</span>
+            <LanguageItemsPopover v-else-if="column.key === 'languages'" :items="row.items || []" :languages="languages" mode="language" />
+            <LanguageItemsPopover v-else-if="column.key === 'requiredCount'" :items="row.items || []" :languages="languages" mode="count" />
+            <LanguageItemsPopover v-else-if="column.key === 'requestDetail'" :items="row.items || []" :languages="languages" mode="detail" :request-detail="row.requestDetail" />
+            <el-tag v-else-if="column.key === 'priority'" :type="priorityType(row.priority)" size="small">{{ priorityLabels[row.priority] || '-' }}</el-tag>
+            <span v-else-if="column.key === 'ownerName'">{{ ownerName(row) }}</span>
+            <el-progress v-else-if="column.key === 'progress'" :percentage="row.progressPercent" :stroke-width="10" />
+            <el-tag v-else-if="column.key === 'requestStatus'" :type="statusType(row.requestStatus)" size="small">{{ statusLabels[row.requestStatus] || '-' }}</el-tag>
+            <span v-else-if="column.key === 'requestedAt'">{{ formatDate(row.requestedAt) }}</span>
           </template>
         </el-table-column>
         <el-table-column v-if="canWrite && !deleteMode" label="操作" width="150" fixed="right" align="center">
@@ -300,8 +309,14 @@ const tableColumns = [
   { key: 'requestStatus', label: '请求状态', width: 100 },
   { key: 'requestedAt', label: '发起时间', width: 165 },
 ]
-const defaultColumnKeys = ['projectType', 'projectStatus', 'projectName', 'clientShortName', 'languages', 'requiredCount', 'requestDetail']
-const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumns('resource-requests', tableColumns, defaultColumnKeys)
+const legacyDefaultColumnKeys = ['projectType', 'projectStatus', 'projectName', 'clientShortName', 'languages', 'requiredCount', 'requestDetail']
+const defaultColumnKeys = ['requestNo', ...legacyDefaultColumnKeys]
+const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumns(
+  'resource-requests',
+  tableColumns,
+  defaultColumnKeys,
+  { legacyDefaultKeys: legacyDefaultColumnKeys }
+)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
 const visibleColumns = computed(() => tableColumns.filter((column) => selectedColumnKeys.value.includes(column.key)))
 const advancedCount = computed(() => [searchForm.sourceType, searchForm.requestCategory, searchForm.priority, searchForm.ownerId].filter(Boolean).length)

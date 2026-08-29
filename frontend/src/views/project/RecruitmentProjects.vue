@@ -106,7 +106,6 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right" align="center"><template #default="{ row }"><BusinessDetailPopover :row="row" title="招聘项目详情" :items="detailItems" :status-label="statusLabel" :status-type="statusType" /></template></el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button><TableActionButton action="edit" @click="openEdit(row)" /></div></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />

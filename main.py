@@ -1042,12 +1042,11 @@ def ensure_project_idempotency_columns() -> None:
             """))
 
 
-@app.on_event("startup")
-def ensure_runtime_tables():
-    # 生产启动不得隐式执行 DDL。历史兼容迁移必须在维护窗口中显式启用，
-    # 并由部署方设置数据库 lock/statement timeout 后单独运行。
-    if os.getenv("RUN_STARTUP_SCHEMA_MIGRATIONS", "").strip().lower() not in {"1", "true", "yes"}:
-        return
+def run_runtime_migrations():
+    """执行历史运行时迁移。
+
+    该函数不得注册为 FastAPI 启动钩子，只允许本地迁移工具显式调用。
+    """
     LoginThrottleState.__table__.create(bind=engine, checkfirst=True)
     LoginSecurityEvent.__table__.create(bind=engine, checkfirst=True)
     RevokedAccessToken.__table__.create(bind=engine, checkfirst=True)

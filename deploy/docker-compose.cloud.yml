@@ -27,6 +27,7 @@ services:
       dockerfile: Dockerfile
     container_name: xinshi_prod_backend
     environment:
+      APP_ENV: "production"
       SECRET_KEY: "${SECRET_KEY:?请配置高强度 SECRET_KEY}"
       ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-480}"
       AUTH_THROTTLE_HMAC_KEY: "${AUTH_THROTTLE_HMAC_KEY:?请配置独立的 AUTH_THROTTLE_HMAC_KEY}"
@@ -43,10 +44,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: "${DB_PASSWORD:?请在 .env 中配置高强度 DB_PASSWORD}"
       DB_NAME: xinshi_system
-      RUN_STARTUP_SCHEMA_MIGRATIONS: "false"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
-      DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
-      DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-20}"
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-5}"
+      DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-5}"
       DB_POOL_TIMEOUT_SECONDS: "${DB_POOL_TIMEOUT_SECONDS:-10}"
       DB_STATEMENT_TIMEOUT_MS: "${DB_STATEMENT_TIMEOUT_MS:-30000}"
       DB_LOCK_TIMEOUT_MS: "${DB_LOCK_TIMEOUT_MS:-5000}"

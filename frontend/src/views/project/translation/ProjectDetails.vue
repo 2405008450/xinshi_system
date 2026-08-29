@@ -243,11 +243,6 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right" align="center">
-        <template #default="{ row }">
-          <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType" />
-        </template>
-      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWriteProjects" class="action-buttons">

@@ -131,6 +131,14 @@
                 <el-descriptions-item label="更新时间">{{ formatDateTime(detailRow(row).updatedAt) }}</el-descriptions-item>
                 <el-descriptions-item v-if="detailRow(row).legacyOrderNo" label="原笔译订单号">{{ detailRow(row).legacyOrderNo }}</el-descriptions-item>
                 <el-descriptions-item v-if="detailRow(row).legacyStatus" label="迁移前状态">{{ detailRow(row).legacyStatus }}</el-descriptions-item>
+                <el-descriptions-item
+                  v-for="field in projectCustomFields"
+                  :key="field.id"
+                  :label="field.fieldLabel"
+                  :span="field.dataType === 'textarea' ? 2 : 1"
+                >
+                  {{ customFieldText(detailRow(row).customValues?.[field.id]) }}
+                </el-descriptions-item>
                 <el-descriptions-item label="状态履历" :span="2">
                   <el-timeline v-if="statusHistoryCache[row.id]?.length" class="status-timeline">
                     <el-timeline-item v-for="item in statusHistoryCache[row.id]" :key="item.id" :timestamp="`${item.effectiveOn} · ${formatDateTime(item.changedAt)}`">
@@ -215,19 +223,6 @@
           </el-tooltip>
           <span v-else-if="column.customField">{{ customFieldText(row.customValues?.[column.customField.id]) }}</span>
           <span v-else>{{ textValue(row[column.key]) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right" align="center">
-        <template #default="{ row }">
-          <BusinessDetailPopover
-            :row="detailRow(row)"
-            :title="`${row.orderNo || '标注项目'} 详情`"
-            :items="annotationListDetailItems"
-            :loading="detailLoadingId === row.id"
-            :status-label="statusLabel"
-            :status-type="statusType"
-            @show="loadDetailWithHistory(row.id)"
-          />
         </template>
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
@@ -419,7 +414,6 @@ import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
-import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
@@ -470,13 +464,6 @@ const staticTableColumns = [
 ]
 const { fields:projectCustomFields, tableColumns:customTableColumns, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
-const annotationListDetailItems = computed(() => tableColumns.value.map((column) => ({
-  ...column,
-  type: column.key === 'projectStatus' ? 'status' : undefined,
-  formatter: column.customField
-    ? (_value, row) => customFieldText(row.customValues?.[column.customField.id])
-    : undefined,
-})))
 const defaultColumns = ['orderNo','projectName','projectTypes','taskDescription','projectStatus','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt','clientManagerName']
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v4',tableColumns,defaultColumns)
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
