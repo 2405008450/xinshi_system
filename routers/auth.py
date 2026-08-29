@@ -8,6 +8,13 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import hashlib
 
+from auth_security import (
+    GENERIC_CREDENTIAL_ERROR,
+    begin_login_attempt,
+    record_login_failure,
+    record_login_success,
+    throttle_exception,
+)
 from database import get_db
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
@@ -18,7 +25,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30天
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -53,38 +60,50 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
 
 
-def upgrade_legacy_password_hash(db: Session, user, plain_password: str) -> None:
+def upgrade_legacy_password_hash(db: Session, user, plain_password: str) -> bool:
     if is_bcrypt_hash(user.password_hash):
-        return
+        return False
     user.password_hash = hash_password(plain_password)
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    return True
 
 
-def authenticate_user(db: Session, username: str, password: str):
+_DUMMY_PASSWORD_HASH = pwd_context.hash("not-a-real-account-password")
+
+
+def _credential_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=GENERIC_CREDENTIAL_ERROR,
+        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+    )
+
+
+def authenticate_user(db: Session, username: str, password: str, request: Request):
+    attempt_context, throttle_decision = begin_login_attempt(db, username, request)
+    if throttle_decision.blocked:
+        raise throttle_exception(throttle_decision)
+
     user = get_user_by_username(db, username=username)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        # 对不存在的账号也执行一次强哈希校验，降低账号枚举的时序差异。
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        failure_decision = record_login_failure(db, attempt_context)
+        if failure_decision.blocked:
+            raise throttle_exception(failure_decision)
+        raise _credential_exception()
 
-    if not verify_password(password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if not verify_password(password, user.password_hash) or not user.is_active:
+        failure_decision = record_login_failure(db, attempt_context)
+        if failure_decision.blocked:
+            raise throttle_exception(failure_decision)
+        raise _credential_exception()
 
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is inactive"
-        )
-
-    upgrade_legacy_password_hash(db, user, password)
+    record_login_success(db, attempt_context)
+    upgraded = upgrade_legacy_password_hash(db, user, password)
+    db.commit()
+    if upgraded:
+        db.refresh(user)
     return user
 
 
@@ -208,9 +227,9 @@ def read_current_session(
 
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """????(OAuth2 ??)??? token ???????"""
-    user = authenticate_user(db, form_data.username, form_data.password)
+    user = authenticate_user(db, form_data.username, form_data.password, request)
 
     role_names = get_user_roles_with_role_names(db, user.id)
     permissions = get_user_permission_codes(db, user.id)
@@ -223,9 +242,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 
 @router.post("/login/json", response_model=Token)
-def login_json(login_data: LoginRequest, db: Session = Depends(get_db)):
+def login_json(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """????(JSON ??)??? token ???????"""
-    user = authenticate_user(db, login_data.username, login_data.password)
+    user = authenticate_user(db, login_data.username, login_data.password, request)
 
     role_names = get_user_roles_with_role_names(db, user.id)
     permissions = get_user_permission_codes(db, user.id)

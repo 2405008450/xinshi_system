@@ -199,11 +199,13 @@ class Consultation(Base):
         ForeignKeyConstraint(['editor_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_editor'),
         ForeignKeyConstraint(['follow_up_person_id'], ['app_user.id'], ondelete='SET NULL', name='fk_consultation_follow_up_person'),
         PrimaryKeyConstraint('id', name='consultation_pkey'),
-        UniqueConstraint('consultation_code', name='consultation_code_key')
+        UniqueConstraint('consultation_code', name='consultation_code_key'),
+        UniqueConstraint('idempotency_key', name='uq_consultation_idempotency_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     consultation_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     contact_name: Mapped[Optional[str]] = mapped_column(String(255))

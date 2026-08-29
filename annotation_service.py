@@ -205,7 +205,7 @@ def count_annotation_projects(db: Session, **filters) -> int:
     return _apply_filters(query, **filters).distinct().count()
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments"}
 
 
@@ -232,6 +232,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data.get("client_short_name"),
         data.get("client_code"),
         data.get("client_name"),
+        data.get("manager_contact"),
     )
     if client_id:
         data["client_id"] = client_id

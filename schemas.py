@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
 from department_utils import normalize_department
@@ -691,6 +692,11 @@ class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
 
+    @field_validator('quotation_path', 'network_file_path', 'reference_file_path_one')
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
+
 class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     task_type: Optional[str] = None
@@ -734,6 +740,11 @@ class TranslationProjectUpdate(BaseModel):
     reference_file_path_one: Optional[str] = None
     role_assignments: Optional[list[ProjectRoleAssignmentInput]] = None
     expected_updated_at: Optional[datetime] = None
+
+    @field_validator('quotation_path', 'network_file_path', 'reference_file_path_one')
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
     @field_validator('language_pair')
     @classmethod

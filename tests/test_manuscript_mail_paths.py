@@ -80,6 +80,7 @@ def test_mail_preview_uses_project_file_dispatch_path():
 
 
 def test_update_mail_paths_writes_back_to_project_detail(monkeypatch):
+    monkeypatch.setenv("OPENPATH_ALLOWED_ROOTS", r"\\server\dispatch;\\server\reference")
     project_id = uuid4()
     project_file_id = uuid4()
     dispatch = SimpleNamespace(

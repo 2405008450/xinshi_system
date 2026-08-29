@@ -1402,6 +1402,11 @@ def confirm_dispatch(
     )
     # “确认安排”是明确的业务动作，直接写入“已排译员”，不依赖回查时的自动刷新。
     _set_order_status(project, sub_order, ORDER_STATUS_TRANSLATOR_ASSIGNED)
+    assignment_target = sub_order or project
+    if assignment_target.translator_assignment_time is None:
+        assignment_target.translator_assignment_time = now
+    if hasattr(assignment_target, "updated_at"):
+        assignment_target.updated_at = now
     db.commit()
     return _load_dispatch_for_actor(db, dispatch.id, current_user)
 

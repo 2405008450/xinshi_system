@@ -8,7 +8,7 @@
             v-model="visibleColumnKeys"
             :columns="tableColumns"
             :column-count="2"
-            hint="序号、订单号和操作列固定显示；长文本字段启用后可悬停查看完整内容。"
+            hint="序号和操作列固定显示；订单号属于可配置业务字段。"
             @reset="resetColumns"
           />
           <BatchDeleteToolbar
@@ -104,7 +104,7 @@
     <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
-      <el-table-column label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
+      <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目详情" /></template>
         <template #default="{ row }">
           <div class="order-cell">
@@ -409,8 +409,8 @@
               <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><ReadonlyField :model-value="form.currentClientManager" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><el-input v-model="form.clientFullName" :disabled="!!form.clientId" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><el-input v-model="form.clientCode" :disabled="!!form.clientId" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
@@ -610,7 +610,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -641,7 +641,7 @@ const canWrite = hasPermission('projects:write')
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
-const loading = ref(false)
+const loading = ref(true)
 const submitLoading = ref(false)
 const projectStatusSavingIds = ref(new Set())
 const nameLoading = ref(false)
@@ -708,6 +708,7 @@ const ratingOptions = [
 const ratingMap = Object.fromEntries(ratingOptions.map((item) => [item.value, item.label]))
 
 const tableColumns = [
+  { key: 'orderNo', label: '订单号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
   { key: 'projectName', label: '项目名称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   { key: 'projectTypes', label: '项目类型', minWidth: 150 },
   { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
@@ -751,13 +752,13 @@ const tableColumns = [
   { key: 'updatedAt', label: '更新时间', minWidth: 150 },
 ]
 const defaultColumns = [
-  'projectName', 'taskDescription', 'currentClientManager', 'projectStatus', 'clientShortName',
+  'orderNo', 'projectName', 'taskDescription', 'currentClientManager', 'projectStatus', 'clientShortName',
   'languageDirectionsDisplay', 'customerBudget', 'assignedInterpretersDisplay',
 ]
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(
-  'interpretation-details-v4', tableColumns, defaultColumns
+  'interpretation-details-v5', tableColumns, defaultColumns
 )
-const visibleTableColumns = computed(() => tableColumns.filter((item) => isVisible(item.key)))
+const visibleTableColumns = computed(() => tableColumns.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const {
@@ -1189,13 +1190,15 @@ const assignForm = (detail) => {
   form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form)
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
-const handleAdd = () => { dialogTitle.value = '新增口译项目'; resetForm(); dialogVisible.value = true }
+const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); dialogVisible.value = true; await resetEditorScroll() }
 const handleEdit = async (row) => {
   const detail = await loadDetail(row.id, true)
   if (!detail) return
   dialogTitle.value = `编辑口译项目 · ${detail.orderNo}`
   assignForm(detail)
   dialogVisible.value = true
+  await resetEditorScroll()
 }
 const handleSubmit = async (sendAfterSave = false) => {
   const valid = await formRef.value?.validate().catch(() => false)
@@ -1259,7 +1262,7 @@ watch(
 
 const openPathValue = (path) => {
   if (!path?.trim()) return ElMessage.warning('暂无可打开的路径')
-  launchOpenPath(path.trim())
+  if (!launchOpenPath(path.trim())) ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')
 }
 const copyPathValue = async (path) => {
   if (!path?.trim()) return ElMessage.warning('暂无可复制的路径')

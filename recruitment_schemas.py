@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
@@ -130,11 +131,19 @@ class RecruitmentProjectBase(BaseModel):
 
 
 class RecruitmentProjectCreate(RecruitmentProjectBase):
-    pass
+    @field_validator("project_path", "quotation_path", "contract_path")
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
 
 class RecruitmentProjectUpdate(RecruitmentProjectBase):
     expected_updated_at: Optional[datetime] = None
+
+    @field_validator("project_path", "quotation_path", "contract_path")
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
 
 class RecruitmentProjectStatusUpdate(BaseModel):
@@ -281,9 +290,17 @@ class RecruitmentCandidateBase(BaseModel):
 class RecruitmentCandidateCreate(RecruitmentCandidateBase):
     allow_duplicate: bool = False
 
+    @field_validator("resume_path")
+    @classmethod
+    def validate_resume_path(cls, value):
+        return validate_managed_path(value)
+
 
 class RecruitmentCandidateUpdate(RecruitmentCandidateBase):
-    pass
+    @field_validator("resume_path")
+    @classmethod
+    def validate_resume_path(cls, value):
+        return validate_managed_path(value)
 
 
 class RecruitmentCandidatePatch(BaseModel):

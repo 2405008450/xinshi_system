@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL 数据库
   postgres:
@@ -7,16 +5,15 @@ services:
     container_name: xinshi_postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "XinShi@2026#PgS3cure!"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?请在 .env 中配置高强度 DB_PASSWORD}"
       POSTGRES_DB: xinshi_system
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./xinshi_system.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xinshi_system"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,12 +25,31 @@ services:
       dockerfile: Dockerfile
     container_name: xinshi_backend
     environment:
-      SECRET_KEY: "xinshi-system-jwt-secret-key-change-in-production"
+      SECRET_KEY: "${SECRET_KEY:?请在 .env 中配置高强度 SECRET_KEY}"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-480}"
+      AUTH_THROTTLE_HMAC_KEY: "${AUTH_THROTTLE_HMAC_KEY:?请配置独立的 AUTH_THROTTLE_HMAC_KEY}"
+      AUTH_LOGIN_WINDOW_SECONDS: "${AUTH_LOGIN_WINDOW_SECONDS:-900}"
+      AUTH_LOGIN_ACCOUNT_FAILURE_LIMIT: "${AUTH_LOGIN_ACCOUNT_FAILURE_LIMIT:-5}"
+      AUTH_LOGIN_SOURCE_FAILURE_LIMIT: "${AUTH_LOGIN_SOURCE_FAILURE_LIMIT:-30}"
+      AUTH_LOGIN_BASE_BLOCK_SECONDS: "${AUTH_LOGIN_BASE_BLOCK_SECONDS:-60}"
+      AUTH_LOGIN_MAX_BLOCK_SECONDS: "${AUTH_LOGIN_MAX_BLOCK_SECONDS:-900}"
+      AUTH_LOGIN_ESCALATION_RESET_SECONDS: "${AUTH_LOGIN_ESCALATION_RESET_SECONDS:-3600}"
+      AUTH_LOGIN_AUDIT_RETENTION_DAYS: "${AUTH_LOGIN_AUDIT_RETENTION_DAYS:-90}"
+      # 默认 Compose 网络位于 172.16.0.0/12；应用只在这些可信代理来源下解析 X-Forwarded-For。
+      AUTH_TRUSTED_PROXY_CIDRS: "${AUTH_TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,172.16.0.0/12}"
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: "XinShi@2026#PgS3cure!"
+      DB_PASSWORD: "${DB_PASSWORD:?请在 .env 中配置高强度 DB_PASSWORD}"
       DB_NAME: xinshi_system
+      RUN_STARTUP_SCHEMA_MIGRATIONS: "false"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
+      DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-20}"
+      DB_POOL_TIMEOUT_SECONDS: "${DB_POOL_TIMEOUT_SECONDS:-10}"
+      DB_STATEMENT_TIMEOUT_MS: "${DB_STATEMENT_TIMEOUT_MS:-30000}"
+      DB_LOCK_TIMEOUT_MS: "${DB_LOCK_TIMEOUT_MS:-5000}"
+      DB_IDLE_TRANSACTION_TIMEOUT_MS: "${DB_IDLE_TRANSACTION_TIMEOUT_MS:-60000}"
       CHAT_UPLOAD_DIR: "/app/data/chat_uploads"
       ANNOTATION_CUSTOM_FIELD_IMAGE_DIR: "/app/data/annotation_custom_field_images"
       SMTP_MODE: "${SMTP_MODE:-disabled}"
@@ -51,20 +67,48 @@ services:
       - chat_uploads:/app/data/chat_uploads
       - annotation_custom_field_images:/app/data/annotation_custom_field_images
     ports:
-      - "8000:8000"
+      # 业务访问统一经过前端 /api 反向代理，禁止局域网客户端绕过代理直连后端。
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+
+  # 仅在维护窗口显式运行：docker compose --profile migration run --rm migrate
+  # 迁移与常驻 API 分离，避免每次应用启动时争抢 DDL 锁。
+  migrate:
+    profiles: ["migration"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SECRET_KEY: "${SECRET_KEY:?请在 .env 中配置高强度 SECRET_KEY}"
+      AUTH_THROTTLE_HMAC_KEY: "${AUTH_THROTTLE_HMAC_KEY:?请配置独立的 AUTH_THROTTLE_HMAC_KEY}"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: "${DB_PASSWORD:?请在 .env 中配置高强度 DB_PASSWORD}"
+      DB_NAME: xinshi_system
+      RUN_STARTUP_SCHEMA_MIGRATIONS: "true"
+      DB_STATEMENT_TIMEOUT_MS: "${MIGRATION_STATEMENT_TIMEOUT_MS:-300000}"
+      DB_LOCK_TIMEOUT_MS: "${MIGRATION_LOCK_TIMEOUT_MS:-10000}"
+      DB_IDLE_TRANSACTION_TIMEOUT_MS: "${DB_IDLE_TRANSACTION_TIMEOUT_MS:-60000}"
+    command: ["python", "-m", "tools.run_runtime_migrations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # 前端 Nginx
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_OPENPATH_ALLOWED_ROOTS: "${VITE_OPENPATH_ALLOWED_ROOTS:-}"
     container_name: xinshi_frontend
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
     restart: unless-stopped

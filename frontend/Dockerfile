@@ -13,6 +13,8 @@ RUN npm install
 COPY frontend/ .
 
 # 构建
+ARG VITE_OPENPATH_ALLOWED_ROOTS=""
+ENV VITE_OPENPATH_ALLOWED_ROOTS=${VITE_OPENPATH_ALLOWED_ROOTS}
 RUN npm run build
 
 # Nginx阶段

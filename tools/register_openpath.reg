@@ -5,4 +5,4 @@ Windows Registry Editor Version 5.00
 "URL Protocol"=""
 
 [HKEY_CLASSES_ROOT\openpath\shell\open\command]
-@="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\\openpath_handler.ps1\" \"%1\""
+@="powershell.exe -NoProfile -WindowStyle Hidden -File \"C:\\openpath_handler.ps1\" \"%1\""

@@ -9,6 +9,7 @@
           <div v-show="!isCollapse" class="logo-text">
             <h2>翻译</h2>
             <span class="logo-subtitle">翻译项目管理平台</span>
+            <span class="logo-version">v{{ appVersion }} · 更新于 {{ appUpdatedAt }}</span>
           </div>
         </transition>
       </div>
@@ -148,12 +149,15 @@ import { isSuperAdmin, hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
+import packageInfo from '../../package.json'
 
 const route = useRoute()
 const router = useRouter()
 const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
+const appVersion = packageInfo.version
+const appUpdatedAt = '2026-08-29'
 
 /** 侧边栏是否折叠 */
 const isCollapse = ref(false)
@@ -413,6 +417,15 @@ const handleLogout = async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.logo-version {
+  display: block;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .sidebar-menu {

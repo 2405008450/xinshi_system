@@ -686,27 +686,8 @@ def batch_save_accounts(db: Session, client_id: UUID, items, user_id: UUID | Non
                             language_item_ids=desired_languages,
                             custom_values=item.assignment_custom_values,
                         ), user_id)
-                    else:
-                        validate_image_value_ownership(
-                            db, item.project_id, item.assignment_custom_values, user_id,
-                        )
-                        context = AnnotationAccountAssignment(
-                            account_id=account.id,
-                            person_id=None,
-                            project_id=item.project_id,
-                            assigned_on=date.today(),
-                            assignment_note="在线表格设置项目和适用语言",
-                            assigned_by=user_id,
-                            custom_values=validate_custom_values(
-                                db, "account_assignment", item.project_id,
-                                item.assignment_custom_values, None,
-                            ),
-                        )
-                        context.languages = [
-                            AnnotationAccountAssignmentLanguage(language_item_id=value)
-                            for value in desired_languages
-                        ]
-                        db.add(context)
+                    # 未选择标注员时账号保持“可用”，不创建 person_id=NULL 的伪分配。
+                    # 分配自定义字段与适用语言只有在真实人员分配建立后才有业务含义。
                     db.flush()
 
                 active_after_save = _active_assignment_for_update(db, account.id)
@@ -844,6 +825,8 @@ def _validate_trial_member(db: Session, project_id: UUID, person_id: UUID, accou
 def _trial_dict(db: Session, row: AnnotationTrialRecord) -> dict:
     person = db.get(ResourcePerson, row.person_id)
     project = db.get(AnnotationProject, row.project_id)
+    account = db.get(AnnotationPlatformAccount, row.platform_account_id) if row.platform_account_id else None
+    platform = db.get(AnnotationPlatform, account.platform_id) if account else None
     return {key: getattr(row, key) for key in (
         "id", "project_id", "person_id", "platform_account_id", "round_no", "sequence_no",
         "willingness_text", "trial_status", "trial_result", "result_note", "custom_values",
@@ -855,6 +838,8 @@ def _trial_dict(db: Session, row: AnnotationTrialRecord) -> dict:
         "project_name": getattr(project, "project_name", None),
         "project_status": getattr(project, "project_status", None),
         "client_short_name": getattr(project, "client_short_name", None),
+        "platform_name": getattr(platform, "platform_name", None),
+        "platform_account_nickname": getattr(account, "nickname", None),
     }
 
 

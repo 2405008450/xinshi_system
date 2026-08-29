@@ -12,8 +12,10 @@ export const getConsultation = (id) => {
   return api.get(`/consultations/${id}`)
 }
 
-export const createConsultation = (data) => {
-  return api.post('/consultations/', data)
+export const createConsultation = (data, idempotencyKey) => {
+  return api.post('/consultations/', data, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : undefined,
+  })
 }
 
 export const updateConsultation = (id, data) => {

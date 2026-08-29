@@ -50,7 +50,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets'
+import { LocaleType, mergeLocales } from '@univerjs/core'
+import { createUniver } from '@/utils/createUniver'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import { UniverSheetsDataValidationPreset } from '@univerjs/preset-sheets-data-validation'
@@ -444,9 +445,17 @@ const parseValue=(value,column)=>{
   return String(value).trim()
 }
 const selectedIds=(value,lookup,label)=>{
-  const labels=String(value||'').split(/[、,，]/).map(item=>item.trim()).filter(Boolean)
+  let rawValues=Array.isArray(value)?value:null
+  if(!rawValues){
+    const text=String(value||'').trim()
+    if(text.startsWith('[')){
+      try{const parsed=JSON.parse(text);if(Array.isArray(parsed))rawValues=parsed}catch{}
+    }
+    if(!rawValues)rawValues=text.split(/[、,，]/)
+  }
+  const labels=rawValues.map(item=>String(item??'').trim()).filter(Boolean)
   return labels.map(item=>{
-    const matched=lookup.get(item)
+    const matched=lookup.get(item)||[...lookup.values()].find(option=>String(option.id)===item)
     if(!matched)throw new Error(`${label}“${item}”不在可选范围内`)
     return matched.id
   })

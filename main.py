@@ -9,6 +9,8 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
+from auth_security import cleanup_login_security_data
+from auth_security_models import LoginSecurityEvent, LoginThrottleState
 from manuscript_models import (
     ManuscriptArrangement,
     ManuscriptDeliveryMilestone,
@@ -111,6 +113,15 @@ from routers import business_mails
 app = FastAPI()
 
 
+def _configured_cors_origins() -> list[str]:
+    """只允许显式配置的浏览器来源；生产环境通常通过同源 /api 访问。"""
+    return [
+        origin.strip()
+        for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+
+
 @app.exception_handler(StaleUpdateError)
 async def stale_update_handler(_request: Request, exc: StaleUpdateError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
@@ -118,11 +129,28 @@ async def stale_update_handler(_request: Request, exc: StaleUpdateError):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_configured_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    )
+    return response
 
 # 注册路由
 app.include_router(auth.router)
@@ -816,6 +844,8 @@ def ensure_consultation_project_intake_columns():
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_name VARCHAR(500)",
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake JSONB NOT NULL DEFAULT '{}'::jsonb",
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake_version INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_consultation_idempotency_key ON consultation(idempotency_key) WHERE idempotency_key IS NOT NULL",
     )
     with engine.begin() as connection:
         for statement in statements:
@@ -982,6 +1012,14 @@ def ensure_multitype_workbench_schema():
 
 @app.on_event("startup")
 def ensure_runtime_tables():
+    # 生产启动不得隐式执行 DDL。历史兼容迁移必须在维护窗口中显式启用，
+    # 并由部署方设置数据库 lock/statement timeout 后单独运行。
+    if os.getenv("RUN_STARTUP_SCHEMA_MIGRATIONS", "").strip().lower() not in {"1", "true", "yes"}:
+        return
+    LoginThrottleState.__table__.create(bind=engine, checkfirst=True)
+    LoginSecurityEvent.__table__.create(bind=engine, checkfirst=True)
+    with Session(engine) as db:
+        cleanup_login_security_data(db)
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE UNIQUE INDEX IF NOT EXISTS uq_app_user_email_normalized

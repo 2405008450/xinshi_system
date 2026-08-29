@@ -282,6 +282,8 @@ class TrialResponse(TrialWrite):
     project_name: Optional[str] = None
     project_status: Optional[str] = None
     client_short_name: Optional[str] = None
+    platform_name: Optional[str] = None
+    platform_account_nickname: Optional[str] = None
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime

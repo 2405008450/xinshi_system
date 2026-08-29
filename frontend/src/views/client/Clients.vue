@@ -465,7 +465,9 @@
     <el-dialog
       v-model="subDialogVisible"
       :title="subDialogTitle"
-      width="800px"
+      width="min(900px, calc(100vw - 32px))"
+      top="5vh"
+      class="sub-client-editor-dialog"
       append-to-body
       @close="resetSubForm"
       :close-on-click-modal="false"
@@ -484,6 +486,24 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :md="12"><el-form-item label="英文全称"><el-input v-model="subForm.english_name" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="英文简称"><el-input v-model="subForm.english_short_name" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :md="12"><el-form-item label="客户领域一级"><el-input v-model="subForm.field_level1" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="客户领域二级"><el-input v-model="subForm.field_level2" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :md="12"><el-form-item label="国家"><el-input v-model="subForm.country" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="省份"><el-input v-model="subForm.province" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :xs="24" :md="12"><el-form-item label="地级市"><el-input v-model="subForm.city" /></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="区县"><el-input v-model="subForm.district" /></el-form-item></el-col>
+        </el-row>
+        <el-form-item label="开始合作时间"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户简称" prop="client_short_name">
@@ -732,6 +752,16 @@ const subForm = reactive({
   client_short_name: '',
   client_manager: '',
   manager_contact: '',
+  english_name: '',
+  english_short_name: '',
+  field_level1: '',
+  field_level2: '',
+  country: '',
+  province: '',
+  city: '',
+  district: '',
+  cooperation_start_date: '',
+  remarks: '',
   client_status: 'pending'
 })
 
@@ -1098,6 +1128,16 @@ const resetSubForm = () => {
     client_short_name: '',
     client_manager: '',
     manager_contact: '',
+    english_name: '',
+    english_short_name: '',
+    field_level1: '',
+    field_level2: '',
+    country: '',
+    province: '',
+    city: '',
+    district: '',
+    cooperation_start_date: '',
+    remarks: '',
     client_status: 'pending'
   })
   nextTick(() => subFormRef.value?.clearValidate())
@@ -1281,6 +1321,22 @@ onBeforeUnmount(() => {
 :global(.client-form-dialog .el-dialog__footer) {
   flex: none;
   padding: 14px 24px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 4%);
+}
+
+:global(.sub-client-editor-dialog) {
+  display: flex;
+  max-height: 90vh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:global(.sub-client-editor-dialog .el-dialog__header),
+:global(.sub-client-editor-dialog .el-dialog__footer) { flex: none; }
+:global(.sub-client-editor-dialog .el-dialog__body) { flex: 1; min-height: 0; overflow-y: auto; }
+:global(.sub-client-editor-dialog .el-dialog__footer) {
   border-top: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);
   box-shadow: 0 -4px 12px rgb(0 0 0 / 4%);

@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
@@ -149,6 +150,11 @@ class InterpretationProjectWrite(BaseModel):
     time_ranges: list[InterpretationTimeRangeInput] = Field(default_factory=list)
     language_directions: list[InterpretationLanguageDirectionInput] = Field(default_factory=list)
     interpreter_assignments: list[InterpretationInterpreterInput] = Field(default_factory=list)
+
+    @field_validator("file_path", "quotation_path", "contract_path")
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",

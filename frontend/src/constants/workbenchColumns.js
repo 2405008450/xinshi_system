@@ -7,6 +7,7 @@ export const WORKBENCH_COLUMN_WIDTHS = Object.freeze({
   client: 90,
   customerDeadline: 168,
   projectStatus: 132,
+  currentRole: 100,
   currentAssignee: 100,
   languagePair: 100,
   difficulty: 60,

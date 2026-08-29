@@ -180,7 +180,8 @@ def test_payload_rejects_duplicate_language_and_invalid_price_scope():
         )
 
 
-def test_payload_normalizes_annotation_project_paths():
+def test_payload_normalizes_annotation_project_paths(monkeypatch):
+    monkeypatch.setenv("OPENPATH_ALLOWED_ROOTS", r"\\server\annotation")
     payload = AnnotationProjectCreate(
         project_path=r"  \\server\annotation  ",
         quotation_path="  D:/报价单  ",

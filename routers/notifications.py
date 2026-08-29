@@ -71,15 +71,23 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
         return
 
     db = SessionLocal()
-    user = None
+    db_released = False
+    user_id = None
     try:
         user = get_user_from_token_value(db, token)
         if user is None:
             await websocket.close(code=1008)
             return
 
-        await notification_manager.connect(user.id, websocket)
-        unread = count_unread_notifications(db, user.id)
+        # SQLAlchemy 的首次查询会自动开启事务。WebSocket 连接可能持续数小时，
+        # 因此只复制后续所需的标量值，并在进入收包循环前结束事务、归还连接。
+        user_id = user.id
+        unread = count_unread_notifications(db, user_id)
+        db.rollback()
+        db.close()
+        db_released = True
+
+        await notification_manager.connect(user_id, websocket)
         await websocket.send_json({"type": "snapshot", "unread_count": unread})
 
         while True:
@@ -87,11 +95,13 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
             if message == 'ping':
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
-        if user is not None:
-            notification_manager.disconnect(user.id, websocket)
+        if user_id is not None:
+            notification_manager.disconnect(user_id, websocket)
     except Exception:
-        if user is not None:
-            notification_manager.disconnect(user.id, websocket)
+        if user_id is not None:
+            notification_manager.disconnect(user_id, websocket)
         await websocket.close(code=1011)
     finally:
+        if not db_released:
+            db.rollback()
         db.close()

@@ -2,9 +2,9 @@ from typing import List, Optional
 from uuid import uuid4
 from uuid import UUID
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -14,7 +14,7 @@ from crud import (
     build_auto_project_name, create_translation_project, get_translation_projects
 )
 from schemas import ConsultationCreate, ConsultationUpdate, ConsultationResponse, TranslationProjectCreate, TranslationProjectResponse
-from models import AppUser, Client, TranslationProject
+from models import AppUser, Client, Consultation, TranslationProject
 from utils import generate_order_no
 from interpretation_models import InterpretationProject
 from interpretation_service import (
@@ -583,12 +583,13 @@ def update_confirmed_consultation(
 @router.post("/", response_model=ConsultationResponse, status_code=status.HTTP_201_CREATED)
 def create_consultation_endpoint(
     consultation: ConsultationCreate,
+    idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key", max_length=128),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
         db_consultation = create_consultation(
-            db=db, consultation=consultation, commit=False
+            db=db, consultation=consultation, idempotency_key=idempotency_key, commit=False
         )
         if (
             db_consultation.status == CONSULTATION_CONFIRMED_STATUS
@@ -615,6 +616,15 @@ def create_consultation_endpoint(
         return _attach_linked_project_ids(
             db, get_consultation(db, db_consultation.id)
         )
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(Consultation).filter(
+                Consultation.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return _attach_linked_project_ids(db, get_consultation(db, existing.id))
+        raise
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

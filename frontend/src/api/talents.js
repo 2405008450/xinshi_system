@@ -17,6 +17,7 @@ export const createTalent = (data) => api.post('/talents/', toApi(data)).then(fr
 export const updateTalent = (id, data) => api.put(`/talents/${id}`, toApi(data)).then(fromApi)
 export const patchTalentName = (id, fullName) => api.patch(`/talents/${id}/name`, toApi({ fullName })).then(fromApi)
 export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/status`, toApi({ status })).then(fromApi)
+export const deleteTalent = (id) => api.delete(`/talents/${id}`)
 export const checkTalentDuplicates = (params) => api.get('/talents/duplicates', { params }).then(fromApi)
 
 export const getRecruitmentTalents = (params, config = {}) => api.get('/recruitment-talents/', { ...config, params }).then(fromApi)
@@ -25,6 +26,7 @@ export const getRecruitmentTalent = (id) => api.get(`/recruitment-talents/${id}`
 export const createRecruitmentTalent = (data) => api.post('/recruitment-talents/', toApi(data)).then(fromApi)
 export const updateRecruitmentTalent = (id, data) => api.put(`/recruitment-talents/${id}`, toApi(data)).then(fromApi)
 export const patchRecruitmentTalentStatus = (id, status) => api.patch(`/recruitment-talents/${id}/status`, toApi({ status })).then(fromApi)
+export const deleteRecruitmentTalent = (id) => api.delete(`/recruitment-talents/${id}`)
 export const checkRecruitmentTalentDuplicates = (params) => api.get('/recruitment-talents/duplicates', { params }).then(fromApi)
 
 export const getProjectTalentOptions = (capabilityType, params = {}, config = {}) => api.get('/talent-options/', {

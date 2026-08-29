@@ -16,7 +16,7 @@
       <el-form-item label="项目状态"><el-select v-model="searchForm.projectStatus" clearable placeholder="全部" style="width: 180px" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button><el-button @click="resetSearch">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="advanced-filter-popover">
+        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" width="min(760px, calc(100vw - 32px))" popper-class="recruitment-advanced-filter-popover">
           <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
           <div class="advanced-content">
             <el-form :model="searchForm" label-width="110px">
@@ -193,8 +193,8 @@
           <div class="form-section"><h3>服务费用与扩展信息</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="服务费用"><el-select v-model="form.serviceFeeType" clearable placeholder="选择计费方式" style="width:100%"><el-option label="固定金额" value="fixed" /><el-option label="年薪比例" value="annual_salary_rate" /><el-option label="其他" value="other" /></el-select></el-form-item></el-col>
-              <el-col v-if="form.serviceFeeType==='fixed'" :xs="24" :md="16"><el-form-item label="币种/金额"><div class="money-field"><el-select v-model="form.serviceFeeCurrency"><el-option label="人民币" value="CNY" /><el-option label="美元" value="USD" /><el-option label="港币" value="HKD" /></el-select><el-input-number v-model="form.serviceFeeAmount" :min="0" :precision="2" :controls="false" placeholder="请输入金额" /></div></el-form-item></el-col>
-              <el-col v-if="form.serviceFeeType==='annual_salary_rate'" :xs="24" :md="16"><el-form-item label="年薪比例"><el-input-number v-model="form.serviceFeeRate" :min="0" :max="100" :precision="2" :controls="false" placeholder="请输入比例" /><span class="suffix">%</span></el-form-item></el-col>
+              <el-col v-if="form.serviceFeeType==='fixed'" :xs="24" :md="16"><el-form-item label="币种/金额" prop="serviceFeeAmount"><div class="money-field"><el-select v-model="form.serviceFeeCurrency"><el-option label="人民币" value="CNY" /><el-option label="美元" value="USD" /><el-option label="港币" value="HKD" /></el-select><el-input-number v-model="form.serviceFeeAmount" :min="0" :precision="2" :controls="false" placeholder="请输入金额" /></div></el-form-item></el-col>
+              <el-col v-if="form.serviceFeeType==='annual_salary_rate'" :xs="24" :md="16"><el-form-item label="年薪比例" prop="serviceFeeRate"><el-input-number v-model="form.serviceFeeRate" :min="0" :max="100" :precision="2" :controls="false" placeholder="请输入比例" /><span class="suffix">%</span></el-form-item></el-col>
             </el-row>
             <el-form-item label="费用说明"><el-input v-model="form.serviceFeeNote" /></el-form-item>
             <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col></el-row>
@@ -304,7 +304,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
@@ -439,7 +439,7 @@ const detailItems = [
   {label:'更新时间',key:'updatedAt'},
 ]
 
-const rows = ref([]); const loading = ref(false); const users = ref([]); const clients = ref([]); const resumeSources = ref([]); const talentOptions = ref([]); const languages = ref([]); const projectTableRef = ref(null)
+const rows = ref([]); const loading = ref(true); const users = ref([]); const clients = ref([]); const resumeSources = ref([]); const talentOptions = ref([]); const languages = ref([]); const projectTableRef = ref(null)
 const activeUsers = computed(() => users.value.filter((item) => item.is_active !== false))
 const managerUserOptions = computed(() => { const current = users.value.find((item) => item.id === form.clientManagerId); return current && !current.is_active ? [current, ...activeUsers.value] : activeUsers.value })
 const userLabel = (user) => user.full_name || user.username
@@ -506,7 +506,7 @@ const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',posi
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 let autoNameTimer=null; let namePreviewRequestId=0
-const rules = { projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}] }
+const rules = { projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}], serviceFeeAmount:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='fixed'&&value==null?callback(new Error('固定金额服务费必须填写金额')):callback()}], serviceFeeRate:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='annual_salary_rate'&&value==null?callback(new Error('年薪比例服务费必须填写比例')):callback()}] }
 const resolveManagerByName = (name) => {
   const exact = activeUsers.value.filter((user) => userLabel(user) === String(name || '').trim())
   if (exact.length === 1) return exact[0].id
@@ -533,8 +533,9 @@ const clearSelectedClient = () => {
   Object.assign(form,{clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:'',clientManagerId:resolveManagerByName('')})
 }
 const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate(); clearFieldSearch() }
-const openAdd = () => { resetForm(); const defaultManager=activeUsers.value.filter((item)=>userLabel(item)==='欧阳靖琳'); if(defaultManager.length===1)form.clientManagerId=defaultManager[0].id; editorVisible.value=true }
-const openEdit = async (row) => { try { const item=await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||''}); form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; loadCandidates() } catch(error){ElMessage.error(error?.response?.data?.detail||'项目详情加载失败')} }
+const resetEditorScroll=async()=>{await nextTick();editorBodyRef.value?.scrollTo({top:0,behavior:'auto'})}
+const openAdd = async () => { resetForm(); const defaultManager=activeUsers.value.filter((item)=>userLabel(item)==='欧阳靖琳'); if(defaultManager.length===1)form.clientManagerId=defaultManager[0].id; editorVisible.value=true; await resetEditorScroll() }
+const openEdit = async (row) => { try { const item=await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||''}); form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); loadCandidates() } catch(error){ElMessage.error(error?.response?.data?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
 const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
 const projectNamePayload = () => ({
@@ -633,7 +634,7 @@ const languageText=(row)=>(row.languageDirections||[]).map((item)=>item.label).j
 const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
 const periodText=(row)=>fullPeriodText(row)
 const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
-const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');launchOpenPath(path.trim())}
+const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');if(!launchOpenPath(path.trim()))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}
 const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{await navigator.clipboard.writeText(path.trim());ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 
 onMounted(async()=>{const [userRows,clientRows,sourceRows,talents,languageRows]=await Promise.all([getUsers({skip:0,limit:500}),getClients({skip:0,limit:500}),getRecruitmentResumeSources(),getRecruitmentTalents({skip:0,limit:500}),getProjectLanguages()]).catch(()=>[[],[],[],[],[]]);users.value=userRows||[];clients.value=clientRows||[];resumeSources.value=sourceRows||[];talentOptions.value=talents||[];languages.value=languageRows||[];await fetchData();await focusRouteProject()})
@@ -643,6 +644,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 <style scoped>
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+:global(.recruitment-advanced-filter-popover){max-width:calc(100vw - 32px)!important;max-height:calc(100vh - 32px);overflow:hidden}:global(.recruitment-advanced-filter-popover .advanced-content){max-height:calc(100vh - 64px);overflow-y:auto}
 .card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;min-height:32px;padding:5px 0;white-space:normal;text-align:left;line-height:1.45;align-items:flex-start}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
 .wrap-link :deep(span){line-height:1.45}
 .candidate-count-link{gap:2px}

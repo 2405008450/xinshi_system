@@ -17,7 +17,7 @@
     </template>
 
     <div class="dashboard-flow">
-      <PendingHandoversPanel @updated="loadMyWorkItems" />
+      <PendingHandoversPanel v-if="canOperateWorkflow" @updated="loadMyWorkItems" />
 
       <div class="overview-strip">
         <div class="stat-chip danger">
@@ -106,7 +106,7 @@ import ProjectManagerHandoverPanel from './components/ProjectManagerHandoverPane
 import { getMyWorkItems } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
-import { hasRole, isSuperAdmin } from '@/utils/permission'
+import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
 
 const router = useRouter()
@@ -130,6 +130,7 @@ function readInitialMainTab() {
 const activeSection = ref(readInitialMainTab())
 const dailyReportStatus = ref(null)
 const canManageProjectOwnership = computed(() => hasRole('项目经理') || isSuperAdmin())
+const canOperateWorkflow = computed(() => hasPermission(['projects:read', 'workflow:operate']))
 const currentUserId = (() => {
   try {
     return String(localStorage.getItem('user_id') || '')

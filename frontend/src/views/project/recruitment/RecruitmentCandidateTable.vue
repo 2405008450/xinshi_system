@@ -26,7 +26,15 @@
         <section class="candidate-detail-section">
           <div class="candidate-detail-section__heading"><strong>基础信息</strong></div>
           <div class="candidate-basic-grid">
-            <div class="candidate-field"><span>入职日期</span><b>{{ formatDate(row.actualOnboardDate) }}</b></div>
+            <div class="candidate-field"><span>当前阶段</span><b>{{ stageLabel(row.stage) }}</b></div>
+            <div class="candidate-field"><span>联系方式</span><b>{{ row.contactInfo || '-' }}</b></div>
+            <div class="candidate-field"><span>跟进人</span><b>{{ row.ownerName || '-' }}</b></div>
+            <div class="candidate-field"><span>推荐时间</span><b>{{ formatDateTime(row.recommendedAt) }}</b></div>
+            <div class="candidate-field"><span>原面试时间</span><b>{{ formatDateTime(row.interviewAt) }}</b></div>
+            <div class="candidate-field"><span>Offer 时间</span><b>{{ formatDateTime(row.offerAt) }}</b></div>
+            <div class="candidate-field"><span>计划入职</span><b>{{ formatDate(row.plannedOnboardDate) }}</b></div>
+            <div class="candidate-field"><span>实际入职</span><b>{{ formatDate(row.actualOnboardDate) }}</b></div>
+            <div class="candidate-field"><span>下次跟进</span><b>{{ formatDateTime(row.nextFollowUpAt) }}</b></div>
             <div class="candidate-field candidate-source-field">
               <span>简历来源</span>
               <el-select
@@ -267,6 +275,8 @@ const latestCommunication = (row) => (row.communications || []).reduce((latest, 
 ), null)
 const ordinalLabel = (value) => ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'][value] || String(value)
 const interviewLabel = (value) => value <= 10 ? `${ordinalLabel(value)}面` : `第${value}轮面试`
+const CANDIDATE_STAGE_LABELS={screening:'待筛选',recommended:'已推荐',interviewing:'面试中',offer:'Offer 阶段',pending_onboard:'待入职',onboarded:'已入职',rejected:'已淘汰'}
+const stageLabel=(value)=>CANDIDATE_STAGE_LABELS[value]||value||'-'
 const interviewAtRound = (row, round) => (row.interviews || []).find((item) => item.roundNo === round)
 const visibleInterviewRounds = computed(() => {
   const maximum = Math.max(1, ...props.rows.map((row) => row.interviews?.length || 0))
@@ -372,18 +382,19 @@ const saveSource = async (row, value) => {
 }
 
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN').format(new Date(`${value}T00:00:00`)) : '-'
+const formatDateTime = (value) => value ? new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : '-'
 const requirePath = (path) => {
   const value = String(path || '').trim()
   if (!value) ElMessage.warning('该人选暂无简历路径')
   return value
 }
-const openResume = (path) => { const value = requirePath(path); if (value) launchOpenPath(value) }
+const openResume = (path) => { const value = requirePath(path); if (value && !launchOpenPath(value)) ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开') }
 const resumeDirectory = (path) => {
   const value = path.replace(/[\\/]+$/, '')
   const name = value.split(/[\\/]/).pop() || ''
   return /\.[^\\/.]+$/.test(name) ? value.slice(0, Math.max(value.lastIndexOf('\\'), value.lastIndexOf('/'))) : value
 }
-const openResumeFolder = (path) => { const value = requirePath(path); if (value) launchOpenPath(resumeDirectory(value)) }
+const openResumeFolder = (path) => { const value = requirePath(path); if (value && !launchOpenPath(resumeDirectory(value))) ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开') }
 const copyResumePath = async (path) => {
   const value = requirePath(path)
   if (!value) return

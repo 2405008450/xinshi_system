@@ -4,7 +4,8 @@ from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from path_security import validate_managed_path
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
 EntityType = Literal["project", "suborder"]
@@ -312,6 +313,11 @@ class ManuscriptMailPathsUpdate(BaseModel):
 
     dispatch_path: Optional[str] = Field(default=None, max_length=5000)
     reference_file_path_one: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("dispatch_path", "reference_file_path_one")
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
 
 class ManuscriptMailPathsResponse(ManuscriptMailPathsUpdate):

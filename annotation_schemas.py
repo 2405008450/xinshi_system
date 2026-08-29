@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
@@ -209,6 +210,7 @@ class AnnotationProjectWrite(BaseModel):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    manager_contact: Optional[str] = None
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = Field(default=None, max_length=1000)
@@ -230,9 +232,14 @@ class AnnotationProjectWrite(BaseModel):
     assignees: list[AnnotationAssigneeInput] = Field(default_factory=list)
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
 
+    @field_validator("project_path", "quotation_path", "contract_path")
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
+
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",
-        "client_code", "contact_name", "customer_order_no", "email_subject_preview", "potential_demand",
+        "client_code", "manager_contact", "contact_name", "customer_order_no", "email_subject_preview", "potential_demand",
         "project_path", "quotation_path", "contract_path", "language_region",
         mode="before",
     )

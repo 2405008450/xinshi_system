@@ -1143,11 +1143,13 @@ def _resolve_or_create_project_client(
     client_short_name: Optional[str],
     client_code: Optional[str] = None,
     client_name: Optional[str] = None,
+    manager_contact: Optional[str] = None,
 ) -> tuple[Optional[UUID], Optional[UUID], bool]:
     """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
     normalized_short_name = (client_short_name or "").strip()
     normalized_client_code = (client_code or "").strip()
     normalized_client_name = (client_name or "").strip()
+    normalized_manager_contact = (manager_contact or "").strip()
 
     if normalized_short_name:
         short_name_key = normalized_short_name.lower()
@@ -1194,6 +1196,7 @@ def _resolve_or_create_project_client(
         client_code=generate_client_code(db),
         client_name=normalized_client_name or normalized_short_name,
         client_short_name=normalized_short_name,
+        manager_contact=normalized_manager_contact or None,
         client_status="pending",
     )
     db.add(client)
@@ -2435,6 +2438,7 @@ def create_consultation(
     db: Session,
     consultation: ConsultationCreate,
     *,
+    idempotency_key: Optional[str] = None,
     commit: bool = True,
 ) -> Consultation:
     consultation_code = generate_consultation_code(db)
@@ -2463,6 +2467,7 @@ def create_consultation(
 
     db_consultation = Consultation(
         consultation_code=consultation_code,
+        idempotency_key=idempotency_key,
         **consultation_data,
     )
     db.add(db_consultation)

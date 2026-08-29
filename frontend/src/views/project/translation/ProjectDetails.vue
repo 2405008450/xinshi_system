@@ -1640,6 +1640,7 @@ const handleAdd = async () => {
   form.orderNo = await generateOrderNo()
   dialogVisible.value = true
   await nextTick()
+  editorBodyRef.value?.scrollTo({ top: 0, behavior: 'auto' })
   projectFilesTabRef.value?.resetPathGroup()
 }
 const handleEdit = async (row) => {
@@ -1654,6 +1655,8 @@ const handleEdit = async (row) => {
   projectDialogTab.value = 'basic'
   projectBasicExpandedSections.value = ['project', 'business', 'execution']
   dialogVisible.value = true
+  await nextTick()
+  editorBodyRef.value?.scrollTo({ top: 0, behavior: 'auto' })
   if (row.id) {
     try {
       await refreshProjectSubOrders(row.id)

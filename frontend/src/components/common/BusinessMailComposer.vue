@@ -107,7 +107,7 @@ const loadPreview = async () => {
   try {
     const [mailPreview, users, rows] = await Promise.all([
       mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId }),
-      userApi.getUsers({ skip: 0, limit: 1000 }),
+      userApi.getUsers({ skip: 0, limit: 500 }),
       mailApi.getProjectMailHistory({ project_type: props.projectType, project_id: props.projectId }),
     ])
     Object.assign(preview, mailPreview)

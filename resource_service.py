@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import String, func, or_
+from sqlalchemy import String, func, inspect, or_, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from interpretation_models import InterpretationLanguage
@@ -35,6 +36,29 @@ class TalentDuplicateError(ValueError):
     def __init__(self, duplicates: list[dict]):
         super().__init__("发现联系方式相同的人才档案，请确认是否复用")
         self.duplicates = duplicates
+
+
+class TalentDeleteConflictError(ValueError):
+    """人才仍被业务记录引用时拒绝物理删除，避免破坏历史数据。"""
+
+
+_OWNED_PERSON_TABLES = {
+    "resource_capability",
+    "resource_written_translation_profile",
+    "resource_interpretation_profile",
+    "resource_annotation_profile",
+    "resource_annotation_language_skill",
+    "resource_career_profile",
+}
+
+_REFERENCE_LABELS = {
+    "annotation_account_assignment": "标注账号分配",
+    "annotation_project_assignee": "标注项目人员",
+    "annotation_trial_record": "试标记录",
+    "interpretation_project_interpreter": "口译项目人员",
+    "recruitment_candidate": "招聘候选人",
+    "translator": "历史译员档案",
+}
 
 
 def normalize_phone(value: Optional[str]) -> Optional[str]:
@@ -79,6 +103,56 @@ def get_talent(db: Session, person_id: UUID) -> Optional[ResourcePerson]:
         .filter(ResourcePerson.id == person_id)
         .first()
     )
+
+
+def _person_reference_labels(db: Session, person_id: UUID) -> list[str]:
+    """从真实数据库外键发现引用，新增业务表后也能自动纳入删除保护。"""
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    preparer = bind.dialect.identifier_preparer
+    labels: list[str] = []
+    for table_name in inspector.get_table_names():
+        if table_name in _OWNED_PERSON_TABLES or table_name == ResourcePerson.__tablename__:
+            continue
+        for foreign_key in inspector.get_foreign_keys(table_name):
+            if foreign_key.get("referred_table") != ResourcePerson.__tablename__:
+                continue
+            constrained = foreign_key.get("constrained_columns") or []
+            referred = foreign_key.get("referred_columns") or []
+            for column_name, referred_column in zip(constrained, referred):
+                if referred_column != "id":
+                    continue
+                table_sql = preparer.quote(table_name)
+                column_sql = preparer.quote(column_name)
+                found = db.execute(
+                    text(f"SELECT 1 FROM {table_sql} WHERE {column_sql} = :person_id LIMIT 1"),
+                    {"person_id": person_id},
+                ).first()
+                if found:
+                    labels.append(_REFERENCE_LABELS.get(table_name, "其他业务记录"))
+                break
+    return list(dict.fromkeys(labels))
+
+
+def delete_talent(db: Session, person_id: UUID) -> bool:
+    person = db.query(ResourcePerson).filter(ResourcePerson.id == person_id).first()
+    if not person:
+        return False
+    references = _person_reference_labels(db, person_id)
+    if references:
+        raise TalentDeleteConflictError(
+            f"无法删除人才“{person.full_name}”：仍被{'、'.join(references)}引用。"
+            "请先解除关联，或将人才状态改为停用以保留历史记录。"
+        )
+    try:
+        db.delete(person)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise TalentDeleteConflictError(
+            f"无法删除人才“{person.full_name}”：仍存在关联业务记录，请先解除关联或改为停用。"
+        ) from exc
+    return True
 
 
 def _talent_query(

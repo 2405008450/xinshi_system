@@ -9,6 +9,7 @@
           {{ showAllTasks ? '只看我的任务' : `显示全部任务（${hiddenOverviewTaskCount}）` }}
         </el-button>
         <el-button
+          v-if="canOperateWorkflow"
           type="primary"
           size="small"
           :disabled="!directSelectedTasks.length"
@@ -17,6 +18,7 @@
           交接所选任务（{{ directSelectedTasks.length }}）
         </el-button>
         <el-button
+          v-if="canOperateWorkflow"
           type="success"
           plain
           size="small"
@@ -24,7 +26,7 @@
           :disabled="!rolePoolSelectedTasks.length"
           @click="claimSelectedRolePoolTasks"
         >认领任务（{{ rolePoolSelectedTasks.length }}）</el-button>
-        <el-button type="warning" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
+        <el-button v-if="canOperateWorkflow" type="warning" plain size="small" @click="openClaimDialog">继承他人任务</el-button>
       </div>
     </div>
 
@@ -148,6 +150,9 @@
             @updated="handleProjectStatusUpdated(row, $event)"
           />
         </template>
+      </el-table-column>
+      <el-table-column prop="current_stage_role_name" label="所属角色" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
       </el-table-column>
       <el-table-column prop="language_pair" label="语言方向" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #header>
@@ -453,6 +458,7 @@ const props = defineProps({
 
 const emit = defineEmits(['open-chat', 'open-project', 'record-work', 'refresh'])
 const canWriteProjects = hasPermission('projects:write')
+const canOperateWorkflow = hasPermission(['projects:read', 'workflow:operate'])
 
 function handleProjectStatusUpdated(row, payload) {
   const projectId = String(payload?.projectId || resolveProjectId(row) || '')

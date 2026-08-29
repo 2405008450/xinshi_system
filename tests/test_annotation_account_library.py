@@ -197,7 +197,7 @@ def test_reveal_adds_database_audit_row(monkeypatch):
     assert db.added[0].access_reason == "工单核查"
 
 
-def test_batch_save_keeps_valid_unassigned_row_when_another_row_fails(monkeypatch):
+def test_batch_save_does_not_create_pseudo_assignment_for_unassigned_row(monkeypatch):
     client_id, platform_id, user_id = uuid4(), uuid4(), uuid4()
     project_id, language_id = uuid4(), uuid4()
     saved_accounts = {}
@@ -254,10 +254,7 @@ def test_batch_save_keeps_valid_unassigned_row_when_another_row_fails(monkeypatc
 
     assert result["results"][0]["success"] is True
     assert len(result.get("results", [])) == 2
-    assert len(FakeDb.contexts) == 1
-    assert FakeDb.contexts[0].project_id == project_id
-    assert FakeDb.contexts[0].person_id is None
-    assert [row.language_item_id for row in FakeDb.contexts[0].languages] == [language_id]
+    assert FakeDb.contexts == []
     assert result["results"][1] == {
         "row_key": "bad", "success": False, "error": "当前平台已存在相同登录账号",
     }

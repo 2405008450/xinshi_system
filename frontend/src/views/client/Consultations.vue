@@ -650,8 +650,8 @@
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field"><span>至少保留一个有效时段</span><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
                 <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
-                  <el-date-picker v-model="item.scheduled_start" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="开始时间" />
-                  <el-date-picker v-model="item.scheduled_end" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="结束时间" />
+                  <StableDateTimePicker v-model="item.scheduled_start" placeholder="开始时间" />
+                  <StableDateTimePicker v-model="item.scheduled_end" placeholder="结束时间" />
                   <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
                 </div>
               </div>
@@ -872,8 +872,8 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="!form.id" @click="handleSubmit(true)">保存并继续新增</el-button>
-        <el-button type="primary" @click="handleSubmit()">确定</el-button>
+        <el-button v-if="!form.id" :disabled="formSubmitting" @click="handleSubmit(true)">保存并继续新增</el-button>
+        <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">确定</el-button>
       </template>
     </el-dialog>
 
@@ -988,6 +988,7 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
 import { hasPermission } from '@/utils/permission'
 
 const router = useRouter()
@@ -1013,6 +1014,8 @@ const clientSearchLoading = ref(false)
 const confirmationDialogVisible = ref(false)
 const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
+const formSubmitting = ref(false)
+const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
 const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
 const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
@@ -1958,14 +1961,14 @@ const fillFormByRow = (row) => {
     consultation_type: consultationType,
     handling_method: row.handling_method || '',
     remarks: row.remarks || '',
-    customer_service_id: row.customer_service_id || currentUserId,
-    sales_person_id: row.sales_person_id || currentUserId,
-    editor_id: row.editor_id || currentUserId,
+    customer_service_id: row.customer_service_id ?? null,
+    sales_person_id: row.sales_person_id ?? null,
+    editor_id: row.editor_id ?? null,
     follow_up_count: row.follow_up_count ?? 0,
     follow_up_time: row.follow_up_time || '',
     follow_up_status: row.follow_up_status || '',
     follow_up_remarks: row.follow_up_remarks || '',
-    follow_up_person_id: row.follow_up_person_id || currentUserId,
+    follow_up_person_id: row.follow_up_person_id ?? null,
     updated_at: row.updated_at || null,
   })
   loadSubClients(row.client_id)
@@ -2054,10 +2057,14 @@ const handleInlineStatusChange = async (row, newStatus) => {
 }
 
 const handleSubmit = async (continueCreate = false) => {
-  if (!formRef.value) return
+  if (!formRef.value || formSubmitting.value) return
+  formSubmitting.value = true
 
   await formRef.value.validate(async (valid) => {
-    if (!valid) return
+    if (!valid) {
+      formSubmitting.value = false
+      return
+    }
     try {
       const payload = buildPayload()
       const isUpdate = !!form.id
@@ -2090,7 +2097,7 @@ const handleSubmit = async (continueCreate = false) => {
         delete detailCache[consultationId]
         ElMessage.success('更新成功')
       } else {
-        const created = await consultationApi.createConsultation(payload)
+        const created = await consultationApi.createConsultation(payload, createIdempotencyKey.value)
         savedConsultation = created
         ElMessage.success(shouldContinueCreate ? '创建成功，可继续录入下一条' : '创建成功')
         // 新建咨询也支持立即确认并生成项目详情。
@@ -2136,6 +2143,8 @@ const handleSubmit = async (continueCreate = false) => {
       }
     } catch (error) {
       ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
+    } finally {
+      formSubmitting.value = false
     }
   })
 }
@@ -2289,6 +2298,7 @@ const resetConfirmationDraft = () => {
 
 const resetForm = () => {
   Object.assign(form, defaultForm())
+  createIdempotencyKey.value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
   formRef.value?.clearValidate()
 }
 
