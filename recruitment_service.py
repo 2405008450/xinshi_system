@@ -293,14 +293,18 @@ def _add_progress(
 
 
 def create_recruitment_project(
-    db: Session, payload: RecruitmentProjectCreate, created_by: Optional[UUID]
+    db: Session, payload: RecruitmentProjectCreate, created_by: Optional[UUID],
+    idempotency_key: Optional[str] = None,
 ) -> RecruitmentProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     _set_client_manager(db, data)
-    project = RecruitmentProject(order_no=generate_recruitment_order_no(db), created_by=created_by, **data)
+    project = RecruitmentProject(
+        order_no=generate_recruitment_order_no(db), created_by=created_by,
+        idempotency_key=idempotency_key, **data,
+    )
     db.add(project)
     db.flush()
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map

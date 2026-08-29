@@ -21,6 +21,7 @@ class ResourceRequest(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="resource_request_pkey"),
         UniqueConstraint("request_no", name="uq_resource_request_no"),
+        UniqueConstraint("idempotency_key", name="uq_resource_request_idempotency_key"),
         ForeignKeyConstraint(["annotation_project_id"], ["annotation_project.id"], ondelete="RESTRICT", name="fk_resource_request_annotation"),
         ForeignKeyConstraint(["recruitment_project_id"], ["recruitment_project.id"], ondelete="RESTRICT", name="fk_resource_request_recruitment"),
         ForeignKeyConstraint(["interpretation_project_id"], ["interpretation_project.id"], ondelete="RESTRICT", name="fk_resource_request_interpretation"),
@@ -48,6 +49,7 @@ class ResourceRequest(Base):
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     request_no: Mapped[str] = mapped_column(String(50), nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     source_type: Mapped[str] = mapped_column(String(30), nullable=False)
     request_category: Mapped[str] = mapped_column(String(30), nullable=False)
     annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

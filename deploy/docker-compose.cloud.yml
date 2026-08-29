@@ -12,8 +12,8 @@ services:
       # PostgreSQL 18 官方镜像使用按主版本分层的数据目录。
       - postgres_data:/var/lib/postgresql
     ports:
-      # 仅供 SSH 隧道连接，不直接暴露到公网。
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
+      # 公网入口由腾讯云安全组按固定出口 IP 白名单限制。
+      - "0.0.0.0:${POSTGRES_HOST_PORT:-15432}:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d xinshi_system"]

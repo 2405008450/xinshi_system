@@ -859,6 +859,7 @@ import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixLi
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { launchOpenPath } from '@/utils/openPath'
+import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
@@ -1054,6 +1055,7 @@ const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: 
 const loading = ref(false)
 const submitLoading = ref(false)
 let submitLocked = false
+const projectCreateIdempotencyKey = ref('')
 const dialogVisible = ref(false)
 const subOrderDialogVisible = ref(false)
 const batchDialogVisible = ref(false)
@@ -1641,6 +1643,7 @@ const goToSubOrderManagement = (project) => {
 const handleAdd = async () => {
   dialogTitle.value = '新增项目'
   resetProjectForm()
+  projectCreateIdempotencyKey.value = createIdempotencyKey()
   currentProjectSubOrders.value = []
   await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
   form.orderNo = await generateOrderNo()
@@ -1734,7 +1737,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     const isCreate = dialogTitle.value === '新增项目'
     let savedProject
     if (isCreate) {
-      savedProject = await createProject(payload)
+      savedProject = await createProject(payload, projectCreateIdempotencyKey.value)
       // 新项目按创建时间倒序展示；回到第一页并清除可能隐藏新项目的旧筛选条件。
       pagination.page = 1
       clearSearch()

@@ -254,6 +254,7 @@ const advancedWidth = ref(760)
 const dialogVisible = ref(false)
 const progressDialog = ref(false)
 const saving = ref(false)
+let submitLocked = false
 const detailLoading = ref('')
 const detailCache = reactive({})
 const showRequestDetail = ref(false)
@@ -391,6 +392,7 @@ const sourceProjectChanged = async (projectId) => {
   } catch (error) { ElMessage.error(error.detail || '自动获取项目需求信息失败') } finally { prefillLoading.value = false }
 }
 const openEditor = async (row = null, source = null) => {
+  if (!row?.id) api.resetResourceRequestIdempotency()
   let value = row
   if (row?.id) value = await api.getResourceRequest(row.id)
   Object.assign(form, emptyForm(), value || {})
@@ -434,7 +436,9 @@ const payload = async () => {
 }
 const scrollToFirstError = () => requestAnimationFrame(() => document.querySelector('.resource-dialog .el-form-item.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
 const save = async () => {
-  try { await formRef.value?.validate() } catch { scrollToFirstError(); return }
+  if (submitLocked) return
+  submitLocked = true
+  try { await formRef.value?.validate() } catch { submitLocked = false; scrollToFirstError(); return }
   saving.value = true
   try {
     const data = await payload()
@@ -443,7 +447,7 @@ const save = async () => {
     dialogVisible.value = false
     ElMessage.success('资源需求已保存')
     await fetchData()
-  } catch (error) { ElMessage.error(error.detail || '保存失败') } finally { saving.value = false }
+  } catch (error) { ElMessage.error(error.detail || '保存失败') } finally { saving.value = false; submitLocked = false }
 }
 const openProgress = (row) => { Object.assign(progressForm, { id: row.id, progressPercent: row.progressPercent, progressNote: '' }); progressDialog.value = true }
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }

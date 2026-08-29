@@ -1,4 +1,8 @@
 import api from './index'
+import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const projectCreateState = { key: '', signature: '' }
+export const resetRecruitmentProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
 
 const toCamelCase = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const toSnakeCase = (value) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
@@ -21,7 +25,15 @@ export const getRecruitmentProjectCount = (params, config = {}) => (
   api.get('/projects/recruitment/count', { ...config, params })
 )
 export const getRecruitmentProject = (id) => api.get(`/projects/recruitment/${id}`).then(fromApi)
-export const createRecruitmentProject = (data) => api.post('/projects/recruitment/', toApi(data)).then(fromApi)
+export const createRecruitmentProject = async (data, idempotencyKey) => {
+  const payload = toApi(data)
+  const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
+  const response = await api.post('/projects/recruitment/', payload, {
+    headers: { 'X-Idempotency-Key': key },
+  })
+  clearIdempotencyKey(projectCreateState, key)
+  return fromApi(response)
+}
 export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruitment/${id}`, toApi(data)).then(fromApi)
 export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, { project_status: projectStatus }).then(fromApi)
 export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`)

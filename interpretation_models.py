@@ -70,6 +70,7 @@ class InterpretationProject(Base):
         PrimaryKeyConstraint("id", name="interpretation_project_pkey"),
         UniqueConstraint("order_no", name="uq_interpretation_project_order_no"),
         UniqueConstraint("consultation_id", name="uq_interpretation_project_consultation"),
+        UniqueConstraint("idempotency_key", name="uq_interpretation_project_idempotency_key"),
         ForeignKeyConstraint(
             ["consultation_id"], ["consultation.id"], ondelete="SET NULL",
             name="fk_interpretation_project_consultation",
@@ -98,6 +99,7 @@ class InterpretationProject(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
     project_name: Mapped[Optional[str]] = mapped_column(String(500))
     project_types: Mapped[list] = mapped_column(

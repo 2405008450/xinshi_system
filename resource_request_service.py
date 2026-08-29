@@ -217,9 +217,14 @@ def _sync_items(db: Session, request: ResourceRequest, payload_items) -> None:
         row.updated_at = datetime.now()
 
 
-def create_resource_request(db: Session, payload, user_id: Optional[UUID]):
+def create_resource_request(
+    db: Session, payload, user_id: Optional[UUID], idempotency_key: Optional[str] = None,
+):
     data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
-    row = ResourceRequest(request_no=generate_resource_request_no(db), requested_by=user_id, **data)
+    row = ResourceRequest(
+        request_no=generate_resource_request_no(db), requested_by=user_id,
+        idempotency_key=idempotency_key, **data,
+    )
     _sync_items(db, row, payload.items)
     db.add(row)
     db.flush()

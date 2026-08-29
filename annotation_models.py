@@ -36,6 +36,7 @@ class AnnotationProject(Base):
         PrimaryKeyConstraint("id", name="annotation_project_pkey"),
         UniqueConstraint("order_no", name="uq_annotation_project_order_no"),
         UniqueConstraint("consultation_id", name="uq_annotation_project_consultation"),
+        UniqueConstraint("idempotency_key", name="uq_annotation_project_idempotency_key"),
         UniqueConstraint(
             "legacy_translation_project_id",
             name="uq_annotation_project_legacy_translation",
@@ -83,6 +84,7 @@ class AnnotationProject(Base):
         Index("ix_annotation_project_created_at", "created_at"),
     )
 
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )

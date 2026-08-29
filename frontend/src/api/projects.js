@@ -1,4 +1,7 @@
 import api from './index'
+import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const projectCreateState = { key: '', signature: '' }
 
 function toCamelCase(str) {
     return str.replace(/([-_][a-z])/g, (group) =>
@@ -35,8 +38,14 @@ export const getProject = (id) => {
     return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))
 }
 
-export const createProject = (data) => {
-    return api.post('/projects/translation/', convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+export const createProject = async (data, idempotencyKey) => {
+    const payload = convertKeys(data, toSnakeCase)
+    const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
+    const response = await api.post('/projects/translation/', payload, {
+        headers: { 'X-Idempotency-Key': key },
+    })
+    clearIdempotencyKey(projectCreateState, key)
+    return convertKeys(response, toCamelCase)
 }
 
 export const updateProject = (id, data) => {

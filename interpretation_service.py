@@ -357,7 +357,8 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
 
 
 def create_interpretation_project(
-    db: Session, payload: InterpretationProjectCreate, created_by: Optional[UUID]
+    db: Session, payload: InterpretationProjectCreate, created_by: Optional[UUID],
+    idempotency_key: Optional[str] = None,
 ) -> InterpretationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     _resolve_client(db, data)
@@ -366,6 +367,7 @@ def create_interpretation_project(
     project = InterpretationProject(
         order_no=generate_interpretation_order_no(db),
         created_by=created_by,
+        idempotency_key=idempotency_key,
         **data,
     )
     db.add(project)

@@ -335,7 +335,8 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
 
 
 def create_annotation_project(
-    db: Session, payload: AnnotationProjectCreate, created_by: Optional[UUID]
+    db: Session, payload: AnnotationProjectCreate, created_by: Optional[UUID],
+    idempotency_key: Optional[str] = None,
 ) -> AnnotationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     from annotation_custom_field_service import validate_custom_values
@@ -346,7 +347,8 @@ def create_annotation_project(
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     project = AnnotationProject(
-        order_no=generate_annotation_order_no(db), created_by=created_by, **data
+        order_no=generate_annotation_order_no(db), created_by=created_by,
+        idempotency_key=idempotency_key, **data
     )
     db.add(project)
     db.flush()

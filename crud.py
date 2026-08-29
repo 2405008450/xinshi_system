@@ -1601,6 +1601,7 @@ def create_translation_project(
     *,
     commit: bool = True,
     order_no: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
 ) -> TranslationProject:
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
@@ -1638,6 +1639,7 @@ def create_translation_project(
 
     db_project = TranslationProject(
         order_no=order_no,
+        idempotency_key=idempotency_key,
         **project_data
     )
     db.add(db_project)

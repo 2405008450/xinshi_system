@@ -1,4 +1,8 @@
 import api from './index'
+import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+
+const projectCreateState = { key: '', signature: '' }
+export const resetAnnotationProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
 
 const toCamelCase = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const toSnakeCase = (value) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
@@ -25,9 +29,15 @@ export const getAnnotationProject = (id, config = {}) => (
   api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
 
-export const createAnnotationProject = (data) => (
-  api.post('/projects/annotation/', convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
-)
+export const createAnnotationProject = async (data, idempotencyKey) => {
+  const payload = convertKeys(data, toSnakeCase)
+  const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
+  const response = await api.post('/projects/annotation/', payload, {
+    headers: { 'X-Idempotency-Key': key },
+  })
+  clearIdempotencyKey(projectCreateState, key)
+  return convertKeys(response, toCamelCase)
+}
 
 export const updateAnnotationProject = (id, data) => (
   api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))

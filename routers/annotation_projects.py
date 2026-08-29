@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,7 @@ from annotation_service import (
     update_annotation_project_status,
 )
 from database import get_db
+from annotation_models import AnnotationProject
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access
 
@@ -190,9 +191,29 @@ def create_project(
     payload: AnnotationProjectCreate,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
 ):
+    if idempotency_key:
+        existing = db.query(AnnotationProject).filter(
+            AnnotationProject.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_annotation_project(db, existing.id)
     try:
-        return create_annotation_project(db, payload, current_user.id)
+        return create_annotation_project(
+            db, payload, current_user.id, idempotency_key=idempotency_key,
+        )
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(AnnotationProject).filter(
+                AnnotationProject.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_annotation_project(db, existing.id)
+        raise HTTPException(status_code=409, detail="标注项目创建冲突，请刷新后重试")
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))

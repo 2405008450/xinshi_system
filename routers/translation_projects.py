@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, DatabaseError
 
@@ -13,7 +13,7 @@ from schemas import TranslationProjectCreate, TranslationProjectUpdate, Translat
 from utils import generate_order_no
 from language_catalog import get_searchable_language_variants
 from routers.auth import get_current_user, require_module_access
-from models import AppUser
+from models import AppUser, TranslationProject
 
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 
@@ -35,14 +35,31 @@ def create_project_endpoint(
     project: TranslationProjectCreate,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
 ):
+    if idempotency_key:
+        existing = db.query(TranslationProject).filter(
+            TranslationProject.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_translation_project(db, existing.id)
     try:
         project_to_create = project.model_copy(update={"created_by": current_user.id})
-        return create_translation_project(db=db, project=project_to_create)
+        return create_translation_project(
+            db=db, project=project_to_create, idempotency_key=idempotency_key,
+        )
     except HTTPException:
         raise
     except IntegrityError as e:
         db.rollback()
+        if idempotency_key:
+            existing = db.query(TranslationProject).filter(
+                TranslationProject.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_translation_project(db, existing.id)
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
             raise HTTPException(

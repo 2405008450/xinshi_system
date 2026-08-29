@@ -35,6 +35,7 @@ class RecruitmentProject(Base):
         PrimaryKeyConstraint("id", name="recruitment_project_pkey"),
         UniqueConstraint("order_no", name="uq_recruitment_project_order_no"),
         UniqueConstraint("consultation_id", name="uq_recruitment_project_consultation"),
+        UniqueConstraint("idempotency_key", name="uq_recruitment_project_idempotency_key"),
         ForeignKeyConstraint(["consultation_id"], ["consultation.id"], ondelete="SET NULL", name="fk_recruitment_project_consultation"),
         ForeignKeyConstraint(["client_id"], ["client.id"], ondelete="RESTRICT", name="fk_recruitment_project_client"),
         ForeignKeyConstraint(["sub_client_id"], ["sub_client.id"], ondelete="SET NULL", name="fk_recruitment_project_sub_client"),
@@ -51,6 +52,7 @@ class RecruitmentProject(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     project_name: Mapped[Optional[str]] = mapped_column(String(500))
     job_description: Mapped[Optional[str]] = mapped_column(Text)
     position_title: Mapped[Optional[str]] = mapped_column(String(255))

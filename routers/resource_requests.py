@@ -3,12 +3,13 @@
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AppUser
+from resource_request_models import ResourceRequest
 from resource_request_schemas import ResourceProgressLogResponse, ResourceProgressUpdate, ResourceRequestResponse, ResourceRequestSourcePrefillResponse, ResourceRequestWrite
 from resource_request_service import (
     count_resource_requests, create_resource_request, delete_resource_request,
@@ -50,10 +51,30 @@ def read_source_prefill(source_type: str, source_project_id: UUID, db: Session =
 
 
 @router.post("/", response_model=ResourceRequestResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
-def create_request(payload: ResourceRequestWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    try: return create_resource_request(db, payload, user.id)
+def create_request(
+    payload: ResourceRequestWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(
+        default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
+    ),
+):
+    if idempotency_key:
+        existing = db.query(ResourceRequest).filter(
+            ResourceRequest.idempotency_key == idempotency_key
+        ).first()
+        if existing:
+            return get_resource_request(db, existing.id)
+    try: return create_resource_request(db, payload, user.id, idempotency_key=idempotency_key)
     except (ValueError, IntegrityError) as exc:
-        db.rollback(); raise HTTPException(400, str(exc))
+        db.rollback()
+        if idempotency_key:
+            existing = db.query(ResourceRequest).filter(
+                ResourceRequest.idempotency_key == idempotency_key
+            ).first()
+            if existing:
+                return get_resource_request(db, existing.id)
+        raise HTTPException(400, str(exc))
 
 
 @router.get("/{request_id}", response_model=ResourceRequestResponse)

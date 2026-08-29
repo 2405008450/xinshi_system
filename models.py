@@ -437,11 +437,13 @@ class TranslationProject(Base):
         ForeignKeyConstraint(['created_by'], ['app_user.id'], ondelete='SET NULL', name='fk_translation_project_creator'),
         PrimaryKeyConstraint('id', name='translation_project_pkey'),
         UniqueConstraint('order_no', name='translation_project_order_no_key'),
-        UniqueConstraint('consultation_id', name='uq_translation_project_consultation')
+        UniqueConstraint('consultation_id', name='uq_translation_project_consultation'),
+        UniqueConstraint('idempotency_key', name='uq_translation_project_idempotency_key')
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
     task_type: Mapped[Optional[str]] = mapped_column(String(50))
     consultation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

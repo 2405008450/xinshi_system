@@ -650,6 +650,7 @@ import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/email
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { launchOpenPath } from '@/utils/openPath'
+import { createIdempotencyKey } from '@/utils/idempotency'
 
 const canWrite = hasPermission('projects:write')
 const mailComposerVisible = ref(false)
@@ -658,6 +659,7 @@ const mailConsultationId = ref('')
 const loading = ref(true)
 const submitLoading = ref(false)
 let submitLocked = false
+const projectCreateIdempotencyKey = ref('')
 const projectStatusSavingIds = ref(new Set())
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
@@ -1210,7 +1212,7 @@ const assignForm = (detail) => {
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
-const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); dialogVisible.value = true; await resetEditorScroll() }
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll() }
 const handleEdit = async (row) => {
   const detail = await loadDetail(row.id, true)
   if (!detail) return
@@ -1232,7 +1234,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     const payload = buildPayload()
     const saved = form.id
       ? await projectApi.updateInterpretationProject(form.id, payload)
-      : await projectApi.createInterpretationProject(payload)
+      : await projectApi.createInterpretationProject(payload, projectCreateIdempotencyKey.value)
     if (form.id) delete detailCache[form.id]
     if (saved?.id) detailCache[saved.id] = saved
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')

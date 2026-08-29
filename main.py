@@ -1010,6 +1010,33 @@ def ensure_multitype_workbench_schema():
         """))
 
 
+def ensure_project_idempotency_columns() -> None:
+    """在显式迁移窗口补齐五类创建接口的幂等键及唯一约束。"""
+    tables = (
+        ("translation_project", "uq_translation_project_idempotency_key"),
+        ("interpretation_project", "uq_interpretation_project_idempotency_key"),
+        ("annotation_project", "uq_annotation_project_idempotency_key"),
+        ("recruitment_project", "uq_recruitment_project_idempotency_key"),
+        ("resource_request", "uq_resource_request_idempotency_key"),
+    )
+    with engine.begin() as conn:
+        for table_name, constraint_name in tables:
+            conn.execute(text(
+                f"ALTER TABLE {table_name} "
+                "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)"
+            ))
+            conn.execute(text(f"""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = '{constraint_name}'
+                    ) THEN
+                        ALTER TABLE {table_name}
+                        ADD CONSTRAINT {constraint_name} UNIQUE (idempotency_key);
+                    END IF;
+                END $$;
+            """))
+
+
 @app.on_event("startup")
 def ensure_runtime_tables():
     # 生产启动不得隐式执行 DDL。历史兼容迁移必须在维护窗口中显式启用，
@@ -1129,6 +1156,7 @@ def ensure_runtime_tables():
     ResourceRequest.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestItem.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestProgressLog.__table__.create(bind=engine, checkfirst=True)
+    ensure_project_idempotency_columns()
     ensure_resource_request_view()
     with engine.begin() as conn:
         conn.execute(text("""
