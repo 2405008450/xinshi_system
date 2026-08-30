@@ -121,11 +121,13 @@ class MailAttachment:
 
 def get_mail_status() -> dict:
     """返回不包含密码的邮件配置状态。"""
+    project_sender_mode = _env("PROJECT_MAIL_SENDER_MODE", "system").lower()
     try:
         settings = SmtpSettings.from_env()
         settings.validate()
         return {
             "mode": settings.mode,
+            "project_sender_mode": project_sender_mode,
             "configured": True,
             "host": settings.host,
             "port": settings.port,
@@ -140,6 +142,7 @@ def get_mail_status() -> dict:
         mode = _env("SMTP_MODE", "disabled").lower()
         return {
             "mode": mode,
+            "project_sender_mode": project_sender_mode,
             "configured": False,
             "host": _env("SMTP_HOST") or None,
             "port": None,

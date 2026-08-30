@@ -2,10 +2,11 @@
   <el-popover
     trigger="click"
     placement="left"
-    :width="800"
+    :width="760"
     :title="title"
     popper-class="business-detail-popover"
     @show="emit('show')"
+    @hide="handleHide"
   >
     <template #reference>
       <slot name="reference">
@@ -13,25 +14,45 @@
       </slot>
     </template>
     <div v-loading="loading" class="business-detail-popover__content">
-      <el-descriptions :column="2" border size="small">
-        <el-descriptions-item
-          v-for="item in items"
-          :key="item.key"
-          :label="item.label"
-          :span="item.span || 1"
-        >
-          <el-tag v-if="item.type === 'status'" :type="statusType(row[item.key])" size="small">
-            {{ statusLabel(row[item.key]) }}
-          </el-tag>
-          <span v-else class="business-detail-popover__value">{{ formatValue(item) }}</span>
-        </el-descriptions-item>
-      </el-descriptions>
+      <slot name="content" :row="row">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item
+            v-for="item in items"
+            :key="item.key"
+            :label="item.label"
+            :span="item.span || 1"
+          >
+            <el-tag v-if="item.type === 'status'" :type="statusType(row[item.key])" size="small">
+              {{ statusLabel(row[item.key]) }}
+            </el-tag>
+            <InlineTextField
+              v-else-if="item.editable"
+              :model-value="rawValue(item)"
+              :display-value="formatValue(item)"
+              :editable="editable"
+              :disabled="disabled"
+              :label="item.label"
+              :multiline="item.multiline"
+              :maxlength="item.maxlength || 0"
+              :required="item.required"
+              :empty-as-null="item.emptyAsNull !== false"
+              :placeholder="item.placeholder || ''"
+              :save-field="(value) => saveItem(item, value)"
+              @saved="(updated) => emit('field-saved', updated, item)"
+              @conflict="emit('conflict')"
+            />
+            <span v-else class="business-detail-popover__value">{{ formatValue(item) }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </slot>
     </div>
   </el-popover>
 </template>
 
 <script setup>
-const emit = defineEmits(['show'])
+import InlineTextField from './InlineTextField.vue'
+
+const emit = defineEmits(['show', 'hide', 'field-saved', 'conflict'])
 
 const props = defineProps({
   row: { type: Object, required: true },
@@ -39,11 +60,30 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   statusLabel: { type: Function, default: (value) => value || '-' },
   statusType: { type: Function, default: () => 'info' },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  editable: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
+  saveField: { type: Function, default: null }
 })
 
+const rawValue = (item) => {
+  if (item.valueGetter) return item.valueGetter(props.row)
+  return props.row[item.valueKey || item.key]
+}
+
+const saveItem = (item, value) => {
+  if (!props.saveField) return Promise.reject(new Error('未配置保存方法'))
+  return props.saveField(item.field || item.key, value, item)
+}
+
+const handleHide = () => {
+  window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
+  emit('hide')
+}
+
 const formatValue = (item) => {
-  const value = item.formatter ? item.formatter(props.row[item.key], props.row) : props.row[item.key]
+  const raw = rawValue(item)
+  const value = item.formatter ? item.formatter(raw, props.row) : raw
   if (value === null || value === undefined || value === '') return '-'
   if (!item.formatter && /(At|Time|_at|_time|date)$/i.test(item.key) && !Number.isNaN(Date.parse(value))) {
     const date = new Date(value)

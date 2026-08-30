@@ -32,7 +32,9 @@ from interpretation_service import (
     update_interpretation_project_status,
 )
 from models import AppUser
+from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
 from routers.auth import get_current_user, require_any_permission, require_module_access
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
 router = APIRouter(
@@ -40,6 +42,48 @@ router = APIRouter(
     tags=["interpretation_projects"],
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
+
+INTERPRETATION_TEXT_FIELDS = {
+    "project_name": TextFieldRule(max_length=500),
+    "task_description": TextFieldRule(),
+    "customer_budget": TextFieldRule(max_length=500),
+    "contact_name": TextFieldRule(max_length=255),
+    "customer_order_no": TextFieldRule(max_length=150),
+    "interpreter_special_requirements": TextFieldRule(),
+    "interpreter_height_requirement": TextFieldRule(max_length=100),
+    "interpreter_appearance_requirement": TextFieldRule(max_length=255),
+    "interpreter_dress_requirement": TextFieldRule(max_length=255),
+    "interpretation_domain": TextFieldRule(),
+    "interpretation_content": TextFieldRule(),
+    "file_path": TextFieldRule(managed_path=True),
+    "quotation_path": TextFieldRule(managed_path=True),
+    "contract_path": TextFieldRule(managed_path=True),
+    "client_rating_note": TextFieldRule(),
+    "social_post_request": TextFieldRule(),
+    "resource_request": TextFieldRule(),
+    "remarks": TextFieldRule(),
+    "email_subject_preview": TextFieldRule(),
+}
+
+INTERPRETATION_FILTER_FIELDS = {
+    "order_no", "project_name", "project_types", "task_description", "current_client_manager",
+    "project_status", "client_short_name", "client_code", "client_full_name", "client_domain",
+    "manager_contact", "contact_name", "customer_order_no", "scheduled_date", "locations",
+    "language_id", "customer_budget", "customer_consultation_time", "customer_confirmation_time",
+    "interpretation_domain", "interpretation_content", "required_interpreter_count",
+    "required_interpreter_gender", "required_interpretation_level", "interpreter_special_requirements",
+    "interpreter_height_requirement", "interpreter_appearance_requirement", "interpreter_dress_requirement",
+    "translator_id", "client_rating", "client_rating_note", "remarks", "created_at", "updated_at",
+}
+
+
+def _field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, INTERPRETATION_FILTER_FIELDS)
+    ranges = {"scheduled_date", "required_interpreter_count", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
+    enums = {"project_types", "project_status", "language_id", "translator_id", "client_rating"}
+    ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"contains"}) for field in INTERPRETATION_FILTER_FIELDS})
+    return value
 
 
 def _filters(
@@ -49,6 +93,10 @@ def _filters(
     scheduled_date_start=None,
     scheduled_date_end=None,
     translator_id=None,
+    client_id=None,
+    sub_client_id=None,
+    language_id=None,
+    field_filters=None,
 ):
     return dict(
         keyword=keyword,
@@ -57,6 +105,10 @@ def _filters(
         scheduled_date_start=scheduled_date_start,
         scheduled_date_end=scheduled_date_end,
         translator_id=translator_id,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        language_id=language_id,
+        field_filters=field_filters,
     )
 
 
@@ -70,11 +122,15 @@ def read_projects(
     scheduled_date_start: Optional[date] = None,
     scheduled_date_end: Optional[date] = None,
     translator_id: Optional[UUID] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return get_interpretation_projects(
         db, skip=skip, limit=limit,
-        **_filters(keyword, project_status, project_type, scheduled_date_start, scheduled_date_end, translator_id),
+        **_filters(keyword, project_status, project_type, scheduled_date_start, scheduled_date_end, translator_id, client_id, sub_client_id, language_id, _field_filters(field_filters)),
     )
 
 
@@ -86,10 +142,14 @@ def read_project_count(
     scheduled_date_start: Optional[date] = None,
     scheduled_date_end: Optional[date] = None,
     translator_id: Optional[UUID] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return {"total": count_interpretation_projects(
-        db, **_filters(keyword, project_status, project_type, scheduled_date_start, scheduled_date_end, translator_id)
+        db, **_filters(keyword, project_status, project_type, scheduled_date_start, scheduled_date_end, translator_id, client_id, sub_client_id, language_id, _field_filters(field_filters))
     )}
 
 
@@ -244,6 +304,28 @@ def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="口译项目不存在")
     return project
+
+
+@router.patch(
+    "/{project_id}/text-field", response_model=InterpretationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_text_field(
+    project_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    project = db.get(InterpretationProject, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="口译项目不存在")
+    try:
+        changed = apply_text_field_update(project, payload, INTERPRETATION_TEXT_FIELDS)
+        if changed:
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_interpretation_project(db, project_id)
 
 
 @router.patch(

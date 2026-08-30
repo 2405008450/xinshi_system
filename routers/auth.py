@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import delete, func
 from sqlalchemy.exc import IntegrityError
@@ -13,17 +13,34 @@ import hashlib
 
 from auth_security import (
     GENERIC_CREDENTIAL_ERROR,
+    LoginThrottleDecision,
     begin_login_attempt,
+    peek_source_failure_count,
     record_login_failure,
     record_login_success,
     throttle_exception,
 )
+from login_captcha import (
+    CAPTCHA_REQUIRED_HEADER,
+    captcha_exception,
+    captcha_required,
+    issue_captcha,
+    verify_captcha,
+)
+from mail_account_schemas import MailAccountStatus, MailAccountWrite
+from mail_service import MailConfigurationError, MailDeliveryError
 from database import get_db
 from auth_security_models import RevokedAccessToken
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
-from schemas import AuthSession, Token, LoginRequest
+from schemas import AuthSession, CaptchaChallenge, CaptchaRequirement, Token, LoginRequest
+from user_mail_account_service import (
+    delete_mail_account,
+    save_mail_account,
+    serialize_mail_account,
+    verify_mail_account,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -75,18 +92,39 @@ def upgrade_legacy_password_hash(db: Session, user, plain_password: str) -> bool
 _DUMMY_PASSWORD_HASH = pwd_context.hash("not-a-real-account-password")
 
 
-def _credential_exception() -> HTTPException:
+def _credential_exception(decision: Optional[LoginThrottleDecision] = None) -> HTTPException:
+    headers = {"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"}
+    # 提前告知前端「下一次提交需要验证码」，省去登录页额外探测一次。
+    if decision is not None and captcha_required(
+        decision.account_failure_count, decision.source_failure_count
+    ):
+        headers[CAPTCHA_REQUIRED_HEADER] = "1"
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=GENERIC_CREDENTIAL_ERROR,
-        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+        headers=headers,
     )
 
 
-def authenticate_user(db: Session, username: str, password: str, request: Request):
+def authenticate_user(
+    db: Session,
+    username: str,
+    password: str,
+    request: Request,
+    *,
+    captcha_id: Optional[str] = None,
+    captcha_code: Optional[str] = None,
+):
     attempt_context, throttle_decision = begin_login_attempt(db, username, request)
     if throttle_decision.blocked:
         raise throttle_exception(throttle_decision)
+
+    # 顺序固定为「先查封禁，再校验验证码，最后校验口令」。
+    # 验证码不通过时不计入失败次数，避免用户输错图形码就把自己的账号锁死。
+    if captcha_required(
+        throttle_decision.account_failure_count, throttle_decision.source_failure_count
+    ) and not verify_captcha(db, request, captcha_id, captcha_code):
+        raise captcha_exception()
 
     user = get_user_by_username(db, username=username)
     if not user:
@@ -95,13 +133,13 @@ def authenticate_user(db: Session, username: str, password: str, request: Reques
         failure_decision = record_login_failure(db, attempt_context)
         if failure_decision.blocked:
             raise throttle_exception(failure_decision)
-        raise _credential_exception()
+        raise _credential_exception(failure_decision)
 
     if not verify_password(password, user.password_hash) or not user.is_active:
         failure_decision = record_login_failure(db, attempt_context)
         if failure_decision.blocked:
             raise throttle_exception(failure_decision)
-        raise _credential_exception()
+        raise _credential_exception(failure_decision)
 
     record_login_success(db, attempt_context)
     upgraded = upgrade_legacy_password_hash(db, user, password)
@@ -266,6 +304,70 @@ def read_current_session(
     }
 
 
+def _mail_account_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, MailDeliveryError):
+        return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    if isinstance(exc, (MailConfigurationError, ValueError)):
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="个人邮箱配置处理失败，请联系管理员检查服务配置",
+    )
+
+
+@router.get("/mail-account", response_model=MailAccountStatus)
+def read_current_mail_account(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return serialize_mail_account(db, current_user)
+
+
+@router.put(
+    "/mail-account",
+    response_model=MailAccountStatus,
+    dependencies=[Depends(require_permission("system:users:write"))],
+)
+def bind_current_mail_account(
+    payload: MailAccountWrite,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        return save_mail_account(db, current_user, payload.authorization_code)
+    except Exception as exc:
+        db.rollback()
+        raise _mail_account_exception(exc) from exc
+
+
+@router.post(
+    "/mail-account/verify",
+    response_model=MailAccountStatus,
+    dependencies=[Depends(require_permission("system:users:write"))],
+)
+def verify_current_mail_account(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        return verify_mail_account(db, current_user)
+    except Exception as exc:
+        db.rollback()
+        raise _mail_account_exception(exc) from exc
+
+
+@router.delete(
+    "/mail-account",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("system:users:write"))],
+)
+def remove_current_mail_account(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    delete_mail_account(db, current_user)
+
+
 @router.post("/login", response_model=Token)
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """????(OAuth2 ??)??? token ???????"""
@@ -281,10 +383,35 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
 
 
+@router.get("/captcha/required", response_model=CaptchaRequirement)
+def read_captcha_requirement(request: Request, response: Response, db: Session = Depends(get_db)):
+    """登录页首屏探测是否需要验证码。
+
+    只按来源 IP 判定，刻意不接受用户名，避免被用来探测账号是否存在。
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return {"required": captcha_required(0, peek_source_failure_count(db, request))}
+
+
+@router.get("/captcha", response_model=CaptchaChallenge)
+def create_captcha(request: Request, response: Response, db: Session = Depends(get_db)):
+    """签发一张一次性图形验证码。"""
+    issued = issue_captcha(db, request)
+    response.headers["Cache-Control"] = "no-store"
+    return {"captcha_id": issued.captcha_id, "image": issued.image, "expires_in": issued.expires_in}
+
+
 @router.post("/login/json", response_model=Token)
 def login_json(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
     """????(JSON ??)??? token ???????"""
-    user = authenticate_user(db, login_data.username, login_data.password, request)
+    user = authenticate_user(
+        db,
+        login_data.username,
+        login_data.password,
+        request,
+        captcha_id=login_data.captcha_id,
+        captcha_code=login_data.captcha_code,
+    )
 
     role_names = get_user_roles_with_role_names(db, user.id)
     permissions = get_user_permission_codes(db, user.id)

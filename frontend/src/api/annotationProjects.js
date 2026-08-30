@@ -43,6 +43,18 @@ export const updateAnnotationProject = (id, data) => (
   api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const updateAnnotationProjectTextField = (id, field, value, expectedUpdatedAt) => (
+  api.patch(`/projects/annotation/${id}/text-field`, {
+    field: toSnakeCase(field), value, expected_updated_at: expectedUpdatedAt,
+  }).then((res) => convertKeys(res, toCamelCase))
+)
+
+export const updateAnnotationCustomTextField = (id, definition, value, expectedUpdatedAt) => (
+  api.patch(`/projects/annotation/${id}/custom-fields/${definition.id}/text`, {
+    field: definition.fieldKey, value, expected_updated_at: expectedUpdatedAt,
+  }).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const updateAnnotationProjectStatus = (id, payload) => (
   api.patch(`/projects/annotation/${id}/status`, convertKeys(payload, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )

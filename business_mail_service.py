@@ -28,6 +28,12 @@ from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LA
 from mail_service import SmtpSettings, send_text_email
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
+from user_mail_account_service import (
+    display_user,
+    project_mail_sender_mode,
+    resolve_project_sender,
+    valid_email,
+)
 
 
 PROJECT_MODELS = {
@@ -142,8 +148,17 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
         source_label = language_labels.get(str(source_id), "")
         target_label = language_labels.get(str(target_id), "")
         if source_label and target_label:
-            directions.append(f"{source_label} ↔ {target_label}")
+            required_count = _item_get(item, "required_count", "requiredCount")
+            count_text = f"（{required_count}人）" if required_count else "（人数待补充）"
+            directions.append(f"{source_label} ↔ {target_label}{count_text}")
     normalized["language_directions"] = directions
+    counts = [
+        _item_get(item, "required_count", "requiredCount")
+        for item in raw_directions
+        if not isinstance(item, str)
+    ]
+    if counts and all(isinstance(value, int) and value > 0 for value in counts):
+        normalized["required_interpreter_count"] = sum(counts)
     return normalized
 
 
@@ -394,7 +409,7 @@ def _project_source(project_type: str, project) -> dict:
 
 CORE_FIELDS = {
     "translation": (("项目名称", "project_name"), ("服务内容", "service_content"), ("翻译方向", "language_pair"), ("客户交期", "customer_deadline_time")),
-    "interpretation": (("项目名称", "project_name"), ("项目类型", "project_types"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("译员人数", "required_interpreter_count")),
+    "interpretation": (("项目名称", "project_name"), ("项目类型", "project_types"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("总需求人数", "required_interpreter_count")),
     "annotation": (("项目名称", "project_name"), ("项目类型", "project_types"), ("具体任务", "task_description"), ("语言范围", "language_items")),
     "recruitment": (("项目名称", "project_name"), ("职位名称/类型", "position_title"), ("招聘人数", "headcount_min"), ("拟履职开始日期", "employment_start"), ("拟履职结束日期", "employment_end"), ("任职工作属地", "work_location")),
 }
@@ -402,13 +417,20 @@ CORE_FIELDS = {
 
 BODY_LABELS = {
     "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交期", "customer_deadline_time"), ("优先级", "priority"), ("专业要求", "customer_requirement_professional"), ("特殊要求", "customer_requirement_special")),
-    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("译员人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
+    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
 }
 
 
-def build_preview(db: Session, project_type: str, *, project_id: Optional[UUID] = None, source: Optional[dict] = None) -> dict:
+def build_preview(
+    db: Session,
+    project_type: str,
+    *,
+    project_id: Optional[UUID] = None,
+    source: Optional[dict] = None,
+    current_user: Optional[AppUser] = None,
+) -> dict:
     if project_type not in PROJECT_MAIL_TYPES:
         raise ValueError("不支持的项目类型")
     values = dict(source or {})
@@ -429,9 +451,24 @@ def build_preview(db: Session, project_type: str, *, project_id: Optional[UUID] 
     except ValueError as exc:
         to_users, cc_users = [], []
         blocking.append(str(exc))
+    sender_view = {
+        "sender_mode": "system",
+        "sender_name": None,
+        "sender_email": None,
+        "sender_verified": False,
+    }
     try:
-        SmtpSettings.from_env().validate()
+        sender_mode = project_mail_sender_mode()
+        if sender_mode == "personal" and current_user is None:
+            raise ValueError("无法识别当前发件用户，请重新登录后再试")
+        _settings, sender_view = resolve_project_sender(db, current_user)
     except Exception as exc:
+        sender_view["sender_mode"] = locals().get("sender_mode", "system")
+        if current_user is not None and sender_view["sender_mode"] == "personal":
+            sender_view.update(
+                sender_name=display_user(current_user),
+                sender_email=valid_email(current_user.email),
+            )
         blocking.append(str(exc))
     order_no = _clean(values.get("order_no"))
     project_name = _clean(values.get("project_name"))
@@ -466,6 +503,7 @@ def build_preview(db: Session, project_type: str, *, project_id: Optional[UUID] 
         "to_users": [serialize_user(item, "to") for item in to_users],
         "cc_users": [serialize_user(item, "cc") for item in cc_users],
         "subject": subject, "body": body, "missing_fields": missing,
+        **sender_view,
         "can_send": not blocking, "blocking_reasons": blocking,
     }
 
@@ -475,6 +513,11 @@ def _project_id(mail: BusinessMail) -> Optional[UUID]:
 
 
 def serialize_mail(mail: BusinessMail) -> dict:
+    attempts = sorted(
+        list(mail.attempts or []),
+        key=lambda item: item.attempted_at or datetime.min,
+    )
+    latest_attempt = attempts[-1] if attempts else None
     return {
         "id": mail.id, "source_kind": mail.source_kind, "project_type": mail.project_type,
         "consultation_id": mail.consultation_id, "project_id": _project_id(mail),
@@ -483,12 +526,23 @@ def serialize_mail(mail: BusinessMail) -> dict:
             "user_id": item.user_id, "display_name": item.display_name_snapshot,
             "email": item.email_snapshot, "department": None, "recipient_type": item.recipient_type,
         } for item in mail.recipients],
+        "sender_name": latest_attempt.sender_name_snapshot if latest_attempt else None,
+        "sender_email": latest_attempt.sender_email_snapshot if latest_attempt else None,
+        "attempts": [{
+            "attempted_at": item.attempted_at,
+            "sender_user_id": item.sender_user_id,
+            "sender_name": item.sender_name_snapshot,
+            "sender_email": item.sender_email_snapshot,
+            "success": item.success,
+            "delivery_mode": item.delivery_mode,
+            "error": item.error,
+        } for item in attempts],
         "send_error": mail.send_error, "delivery_mode": mail.delivery_mode,
         "created_at": mail.created_at, "send_attempted_at": mail.send_attempted_at, "sent_at": mail.sent_at,
     }
 
 
-def _deliver(db: Session, mail: BusinessMail) -> BusinessMail:
+def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
     to_emails = [item.email_snapshot for item in mail.recipients if item.recipient_type == "to"]
     cc_emails = [item.email_snapshot for item in mail.recipients if item.recipient_type == "cc"]
     now = datetime.now()
@@ -496,25 +550,45 @@ def _deliver(db: Session, mail: BusinessMail) -> BusinessMail:
     mail.send_attempted_at = now
     mail.send_error = None
     db.commit()
+    attempt = BusinessMailAttempt(
+        mail_id=mail.id,
+        sender_user_id=actor.id,
+        sender_name_snapshot=display_user(actor),
+        sender_email_snapshot=valid_email(actor.email),
+    )
+    db.add(attempt)
     try:
+        settings, sender_view = resolve_project_sender(db, actor)
+        attempt.sender_user_id = actor.id if sender_view["sender_mode"] == "personal" else None
+        attempt.sender_name_snapshot = sender_view["sender_name"]
+        attempt.sender_email_snapshot = sender_view["sender_email"]
+        attempt.delivery_mode = settings.mode
+        mail.delivery_mode = settings.mode
         result = send_text_email(
             to_emails=to_emails, cc_emails=cc_emails, subject=mail.subject,
-            body=mail.body, message_id=mail.smtp_message_id,
+            body=mail.body, message_id=mail.smtp_message_id, settings=settings,
         )
         mail.status = "sent"
         mail.sent_at = now
         mail.delivery_mode = result.delivery_mode
-        db.add(BusinessMailAttempt(mail_id=mail.id, delivery_mode=result.delivery_mode, actual_recipients=result.delivery_recipient, success=True))
+        attempt.delivery_mode = result.delivery_mode
+        attempt.actual_recipients = result.delivery_recipient
+        attempt.success = True
     except Exception as exc:
         mail.status = "failed"
         mail.send_error = str(exc)[:5000]
-        db.add(BusinessMailAttempt(mail_id=mail.id, error=mail.send_error, success=False))
+        attempt.error = mail.send_error
+        attempt.success = False
     db.commit()
-    return db.query(BusinessMail).options(joinedload(BusinessMail.recipients)).filter(BusinessMail.id == mail.id).first()
+    return db.query(BusinessMail).options(
+        joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
+    ).filter(BusinessMail.id == mail.id).first()
 
 
-def create_and_send(db: Session, payload, actor_id: UUID) -> BusinessMail:
-    existing = db.query(BusinessMail).options(joinedload(BusinessMail.recipients)).filter(BusinessMail.idempotency_key == payload.idempotency_key).first()
+def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
+    existing = db.query(BusinessMail).options(
+        joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
+    ).filter(BusinessMail.idempotency_key == payload.idempotency_key).first()
     if existing:
         return existing
     to_users = validate_internal_users(db, payload.to_user_ids)
@@ -530,7 +604,7 @@ def create_and_send(db: Session, payload, actor_id: UUID) -> BusinessMail:
         source_kind=payload.source_kind, project_type=payload.project_type,
         consultation_id=payload.consultation_id, subject=payload.subject.strip(), body=payload.body.strip(),
         idempotency_key=payload.idempotency_key, smtp_message_id=f"<project-mail-{payload.idempotency_key}@xinshi-system.local>",
-        created_by=actor_id,
+        created_by=actor.id,
     )
     setattr(mail, PROJECT_FK_FIELDS[payload.project_type], payload.project_id)
     db.add(mail)
@@ -545,17 +619,21 @@ def create_and_send(db: Session, payload, actor_id: UUID) -> BusinessMail:
         db.commit()
     except IntegrityError:
         db.rollback()
-        existing = db.query(BusinessMail).options(joinedload(BusinessMail.recipients)).filter(
+        existing = db.query(BusinessMail).options(
+            joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
+        ).filter(
             BusinessMail.idempotency_key == payload.idempotency_key
         ).first()
         if existing:
             return existing
         raise
-    return _deliver(db, mail)
+    return _deliver(db, mail, actor)
 
 
-def retry_mail(db: Session, mail_id: UUID) -> BusinessMail:
-    mail = db.query(BusinessMail).options(joinedload(BusinessMail.recipients)).filter(BusinessMail.id == mail_id).first()
+def retry_mail(db: Session, mail_id: UUID, actor: AppUser) -> BusinessMail:
+    mail = db.query(BusinessMail).options(
+        joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
+    ).filter(BusinessMail.id == mail_id).first()
     if not mail:
         raise LookupError("邮件记录不存在")
     if mail.status != "failed":
@@ -566,13 +644,15 @@ def retry_mail(db: Session, mail_id: UUID) -> BusinessMail:
     current_emails = {item.id: (_valid_email(item.email) or "") for item in users}
     if any(current_emails.get(item.user_id) != item.email_snapshot for item in mail.recipients):
         raise ValueError("收件用户邮箱已变化，请重新创建邮件")
-    return _deliver(db, mail)
+    return _deliver(db, mail, actor)
 
 
 def list_mails(db: Session, *, consultation_id: Optional[UUID] = None, project_type: Optional[str] = None, project_id: Optional[UUID] = None) -> list[BusinessMail]:
     if project_type and project_type not in PROJECT_MAIL_TYPES:
         raise ValueError("不支持的项目类型")
-    query = db.query(BusinessMail).options(joinedload(BusinessMail.recipients))
+    query = db.query(BusinessMail).options(
+        joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
+    )
     if consultation_id:
         query = query.filter(BusinessMail.consultation_id == consultation_id)
     if project_type:

@@ -314,7 +314,7 @@ def read_mail_account(
 @reports_router.put(
     "/mail-account",
     response_model=DailyReportMailAccountStatus,
-    dependencies=[Depends(require_permission("reports:read"))],
+    dependencies=[Depends(require_permission("system:users:write"))],
 )
 def bind_mail_account(
     payload: DailyReportMailAccountWrite,
@@ -331,7 +331,7 @@ def bind_mail_account(
 @reports_router.post(
     "/mail-account/verify",
     response_model=DailyReportMailAccountStatus,
-    dependencies=[Depends(require_permission("reports:read"))],
+    dependencies=[Depends(require_permission("system:users:write"))],
 )
 def verify_current_mail_account(
     db: Session = Depends(get_db),
@@ -347,7 +347,7 @@ def verify_current_mail_account(
 @reports_router.delete(
     "/mail-account",
     status_code=204,
-    dependencies=[Depends(require_permission("reports:read"))],
+    dependencies=[Depends(require_permission("system:users:write"))],
 )
 def remove_mail_account(
     db: Session = Depends(get_db),

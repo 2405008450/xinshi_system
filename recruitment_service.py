@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -38,6 +38,7 @@ from recruitment_schemas import (
     RecruitmentProjectCreate,
     RecruitmentProjectUpdate,
 )
+from field_filtering import apply_scalar_specs
 
 
 RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
@@ -112,6 +113,7 @@ def _apply_filters(
     target_onboard_date_end=None,
     created_date_start=None,
     created_date_end=None,
+    field_filters=None,
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
@@ -155,6 +157,57 @@ def _apply_filters(
         query = query.filter(RecruitmentProject.created_at >= datetime.combine(created_date_start, time.min))
     if created_date_end:
         query = query.filter(RecruitmentProject.created_at <= datetime.combine(created_date_end, time.max))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "order_no": (RecruitmentProject.order_no, "string"),
+        "project_name": (RecruitmentProject.project_name, "string"),
+        "job_description": (RecruitmentProject.job_description, "string"),
+        "position_title": (RecruitmentProject.position_title, "string"),
+        "client_manager_id": (RecruitmentProject.client_manager_id, "uuid"),
+        "project_status": (RecruitmentProject.project_status, "string"),
+        "contact_name": (RecruitmentProject.contact_name, "string"),
+        "customer_order_no": (RecruitmentProject.customer_order_no, "string"),
+        "target_onboard_date": (RecruitmentProject.target_onboard_date, "date"),
+        "work_location": (RecruitmentProject.work_location, "string"),
+        "service_fee_amount": (RecruitmentProject.service_fee_amount, "number"),
+        "customer_consultation_time": (RecruitmentProject.customer_consultation_time, "datetime"),
+        "customer_confirmation_time": (RecruitmentProject.customer_confirmation_time, "datetime"),
+        "remarks": (RecruitmentProject.remarks, "string"),
+        "created_at": (RecruitmentProject.created_at, "datetime"),
+        "updated_at": (RecruitmentProject.updated_at, "datetime"),
+    })
+    for field, descriptor in field_filters.items():
+        if field in {"client_short_name", "client_code", "client_name", "client_domain"}:
+            parent_column, sub_column = {
+                "client_short_name": (Client.client_short_name, SubClient.client_short_name),
+                "client_code": (Client.client_code, SubClient.sub_client_code),
+                "client_name": (Client.client_name, SubClient.client_name),
+                "client_domain": (func.concat_ws(" / ", Client.field_level1, Client.field_level2), func.concat_ws(" / ", SubClient.field_level1, SubClient.field_level2)),
+            }[field]
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+        elif field == "language_id":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            query = query.join(RecruitmentProjectLanguageDirection, RecruitmentProjectLanguageDirection.project_id == RecruitmentProject.id).filter(or_(RecruitmentProjectLanguageDirection.source_language_id.in_(values), RecruitmentProjectLanguageDirection.target_language_id.in_(values)))
+        elif field in {"headcount", "employment_period"}:
+            lower = descriptor.get("min", descriptor.get("from"))
+            upper = descriptor.get("max", descriptor.get("to"))
+            if field == "headcount":
+                if lower not in (None, ""):
+                    query = query.filter(RecruitmentProject.headcount_max >= int(lower))
+                if upper not in (None, ""):
+                    query = query.filter(RecruitmentProject.headcount_min <= int(upper))
+            else:
+                if lower:
+                    query = query.filter(RecruitmentProject.employment_end >= datetime.fromisoformat(str(lower)).date())
+                if upper:
+                    query = query.filter(RecruitmentProject.employment_start <= datetime.fromisoformat(str(upper)).date())
+        elif field == "candidate_count":
+            candidate_count = select(func.count(RecruitmentCandidate.id)).where(RecruitmentCandidate.project_id == RecruitmentProject.id).correlate(RecruitmentProject).scalar_subquery()
+            if descriptor.get("min") not in (None, ""):
+                query = query.filter(candidate_count >= int(descriptor["min"]))
+            if descriptor.get("max") not in (None, ""):
+                query = query.filter(candidate_count <= int(descriptor["max"]))
     return query
 
 

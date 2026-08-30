@@ -2,9 +2,21 @@
   <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
-        <span>项目详情</span>
+        <span>笔译项目管理</span>
         <div class="header-actions">
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+          <TableColumnSettings
+            v-model="visibleColumnKeys"
+            v-model:secondary-model-value="visibleSubOrderColumnKeys"
+            title="笔译项目字段"
+            secondary-title="子订单字段"
+            secondary-hint="子订单号作为详情入口固定显示；操作列固定保留。"
+            :columns="tableColumns"
+            :secondary-columns="subOrderTableColumns"
+            :column-count="2"
+            :secondary-column-count="2"
+            @reset="resetColumns"
+            @reset-secondary="resetSubOrderColumns"
+          />
           <BatchDeleteToolbar
             v-if="canWriteProjects"
             :active="deleteMode"
@@ -20,38 +32,34 @@
     </template>
 
     <el-form :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="项目名称">
-        <el-input v-model="searchForm.projectName" placeholder="请输入项目名称" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
-      </el-form-item>
-      <el-form-item label="客户简称">
-        <el-input v-model="searchForm.clientShortName" placeholder="请输入客户简称" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
+      <el-form-item label="关键词">
+        <el-input v-model="searchForm.keyword" placeholder="订单号、项目名称、客户名称或客户单号" clearable style="width: 320px" @input="handleTextSearch" @keyup.enter="handleSearch" />
       </el-form-item>
       <el-form-item label="状态">
-        <el-select v-model="searchForm.projectStatus" placeholder="请选择状态" clearable style="width: 160px" @change="handleSearch">
+        <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable style="width: 180px" @change="handleSearch">
           <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="advanced-filter-popover">
-          <template #reference><el-button>高级筛选{{ advancedFilterCount ? `（${advancedFilterCount}）` : '' }}</el-button></template>
-          <div class="advanced-filter-content">
-            <el-form :model="searchForm" label-width="90px">
-              <el-row :gutter="16">
-                <el-col :span="12"><el-form-item label="订单号"><el-input v-model="searchForm.orderNo" clearable @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item></el-col>
-              </el-row>
-            </el-form>
-            <div class="advanced-filter-footer"><el-button link @click="clearAdvancedFilters">清空高级条件</el-button><el-button type="primary" @click="advancedVisible = false">关闭</el-button></div>
-          </div>
-        </el-popover>
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedFilterCount" popper-class="translation-advanced-filter-popover" @clear="clearAdvancedFilters">
+          <CompactFilterGrid
+            :fields="translationAdvancedFilterFields"
+            :model="searchForm"
+            @update="updateConfiguredFilter"
+            @text-input="handleConfiguredTextInput"
+            @change="handleSearch"
+            @enter="handleSearch"
+          />
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
     <el-table
       ref="projectTableRef"
       class="project-table project-detail-list-table"
-      :data="tableData"
+      :data="visibleProjectRows"
       v-loading="loading"
       row-key="id"
       :row-class-name="projectRowClass"
@@ -75,13 +83,53 @@
                 <el-tag size="small" type="info">共 {{ getSubOrderCount(row) }} 条</el-tag>
                 <el-tag v-if="hasMoreSubOrders(row)" size="small" type="warning">当前仅显示前 {{ SUB_ORDER_PREVIEW_LIMIT }} 条</el-tag>
               </div>
-              <el-button v-if="hasMoreSubOrders(row)" type="primary" link @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
+              <div class="sub-order-panel__actions">
+                <el-button v-if="canWriteProjects" type="primary" link @click="openBatchDialog(row)">批量新增子订单</el-button>
+                <el-button v-if="hasMoreSubOrders(row)" type="primary" link @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
+              </div>
             </div>
-            <el-table :data="getVisibleSubOrders(row)" border>
-              <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
-              <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
-              <el-table-column label="字数统计" width="132" min-width="120">
+            <el-table class="sub-order-table" :data="getVisibleSubOrders(row)" border>
+              <el-table-column label="子订单号" min-width="180">
+                <template #header><ClickableColumnHeader label="子订单号" hint="点击子订单号查看详情" /></template>
+                <template #default="{ row: subRow }">
+                  <BusinessDetailPopover :row="subRow" title="子订单详情" :items="subOrderDetailItems" :status-label="getStatusLabel" :status-type="getStatusType">
+                    <template #reference>
+                      <el-button type="primary" link class="sub-order-no-link business-clickable-cell" :title="`${subRow.subOrderNo}（点击查看详情）`" @click.stop>
+                        {{ subRow.subOrderNo || '-' }}
+                      </el-button>
+                    </template>
+                  </BusinessDetailPopover>
+                </template>
+              </el-table-column>
+              <el-table-column v-if="isSubOrderColumnVisible('subProjectName')" min-width="220">
+                <template #header>
+                  <div class="sub-order-name-header">
+                    <span>子项目名称</span>
+                    <el-button
+                      v-if="canWriteProjects"
+                      type="primary"
+                      link
+                      size="small"
+                      :icon="Check"
+                      :loading="expandedInlineSaving"
+                      :disabled="expandedInlinePendingCount === 0"
+                      title="保存全部子项目名称"
+                      @click="saveAllInlineNames('expanded')"
+                    >保存全部{{ expandedInlinePendingCount ? `（${expandedInlinePendingCount}）` : '' }}</el-button>
+                  </div>
+                </template>
+                <template #default="{ row: subRow }">
+                  <InlineSubProjectName
+                    :sub-order-id="subRow.id"
+                    :model-value="subRow.subProjectName"
+                    :editable="canWriteProjects"
+                    @pending-change="handleInlinePendingChange('expanded', subRow, $event)"
+                    @saved="handleInlineSubOrderSaved(subRow, $event, 'expanded')"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column v-if="isSubOrderColumnVisible('languagePair')" prop="languagePair" label="翻译方向" min-width="120" />
+              <el-table-column v-if="isSubOrderColumnVisible('wordCountMatrix')" label="字数统计" width="132" min-width="120">
                 <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
                 <template #default="{ row: subRow }">
                   <div class="word-count-list-cell">
@@ -106,23 +154,17 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="译员安排" min-width="180" show-overflow-tooltip>
+              <el-table-column v-if="isSubOrderColumnVisible('assignedTranslators')" label="译员安排" min-width="180" show-overflow-tooltip>
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
-              <el-table-column prop="status" label="状态" min-width="120">
+              <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
                 <template #default="{ row: subRow }">
                   <el-tag :type="getStatusType(subRow.status)">{{ getStatusLabel(subRow.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="详情" width="100" fixed="right">
-                <template #default="{ row: subRow }">
-                  <BusinessDetailPopover :row="subRow" title="子订单详情" :items="subOrderDetailItems" :status-label="getStatusLabel" :status-type="getStatusType" />
-                </template>
-              </el-table-column>
               <el-table-column label="操作" width="88" fixed="right" align="center">
                 <template #default="{ row: subRow }">
-                  <TableActionButton v-if="canWriteProjects" action="edit" @click="openProjectEditorForSubOrder(row, subRow)" />
-                  <TableActionButton v-if="canWriteProjects" action="delete" @click="handleDeleteSubOrder(subRow)" />
+                  <PrimaryEditButton v-if="canWriteProjects" @click="openSubOrderEditorFromList(row, subRow)" />
                 </template>
               </el-table-column>
             </el-table>
@@ -150,15 +192,41 @@
         :label="column.label"
         :width="column.width"
         :min-width="column.minWidth"
-        :show-overflow-tooltip="column.showOverflowTooltip !== false"
+        :show-overflow-tooltip="column.key !== 'projectName' && column.showOverflowTooltip !== false"
       >
         <template #header>
-          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter
+            v-if="headerFilterDefinition(column.key)"
+            :definition="headerFilterDefinition(column.key)"
+            :model-value="searchForm[headerFilterDefinition(column.key).key]"
+            @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event"
+            @text-input="handleConfiguredTextInput"
+            @change="handleSearch"
+            @enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #label>
+              <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+              <span v-else>{{ column.label }}</span>
+            </template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else>
+            <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+            <span v-else>{{ column.label }}</span>
+          </template>
         </template>
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-no-actions">
-            <BusinessDetailPopover :row="row" title="项目详情" :items="projectDetailItems" :status-label="getStatusLabel" :status-type="getStatusType">
+            <BusinessDetailPopover
+              :row="row"
+              title="项目详情"
+              :items="projectDetailItems"
+              :status-label="getStatusLabel"
+              :status-type="getStatusType"
+              :editable="canWriteProjects && !deleteMode"
+              :save-field="(field, value) => saveProjectTextField(row, field, value)"
+              @conflict="fetchData"
+            >
               <template #reference>
                 <el-button type="primary" link class="order-no-link business-clickable-cell" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
                   {{ row.orderNo }}
@@ -167,6 +235,16 @@
             </BusinessDetailPopover>
             <PathActionButtons v-if="canReadProjectFiles" @open="openOriginalPath(row)" @copy="copyOriginalPath(row)" />
           </div>
+          <InlineTextField
+            v-else-if="column.key === 'projectName'"
+            :model-value="row.projectName"
+            :editable="canWriteProjects && !deleteMode"
+            label="项目名称"
+            required
+            :maxlength="255"
+            :save-field="(value) => saveProjectTextField(row, 'projectName', value)"
+            @conflict="fetchData"
+          />
           <el-dropdown
             v-else-if="column.key === 'projectStatus' && canWriteProjects"
             trigger="click"
@@ -243,12 +321,13 @@
           <span v-else>{{ formatTableColumnValue(row, column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
-          <div v-if="canWriteProjects" class="action-buttons">
-            <el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button>
-            <TableActionButton action="edit" @click="handleEdit(row)" />
-          </div>
+          <ProjectListRowActions
+            v-if="canWriteProjects"
+            @edit="handleEdit(row)"
+            @start-request="startResourceRequest(row)"
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -590,7 +669,8 @@
                   <div class="section-title">子订单管理</div>
                   <div class="section-actions">
                     <el-button v-if="canWriteProjects" type="primary" @click="openCreateSubOrderDialog">新增子订单</el-button>
-                    <el-button v-if="canWriteProjects" @click="openBatchDialog">批量新增子订单</el-button>
+                    <el-button v-if="canWriteProjects" @click="openBatchDialog(form, 'quantity')">按数量批量新增</el-button>
+                    <el-button v-if="canWriteProjects" @click="openBatchDialog(form, 'filenames')">导入文件名</el-button>
                     <el-button v-if="hasMoreSubOrders({ subOrders: currentProjectSubOrders })" @click="goToSubOrderManagement(form)">查看全部子订单</el-button>
                   </div>
                 </div>
@@ -606,7 +686,33 @@
 
                 <el-table :data="getVisibleSubOrders({ subOrders: currentProjectSubOrders })" border>
                   <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
-                  <el-table-column prop="subProjectName" label="子项目名称" min-width="180" show-overflow-tooltip />
+                  <el-table-column min-width="220">
+                    <template #header>
+                      <div class="sub-order-name-header">
+                        <span>子项目名称</span>
+                        <el-button
+                          v-if="canWriteProjects"
+                          type="primary"
+                          link
+                          size="small"
+                          :icon="Check"
+                          :loading="editorInlineSaving"
+                          :disabled="editorInlinePendingCount === 0"
+                          title="保存全部子项目名称"
+                          @click="saveAllInlineNames('editor')"
+                        >保存全部{{ editorInlinePendingCount ? `（${editorInlinePendingCount}）` : '' }}</el-button>
+                      </div>
+                    </template>
+                    <template #default="{ row }">
+                      <InlineSubProjectName
+                        :sub-order-id="row.id"
+                        :model-value="row.subProjectName"
+                        :editable="canWriteProjects"
+                        @pending-change="handleInlinePendingChange('editor', row, $event)"
+                        @saved="handleInlineSubOrderSaved(row, $event, 'editor')"
+                      />
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
                   <el-table-column label="字数统计" width="132" min-width="120">
                     <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
@@ -764,52 +870,13 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="batchDialogVisible" class="suborder-editor-dialog" title="批量新增子订单" width="min(860px, calc(100vw - 32px))" top="5vh" @closed="resetBatchForm">
-      <el-form ref="batchFormRef" :model="batchForm" :rules="batchRules" label-width="140px">
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12"><el-form-item label="生成数量" prop="count"><el-input-number v-model="batchForm.count" :min="1" :max="50" style="width: 100%" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="起始序号"><el-input-number v-model="batchForm.startIndex" :min="1" style="width: 100%" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="24"><el-form-item label="子项目名前缀"><el-input v-model="batchForm.subProjectNamePrefix" placeholder="留空则按 母项目名称-子订单01 自动生成" /></el-form-item></el-col>
-        </el-row>
-        <el-divider content-position="left">批量公共字段</el-divider>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12"><el-form-item label="状态"><el-select v-model="batchForm.status" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="batchForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="batchForm.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="batchForm.languagePair" :show-hint="false" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12">
-            <el-form-item label="字数摘要">
-              <div class="word-count-summary">
-                <span>{{ formatWordCountSummary(batchForm) }}</span>
-                <WordCountMatrixPopover v-model="batchForm.wordCountMatrix" title="批量子订单字数统计">
-                  <template #reference><el-button type="primary" link>字数统计</el-button></template>
-                </WordCountMatrixPopover>
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="batchForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="batchForm.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="译员ID"><el-input v-model="batchForm.translatorId" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="24">
-            <el-alert title="我司、客户及译员预估数据统一在“字数统计”中按计量口径维护。" type="info" :closable="false" />
-          </el-col>
-        </el-row>
-      </el-form>
-      <template #footer>
-        <el-button @click="batchDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleBatchCreateSubOrders">批量创建</el-button>
-      </template>
-    </el-dialog>
+    <SubOrderBatchCreateDialog
+      v-model="batchDialogVisible"
+      :project="batchTargetProject"
+      :existing-names="batchExistingNames"
+      :initial-mode="batchDialogMode"
+      @created="handleBatchCreated"
+    />
 
     <BusinessMailComposer
       v-model="mailComposerVisible"
@@ -826,16 +893,22 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, MagicStick } from '@element-plus/icons-vue'
-import { getProjects, getProjectCount, getProject, createProject, updateProject, deleteProject, getNextOrderNo } from '@/api/projects'
+import { getProjects, getProjectCount, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
+import InlineSubProjectName from './components/InlineSubProjectName.vue'
+import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
 import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -844,6 +917,8 @@ import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
@@ -856,6 +931,7 @@ import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/email
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -965,14 +1041,14 @@ const progressFieldSet = new Set(subOrderProgressFieldConfigs.map((item) => item
 const progressMarks = { 0: '0%', 50: '50%', 100: '100%' }
 const projectDetailItems = [
   { label: '订单号', key: 'orderNo' },
-  { label: '项目名称', key: 'projectName' },
-  { label: '邮件主题预览', key: 'emailSubjectPreview', span: 2 },
-  { label: '服务内容', key: 'serviceContent', span: 2 },
-  { label: '任务类型', key: 'taskType' },
+  { label: '项目名称', key: 'projectName', editable: true, required: true, maxlength: 255 },
+  { label: '邮件主题预览', key: 'emailSubjectPreview', span: 2, editable: true, multiline: true },
+  { label: '服务内容', key: 'serviceContent', span: 2, editable: true, maxlength: 255 },
+  { label: '任务类型', key: 'taskType', editable: true, maxlength: 50 },
   { label: '来源咨询 ID', key: 'consultationId' },
   { label: '客户简称', key: 'clientShortName' },
   { label: '客户编号', key: 'clientCode' },
-  { label: '客户单号', key: 'customerOrderNo' },
+  { label: '客户单号', key: 'customerOrderNo', editable: true, maxlength: 100 },
   { label: '项目经理', key: 'projectManagerName' },
   { label: '项目专员', key: 'projectSpecialistName' },
   { label: '项目助理', key: 'projectAssistantName' },
@@ -980,7 +1056,7 @@ const projectDetailItems = [
   { label: '客户负责人', key: 'clientManager' },
   { label: '负责人联系方式', key: 'managerContact' },
   { label: '状态', key: 'projectStatus', type: 'status' },
-  { label: '文本类型', key: 'fileTypeSecondary' },
+  { label: '文本类型', key: 'fileTypeSecondary', editable: true, maxlength: 100 },
   { label: '翻译文本领域一级', key: 'projectFileTranslationDomainLevel1' },
   { label: '翻译文本领域二级', key: 'projectFileTranslationDomainLevel2' },
   { label: '文件类型一级', key: 'projectFileTypeLevel1' },
@@ -990,13 +1066,13 @@ const projectDetailItems = [
   { label: '文件属性二级', key: 'projectFileAttributeLevel2' },
   { label: '文件属性三级', key: 'projectFileAttributeLevel3' },
   { label: '文件难度', key: 'projectFileDifficulty' },
-  { label: '合同类型', key: 'projectContractType' },
-  { label: '合同状态', key: 'projectContractStatus' },
+  { label: '合同类型', key: 'projectContractType', editable: true, maxlength: 100 },
+  { label: '合同状态', key: 'projectContractStatus', editable: true, maxlength: 100 },
   { label: '需提供报价单', key: 'quotationRequired', formatter: (value) => value ? '是' : '否' },
-  { label: '报价单状态', key: 'quotationStatus' },
-  { label: '报价单路径', key: 'quotationPath', span: 2 },
-  { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2 },
-  { label: '客户特殊要求', key: 'customerRequirementSpecial', span: 2 },
+  { label: '报价单状态', key: 'quotationStatus', editable: true, maxlength: 100 },
+  { label: '报价单路径', key: 'quotationPath', span: 2, editable: true, multiline: true },
+  { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2, editable: true, multiline: true },
+  { label: '客户特殊要求', key: 'customerRequirementSpecial', span: 2, editable: true, multiline: true },
   { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
   { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
@@ -1004,7 +1080,7 @@ const projectDetailItems = [
   { label: '客户交稿时间', key: 'customerDeadlineTime' },
   { label: '发客户时间', key: 'sentToClientTime' },
   { label: 'PM确认人 ID', key: 'pmConfirmedBy' },
-  { label: '客户反馈', key: 'clientFeedback', span: 2 },
+  { label: '客户反馈', key: 'clientFeedback', span: 2, editable: true, multiline: true },
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
@@ -1046,7 +1122,6 @@ const subOrderDetailItems = [
 ]
 const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
-const createBatchForm = () => ({ count: 1, startIndex: 1, subProjectNamePrefix: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', translatorId: '', status: 'pending_confirmation' })
 const loading = ref(false)
 const submitLoading = ref(false)
 let submitLocked = false
@@ -1054,6 +1129,13 @@ const projectCreateIdempotencyKey = ref('')
 const dialogVisible = ref(false)
 const subOrderDialogVisible = ref(false)
 const batchDialogVisible = ref(false)
+const batchDialogMode = ref('quantity')
+const batchTargetProject = ref({})
+const batchTargetSubOrders = ref([])
+const expandedInlineChanges = ref(new Map())
+const editorInlineChanges = ref(new Map())
+const expandedInlineSaving = ref(false)
+const editorInlineSaving = ref(false)
 const dialogTitle = ref('新增项目')
 const subOrderDialogTitle = ref('新增子订单')
 const formRef = ref(null)
@@ -1061,14 +1143,21 @@ const editorBodyRef = ref(null)
 const fieldSearchRef = ref(null)
 const fieldSearchKeyword = ref('')
 const subOrderFormRef = ref(null)
-const batchFormRef = ref(null)
 const projectTableRef = ref(null)
 const projectFilesTabRef = ref(null)
 const tableData = ref([])
 const projectStatusSavingIds = ref(new Set())
-const expandedProjectIds = ref(new Set())
-const expandedProjectRowKeys = computed(() => [...expandedProjectIds.value])
+const expandedProjectId = ref(null)
+const expandedProjectRowKeys = computed(() => expandedProjectId.value == null ? [] : [expandedProjectId.value])
+const visibleProjectRows = computed(() => {
+  if (expandedProjectId.value == null) return tableData.value
+  const focusedProject = tableData.value.find((item) => String(item.id) === String(expandedProjectId.value))
+  return focusedProject ? [focusedProject] : tableData.value
+})
 const currentProjectSubOrders = ref([])
+const batchExistingNames = computed(() => batchTargetSubOrders.value.map((item) => item.subProjectName).filter(Boolean))
+const expandedInlinePendingCount = computed(() => expandedInlineChanges.value.size)
+const editorInlinePendingCount = computed(() => editorInlineChanges.value.size)
 const projectManagerOptions = ref([])
 const projectRoleCandidateOptions = reactive(Object.fromEntries(projectRoleFieldConfigs.map((role) => [role.roleCode, []])))
 const projectRoleOptionsLoading = ref(false)
@@ -1092,11 +1181,71 @@ const {
   reload: () => fetchData(),
   entityName: '笔译项目',
 })
-const searchForm = reactive({ projectName: '', orderNo: '', clientShortName: '', projectStatus: '' })
+const searchForm = reactive({
+  keyword: '', projectStatus: '', taskType: '', serviceContent: '', priority: '',
+  projectManagerId: '', customerDeadlineRange: [], createdRange: [],
+})
 const advancedVisible = ref(false)
-const advancedFilterCount = computed(() => searchForm.orderNo ? 1 : 0)
+const translationFilterFields = [
+  { key: 'orderNo', label: '订单号', type: 'text' },
+  { key: 'projectName', label: '项目名称', type: 'text' },
+  { key: 'serviceContent', label: '服务内容', type: 'select', options: serviceContentOptions },
+  { key: 'taskType', label: '任务类型', type: 'select', options: taskTypeOptions },
+  { key: 'clientShortName', label: '客户简称', type: 'text' },
+  { key: 'clientCode', label: '客户编号', type: 'text' },
+  { key: 'customerOrderNo', label: '客户单号', type: 'text' },
+  { key: 'projectManagerId', label: '项目经理', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
+  { key: 'projectSpecialistName', label: '项目专员', type: 'text' },
+  { key: 'projectAssistantName', label: '项目助理', type: 'text' },
+  { key: 'layoutSpecialistName', label: '排版专员', type: 'text' },
+  { key: 'clientManager', label: '客户负责人', type: 'text' },
+  { key: 'managerContact', label: '负责人联系方式', type: 'text' },
+  { key: 'projectStatus', label: '状态', type: 'select', options: projectStatusOptions },
+  { key: 'fileTypeSecondary', label: '文本类型', type: 'text' },
+  { key: 'projectFileTranslationDomainLevel1', label: '翻译文本领域一级', type: 'text' },
+  { key: 'projectFileTranslationDomainLevel2', label: '翻译文本领域二级', type: 'text' },
+  { key: 'projectFileTypeLevel1', label: '文件类型一级', type: 'text' },
+  { key: 'projectFileTypeLevel2', label: '文件类型二级', type: 'text' },
+  { key: 'projectFileFormat', label: '文件格式', type: 'text' },
+  { key: 'projectFileAttributeLevel1', label: '文件属性一级', type: 'text' },
+  { key: 'projectFileAttributeLevel2', label: '文件属性二级', type: 'text' },
+  { key: 'projectFileAttributeLevel3', label: '文件属性三级', type: 'text' },
+  { key: 'projectFileDifficulty', label: '文件难度', type: 'text' },
+  { key: 'projectContractType', label: '合同类型', type: 'text' },
+  { key: 'projectContractStatus', label: '合同状态', type: 'text' },
+  { key: 'quotationRequired', label: '需提供报价单', type: 'boolean' },
+  { key: 'quotationStatus', label: '报价单状态', type: 'text' },
+  { key: 'customerRequirementProfessional', label: '客户专业要求', type: 'text' },
+  { key: 'customerRequirementSpecial', label: '客户特殊要求', type: 'text' },
+  { key: 'languagePair', label: '翻译方向', type: 'text' },
+  { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
+  { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司'},{value:'customer',label:'客户'},{value:'translator_estimate',label:'译员预估'}] },
+  { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'}] },
+  { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
+  { key: 'customerReceptionTime', label: '客户接单时间', type: 'date-range', wide: true },
+  { key: 'customerDeadlineTime', label: '客户交稿时间', type: 'date-range', wide: true },
+  { key: 'sentToClientTime', label: '发客户时间', type: 'date-range', wide: true },
+  { key: 'pmConfirmedBy', label: 'PM确认人', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
+  { key: 'majorProjectManagerConfirmation', label: '大项目经理确认', type: 'text' },
+  { key: 'assignedTranslators', apiKey: 'translator_name', label: '已分配译员', type: 'text' },
+  { key: 'translatorAssignmentTime', label: '译员分配时间', type: 'date-range', wide: true },
+  ...progressFieldConfigs.map((item) => ({ ...item, type: 'number-range', wide: true, min: 0, max: 100 })),
+  { key: 'clientFeedback', label: '客户反馈', type: 'text' },
+  { key: 'createdAt', label: '创建时间', type: 'date-range', wide: true },
+  { key: 'updatedAt', label: '更新时间', type: 'date-range', wide: true },
+]
+Object.assign(searchForm, createFilterModel(translationFilterFields), { keyword: '' })
+const translationAdvancedFilterFields = translationFilterFields.filter((item) => item.key !== 'projectStatus')
+const advancedFilterCount = computed(() => countActiveFilters(searchForm, translationAdvancedFilterFields))
+const translationDefaultFilterKeys = new Set(['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime'])
+const translationHeaderFieldMap = { projectManagerName: 'projectManagerId' }
+const headerFilterDefinition = (columnKey) => {
+  if (!translationDefaultFilterKeys.has(columnKey)) return null
+  const fieldKey = translationHeaderFieldMap[columnKey] || columnKey
+  return translationFilterFields.find((item) => item.key === fieldKey) || null
+}
 const tableColumnOverrides = {
-  orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, minWidth: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目详情' },
+  orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, minWidth: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目管理' },
   projectName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
@@ -1151,17 +1300,31 @@ const tableColumns = projectDetailItems.map((item) => ({
   showOverflowTooltip: true,
   ...(tableColumnOverrides[item.key] || {}),
 }))
+const subOrderTableColumns = [
+  { key: 'subProjectName', label: '子项目名称' },
+  { key: 'languagePair', label: '翻译方向' },
+  { key: 'wordCountMatrix', label: '字数统计' },
+  { key: 'assignedTranslators', label: '译员安排' },
+  { key: 'status', label: '状态' },
+]
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
   'translation-details-v4', tableColumns,
   ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
 )
+const {
+  selectedKeys: visibleSubOrderColumnKeys,
+  isVisible: isSubOrderColumnVisible,
+  reset: resetSubOrderColumns,
+} = useTableColumns(
+  'translation-details-sub-orders-v1',
+  subOrderTableColumns,
+  subOrderTableColumns.map((column) => column.key),
+)
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
 const form = reactive(createEmptyProjectForm())
 const subOrderForm = reactive(createEmptySubOrderForm())
-const batchForm = reactive(createBatchForm())
 const rules = { projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }] }
 const subOrderRules = { subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }] }
-const batchRules = { count: [{ required: true, message: '请输入生成数量', trigger: 'change' }] }
 const NULLABLE_FIELDS = ['emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const legacyStatusMap = {
   pending: 'pending_confirmation',
@@ -1297,9 +1460,12 @@ const normalizeProject = (project) => ({
   subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
 })
 const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
-const isProjectExpanded = (row) => expandedProjectIds.value.has(row.id)
-const handleProjectExpandChange = (_row, expandedRows) => {
-  expandedProjectIds.value = new Set(expandedRows.map((item) => item.id))
+const clearProjectExpansion = () => { expandedProjectId.value = null; expandedInlineChanges.value = new Map() }
+const isProjectExpanded = (row) => expandedProjectId.value != null && String(expandedProjectId.value) === String(row.id)
+const handleProjectExpandChange = (row, expandedRows) => {
+  const isExpanded = expandedRows.some((item) => String(item.id) === String(row.id))
+  expandedProjectId.value = isExpanded ? row.id : null
+  if (!isExpanded) expandedInlineChanges.value = new Map()
 }
 const toggleProjectExpansion = (row) => {
   if (!getSubOrderCount(row)) return
@@ -1307,7 +1473,7 @@ const toggleProjectExpansion = (row) => {
 }
 const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
 const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders) ? row.subOrders.slice(0, SUB_ORDER_PREVIEW_LIMIT) : [])
-const applyPagination = () => { fetchData() }
+const applyPagination = () => { clearProjectExpansion(); fetchData() }
 const cleanPayload = (payload) => {
   const result = { ...payload }
   result.roleAssignments = projectRoleFieldConfigs.map((role) => ({
@@ -1362,10 +1528,8 @@ const assignReactive = (target, defaultsFactory, values = {}) => {
   }
 }
 const buildFilterParams = () => ({
-  project_name: searchForm.projectName.trim() || undefined,
-  order_no: searchForm.orderNo.trim() || undefined,
-  client_short_name: searchForm.clientShortName.trim() || undefined,
-  project_status: searchForm.projectStatus || undefined
+  keyword: searchForm.keyword.trim() || undefined,
+  field_filters: serializeFieldFilters(searchForm, translationFilterFields),
 })
 let searchTimer = null
 let requestController = null
@@ -1388,6 +1552,9 @@ const fetchData = async () => {
     ])
     if (sequence !== requestSequence) return
     tableData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
+    if (expandedProjectId.value != null && !tableData.value.some((item) => String(item.id) === String(expandedProjectId.value))) {
+      clearProjectExpansion()
+    }
     pagination.total = countResponse?.total || tableData.value.length
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || sequence !== requestSequence) return
@@ -1396,6 +1563,15 @@ const fetchData = async () => {
     if (sequence === requestSequence) loading.value = false
   }
 }
+const hasActiveListFilters = () => Object.values(searchForm).some((value) => (
+  Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim())
+))
+const saveProjectTextField = async (row, field, value) => {
+  const updated = normalizeProject(await updateProjectTextField(row.id, field, value, row.updatedAt))
+  Object.assign(row, updated)
+  if (hasActiveListFilters()) void fetchData()
+  return updated
+}
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
 const focusRouteProject = async () => {
   const projectId = String(route.query.projectId || '')
@@ -1403,7 +1579,7 @@ const focusRouteProject = async () => {
   try {
     const detail = await getProject(projectId)
     highlightedProjectId.value = projectId
-    searchForm.orderNo = detail.orderNo || detail.order_no || ''
+    searchForm.keyword = detail.orderNo || detail.order_no || ''
     pagination.page = 1
     await fetchData()
   } catch (error) {
@@ -1414,9 +1590,9 @@ const refreshProjectSubOrders = async (projectId) => {
   if (!projectId) return
   const response = await getSubOrdersByProject(projectId)
   const normalized = Array.isArray(response) ? response.sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
-  currentProjectSubOrders.value = normalized
-  tableData.value = tableData.value.map((item) => item.id === projectId ? { ...item, subOrders: normalized } : item)
-  if (form.id === projectId) syncProjectName()
+  if (String(form.id) === String(projectId)) currentProjectSubOrders.value = normalized
+  tableData.value = tableData.value.map((item) => String(item.id) === String(projectId) ? { ...item, subOrders: normalized } : item)
+  if (String(form.id) === String(projectId)) syncProjectName()
 }
 
 const loadProjectManagerOptions = async () => {
@@ -1514,14 +1690,14 @@ const handleTextSearch = (value) => {
   if (!value) return handleSearch()
   searchTimer = setTimeout(handleSearch, 400)
 }
-const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
-const resetSearch = () => { searchForm.projectName = ''; searchForm.orderNo = ''; searchForm.clientShortName = ''; searchForm.projectStatus = ''; handleSearch() }
-const clearAdvancedFilters = () => { searchForm.orderNo = ''; handleSearch() }
+const handleSearch = () => { exitDeleteMode(); clearProjectExpansion(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const updateConfiguredFilter = (key, value) => { searchForm[key] = value }
+const handleConfiguredTextInput = (value) => handleTextSearch(value)
+const resetSearch = () => { searchForm.keyword = ''; resetFilterModel(searchForm, translationFilterFields); handleSearch() }
+const clearAdvancedFilters = () => { resetFilterModel(searchForm, translationAdvancedFilterFields); handleSearch() }
 const clearSearch = () => {
-  searchForm.projectName = ''
-  searchForm.orderNo = ''
-  searchForm.clientShortName = ''
-  searchForm.projectStatus = ''
+  searchForm.keyword = ''
+  resetFilterModel(searchForm, translationFilterFields)
 }
 let highlightedFieldElement = null
 let fieldHighlightTimer = null
@@ -1628,7 +1804,6 @@ const resetProjectForm = () => {
   clearFieldSearch()
 }
 const resetSubOrderForm = () => { assignReactive(subOrderForm, createEmptySubOrderForm); subOrderFormRef.value?.clearValidate(); subOrderDialogTab.value = 'basic' }
-const resetBatchForm = () => { Object.assign(batchForm, createBatchForm()); batchFormRef.value?.clearValidate() }
 const generateOrderNo = async () => { try { return await getNextOrderNo() } catch { const now = new Date(); return `TP-${String(now.getFullYear()).slice(-2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${String(Math.floor(Math.random() * 999) + 1).padStart(3, '0')}` } }
 const goToSubOrderManagement = (project) => {
   const projectId = project.id || form.id
@@ -1691,7 +1866,7 @@ const changeProjectStatus = async (row, value) => {
     const updated = normalizeProject(await updateProject(row.id, { projectStatus: nextStatus }))
     Object.assign(row, updated)
     ElMessage.success('项目状态已更新')
-    if (searchForm.projectStatus && searchForm.projectStatus !== updated.projectStatus) {
+    if (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) {
       await fetchData()
     }
   } catch (error) {
@@ -1775,21 +1950,92 @@ const handleSubmit = async (sendAfterSave = false) => {
     submitLocked = false
   }
 }
-const onProjectDialogClosed = () => { resetProjectForm(); resetSubOrderForm(); resetBatchForm(); currentProjectSubOrders.value = [] }
+const onProjectDialogClosed = () => { resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = [] }
 const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: JSON.parse(JSON.stringify(form.wordCountMatrix)), customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '新增子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
-const openProjectEditorForSubOrder = async (projectRow, subOrderRow) => { await handleEdit(projectRow); await nextTick(); handleEditSubOrder(subOrderRow) }
+const openSubOrderEditorFromList = (projectRow, subOrderRow) => {
+  // 子订单弹窗仍需母订单上下文，但不应因此打开母订单编辑弹窗。
+  assignReactive(form, createEmptyProjectForm, projectRow)
+  handleEditSubOrder(subOrderRow)
+}
 const buildSubOrderPayload = (source) => {
   return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 }
 const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '子订单保存失败') } }
 const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '子订单删除失败') } }
-const openBatchDialog = () => { resetBatchForm(); Object.assign(batchForm, { ...createBatchForm(), ...createSubOrderDefaultsFromProject(), subProjectNamePrefix: form.projectName ? `${form.projectName}-子订单` : '' }); batchDialogVisible.value = true }
-const createBatchSubProjectName = (index) => { const prefix = batchForm.subProjectNamePrefix || (form.projectName ? `${form.projectName}-子订单` : '子订单'); return `${prefix}${String(index).padStart(2, '0')}` }
-const handleBatchCreateSubOrders = async () => { if (!batchFormRef.value) return; const valid = await batchFormRef.value.validate().catch(() => false); if (!valid) return; try { for (let offset = 0; offset < batchForm.count; offset += 1) { const sequence = batchForm.startIndex + offset; const payload = buildSubOrderPayload({ ...batchForm, subProjectName: createBatchSubProjectName(sequence), remarks: '' }); await createSubOrder(payload) } batchDialogVisible.value = false; ElMessage.success(`已批量创建 ${batchForm.count} 条子订单`); await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '批量新增失败') } }
+const openBatchDialog = (project, mode = 'quantity') => {
+  const target = project?.id ? project : form
+  if (!target?.id) return
+  batchTargetProject.value = { ...target }
+  batchTargetSubOrders.value = String(target.id) === String(form.id) && currentProjectSubOrders.value.length
+    ? [...currentProjectSubOrders.value]
+    : [...(target.subOrders || [])]
+  batchDialogMode.value = mode
+  batchDialogVisible.value = true
+}
+const handleBatchCreated = async () => {
+  const projectId = batchTargetProject.value?.id
+  if (!projectId) return
+  await refreshProjectSubOrders(projectId)
+}
+const getInlineChangeRefs = (scope) => scope === 'editor'
+  ? { changes: editorInlineChanges, saving: editorInlineSaving }
+  : { changes: expandedInlineChanges, saving: expandedInlineSaving }
+const handleInlinePendingChange = (scope, row, change) => {
+  const { changes } = getInlineChangeRefs(scope)
+  const next = new Map(changes.value)
+  if (change.pending) next.set(String(change.id), { row, name: change.name, valid: change.valid })
+  else next.delete(String(change.id))
+  changes.value = next
+}
+const handleInlineSubOrderSaved = (row, updated, scope) => {
+  if (scope) {
+    const { changes } = getInlineChangeRefs(scope)
+    const next = new Map(changes.value)
+    next.delete(String(updated.id))
+    changes.value = next
+  }
+  Object.assign(row, updated)
+  currentProjectSubOrders.value = currentProjectSubOrders.value.map((item) => String(item.id) === String(updated.id) ? { ...item, ...updated } : item)
+  tableData.value = tableData.value.map((project) => ({
+    ...project,
+    subOrders: Array.isArray(project.subOrders)
+      ? project.subOrders.map((item) => String(item.id) === String(updated.id) ? { ...item, ...updated } : item)
+      : project.subOrders,
+  }))
+}
+const saveAllInlineNames = async (scope) => {
+  const { changes, saving } = getInlineChangeRefs(scope)
+  const pending = [...changes.value.values()]
+  if (!pending.length || saving.value) return
+  if (pending.some((item) => !item.valid)) {
+    ElMessage.warning('请先补全所有子项目名称，再保存全部')
+    return
+  }
+  saving.value = true
+  try {
+    const results = await Promise.allSettled(
+      pending.map(async (item) => ({ item, updated: await updateSubOrder(item.row.id, { subProjectName: item.name }) }))
+    )
+    const remaining = new Map(changes.value)
+    let successCount = 0
+    results.forEach((result) => {
+      if (result.status !== 'fulfilled') return
+      successCount += 1
+      remaining.delete(String(result.value.updated.id))
+      handleInlineSubOrderSaved(result.value.item.row, result.value.updated)
+    })
+    changes.value = remaining
+    const failedCount = results.length - successCount
+    if (failedCount) ElMessage.warning(`已保存 ${successCount} 条，${failedCount} 条保存失败，请重试`)
+    else ElMessage.success(`已保存 ${successCount} 条子项目名称`)
+  } finally {
+    saving.value = false
+  }
+}
 onMounted(async () => {
-  await fetchData()
+  await Promise.all([fetchData(), loadProjectManagerOptions()])
   await focusRouteProject()
 })
 onBeforeUnmount(() => {
@@ -1821,10 +2067,13 @@ onBeforeUnmount(() => {
 .section-header,
 .sub-order-panel__header { display: flex; align-items: center; justify-content: space-between; }
 .sub-order-panel__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sub-order-panel__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sub-order-name-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.sub-order-name-header :deep(.el-button) { flex: none; padding: 0 2px; font-weight: 400; }
 .order-no-actions { display: flex; align-items: center; gap: 6px; }
 .order-no-actions :deep(.el-popover__reference-wrapper) { flex: 1; min-width: 0; }
-.order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.action-buttons { display: inline-flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; }
+.order-no-link,
+.sub-order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .status-switch-tag.el-tag { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; max-width: 100%; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity 0.15s ease; }
 .status-switch-tag :deep(.el-tag__content) { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
 .status-switch-text { line-height: 1; }
@@ -1889,8 +2138,18 @@ onBeforeUnmount(() => {
 .progress-card__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 14px; }
 .section-title { margin: 12px 0; font-size: 15px; font-weight: 600; }
 .section-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.sub-order-panel { padding: 12px 24px 20px; background: #fafafa; }
+.sub-order-panel {
+  padding: 12px 24px 20px;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
 .sub-order-panel__header { margin-bottom: 12px; }
+.sub-order-table { --el-table-border-color: #e2e8f0; --el-table-row-hover-bg-color: #eef3f8; }
+.sub-order-table :deep(.el-table__header-wrapper th.el-table__cell) { background: #f1f5f9; }
+.sub-order-table :deep(.el-table__body tr > td.el-table__cell) { background: #f8fafc; }
+.sub-order-table :deep(.el-table__body tr:nth-child(even) > td.el-table__cell) { background: #f6f8fb; }
+.sub-order-table :deep(.el-table__body tr:hover > td.el-table__cell) { background: #eef3f8 !important; }
 .sub-order-alert { margin-bottom: 12px; }
 .el-alert { margin-top: 16px; }
 .project-table :deep(.project-expand-column) { padding: 0 !important; border-right: 0 !important; }

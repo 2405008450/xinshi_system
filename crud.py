@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import date, datetime, time, timedelta
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import Integer, String, and_, case, cast, func, or_
+from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, func, or_
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification, ProjectRoleAssignment
 from project_roles import (
@@ -15,7 +15,7 @@ from schemas import (
     AppUserCreate, AppUserUpdate,
     RoleCreate, RoleUpdate,
     TranslationProjectCreate, TranslationProjectUpdate,
-    TranslationSubOrderCreate, TranslationSubOrderUpdate,
+    TranslationSubOrderCreate, TranslationSubOrderUpdate, TranslationSubOrderBulkCreate,
     UserRoleCreate,
     ProjectFileCreate, ProjectFileUpdate,
     ClientCreate, ClientUpdate,
@@ -28,6 +28,7 @@ from passlib.context import CryptContext
 import hashlib
 from utils import generate_order_no
 from department_utils import department_filter_values
+from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
 
 
@@ -270,6 +271,7 @@ def _apply_client_filters(
     client_status: Optional[str] = None,
     cooperation_start_date_from: Optional[date] = None,
     cooperation_start_date_to: Optional[date] = None,
+    field_filters: Optional[dict] = None,
 ):
     """为客户列表和总数查询复用完全一致的筛选条件。"""
     text_filters = (
@@ -329,6 +331,51 @@ def _apply_client_filters(
             Client.cooperation_start_date <= end_at,
             Client.sub_clients.any(SubClient.cooperation_start_date <= end_at),
         ))
+    for field, descriptor in (field_filters or {}).items():
+        if field == "cooperation_start_date":
+            start_value, end_value = descriptor.get("from"), descriptor.get("to")
+            if start_value:
+                start_at = datetime.combine(date.fromisoformat(str(start_value)), time.min)
+                query = query.filter(or_(Client.cooperation_start_date >= start_at, Client.sub_clients.any(SubClient.cooperation_start_date >= start_at)))
+            if end_value:
+                end_at = datetime.combine(date.fromisoformat(str(end_value)), time.max)
+                query = query.filter(or_(Client.cooperation_start_date <= end_at, Client.sub_clients.any(SubClient.cooperation_start_date <= end_at)))
+            continue
+        if field == "client_status":
+            values = descriptor.get("value") or []
+            query = query.filter(or_(Client.client_status.in_(values), Client.sub_clients.any(SubClient.client_status.in_(values))))
+            continue
+        if field == "client_name" and descriptor.get("op") == "contains":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(
+                Client.client_name.ilike(pattern), Client.client_short_name.ilike(pattern),
+                Client.sub_clients.any(or_(SubClient.client_name.ilike(pattern), SubClient.client_short_name.ilike(pattern))),
+            ))
+            continue
+        if field == "english_name" and descriptor.get("op") == "contains":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(
+                Client.english_name.ilike(pattern), Client.english_short_name.ilike(pattern),
+                Client.sub_clients.any(or_(SubClient.english_name.ilike(pattern), SubClient.english_short_name.ilike(pattern))),
+            ))
+            continue
+        columns = {
+            "client_code": (Client.client_code, SubClient.sub_client_code),
+            "client_short_name": (Client.client_short_name, SubClient.client_short_name),
+            "english_short_name": (Client.english_short_name, SubClient.english_short_name),
+            "client_manager": (Client.client_manager, SubClient.client_manager),
+            "manager_contact": (Client.manager_contact, SubClient.manager_contact),
+            "field_level1": (Client.field_level1, SubClient.field_level1),
+            "field_level2": (Client.field_level2, SubClient.field_level2),
+            "country": (Client.country, SubClient.country),
+            "province": (Client.province, SubClient.province),
+            "city": (Client.city, SubClient.city),
+            "district": (Client.district, SubClient.district),
+            "remarks": (Client.remarks, SubClient.remarks),
+        }.get(field)
+        if columns and descriptor.get("op") == "contains":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(columns[0].ilike(pattern), Client.sub_clients.any(columns[1].ilike(pattern))))
     return query
 
 def get_clients(
@@ -351,6 +398,7 @@ def get_clients(
     cooperation_start_date_from: Optional[date] = None,
     cooperation_start_date_to: Optional[date] = None,
     frequent_first: bool = False,
+    field_filters: Optional[dict] = None,
 ) -> List[Client]:
     query = db.query(Client).options(selectinload(Client.sub_clients))
     query = _apply_client_filters(
@@ -370,6 +418,7 @@ def get_clients(
         client_status=client_status,
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
+        field_filters=field_filters,
     )
     if frequent_first:
         cooperation_stats = (
@@ -412,6 +461,7 @@ def count_clients(
     client_status: Optional[str] = None,
     cooperation_start_date_from: Optional[date] = None,
     cooperation_start_date_to: Optional[date] = None,
+    field_filters: Optional[dict] = None,
 ) -> int:
     query = db.query(Client.id)
     query = _apply_client_filters(
@@ -431,6 +481,7 @@ def count_clients(
         client_status=client_status,
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
+        field_filters=field_filters,
     )
     return query.count()
 
@@ -1454,16 +1505,200 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
     return project
 
 
-def get_translation_projects(
-    db: Session,
-    skip: int = 0,
-    limit: int = 100,
+def _apply_translation_project_filters(
+    query,
+    *,
+    keyword: Optional[str] = None,
     created_by: Optional[UUID] = None,
     project_name: Optional[str] = None,
     order_no: Optional[str] = None,
     project_status: Optional[str] = None,
     client_short_name: Optional[str] = None,
+    task_type: Optional[str] = None,
+    service_content: Optional[str] = None,
+    priority: Optional[str] = None,
+    project_manager_id: Optional[UUID] = None,
+    customer_deadline_date_start: Optional[date] = None,
+    customer_deadline_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    field_filters: Optional[dict] = None,
+):
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            TranslationProject.order_no.ilike(pattern),
+            TranslationProject.project_name.ilike(pattern),
+            TranslationProject.customer_order_no.ilike(pattern),
+            Client.client_name.ilike(pattern),
+            Client.client_short_name.ilike(pattern),
+            SubClient.client_name.ilike(pattern),
+            SubClient.client_short_name.ilike(pattern),
+        ))
+    if created_by:
+        query = query.filter(TranslationProject.created_by == created_by)
+    if project_name:
+        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+    if order_no:
+        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+    if project_status:
+        query = query.filter(TranslationProject.project_status == project_status)
+    if client_short_name:
+        pattern = f"%{client_short_name}%"
+        query = query.filter(or_(
+            Client.client_short_name.ilike(pattern),
+            SubClient.client_short_name.ilike(pattern),
+        ))
+    if task_type:
+        query = query.filter(TranslationProject.task_type == task_type)
+    if service_content:
+        query = query.filter(TranslationProject.service_content == service_content)
+    if priority:
+        query = query.filter(TranslationProject.priority == priority)
+    if project_manager_id:
+        query = query.filter(TranslationProject.project_manager_id == project_manager_id)
+    for field, start_value, end_value in (
+        (TranslationProject.customer_deadline_time, customer_deadline_date_start, customer_deadline_date_end),
+        (TranslationProject.created_at, created_date_start, created_date_end),
+    ):
+        if start_value:
+            query = query.filter(field >= datetime.combine(start_value, time.min))
+        if end_value:
+            query = query.filter(field <= datetime.combine(end_value, time.max))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "order_no": (TranslationProject.order_no, "string"),
+        "project_name": (TranslationProject.project_name, "string"),
+        "service_content": (TranslationProject.service_content, "string"),
+        "task_type": (TranslationProject.task_type, "string"),
+        "customer_order_no": (TranslationProject.customer_order_no, "string"),
+        "project_manager_id": (TranslationProject.project_manager_id, "uuid"),
+        "project_status": (TranslationProject.project_status, "string"),
+        "file_type_secondary": (TranslationProject.file_type_secondary, "string"),
+        "project_contract_type": (TranslationProject.project_contract_type, "string"),
+        "project_contract_status": (TranslationProject.project_contract_status, "string"),
+        "quotation_required": (TranslationProject.quotation_required, "boolean"),
+        "quotation_status": (TranslationProject.quotation_status, "string"),
+        "customer_requirement_professional": (TranslationProject.customer_requirement_professional, "string"),
+        "customer_requirement_special": (TranslationProject.customer_requirement_special, "string"),
+        "language_pair": (TranslationProject.language_pair, "string"),
+        "priority": (TranslationProject.priority, "string"),
+        "customer_reception_time": (TranslationProject.customer_reception_time, "datetime"),
+        "customer_deadline_time": (TranslationProject.customer_deadline_time, "datetime"),
+        "sent_to_client_time": (TranslationProject.sent_to_client_time, "datetime"),
+        "major_project_manager_confirmation": (TranslationProject.major_project_manager_confirmation, "string"),
+        "translator_id": (TranslationProject.translator_id, "uuid"),
+        "translator_assignment_time": (TranslationProject.translator_assignment_time, "datetime"),
+        "client_feedback": (TranslationProject.client_feedback, "string"),
+        "created_at": (TranslationProject.created_at, "datetime"),
+        "updated_at": (TranslationProject.updated_at, "datetime"),
+        "pm_confirmed_by": (TranslationProject.pm_confirmed_by, "uuid"),
+    })
+    word_count_descriptor = field_filters.get("word_count", {})
+    word_count_dimension = field_filters.get("word_count_dimension", {})
+    word_count_metric_type = field_filters.get("word_count_metric_type", {})
+    if word_count_descriptor or word_count_dimension or word_count_metric_type:
+        from word_count_models import WordCountMetric
+        conditions = [WordCountMetric.project_id == TranslationProject.id]
+        if word_count_dimension:
+            conditions.append(WordCountMetric.dimension.in_(word_count_dimension.get("value") or []))
+        if word_count_metric_type:
+            conditions.append(WordCountMetric.metric_type.in_(word_count_metric_type.get("value") or []))
+        if word_count_descriptor.get("min") not in (None, ""):
+            conditions.append(WordCountMetric.count_value >= int(word_count_descriptor["min"]))
+        if word_count_descriptor.get("max") not in (None, ""):
+            conditions.append(WordCountMetric.count_value <= int(word_count_descriptor["max"]))
+        query = query.filter(db_exists().where(and_(*conditions)))
+
+    for field, descriptor in field_filters.items():
+        if field in {"client_short_name", "client_code", "client_manager", "manager_contact"}:
+            parent_column, sub_column = {
+                "client_short_name": (Client.client_short_name, SubClient.client_short_name),
+                "client_code": (Client.client_code, SubClient.sub_client_code),
+                "client_manager": (Client.client_manager, SubClient.client_manager),
+                "manager_contact": (Client.manager_contact, SubClient.manager_contact),
+            }[field]
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+        elif field in {"word_count", "word_count_dimension", "word_count_metric_type"}:
+            continue
+        elif field == "translator_name":
+            if descriptor.get("op") != "contains":
+                raise HTTPException(status_code=422, detail="译员姓名只支持包含筛选")
+            keyword = str(descriptor.get("value") or "").strip()
+            if keyword:
+                from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+                pattern = f"%{keyword}%"
+                confirmed_arrangement = db_exists().where(and_(
+                    ManuscriptArrangement.translation_project_id == TranslationProject.id,
+                    ManuscriptArrangement.sub_order_id.is_(None),
+                    ManuscriptArrangement.status != "cancelled",
+                    ManuscriptArrangement.translator_name_snapshot.ilike(pattern),
+                    ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+                    ManuscriptDispatch.status != "cancelled",
+                    ManuscriptDispatch.confirmed_at.is_not(None),
+                ))
+                query = query.filter(or_(
+                    TranslationProject.translator.has(Translator.translator_name.ilike(pattern)),
+                    confirmed_arrangement,
+                ))
+        elif field in {"project_specialist_name", "project_assistant_name", "layout_specialist_name"}:
+            role_code = {
+                "project_specialist_name": "project_specialist",
+                "project_assistant_name": "project_assistant",
+                "layout_specialist_name": "layout_specialist",
+            }[field]
+            keyword = str(descriptor.get("value") or "").strip()
+            query = query.filter(TranslationProject.project_role_assignments.any(and_(
+                ProjectRoleAssignment.role_code == role_code,
+                ProjectRoleAssignment.assignee.has(or_(
+                    AppUser.full_name.ilike(f"%{keyword}%"), AppUser.username.ilike(f"%{keyword}%")
+                )),
+            )))
+        elif field.startswith("project_file_"):
+            file_column = {
+                "project_file_translation_domain_level1": ProjectFile.translation_domain_level1,
+                "project_file_translation_domain_level2": ProjectFile.translation_domain_level2,
+                "project_file_type_level1": ProjectFile.file_type,
+                "project_file_type_level2": ProjectFile.file_type_secondary,
+                "project_file_format": ProjectFile.file_format,
+                "project_file_attribute_level1": ProjectFile.file_attribute_level1,
+                "project_file_attribute_level2": ProjectFile.file_attribute_level2,
+                "project_file_attribute_level3": ProjectFile.file_attribute_level3,
+                "project_file_difficulty": ProjectFile.file_difficulty,
+            }[field]
+            keyword = str(descriptor.get("value") or "").strip()
+            query = query.filter(TranslationProject.project_file.any(file_column.ilike(f"%{keyword}%")))
+        elif field in {"translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}:
+            expression = getattr(TranslationProject, field)
+            numeric = cast(func.nullif(func.replace(expression, "%", ""), ""), Integer)
+            if descriptor.get("min") not in (None, ""):
+                query = query.filter(numeric >= int(descriptor["min"]))
+            if descriptor.get("max") not in (None, ""):
+                query = query.filter(numeric <= int(descriptor["max"]))
+    return query
+
+
+def get_translation_projects(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    keyword: Optional[str] = None,
+    created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    task_type: Optional[str] = None,
+    service_content: Optional[str] = None,
+    priority: Optional[str] = None,
+    project_manager_id: Optional[UUID] = None,
+    customer_deadline_date_start: Optional[date] = None,
+    customer_deadline_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
     sort: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ) -> List[TranslationProject]:
     query = (
         db.query(TranslationProject)
@@ -1481,22 +1716,24 @@ def get_translation_projects(
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
         .filter(TranslationProject.annotation_migrated_at.is_(None))
     )
-    if created_by:
-        query = query.filter(TranslationProject.created_by == created_by)
-    if project_name:
-        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
-    if order_no:
-        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
-    if project_status:
-        query = query.filter(TranslationProject.project_status == project_status)
-    if client_short_name:
-        pattern = f"%{client_short_name}%"
-        query = query.filter(
-            or_(
-                Client.client_short_name.ilike(pattern),
-                SubClient.client_short_name.ilike(pattern),
-            )
-        )
+    query = _apply_translation_project_filters(
+        query,
+        keyword=keyword,
+        created_by=created_by,
+        project_name=project_name,
+        order_no=order_no,
+        project_status=project_status,
+        client_short_name=client_short_name,
+        task_type=task_type,
+        service_content=service_content,
+        priority=priority,
+        project_manager_id=project_manager_id,
+        customer_deadline_date_start=customer_deadline_date_start,
+        customer_deadline_date_end=customer_deadline_date_end,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        field_filters=field_filters,
+    )
     if sort in {"order_no_desc", "unfinished_first_order_no_desc"}:
         # 兼容 TP-YYMMDD-NNN 与历史 TP-YYYYMMDD-NNN；异常订单号回退到创建时间。
         order_date_part = func.substring(
@@ -1564,11 +1801,21 @@ def get_translation_projects(
 
 def count_translation_projects(
     db: Session,
+    keyword: Optional[str] = None,
     created_by: Optional[UUID] = None,
     project_name: Optional[str] = None,
     order_no: Optional[str] = None,
     project_status: Optional[str] = None,
-    client_short_name: Optional[str] = None
+    client_short_name: Optional[str] = None,
+    task_type: Optional[str] = None,
+    service_content: Optional[str] = None,
+    priority: Optional[str] = None,
+    project_manager_id: Optional[UUID] = None,
+    customer_deadline_date_start: Optional[date] = None,
+    customer_deadline_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    field_filters: Optional[dict] = None,
 ) -> int:
     query = (
         db.query(TranslationProject.id)
@@ -1576,23 +1823,24 @@ def count_translation_projects(
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
         .filter(TranslationProject.annotation_migrated_at.is_(None))
     )
-    if created_by:
-        query = query.filter(TranslationProject.created_by == created_by)
-    if project_name:
-        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
-    if order_no:
-        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
-    if project_status:
-        query = query.filter(TranslationProject.project_status == project_status)
-    if client_short_name:
-        pattern = f"%{client_short_name}%"
-        query = query.filter(
-            or_(
-                Client.client_short_name.ilike(pattern),
-                SubClient.client_short_name.ilike(pattern),
-            )
-        )
-    return query.count()
+    return _apply_translation_project_filters(
+        query,
+        keyword=keyword,
+        created_by=created_by,
+        project_name=project_name,
+        order_no=order_no,
+        project_status=project_status,
+        client_short_name=client_short_name,
+        task_type=task_type,
+        service_content=service_content,
+        priority=priority,
+        project_manager_id=project_manager_id,
+        customer_deadline_date_start=customer_deadline_date_start,
+        customer_deadline_date_end=customer_deadline_date_end,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        field_filters=field_filters,
+    ).count()
 
 
 def _validate_written_translator(db: Session, translator_id: Optional[UUID]) -> None:
@@ -2302,6 +2550,7 @@ CONSULTATION_TYPE_FILTER_ALIASES = {
 
 def _apply_consultation_filters(
     query,
+    keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -2315,6 +2564,17 @@ def _apply_consultation_filters(
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
 ):
+    if keyword and keyword.strip():
+        keyword_pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            Consultation.consultation_code.ilike(keyword_pattern),
+            Consultation.project_name.ilike(keyword_pattern),
+            Consultation.customer_order_no.ilike(keyword_pattern),
+            Client.client_name.ilike(keyword_pattern),
+            Client.client_short_name.ilike(keyword_pattern),
+            SubClient.client_name.ilike(keyword_pattern),
+            SubClient.client_short_name.ilike(keyword_pattern),
+        ))
     if consultation_code:
         query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
     if client_name:
@@ -2359,6 +2619,7 @@ def get_consultations(
     db: Session,
     skip: int = 0,
     limit: int = 100,
+    keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -2384,6 +2645,7 @@ def get_consultations(
     )
     query = _apply_consultation_filters(
         query,
+        keyword=keyword,
         consultation_code=consultation_code,
         client_name=client_name,
         status=status,
@@ -2410,6 +2672,7 @@ def get_consultations(
 
 def count_consultations(
     db: Session,
+    keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -2428,6 +2691,7 @@ def count_consultations(
     )
     query = _apply_consultation_filters(
         query,
+        keyword=keyword,
         consultation_code=consultation_code,
         client_name=client_name,
         status=status,
@@ -2564,7 +2828,12 @@ def delete_consultation(db: Session, consultation_id: UUID) -> bool:
 
 def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
     """根据母订单号生成三位子单流水号，如 TP-260302-014.001。"""
-    parent = db.query(TranslationProject).filter(TranslationProject.id == parent_project_id).first()
+    parent = (
+        db.query(TranslationProject)
+        .filter(TranslationProject.id == parent_project_id)
+        .with_for_update()
+        .first()
+    )
     if not parent:
         raise ValueError("母订单不存在")
     base_no = parent.order_no  # 例如 TP-260302-014
@@ -2624,7 +2893,7 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
     return sub_orders
 
 
-def create_sub_order(
+def _create_sub_order_in_transaction(
     db: Session, sub_order: TranslationSubOrderCreate,
     idempotency_key: Optional[str] = None,
 ) -> TranslationSubOrder:
@@ -2644,14 +2913,91 @@ def create_sub_order(
         sub_order.word_count_matrix,
         updated_by=sub_order.created_by,
     )
-    _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
-
     from workflow_crud import init_workflow
 
     # 子订单与母订单一致：初始工作流必须同事务落库，否则子订单不会出现在工作台。
     init_workflow(db, sub_order_id=db_sub.id, commit=False)
+    return db_sub
+
+
+def create_sub_order(
+    db: Session, sub_order: TranslationSubOrderCreate,
+    idempotency_key: Optional[str] = None,
+) -> TranslationSubOrder:
+    db_sub = _create_sub_order_in_transaction(db, sub_order, idempotency_key=idempotency_key)
+    _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
     db.commit()
     return get_sub_order(db, db_sub.id)
+
+
+def normalize_sub_project_name(value: Optional[str]) -> str:
+    return str(value or '').strip().casefold()
+
+
+def partition_sub_project_names(
+    names: List[str], existing_names: List[Optional[str]],
+) -> tuple[List[str], List[dict]]:
+    existing_keys = {
+        normalize_sub_project_name(name)
+        for name in existing_names
+        if normalize_sub_project_name(name)
+    }
+    accepted: List[str] = []
+    skipped: List[dict] = []
+    request_keys: set[str] = set()
+    for name in names:
+        key = normalize_sub_project_name(name)
+        if key in existing_keys:
+            skipped.append({'name': name, 'reason': '当前母订单已存在同名子订单'})
+            continue
+        if key in request_keys:
+            skipped.append({'name': name, 'reason': '本次导入内容中名称重复'})
+            continue
+        request_keys.add(key)
+        accepted.append(name)
+    return accepted, skipped
+
+
+def create_sub_orders_bulk(
+    db: Session,
+    payload: TranslationSubOrderBulkCreate,
+    created_by: Optional[UUID] = None,
+) -> tuple[List[TranslationSubOrder], List[dict]]:
+    parent = (
+        db.query(TranslationProject)
+        .filter(TranslationProject.id == payload.parent_project_id)
+        .with_for_update()
+        .first()
+    )
+    if not parent:
+        raise ValueError('母订单不存在')
+
+    existing_names = [
+        item.sub_project_name
+        for item in db.query(TranslationSubOrder)
+        .filter(TranslationSubOrder.parent_project_id == payload.parent_project_id)
+        .all()
+    ]
+    accepted_names, skipped = partition_sub_project_names(payload.sub_project_names, existing_names)
+    defaults = payload.defaults.model_dump()
+    created: List[TranslationSubOrder] = []
+    for name in accepted_names:
+        sub_order = TranslationSubOrderCreate(
+            parent_project_id=payload.parent_project_id,
+            sub_project_name=name,
+            created_by=created_by,
+            **defaults,
+        )
+        created.append(_create_sub_order_in_transaction(db, sub_order))
+
+    if created:
+        _sync_project_name_with_sub_order_count(db, payload.parent_project_id)
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    if created:
+        _attach_manuscript_assignees(db, sub_orders=created)
+    return created, skipped
 
 
 def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: TranslationSubOrderUpdate) -> Optional[TranslationSubOrder]:

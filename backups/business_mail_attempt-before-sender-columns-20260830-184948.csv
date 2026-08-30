@@ -1,0 +1,8 @@
+id,mail_id,attempted_at,delivery_mode,actual_recipients,success,error
+d5045b55-9156-43b3-9e14-3c4b04d9d503,18bada0c-4059-475f-ba66-ee2c0bcd005b,2026-08-25 14:08:10.381455,test,Tech@xinshifanyi.com.cn,t,
+21f513fd-1b85-4b70-8dea-ed9d0e6ef81b,75f386e3-92c0-41fc-a031-df2fc223d746,2026-08-27 17:55:40.054483,,,f,SMTP 投递失败：[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)
+0dcdb162-0da1-47ce-b949-50b693896369,63f21fca-2eab-4eef-8f26-8df655fc1e9a,2026-08-27 17:56:00.748589,test,Tech@xinshifanyi.com.cn,t,
+d796d87c-9a81-459c-b99b-63909b0ebacf,e8b2feba-61ae-423b-b6bc-8a600d3903ae,2026-08-29 11:26:16.594155,test,Tech@xinshifanyi.com.cn,t,
+7f83f20d-d7fe-45df-812c-b117a5620da1,0cb5ef2c-992d-47d4-937d-2c45bc4c2680,2026-08-29 21:46:03.084313,test,Tech@xinshifanyi.com.cn,t,
+8f92668e-2048-4b9c-b34c-1391b73f616a,ec49154f-89e1-42ea-a451-ae7004854f5c,2026-08-29 21:56:56.168005,test,Tech@xinshifanyi.com.cn,t,
+0c6867ba-62ff-4b90-ae6d-84a2327b364e,5a9ce59c-fcca-42d7-ab05-52cb8e6f4539,2026-08-29 22:42:21.039015,test,Tech@xinshifanyi.com.cn,t,

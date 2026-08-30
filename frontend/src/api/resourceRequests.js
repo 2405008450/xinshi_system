@@ -22,6 +22,12 @@ export const createResourceRequest = async (data, idempotencyKey) => {
   return convert(response, camel)
 }
 export const updateResourceRequest = (id, data) => api.put(`/resource-requests/${id}`, convert(data, snake)).then((res) => convert(res, camel))
+export const updateResourceRequestTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/resource-requests/${id}/text-field`, {
+  field: snake(field), value, expected_updated_at: expectedUpdatedAt,
+}).then((res) => convert(res, camel))
+export const updateResourceRequestItemTextField = (id, itemId, field, value, expectedUpdatedAt) => api.patch(`/resource-requests/${id}/items/${itemId}/text-field`, {
+  field: snake(field), value, expected_updated_at: expectedUpdatedAt,
+}).then((res) => convert(res, camel))
 export const updateResourceProgress = (id, data) => api.patch(`/resource-requests/${id}/progress`, convert(data, snake)).then((res) => convert(res, camel))
 export const getResourceProgressLogs = (id) => api.get(`/resource-requests/${id}/progress-logs`).then((res) => convert(res, camel))
 export const deleteResourceRequest = (id) => api.delete(`/resource-requests/${id}`)

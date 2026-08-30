@@ -63,6 +63,7 @@ class InterpretationTimeRangeResponse(InterpretationTimeRangeInput):
 class InterpretationLanguageDirectionInput(BaseModel):
     source_language_id: UUID
     target_language_id: UUID
+    required_count: Optional[int] = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_distinct(self):
@@ -231,6 +232,8 @@ class InterpretationProjectWrite(BaseModel):
             if key in direction_keys:
                 raise ValueError("同一双向口译方向不能重复")
             direction_keys.append(key)
+        if any(item.required_count is None for item in self.language_directions):
+            raise ValueError("每个口译方向都必须填写需求人数")
         translator_ids = [item.translator_id for item in self.interpreter_assignments]
         if len(set(translator_ids)) != len(translator_ids):
             raise ValueError("同一译员不能重复安排")
@@ -275,6 +278,7 @@ class InterpretationProjectListResponse(BaseModel):
     manager_contact: Optional[str] = None
     sub_client_contact: Optional[str] = None
     language_directions_display: Optional[str] = None
+    language_direction_counts_complete: bool = False
     assigned_interpreters_display: Optional[str] = None
     translator_codes: Optional[str] = None
     locations: list[str] = Field(default_factory=list)

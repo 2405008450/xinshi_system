@@ -33,25 +33,16 @@
         <el-input v-model="search.keyword" clearable placeholder="姓名、编号、电话或邮箱" style="width:240px" @input="handleTextInput" @keyup.enter="searchNow" />
       </el-form-item>
       <el-form-item label="状态">
-        <el-select v-model="search.status" clearable placeholder="全部状态" style="width:140px" @change="searchNow">
+        <el-select v-model="search.status" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" style="width:160px" @change="searchNow">
           <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="searchNow">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="talent-advanced-popper">
-          <template #reference><el-button>高级筛选 <el-badge v-if="advancedCount" :value="advancedCount" /></el-button></template>
-          <div class="advanced-panel">
-            <div class="advanced-title">高级筛选</div>
-            <el-row :gutter="16">
-              <el-col :xs="24" :sm="12"><el-form-item label="合作形式"><el-select v-model="search.cooperationType" clearable style="width:100%" @change="searchNow"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :sm="12"><el-form-item label="行业"><el-input v-model="search.industryKeyword" clearable @input="handleTextInput" @keyup.enter="searchNow" /></el-form-item></el-col>
-              <el-col :xs="24" :sm="12"><el-form-item label="待确认"><el-select v-model="search.reviewRequired" clearable style="width:100%" @change="searchNow"><el-option label="仅看待确认" :value="true" /><el-option label="仅看已确认" :value="false" /></el-select></el-form-item></el-col>
-            </el-row>
-            <div class="advanced-actions"><el-button link type="primary" @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible=false">关闭</el-button></div>
-          </div>
-        </el-popover>
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="talent-advanced-popper" @clear="clearAdvanced">
+          <CompactFilterGrid :fields="talentAdvancedFilterFields" :model="search" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" />
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
@@ -60,8 +51,10 @@
       <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
         <template #header>
-          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="search[headerFilterDefinition(column.key).key]" @update:model-value="search[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" @clear="searchNow">
+            <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <el-popover v-if="column.key === 'fullName'" trigger="click" placement="left" :width="760" :title="`${row.fullName || '人才'} 人才详情`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
@@ -138,7 +131,7 @@
       <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
-            <TableActionButton action="edit" @click="openEdit(row)" />
+            <PrimaryEditButton @click="openEdit(row)" />
           </div>
         </template>
       </el-table-column>
@@ -208,14 +201,18 @@ import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
-import TableActionButton from '@/components/common/TableActionButton.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { hasPermission } from '@/utils/permission'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const route = useRoute(); const router = useRouter()
 const resourceViews = [
@@ -310,15 +307,33 @@ const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);cons
 const talentTableRef=ref(null)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:talentTableRef,pagination,deleteRow:(row)=>talentClient.value.delete(row.id),getLabel:(row)=>row.fullName||row.resourceCode||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'人才档案'})
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
-const advancedCount=computed(()=>['cooperationType','industryKeyword','reviewRequired'].filter(key=>search[key]!==''&&search[key]!==null).length)
+const talentFilterFields=[
+  {key:'resourceCode',label:'人才编号',type:'text'},{key:'fullName',label:'姓名',type:'text'},
+  {key:'capabilityTypes',label:'专业能力',type:'select',options:Object.entries(capabilityLabels).map(([value,label])=>({value,label}))},
+  {key:'languageDirections',label:'语种方向',type:'text'},{key:'annotationLanguageDirections',label:'标注语言方向',type:'text'},
+  {key:'industries',label:'行业',type:'text'},{key:'jobTitles',label:'岗位',type:'text'},
+  {key:'yearsExperience',label:'工作年限',type:'number-range',wide:true,min:0},
+  {key:'status',label:'状态',type:'select',options:statusOptions},{key:'cooperationType',label:'合作形式',type:'select',options:cooperationOptions},
+  {key:'primaryPhone',label:'主要电话',type:'text'},{key:'primaryEmail',label:'主要邮箱',type:'text'},
+  {key:'gender',label:'性别',type:'text'},{key:'age',label:'年龄',type:'number-range',wide:true,min:0,max:120},
+  {key:'nativePlace',label:'籍贯',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
+  {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
+  {key:'nationality',label:'国籍',type:'text'},{key:'overallRating',label:'综合评级',type:'text'},
+  {key:'firstContactDate',label:'首次联系时间',type:'date-range',wide:true},{key:'updatedAt',label:'最近更新',type:'date-range',wide:true},
+  {key:'duplicateReviewRequired',label:'核重状态',type:'boolean'},
+]
+Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})
+const talentAdvancedFilterFields=talentFilterFields.filter((item)=>item.key!=='status')
+const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterFields))
+const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?talentFilterFields.find((item)=>item.key===key)||null:null
 let timer=null;let controller=null;let sequence=0
-const params=()=>({keyword:search.keyword.trim()||undefined,status:search.status||undefined,capability_type:capabilityType.value||undefined,cooperation_type:search.cooperationType||undefined,industry_keyword:search.industryKeyword.trim()||undefined,review_required:search.reviewRequired===null?undefined:search.reviewRequired})
+const params=()=>({keyword:search.keyword.trim()||undefined,capability_type:capabilityType.value||undefined,field_filters:serializeFieldFilters(search,talentFilterFields)})
 async function fetchData(){controller?.abort();controller=new AbortController();const current=++sequence;loading.value=true;try{const filters=params();const client=talentClient.value;const [list,count]=await Promise.all([client.list({...filters,skip:(pagination.page-1)*pagination.limit,limit:pagination.limit},{signal:controller.signal}),client.count(filters,{signal:controller.signal})]);if(current!==sequence)return;rows.value=list||[];pagination.total=count?.total||0}catch(error){if(error.code!=='ERR_CANCELED'&&current===sequence)ElMessage.error(error.detail||'网络异常，人才列表未刷新，请检查网络后重试')}finally{if(current===sequence)loading.value=false}}
-function searchNow(){clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function resetSearch(){Object.assign(search,{keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null});searchNow()}function clearAdvanced(){Object.assign(search,{cooperationType:'',industryKeyword:'',reviewRequired:null});searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
+function searchNow(){exitDeleteMode();clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function updateConfiguredFilter(key,value){search[key]=value}function handleConfiguredTextInput(value){handleTextInput(value)}function resetSearch(){search.keyword='';resetFilterModel(search,talentFilterFields);searchNow()}function clearAdvanced(){resetFilterModel(search,talentAdvancedFilterFields);searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
 async function loadDetail(id,force=false){if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{detailCache[id]=await talentClient.value.detail(id);return detailCache[id]}catch(error){ElMessage.error(error.detail||'加载人才详情失败')}finally{detailLoadingId.value=null}}
 const detailFor=row=>detailCache[row.id]||row
 function setStatusSaving(id,saving){const next=new Set(statusSavingIds.value);if(saving)next.add(id);else next.delete(id);statusSavingIds.value=next}
-async function changeStatus(row,value){if(!value||value===row.status)return;setStatusSaving(row.id,true);try{const updated=await talentClient.value.patchStatus(row.id,value);Object.assign(row,updated);if(detailCache[row.id])detailCache[row.id]={...detailCache[row.id],...updated};ElMessage.success('人才状态已更新');if(search.status&&search.status!==updated.status)await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'人才状态更新失败')}finally{setStatusSaving(row.id,false)}}
+async function changeStatus(row,value){if(!value||value===row.status)return;setStatusSaving(row.id,true);try{const updated=await talentClient.value.patchStatus(row.id,value);Object.assign(row,updated);if(detailCache[row.id])detailCache[row.id]={...detailCache[row.id],...updated};ElMessage.success('人才状态已更新');if(search.status?.length&&!search.status.includes(updated.status))await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'人才状态更新失败')}finally{setStatusSaving(row.id,false)}}
 
 const birthDateParts=value=>{const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return match?{year:Number(match[1]),month:Number(match[2]),day:Number(match[3])}:null}
 const calculateAge=value=>{const parts=birthDateParts(value);if(!parts)return null;const now=new Date();let age=now.getFullYear()-parts.year;if(now.getMonth()+1<parts.month||(now.getMonth()+1===parts.month&&now.getDate()<parts.day))age--;return age>=0?age:null}

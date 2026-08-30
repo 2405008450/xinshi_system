@@ -52,6 +52,19 @@ class AuthSession(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    # 仅在账号或来源 IP 已连续失败若干次时才由前端回传。
+    captcha_id: Optional[str] = None
+    captcha_code: Optional[str] = None
+
+
+class CaptchaRequirement(BaseModel):
+    required: bool
+
+
+class CaptchaChallenge(BaseModel):
+    captcha_id: str
+    image: str
+    expires_in: int
 
 
 # AppUser Schemas
@@ -105,6 +118,9 @@ class AppUserPasswordReset(BaseModel):
 
 class AppUserResponse(AppUserBase):
     id: UUID
+    mail_account_bound: bool = False
+    mail_account_verified: bool = False
+    mail_account_verified_at: Optional[datetime] = None
     is_on_leave: bool = False
     leave_start: Optional[datetime] = None
     leave_end: Optional[datetime] = None
@@ -308,7 +324,7 @@ class ConsultationBase(BaseModel):
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
     project_name: Optional[str] = Field(default=None, max_length=500)
     project_intake: dict = Field(default_factory=dict)
-    project_intake_version: int = 1
+    project_intake_version: int = 2
     consultation_time: Optional[datetime] = None
     consultation_method: Optional[str] = None
     client_source: Optional[str] = None
@@ -911,6 +927,73 @@ class TranslationSubOrderUpdate(BaseModel):
     @classmethod
     def validate_progress(cls, value: Optional[str]) -> Optional[str]:
         return normalize_progress_percent(value)
+
+
+class TranslationSubOrderBulkDefaults(BaseModel):
+    file_type_secondary: Optional[str] = None
+    language_pair: Optional[str] = None
+    priority: Optional[str] = None
+    word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    customer_deadline_time: Optional[datetime] = None
+    sent_to_client_time: Optional[datetime] = None
+    client_feedback: Optional[str] = None
+    translator_id: Optional[UUID] = None
+    translator_assignment_time: Optional[datetime] = None
+    status: Optional[str] = 'pending'
+    translator_delivery_progress: Optional[str] = None
+    pre_review_qc_progress: Optional[str] = None
+    review_progress: Optional[str] = None
+    review1_progress: Optional[str] = None
+    review2_progress: Optional[str] = None
+    post_review_qc_progress: Optional[str] = None
+    layout_progress: Optional[str] = None
+    consolidation_progress: Optional[str] = None
+    network_file_path: Optional[str] = None
+    remarks: Optional[str] = None
+
+    @field_validator('language_pair')
+    @classmethod
+    def validate_language_pair(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_pairs(value)
+
+    @field_validator(
+        'translator_delivery_progress', 'pre_review_qc_progress', 'review_progress', 'review1_progress',
+        'review2_progress', 'post_review_qc_progress', 'layout_progress', 'consolidation_progress',
+    )
+    @classmethod
+    def validate_progress(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_progress_percent(value)
+
+
+class TranslationSubOrderBulkCreate(BaseModel):
+    parent_project_id: UUID
+    sub_project_names: list[str] = Field(min_length=1, max_length=500)
+    defaults: TranslationSubOrderBulkDefaults = Field(default_factory=TranslationSubOrderBulkDefaults)
+
+    @field_validator('sub_project_names')
+    @classmethod
+    def validate_sub_project_names(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for index, value in enumerate(values, start=1):
+            name = str(value or '').lstrip('\ufeff').strip()
+            if not name:
+                raise ValueError(f'第 {index} 条子项目名称不能为空')
+            if len(name) > 255:
+                raise ValueError(f'第 {index} 条子项目名称不能超过 255 个字符')
+            cleaned.append(name)
+        return cleaned
+
+
+class TranslationSubOrderBulkSkipped(BaseModel):
+    name: str
+    reason: str
+
+
+class TranslationSubOrderBulkResponse(BaseModel):
+    created_count: int
+    skipped_count: int
+    created: list[TranslationSubOrderResponse] = Field(default_factory=list)
+    skipped: list[TranslationSubOrderBulkSkipped] = Field(default_factory=list)
 
 
 # UserRole Schemas

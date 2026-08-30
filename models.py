@@ -218,7 +218,7 @@ class Consultation(Base):
     customer_order_no: Mapped[Optional[str]] = mapped_column(String(150))
     project_name: Mapped[Optional[str]] = mapped_column(String(500))
     project_intake: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
-    project_intake_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    project_intake_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('2'))
     consultation_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     consultation_method: Mapped[Optional[str]] = mapped_column(String(50))
     client_source: Mapped[Optional[str]] = mapped_column(String(100))

@@ -51,6 +51,8 @@ from recruitment_service import (
 )
 from resource_service import TalentDuplicateError
 from routers.auth import get_current_user, require_any_permission, require_module_access
+from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
 router = APIRouter(
@@ -58,6 +60,41 @@ router = APIRouter(
     tags=["recruitment_projects"],
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
+
+
+RECRUITMENT_TEXT_FIELDS = {
+    "project_name": TextFieldRule(max_length=500),
+    "job_description": TextFieldRule(),
+    "position_title": TextFieldRule(max_length=255, required=True),
+    "contact_name": TextFieldRule(max_length=255),
+    "customer_order_no": TextFieldRule(max_length=150),
+    "work_location": TextFieldRule(max_length=500, required=True),
+    "service_fee_note": TextFieldRule(),
+    "project_path": TextFieldRule(managed_path=True),
+    "quotation_path": TextFieldRule(managed_path=True),
+    "contract_path": TextFieldRule(managed_path=True),
+    "remarks": TextFieldRule(),
+    "email_subject_preview": TextFieldRule(),
+    "social_post_request": TextFieldRule(),
+    "resource_request": TextFieldRule(),
+}
+
+RECRUITMENT_FILTER_FIELDS = {
+    "order_no", "project_name", "job_description", "position_title", "headcount",
+    "client_manager_id", "project_status", "client_short_name", "client_code", "client_name",
+    "client_domain", "contact_name", "customer_order_no", "language_id", "target_onboard_date",
+    "employment_period", "work_location", "service_fee_amount", "candidate_count",
+    "customer_consultation_time", "customer_confirmation_time", "remarks", "created_at", "updated_at",
+}
+
+
+def _field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, RECRUITMENT_FILTER_FIELDS)
+    ranges = {"headcount", "target_onboard_date", "employment_period", "service_fee_amount", "candidate_count", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
+    enums = {"client_manager_id", "project_status", "language_id"}
+    ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"contains"}) for field in RECRUITMENT_FILTER_FIELDS})
+    return value
 
 
 def _filters(
@@ -73,6 +110,7 @@ def _filters(
     target_onboard_date_end=None,
     created_date_start=None,
     created_date_end=None,
+    field_filters=None,
 ):
     return dict(
         keyword=keyword,
@@ -87,6 +125,7 @@ def _filters(
         target_onboard_date_end=target_onboard_date_end,
         created_date_start=created_date_start,
         created_date_end=created_date_end,
+        field_filters=field_filters,
     )
 
 
@@ -106,6 +145,7 @@ def read_projects(
     target_onboard_date_end: Optional[date] = None,
     created_date_start: Optional[date] = None,
     created_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return get_recruitment_projects(
@@ -123,6 +163,7 @@ def read_projects(
             target_onboard_date_end=target_onboard_date_end,
             created_date_start=created_date_start,
             created_date_end=created_date_end,
+            field_filters=_field_filters(field_filters),
         ),
     )
 
@@ -141,6 +182,7 @@ def read_project_count(
     target_onboard_date_end: Optional[date] = None,
     created_date_start: Optional[date] = None,
     created_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return {"total": count_recruitment_projects(
@@ -157,6 +199,7 @@ def read_project_count(
             target_onboard_date_end=target_onboard_date_end,
             created_date_start=created_date_start,
             created_date_end=created_date_end,
+            field_filters=_field_filters(field_filters),
         )
     )}
 
@@ -402,6 +445,28 @@ def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="招聘项目不存在")
     return project
+
+
+@router.patch(
+    "/{project_id}/text-field", response_model=RecruitmentProjectResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_text_field(
+    project_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    project = db.get(RecruitmentProject, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="招聘项目不存在")
+    try:
+        changed = apply_text_field_update(project, payload, RECRUITMENT_TEXT_FIELDS)
+        if changed:
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return get_recruitment_project(db, project_id)
 
 
 @router.patch(

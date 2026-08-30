@@ -17,11 +17,14 @@ from interpretation_schemas import (
 )
 from routers.interpretation_projects import update_language
 from interpretation_service import (
+    _direction_required_total,
     build_interpretation_project_name,
     ensure_interpretation_project_for_consultation,
     format_interpretation_date_ranges,
     generate_interpretation_order_no,
 )
+from consultation_intake import normalize_legacy_interpretation_intake
+from resource_request_service import _interpretation_request_items
 from models import TranslationProject
 from schemas import TranslatorCreate
 
@@ -95,6 +98,63 @@ def test_nested_payload_rejects_duplicate_bidirectional_pair_and_translator():
                 {"translator_id": translator_id},
             ]
         )
+
+
+def test_direction_required_counts_are_required_and_summed():
+    first, second, third = uuid4(), uuid4(), uuid4()
+    payload = InterpretationProjectCreate(language_directions=[
+        {"source_language_id": first, "target_language_id": second, "required_count": 1},
+        {"source_language_id": third, "target_language_id": second, "required_count": 2},
+    ])
+
+    assert _direction_required_total(payload) == 3
+    with pytest.raises(ValueError, match="每个口译方向都必须填写需求人数"):
+        InterpretationProjectCreate(language_directions=[
+            {"source_language_id": first, "target_language_id": second},
+        ])
+    with pytest.raises(ValueError):
+        InterpretationProjectCreate(language_directions=[
+            {"source_language_id": first, "target_language_id": second, "required_count": 0},
+        ])
+
+
+def test_legacy_interpretation_counts_only_use_safe_inference():
+    first, second, third = str(uuid4()), str(uuid4()), str(uuid4())
+    single = normalize_legacy_interpretation_intake({
+        "required_interpreter_count": 3,
+        "language_directions": [{"source_language_id": first, "target_language_id": second}],
+    })
+    evenly_known = normalize_legacy_interpretation_intake({
+        "required_interpreter_count": 2,
+        "language_directions": [
+            {"source_language_id": first, "target_language_id": second},
+            {"source_language_id": third, "target_language_id": second},
+        ],
+    })
+    ambiguous = normalize_legacy_interpretation_intake({
+        "required_interpreter_count": 3,
+        "language_directions": [
+            {"source_language_id": first, "target_language_id": second},
+            {"source_language_id": third, "target_language_id": second},
+        ],
+    })
+
+    assert single["language_directions"][0]["required_count"] == 3
+    assert [item["required_count"] for item in evenly_known["language_directions"]] == [1, 1]
+    assert all(item.get("required_count") is None for item in ambiguous["language_directions"])
+
+
+def test_resource_request_items_keep_each_direction_count_and_reject_incomplete_history():
+    first, second, third = uuid4(), uuid4(), uuid4()
+    project = SimpleNamespace(language_directions=[
+        SimpleNamespace(source_language_id=first, target_language_id=second, required_count=1),
+        SimpleNamespace(source_language_id=third, target_language_id=second, required_count=2),
+    ])
+
+    assert [item["required_count"] for item in _interpretation_request_items(project)] == [1, 2]
+    project.language_directions[1].required_count = None
+    with pytest.raises(ValueError, match="人数尚未补齐"):
+        _interpretation_request_items(project)
 
 
 def test_interpreter_requirements_and_translator_level_validation():

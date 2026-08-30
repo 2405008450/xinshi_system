@@ -50,10 +50,42 @@ SCALAR_FIELDS = {
 }
 
 
+def normalize_legacy_interpretation_intake(intake: Optional[dict]) -> dict:
+    """安全升级旧版“多个方向 + 一个总人数”，不猜测无法确定的拆分。"""
+    data = dict(intake or {})
+    directions = [dict(item) for item in (data.get("language_directions") or [])]
+    if not directions:
+        data["language_directions"] = directions
+        data["required_interpreter_count"] = None
+        return data
+
+    missing = [item for item in directions if not item.get("required_count")]
+    legacy_total = data.get("required_interpreter_count")
+    if len(directions) == 1 and len(missing) == 1 and isinstance(legacy_total, int) and legacy_total > 0:
+        directions[0]["required_count"] = legacy_total
+    elif (
+        len(directions) > 1
+        and len(missing) == len(directions)
+        and isinstance(legacy_total, int)
+        and legacy_total == len(directions)
+    ):
+        for item in directions:
+            item["required_count"] = 1
+
+    counts = [item.get("required_count") for item in directions]
+    data["language_directions"] = directions
+    data["required_interpreter_count"] = (
+        sum(counts) if counts and all(isinstance(value, int) and value > 0 for value in counts)
+        else legacy_total
+    )
+    return data
+
+
 def validated_intake(project_type: str, intake: Optional[dict]) -> dict:
     data = dict(intake or {})
     # JSONB 与邮件预览都需要可 json.dumps 的结构；mode="json" 会把 date/datetime/UUID 转成字符串。
     if project_type == "interpretation":
+        data = normalize_legacy_interpretation_intake(data)
         return InterpretationProjectUpdate(**data).model_dump(mode="json", exclude={"interpreter_assignments", "expected_updated_at"})
     if project_type == "annotation":
         return AnnotationProjectUpdate(**data).model_dump(mode="json", exclude={"assignees", "expected_updated_at"})

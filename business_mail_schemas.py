@@ -67,6 +67,10 @@ class BusinessMailPreviewResponse(BaseModel):
     subject: str
     body: str
     missing_fields: list[str]
+    sender_mode: Literal["system", "personal"]
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    sender_verified: bool = False
     can_send: bool
     blocking_reasons: list[str]
 
@@ -101,6 +105,16 @@ class BusinessMailSendRequest(BaseModel):
         return value
 
 
+class BusinessMailAttemptResponse(BaseModel):
+    attempted_at: datetime
+    sender_user_id: Optional[UUID] = None
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    success: bool
+    delivery_mode: Optional[str] = None
+    error: Optional[str] = None
+
+
 class BusinessMailResponse(BaseModel):
     id: UUID
     source_kind: str
@@ -111,6 +125,9 @@ class BusinessMailResponse(BaseModel):
     body: str
     status: str
     recipients: list[MailRecipientUser]
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    attempts: list[BusinessMailAttemptResponse] = Field(default_factory=list)
     send_error: Optional[str]
     delivery_mode: Optional[str]
     created_at: datetime
@@ -120,6 +137,7 @@ class BusinessMailResponse(BaseModel):
 
 class ProjectMailStatusResponse(BaseModel):
     mode: str
+    project_sender_mode: str = "system"
     configured: bool
     host: Optional[str] = None
     port: Optional[int] = None

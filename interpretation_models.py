@@ -236,6 +236,13 @@ class InterpretationProject(Base):
         return "；".join(value for value in values if value) or None
 
     @property
+    def language_direction_counts_complete(self) -> bool:
+        return bool(self.language_directions) and all(
+            item.required_count is not None and item.required_count > 0
+            for item in self.language_directions
+        )
+
+    @property
     def assigned_interpreters_display(self) -> Optional[str]:
         values = [item.translator_name for item in self.interpreter_assignments]
         return "；".join(value for value in values if value) or None
@@ -294,6 +301,10 @@ class InterpretationProjectLanguageDirection(Base):
         ),
         UniqueConstraint("project_id", "sequence_no", name="uq_interpretation_direction_sequence"),
         CheckConstraint("source_language_id <> target_language_id", name="ck_interpretation_direction_distinct"),
+        CheckConstraint(
+            "required_count IS NULL OR required_count > 0",
+            name="ck_interpretation_direction_required_count",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -303,6 +314,7 @@ class InterpretationProjectLanguageDirection(Base):
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
     source_language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     target_language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    required_count: Mapped[Optional[int]] = mapped_column(Integer)
 
     project: Mapped[InterpretationProject] = relationship(back_populates="language_directions")
     source_language: Mapped[InterpretationLanguage] = relationship(
@@ -322,7 +334,8 @@ class InterpretationProjectLanguageDirection(Base):
 
     @property
     def display(self) -> str:
-        return f"{self.source_language_label} ↔ {self.target_language_label}"
+        count_text = f"{self.required_count}人" if self.required_count else "人数待补充"
+        return f"{self.source_language_label} ↔ {self.target_language_label}（{count_text}）"
 
 
 class InterpretationProjectInterpreter(Base):

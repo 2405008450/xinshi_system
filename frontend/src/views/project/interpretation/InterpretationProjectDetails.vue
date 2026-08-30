@@ -2,7 +2,7 @@
   <el-card class="interpretation-card compact-list-card">
     <template #header>
       <div class="card-header">
-        <span>口译项目详情</span>
+        <span>口译项目管理</span>
         <div class="header-actions">
           <TableColumnSettings
             v-model="visibleColumnKeys"
@@ -37,35 +37,28 @@
         />
       </el-form-item>
       <el-form-item label="项目状态">
-        <el-select v-model="searchForm.projectStatus" clearable placeholder="全部" style="width: 150px" @change="handleSearch">
+        <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch">
           <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-popover
+        <AdvancedFilterPopover
           v-model:visible="advancedVisible"
-          trigger="click"
-          placement="bottom-end"
-          :width="760"
+          :count="advancedCount"
           popper-class="interpretation-advanced-popover"
+          @clear="clearAdvanced"
         >
-          <template #reference>
-            <el-button>
-              高级筛选
-              <span v-if="advancedCount" class="filter-count">{{ advancedCount }}</span>
-            </el-button>
-          </template>
-          <div class="advanced-panel">
-            <div class="advanced-header">
-              <span>高级筛选</span>
-              <div>
-                <el-button v-if="advancedCount" link type="primary" @click="clearAdvanced">清空高级条件</el-button>
-                <el-button link @click="advancedVisible = false">关闭</el-button>
-              </div>
-            </div>
-            <el-form label-position="top">
+          <CompactFilterGrid
+            :fields="interpretationAdvancedFilterFields"
+            :model="searchForm"
+            @update="updateConfiguredFilter"
+            @text-input="handleConfiguredTextInput"
+            @change="handleSearch"
+            @enter="handleSearch"
+          />
+          <el-form v-if="false" label-position="top">
               <el-row :gutter="16">
                 <el-col :xs="24" :sm="12" :lg="8">
                   <el-form-item label="项目类型">
@@ -94,10 +87,23 @@
                     </el-select>
                   </el-form-item>
                 </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="客户/子客户">
+                    <el-select v-model="searchForm.clientSelection" filterable clearable placeholder="全部" @change="handleSearch">
+                      <el-option v-for="item in filterClientOptions" :key="item.value" :label="item.label" :value="item.value" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :xs="24" :sm="12" :lg="8">
+                  <el-form-item label="语言">
+                    <el-select v-model="searchForm.languageId" filterable clearable placeholder="全部" @change="handleSearch">
+                      <el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
               </el-row>
-            </el-form>
-          </div>
-        </el-popover>
+          </el-form>
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
@@ -105,16 +111,21 @@
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
       <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
-        <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目详情" /></template>
+        <template #header>
+          <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
+            <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目管理" /></template>
+          </ConfiguredColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <div class="order-cell">
             <el-popover
               trigger="click"
               placement="left"
               :width="760"
-              title="口译项目详情"
+              title="口译项目管理"
               popper-class="interpretation-detail-popover"
               @show="loadDetail(row.id)"
+              @hide="cancelInlineDetailEdit"
             >
               <template #reference>
                 <el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button>
@@ -123,9 +134,9 @@
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="订单号">{{ textValue(detailRow(row).orderNo) }}</el-descriptions-item>
                   <el-descriptions-item label="项目状态">{{ statusLabel(detailRow(row).projectStatus) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目名称" :span="2">{{ detailRow(row).projectName || '待完善' }}</el-descriptions-item>
+                  <el-descriptions-item label="项目名称" :span="2"><InlineTextField :model-value="detailRow(row).projectName" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'projectName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(detailRow(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="具体任务" :span="2">{{ textValue(detailRow(row).taskDescription) }}</el-descriptions-item>
+                  <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="detailRow(row).taskDescription" :editable="canWrite && !deleteMode" label="具体任务" multiline :save-field="(value) => saveDetailTextField(row, 'taskDescription', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="客户简称">{{ textValue(detailRow(row).clientShortName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户编号">{{ textValue(detailRow(row).clientCode) }}</el-descriptions-item>
@@ -133,43 +144,42 @@
                   <el-descriptions-item label="客户领域">{{ textValue(detailRow(row).clientDomain) }}</el-descriptions-item>
                   <el-descriptions-item label="现客户经理">{{ textValue(detailRow(row).currentClientManager) }}</el-descriptions-item>
                   <el-descriptions-item label="负责人联系方式">{{ textValue(detailRow(row).managerContact) }}</el-descriptions-item>
-                  <el-descriptions-item label="子客户/联系人">{{ textValue(detailRow(row).subClientContact) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户单号/项目标识" :span="2">{{ textValue(detailRow(row).customerOrderNo) }}</el-descriptions-item>
+                  <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="detailRow(row).contactName" :display-value="detailRow(row).contactName || detailRow(row).subClientContact" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'contactName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="客户单号/项目标识" :span="2"><InlineTextField :model-value="detailRow(row).customerOrderNo" :editable="canWrite && !deleteMode" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveDetailTextField(row, 'customerOrderNo', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="项目时间" :span="2">{{ timeRangesText(detailRow(row).timeRanges) }}</el-descriptions-item>
                   <el-descriptions-item label="项目地点" :span="2">{{ arrayText(detailRow(row).locations, '、') }}</el-descriptions-item>
                   <el-descriptions-item label="口译方向" :span="2">{{ textValue(detailRow(row).languageDirectionsDisplay) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户预算" :span="2">{{ textValue(detailRow(row).customerBudget) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户预算" :span="2"><InlineTextField :model-value="detailRow(row).customerBudget" :editable="canWrite && !deleteMode" label="客户预算" multiline :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'customerBudget', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="客户咨询时间">{{ formatDateTime(detailRow(row).customerConsultationTime) }}</el-descriptions-item>
                   <el-descriptions-item label="客户确认时间">{{ formatDateTime(detailRow(row).customerConfirmationTime) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译领域" :span="2">{{ textValue(detailRow(row).interpretationDomain) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译内容" :span="2">{{ textValue(detailRow(row).interpretationContent) }}</el-descriptions-item>
-                  <el-descriptions-item label="译员人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
+                  <el-descriptions-item label="口译领域" :span="2"><InlineTextField :model-value="detailRow(row).interpretationDomain" :editable="canWrite && !deleteMode" label="口译领域" multiline :save-field="(value) => saveDetailTextField(row, 'interpretationDomain', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="口译内容" :span="2"><InlineTextField :model-value="detailRow(row).interpretationContent" :editable="canWrite && !deleteMode" label="口译内容" multiline :save-field="(value) => saveDetailTextField(row, 'interpretationContent', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="总需求人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
                   <el-descriptions-item label="译员性别">{{ textValue(detailRow(row).requiredInterpreterGender) }}</el-descriptions-item>
                   <el-descriptions-item label="口译水平">{{ textValue(detailRow(row).requiredInterpretationLevel) }}</el-descriptions-item>
-                  <el-descriptions-item label="特殊要求">{{ textValue(detailRow(row).interpreterSpecialRequirements) }}</el-descriptions-item>
-                  <el-descriptions-item label="译员身高">{{ textValue(detailRow(row).interpreterHeightRequirement) }}</el-descriptions-item>
-                  <el-descriptions-item label="译员相貌">{{ textValue(detailRow(row).interpreterAppearanceRequirement) }}</el-descriptions-item>
-                  <el-descriptions-item label="着装要求" :span="2">{{ textValue(detailRow(row).interpreterDressRequirement) }}</el-descriptions-item>
+                  <el-descriptions-item label="特殊要求"><InlineTextField :model-value="detailRow(row).interpreterSpecialRequirements" :editable="canWrite && !deleteMode" label="特殊要求" multiline :save-field="(value) => saveDetailTextField(row, 'interpreterSpecialRequirements', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="译员身高"><InlineTextField :model-value="detailRow(row).interpreterHeightRequirement" :editable="canWrite && !deleteMode" label="译员身高" :maxlength="100" :save-field="(value) => saveDetailTextField(row, 'interpreterHeightRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="译员相貌"><InlineTextField :model-value="detailRow(row).interpreterAppearanceRequirement" :editable="canWrite && !deleteMode" label="译员相貌" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'interpreterAppearanceRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="着装要求" :span="2"><InlineTextField :model-value="detailRow(row).interpreterDressRequirement" :editable="canWrite && !deleteMode" label="着装要求" :maxlength="255" multiline :save-field="(value) => saveDetailTextField(row, 'interpreterDressRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="译员安排" :span="2">{{ textValue(detailRow(row).assignedInterpretersDisplay) }}</el-descriptions-item>
                   <el-descriptions-item label="译员编号" :span="2">{{ textValue(detailRow(row).translatorCodes) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目文件路径" :span="2">{{ textValue(detailRow(row).filePath) }}</el-descriptions-item>
-                  <el-descriptions-item label="报价单路径" :span="2">{{ textValue(detailRow(row).quotationPath) }}</el-descriptions-item>
-                  <el-descriptions-item label="合同路径" :span="2">{{ textValue(detailRow(row).contractPath) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户对信实评价" :span="2">
-                    {{ ratingText(detailRow(row).clientRating, detailRow(row).clientRatingNote) }}
-                  </el-descriptions-item>
+                  <el-descriptions-item label="项目文件路径" :span="2"><InlineTextField :model-value="detailRow(row).filePath" :editable="canWrite && !deleteMode" label="项目文件路径" multiline :save-field="(value) => saveDetailTextField(row, 'filePath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="报价单路径" :span="2"><InlineTextField :model-value="detailRow(row).quotationPath" :editable="canWrite && !deleteMode" label="报价单路径" multiline :save-field="(value) => saveDetailTextField(row, 'quotationPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="合同路径" :span="2"><InlineTextField :model-value="detailRow(row).contractPath" :editable="canWrite && !deleteMode" label="合同路径" multiline :save-field="(value) => saveDetailTextField(row, 'contractPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="客户对信实评价">{{ textValue(detailRow(row).clientRating) }}</el-descriptions-item>
+                  <el-descriptions-item label="评价备注"><InlineTextField :model-value="detailRow(row).clientRatingNote" :editable="canWrite && !deleteMode" label="评价备注" multiline :save-field="(value) => saveDetailTextField(row, 'clientRatingNote', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="客户对译员评价" :span="2">
                     {{ interpreterRatingsText(detailRow(row).interpreterAssignments) }}
                   </el-descriptions-item>
-                  <el-descriptions-item label="发圈请求" :span="2">{{ textValue(detailRow(row).socialPostRequest) }}</el-descriptions-item>
-                  <el-descriptions-item label="资源请求" :span="2">{{ textValue(detailRow(row).resourceRequest) }}</el-descriptions-item>
+                  <el-descriptions-item label="发圈请求" :span="2"><InlineTextField :model-value="detailRow(row).socialPostRequest" :editable="canWrite && !deleteMode" label="发圈请求" multiline :save-field="(value) => saveDetailTextField(row, 'socialPostRequest', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="资源请求" :span="2"><InlineTextField :model-value="detailRow(row).resourceRequest" :editable="canWrite && !deleteMode" label="资源请求" multiline :save-field="(value) => saveDetailTextField(row, 'resourceRequest', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="来源咨询 ID" :span="2">{{ textValue(detailRow(row).consultationId) }}</el-descriptions-item>
                   <el-descriptions-item label="创建时间">{{ formatDateTime(detailRow(row).createdAt) }}</el-descriptions-item>
                   <el-descriptions-item label="更新时间">{{ formatDateTime(detailRow(row).updatedAt) }}</el-descriptions-item>
                   <el-descriptions-item label="备注" :span="2">
-                    <div class="remarks-detail">{{ textValue(detailRow(row).remarks) }}</div>
+                    <InlineTextField :model-value="detailRow(row).remarks" :editable="canWrite && !deleteMode" label="备注" multiline :save-field="(value) => saveDetailTextField(row, 'remarks', value)" @conflict="loadDetail(row.id, true)" />
                   </el-descriptions-item>
-                  <el-descriptions-item label="邮件主题预览" :span="2">{{ textValue(detailRow(row).emailSubjectPreview) }}</el-descriptions-item>
+                  <el-descriptions-item label="邮件主题预览" :span="2"><InlineTextField :model-value="detailRow(row).emailSubjectPreview" :editable="canWrite && !deleteMode" label="邮件主题预览" multiline :save-field="(value) => saveDetailTextField(row, 'emailSubjectPreview', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 </el-descriptions>
               </div>
             </el-popover>
@@ -187,8 +197,10 @@
         :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)"
       >
         <template #header>
-          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
+            <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <el-dropdown
@@ -254,7 +266,7 @@
             <div class="interpreter-detail-content" v-loading="detailLoadingId === row.id">
               <div class="interpreter-detail-section-title">常用要求</div>
               <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="译员人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
+                <el-descriptions-item label="总需求人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
                 <el-descriptions-item label="译员性别">{{ textValue(detailRow(row).requiredInterpreterGender) }}</el-descriptions-item>
                 <el-descriptions-item label="口译水平">{{ textValue(detailRow(row).requiredInterpretationLevel) }}</el-descriptions-item>
                 <el-descriptions-item label="特殊要求">{{ textValue(detailRow(row).interpreterSpecialRequirements) }}</el-descriptions-item>
@@ -293,16 +305,25 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
-          <span v-else-if="column.key === 'projectName'" class="project-name-cell">{{ row.projectName || '待完善' }}</span>
+          <InlineTextField
+            v-else-if="column.key === 'projectName'"
+            :model-value="row.projectName"
+            :editable="canWrite && !deleteMode"
+            label="项目名称"
+            :maxlength="500"
+            :save-field="(value) => saveDetailTextField(row, 'projectName', value)"
+            @conflict="fetchData"
+          />
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
-          <div v-if="canWrite" class="action-buttons">
-            <el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button>
-            <TableActionButton action="edit" @click="handleEdit(row)" />
-          </div>
+          <ProjectListRowActions
+            v-if="canWrite"
+            @edit="handleEdit(row)"
+            @start-request="startResourceRequest(row)"
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -476,7 +497,7 @@
               </el-row>
             </div>
             <div class="section-title-row">
-              <h4>口译方向</h4>
+              <h4>口译方向 <el-tag v-if="directionRequiredTotal" size="small" type="info">合计 {{ directionRequiredTotal }} 人</el-tag></h4>
               <div>
                 <el-button link type="primary" @click="openLanguageManager">管理语种</el-button>
                 <el-button link type="primary" @click="addLanguage">新增语种</el-button>
@@ -491,6 +512,7 @@
               <el-select v-model="item.targetLanguageId" filterable placeholder="语种 B">
                 <el-option v-for="lang in selectableLanguages" :key="lang.id" :label="lang.label" :value="lang.id" :disabled="lang.isActive === false"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag><el-tag v-if="lang.isActive === false" size="small" type="info" class="new-language-tag">已停用</el-tag></el-option>
               </el-select>
+              <el-input-number v-model="item.requiredCount" :min="1" :precision="0" class="direction-count" placeholder="需求人数" />
               <el-button link type="danger" @click="form.languageDirections.splice(index, 1)">删除</el-button>
             </div>
           </section>
@@ -498,7 +520,6 @@
           <section class="form-section">
             <div class="section-title-row"><h3>译员安排与评价</h3></div>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="译员人数"><el-input-number v-model="form.requiredInterpreterCount" :min="0" style="width: 100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="口译水平"><el-select v-model="form.requiredInterpretationLevel" clearable placeholder="请选择" style="width: 100%"><el-option label="初级" value="初级" /><el-option label="中级" value="中级" /><el-option label="高级" value="高级" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="特殊要求"><el-input v-model="form.interpreterSpecialRequirements" type="textarea" :rows="2" /></el-form-item></el-col>
@@ -619,16 +640,20 @@ import * as clientApi from '@/api/clients'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
-import TableActionButton from '@/components/common/TableActionButton.vue'
+import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
@@ -637,6 +662,7 @@ import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const canWrite = hasPermission('projects:write')
 const mailComposerVisible = ref(false)
@@ -656,7 +682,13 @@ const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
 const route = useRoute()
 const router = useRouter()
-const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'interpretation', sourceProjectId: row.id } })
+const startResourceRequest = (row) => {
+  if (!row.languageDirectionCountsComplete) {
+    ElMessage.warning('该项目的语言方向人数尚未补齐，请先编辑项目后再发起需求')
+    return
+  }
+  router.push({ name: 'ResourceRequests', query: { sourceType: 'interpretation', sourceProjectId: row.id } })
+}
 const highlightedProjectId = ref('')
 const dialogBodyRef = ref(null)
 const {
@@ -671,6 +703,13 @@ const projectTableRef = ref(null)
 const clients = ref([])
 const translators = ref([])
 const languages = ref([])
+const filterClientOptions = computed(() => clients.value.flatMap((client) => [
+  { value: `client:${client.id}`, label: client.client_short_name || client.client_name },
+  ...((client.sub_clients || []).map((sub) => ({
+    value: `sub:${sub.id}`,
+    label: `${client.client_short_name || client.client_name} / ${sub.client_short_name || sub.client_name}`,
+  }))),
+]))
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const advancedVisible = ref(false)
@@ -732,7 +771,7 @@ const tableColumns = [
   { key: 'customerConfirmationTime', label: '客户确认时间', minWidth: 150 },
   { key: 'interpretationDomain', label: '口译领域', minWidth: 120 },
   { key: 'interpretationContent', label: '口译内容', minWidth: 160 },
-  { key: 'requiredInterpreterCount', label: '译员人数', width: 90 },
+  { key: 'requiredInterpreterCount', label: '总需求人数', width: 105 },
   { key: 'requiredInterpreterGender', label: '译员性别', width: 90 },
   { key: 'requiredInterpretationLevel', label: '口译水平', width: 90 },
   { key: 'interpreterSpecialRequirements', label: '特殊要求', minWidth: 140 },
@@ -783,13 +822,51 @@ const {
   entityName: '口译项目',
 })
 const searchForm = reactive({
-  keyword: '', projectStatus: '', projectType: '', scheduledDateRange: [], translatorId: '',
+  keyword: '', projectStatus: '', projectType: '', scheduledDateRange: [], translatorId: '', clientSelection: '', languageId: '',
 })
-const advancedCount = computed(() => [
-  searchForm.projectType,
-  searchForm.scheduledDateRange?.length ? 'date' : '',
-  searchForm.translatorId,
-].filter(Boolean).length)
+const interpretationFilterFields = [
+  { key: 'orderNo', label: '订单号', type: 'text' },
+  { key: 'projectName', label: '项目名称', type: 'text' },
+  { key: 'projectTypes', label: '项目类型', type: 'select', options: projectTypeOptions },
+  { key: 'taskDescription', label: '具体任务', type: 'text' },
+  { key: 'currentClientManager', label: '现客户经理', type: 'text' },
+  { key: 'projectStatus', label: '项目状态', type: 'select', options: statusOptions },
+  { key: 'clientShortName', label: '客户简称', type: 'text' },
+  { key: 'clientCode', label: '客户编号', type: 'text' },
+  { key: 'clientFullName', label: '客户全称', type: 'text' },
+  { key: 'clientDomain', label: '客户领域', type: 'text' },
+  { key: 'managerContact', label: '经理联系方式', type: 'text' },
+  { key: 'contactName', label: '联系人', type: 'text' },
+  { key: 'customerOrderNo', label: '客户单号', type: 'text' },
+  { key: 'scheduledDateRange', apiKey: 'scheduled_date', label: '预定日期', type: 'date-range', wide: true },
+  { key: 'locations', label: '口译地点', type: 'text' },
+  { key: 'languageDirectionsDisplay', apiKey: 'language_id', label: '口译方向', type: 'select', options: () => languages.value.map((item) => ({ label: item.label, value: item.id })) },
+  { key: 'customerBudget', label: '客户预算', type: 'text' },
+  { key: 'customerConsultationTime', label: '客户咨询时间', type: 'date-range', wide: true },
+  { key: 'customerConfirmationTime', label: '客户确认时间', type: 'date-range', wide: true },
+  { key: 'interpretationDomain', label: '口译领域', type: 'text' },
+  { key: 'interpretationContent', label: '口译内容', type: 'text' },
+  { key: 'requiredInterpreterCount', label: '总需求人数', type: 'number-range', wide: true, min: 0 },
+  { key: 'requiredInterpreterGender', label: '译员性别要求', type: 'text' },
+  { key: 'requiredInterpretationLevel', label: '口译级别要求', type: 'text' },
+  { key: 'interpreterSpecialRequirements', label: '译员特殊要求', type: 'text' },
+  { key: 'interpreterHeightRequirement', label: '身高要求', type: 'text' },
+  { key: 'interpreterAppearanceRequirement', label: '形象要求', type: 'text' },
+  { key: 'interpreterDressRequirement', label: '着装要求', type: 'text' },
+  { key: 'assignedInterpretersDisplay', apiKey: 'translator_id', label: '译员安排', type: 'select', options: () => translators.value.map((item) => ({ label: translatorOptionLabel(item), value: item.id })) },
+  { key: 'clientRating', label: '客户评分', type: 'select', options: ratingOptions },
+  { key: 'clientRatingNote', label: '评分说明', type: 'text' },
+  { key: 'remarks', label: '备注', type: 'text' },
+  { key: 'createdAt', label: '创建时间', type: 'date-range', wide: true },
+  { key: 'updatedAt', label: '更新时间', type: 'date-range', wide: true },
+]
+Object.assign(searchForm, createFilterModel(interpretationFilterFields), { keyword: '' })
+const interpretationAdvancedFilterFields = interpretationFilterFields.filter((item) => item.key !== 'projectStatus')
+const advancedCount = computed(() => countActiveFilters(searchForm, interpretationAdvancedFilterFields))
+const headerFilterDefinition = (key) => {
+  if (!defaultColumns.includes(key)) return null
+  return interpretationFilterFields.find((item) => item.key === key) || null
+}
 
 const MAX_LOCATIONS = 4
 const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '' })
@@ -798,7 +875,7 @@ const defaultForm = () => ({
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
-  requiredInterpreterCount: null, requiredInterpreterGender: '', requiredInterpretationLevel: '',
+  requiredInterpreterGender: '', requiredInterpretationLevel: '',
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
   interpretationDomain: '', interpretationContent: '', filePath: '', quotationPath: '', contractPath: '',
@@ -806,6 +883,10 @@ const defaultForm = () => ({
   timeRanges: [emptyTimeRange()], languageDirections: [], interpreterAssignments: [], roleAssignments: [],
 })
 const form = reactive(defaultForm())
+const directionRequiredTotal = computed(() => form.languageDirections.reduce(
+  (total, item) => total + (Number.isInteger(item.requiredCount) && item.requiredCount > 0 ? item.requiredCount : 0),
+  0,
+))
 const rules = { projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }] }
 
 const selectedLanguageIds = computed(() => new Set(
@@ -858,14 +939,9 @@ const translatorOptionLabel = (item) => {
 }
 
 const buildFilters = () => {
-  const [start, end] = searchForm.scheduledDateRange || []
   return {
     keyword: searchForm.keyword.trim() || undefined,
-    project_status: searchForm.projectStatus || undefined,
-    project_type: searchForm.projectType || undefined,
-    scheduled_date_start: start || undefined,
-    scheduled_date_end: end || undefined,
-    translator_id: searchForm.translatorId || undefined,
+    field_filters: serializeFieldFilters(searchForm, interpretationFilterFields),
   }
 }
 const fetchData = async () => {
@@ -895,8 +971,10 @@ const handleTextSearch = (value) => {
   if (!value?.trim()) return handleSearch()
   searchTimer = setTimeout(handleSearch, 400)
 }
-const resetSearch = () => { Object.assign(searchForm, { keyword: '', projectStatus: '', projectType: '', scheduledDateRange: [], translatorId: '' }); handleSearch() }
-const clearAdvanced = () => { Object.assign(searchForm, { projectType: '', scheduledDateRange: [], translatorId: '' }); handleSearch() }
+const updateConfiguredFilter = (key, value) => { searchForm[key] = value }
+const handleConfiguredTextInput = (value) => handleTextSearch(value)
+const resetSearch = () => { searchForm.keyword = ''; resetFilterModel(searchForm, interpretationFilterFields); handleSearch() }
+const clearAdvanced = () => { resetFilterModel(searchForm, interpretationAdvancedFilterFields); handleSearch() }
 
 const loadReferenceData = async () => {
   const [clientRows, translatorRows, languageRows] = await Promise.allSettled([
@@ -924,6 +1002,15 @@ const loadDetail = async (id, force = false) => {
   }
 }
 const detailRow = (row) => detailCache[row.id] || row
+const cancelInlineDetailEdit = () => window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
+const saveDetailTextField = async (row, field, value) => {
+  const current = detailRow(row)
+  const updated = await projectApi.updateInterpretationProjectTextField(row.id, field, value, current.updatedAt)
+  detailCache[row.id] = updated
+  Object.assign(row, updated)
+  if (Object.values(buildFilters()).some(Boolean)) void fetchData()
+  return updated
+}
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
 const focusRouteProject = async () => {
   const projectId = String(route.query.projectId || '')
@@ -974,7 +1061,7 @@ const addLocation = () => {
 const removeLocation = (index) => {
   if (form.locations.length > 1) form.locations.splice(index, 1)
 }
-const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '' })
+const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '', requiredCount: null })
 const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
   Number(a.isActive === false) - Number(b.isActive === false)
@@ -1050,9 +1137,10 @@ const normalizedNestedPayload = () => ({
     actualStart: item.actualStart || null,
     actualEnd: item.actualEnd || null,
   })),
-  languageDirections: form.languageDirections.filter((item) => item.sourceLanguageId || item.targetLanguageId).map((item) => ({
+  languageDirections: form.languageDirections.filter((item) => item.sourceLanguageId || item.targetLanguageId || item.requiredCount).map((item) => ({
     sourceLanguageId: item.sourceLanguageId,
     targetLanguageId: item.targetLanguageId,
+    requiredCount: item.requiredCount,
   })),
   interpreterAssignments: form.interpreterAssignments.filter((item) => item.translatorId).map((item) => ({
     translatorId: item.translatorId,
@@ -1063,7 +1151,8 @@ const normalizedNestedPayload = () => ({
 const validateNested = (nested) => {
   if (form.timeRanges.some((item) => (item.scheduledStart || item.scheduledEnd) && (!item.scheduledStart || !item.scheduledEnd))) throw new Error('每个时间段必须同时填写预定开始和预定结束')
   if (nested.timeRanges.some((item) => new Date(item.scheduledEnd) < new Date(item.scheduledStart))) throw new Error('预定结束时间不能早于预定开始时间')
-  if (form.languageDirections.some((item) => (item.sourceLanguageId || item.targetLanguageId) && (!item.sourceLanguageId || !item.targetLanguageId))) throw new Error('每个口译方向必须选择两个语种')
+  if (form.languageDirections.some((item) => (item.sourceLanguageId || item.targetLanguageId || item.requiredCount) && (!item.sourceLanguageId || !item.targetLanguageId))) throw new Error('每个口译方向必须选择两个语种')
+  if (nested.languageDirections.some((item) => !Number.isInteger(item.requiredCount) || item.requiredCount < 1)) throw new Error('每个口译方向都必须填写大于等于 1 的需求人数')
   if (nested.languageDirections.some((item) => item.sourceLanguageId === item.targetLanguageId)) throw new Error('口译方向的两个语种不能相同')
   const directionKeys = nested.languageDirections.map((item) => [item.sourceLanguageId, item.targetLanguageId].sort().join(':'))
   if (new Set(directionKeys).size !== directionKeys.length) throw new Error('同一双向口译方向不能重复')
@@ -1128,7 +1217,6 @@ const buildPayload = () => {
     projectStatus: form.projectStatus,
     locations: form.locations.filter((item) => item?.trim()).map((item) => item.trim()),
     customerBudget: form.customerBudget?.trim() || null,
-    requiredInterpreterCount: form.requiredInterpreterCount ?? null,
     requiredInterpreterGender: form.requiredInterpreterGender || null,
     requiredInterpretationLevel: form.requiredInterpretationLevel || null,
     interpreterSpecialRequirements: form.interpreterSpecialRequirements?.trim() || null,
@@ -1176,7 +1264,6 @@ const assignForm = (detail) => {
     clientDomain: detail.clientDomain || '',
     currentClientManager: detail.currentClientManager || '',
     managerContact: detail.managerContact || client?.manager_contact || '',
-    requiredInterpreterCount: detail.requiredInterpreterCount ?? null,
     requiredInterpreterGender: detail.requiredInterpreterGender || '',
     requiredInterpretationLevel: detail.requiredInterpretationLevel || '',
     interpreterSpecialRequirements: detail.interpreterSpecialRequirements || '',
@@ -1186,7 +1273,7 @@ const assignForm = (detail) => {
     locations: detail.locations?.length ? detail.locations.slice(0, MAX_LOCATIONS) : [''],
     customerConsultationTime: detail.customerConsultationTime || '', customerConfirmationTime: detail.customerConfirmationTime || '',
     timeRanges: detail.timeRanges?.length ? detail.timeRanges.map((item) => ({ scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, actualStart: item.actualStart || '', actualEnd: item.actualEnd || '' })) : [emptyTimeRange()],
-    languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId })),
+    languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId, requiredCount: item.requiredCount ?? null })),
     interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
     roleAssignments: detail.roleAssignments || [],
   })
@@ -1250,7 +1337,7 @@ const changeProjectStatus = async (row, value) => {
     Object.assign(row, updated)
     detailCache[row.id] = updated
     ElMessage.success('项目状态已更新')
-    if (searchForm.projectStatus && searchForm.projectStatus !== updated.projectStatus) await fetchData()
+    if (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
   } catch (error) {
     ElMessage.error(error?.response?.data?.detail || error?.detail || '项目状态更新失败')
   } finally {
@@ -1332,8 +1419,8 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .status-switch-tag.is-updating { pointer-events: none; opacity: .55; }
 .status-option-row { display: inline-flex; width: 100%; align-items: center; gap: 8px; }
 .status-current-icon { color: var(--el-color-primary); }
-.action-buttons { display: inline-flex; align-items: center; justify-content: center; flex-wrap: nowrap; white-space: nowrap; }
 .direction-row .el-select { flex: 1; }
+.direction-count { width: 150px; flex: 0 0 150px; }
 .direction-arrow { flex: 0 0 auto; color: var(--el-color-primary); font-size: 20px; font-weight: 700; }
 .soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
 .subject-preview-field { width: 100%; min-width: 0; }
@@ -1377,5 +1464,6 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
   .location-panel__header .el-button { width: 100%; }
   .direction-row { align-items: stretch; flex-direction: column; }
   .direction-arrow { text-align: center; transform: rotate(90deg); }
+  .direction-count { width: 100%; flex-basis: auto; }
 }
 </style>

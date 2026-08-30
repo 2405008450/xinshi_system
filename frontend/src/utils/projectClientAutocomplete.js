@@ -34,7 +34,7 @@ export const flattenProjectClientOptions = (clients) => (
   })
 )
 
-// 与笔译项目详情一致：输入简称时远程联想母客户和子客户。
+// 与笔译项目管理一致：输入简称时远程联想母客户和子客户。
 export const fetchProjectClientSuggestions = async (queryString, callback) => {
   const keyword = String(queryString || '').trim()
   try {

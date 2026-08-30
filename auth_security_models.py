@@ -59,6 +59,26 @@ class LoginSecurityEvent(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class LoginCaptchaChallenge(Base):
+    """登录图形验证码挑战，只保存答案的 HMAC 摘要与来源指纹。"""
+
+    __tablename__ = "login_captcha_challenge"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="login_captcha_challenge_pkey"),
+        Index("ix_login_captcha_challenge_expires_at", "expires_at"),
+        Index("ix_login_captcha_challenge_source_hash", "source_hash"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    answer_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class RevokedAccessToken(Base):
     """已主动撤销的访问令牌，仅保存 JTI 摘要，不落库原始令牌。"""
 

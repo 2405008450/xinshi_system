@@ -15,6 +15,12 @@ const routes = [
     component: Layout,
     children: [
       {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('../views/profile/Profile.vue'),
+        meta: { title: '个人中心', roles: ['*'] }
+      },
+      {
         path: 'users',
         name: 'Users',
         component: () => import('../views/system/Users.vue'),
@@ -37,7 +43,7 @@ const routes = [
         path: 'translation-details',
         name: 'TranslationProjectDetails',
         component: () => import('../views/project/translation/ProjectDetails.vue'),
-        meta: { title: '笔译项目详情', permissions: ['projects:read'] }
+        meta: { title: '笔译项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'manuscript-arrangements',
@@ -70,7 +76,7 @@ const routes = [
         path: 'interpretation-details',
         name: 'InterpretationProjectDetails',
         component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),
-        meta: { title: '口译项目详情', permissions: ['projects:read'] }
+        meta: { title: '口译项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'annotation',
@@ -81,7 +87,7 @@ const routes = [
         name: 'AnnotationProjectDetails',
         component: () => import('../views/project/AnnotationWorkspace.vue'),
         meta: {
-          title: '标注项目详情',
+          title: '标注项目管理',
           permissions: ['projects:read', 'annotation_accounts:read', 'annotation_accounts:write']
         }
       },
@@ -112,7 +118,7 @@ const routes = [
         path: 'recruitment-details',
         name: 'RecruitmentProjectDetails',
         component: () => import('../views/project/RecruitmentProjects.vue'),
-        meta: { title: '招聘项目详情', permissions: ['projects:read'] }
+        meta: { title: '招聘项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'other',
@@ -370,7 +376,7 @@ router.beforeEach(async (to, from, next) => {
 
 router.afterEach((to) => {
   const title = to.meta?.title
-  document.title = title ? `${title} - 翻译项目管理平台` : '翻译项目管理平台'
+  document.title = title ? `${title} - 综合业务项目管理平台` : '综合业务项目管理平台'
 })
 
 export default router

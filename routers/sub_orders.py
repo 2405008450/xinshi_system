@@ -7,9 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from database import get_db
 from crud import (
     get_sub_order, get_sub_orders_by_project, get_all_sub_orders,
-    create_sub_order, update_sub_order, delete_sub_order
+    create_sub_order, create_sub_orders_bulk, update_sub_order, delete_sub_order
 )
-from schemas import TranslationSubOrderCreate, TranslationSubOrderUpdate, TranslationSubOrderResponse
+from schemas import (
+    TranslationSubOrderBulkCreate,
+    TranslationSubOrderBulkResponse,
+    TranslationSubOrderCreate,
+    TranslationSubOrderUpdate,
+    TranslationSubOrderResponse,
+)
 from models import AppUser, TranslationSubOrder
 from routers.auth import get_current_user, require_module_access
 
@@ -47,6 +53,32 @@ def create_sub_order_endpoint(
             ).first()
             if existing:
                 return get_sub_order(db, existing.id)
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误: {error_msg}")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/bulk", response_model=TranslationSubOrderBulkResponse, status_code=status.HTTP_201_CREATED)
+def create_sub_orders_bulk_endpoint(
+    payload: TranslationSubOrderBulkCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        created, skipped = create_sub_orders_bulk(db, payload, created_by=current_user.id)
+        return {
+            "created_count": len(created),
+            "skipped_count": len(skipped),
+            "created": created,
+            "skipped": skipped,
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except IntegrityError as e:
+        db.rollback()
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误: {error_msg}")
     except Exception as e:

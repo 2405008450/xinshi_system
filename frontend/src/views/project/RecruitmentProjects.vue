@@ -2,7 +2,7 @@
   <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
-        <span>招聘项目详情</span>
+        <span>招聘项目管理</span>
         <div class="header-actions">
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -12,14 +12,13 @@
     </template>
 
     <el-form :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="关键字"><el-input v-model="searchForm.keyword" clearable placeholder="项目、客户、职位或属地" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
-      <el-form-item label="项目状态"><el-select v-model="searchForm.projectStatus" clearable placeholder="全部" style="width: 180px" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+      <el-form-item label="关键词"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" style="width:320px" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
+      <el-form-item label="项目状态"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button><el-button @click="resetSearch">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" width="min(760px, calc(100vw - 32px))" popper-class="recruitment-advanced-filter-popover">
-          <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-          <div class="advanced-content">
-            <el-form :model="searchForm" label-width="110px">
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="recruitment-advanced-filter-popover" @clear="clearAdvanced">
+            <CompactFilterGrid :fields="recruitmentAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
+            <el-form v-if="false" :model="searchForm" label-width="110px">
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="searchForm.clientManagerId" clearable filterable style="width:100%" @change="handleSearch"><el-option v-for="user in activeUsers" :key="user.id" :label="userLabel(user)" :value="user.id" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="履职日期范围"><el-date-picker v-model="searchForm.employmentRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
@@ -29,23 +28,32 @@
                 <el-col :xs="24" :md="12"><el-form-item label="创建时间范围"><el-date-picker v-model="searchForm.createdRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
               </el-row>
             </el-form>
-            <div class="advanced-footer"><el-button link @click="clearAdvanced">清空高级条件</el-button><el-button type="primary" @click="advancedVisible=false">关闭</el-button></div>
-          </div>
-        </el-popover>
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
     <el-table ref="projectTableRef" :data="rows" v-loading="loading" :row-class-name="projectRowClass" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.key !== 'projectName' && column.tooltip !== false">
         <template #header>
-          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
+            <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-cell">
-            <BusinessDetailPopover :row="row" title="招聘项目详情" :items="detailItems" :status-label="statusLabel" :status-type="statusType">
+            <BusinessDetailPopover
+              :row="row"
+              title="招聘项目详情"
+              :items="detailItems"
+              :status-label="statusLabel"
+              :status-type="statusType"
+              :editable="canWrite && !deleteMode"
+              :save-field="(field, value) => saveDetailTextField(row, field, value)"
+              @conflict="fetchData"
+            >
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </BusinessDetailPopover>
             <PathActionButtons @open="openPath(row.projectPath)" @copy="copyPath(row.projectPath)" />
@@ -106,7 +114,7 @@
           <span v-else>{{ displayValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center"><template #default="{ row }"><div v-if="canWrite" class="action-buttons"><el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button><TableActionButton action="edit" @click="openEdit(row)" /></div></template></el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><ProjectListRowActions v-if="canWrite" @edit="openEdit(row)" @start-request="startResourceRequest(row)" /></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
@@ -249,7 +257,24 @@
       <template #footer><el-button type="primary" @click="jobDescriptionEditorVisible=false">完成</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="progressVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 项目进度表`" width="min(760px, calc(100vw - 32px))">
+    <el-dialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="progress-dialog">
+      <template #header>
+        <div class="progress-dialog-heading">
+          <span class="progress-dialog-title">项目进度</span>
+          <span class="progress-dialog-order">{{ activeProject?.orderNo || '-' }}</span>
+        </div>
+      </template>
+      <div class="progress-project-name">
+        <span class="progress-project-name__label">项目名称</span>
+        <InlineTextField
+          :model-value="activeProject?.projectName"
+          :editable="canWrite"
+          label="项目名称"
+          :maxlength="500"
+          :save-field="(value) => saveDetailTextField(activeProject, 'projectName', value)"
+          @conflict="refreshProgressProject"
+        />
+      </div>
       <div class="inline-create progress-create" v-if="canWrite">
         <el-date-picker v-model="progressOccurredAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择发生时间" />
         <el-input v-model="progressNote" placeholder="补充进度说明" @keyup.enter="addProgress" />
@@ -309,6 +334,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, CaretBottom, Check, FullScreen, MagicStick, Plus } from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
@@ -317,7 +343,10 @@ import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameI
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
-import TableActionButton from '@/components/common/TableActionButton.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -335,12 +364,13 @@ import {
   deleteRecruitmentCandidate, deleteRecruitmentProject, getRecruitmentCandidates,
   getRecruitmentProgress, getRecruitmentProject, getRecruitmentProjectCount,
   getRecruitmentProjects, getRecruitmentResumeSources, patchRecruitmentProjectStatus, previewRecruitmentProjectName, updateRecruitmentCandidate,
-  resetRecruitmentProjectIdempotency, updateRecruitmentProject,
+  resetRecruitmentProjectIdempotency, updateRecruitmentProject, updateRecruitmentProjectTextField,
 } from '@/api/recruitmentProjects'
 import RecruitmentLanguageDirections from '@/components/common/LanguageDirectionsEditor.vue'
 import RecruitmentCandidateTable from './recruitment/RecruitmentCandidateTable.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const canWrite = hasPermission('projects:write')
 const route = useRoute()
@@ -405,9 +435,9 @@ const summarizeDetail = (value, maxLength = 80) => {
 const roleAssignmentName = (row, roleCode) => row.roleAssignments?.find((item) => item.roleCode === roleCode)?.assigneeName || '未分配'
 const detailItems = [
   {label:'订单号',key:'orderNo'},
-  {label:'项目名称',key:'projectName'},
-  {label:'职位描述',key:'jobDescription',span:2,formatter:(value)=>summarizeDetail(value)},
-  {label:'职位名称/类型',key:'positionTitle'},
+  {label:'项目名称',key:'projectName',editable:true,maxlength:500},
+  {label:'职位描述',key:'jobDescription',span:2,editable:true,multiline:true},
+  {label:'职位名称/类型',key:'positionTitle',editable:true,required:true,maxlength:255},
   {label:'招聘人数',key:'headcount',formatter:(_value,row)=>headcountText(row)},
   {label:'现客户经理',key:'clientManagerName'},
   {label:'项目状态',key:'projectStatus',type:'status'},
@@ -418,23 +448,24 @@ const detailItems = [
   {label:'客户编号',key:'clientCode'},
   {label:'客户全称',key:'clientName'},
   {label:'客户领域',key:'clientDomain'},
-  {label:'子客户/联系人',key:'contactName'},
-  {label:'客户单号/项目标识',key:'customerOrderNo'},
+  {label:'子客户/联系人',key:'contactName',editable:true,maxlength:255},
+  {label:'客户单号/项目标识',key:'customerOrderNo',editable:true,maxlength:150},
   {label:'外语/翻译方向',key:'languageSummary',span:2,formatter:(_value,row)=>languageText(row)},
   {label:'拟入职日期',key:'targetOnboard',formatter:(_value,row)=>row.targetOnboardType==='anytime'?'随时':formatDate(row.targetOnboardDate)},
   {label:'拟履职周期',key:'employmentPeriod',formatter:(_value,row)=>periodText(row)},
-  {label:'任职工作属地',key:'workLocation'},
+  {label:'任职工作属地',key:'workLocation',editable:true,required:true,maxlength:500},
   {label:'服务费用',key:'serviceFee',formatter:(_value,row)=>feeText(row)},
+  {label:'费用说明',key:'serviceFeeNote',span:2,editable:true,multiline:true},
   {label:'简历人选数',key:'candidateCount',formatter:(value)=>`${value || 0} 人`},
   {label:'客户咨询时间',key:'customerConsultationTime'},
   {label:'客户确认时间',key:'customerConfirmationTime'},
-  {label:'报价单路径',key:'quotationPath',span:2},
-  {label:'合同路径',key:'contractPath',span:2},
-  {label:'项目路径',key:'projectPath',span:2},
-  {label:'备注',key:'remarks',span:2},
-  {label:'邮件主题预览',key:'emailSubjectPreview',span:2},
-  {label:'发圈请求',key:'socialPostRequest',span:2},
-  {label:'资源请求',key:'resourceRequest',span:2},
+  {label:'报价单路径',key:'quotationPath',span:2,editable:true,multiline:true},
+  {label:'合同路径',key:'contractPath',span:2,editable:true,multiline:true},
+  {label:'项目路径',key:'projectPath',span:2,editable:true,multiline:true},
+  {label:'备注',key:'remarks',span:2,editable:true,multiline:true},
+  {label:'邮件主题预览',key:'emailSubjectPreview',span:2,editable:true,multiline:true},
+  {label:'发圈请求',key:'socialPostRequest',span:2,editable:true,multiline:true},
+  {label:'资源请求',key:'resourceRequest',span:2,editable:true,multiline:true},
   {label:'创建时间',key:'createdAt'},
   {label:'更新时间',key:'updatedAt'},
 ]
@@ -467,39 +498,52 @@ const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDel
 const searchForm = reactive({keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]})
 const projectStatusSavingIds = ref(new Set())
 const advancedVisible = ref(false)
-const advancedCount = computed(() => [
-  searchForm.clientManagerId,
-  searchForm.employmentRange?.length === 2 ? 1 : '',
-  searchForm.clientSelection,
-  searchForm.languageId,
-  searchForm.targetOnboardRange?.length === 2 ? 1 : '',
-  searchForm.createdRange?.length === 2 ? 1 : '',
-].filter(Boolean).length)
+const recruitmentFilterFields=[
+  {key:'orderNo',label:'订单号',type:'text'},{key:'projectName',label:'项目名称',type:'text'},
+  {key:'jobDescription',label:'职位描述',type:'text'},{key:'positionTitle',label:'职位名称/类型',type:'text'},
+  {key:'headcount',label:'招聘人数',type:'number-range',wide:true,min:0},
+  {key:'clientManagerName',apiKey:'client_manager_id',label:'现客户经理',type:'select',options:()=>activeUsers.value.map((user)=>({label:userLabel(user),value:user.id}))},
+  {key:'projectStatus',label:'项目状态',type:'select',options:statusOptions},
+  {key:'clientShortName',label:'客户简称',type:'text'},{key:'clientCode',label:'客户编号',type:'text'},
+  {key:'clientName',label:'客户全称',type:'text'},{key:'clientDomain',label:'客户领域',type:'text'},
+  {key:'contactName',label:'子客户/联系人',type:'text'},{key:'customerOrderNo',label:'客户单号/项目标识',type:'text'},
+  {key:'languageSummary',apiKey:'language_id',label:'外语/翻译方向',type:'select',options:()=>languages.value.map((item)=>({label:item.label,value:item.id}))},
+  {key:'targetOnboard',apiKey:'target_onboard_date',label:'拟入职日期',type:'date-range',wide:true},
+  {key:'employmentPeriod',label:'拟履职周期',type:'date-range',wide:true},
+  {key:'workLocation',label:'任职工作属地',type:'text'},
+  {key:'serviceFee',apiKey:'service_fee_amount',label:'服务费用',type:'number-range',wide:true,min:0,precision:2},
+  {key:'candidateCount',label:'简历人选数',type:'number-range',wide:true,min:0},
+  {key:'customerConsultationTime',label:'客户咨询时间',type:'date-range',wide:true},
+  {key:'customerConfirmationTime',label:'客户确认时间',type:'date-range',wide:true},
+  {key:'remarks',label:'备注',type:'text'},{key:'createdAt',label:'创建时间',type:'date-range',wide:true},{key:'updatedAt',label:'更新时间',type:'date-range',wide:true},
+]
+Object.assign(searchForm,createFilterModel(recruitmentFilterFields),{keyword:''})
+const recruitmentAdvancedFilterFields=recruitmentFilterFields.filter((item)=>item.key!=='projectStatus')
+const advancedCount = computed(() => countActiveFilters(searchForm,recruitmentAdvancedFilterFields))
+const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?recruitmentFilterFields.find((item)=>item.key===key)||null:null
 let searchTimer = null; let controller = null; let sequence = 0
 const buildFilters = () => {
-  const selection = searchForm.clientSelection || ''
   return {
     keyword: searchForm.keyword.trim() || undefined,
-    project_status: searchForm.projectStatus || undefined,
-    client_manager_id: searchForm.clientManagerId || undefined,
-    employment_date_start: searchForm.employmentRange?.[0] || undefined,
-    employment_date_end: searchForm.employmentRange?.[1] || undefined,
-    client_id: selection.startsWith('client:') ? selection.slice(7) : undefined,
-    sub_client_id: selection.startsWith('sub:') ? selection.slice(4) : undefined,
-    language_id: searchForm.languageId || undefined,
-    target_onboard_date_start: searchForm.targetOnboardRange?.[0] || undefined,
-    target_onboard_date_end: searchForm.targetOnboardRange?.[1] || undefined,
-    created_date_start: searchForm.createdRange?.[0] || undefined,
-    created_date_end: searchForm.createdRange?.[1] || undefined,
+    field_filters:serializeFieldFilters(searchForm,recruitmentFilterFields),
   }
 }
 const fetchData = async () => { controller?.abort(); controller = new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const [list,count]=await Promise.all([getRecruitmentProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}),getRecruitmentProjectCount(filters,{signal:controller.signal})]); if(current!==sequence)return; rows.value=list||[]; pagination.total=count?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.response?.data?.detail||'网络异常，招聘项目列表未刷新，请检查网络后重试') } finally { if(current===sequence)loading.value=false } }
+const hasActiveListFilters = () => Object.values(searchForm).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim()))
+const saveDetailTextField = async (row, field, value) => {
+  const updated = await updateRecruitmentProjectTextField(row.id, field, value, row.updatedAt)
+  Object.assign(row, updated)
+  if (hasActiveListFilters()) void fetchData()
+  return updated
+}
 const projectRowClass=({row})=>String(row.id)===highlightedProjectId.value?'workbench-target-row':''
 const focusRouteProject=async()=>{const projectId=String(route.query.projectId||'');if(!projectId)return;try{const detail=await getRecruitmentProject(projectId);highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||'定位招聘项目失败')}}
 const handleTextSearch = (value) => { clearTimeout(searchTimer); if(!value)return handleSearch(); searchTimer=setTimeout(handleSearch,400) }
 const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page=1; fetchData() }
-const resetSearch = () => { Object.assign(searchForm,{keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
-const clearAdvanced = () => { Object.assign(searchForm,{clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]}); handleSearch() }
+const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
+const handleConfiguredTextInput=(value)=>handleTextSearch(value)
+const resetSearch = () => { searchForm.keyword='';resetFilterModel(searchForm,recruitmentFilterFields);handleSearch() }
+const clearAdvanced = () => { resetFilterModel(searchForm,recruitmentAdvancedFilterFields);handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
 
 const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
@@ -583,7 +627,7 @@ const generateEmailSubject = () => {
 }
 const saveProject = async (sendAfterSave=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({behavior:'smooth',block:'center'}); return } saving.value=true; try { const payload=buildPayload(); const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); editorVisible.value=false; if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true} fetchData() } catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'保存失败')} finally{saving.value=false;submitLocked=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
-const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
+const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
 
 watch(
   () => [form.employmentRange, form.workLocation, form.positionTitle, form.languageDirections],
@@ -602,6 +646,7 @@ const currentLocalDateTime = () => {
 }
 const progressVisible=ref(false), progressLoading=ref(false), progressSaving=ref(false), progressRows=ref([]), progressNote=ref(''), progressOccurredAt=ref(currentLocalDateTime()), activeProject=ref(null)
 const openProgress = async (row) => { activeProject.value=row; progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressVisible.value=true; progressLoading.value=true; try{progressRows.value=await getRecruitmentProgress(row.id)}catch{ElMessage.error('进度记录加载失败')}finally{progressLoading.value=false} }
+const refreshProgressProject = async () => { const id=activeProject.value?.id; if(!id)return; try{const updated=await getRecruitmentProject(id); const listRow=rows.value.find((item)=>String(item.id)===String(id)); if(listRow)Object.assign(listRow,updated); activeProject.value=listRow||updated}catch{void fetchData()} }
 const addProgress = async () => { if(!progressOccurredAt.value)return ElMessage.warning('请选择发生时间'); if(!progressNote.value.trim())return ElMessage.warning('请输入进度说明'); progressSaving.value=true; try{await createRecruitmentProgress(activeProject.value.id,{note:progressNote.value.trim(),occurredAt:progressOccurredAt.value}); progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressRows.value=await getRecruitmentProgress(activeProject.value.id)}catch(error){ElMessage.error(error?.response?.data?.detail||'添加失败')}finally{progressSaving.value=false} }
 
 const candidateVisible=ref(false),candidateLoading=ref(false),candidateRows=ref([]),candidateEditorVisible=ref(false),candidateSaving=ref(false),candidateFormRef=ref()
@@ -648,11 +693,11 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 :global(.recruitment-advanced-filter-popover){max-width:calc(100vw - 32px)!important;max-height:calc(100vh - 32px);overflow:hidden}:global(.recruitment-advanced-filter-popover .advanced-content){max-height:calc(100vh - 64px);overflow-y:auto}
 .card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.wrap-link{height:auto;min-height:32px;padding:5px 0;white-space:normal;text-align:left;line-height:1.45;align-items:flex-start}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
 .wrap-link :deep(span){line-height:1.45}
+.progress-dialog-heading{display:flex;align-items:baseline;gap:10px;padding-right:36px}.progress-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-order{color:var(--el-text-color-secondary);font-size:12px}.progress-project-name{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.progress-project-name__label{padding-top:1px;color:var(--el-text-color-secondary);font-size:13px}.progress-project-name :deep(.inline-text-field__trigger){font-weight:600;line-height:1.5}.progress-project-name :deep(.inline-text-field__value){color:var(--el-text-color-primary)}
 .candidate-count-link{gap:2px}
 .recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:5px;padding-left:5px;line-height:1.35}.recruitment-list-table .wrap-link{min-height:26px;padding:2px 0}.recruitment-list-table .order-cell{gap:2px}
 .recruitment-list-table .order-cell{min-width:0;gap:4px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}
 .employment-period-text{font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:-.1px;white-space:nowrap}
-.action-buttons{display:inline-flex;align-items:center;justify-content:center;flex-wrap:nowrap;white-space:nowrap}
 .status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}
 .candidate-interview-editor{margin-bottom:14px;padding:14px 14px 2px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.candidate-interview-editor__heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--el-text-color-primary);font-size:14px;font-weight:600}.candidate-interview-actions{display:flex;justify-content:center;margin:-2px 0 18px}
 .job-description-editor{width:100%}.job-description-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px}.job-description-toolbar .el-button{flex:none}.job-description-dialog__body>p{margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6}.job-description-count{margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;text-align:right}.job-description-large-input :deep(.el-textarea__inner){min-height:min(520px,calc(90vh - 210px));line-height:1.7;resize:none}
@@ -660,6 +705,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 :deep(.recruitment-editor){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:deep(.recruitment-editor .el-dialog__header),:deep(.recruitment-editor .el-dialog__footer){flex:none}:deep(.recruitment-editor .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:deep(.recruitment-editor .editor-body){flex:1;min-height:0}:deep(.recruitment-editor .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
 :global(.job-description-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.job-description-dialog .el-dialog__header),:global(.job-description-dialog .el-dialog__footer){flex:none}:global(.job-description-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.job-description-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-bg-color)}
 :global(.candidate-list-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-list-dialog .el-dialog__header){flex:none}:global(.candidate-list-dialog .el-dialog__body){flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto}:global(.candidate-list-dialog .candidate-toolbar){position:sticky;top:0;z-index:2;padding-bottom:10px;background:var(--el-bg-color)}
+:global(.progress-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.progress-dialog .el-dialog__header){flex:none}:global(.progress-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}
 :global(.candidate-editor-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-editor-dialog .el-dialog__header),:global(.candidate-editor-dialog .el-dialog__footer){flex:none}:global(.candidate-editor-dialog .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:global(.candidate-editor-dialog .candidate-editor-body){box-sizing:border-box;flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;padding:0 4px}:global(.candidate-editor-dialog .candidate-editor-body>.el-form){box-sizing:border-box;width:100%}:global(.candidate-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
 .editor-dialog-heading{display:flex;flex-direction:column;gap:4px;padding-right:36px}.editor-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600;line-height:1.35}.editor-dialog-subtitle{color:var(--el-text-color-secondary);font-size:12px;font-weight:400}.editor-body{padding:16px 24px 20px;background:var(--el-fill-color-lighter)}.recruitment-form{max-width:100%}.form-section{margin-bottom:16px;padding:20px 20px 4px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-bg-color);box-shadow:0 2px 8px rgb(15 23 42 / 4%)}.form-section:last-child{margin-bottom:0}.form-section h3{display:flex;align-items:center;gap:8px;margin:-20px -20px 20px;padding:12px 20px;border-bottom:1px solid var(--el-border-color-lighter);border-radius:10px 10px 0 0;background:linear-gradient(90deg,var(--el-color-primary-light-9),var(--el-fill-color-extra-light));color:var(--el-text-color-primary);font-size:15px;font-weight:600}.form-section h3::before{width:3px;height:16px;border-radius:2px;background:var(--el-color-primary);content:""}.recruitment-form :deep(.el-form-item){margin-bottom:18px}.recruitment-form :deep(.el-input__wrapper),.recruitment-form :deep(.el-select__wrapper),.recruitment-form :deep(.el-textarea__inner){transition:border-color .2s ease,box-shadow .2s ease}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);font-weight:500}.number-range{width:100%;min-width:0}.number-range .el-input-number{flex:1;width:auto;min-width:0}.number-range :deep(.el-input__inner),.money-field :deep(.el-input__inner){text-align:left}.range-separator,.range-unit{flex:none;color:var(--el-text-color-secondary)}.range-unit{font-size:13px}.money-field .el-input-number{flex:1;min-width:140px}.editor-footer{gap:10px}.editor-footer .el-button{min-width:88px}:deep(.recruitment-editor .el-dialog__body){padding:0}:deep(.recruitment-editor .el-dialog__footer){padding:14px 24px;background:var(--el-bg-color);box-shadow:0 -4px 14px rgb(15 23 42 / 5%)}
 @media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.money-field,.progress-create,.subject-preview-toolbar{align-items:stretch;flex-direction:column}.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.subject-preview-toolbar .el-button{align-self:flex-end}.recruitment-form :deep(.el-form-item){display:block}.recruitment-form :deep(.el-form-item__label){width:auto!important;margin-bottom:6px;justify-content:flex-start}.recruitment-form :deep(.el-form-item__content){margin-left:0!important}.editor-body{padding:12px 12px 16px}.form-section{padding:16px 14px 4px}.form-section h3{margin:-16px -14px 16px}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}

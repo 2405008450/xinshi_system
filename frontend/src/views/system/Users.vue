@@ -10,6 +10,14 @@
       </div>
     </template>
 
+    <el-alert
+      class="mail-account-guide"
+      title="发件邮箱由管理员统一维护：先填写用户的企业邮箱地址，再点击列表中的“配置凭据”填写 SMTP 密码或授权码并验证。"
+      type="info"
+      :closable="false"
+      show-icon
+    />
+
     <el-form :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="用户名">
         <el-input
@@ -49,6 +57,25 @@
         <template #default="{ row }">{{ normalizeDepartment(row.department) || '未分部门' }}</template>
       </el-table-column>
       <el-table-column prop="email" label="邮箱" width="200" />
+      <el-table-column label="发件邮箱" width="170" align="center">
+        <template #default="{ row }">
+          <div class="mail-account-cell">
+            <el-tag
+              size="small"
+              :type="row.mail_account_verified ? 'success' : (row.mail_account_bound ? 'warning' : 'info')"
+            >
+              {{ row.mail_account_verified ? '已验证' : (row.mail_account_bound ? '待验证' : '未配置') }}
+            </el-tag>
+            <el-button
+              v-if="canManageMailAccount"
+              type="primary"
+              link
+              size="small"
+              @click="openMailAccountDialog(row)"
+            >配置凭据</el-button>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="角色" min-width="220">
         <template #default="{ row }">
           <template v-if="row.roles?.length">
@@ -140,6 +167,74 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="mailAccountDialogVisible"
+      title="配置用户发件邮箱"
+      width="min(560px, calc(100vw - 32px))"
+      @closed="resetMailAccountDialog"
+    >
+      <el-alert
+        :title="`当前用户：${mailTargetUser?.full_name || mailTargetUser?.username || ''}`"
+        description="SMTP 密码或授权码将使用 AES-256-GCM 加密保存，保存后不会在页面或接口中回显。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+      <el-descriptions class="mail-account-summary" :column="1" border size="small">
+        <el-descriptions-item label="企业邮箱">{{ mailTargetUser?.email || '未配置' }}</el-descriptions-item>
+        <el-descriptions-item label="验证状态">
+          <el-tag :type="mailAccount.is_verified ? 'success' : (mailAccount.is_bound ? 'warning' : 'info')">
+            {{ mailAccount.is_verified ? '已验证' : (mailAccount.is_bound ? '待验证' : '未配置') }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="最近验证">{{ formatDateTime(mailAccount.verified_at) || '-' }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form label-position="top" class="mail-account-form" @submit.prevent>
+        <el-form-item :label="mailAccount.is_bound ? '新 SMTP 密码/授权码（填写后覆盖原凭据）' : 'SMTP 密码/授权码'" required>
+          <el-input
+            v-model="mailAuthorizationCode"
+            type="password"
+            show-password
+            maxlength="500"
+            autocomplete="new-password"
+            :disabled="!mailTargetUser?.email"
+            placeholder="请输入该企业邮箱的 SMTP 密码或授权码"
+            @keyup.enter="saveAndVerifyMailAccount"
+          />
+        </el-form-item>
+      </el-form>
+      <el-alert
+        v-if="!mailTargetUser?.email"
+        title="请先编辑该用户并填写企业邮箱地址，再配置发件凭据。"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
+      <template #footer>
+        <div class="mail-account-footer">
+          <el-button
+            v-if="mailAccount.is_bound"
+            type="danger"
+            plain
+            :loading="mailAccountSubmitting"
+            @click="removeMailAccount"
+          >解除绑定</el-button>
+          <span class="footer-spacer" />
+          <el-button
+            v-if="mailAccount.is_bound"
+            :loading="mailAccountSubmitting"
+            @click="verifyMailAccount"
+          >重新验证</el-button>
+          <el-button
+            type="primary"
+            :loading="mailAccountSubmitting"
+            :disabled="!mailTargetUser?.email || !mailAuthorizationCode.trim()"
+            @click="saveAndVerifyMailAccount"
+          >保存并验证</el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -263,6 +358,7 @@ const userRoleRows = ref([])
 const canAssignRoles = computed(() => hasPermission('system:user_roles:write'))
 const canResetPassword = computed(() => isSuperAdmin())
 const canManageSchedule = computed(() => hasPermission('schedule:write'))
+const canManageMailAccount = computed(() => hasPermission('system:users:write'))
 const departments = DEPARTMENT_NAMES
 const shiftDialogVisible = ref(false)
 const shiftEmployee = ref(null)
@@ -274,6 +370,20 @@ const passwordForm = reactive({
   newPassword: '',
   confirmPassword: ''
 })
+const mailAccountDialogVisible = ref(false)
+const mailAccountSubmitting = ref(false)
+const mailTargetUser = ref(null)
+const mailAuthorizationCode = ref('')
+const mailAccount = reactive({
+  email: null,
+  is_bound: false,
+  is_verified: false,
+  verified_at: null,
+  updated_at: null
+})
+const formatDateTime = (value) => value
+  ? new Date(value).toLocaleString('zh-CN', { hour12: false })
+  : ''
 
 const validateConfirmPassword = (_rule, value, callback) => {
   if (!value) {
@@ -538,6 +648,92 @@ const resetPasswordForm = () => {
   passwordFormRef.value?.resetFields()
 }
 
+const loadMailAccount = async () => {
+  if (!mailTargetUser.value) return
+  Object.assign(mailAccount, await userApi.getUserMailAccount(mailTargetUser.value.id))
+}
+
+const openMailAccountDialog = async (row) => {
+  mailTargetUser.value = row
+  mailAuthorizationCode.value = ''
+  mailAccountDialogVisible.value = true
+  try {
+    await loadMailAccount()
+  } catch (error) {
+    ElMessage.error(error.detail || '加载发件邮箱配置失败')
+  }
+}
+
+const saveAndVerifyMailAccount = async () => {
+  if (!mailTargetUser.value?.email || !mailAuthorizationCode.value.trim()) return
+  mailAccountSubmitting.value = true
+  try {
+    Object.assign(
+      mailAccount,
+      await userApi.saveUserMailAccount(
+        mailTargetUser.value.id,
+        mailAuthorizationCode.value.trim()
+      )
+    )
+    mailAuthorizationCode.value = ''
+    ElMessage.success('发件邮箱凭据已加密保存并验证')
+    await fetchData()
+  } catch (error) {
+    try { await loadMailAccount() } catch {}
+    ElMessage.error(error.detail || '发件邮箱保存或验证失败')
+  } finally {
+    mailAccountSubmitting.value = false
+  }
+}
+
+const verifyMailAccount = async () => {
+  if (!mailTargetUser.value) return
+  mailAccountSubmitting.value = true
+  try {
+    Object.assign(mailAccount, await userApi.verifyUserMailAccount(mailTargetUser.value.id))
+    ElMessage.success('发件邮箱验证成功')
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(error.detail || '发件邮箱验证失败')
+  } finally {
+    mailAccountSubmitting.value = false
+  }
+}
+
+const removeMailAccount = async () => {
+  if (!mailTargetUser.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认解除 ${mailTargetUser.value.full_name || mailTargetUser.value.username} 的发件邮箱凭据吗？`,
+      '解除发件邮箱绑定',
+      { type: 'warning', confirmButtonText: '确认解除', cancelButtonText: '取消' }
+    )
+    mailAccountSubmitting.value = true
+    await userApi.deleteUserMailAccount(mailTargetUser.value.id)
+    await loadMailAccount()
+    await fetchData()
+    ElMessage.success('发件邮箱凭据已解除')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error.detail || '解除发件邮箱失败')
+    }
+  } finally {
+    mailAccountSubmitting.value = false
+  }
+}
+
+const resetMailAccountDialog = () => {
+  mailTargetUser.value = null
+  mailAuthorizationCode.value = ''
+  Object.assign(mailAccount, {
+    email: null,
+    is_bound: false,
+    is_verified: false,
+    verified_at: null,
+    updated_at: null
+  })
+}
+
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm('确定要删除该用户吗？', '提示', {
@@ -633,6 +829,36 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 600;
   color: var(--color-text-primary);
+}
+
+.mail-account-guide {
+  margin-bottom: 16px;
+}
+
+.mail-account-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.mail-account-summary {
+  margin-top: 18px;
+}
+
+.mail-account-form {
+  margin-top: 18px;
+}
+
+.mail-account-footer {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+}
+
+.footer-spacer {
+  flex: 1;
 }
 
 .el-table {

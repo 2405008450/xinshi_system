@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from database import engine, get_db
 from auth_security import cleanup_login_security_data
-from auth_security_models import LoginSecurityEvent, LoginThrottleState, RevokedAccessToken
+from auth_security_models import (
+    LoginCaptchaChallenge,
+    LoginSecurityEvent,
+    LoginThrottleState,
+    RevokedAccessToken,
+)
 from manuscript_models import (
     ManuscriptArrangement,
     ManuscriptDeliveryMilestone,
@@ -1050,6 +1055,7 @@ def run_runtime_migrations():
     LoginThrottleState.__table__.create(bind=engine, checkfirst=True)
     LoginSecurityEvent.__table__.create(bind=engine, checkfirst=True)
     RevokedAccessToken.__table__.create(bind=engine, checkfirst=True)
+    LoginCaptchaChallenge.__table__.create(bind=engine, checkfirst=True)
     with Session(engine) as db:
         cleanup_login_security_data(db)
     with engine.begin() as conn:
@@ -1140,6 +1146,23 @@ def run_runtime_migrations():
     BusinessMail.__table__.create(bind=engine, checkfirst=True)
     BusinessMailRecipient.__table__.create(bind=engine, checkfirst=True)
     BusinessMailAttempt.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE business_mail_attempt ADD COLUMN IF NOT EXISTS sender_user_id UUID"))
+        conn.execute(text("ALTER TABLE business_mail_attempt ADD COLUMN IF NOT EXISTS sender_name_snapshot VARCHAR(255)"))
+        conn.execute(text("ALTER TABLE business_mail_attempt ADD COLUMN IF NOT EXISTS sender_email_snapshot VARCHAR(255)"))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'fk_business_mail_attempt_sender'
+                ) THEN
+                    ALTER TABLE business_mail_attempt
+                    ADD CONSTRAINT fk_business_mail_attempt_sender
+                    FOREIGN KEY (sender_user_id) REFERENCES app_user(id) ON DELETE SET NULL;
+                END IF;
+            END $$
+        """))
     UserMailAccount.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE user_mail_account ADD COLUMN IF NOT EXISTS email_snapshot VARCHAR(255)"))

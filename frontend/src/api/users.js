@@ -13,4 +13,9 @@ export const createUser = (data) => api.post('/users/', data)
 export const updateUser = (id, data) => api.put(`/users/${id}`, data)
 export const resetUserPassword = (id, newPassword) =>
   api.put(`/users/${id}/password`, { new_password: newPassword })
+export const getUserMailAccount = (id) => api.get(`/users/${id}/mail-account`)
+export const saveUserMailAccount = (id, authorizationCode) =>
+  api.put(`/users/${id}/mail-account`, { authorization_code: authorizationCode })
+export const verifyUserMailAccount = (id) => api.post(`/users/${id}/mail-account/verify`)
+export const deleteUserMailAccount = (id) => api.delete(`/users/${id}/mail-account`)
 export const deleteUser = (id) => api.delete(`/users/${id}`)

@@ -13,8 +13,8 @@
           <div class="logo-icon">
             <el-icon :size="48"><OfficeBuilding /></el-icon>
           </div>
-          <h1 class="system-title">翻译</h1>
-          <p class="system-subtitle">专业翻译项目管理平台</p>
+          <h1 class="system-title">项目管理</h1>
+          <p class="system-subtitle">综合业务项目管理平台</p>
         </div>
         <el-card class="login-card" shadow="always">
           <template #header>
@@ -49,6 +49,30 @@
                 @keyup.enter="handleLogin"
               />
             </el-form-item>
+            <el-form-item v-if="captchaRequired" prop="captchaCode">
+              <div class="captcha-row">
+                <el-input
+                  ref="captchaInputRef"
+                  v-model="loginForm.captchaCode"
+                  placeholder="请输入验证码"
+                  size="large"
+                  :prefix-icon="Picture"
+                  maxlength="6"
+                  clearable
+                  @keyup.enter="handleLogin"
+                />
+                <button
+                  type="button"
+                  class="captcha-image"
+                  :disabled="captchaLoading"
+                  title="点击更换验证码"
+                  @click="refreshCaptcha"
+                >
+                  <img v-if="captchaImage" :src="captchaImage" alt="点击更换验证码" />
+                  <span v-else class="captcha-placeholder">加载中</span>
+                </button>
+              </div>
+            </el-form-item>
             <el-form-item>
               <el-button
                 type="primary"
@@ -63,7 +87,7 @@
           </el-form>
         </el-card>
         <div class="login-footer">
-          <el-text type="info" size="small">© 2026 翻译项目管理平台 版权所有</el-text>
+          <el-text type="info" size="small">© 2026 综合业务项目管理平台 版权所有</el-text>
         </div>
       </div>
     </div>
@@ -71,17 +95,22 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, Lock, OfficeBuilding } from '@element-plus/icons-vue'
-import { login } from '@/api/auth'
+import { User, Lock, OfficeBuilding, Picture } from '@element-plus/icons-vue'
+import { checkCaptchaRequired, fetchCaptcha, login } from '@/api/auth'
 import { getDefaultRoute } from '@/utils/permission'
 
 const router = useRouter()
 const loginFormRef = ref(null)
+const captchaInputRef = ref(null)
 const loading = ref(false)
 const loginStatusText = ref('正在验证账号...')
+const captchaRequired = ref(false)
+const captchaLoading = ref(false)
+const captchaId = ref('')
+const captchaImage = ref('')
 let preloadHandle = null
 
 const preloadLandingViews = () => {
@@ -92,12 +121,41 @@ const preloadLandingViews = () => {
   ])
 }
 
+const refreshCaptcha = async () => {
+  if (captchaLoading.value) return
+  captchaLoading.value = true
+  captchaId.value = ''
+  captchaImage.value = ''
+  try {
+    const res = await fetchCaptcha()
+    captchaId.value = res.captcha_id
+    captchaImage.value = res.image
+  } catch (error) {
+    ElMessage.error(error.detail || '验证码获取失败，请稍后重试')
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+const enableCaptcha = async ({ focus = false } = {}) => {
+  captchaRequired.value = true
+  loginForm.captchaCode = ''
+  await refreshCaptcha()
+  if (!focus) return
+  await nextTick()
+  captchaInputRef.value?.focus?.()
+}
+
 onMounted(() => {
   if ('requestIdleCallback' in window) {
     preloadHandle = window.requestIdleCallback(preloadLandingViews, { timeout: 1000 })
   } else {
     preloadHandle = window.setTimeout(preloadLandingViews, 150)
   }
+  // 探测失败不阻塞登录：真正需要验证码时后端会在登录响应头中告知。
+  checkCaptchaRequired()
+    .then((res) => (res?.required ? enableCaptcha() : null))
+    .catch(() => {})
 })
 
 onBeforeUnmount(() => {
@@ -111,7 +169,8 @@ onBeforeUnmount(() => {
 
 const loginForm = reactive({
   username: '',
-  password: ''
+  password: '',
+  captchaCode: ''
 })
 
 const rules = {
@@ -120,6 +179,18 @@ const rules = {
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' }
+  ],
+  captchaCode: [
+    {
+      validator: (_rule, value, callback) => {
+        if (captchaRequired.value && !String(value || '').trim()) {
+          callback(new Error('请输入验证码'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
   ]
 }
 
@@ -134,8 +205,14 @@ const handleLogin = async () => {
 
   loading.value = true
   loginStatusText.value = '正在验证账号...'
+  const submittedWithCaptcha = captchaRequired.value
   try {
-    const res = await login(loginForm)
+    const payload = { username: loginForm.username, password: loginForm.password }
+    if (submittedWithCaptcha) {
+      payload.captcha_id = captchaId.value
+      payload.captcha_code = loginForm.captchaCode.trim()
+    }
+    const res = await login(payload)
     localStorage.setItem('token', res.access_token)
     localStorage.setItem('user_id', res.user_id)
     const raw = Array.isArray(res.roles) ? res.roles : []
@@ -152,6 +229,11 @@ const handleLogin = async () => {
     await router.replace(getDefaultRoute())
     ElMessage.success('登录成功')
   } catch (error) {
+    // 验证码是一次性的，只要本次提交带过或后端要求补验证码，都换一张新图。
+    const serverRequiresCaptcha = error.response?.headers?.['x-login-captcha-required'] === '1'
+    if (serverRequiresCaptcha || submittedWithCaptcha) {
+      await enableCaptcha({ focus: !submittedWithCaptcha })
+    }
     ElMessage.error(error.detail || error.message || '登录或页面加载失败')
   } finally {
     loading.value = false
@@ -306,6 +388,53 @@ const handleLogin = async () => {
 
 .login-form :deep(.el-input__wrapper.is-focus) {
   box-shadow: 0 0 0 1px var(--color-primary) inset;
+}
+
+.captcha-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.captcha-row :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+
+.captcha-image {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--radius-md);
+  background: #f1f5f9;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 180ms ease;
+}
+
+.captcha-image:hover:not(:disabled) {
+  border-color: var(--color-primary);
+}
+
+.captcha-image:disabled {
+  cursor: progress;
+}
+
+.captcha-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.captcha-placeholder {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .login-button {

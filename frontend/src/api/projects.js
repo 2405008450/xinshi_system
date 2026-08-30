@@ -60,6 +60,14 @@ export const getNextOrderNo = () => {
     return api.get('/projects/translation/next-order-no').then(res => res.orderNo)
 }
 
+export const updateProjectTextField = (id, field, value, expectedUpdatedAt) => (
+    api.patch(`/projects/translation/${id}/text-field`, {
+        field: toSnakeCase(field),
+        value,
+        expected_updated_at: expectedUpdatedAt,
+    }).then(res => convertKeys(res, toCamelCase))
+)
+
 let languageVariantsPromise
 
 export const getLanguageVariants = () => {

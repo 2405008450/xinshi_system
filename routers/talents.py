@@ -33,6 +33,7 @@ from resource_service import (
 )
 from routers.auth import require_module_access
 from resource_models import ResourcePerson
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
 router = APIRouter(
@@ -49,10 +50,28 @@ recruitment_router = APIRouter(
     ))],
 )
 
+TALENT_FILTER_FIELDS = {
+    "resource_code", "full_name", "capability_types", "language_directions",
+    "annotation_language_directions", "industries", "job_titles", "years_experience",
+    "status", "cooperation_type", "primary_phone", "primary_email", "gender", "age",
+    "native_place", "residence_address", "dialects", "dialect_regions", "nationality",
+    "overall_rating", "first_contact_date", "updated_at", "duplicate_review_required",
+}
+
+
+def _field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, TALENT_FILTER_FIELDS)
+    ranges = {"years_experience", "age", "first_contact_date", "updated_at"}
+    enums = {"capability_types", "status", "cooperation_type"}
+    booleans = {"duplicate_review_required"}
+    ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
+    return value
+
 
 def _filters(
     keyword=None, status=None, capability_type=None, capability_status=None,
-    cooperation_type=None, industry_keyword=None, review_required=None,
+    cooperation_type=None, industry_keyword=None, review_required=None, field_filters=None,
 ):
     return dict(
         keyword=keyword,
@@ -62,6 +81,7 @@ def _filters(
         cooperation_type=cooperation_type,
         industry_keyword=industry_keyword,
         review_required=review_required,
+        field_filters=field_filters,
     )
 
 
@@ -76,11 +96,12 @@ def read_talents(
     cooperation_type: Optional[str] = None,
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return get_talents(db, skip=skip, limit=limit, **_filters(
         keyword, status, capability_type, capability_status, cooperation_type,
-        industry_keyword, review_required,
+        industry_keyword, review_required, _field_filters(field_filters),
     ))
 
 
@@ -93,11 +114,12 @@ def read_talent_count(
     cooperation_type: Optional[str] = None,
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     return {"total": count_talents(db, **_filters(
         keyword, status, capability_type, capability_status, cooperation_type,
-        industry_keyword, review_required,
+        industry_keyword, review_required, _field_filters(field_filters),
     ))}
 
 

@@ -2,7 +2,7 @@
   <div class="annotation-workspace" :class="{ 'annotation-workspace--focus': focusMode && activeSection === 'accounts' }">
     <el-card v-show="!(focusMode && activeSection === 'accounts')" class="workspace-navigation" shadow="never">
       <el-tabs v-model="activeSection" @tab-change="handleSectionChange">
-        <el-tab-pane v-if="canViewProjects" label="项目详情" name="projects" />
+        <el-tab-pane v-if="canViewProjects" label="标注项目管理" name="projects" />
         <el-tab-pane v-if="canViewAccounts" label="标注员账号" name="accounts" />
         <el-tab-pane v-if="canViewProjects" label="试标流程" name="trials" />
         <el-tab-pane v-if="canViewProjects" label="标注流程" name="workflow" />

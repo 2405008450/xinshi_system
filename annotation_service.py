@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
 from concurrency import VERSION_FIELD, assert_fresh
@@ -33,6 +33,7 @@ from models import (
     AppUser, Client, Consultation, SubClient, TranslationProject,
     TranslationSubOrder,
 )
+from field_filtering import apply_scalar_filter, apply_scalar_specs
 
 
 ANNOTATION_TYPE_VALUES = {"标注项目", "annotation"}
@@ -128,6 +129,7 @@ def _apply_filters(
     consultation_date_end=None,
     confirmation_date_start=None,
     confirmation_date_end=None,
+    field_filters=None,
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
@@ -176,6 +178,67 @@ def _apply_filters(
             query = query.filter(field >= datetime.combine(start_value, time.min))
         if end_value:
             query = query.filter(field <= datetime.combine(end_value, time.max))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "order_no": (AnnotationProject.order_no, "string"),
+        "project_name": (AnnotationProject.project_name, "string"),
+        "task_description": (AnnotationProject.task_description, "string"),
+        "project_status": (AnnotationProject.project_status, "string"),
+        "contact_name": (AnnotationProject.contact_name, "string"),
+        "customer_order_no": (AnnotationProject.customer_order_no, "string"),
+        "language_region": (AnnotationProject.language_region, "string"),
+        "potential_demand": (AnnotationProject.potential_demand, "string"),
+        "client_manager_id": (AnnotationProject.client_manager_id, "uuid"),
+        "task_dispatched_at": (AnnotationProject.task_dispatched_at, "datetime"),
+        "task_submitted_at": (AnnotationProject.task_submitted_at, "datetime"),
+        "customer_consultation_time": (AnnotationProject.customer_consultation_time, "datetime"),
+        "customer_confirmation_time": (AnnotationProject.customer_confirmation_time, "datetime"),
+        "created_at": (AnnotationProject.created_at, "datetime"),
+        "updated_at": (AnnotationProject.updated_at, "datetime"),
+    })
+    for field, descriptor in field_filters.items():
+        if field == "project_types":
+            values = descriptor.get("value") or []
+            query = query.filter(or_(*(AnnotationProject.project_types.contains([value]) for value in values)))
+        elif field in {"client_short_name", "client_code", "client_full_name"}:
+            parent_column, sub_column = {
+                "client_short_name": (Client.client_short_name, SubClient.client_short_name),
+                "client_code": (Client.client_code, SubClient.sub_client_code),
+                "client_full_name": (Client.client_name, SubClient.client_name),
+            }[field]
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+        elif field == "language_id":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            query = query.join(AnnotationProjectLanguageItem, AnnotationProjectLanguageItem.project_id == AnnotationProject.id).filter(or_(AnnotationProjectLanguageItem.source_language_id.in_(values), AnnotationProjectLanguageItem.target_language_id.in_(values)))
+        elif field == "assignee_person_id":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            query = query.join(AnnotationProjectAssignee, AnnotationProjectAssignee.project_id == AnnotationProject.id).filter(AnnotationProjectAssignee.person_id.in_(values))
+        elif field == "has_customer_price":
+            condition = AnnotationProject.price_items.any()
+            query = query.filter(condition if descriptor.get("value") else ~condition)
+        elif field == "customer_price":
+            conditions = [AnnotationProjectPriceItem.project_id == AnnotationProject.id]
+            if descriptor.get("min") not in (None, ""):
+                conditions.append(AnnotationProjectPriceItem.amount >= descriptor["min"])
+            if descriptor.get("max") not in (None, ""):
+                conditions.append(AnnotationProjectPriceItem.amount <= descriptor["max"])
+            query = query.filter(db_exists().where(*conditions))
+        elif field.startswith("custom:"):
+            custom_id = field.split(":", 1)[1]
+            expression = AnnotationProject.custom_values[custom_id].astext
+            data_type = descriptor.get("data_type")
+            if descriptor.get("op") == "contains":
+                query = query.filter(cast(expression, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+            elif descriptor.get("op") == "in":
+                values = descriptor.get("value") or []
+                query = query.filter(or_(*(cast(expression, String).ilike(f"%{value}%") for value in values)))
+            elif descriptor.get("op") == "eq" and data_type == "boolean":
+                query = query.filter(expression == ("true" if descriptor.get("value") else "false"))
+            elif descriptor.get("op") == "between":
+                value_type = "number" if data_type == "number" else ("date" if data_type == "date" else ("datetime" if data_type == "datetime" else "string"))
+                typed_expression = cast(expression, Numeric if data_type == "number" else (SqlDate if data_type == "date" else SqlDateTime))
+                query = apply_scalar_filter(query, typed_expression, descriptor, value_type=value_type)
     return query
 
 

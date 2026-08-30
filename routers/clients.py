@@ -14,8 +14,22 @@ from crud import (
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
 from routers.auth import require_module_access
 from models import Client, SubClient
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
+
+CLIENT_FILTER_FIELDS = {
+    "client_code", "client_name", "client_short_name", "english_name", "english_short_name",
+    "client_manager", "manager_contact", "field_level1", "field_level2", "country",
+    "province", "city", "district", "client_status", "cooperation_start_date", "remarks",
+}
+
+
+def _field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, CLIENT_FILTER_FIELDS)
+    ensure_filter_operators(value, {field: ({"between"} if field == "cooperation_start_date" else {"in"} if field == "client_status" else {"contains"}) for field in CLIENT_FILTER_FIELDS})
+    return value
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 def create_client_endpoint(
@@ -59,6 +73,7 @@ def read_clients(
     cooperation_start_date_from: Optional[date] = Query(None),
     cooperation_start_date_to: Optional[date] = Query(None),
     frequent_first: bool = Query(False),
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return get_clients(
@@ -80,7 +95,8 @@ def read_clients(
         client_status=client_status,
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
-        frequent_first=frequent_first
+        frequent_first=frequent_first,
+        field_filters=_field_filters(field_filters),
     )
 
 @router.get("/count")
@@ -100,6 +116,7 @@ def read_client_count(
     client_status: Optional[str] = Query(None),
     cooperation_start_date_from: Optional[date] = Query(None),
     cooperation_start_date_to: Optional[date] = Query(None),
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return {
@@ -120,6 +137,7 @@ def read_client_count(
             client_status=client_status,
             cooperation_start_date_from=cooperation_start_date_from,
             cooperation_start_date_to=cooperation_start_date_to,
+            field_filters=_field_filters(field_filters),
         )
     }
 

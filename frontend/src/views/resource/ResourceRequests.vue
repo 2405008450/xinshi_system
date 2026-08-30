@@ -30,33 +30,14 @@
           @input="onKeyword"
           @keyup.enter="search"
         />
-        <el-select v-model="searchForm.requestStatus" clearable placeholder="请求状态" style="width: 140px" @change="search">
+        <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" style="width: 160px" @change="search">
           <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
         </el-select>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="advancedWidth">
-          <template #reference>
-            <el-button>高级筛选<span v-if="advancedCount" class="count">{{ advancedCount }}</span></el-button>
-          </template>
-          <div class="advanced">
-            <div class="advanced__header">
-              <strong>高级筛选</strong>
-              <div>
-                <el-button link @click="clearAdvanced">清空高级条件</el-button>
-                <el-button link @click="advancedVisible = false">关闭</el-button>
-              </div>
-            </div>
-            <el-form label-width="90px">
-              <el-row :gutter="16">
-                <el-col :xs="24" :md="12"><el-form-item label="来源类型"><el-select v-model="searchForm.sourceType" clearable style="width: 100%" @change="search"><el-option v-for="(label, value) in sourceLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="请求类别"><el-select v-model="searchForm.requestCategory" clearable style="width: 100%" @change="search"><el-option v-for="(label, value) in categoryLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="searchForm.priority" clearable style="width: 100%" @change="search"><el-option label="高" value="high" /><el-option label="中" value="medium" /><el-option label="低" value="low" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="负责人"><el-select v-model="searchForm.ownerId" clearable filterable style="width: 100%" @change="search"><el-option v-for="user in users" :key="user.id" :label="userName(user)" :value="user.id" /></el-select></el-form-item></el-col>
-              </el-row>
-            </el-form>
-          </div>
-        </el-popover>
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="resource-request-advanced-popover" @clear="clearAdvanced">
+          <CompactFilterGrid :fields="advancedFilterFields" :model="filterModel" @update="updateConfiguredFilter" @text-input="onConfiguredText" @change="search" @enter="search" />
+        </AdvancedFilterPopover>
       </div>
 
       <el-alert v-if="listError" class="list-error" type="error" show-icon :closable="false">
@@ -78,6 +59,19 @@
           :min-width="column.minWidth"
           :show-overflow-tooltip="column.tooltip !== false"
         >
+          <template #header>
+            <ConfiguredColumnHeaderFilter
+              v-if="headerFilterDefinition(column.key)"
+              :definition="headerFilterDefinition(column.key)"
+              :model-value="filterModel[headerFilterDefinition(column.key).key]"
+              @update:model-value="updateConfiguredFilter(headerFilterDefinition(column.key).key, $event)"
+              @text-input="onConfiguredText(headerFilterDefinition(column.key), $event)"
+              @change="search"
+              @enter="search"
+              @clear="search"
+            />
+            <span v-else>{{ column.label }}</span>
+          </template>
           <template #default="{ row }">
             <el-popover
               v-if="column.key === 'requestNo'"
@@ -89,6 +83,7 @@
               title="资源需求详情"
               popper-class="resource-detail-popover"
               @show="loadDetail(row)"
+              @hide="cancelInlineDetailEdit"
             >
               <template #reference>
                 <el-button link type="primary" class="business-clickable-cell" :title="`${row.requestNo || '-'}（点击查看详情）`" @click.stop>
@@ -108,8 +103,8 @@
                   <el-descriptions-item label="负责人">{{ ownerName(detailOf(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="优先级">{{ priorityLabels[detailOf(row).priority] || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="发起时间">{{ formatDate(detailOf(row).requestedAt) }}</el-descriptions-item>
-                  <el-descriptions-item v-if="detailOf(row).requestDetail" label="需求详情" :span="2"><div class="pre">{{ detailOf(row).requestDetail }}</div></el-descriptions-item>
-                  <el-descriptions-item label="语种、人数及要求" :span="2"><LanguageItemsPopover :items="detailOf(row).items || []" :languages="languages" mode="all" :request-detail="detailOf(row).requestDetail" :always-expanded="true" /></el-descriptions-item>
+                  <el-descriptions-item label="需求详情" :span="2"><InlineTextField :model-value="detailOf(row).requestDetail" :editable="canWrite && !deleteMode" :empty-as-null="false" label="需求详情" multiline :save-field="(value) => saveRequestTextField(row, value)" @conflict="loadDetail(row, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="语种、人数及要求" :span="2"><LanguageItemsPopover :items="detailOf(row).items || []" :languages="languages" mode="all" :request-detail="detailOf(row).requestDetail" :always-expanded="true" :editable="canWrite && !deleteMode" :save-item="(item, value) => saveRequestItemTextField(row, item, value)" :on-conflict="() => loadDetail(row, true)" /></el-descriptions-item>
                 </el-descriptions>
               </div>
             </el-popover>
@@ -132,8 +127,8 @@
         </el-table-column>
         <el-table-column v-if="canWrite && !deleteMode" label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
+            <PrimaryEditButton @click="openEditor(row)" />
             <el-button link type="primary" @click="openProgress(row)">更新进度</el-button>
-            <el-button link type="primary" @click="openEditor(row)">编辑</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -216,9 +211,15 @@ import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguag
 import { getUsers } from '@/api/users'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { hasPermission } from '@/utils/permission'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const languageText = (items, languages) => {
   const label = (id) => languages.find((item) => item.id === id)?.label || '-'
@@ -226,7 +227,7 @@ const languageText = (items, languages) => {
 }
 
 const LanguageItemsPopover = defineComponent({
-  props: { items: { type: Array, default: () => [] }, languages: { type: Array, default: () => [] }, mode: { type: String, default: 'all' }, requestDetail: { type: String, default: '' }, alwaysExpanded: Boolean },
+  props: { items: { type: Array, default: () => [] }, languages: { type: Array, default: () => [] }, mode: { type: String, default: 'all' }, requestDetail: { type: String, default: '' }, alwaysExpanded: Boolean, editable: Boolean, saveItem: { type: Function, default: null }, onConflict: { type: Function, default: null } },
   setup(props) {
     const rows = computed(() => props.items.map((item, index) => ({ ...item, sequence: index + 1, language: languageText([item], props.languages)[0] })))
     const summary = computed(() => {
@@ -239,7 +240,14 @@ const LanguageItemsPopover = defineComponent({
       h(ElTableColumn, { prop: 'sequence', label: '序号', width: 58 }),
       h(ElTableColumn, { prop: 'language', label: '需求语种', minWidth: 170 }),
       h(ElTableColumn, { label: '需求人数', width: 90 }, { default: ({ row }) => row.requiredCount ? `${row.requiredCount} 人` : '-' }),
-      h(ElTableColumn, { label: '需求详情', minWidth: 220 }, { default: ({ row }) => row.requirementDetail || '-' }),
+      h(ElTableColumn, { label: '具体要求', minWidth: 220 }, { default: ({ row }) => h(InlineTextField, {
+        modelValue: row.requirementDetail,
+        editable: props.editable,
+        label: `第${row.sequence}条具体要求`,
+        multiline: true,
+        saveField: (value) => props.saveItem?.(row, value),
+        onConflict: () => props.onConflict?.(),
+      }) }),
     ])
     return () => {
       if (props.alwaysExpanded) return props.items.length ? table() : h('span', '-')
@@ -259,7 +267,6 @@ const loading = ref(false)
 const listError = ref('')
 const prefillLoading = ref(false)
 const advancedVisible = ref(false)
-const advancedWidth = ref(760)
 const dialogVisible = ref(false)
 const progressDialog = ref(false)
 const saving = ref(false)
@@ -271,7 +278,7 @@ const formRef = ref(null)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const tableRef = ref(null)
 const canWrite = hasPermission('projects:write')
-const searchForm = reactive({ keyword: '', requestStatus: '', sourceType: '', requestCategory: '', priority: '', ownerId: '' })
+const searchForm = reactive({ keyword: '' })
 const form = reactive({})
 const sourceInfo = reactive({ projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const progressForm = reactive({ id: '', progressPercent: 0, progressNote: '' })
@@ -290,6 +297,29 @@ const projectStatusLabels = {
   initial_follow_up: '初步跟进中', in_progress: '进行中', ended: '已结束', settled: '已结款', active: '进行中', completed: '已完成', cancelled: '已取消',
   pending_confirmation: '待确认', confirmed: '已确认', organized: '已整理', translator_assigned: '已排译员', sent_to_translator: '已发译员', translator_returned: '译员发回', special_checked: '已专检', typeset: '已排版', special_checked_typeset: '已专检排版', reviewed: '已审核', feedback_sent_to_client: '反馈后发客户', paused: '已暂停',
 }
+
+const optionsOf = (map) => Object.entries(map).map(([value, label]) => ({ value, label }))
+const filterFields = [
+  { key: 'requestNo', label: '请求编号', type: 'text' },
+  { key: 'sourceType', label: '来源', type: 'select', options: () => optionsOf(sourceLabels) },
+  { key: 'requestCategory', label: '请求类别', type: 'select', options: () => optionsOf(categoryLabels) },
+  { key: 'projectType', label: '项目类型', type: 'select', options: () => optionsOf(projectTypeLabels) },
+  { key: 'projectStatus', label: '项目状态', type: 'select', options: () => optionsOf(projectStatusLabels) },
+  { key: 'orderNo', label: '需求项目订单号', type: 'text' },
+  { key: 'projectName', label: '需求项目', type: 'text' },
+  { key: 'clientCode', label: '客户编号', type: 'text' },
+  { key: 'clientShortName', label: '客户简称', type: 'text' },
+  { key: 'ownerId', apiKey: 'owner_id', label: '负责人', type: 'select', options: () => users.value.map((user) => ({ value: user.id, label: userName(user) })) },
+  { key: 'languages', label: '需求语种', type: 'select', options: () => languages.value.map((item) => ({ value: item.id, label: item.label })) },
+  { key: 'requiredCount', label: '需求人数', type: 'number-range', min: 0, wide: true },
+  { key: 'requestDetail', label: '需求详情', type: 'text', wide: true },
+  { key: 'priority', label: '优先级', type: 'select', options: () => optionsOf(priorityLabels) },
+  { key: 'progress', apiKey: 'progress_percent', label: '进度百分比', type: 'number-range', min: 0, max: 100, wide: true },
+  { key: 'requestStatus', label: '请求状态', type: 'select', options: () => optionsOf(statusLabels) },
+  { key: 'requestedAt', label: '发起时间', type: 'date-range', wide: true },
+]
+const filterModel = reactive(createFilterModel(filterFields))
+const advancedFilterFields = filterFields.filter((item) => !['requestNo', 'requestStatus'].includes(item.key))
 
 const tableColumns = [
   { key: 'requestNo', label: '请求编号', width: 130 },
@@ -319,7 +349,9 @@ const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumn
 )
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
 const visibleColumns = computed(() => tableColumns.filter((column) => selectedColumnKeys.value.includes(column.key)))
-const advancedCount = computed(() => [searchForm.sourceType, searchForm.requestCategory, searchForm.priority, searchForm.ownerId].filter(Boolean).length)
+const advancedCount = computed(() => countActiveFilters(filterModel, advancedFilterFields))
+const headerFilterKeys = new Set(defaultColumnKeys)
+const headerFilterDefinition = (key) => headerFilterKeys.has(key) ? filterFields.find((item) => item.key === key) : null
 const availableProjects = computed(() => projects[form.sourceType] || [])
 const availableCategories = computed(() => form.sourceType === 'annotation' ? [{ value: 'annotation_trial', label: '标注试标' }, { value: 'annotation_formal', label: '标注正式' }] : [{ value: form.sourceType, label: sourceLabels[form.sourceType] }])
 const formRules = computed(() => ({
@@ -334,7 +366,7 @@ let controller
 let requestId = 0
 const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'submitted', ownerId: '', items: [] })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
-const params = () => ({ keyword: searchForm.keyword.trim() || undefined, request_status: searchForm.requestStatus || undefined, source_type: searchForm.sourceType || undefined, request_category: searchForm.requestCategory || undefined, priority: searchForm.priority || undefined, owner_id: searchForm.ownerId || undefined })
+const params = () => ({ keyword: searchForm.keyword.trim() || undefined, field_filters: serializeFieldFilters(filterModel, filterFields) })
 const fetchData = async () => {
   controller?.abort()
   controller = new AbortController()
@@ -359,11 +391,12 @@ const fetchData = async () => {
     if (current === requestId) loading.value = false
   }
 }
-const search = () => { clearTimeout(timer); pagination.page = 1; fetchData() }
+const search = () => { exitDeleteMode(); clearTimeout(timer); pagination.page = 1; fetchData() }
 const onKeyword = (value) => { clearTimeout(timer); if (!value) return search(); timer = setTimeout(search, 400) }
-const reset = () => { Object.assign(searchForm, { keyword: '', requestStatus: '', sourceType: '', requestCategory: '', priority: '', ownerId: '' }); search() }
-const clearAdvanced = () => { Object.assign(searchForm, { sourceType: '', requestCategory: '', priority: '', ownerId: '' }); search() }
-const updateAdvancedWidth = () => { advancedWidth.value = Math.max(280, Math.min(760, window.innerWidth - 32)) }
+const updateConfiguredFilter = (key, value) => { filterModel[key] = value }
+const onConfiguredText = (_definition, value) => onKeyword(value)
+const reset = () => { searchForm.keyword = ''; resetFilterModel(filterModel, filterFields); search() }
+const clearAdvanced = () => { resetFilterModel(filterModel, advancedFilterFields); search() }
 const rowIndex = (index) => (pagination.page - 1) * pagination.limit + index + 1
 const userName = (user) => user.full_name || user.fullName || user.username
 const ownerName = (row) => {
@@ -381,8 +414,25 @@ const projectStatusLabel = (value) => projectStatusLabels[value] || value || '-'
 const projectTypesText = (row) => row.sourceProjectTypesSnapshot?.length ? row.sourceProjectTypesSnapshot.map(projectTypeLabel).join('、') : (categoryLabels[row.requestCategory] || sourceLabels[row.sourceType] || '-')
 const projectStatusText = (row) => projectStatusLabel(row.currentProjectStatus || row.sourceStatusSnapshot)
 const detailOf = (row) => detailCache[row.id] || row
-const loadDetail = async (row) => {
-  if (detailCache[row.id]) return
+const cancelInlineDetailEdit = () => window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
+const saveRequestTextField = async (row, value) => {
+  const current = detailOf(row)
+  const updated = await api.updateResourceRequestTextField(row.id, 'requestDetail', value, current.updatedAt)
+  detailCache[row.id] = updated
+  Object.assign(row, updated)
+  if (Object.values(params()).some(Boolean)) void fetchData()
+  return updated
+}
+const saveRequestItemTextField = async (row, item, value) => {
+  const current = detailOf(row)
+  const updated = await api.updateResourceRequestItemTextField(row.id, item.id, 'requirementDetail', value, current.updatedAt)
+  detailCache[row.id] = updated
+  Object.assign(row, updated)
+  if (Object.values(params()).some(Boolean)) void fetchData()
+  return updated
+}
+const loadDetail = async (row, force = false) => {
+  if (!force && detailCache[row.id]) return
   detailLoading.value = row.id
   try {
     detailCache[row.id] = await api.getResourceRequest(row.id)
@@ -468,8 +518,6 @@ const openProgress = (row) => { Object.assign(progressForm, { id: row.id, progre
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }
 
 onMounted(async () => {
-  updateAdvancedWidth()
-  window.addEventListener('resize', updateAdvancedWidth)
   const results = await Promise.allSettled([getAnnotationProjects({ skip: 0, limit: 500 }), getRecruitmentProjects({ skip: 0, limit: 500 }), getInterpretationProjects({ skip: 0, limit: 500 }), getTranslationProjects({ skip: 0, limit: 500 }), getProjectLanguages(), getUsers({ skip: 0, limit: 500 })])
   projects.annotation = results[0].value || []
   projects.recruitment = results[1].value || []
@@ -490,7 +538,7 @@ onMounted(async () => {
     await router.replace({ query })
   }
 })
-onBeforeUnmount(() => { clearTimeout(timer); controller?.abort(); window.removeEventListener('resize', updateAdvancedWidth) })
+onBeforeUnmount(() => { clearTimeout(timer); controller?.abort() })
 </script>
 
 <style scoped>

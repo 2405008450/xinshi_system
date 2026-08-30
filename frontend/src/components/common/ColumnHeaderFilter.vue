@@ -1,6 +1,8 @@
 <template>
   <span class="column-header-filter">
-    <span class="column-header-filter__label">{{ label }}</span>
+    <span class="column-header-filter__label">
+      <slot name="label">{{ label }}</slot>
+    </span>
     <el-popover
       trigger="click"
       :placement="placement"

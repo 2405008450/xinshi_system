@@ -90,6 +90,22 @@ def _translation_language_items(db: Session, language_pair: Optional[str]) -> li
     return result
 
 
+def _interpretation_request_items(project) -> list[dict]:
+    if not project.language_directions or any(
+        item.required_count is None or item.required_count <= 0
+        for item in project.language_directions
+    ):
+        raise ValueError("该口译项目的语言方向人数尚未补齐，请先编辑项目后再发起需求")
+    return [
+        {
+            "source_language_id": item.source_language_id,
+            "target_language_id": item.target_language_id,
+            "required_count": item.required_count,
+        }
+        for item in project.language_directions
+    ]
+
+
 def get_resource_request_source_prefill(db: Session, source_type: str, source_project_id: UUID) -> Optional[dict]:
     """读取来源项目并生成可人工调整的资源需求预填值。"""
     if source_type not in SOURCE_MODELS:
@@ -117,14 +133,7 @@ def get_resource_request_source_prefill(db: Session, source_type: str, source_pr
         ]
         project_types = _project_type_values(project, source_type)
     elif source_type == "interpretation":
-        raw_items = [
-            {
-                "source_language_id": item.source_language_id,
-                "target_language_id": item.target_language_id,
-                "required_count": project.required_interpreter_count if index == 0 else None,
-            }
-            for index, item in enumerate(project.language_directions)
-        ]
+        raw_items = _interpretation_request_items(project)
         project_types = _project_type_values(project, source_type) or ["口译"]
     else:
         raw_items = _translation_language_items(db, project.language_pair)
@@ -268,7 +277,7 @@ def get_resource_request(db: Session, request_id: UUID):
     return _detail_dict(db, row) if row else None
 
 
-def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, request_status=None, priority=None, owner_id=None):
+def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, request_status=None, priority=None, owner_id=None, field_filters=None):
     """为列表和总数构造完全相同的展示视图筛选条件。"""
     clauses, params = ["1=1"], {}
     filters = {"source_type": source_type, "request_category": request_category, "request_status": request_status, "priority": priority, "owner_id": owner_id}
@@ -282,19 +291,89 @@ def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, r
             "(request_no ILIKE :keyword OR current_project_name ILIKE :keyword "
             "OR source_project_name_snapshot ILIKE :keyword OR request_detail ILIKE :keyword "
             "OR client_short_name_snapshot ILIKE :keyword "
+            "OR EXISTS (SELECT 1 FROM resource_request_item ri WHERE ri.request_id=v_resource_request_display.id "
+            "AND ri.requirement_detail ILIKE :keyword) "
             "OR EXISTS (SELECT 1 FROM client c WHERE c.id=client_id AND "
             "(c.client_name ILIKE :keyword OR c.english_name ILIKE :keyword)) "
             "OR EXISTS (SELECT 1 FROM sub_client sc WHERE sc.id=sub_client_id AND "
             "(sc.client_name ILIKE :keyword OR sc.english_name ILIKE :keyword)))"
         )
         params["keyword"] = f"%{normalized_keyword}%"
+    field_filters = field_filters or {}
+    text_columns = {
+        "request_no": "request_no",
+        "order_no": "COALESCE(current_order_no, source_order_no_snapshot)",
+        "project_name": "COALESCE(current_project_name, source_project_name_snapshot)",
+        "client_code": "client_code_snapshot", "client_short_name": "client_short_name_snapshot",
+    }
+    scalar_columns = {
+        "source_type": "source_type", "priority": "priority", "request_status": "request_status",
+        "request_category": "request_category", "owner_id": "owner_id", "project_status": "current_project_status",
+    }
+    for index, (field, descriptor) in enumerate(field_filters.items()):
+        prefix = f"ff_{index}"
+        operator = descriptor.get("op")
+        if field in text_columns and operator == "contains":
+            clauses.append(f"{text_columns[field]} ILIKE :{prefix}")
+            params[prefix] = f"%{str(descriptor.get('value') or '').strip()}%"
+        elif field in scalar_columns and operator == "in":
+            values = descriptor.get("value") or []
+            placeholders = []
+            for value_index, value in enumerate(values):
+                name = f"{prefix}_{value_index}"
+                placeholders.append(f":{name}")
+                params[name] = value
+            clauses.append(f"{scalar_columns[field]} IN ({', '.join(placeholders)})")
+        elif field == "project_type":
+            values = descriptor.get("value") or []
+            parts = []
+            for value_index, value in enumerate(values):
+                name = f"{prefix}_{value_index}"
+                parts.append(f"CAST(source_project_types_snapshot AS TEXT) ILIKE :{name}")
+                params[name] = f"%{value}%"
+            clauses.append(f"({' OR '.join(parts)})")
+        elif field == "owner_name":
+            clauses.append(f"EXISTS (SELECT 1 FROM app_user u WHERE u.id=owner_id AND (u.full_name ILIKE :{prefix} OR u.username ILIKE :{prefix}))")
+            params[prefix] = f"%{str(descriptor.get('value') or '').strip()}%"
+        elif field == "languages":
+            values = descriptor.get("value") or []
+            parts = []
+            for value_index, value in enumerate(values):
+                name = f"{prefix}_{value_index}"
+                parts.append(f"item.source_language_id::text=:{name} OR item.target_language_id::text=:{name}")
+                params[name] = str(value)
+            clauses.append(f"EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND ({' OR '.join(parts)}))")
+        elif field == "request_detail":
+            clauses.append(
+                f"(request_detail ILIKE :{prefix} OR EXISTS (SELECT 1 FROM resource_request_item item "
+                f"WHERE item.request_id=v_resource_request_display.id AND item.requirement_detail ILIKE :{prefix}))"
+            )
+            params[prefix] = f"%{str(descriptor.get('value') or '').strip()}%"
+        elif field in {"required_count", "progress_percent"}:
+            target = "item.required_count" if field == "required_count" else "progress_percent"
+            range_parts = []
+            if descriptor.get("min") not in (None, ""):
+                range_parts.append(f"{target} >= :{prefix}_min")
+                params[f"{prefix}_min"] = descriptor["min"]
+            if descriptor.get("max") not in (None, ""):
+                range_parts.append(f"{target} <= :{prefix}_max")
+                params[f"{prefix}_max"] = descriptor["max"]
+            condition = " AND ".join(range_parts)
+            clauses.append(f"EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND {condition})" if field == "required_count" else condition)
+        elif field == "requested_at":
+            if descriptor.get("from"):
+                clauses.append(f"requested_at >= :{prefix}_from")
+                params[f"{prefix}_from"] = descriptor["from"]
+            if descriptor.get("to"):
+                clauses.append(f"requested_at < (CAST(:{prefix}_to AS date) + INTERVAL '1 day')")
+                params[f"{prefix}_to"] = descriptor["to"]
     return " AND ".join(clauses), params
 
 
-def list_resource_requests(db: Session, *, skip=0, limit=100, keyword=None, source_type=None, request_category=None, request_status=None, priority=None, owner_id=None):
+def list_resource_requests(db: Session, *, skip=0, limit=100, keyword=None, source_type=None, request_category=None, request_status=None, priority=None, owner_id=None, field_filters=None):
     where_sql, params = _view_filter_sql(
         keyword=keyword, source_type=source_type, request_category=request_category,
-        request_status=request_status, priority=priority, owner_id=owner_id,
+        request_status=request_status, priority=priority, owner_id=owner_id, field_filters=field_filters,
     )
     params.update({"skip": skip, "limit": limit})
     sql = text(f"SELECT * FROM v_resource_request_display WHERE {where_sql} ORDER BY requested_at DESC LIMIT :limit OFFSET :skip")

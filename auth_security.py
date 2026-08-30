@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from auth_security_models import LoginSecurityEvent, LoginThrottleState
+from auth_security_models import LoginCaptchaChallenge, LoginSecurityEvent, LoginThrottleState
 
 
 logger = logging.getLogger(__name__)
@@ -112,17 +112,23 @@ def get_client_address(request: Request) -> str:
     return chain[0]
 
 
-def _fingerprint(dimension: str, value: str) -> str:
+def hmac_fingerprint(dimension: str, value: str) -> str:
+    """按维度生成不可逆指纹，供限流、审计与验证码共用同一套密钥。"""
+
     secret = os.getenv("AUTH_THROTTLE_HMAC_KEY") or os.getenv("SECRET_KEY")
     if not secret:
         raise RuntimeError("AUTH_THROTTLE_HMAC_KEY or SECRET_KEY must be configured")
     return hmac.new(secret.encode("utf-8"), f"{dimension}:{value}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def source_fingerprint(request: Request) -> str:
+    return hmac_fingerprint("source", get_client_address(request))
+
+
 def create_login_context(username: str, request: Request) -> LoginAttemptContext:
     return LoginAttemptContext(
-        account_hash=_fingerprint("account", normalize_account(username)),
-        source_hash=_fingerprint("source", get_client_address(request)),
+        account_hash=hmac_fingerprint("account", normalize_account(username)),
+        source_hash=source_fingerprint(request),
     )
 
 
@@ -198,8 +204,12 @@ def _current_decision(states: Iterable[LoginThrottleState], now: datetime) -> Lo
     retry_after = 0
     blocked_until = None
     counts = {"account": 0, "source": 0}
+    cutoff = now - timedelta(seconds=LOGIN_WINDOW_SECONDS)
     for state_row in states:
-        counts[state_row.dimension] = len(state_row.failure_timestamps or [])
+        # 失败时间戳只在下次失败时才会被裁剪，这里按窗口过滤，避免过期记录长期抬高计数。
+        counts[state_row.dimension] = len(
+            _parse_failure_timestamps(state_row.failure_timestamps or [], cutoff)
+        )
         current_retry = _retry_after(state_row.blocked_until, now)
         if current_retry > retry_after:
             retry_after = current_retry
@@ -248,6 +258,26 @@ def _parse_failure_timestamps(values: Iterable[str], cutoff: datetime) -> list[d
     return parsed
 
 
+def peek_source_failure_count(db: Session, request: Request, *, now: datetime | None = None) -> int:
+    """只读取来源维度在当前窗口内的失败次数。
+
+    登录页首屏用它判断是否直接展示验证码。刻意不接受用户名，
+    避免外部通过「该账号是否需要验证码」探测账号是否存在。
+    """
+
+    current_time = now or utc_now()
+    state_row = db.execute(
+        select(LoginThrottleState).where(
+            LoginThrottleState.dimension == "source",
+            LoginThrottleState.key_hash == source_fingerprint(request),
+        )
+    ).scalar_one_or_none()
+    if state_row is None:
+        return 0
+    cutoff = current_time - timedelta(seconds=LOGIN_WINDOW_SECONDS)
+    return len(_parse_failure_timestamps(state_row.failure_timestamps or [], cutoff))
+
+
 def _record_dimension_failure(
     state_row: LoginThrottleState,
     *,
@@ -281,6 +311,9 @@ def record_login_failure(
     now: datetime | None = None,
 ) -> LoginThrottleDecision:
     current_time = now or utc_now()
+    # 验证码校验会在本次登录中途提交事务并释放 begin_login_attempt 取得的顾问锁，
+    # 这里重新获取（同一事务内可重入），保证并发失败仍然串行入账。
+    _acquire_transaction_locks(db, context)
     states = _load_states(db, context)
     account_state = states.get("account") or _ensure_state(db, "account", context.account_hash)
     source_state = states.get("source") or _ensure_state(db, "source", context.source_hash)
@@ -378,4 +411,5 @@ def cleanup_login_security_data(db: Session, *, now: datetime | None = None) -> 
             (LoginThrottleState.blocked_until.is_(None)) | (LoginThrottleState.blocked_until < current_time),
         )
     )
+    db.execute(delete(LoginCaptchaChallenge).where(LoginCaptchaChallenge.expires_at < current_time))
     db.commit()

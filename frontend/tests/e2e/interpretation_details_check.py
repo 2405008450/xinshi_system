@@ -1,4 +1,4 @@
-"""口译项目详情页只读交互验收。
+"""口译项目管理页只读交互验收。
 
 环境变量：BASE_URL、LOGIN_USERNAME、LOGIN_PASSWORD；脚本不会提交或删除业务数据。
 """
@@ -71,7 +71,10 @@ def main() -> int:
             page.get_by_role("button", name="新增口译项目", exact=True).click()
             dialog = page.locator(".interpretation-editor-dialog")
             dialog.wait_for(state="visible")
-            assert dialog.get_by_text("译员人数", exact=True).count()
+            assert dialog.get_by_text("译员人数", exact=True).count() == 0, "不应再显示可编辑的全局译员人数"
+            dialog.get_by_role("button", name="增加方向", exact=True).click()
+            assert dialog.get_by_placeholder("需求人数").count() == 1
+            assert dialog.get_by_text("口译方向", exact=False).count()
             assert dialog.get_by_text("译员性别", exact=True).count()
             assert dialog.get_by_text("口译水平", exact=True).count()
             assert dialog.get_by_text("特殊要求", exact=True).count()
@@ -102,7 +105,7 @@ def main() -> int:
             assert popover.get_by_text("客户简称", exact=True).count()
             assert popover.get_by_text("客户单号/项目标识", exact=True).count()
             assert popover.get_by_text("口译方向", exact=True).count()
-            assert popover.get_by_text("译员人数", exact=True).count()
+            assert popover.get_by_text("总需求人数", exact=True).count()
             assert popover.get_by_text("口译水平", exact=True).count()
             assert popover.get_by_text("着装要求", exact=True).count()
             assert popover.get_by_text("客户对译员评价", exact=True).count()

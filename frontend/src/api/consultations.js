@@ -30,6 +30,18 @@ export const createProjectFromConsultation = (id, projectName) => {
   return api.post(`/consultations/${id}/create-project`, { project_name: projectName })
 }
 
+export const updateConsultationTextField = (id, field, value, expectedUpdatedAt) => (
+  api.patch(`/consultations/${id}/text-field`, {
+    field, value, expected_updated_at: expectedUpdatedAt,
+  })
+)
+
+export const updateConsultationIntakeTextField = (id, field, value, expectedUpdatedAt) => (
+  api.patch(`/consultations/${id}/intake-text-field`, {
+    field, value, expected_updated_at: expectedUpdatedAt,
+  })
+)
+
 export const previewConfirmation = (data) => {
   return api.post('/consultations/confirmation-preview', data)
 }

@@ -110,9 +110,19 @@ def update_daily_report_policy(
 
 
 @mail_router.post("/preview", response_model=BusinessMailPreviewResponse, dependencies=[Depends(require_any_permission("consultations:write", "projects:write"))])
-def preview(payload: BusinessMailPreviewRequest, db: Session = Depends(get_db)):
+def preview(
+    payload: BusinessMailPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     try:
-        return build_preview(db, payload.project_type, project_id=payload.project_id, source=payload.source)
+        return build_preview(
+            db,
+            payload.project_type,
+            project_id=payload.project_id,
+            source=payload.source,
+            current_user=current_user,
+        )
     except Exception as exc:
         _raise(exc)
 
@@ -120,15 +130,19 @@ def preview(payload: BusinessMailPreviewRequest, db: Session = Depends(get_db)):
 @mail_router.post("/", response_model=BusinessMailResponse, dependencies=[Depends(require_any_permission("consultations:write", "projects:write"))])
 def send(payload: BusinessMailSendRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
-        return serialize_mail(create_and_send(db, payload, current_user.id))
+        return serialize_mail(create_and_send(db, payload, current_user))
     except Exception as exc:
         db.rollback(); _raise(exc)
 
 
 @mail_router.post("/{mail_id}/retry", response_model=BusinessMailResponse, dependencies=[Depends(require_any_permission("consultations:write", "projects:write"))])
-def retry(mail_id: UUID, db: Session = Depends(get_db)):
+def retry(
+    mail_id: UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     try:
-        return serialize_mail(retry_mail(db, mail_id))
+        return serialize_mail(retry_mail(db, mail_id, current_user))
     except Exception as exc:
         db.rollback(); _raise(exc)
 

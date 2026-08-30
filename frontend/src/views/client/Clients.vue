@@ -34,7 +34,7 @@
       <el-form :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户名称">
           <el-input
-            v-model="searchForm.client_name"
+            v-model="advancedFilters.client_name"
             placeholder="支持客户全称、简称及子客户名称模糊搜索"
             clearable
             @input="handleSearchInput"
@@ -43,7 +43,10 @@
         </el-form-item>
         <el-form-item label="客户状态">
           <el-select
-            v-model="searchForm.client_status"
+            v-model="advancedFilters.client_status"
+            multiple
+            collapse-tags
+            :max-collapse-tags="1"
             placeholder="全部状态"
             clearable
             style="width: 140px"
@@ -57,12 +60,11 @@
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="resetSearch">重置</el-button>
-          <el-popover
+          <AdvancedFilterPopover
             v-model:visible="advancedFilterVisible"
-            trigger="click"
-            placement="bottom-end"
-            :width="760"
+            :count="advancedFilterCount"
             popper-class="client-advanced-filter-popper"
+            @clear="clearAdvancedFilters"
           >
             <template #reference>
               <el-button>
@@ -74,7 +76,8 @@
                 />
               </el-button>
             </template>
-            <div class="advanced-filter-panel">
+            <CompactFilterGrid :fields="clientAdvancedFilterFields" :model="advancedFilters" @update="updateConfiguredFilter" @text-input="handleAdvancedTextInput" @change="handleSelectionChange" @enter="handleSearch" />
+            <div v-if="false" class="advanced-filter-panel">
               <div class="advanced-filter-title">高级筛选</div>
               <el-form :model="advancedFilters" label-width="112px" class="advanced-filter-form">
                 <el-row :gutter="16">
@@ -155,7 +158,7 @@
                 <el-button @click="advancedFilterVisible = false">关闭</el-button>
               </div>
             </div>
-          </el-popover>
+          </AdvancedFilterPopover>
         </el-form-item>
       </el-form>
     </div>
@@ -221,8 +224,10 @@
         show-overflow-tooltip
       >
         <template #header>
-          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户详情" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="advancedFilters[column.key]" @update:model-value="advancedFilters[column.key]=$event" @text-input="handleAdvancedTextInput" @change="handleSelectionChange" @enter="handleSearch" @clear="handleSelectionChange">
+            <template #label><ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户详情" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户详情" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <el-popover
@@ -317,7 +322,7 @@
       </el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
-          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <PrimaryEditButton @click="handleEdit(row)" />
         </template>
       </el-table-column>
     </el-table>
@@ -547,9 +552,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import { hasPermission } from '@/utils/permission'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
@@ -775,27 +785,24 @@ const searchForm = reactive({
   client_status: ''
 })
 
-const createDefaultAdvancedFilters = () => ({
-  client_code: '',
-  client_short_name: '',
-  english_name: '',
-  client_manager: '',
-  manager_contact: '',
-  field_level1: '',
-  field_level2: '',
-  country: '',
-  province: '',
-  city: '',
-  district: '',
-  cooperation_date_range: []
-})
+const clientStatusOptions=[{label:'合作中',value:'active'},{label:'已停止',value:'inactive'},{label:'待合作',value:'pending'}]
+const clientFilterFields=[
+  {key:'client_code',label:'客户编号',type:'text'},{key:'client_name',label:'客户全称',type:'text'},
+  {key:'client_short_name',label:'客户简称',type:'text'},{key:'english_name',label:'英文全称',type:'text'},
+  {key:'english_short_name',label:'英文简称',type:'text'},{key:'client_manager',label:'客户负责人',type:'text'},
+  {key:'manager_contact',label:'负责人联系方式',type:'text'},{key:'field_level1',label:'客户领域一级',type:'text'},
+  {key:'field_level2',label:'客户领域二级',type:'text'},{key:'country',label:'国家',type:'text'},
+  {key:'province',label:'省份',type:'text'},{key:'city',label:'地级市',type:'text'},
+  {key:'district',label:'区县',type:'text'},{key:'client_status',label:'客户状态',type:'select',options:clientStatusOptions},
+  {key:'cooperation_start_date',label:'开始合作时间',type:'date-range',wide:true},{key:'remarks',label:'备注',type:'text'},
+]
+const createDefaultAdvancedFilters = () => createFilterModel(clientFilterFields)
 
 const advancedFilters = reactive(createDefaultAdvancedFilters())
 const advancedFilterVisible = ref(false)
-const advancedFilterCount = computed(() => Object.entries(advancedFilters).reduce((count, [key, value]) => {
-  if (key === 'cooperation_date_range') return count + (Array.isArray(value) && value.length === 2 ? 1 : 0)
-  return count + (String(value || '').trim() ? 1 : 0)
-}, 0))
+const clientAdvancedFilterFields=clientFilterFields.filter((item)=>!['client_name','client_status'].includes(item.key))
+const advancedFilterCount = computed(() => countActiveFilters(advancedFilters,clientAdvancedFilterFields))
+const headerFilterDefinition=(key)=>defaultVisibleColumnKeys.includes(key)?clientFilterFields.find((item)=>item.key===key)||null:null
 
 let searchTimer = null
 let clientsRequestController = null
@@ -824,6 +831,10 @@ const handleAdvancedTextInput = (value) => {
   handleSearchInput(value)
 }
 
+const updateConfiguredFilter = (key, value) => {
+  advancedFilters[key] = value
+}
+
 const handleSelectionChange = () => {
   handleSearch()
 }
@@ -846,7 +857,7 @@ const resetSearch = () => {
     searchTimer = null
   }
   Object.assign(searchForm, { client_name: '', client_status: '' })
-  Object.assign(advancedFilters, createDefaultAdvancedFilters())
+  resetFilterModel(advancedFilters,clientFilterFields)
   handleSearch()
 }
 
@@ -856,7 +867,7 @@ const clearAdvancedFilters = () => {
     clearTimeout(searchTimer)
     searchTimer = null
   }
-  Object.assign(advancedFilters, createDefaultAdvancedFilters())
+  resetFilterModel(advancedFilters,clientAdvancedFilterFields)
   handleSearch()
 }
 
@@ -870,31 +881,7 @@ const handleCurrentChange = () => {
 }
 
 const buildFilterParams = () => {
-  const params = {}
-  const textFilters = {
-    client_name: searchForm.client_name,
-    client_code: advancedFilters.client_code,
-    client_short_name: advancedFilters.client_short_name,
-    english_name: advancedFilters.english_name,
-    client_manager: advancedFilters.client_manager,
-    manager_contact: advancedFilters.manager_contact,
-    field_level1: advancedFilters.field_level1,
-    field_level2: advancedFilters.field_level2,
-    country: advancedFilters.country,
-    province: advancedFilters.province,
-    city: advancedFilters.city,
-    district: advancedFilters.district
-  }
-  Object.entries(textFilters).forEach(([key, value]) => {
-    const normalizedValue = String(value || '').trim()
-    if (normalizedValue) params[key] = normalizedValue
-  })
-  if (searchForm.client_status) params.client_status = searchForm.client_status
-  if (advancedFilters.cooperation_date_range?.length === 2) {
-    params.cooperation_start_date_from = advancedFilters.cooperation_date_range[0]
-    params.cooperation_start_date_to = advancedFilters.cooperation_date_range[1]
-  }
-  return params
+  return {field_filters:serializeFieldFilters(advancedFilters,clientFilterFields)}
 }
 
 const fetchData = async () => {

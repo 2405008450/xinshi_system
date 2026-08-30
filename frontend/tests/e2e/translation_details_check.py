@@ -15,7 +15,9 @@
 4. 打印每列实际宽度与留白占比，并对进度列断言 <140px；
 5. 验证新增项目弹窗可以跨 Tab、跨折叠分组搜索定位字段；
 6. 验证条件字段不会被搜索自动启用，并检查窄屏弹窗不溢出；
-7. 全页截图归档到 test-results/translation-details.png。
+7. 验证展开子订单后仅保留当前母订单，并检查子订单低饱和背景；
+8. 验证粘贴/TXT 预览、重复跳过、事务批量创建与行内改名，并清理测试数据；
+9. 全页截图归档到 test-results/translation-details.png。
 
 依赖：playwright(Python)、浏览器内核(已装)。
 """
@@ -26,6 +28,7 @@ import sys
 import urllib.request
 import urllib.error
 from pathlib import Path
+from uuid import uuid4
 
 from playwright.sync_api import sync_playwright
 
@@ -172,6 +175,217 @@ def check_field_search(page, can_write: bool) -> list[str]:
     return failures
 
 
+def check_suborder_focus_mode(page) -> list[str]:
+    """验证子订单展开后的单母订单聚焦、恢复及低饱和配色。"""
+    failures = []
+    project_rows = page.locator(
+        ".project-table > .el-table__inner-wrapper > .el-table__body-wrapper "
+        "> .el-scrollbar > .el-scrollbar__wrap > .el-scrollbar__view "
+        "> table.el-table__body > tbody > tr.el-table__row"
+    )
+    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
+    initial_row_count = project_rows.count()
+    if initial_row_count < 2 or not expand_buttons.count():
+        print("[跳过] 当前页缺少可展开子订单或不足两个母订单，未执行聚焦模式验收")
+        return failures
+
+    expand_buttons.first.click()
+    panel = page.locator(".sub-order-panel")
+    panel.wait_for(state="visible", timeout=5000)
+
+    if project_rows.count() != 1:
+        failures.append("展开子订单后仍显示其他母订单")
+    if page.get_by_role("button", name="收起子订单", exact=True).count() != 1:
+        failures.append("展开后未提供唯一的收起子订单按钮")
+
+    suborder_rows = panel.locator(".sub-order-table .el-table__body-wrapper tr.el-table__row")
+    if not suborder_rows.count():
+        failures.append("展开后未显示子订单数据行")
+
+    panel_background = panel.evaluate("element => getComputedStyle(element).backgroundColor")
+    header_background = panel.locator(
+        ".sub-order-table .el-table__header-wrapper th.el-table__cell"
+    ).first.evaluate("element => getComputedStyle(element).backgroundColor")
+    row_background = panel.locator(
+        ".sub-order-table .el-table__body-wrapper td.el-table__cell"
+    ).first.evaluate("element => getComputedStyle(element).backgroundColor")
+    if panel_background != "rgb(248, 250, 252)":
+        failures.append(f"子订单面板背景色不符合预期：{panel_background}")
+    if header_background != "rgb(241, 245, 249)":
+        failures.append(f"子订单表头背景色不符合预期：{header_background}")
+    if row_background != "rgb(248, 250, 252)":
+        failures.append(f"子订单数据行背景色不符合预期：{row_background}")
+
+    page.get_by_role("button", name="收起子订单", exact=True).click()
+    panel.wait_for(state="hidden", timeout=5000)
+    if project_rows.count() != initial_row_count:
+        failures.append("收起子订单后未恢复原母订单列表")
+
+    if failures:
+        for failure in failures:
+            print(f"[✗] 子订单聚焦：{failure}", file=sys.stderr)
+    else:
+        print("[✓] 子订单展开后单母订单聚焦，收起恢复列表，低饱和配色正确")
+    return failures
+
+
+def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: str, out_dir: Path) -> list[str]:
+    """验证 TXT/粘贴预览、事务批量创建及子项目名称行内改名。"""
+    failures = []
+    if not can_write:
+        print("[跳过] 当前账号无 projects:write 权限，未执行批量导入与行内改名验收")
+        return failures
+
+    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
+    if not expand_buttons.count():
+        print("[跳过] 当前页没有可展开的子订单，未执行批量导入与行内改名验收")
+        return failures
+
+    created_ids = []
+    upload_files = [
+        out_dir / "suborder-filenames-utf16le-e2e.txt",
+        out_dir / "suborder-filenames-gbk-e2e.txt",
+        out_dir / "suborder-filenames-utf8-e2e.txt",
+    ]
+    stamp = uuid4().hex[:10]
+    first_name = f"E2E 合同正文 {stamp}.docx"
+    second_name = f"E2E 附件 {stamp}.xlsx"
+    renamed_value = None
+    original_name = None
+
+    try:
+        expand_buttons.first.click()
+        panel = page.locator(".sub-order-panel")
+        panel.wait_for(state="visible", timeout=5000)
+        panel.get_by_role("button", name="导入文件名", exact=True).click()
+        dialog = page.locator(".suborder-batch-create-dialog")
+        dialog.wait_for(state="visible", timeout=5000)
+
+        textarea = dialog.locator("textarea")
+        textarea.fill(f"{first_name}\n{first_name.upper()}\n{'超长' * 128}")
+        if "将新增 1" not in dialog.locator(".import-summary").inner_text():
+            failures.append("粘贴内容的有效数量统计错误")
+        if "重复 1" not in dialog.locator(".import-summary").inner_text():
+            failures.append("粘贴内容未按忽略英文大小写识别重复名称")
+        if "错误 1" not in dialog.locator(".import-summary").inner_text():
+            failures.append("粘贴内容未识别超过 255 字符的名称")
+
+        file_content = f"{first_name}\r\n{second_name}\r\n{first_name.upper()}\r\n"
+        upload_files[0].write_bytes(b"\xff\xfe" + file_content.encode("utf-16le"))
+        upload_files[1].write_bytes(file_content.encode("gbk"))
+        upload_files[2].write_bytes(b"\xef\xbb\xbf" + file_content.encode("utf-8"))
+        for index, upload_file in enumerate(upload_files):
+            dialog.locator('input[type="file"]').set_input_files(str(upload_file))
+            page.wait_for_function(
+                "([selector, value]) => document.querySelector(selector)?.value.includes(value)",
+                arg=[".suborder-batch-create-dialog textarea", second_name],
+                timeout=5000,
+            )
+            if index < len(upload_files) - 1:
+                dialog.locator(".el-upload-list__item-delete").click(force=True)
+        summary_text = dialog.locator(".import-summary").inner_text()
+        if "将新增 2" not in summary_text or "重复 1" not in summary_text or "错误 0" not in summary_text:
+            failures.append(f"TXT 导入预览统计错误：{summary_text}")
+
+        with page.expect_response(
+            lambda response: response.request.method == "POST" and "/api/sub-orders/bulk" in response.url,
+            timeout=15000,
+        ) as response_info:
+            dialog.get_by_role("button", name="确认导入 2 条", exact=True).click()
+        response = response_info.value
+        result = response.json()
+        if response.status != 201:
+            failures.append(f"批量创建接口返回 {response.status}")
+        if result.get("created_count") != 2 or result.get("skipped_count") != 1:
+            failures.append(f"批量创建结果数量错误：{result}")
+        created_ids = [item["id"] for item in result.get("created", [])]
+        dialog.wait_for(state="hidden", timeout=5000)
+
+        inline_triggers = panel.locator(".inline-sub-project-name__trigger")
+        if not inline_triggers.count():
+            failures.append("子项目名称未渲染为可点击行内编辑控件")
+        else:
+            inline_trigger = inline_triggers.first
+            original_name = inline_trigger.inner_text().strip()
+            inline_trigger.click()
+            inline_editor = panel.locator(".inline-sub-project-name").filter(has=page.locator("input")).first
+            editor_input = inline_editor.locator("input")
+            editor_input.fill(f"{original_name}-失焦测试")
+            panel.locator(".sub-order-panel__meta").click()
+            if not editor_input.is_visible():
+                failures.append("行内改名失焦后意外自动保存或退出")
+            editor_input.press("Escape")
+
+            renamed_value = f"{original_name}-E2E改名"
+            inline_trigger.click()
+            inline_editor = panel.locator(".inline-sub-project-name").filter(has=page.locator("input")).first
+            inline_editor.locator("input").fill(renamed_value)
+            with page.expect_response(
+                lambda response: response.request.method == "PUT" and "/api/sub-orders/" in response.url,
+                timeout=10000,
+            ):
+                inline_editor.get_by_role("button", name="保存子项目名称", exact=True).click()
+            panel.locator(".inline-sub-project-name__trigger").filter(has_text=renamed_value).wait_for(state="visible", timeout=5000)
+
+            restore_trigger = panel.locator(".inline-sub-project-name__trigger").filter(has_text=renamed_value)
+            restore_trigger.click()
+            restore_editor = panel.locator(".inline-sub-project-name").filter(has=page.locator("input")).first
+            restore_editor.locator("input").fill(original_name)
+            restore_editor.get_by_role("button", name="保存子项目名称", exact=True).click()
+            panel.locator(".inline-sub-project-name__trigger").filter(has_text=original_name).wait_for(state="visible", timeout=5000)
+    except Exception as exc:
+        failures.append(f"批量导入或行内改名交互异常：{exc}")
+    finally:
+        headers = {"Authorization": f"Bearer {token}"}
+        if renamed_value and original_name:
+            try:
+                restore_lookup = page.request.get(
+                    f"{base_url}/api/sub-orders/",
+                    params={"project_name": renamed_value, "limit": 500},
+                    headers=headers,
+                )
+                for item in restore_lookup.json() if restore_lookup.ok else []:
+                    if item.get("sub_project_name") == renamed_value:
+                        restored = page.request.put(
+                            f"{base_url}/api/sub-orders/{item['id']}",
+                            data={"sub_project_name": original_name},
+                            headers=headers,
+                        )
+                        if not restored.ok:
+                            failures.append(f"恢复原子项目名称失败：接口返回 {restored.status}")
+            except Exception as exc:
+                failures.append(f"恢复原子项目名称失败：{exc}")
+        try:
+            lookup = page.request.get(
+                f"{base_url}/api/sub-orders/",
+                params={"project_name": stamp, "limit": 500},
+                headers=headers,
+            )
+            if lookup.ok:
+                discovered_ids = [
+                    item["id"] for item in lookup.json()
+                    if item.get("sub_project_name") in {first_name, second_name}
+                ]
+                created_ids = list(dict.fromkeys([*created_ids, *discovered_ids]))
+        except Exception as exc:
+            failures.append(f"查询待清理测试数据失败：{exc}")
+        for sub_order_id in created_ids:
+            cleanup = page.request.delete(f"{base_url}/api/sub-orders/{sub_order_id}", headers=headers)
+            if cleanup.status not in (204, 404):
+                failures.append(f"测试数据清理失败：{sub_order_id} 返回 {cleanup.status}")
+        for upload_file in upload_files:
+            upload_file.unlink(missing_ok=True)
+        page.goto(f"{base_url}/translation-details", wait_until="domcontentloaded")
+        page.wait_for_selector(".project-table .el-table__header", timeout=20000)
+
+    if failures:
+        for failure in failures:
+            print(f"[✗] 子订单批量导入/改名：{failure}", file=sys.stderr)
+    else:
+        print("[✓] TXT/粘贴预览、批量创建、重复跳过及行内改名交互正确")
+    return failures
+
+
 def main() -> int:
     base_url = os.environ.get("BASE_URL", "http://localhost:3000").rstrip("/")
     username = os.environ.get("LOGIN_USERNAME")
@@ -222,6 +436,14 @@ def main() -> int:
         field_search_failures = check_field_search(
             page, "projects:write" in permissions or "*" in permissions
         )
+        suborder_focus_failures = check_suborder_focus_mode(page)
+        suborder_bulk_failures = check_suborder_bulk_and_inline(
+            page,
+            "projects:write" in permissions or "*" in permissions,
+            base_url,
+            auth.get("access_token", ""),
+            out_dir,
+        )
 
         columns = page.eval_on_selector_all(
             ".project-table .el-table__header th .cell",
@@ -268,7 +490,10 @@ def main() -> int:
         context.close()
         browser.close()
 
-        return 1 if (truncated or progress_wide or field_search_failures) else 0
+        return 1 if (
+            truncated or progress_wide or field_search_failures or suborder_focus_failures
+            or suborder_bulk_failures
+        ) else 0
 
 
 if __name__ == "__main__":

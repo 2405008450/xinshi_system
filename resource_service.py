@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import String, func, inspect, or_, text
+from sqlalchemy import String, and_, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -22,6 +22,7 @@ from resource_models import (
     WrittenTranslationProfile,
 )
 from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
+from field_filtering import apply_scalar_specs
 
 
 PROFILE_FIELDS = {
@@ -166,6 +167,7 @@ def _talent_query(
     cooperation_type: Optional[str] = None,
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
+    field_filters: Optional[dict] = None,
 ):
     query = db.query(ResourcePerson)
     if capability_type:
@@ -199,6 +201,66 @@ def _talent_query(
             ResourcePerson.duplicate_review_required == review_required,
             ResourcePerson.capabilities.any(ResourceCapability.review_required == review_required),
         ))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "resource_code": (ResourcePerson.resource_code, "string"),
+        "full_name": (ResourcePerson.full_name, "string"),
+        "status": (ResourcePerson.status, "string"),
+        "cooperation_type": (ResourcePerson.cooperation_type, "string"),
+        "primary_phone": (ResourcePerson.primary_phone, "string"),
+        "primary_email": (ResourcePerson.primary_email, "string"),
+        "gender": (ResourcePerson.gender, "string"),
+        "native_place": (ResourcePerson.native_place, "string"),
+        "residence_address": (ResourcePerson.residence_address, "string"),
+        "nationality": (ResourcePerson.nationality, "string"),
+        "overall_rating": (ResourcePerson.overall_rating, "string"),
+        "first_contact_date": (ResourcePerson.first_contact_date, "datetime"),
+        "updated_at": (ResourcePerson.updated_at, "datetime"),
+        "duplicate_review_required": (ResourcePerson.duplicate_review_required, "boolean"),
+    })
+    for field, descriptor in field_filters.items():
+        if field == "capability_types":
+            values = descriptor.get("value") or []
+            query = query.filter(ResourcePerson.capabilities.any(and_(
+                ResourceCapability.capability_type.in_(values),
+                ResourceCapability.status != "inactive",
+            )))
+        elif field == "language_directions":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(
+                ResourcePerson.written_profile.has(WrittenTranslationProfile.languages.ilike(pattern)),
+                ResourcePerson.interpretation_profile.has(InterpretationProfile.languages.ilike(pattern)),
+            ))
+        elif field == "annotation_language_directions":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(ResourcePerson.annotation_language_skills.any(or_(
+                ResourceAnnotationLanguageSkill.source_language.has(InterpretationLanguage.label.ilike(pattern)),
+                ResourceAnnotationLanguageSkill.target_language.has(InterpretationLanguage.label.ilike(pattern)),
+            )))
+        elif field in {"industries", "job_titles"}:
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            column = ResourceCareerProfile.industries if field == "industries" else ResourceCareerProfile.job_titles
+            query = query.filter(ResourcePerson.career_profile.has(cast(column, String).ilike(pattern)))
+        elif field == "years_experience":
+            conditions = []
+            if descriptor.get("min") not in (None, ""):
+                conditions.append(ResourceCareerProfile.years_experience >= float(descriptor["min"]))
+            if descriptor.get("max") not in (None, ""):
+                conditions.append(ResourceCareerProfile.years_experience <= float(descriptor["max"]))
+            if conditions:
+                query = query.filter(ResourcePerson.career_profile.has(and_(*conditions)))
+        elif field == "age":
+            today = date.today()
+            minimum, maximum = descriptor.get("min"), descriptor.get("max")
+            if minimum not in (None, ""):
+                cutoff = today.replace(year=today.year - int(minimum))
+                query = query.filter(ResourcePerson.birth_date <= cutoff)
+            if maximum not in (None, ""):
+                cutoff = today.replace(year=today.year - int(maximum) - 1)
+                query = query.filter(ResourcePerson.birth_date > cutoff)
+        elif field in {"dialects", "dialect_regions"}:
+            column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
+            query = query.filter(cast(column, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
     return query.distinct()
 
 

@@ -4,6 +4,13 @@
       <div class="page-header"><div><h2>邮件设置</h2><p>项目邮件和个人工作报告共用邮件组；成员来自启用且已绑定邮箱的系统用户。</p></div><el-button v-if="canWrite" type="primary" @click="openGroup()">新增邮件组</el-button></div>
     </template>
     <el-alert :title="mailStatus.detail || '正在读取 SMTP 状态'" :type="mailStatus.configured ? (mailStatus.mode === 'test' ? 'warning' : 'success') : 'error'" :closable="false" show-icon />
+    <el-alert
+      class="sender-mode-alert"
+      :title="mailStatus.project_sender_mode === 'personal' ? '项目邮件发件方式：当前操作用户的已验证个人邮箱' : '项目邮件发件方式：系统固定邮箱（兼容模式）'"
+      :type="mailStatus.project_sender_mode === 'personal' ? 'success' : 'warning'"
+      :closable="false"
+      show-icon
+    />
     <el-tabs v-model="activeTab" class="settings-tabs">
       <el-tab-pane label="邮件组" name="groups">
         <el-table :data="groups" v-loading="loading" border>
@@ -84,5 +91,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.page-header h2{margin:0}.page-header p{margin:6px 0 0;color:var(--el-text-color-secondary)}.settings-tabs{margin-top:18px}.member-tag{margin:2px 6px 2px 0}.policy-form{max-width:860px}.policy-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.policy-section h3{margin:0 0 14px}.policy-tip{margin-bottom:12px}
+.page-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.page-header h2{margin:0}.page-header p{margin:6px 0 0;color:var(--el-text-color-secondary)}.sender-mode-alert{margin-top:10px}.settings-tabs{margin-top:18px}.member-tag{margin:2px 6px 2px 0}.policy-form{max-width:860px}.policy-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.policy-section h3{margin:0 0 14px}.policy-tip{margin-bottom:12px}
 </style>

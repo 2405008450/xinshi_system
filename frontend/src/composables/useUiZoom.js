@@ -92,6 +92,27 @@ export function useUiZoom() {
     setZoom(UI_ZOOM_DEFAULT)
   }
 
+  const currentIndex = computed(() => UI_ZOOM_LEVELS.indexOf(zoom.value))
+  const canStepDown = computed(() => currentIndex.value > 0)
+  const canStepUp = computed(() => {
+    const index = currentIndex.value
+    return index >= 0 && index < UI_ZOOM_LEVELS.length - 1
+  })
+
+  function stepDown() {
+    const index = currentIndex.value
+    if (index > 0) {
+      setZoom(UI_ZOOM_LEVELS[index - 1])
+    }
+  }
+
+  function stepUp() {
+    const index = currentIndex.value
+    if (index >= 0 && index < UI_ZOOM_LEVELS.length - 1) {
+      setZoom(UI_ZOOM_LEVELS[index + 1])
+    }
+  }
+
   function openPanel() {
     panelVisible.value = true
   }
@@ -109,6 +130,10 @@ export function useUiZoom() {
     levels: UI_ZOOM_LEVELS,
     setZoom,
     resetZoom,
+    canStepDown,
+    canStepUp,
+    stepDown,
+    stepUp,
     openPanel,
     syncFromStorage,
   }

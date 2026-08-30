@@ -16,7 +16,7 @@
         </span>
       </div>
       <div class="toolbar-actions">
-        <el-button size="small" @click="openMailAccount">{{ mailAccount.is_bound ? '邮箱授权' : '绑定邮箱' }}</el-button>
+        <el-button size="small" @click="openMailAccount">查看邮箱状态</el-button>
         <el-button v-if="editable" size="small" :loading="loading" @click="loadReport(true)">重新汇总</el-button>
         <el-button v-if="editable" size="small" @click="addManualItem">补充工作</el-button>
         <el-button v-if="editable && selectedIndexes.length" size="small" type="danger" plain @click="removeSelectedItems">删除选中补充行</el-button>
@@ -69,41 +69,6 @@
         </el-form>
       </el-collapse-transition>
     </section>
-
-    <el-dialog
-      v-model="mailAccountDialog"
-      title="个人邮箱授权"
-      width="min(560px, calc(100vw - 32px))"
-      top="8vh"
-      class="daily-report-dialog"
-    >
-      <el-alert
-        title="系统将通过你的企业邮箱实际发信。授权码会加密保存，管理员和前端均无法读取。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-      <el-descriptions :column="1" border size="small" class="account-summary">
-        <el-descriptions-item label="邮箱地址">{{ mailAccount.email || '未配置，请联系管理员' }}</el-descriptions-item>
-        <el-descriptions-item label="授权状态">
-          <el-tag :type="mailAccount.is_verified ? 'success' : (mailAccount.is_bound ? 'warning' : 'info')">
-            {{ mailAccount.is_verified ? '已验证' : (mailAccount.is_bound ? '待验证' : '未绑定') }}
-          </el-tag>
-        </el-descriptions-item>
-      </el-descriptions>
-      <el-form label-position="top">
-        <el-form-item :label="mailAccount.is_bound ? '新授权码（填写后将替换原授权）' : '邮箱授权码'" required>
-          <el-input v-model="authorizationCode" type="password" show-password maxlength="500" autocomplete="new-password" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button v-if="mailAccount.is_bound" type="danger" plain :loading="accountSaving" @click="unbindMailAccount">解除绑定</el-button>
-        <span class="footer-spacer" />
-        <el-button @click="mailAccountDialog = false">取消</el-button>
-        <el-button v-if="mailAccount.is_bound && !mailAccount.is_verified" :loading="accountSaving" @click="verifyExistingMailAccount">重新验证</el-button>
-        <el-button type="primary" :loading="accountSaving" :disabled="!authorizationCode.trim() || !mailAccount.email" @click="saveAndVerifyMailAccount">保存并验证</el-button>
-      </template>
-    </el-dialog>
 
     <el-dialog
       v-model="mailPreviewDialog"
@@ -168,39 +133,35 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DailyReportSpreadsheet from './DailyReportSpreadsheet.vue'
+import { getPersonalMailAccount } from '@/api/auth'
 import {
-  deleteDailyReportMailAccount,
   exportDailyReport,
   finalizeDailyReport,
-  getDailyReportMailAccount,
   previewDailyReport,
   previewDailyReportMail,
   saveDailyReport,
-  saveDailyReportMailAccount,
   sendDailyReportMail,
-  withdrawDailyReport,
-  verifyDailyReportMailAccount
+  withdrawDailyReport
 } from '@/api/tasks'
 
 const props = defineProps({ reportDate: { type: String, required: true } })
 const emit = defineEmits(['status-change'])
+const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
 const exporting = ref(false)
 const previewLoading = ref(false)
 const sending = ref(false)
-const accountSaving = ref(false)
 const dirtyCount = ref(0)
 const supplementDirty = ref(false)
 const supplementExpanded = ref(false)
 const selectedIndexes = ref([])
 const sheetRef = ref(null)
 const mailSheetRef = ref(null)
-const mailAccountDialog = ref(false)
 const mailPreviewDialog = ref(false)
-const authorizationCode = ref('')
 const mailRows = ref([])
 const report = reactive({ id: null, status: 'draft', supplemental_note: '', items: [] })
 const mailAccount = reactive({ email: null, is_bound: false, is_verified: false, verified_at: null })
@@ -320,46 +281,11 @@ async function downloadReport() {
 }
 
 async function loadMailAccount() {
-  try { Object.assign(mailAccount, await getDailyReportMailAccount()) }
+  try { Object.assign(mailAccount, await getPersonalMailAccount()) }
   catch (error) { ElMessage.error(error?.detail || '读取个人邮箱状态失败') }
 }
 
-function openMailAccount() { authorizationCode.value = ''; mailAccountDialog.value = true }
-
-async function saveAndVerifyMailAccount() {
-  accountSaving.value = true
-  try {
-    await saveDailyReportMailAccount(authorizationCode.value.trim())
-    Object.assign(mailAccount, await verifyDailyReportMailAccount())
-    authorizationCode.value = ''
-    mailAccountDialog.value = false
-    ElMessage.success('个人邮箱授权已保存并验证')
-  } catch (error) { await loadMailAccount(); ElMessage.error(error?.detail || '邮箱授权验证失败') }
-  finally { accountSaving.value = false }
-}
-
-async function verifyExistingMailAccount() {
-  accountSaving.value = true
-  try {
-    Object.assign(mailAccount, await verifyDailyReportMailAccount())
-    mailAccountDialog.value = false
-    ElMessage.success('个人邮箱授权验证成功')
-  } catch (error) { ElMessage.error(error?.detail || '邮箱授权验证失败') }
-  finally { accountSaving.value = false }
-}
-
-async function unbindMailAccount() {
-  try {
-    await ElMessageBox.confirm('解除绑定后将无法通过个人邮箱发送工作报告，是否继续？', '解除邮箱绑定', { type: 'warning' })
-    accountSaving.value = true
-    await deleteDailyReportMailAccount()
-    await loadMailAccount()
-    mailAccountDialog.value = false
-    ElMessage.success('个人邮箱授权已解除')
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.detail || '解除绑定失败')
-  } finally { accountSaving.value = false }
-}
+function openMailAccount() { router.push('/profile') }
 
 async function openMailPreview() {
   previewLoading.value = true
@@ -412,6 +338,6 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>
 
 <style scoped>
-.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}.account-summary,.mail-meta{margin:14px 0}.recipient-tag{margin:2px 6px 2px 0}.mail-form{margin-top:14px}.mail-preview-content{min-height:300px}.readonly-note{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;white-space:pre-wrap;word-break:break-word}.footer-spacer{flex:1}:global(.daily-report-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.daily-report-dialog .el-dialog__header),:global(.daily-report-dialog .el-dialog__footer){flex:none}:global(.daily-report-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.daily-report-dialog .el-dialog__footer){display:flex;align-items:center;border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
+.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}.mail-meta{margin:14px 0}.recipient-tag{margin:2px 6px 2px 0}.mail-form{margin-top:14px}.mail-preview-content{min-height:300px}.readonly-note{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;white-space:pre-wrap;word-break:break-word}:global(.daily-report-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.daily-report-dialog .el-dialog__header),:global(.daily-report-dialog .el-dialog__footer){flex:none}:global(.daily-report-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.daily-report-dialog .el-dialog__footer){display:flex;align-items:center;border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
 @media(max-width:768px){.report-toolbar{align-items:flex-start;flex-direction:column}.toolbar-primary{width:100%}.toolbar-actions{width:100%;justify-content:flex-start}.mail-meta{--el-descriptions-table-border:var(--el-border-color-lighter)}}
 </style>

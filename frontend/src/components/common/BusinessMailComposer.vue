@@ -22,6 +22,24 @@
         :closable="false"
         show-icon
       />
+      <el-descriptions :column="1" border size="small" class="sender-summary">
+        <el-descriptions-item label="发件人">
+          {{ preview.sender_name || '未识别' }}
+          <span v-if="preview.sender_email"> · {{ preview.sender_email }}</span>
+          <el-tag
+            v-if="preview.sender_mode === 'personal'"
+            size="small"
+            :type="preview.sender_verified ? 'success' : 'warning'"
+            effect="plain"
+          >个人邮箱</el-tag>
+          <el-button
+            v-if="preview.sender_mode === 'personal' && !preview.sender_verified"
+            type="primary"
+            link
+            @click="openProfile"
+          >查看发件邮箱状态</el-button>
+        </el-descriptions-item>
+      </el-descriptions>
       <el-form label-width="92px" @submit.prevent>
         <el-form-item label="收件人" required>
           <InternalMailRecipientSelector v-model="form.toUserIds" :users="availableUsers" placeholder="请选择收件人" />
@@ -56,11 +74,19 @@
         </el-form-item>
       </el-form>
       <div v-if="history.length" class="mail-history-hint">
-        上次发送：{{ formatDateTime(history[0].sent_at || history[0].send_attempted_at) }}，状态：{{ statusLabel(history[0].status) }}
+        上次发送：{{ formatDateTime(history[0].sent_at || history[0].send_attempted_at) }}，
+        发件人：{{ history[0].sender_name || '历史未记录' }}<span v-if="history[0].sender_email"> · {{ history[0].sender_email }}</span>，
+        状态：{{ statusLabel(history[0].status) }}
       </div>
     </div>
     <template #footer>
       <el-button :disabled="sending" @click="visible = false">取消</el-button>
+      <el-button
+        v-if="latestFailedMail"
+        :loading="sending"
+        :disabled="!preview.can_send"
+        @click="retryFailedMail"
+      >重试失败邮件</el-button>
       <el-button type="primary" :loading="sending" :disabled="!canSubmit" @click="submitMail">
         {{ history.some((item) => item.status === 'sent') ? '再次发送邮件' : '发送邮件' }}
       </el-button>
@@ -70,6 +96,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
@@ -83,10 +110,14 @@ const props = defineProps({
   sourceKind: { type: String, default: 'project_manual' },
 })
 const emit = defineEmits(['update:modelValue', 'sent'])
+const router = useRouter()
 const visible = computed({ get: () => props.modelValue, set: (value) => emit('update:modelValue', value) })
 const loading = ref(false)
 const sending = ref(false)
-const preview = reactive({ missing_fields: [], blocking_reasons: [], can_send: false })
+const preview = reactive({
+  missing_fields: [], blocking_reasons: [], can_send: false,
+  sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
+})
 const form = reactive({ toUserIds: [], ccUserIds: [], subject: '', body: '' })
 const availableUsers = ref([])
 const history = ref([])
@@ -97,9 +128,11 @@ const canSubmit = computed(() => preview.can_send && form.toUserIds.length > 0 &
 const subjectCharacterCount = computed(() => Array.from(form.subject || '').length)
 const selectedRecipientCount = computed(() => new Set([...form.toUserIds, ...form.ccUserIds]).size)
 const isAllMembersSelected = computed(() => availableUsers.value.length > 1 && selectedRecipientCount.value >= availableUsers.value.length)
+const latestFailedMail = computed(() => history.value[0]?.status === 'failed' ? history.value[0] : null)
 const statusLabel = (value) => ({ sent: '已发送', failed: '发送失败', pending: '待发送', sending: '发送中' }[value] || value)
 const formatDateTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const makeIdempotencyKey = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+const openProfile = () => { visible.value = false; router.push('/profile') }
 
 const loadPreview = async () => {
   if (!props.projectId) return
@@ -164,11 +197,31 @@ const submitMail = async () => {
     sending.value = false
   }
 }
+
+const retryFailedMail = async () => {
+  if (!latestFailedMail.value || !preview.can_send) return
+  sending.value = true
+  try {
+    const result = await mailApi.retryProjectMail(latestFailedMail.value.id)
+    if (result.status === 'sent') {
+      ElMessage.success('失败邮件已使用当前账号重新发送')
+      visible.value = false
+    } else {
+      ElMessage.error(result.send_error || '邮件重试失败')
+    }
+    emit('sent', result)
+  } catch (error) {
+    ElMessage.error(error.detail || '邮件重试失败')
+  } finally {
+    sending.value = false
+  }
+}
 </script>
 
 <style scoped>
 .mail-composer-body { display: flex; flex-direction: column; gap: 14px; }
 .mail-history-hint { padding: 10px 12px; border-radius: 6px; color: var(--el-text-color-secondary); background: var(--el-fill-color-light); font-size: 13px; }
+.sender-summary :deep(.el-tag) { margin-left: 8px; }
 .subject-field { width: 100%; min-width: 0; }
 .subject-character-count { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; text-align: right; white-space: nowrap; }
 .subject-character-count.near-limit { color: var(--el-color-warning); font-weight: 600; }

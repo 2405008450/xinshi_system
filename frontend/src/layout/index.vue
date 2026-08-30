@@ -3,103 +3,113 @@
     <el-aside :width="sidebarWidth" class="sidebar" :class="{ 'sidebar--collapsed': isCollapse }">
       <div class="logo">
         <div class="logo-icon">
-          <el-icon :size="28"><OfficeBuilding /></el-icon>
+          <img src="/favicon.svg" alt="平台标识" class="logo-mark" />
         </div>
         <transition name="logo-text">
           <div v-show="!isCollapse" class="logo-text">
-            <h2>翻译</h2>
-            <span class="logo-subtitle">翻译项目管理平台</span>
-            <span class="logo-version">v{{ appVersion }} · 更新于 {{ appUpdatedAt }}</span>
+            <h2>项目管理</h2>
+            <span class="logo-subtitle">综合业务项目管理平台</span>
           </div>
         </transition>
       </div>
-      <div class="sidebar-extra" :class="{ 'sidebar-extra--collapsed': isCollapse }">
-      </div>
       <el-menu
+        ref="sidebarMenuRef"
         :default-active="activeMenu"
+        :default-openeds="defaultOpeneds"
         :unique-opened="false"
+        :show-timeout="isCollapse ? 86400000 : 300"
+        :hide-timeout="isCollapse ? 86400000 : 300"
         router
         class="sidebar-menu"
         :collapse="isCollapse"
         :collapse-transition="false"
       >
-        <!-- 仅超级管理员可见：用户/角色/用户角色关联 -->
-        <template v-if="showSystemMenu">
-          <el-menu-item v-if="canViewUsers" index="/users">
-            <el-icon><User /></el-icon>
-            <template #title>用户管理</template>
-          </el-menu-item>
-          <el-menu-item v-if="canViewRoles" index="/roles">
-            <el-icon><Key /></el-icon>
-            <template #title>角色管理</template>
-          </el-menu-item>
-          <el-menu-item v-if="canViewMailSettings" index="/mail-settings">
-            <el-icon><Setting /></el-icon>
-            <template #title>项目邮件设置</template>
-          </el-menu-item>
-          <el-divider class="menu-divider" />
-        </template>
         <!-- 工作台 -->
         <el-menu-item v-if="showWorkbench" index="/workbench">
           <el-icon><ChatLineRound /></el-icon>
           <template #title>工作台</template>
         </el-menu-item>
+
+        <!-- 业务链路：从新咨询到项目执行 -->
+        <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
         <el-menu-item v-if="showConsultations" index="/consultations">
-          <el-icon><OfficeBuilding /></el-icon>
+          <el-icon><ChatDotRound /></el-icon>
           <template #title>新咨询管理</template>
         </el-menu-item>
-        
-        <!-- 项目管理：扁平菜单 -->
-        <el-menu-item v-if="showTranslationMenu" index="/translation-details">
+
+        <el-menu-item v-if="canViewProjects" index="/translation-details">
           <el-icon><Document /></el-icon>
-          <template #title>笔译项目详情</template>
+          <template #title>笔译项目</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/interpretation-details">
-          <el-icon><Document /></el-icon>
-          <template #title>口译项目详情</template>
+        <el-menu-item v-if="canViewProjects" index="/interpretation-details">
+          <el-icon><Headset /></el-icon>
+          <template #title>口译项目</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/annotation-details">
-          <el-icon><Document /></el-icon>
-          <template #title>标注项目详情</template>
+        <el-menu-item v-if="canViewAnnotation" index="/annotation-details">
+          <el-icon><EditPen /></el-icon>
+          <template #title>标注项目</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/recruitment-details">
-          <el-icon><Document /></el-icon>
-          <template #title>招聘项目详情</template>
+        <el-menu-item v-if="canViewProjects" index="/recruitment-details">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>招聘项目</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/manuscript-arrangements">
-          <el-icon><Tickets /></el-icon>
+        <el-menu-item v-if="canViewProjects" index="/manuscript-arrangements">
+          <el-icon><Calendar /></el-icon>
           <template #title>稿件安排</template>
         </el-menu-item>
-        <!-- 译员信息：所有员工可查看 -->
-        <el-menu-item v-if="showResourceManagement" index="/resource-management/talents">
-          <el-icon><Avatar /></el-icon>
-          <template #title>人才资源库</template>
-        </el-menu-item>
-        <!-- 客户管理：所有员工可查看 -->
+
+        <!-- 协作资源：客户、资源需求与人才资源池 -->
+        <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
         <el-menu-item v-if="showClients" index="/clients">
           <el-icon><OfficeBuilding /></el-icon>
           <template #title>客户信息</template>
         </el-menu-item>
-        <el-menu-item v-if="showTranslationMenu" index="/resource-requests">
-          <el-icon><UserFilled /></el-icon>
+        <el-menu-item v-if="showResourceRequests" index="/resource-requests">
+          <el-icon><Tickets /></el-icon>
           <template #title>资源需求管理</template>
         </el-menu-item>
-        <template v-if="showPendingModules">
-          <el-divider class="menu-divider" />
-          <el-menu-item index="/pending-modules">
-            <el-icon><QuestionFilled /></el-icon>
-            <template #title>待完善模块</template>
-          </el-menu-item>
-        </template>
+        <el-menu-item v-if="showResourceManagement" index="/resource-management/talents">
+          <el-icon><Avatar /></el-icon>
+          <template #title>人才资源库</template>
+        </el-menu-item>
+
+        <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
+        <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>
+        <el-menu-item index="/profile">
+          <el-icon><User /></el-icon>
+          <template #title>个人中心</template>
+        </el-menu-item>
+        <el-menu-item v-if="showPendingModules" index="/pending-modules">
+          <el-icon><QuestionFilled /></el-icon>
+          <template #title>更多模块</template>
+        </el-menu-item>
+
+        <el-sub-menu v-if="showSystemMenu" :index="SYSTEM_MENU_INDEX" @click="handlePopupToggle(SYSTEM_MENU_INDEX, $event)">
+          <template #title>
+            <el-icon><Setting /></el-icon>
+            <span>系统管理</span>
+          </template>
+          <el-menu-item v-if="canViewUsers" index="/users">用户管理</el-menu-item>
+          <el-menu-item v-if="canViewRoles" index="/roles">角色管理</el-menu-item>
+          <el-menu-item v-if="canViewMailSettings" index="/mail-settings">项目邮件设置</el-menu-item>
+        </el-sub-menu>
       </el-menu>
+      <transition name="logo-text">
+        <div v-show="!isCollapse" class="sidebar-version">{{ appVersion }} · 更新于 {{ appUpdatedAt }}</div>
+      </transition>
     </el-aside>
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-tooltip :content="isCollapse ? '展开菜单' : '收起菜单'" placement="bottom">
+          <el-tooltip
+            :content="isMobileViewport ? '窄屏模式下菜单保持收起' : (isCollapse ? '展开菜单' : '收起菜单')"
+            placement="bottom"
+          >
             <el-button
               class="collapse-btn"
               :icon="isCollapse ? Expand : Fold"
+              :aria-label="isMobileViewport ? '窄屏模式下菜单保持收起' : (isCollapse ? '展开菜单' : '收起菜单')"
+              :disabled="isMobileViewport"
               circle
               text
               @click="toggleCollapse"
@@ -121,7 +131,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                <el-dropdown-item command="profile">个人中心 / 发件邮箱</el-dropdown-item>
                 <el-dropdown-item command="settings">系统设置</el-dropdown-item>
                 <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
@@ -144,33 +154,34 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Key, Setting, Document, Tickets, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
-import { isSuperAdmin, hasPermission } from '../utils/permission'
+import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { hasPermission } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'
-import packageInfo from '../../package.json'
 
 const route = useRoute()
 const router = useRouter()
 const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
-const appVersion = packageInfo.version
-const appUpdatedAt = '2026-08-29'
+const SYSTEM_MENU_INDEX = 'system-management'
+const appVersion = 'V1.1'
+const appUpdatedAt = '2026-08-30 19:16'
 
 /** 侧边栏是否折叠 */
 const isCollapse = ref(false)
 const isMobileViewport = ref(false)
 const preferredCollapse = ref(false)
+const sidebarMenuRef = ref()
 
 /** 侧边栏宽度 */
 const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '240px'))
 
 function toggleCollapse() {
-  isCollapse.value = !isCollapse.value
   if (isMobileViewport.value) return
+  isCollapse.value = !isCollapse.value
   preferredCollapse.value = isCollapse.value
   try {
     localStorage.setItem(STORAGE_COLLAPSE_KEY, isCollapse.value ? '1' : '0')
@@ -194,8 +205,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
-/** 是否显示完整菜单（超级管理员） */
-const showFullMenu = computed(() => isSuperAdmin())
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
@@ -203,17 +212,23 @@ const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value |
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
-/** 是否显示笔译相关菜单（所有员工都可以进入工作台，内部操作权限后置判断） */
-const showTranslationMenu = computed(() => hasPermission('projects:read'))
-
-/** 是否显示「客户管理」（所有员工） */
+/** 项目菜单按具体权限显示；标注账号权限可独立进入标注工作区。 */
+const canViewProjects = computed(() => hasPermission('projects:read'))
+const canViewAnnotation = computed(() => hasPermission([
+  'projects:read',
+  'annotation_accounts:read',
+  'annotation_accounts:write'
+]))
 const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
-/** 是否显示「客户联系人及回复」（仅超级管理员） */
-const showClientContacts = computed(() => hasPermission('clients:read'))
-/** 是否显示「资源管理」（所有员工） */
 const showResourceManagement = computed(() => hasPermission(['talents:read', 'translators:read']))
-const showFinance = computed(() => hasPermission('finance:read'))
+const showResourceRequests = computed(() => canViewProjects.value)
+const showBusinessGroup = computed(() => (
+  showConsultations.value || canViewProjects.value || canViewAnnotation.value
+))
+const showResourceGroup = computed(() => (
+  showClients.value || showResourceManagement.value || showResourceRequests.value
+))
 // 数据看板已移入待完善模块，因此所有登录用户都保留该入口。
 const showPendingModules = computed(() => true)
 
@@ -231,7 +246,6 @@ const pendingModulePaths = new Set([
   '/work-schedule',
   '/admin/schedule',
   '/dashboard',
-  '/translation',
   '/other',
   '/client-contacts',
   '/finance',
@@ -246,8 +260,63 @@ const pendingModulePaths = new Set([
   '/administration-management/office-equipment',
   '/procurement',
 ])
-const resolveActiveMenu = (path) => pendingModulePaths.has(path) ? '/pending-modules' : path
+
+const resolveActiveMenu = (path) => {
+  if (pendingModulePaths.has(path)) return '/pending-modules'
+  if (
+    path === '/translation' ||
+    path === '/translation-files' ||
+    path.startsWith('/translation-details') ||
+    path.startsWith('/translation-sub-orders/')
+  ) return '/translation-details'
+  if (path === '/interpretation' || path.startsWith('/interpretation-details')) {
+    return '/interpretation-details'
+  }
+  if (path === '/annotation' || path.startsWith('/annotation-')) return '/annotation-details'
+  if (path === '/recruitment' || path.startsWith('/recruitment-details')) return '/recruitment-details'
+  if (path === '/resource-management' || path.startsWith('/resource-management/')) {
+    return '/resource-management/talents'
+  }
+  return path
+}
+
+const resolveActiveGroup = (menuIndex) => {
+  if (['/users', '/roles', '/mail-settings'].includes(menuIndex)) return SYSTEM_MENU_INDEX
+  return ''
+}
+
 const activeMenu = ref(resolveActiveMenu(route.path))
+const defaultOpeneds = computed(() => {
+  const activeGroup = resolveActiveGroup(activeMenu.value)
+  return activeGroup ? [activeGroup] : []
+})
+
+const openActiveGroup = () => {
+  if (isCollapse.value) return
+  const activeGroup = resolveActiveGroup(activeMenu.value)
+  if (activeGroup) sidebarMenuRef.value?.open(activeGroup)
+}
+
+/** 折叠态下子菜单是弹层且不会因点击外部而关闭，路由跳转后需主动收起，避免滞留遮挡新页面。 */
+const closePopupGroups = () => {
+  sidebarMenuRef.value?.close(SYSTEM_MENU_INDEX)
+}
+
+/**
+ * 折叠态（竖向弹层）下 Element Plus 忽略标题点击，弹层纯悬停驱动；
+ * 配合超大的 show/hide-timeout 禁用悬停开合后，这里补上手动的点按切换：
+ * 点图标开，再点关。以 li 的 is-opened 类为准，避免内部定时器与状态不同步。
+ */
+const handlePopupToggle = (index, event) => {
+  if (!isCollapse.value) return
+  const li = event.target?.closest?.('.el-sub-menu')
+  if (!li || !event.target?.closest?.('.el-sub-menu__title')) return
+  if (li.classList.contains('is-opened')) {
+    sidebarMenuRef.value?.close(index)
+  } else {
+    sidebarMenuRef.value?.open(index)
+  }
+}
 
 /** 监听路由变化，更新激活菜单 */
 watch(
@@ -256,10 +325,16 @@ watch(
     // 使用 nextTick 确保 DOM 更新后再设置激活菜单
     nextTick(() => {
       activeMenu.value = resolveActiveMenu(newPath)
+      if (isCollapse.value) closePopupGroups()
+      nextTick(openActiveGroup)
     })
   },
   { immediate: true }
 )
+
+watch(isCollapse, (collapsed) => {
+  if (!collapsed) nextTick(openActiveGroup)
+})
 
 const currentPageTitle = computed(() => {
   return route.meta?.title || '首页'
@@ -269,8 +344,7 @@ const handleCommand = (command) => {
   if (command === 'logout') {
     handleLogout()
   } else if (command === 'profile') {
-    // 跳转到个人中心
-    console.log('个人中心')
+    router.push('/profile')
   } else if (command === 'settings') {
     setTimeout(() => {
       openPanel()
@@ -311,11 +385,13 @@ const handleLogout = async () => {
 }
 
 .sidebar {
-  background: linear-gradient(180deg, var(--color-sidebar) 0%, var(--color-sidebar-deep) 100%);
+  --sidebar-active-accent: #60a5fa;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-sidebar);
   color: #fff;
   box-shadow: 2px 0 8px rgba(15, 23, 42, 0.08);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   transition: width 220ms ease;
 }
 
@@ -326,24 +402,6 @@ const handleLogout = async () => {
 
 .sidebar--collapsed .logo-icon {
   margin-right: 0;
-}
-
-.sidebar-extra {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px 12px;
-  min-height: 40px;
-}
-
-.sidebar-extra--collapsed {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-.sidebar-extra-label {
-  white-space: nowrap;
 }
 
 .logo-text-enter-active,
@@ -366,20 +424,21 @@ const handleLogout = async () => {
   opacity: 0;
 }
 
-.sidebar::-webkit-scrollbar {
+.sidebar-menu::-webkit-scrollbar {
   width: 6px;
 }
 
-.sidebar::-webkit-scrollbar-thumb {
+.sidebar-menu::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
+.sidebar-menu::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
 .logo {
+  flex: 0 0 64px;
   height: 64px;
   display: flex;
   align-items: center;
@@ -394,10 +453,15 @@ const handleLogout = async () => {
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: var(--radius-md);
   margin-right: 12px;
   flex-shrink: 0;
+}
+
+.logo-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
 }
 
 .logo-text {
@@ -425,39 +489,66 @@ const handleLogout = async () => {
   text-overflow: ellipsis;
 }
 
-.logo-version {
-  display: block;
-  margin-top: 2px;
-  color: rgba(255, 255, 255, 0.64);
+.sidebar-version {
+  flex: none;
+  padding: 10px 20px 14px;
+  color: rgba(255, 255, 255, 0.36);
   font-size: 10px;
   line-height: 1.2;
   white-space: nowrap;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .sidebar-menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
   border: none;
   background: transparent;
   padding: 10px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 子菜单展开导致内容超高时预留滚动条位置，避免菜单宽度瞬间变化。 */
+  scrollbar-gutter: stable;
+  /* 禁止浏览器在折叠动画中自动修正滚动位置，防止菜单上下跳动。 */
+  overflow-anchor: none;
 }
 
 .sidebar-menu :deep(.el-menu-item) {
+  position: relative;
   color: rgba(255, 255, 255, 0.72);
-  height: 46px;
-  line-height: 46px;
-  margin: 4px 12px;
-  border-radius: 8px;
-  transition: color 180ms ease, background-color 180ms ease;
+  height: 44px;
+  line-height: 44px;
+  margin: 2px 8px;
+  border-radius: 10px;
+  transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
+  transform: translateX(2px);
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: var(--color-primary);
+  background: rgba(96, 165, 250, 0.16);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+  box-shadow: none;
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active::before) {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--sidebar-active-accent);
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.7);
+  content: '';
 }
 
 .sidebar-menu :deep(.el-menu-item .el-icon) {
@@ -466,23 +557,30 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-sub-menu) {
-  margin: 4px 12px;
+  margin: 2px 8px;
 }
 
 .sidebar-menu :deep(.el-sub-menu__title) {
+  position: relative;
   color: rgba(255, 255, 255, 0.72);
-  height: 46px;
-  line-height: 46px;
-  border-radius: 8px;
-  transition: color 180ms ease, background-color 180ms ease;
+  height: 44px;
+  line-height: 44px;
+  border-radius: 10px;
+  transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
 
 .sidebar-menu :deep(.el-sub-menu__title:hover) {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
+  transform: translateX(2px);
 }
 
 .sidebar-menu :deep(.el-sub-menu.is-opened > .el-sub-menu__title) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
   color: #fff;
 }
 
@@ -492,30 +590,86 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-sub-menu .el-menu) {
-  background: rgba(0, 0, 0, 0.2);
+  position: relative;
+  background: rgba(0, 0, 0, 0.14);
   border-radius: 8px;
   margin-top: 4px;
+  /*
+   * Element Plus 会先清空内边距再按 scrollHeight 计算折叠高度。
+   * 此处不设置纵向内边距，避免动画高度少算 8px 而裁掉最后一项。
+   */
+  padding: 0;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu)::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 14px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  content: '';
 }
 
 .sidebar-menu :deep(.el-sub-menu .el-menu-item) {
-  margin: 2px 8px;
-  padding-left: 40px !important;
+  height: 40px;
+  line-height: 40px;
+  margin: 2px 6px;
+  padding-left: 42px !important;
+  font-size: 13px;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu-item.is-active::before) {
+  top: 8px;
+  bottom: 8px;
+}
+
+.sidebar-menu :deep(.el-menu-item:focus-visible),
+.sidebar-menu :deep(.el-sub-menu__title:focus-visible) {
+  outline: 2px solid rgba(147, 197, 253, 0.9);
+  outline-offset: -2px;
+}
+
+.menu-group-label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 20px 4px;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 18px;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.menu-group-label::after {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  content: '';
 }
 
 /* 折叠状态下菜单项居中 */
 .sidebar-menu.el-menu--collapse :deep(.el-menu-item),
 .sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title) {
-  padding: 0 20px;
+  justify-content: center;
+  margin-right: 8px;
+  margin-left: 8px;
+  padding: 0 !important;
   text-align: center;
 }
 
-.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title .el-icon) {
-  margin-right: 0;
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item:hover),
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title:hover) {
+  transform: none;
 }
 
-.menu-divider {
-  margin: 12px 20px;
-  border-color: rgba(255, 255, 255, 0.1);
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item .el-icon),
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title .el-icon) {
+  margin-right: 0;
 }
 
 .header {
@@ -624,17 +778,10 @@ const handleLogout = async () => {
   }
 
   .sidebar .logo-text,
-  .sidebar-extra-label,
   .sidebar-menu :deep(.el-menu-item span),
   .sidebar-menu :deep(.el-sub-menu__title span),
   .sidebar-menu :deep(.el-sub-menu__icon-arrow) {
     display: none;
-  }
-
-  .sidebar-extra {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
   }
 
   .sidebar-menu :deep(.el-menu-item),

@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import uuid4
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field
@@ -38,7 +38,7 @@ from recruitment_service import (
     is_recruitment_type,
     validate_consultation_recruitment_type_change,
 )
-from routers.auth import get_current_user, require_module_access
+from routers.auth import get_current_user, require_any_permission, require_module_access
 from business_mail_schemas import BusinessMailSendRequest
 from business_mail_service import (
     build_preview as build_mail_preview,
@@ -47,8 +47,54 @@ from business_mail_service import (
     validate_internal_users,
 )
 from consultation_intake import apply_intake, validated_intake
+from concurrency import assert_fresh
+from inline_text_update import (
+    TextFieldRule,
+    TextFieldUpdate,
+    apply_text_field_update,
+    normalize_text_value,
+)
 
 router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies=[Depends(require_module_access("consultations:read", "consultations:write"))])
+
+
+CONSULTATION_TEXT_FIELDS = {
+    "client_source": TextFieldRule(max_length=100),
+    "source_keyword": TextFieldRule(max_length=255),
+    "consultation_description": TextFieldRule(),
+    "project_name": TextFieldRule(max_length=500),
+    "customer_order_no": TextFieldRule(max_length=150),
+    "contact_name": TextFieldRule(max_length=255),
+    "handling_method": TextFieldRule(max_length=100),
+    "follow_up_status": TextFieldRule(max_length=20),
+    "follow_up_remarks": TextFieldRule(),
+    "remarks": TextFieldRule(),
+}
+
+CONSULTATION_INTAKE_TEXT_FIELDS = {
+    "translation": {
+        "service_content": TextFieldRule(max_length=255),
+        "file_type_secondary": TextFieldRule(max_length=100),
+        "project_contract_type": TextFieldRule(max_length=100),
+        "project_contract_status": TextFieldRule(max_length=100),
+        "quotation_status": TextFieldRule(max_length=100),
+        "quotation_path": TextFieldRule(managed_path=True),
+        "customer_requirement_professional": TextFieldRule(),
+        "customer_requirement_special": TextFieldRule(),
+    },
+    "interpretation": {
+        "task_description": TextFieldRule(),
+    },
+    "annotation": {
+        "task_description": TextFieldRule(required=True),
+        "potential_demand": TextFieldRule(),
+    },
+    "recruitment": {
+        "position_title": TextFieldRule(max_length=255, required=True),
+        "job_description": TextFieldRule(),
+        "work_location": TextFieldRule(max_length=500, required=True),
+    },
+}
 
 
 class CreateProjectFromConsultationRequest(BaseModel):
@@ -106,6 +152,10 @@ class ConsultationConfirmationPreviewResponse(BaseModel):
     to_users: list[dict] = Field(default_factory=list)
     cc_users: list[dict] = Field(default_factory=list)
     email_body: str = ""
+    sender_mode: str = "system"
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    sender_verified: bool = False
     can_send: bool = False
     blocking_reasons: List[str] = Field(default_factory=list)
 
@@ -187,6 +237,7 @@ def _build_subject_preview(
 def _confirmation_preview_values(
     db: Session,
     payload: ConsultationConfirmationPreviewRequest,
+    current_user: Optional[AppUser] = None,
 ) -> dict:
     consultation = None
     if payload.consultation_id:
@@ -264,7 +315,12 @@ def _confirmation_preview_values(
     }
     # 正式接口始终传入 SQLAlchemy Session；保留轻量级纯函数回退，便于主题生成单元测试。
     if isinstance(db, Session):
-        mail_preview = build_mail_preview(db, project_type, source=source)
+        mail_preview = build_mail_preview(
+            db,
+            project_type,
+            source=source,
+            current_user=current_user,
+        )
     else:
         mail_preview = {
             "subject": subject,
@@ -274,6 +330,10 @@ def _confirmation_preview_values(
             "cc_users": [],
             "can_send": False,
             "blocking_reasons": [],
+            "sender_mode": "system",
+            "sender_name": None,
+            "sender_email": None,
+            "sender_verified": False,
         }
     return {
         "project_type": project_type,
@@ -289,6 +349,10 @@ def _confirmation_preview_values(
         "to_users": mail_preview["to_users"],
         "cc_users": mail_preview["cc_users"],
         "email_body": mail_preview["body"],
+        "sender_mode": mail_preview["sender_mode"],
+        "sender_name": mail_preview["sender_name"],
+        "sender_email": mail_preview["sender_email"],
+        "sender_verified": mail_preview["sender_verified"],
         "can_send": mail_preview["can_send"],
         "blocking_reasons": mail_preview["blocking_reasons"],
     }
@@ -299,13 +363,19 @@ def _confirm_consultation_project(
     consultation,
     confirmation: ConsultationConfirmationFields,
     created_by: UUID,
+    current_user: Optional[AppUser] = None,
 ):
+    confirmation_project_type = _confirmation_project_type(consultation.consultation_type)
     next_project_name = _clean_text(confirmation.project_name) or getattr(consultation, "project_name", None)
     next_customer_order_no = _clean_text(confirmation.customer_order_no) or getattr(consultation, "customer_order_no", None)
     next_project_intake = (
-        validated_intake(_confirmation_project_type(consultation.consultation_type), confirmation.project_intake)
+        validated_intake(confirmation_project_type, confirmation.project_intake)
         if confirmation.project_intake
-        else (getattr(consultation, "project_intake", None) or {})
+        else (
+            validated_intake(confirmation_project_type, getattr(consultation, "project_intake", None) or {})
+            if confirmation_project_type == "interpretation"
+            else (getattr(consultation, "project_intake", None) or {})
+        )
     )
     preview_request = ConsultationConfirmationPreviewRequest(
         consultation_id=consultation.id,
@@ -319,7 +389,11 @@ def _confirm_consultation_project(
         consultation_description=getattr(consultation, "consultation_description", None),
         remarks=getattr(consultation, "remarks", None),
     )
-    preview = _confirmation_preview_values(db, preview_request)
+    preview = (
+        _confirmation_preview_values(db, preview_request, current_user)
+        if current_user is not None
+        else _confirmation_preview_values(db, preview_request)
+    )
     if confirmation.to_user_ids:
         validate_internal_users(db, confirmation.to_user_ids)
         validate_internal_users(
@@ -356,9 +430,10 @@ def _confirm_consultation_project(
     # 只有订单号校验通过后才写回咨询，避免并发冲突留下半成品状态。
     consultation.project_name = next_project_name
     consultation.customer_order_no = next_customer_order_no
-    if confirmation.project_intake:
+    if confirmation.project_intake or confirmation_project_type == "interpretation":
         consultation.project_intake = next_project_intake
-        consultation.project_intake_version = 1
+        if confirmation_project_type == "interpretation":
+            consultation.project_intake_version = 2
 
     if preview["project_type"] == "interpretation":
         project, _created = ensure_interpretation_project_for_consultation(
@@ -421,7 +496,14 @@ def _confirm_consultation_project(
     return project, preview
 
 
-def _send_confirmation_mail(db: Session, consultation, project, preview: dict, confirmation, actor_id: UUID):
+def _send_confirmation_mail(
+    db: Session,
+    consultation,
+    project,
+    preview: dict,
+    confirmation,
+    actor: AppUser,
+):
     if not confirmation.to_user_ids:
         return None
     payload = BusinessMailSendRequest(
@@ -432,7 +514,7 @@ def _send_confirmation_mail(db: Session, consultation, project, preview: dict, c
         body=(confirmation.email_body or preview.get("email_body") or "").strip(),
         idempotency_key=confirmation.idempotency_key or f"consultation-{consultation.id}-{uuid4()}",
     )
-    return serialize_mail(create_and_send(db, payload, actor_id))
+    return serialize_mail(create_and_send(db, payload, actor))
 
 
 def _attach_linked_project_ids(db: Session, consultation):
@@ -462,9 +544,10 @@ def _attach_linked_project_ids(db: Session, consultation):
 def preview_consultation_confirmation(
     payload: ConsultationConfirmationPreviewRequest,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        return _confirmation_preview_values(db, payload)
+        return _confirmation_preview_values(db, payload, current_user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -490,11 +573,15 @@ def create_confirmed_consultation(
             commit=False,
         )
         project, preview = _confirm_consultation_project(
-            db, consultation, body.confirmation, current_user.id
+            db,
+            consultation,
+            body.confirmation,
+            current_user.id,
+            current_user=current_user,
         )
         db.commit()
         mail = _send_confirmation_mail(
-            db, consultation, project, preview, body.confirmation, current_user.id
+            db, consultation, project, preview, body.confirmation, current_user
         )
         saved = _attach_linked_project_ids(
             db, get_consultation(db, consultation.id)
@@ -552,11 +639,15 @@ def update_confirmed_consultation(
             commit=False,
         )
         project, preview = _confirm_consultation_project(
-            db, consultation, body.confirmation, current_user.id
+            db,
+            consultation,
+            body.confirmation,
+            current_user.id,
+            current_user=current_user,
         )
         db.commit()
         mail = _send_confirmation_mail(
-            db, consultation, project, preview, body.confirmation, current_user.id
+            db, consultation, project, preview, body.confirmation, current_user
         )
         saved = _attach_linked_project_ids(
             db, get_consultation(db, consultation_id)
@@ -632,6 +723,7 @@ def create_consultation_endpoint(
 
 @router.get("/count")
 def read_consultation_count(
+    keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -649,6 +741,7 @@ def read_consultation_count(
     return {
         "total": count_consultations(
             db,
+            keyword=keyword,
             consultation_code=consultation_code,
             client_name=client_name,
             status=status,
@@ -669,6 +762,7 @@ def read_consultation_count(
 def read_consultations(
     skip: int = 0, 
     limit: int = Query(100, ge=1, le=500), 
+    keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
     client_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -687,6 +781,7 @@ def read_consultations(
         db, 
         skip=skip, 
         limit=limit,
+        keyword=keyword,
         consultation_code=consultation_code,
         client_name=client_name,
         status=status,
@@ -708,6 +803,73 @@ def read_consultation(consultation_id: UUID, db: Session = Depends(get_db)):
     if not db_consultation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
     return _attach_linked_project_ids(db, db_consultation)
+
+
+@router.patch(
+    "/{consultation_id}/text-field",
+    response_model=ConsultationResponse,
+    dependencies=[Depends(require_any_permission("consultations:write"))],
+)
+def update_consultation_text_field(
+    consultation_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    consultation = db.get(Consultation, consultation_id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="咨询记录不存在")
+    try:
+        changed = apply_text_field_update(
+            consultation,
+            payload,
+            CONSULTATION_TEXT_FIELDS,
+        )
+        if changed:
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _attach_linked_project_ids(
+        db,
+        get_consultation(db, consultation_id=consultation_id),
+    )
+
+
+@router.patch(
+    "/{consultation_id}/intake-text-field",
+    response_model=ConsultationResponse,
+    dependencies=[Depends(require_any_permission("consultations:write"))],
+)
+def update_consultation_intake_text_field(
+    consultation_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    consultation = db.get(Consultation, consultation_id)
+    if not consultation:
+        raise HTTPException(status_code=404, detail="咨询记录不存在")
+    try:
+        project_type = _confirmation_project_type(consultation.consultation_type)
+        rules = CONSULTATION_INTAKE_TEXT_FIELDS[project_type]
+        rule = rules.get(payload.field)
+        if rule is None:
+            raise ValueError("该售前字段不支持快捷编辑")
+        assert_fresh(consultation, payload.expected_updated_at)
+        value = normalize_text_value(payload.value, rule)
+        merged = dict(consultation.project_intake or {})
+        merged[payload.field] = value
+        normalized = validated_intake(project_type, merged)
+        if normalized != (consultation.project_intake or {}):
+            consultation.project_intake = normalized
+            consultation.updated_at = datetime.now()
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _attach_linked_project_ids(
+        db,
+        get_consultation(db, consultation_id=consultation_id),
+    )
 
 
 @router.put("/{consultation_id}", response_model=ConsultationResponse)

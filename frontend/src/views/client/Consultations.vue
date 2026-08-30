@@ -30,12 +30,12 @@
     </template>
 
     <el-form :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="客户名称">
+      <el-form-item label="关键词">
         <el-input
-          v-model="searchForm.client_name"
-          placeholder="输入客户全称或简称"
+          v-model="searchForm.keyword"
+          placeholder="咨询编号、项目名称、客户名称或客户单号"
           clearable
-          style="width: 240px"
+          style="width: 320px"
           @input="handleDebouncedSearchInput"
           @keyup.enter="handleSearch"
         />
@@ -53,30 +53,13 @@
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-popover
+        <AdvancedFilterPopover
           v-model:visible="advancedFilterVisible"
-          placement="bottom-end"
-          trigger="click"
-          :width="760"
+          :count="advancedFilterCount"
           popper-class="consultation-advanced-filter-popover"
+          @clear="clearAdvancedFilters"
         >
-          <template #reference>
-            <el-button>
-              高级筛选
-              <span v-if="advancedFilterCount" class="advanced-filter-count">{{ advancedFilterCount }}</span>
-            </el-button>
-          </template>
-          <div class="advanced-filter-panel">
-            <div class="advanced-filter-header">
-              <span>高级筛选</span>
-              <div class="advanced-filter-header-actions">
-                <el-button v-if="advancedFilterCount" type="primary" link @click="clearAdvancedFilters">
-                  清空高级条件
-                </el-button>
-                <el-button link @click="advancedFilterVisible = false">关闭</el-button>
-              </div>
-            </div>
-            <el-form :model="searchForm" label-position="top" class="advanced-filter-form">
+          <el-form :model="searchForm" label-position="top" class="advanced-filter-form">
               <el-row :gutter="16">
                 <el-col :xs="24" :sm="12" :lg="8">
                   <el-form-item label="咨询日期">
@@ -155,46 +138,37 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-            </el-form>
-          </div>
-        </el-popover>
+          </el-form>
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
     <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" width="60" />
-      <el-table-column
-        v-for="column in displayedConsultationColumns"
-        :key="column.key"
-        :prop="column.key"
-        :label="column.label"
-        :width="column.width"
-        :show-overflow-tooltip="column.key !== 'status'"
-      >
+      <el-table-column prop="consultation_code" label="咨询编号" width="160" show-overflow-tooltip>
         <template #header>
-          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看咨询详情" />
-          <span v-else>{{ column.label }}</span>
+          <ClickableColumnHeader label="咨询编号" hint="点击咨询编号查看咨询详情" />
         </template>
         <template #default="{ row }">
           <el-popover
-            v-if="column.key === 'client_short_name'"
             placement="left"
             :width="760"
             trigger="click"
             popper-class="consultation-detail-popover"
-            :title="`${row.client_short_name || '客户'} 咨询详情`"
+            :title="`${row.consultation_code || '咨询'} 详情`"
             @show="loadConsultationDetail(row.id)"
+            @hide="cancelInlineDetailEdit"
           >
             <template #reference>
               <el-button
                 type="primary"
                 link
-                class="client-short-name-link business-clickable-cell"
-                :title="`${row.client_short_name || '-'}（点击查看详情）`"
+                class="consultation-code-link business-clickable-cell"
+                :title="`${row.consultation_code || '-'}（点击查看详情）`"
                 @click.stop
               >
-                {{ row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-') }}
+                {{ row.consultation_code || '-' }}
               </el-button>
             </template>
             <div class="detail-popover" v-loading="detailLoadingId === row.id">
@@ -224,17 +198,20 @@
                   <span class="detail-value">{{ consultationMethodLabel(getDetailRow(row).consultation_method) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户来源">
-                  <span class="detail-value">{{ getDetailRow(row).client_source || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).client_source" :editable="canWrite && !deleteMode" label="客户来源" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'client_source', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
                 <el-descriptions-item label="来源关键词">
-                  <span class="detail-value">{{ getDetailRow(row).source_keyword || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).source_keyword" :editable="canWrite && !deleteMode" label="来源关键词" :maxlength="255" :save-field="(value) => saveConsultationTextField(row, 'source_keyword', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询类型">
                   <span class="detail-value">{{ consultationTypeLabel(getDetailRow(row).consultation_type) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="处理方式">
-                  <span class="detail-value">{{ getDetailRow(row).handling_method || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).handling_method" :editable="canWrite && !deleteMode" label="处理方式" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'handling_method', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
+                <el-descriptions-item label="项目名称"><InlineTextField :model-value="getDetailRow(row).project_name" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveConsultationTextField(row, 'project_name', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="getDetailRow(row).contact_name" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveConsultationTextField(row, 'contact_name', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="客户单号/标识"><InlineTextField :model-value="getDetailRow(row).customer_order_no" :editable="canWrite && !deleteMode" label="客户单号/标识" :maxlength="150" :save-field="(value) => saveConsultationTextField(row, 'customer_order_no', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="客服人员">
                   <span class="detail-value">{{ getUserName(getDetailRow(row).customer_service_id) }}</span>
                 </el-descriptions-item>
@@ -254,17 +231,39 @@
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).follow_up_time) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="跟进状态" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_status || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).follow_up_status" :editable="canWrite && !deleteMode" label="跟进状态" :maxlength="20" :save-field="(value) => saveConsultationTextField(row, 'follow_up_status', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询描述" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).consultation_description || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).consultation_description" :editable="canWrite && !deleteMode" label="咨询描述" multiline :save-field="(value) => saveConsultationTextField(row, 'consultation_description', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
                 <el-descriptions-item label="跟进备注" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).follow_up_remarks || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).follow_up_remarks" :editable="canWrite && !deleteMode" label="跟进备注" multiline :save-field="(value) => saveConsultationTextField(row, 'follow_up_remarks', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
                 <el-descriptions-item label="备注" :span="2">
-                  <span class="detail-value">{{ getDetailRow(row).remarks || '-' }}</span>
+                  <InlineTextField :model-value="getDetailRow(row).remarks" :editable="canWrite && !deleteMode" label="备注" multiline :save-field="(value) => saveConsultationTextField(row, 'remarks', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
+                <template v-if="isTranslationConsultationType(getDetailRow(row).consultation_type)">
+                  <el-descriptions-item label="服务内容"><InlineTextField :model-value="getDetailRow(row).project_intake?.service_content" :editable="canWrite && !deleteMode" label="服务内容" :maxlength="255" :save-field="(value) => saveConsultationTextField(row, 'service_content', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="文本类型"><InlineTextField :model-value="getDetailRow(row).project_intake?.file_type_secondary" :editable="canWrite && !deleteMode" label="文本类型" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'file_type_secondary', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="合同类型"><InlineTextField :model-value="getDetailRow(row).project_intake?.project_contract_type" :editable="canWrite && !deleteMode" label="合同类型" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'project_contract_type', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="合同状态"><InlineTextField :model-value="getDetailRow(row).project_intake?.project_contract_status" :editable="canWrite && !deleteMode" label="合同状态" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'project_contract_status', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="报价单状态"><InlineTextField :model-value="getDetailRow(row).project_intake?.quotation_status" :editable="canWrite && !deleteMode" label="报价单状态" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'quotation_status', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="报价单路径" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.quotation_path" :editable="canWrite && !deleteMode" label="报价单路径" multiline :save-field="(value) => saveConsultationTextField(row, 'quotation_path', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="客户专业要求" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.customer_requirement_professional" :editable="canWrite && !deleteMode" label="客户专业要求" multiline :save-field="(value) => saveConsultationTextField(row, 'customer_requirement_professional', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="客户特殊要求" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.customer_requirement_special" :editable="canWrite && !deleteMode" label="客户特殊要求" multiline :save-field="(value) => saveConsultationTextField(row, 'customer_requirement_special', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                </template>
+                <template v-else-if="isInterpretationConsultationType(getDetailRow(row).consultation_type)">
+                  <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.task_description" :editable="canWrite && !deleteMode" label="具体任务" multiline :save-field="(value) => saveConsultationTextField(row, 'task_description', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                </template>
+                <template v-else-if="isAnnotationConsultationType(getDetailRow(row).consultation_type)">
+                  <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.task_description" :editable="canWrite && !deleteMode" label="具体任务" required multiline :save-field="(value) => saveConsultationTextField(row, 'task_description', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="潜在需求量" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.potential_demand" :editable="canWrite && !deleteMode" label="潜在需求量" multiline :save-field="(value) => saveConsultationTextField(row, 'potential_demand', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                </template>
+                <template v-else-if="isRecruitmentConsultationType(getDetailRow(row).consultation_type)">
+                  <el-descriptions-item label="职位名称/类型"><InlineTextField :model-value="getDetailRow(row).project_intake?.position_title" :editable="canWrite && !deleteMode" label="职位名称/类型" required :maxlength="255" :save-field="(value) => saveConsultationTextField(row, 'position_title', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="工作地点"><InlineTextField :model-value="getDetailRow(row).project_intake?.work_location" :editable="canWrite && !deleteMode" label="工作地点" required :maxlength="500" :save-field="(value) => saveConsultationTextField(row, 'work_location', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="职位描述" :span="2"><InlineTextField :model-value="getDetailRow(row).project_intake?.job_description" :editable="canWrite && !deleteMode" label="职位描述" multiline :save-field="(value) => saveConsultationTextField(row, 'job_description', value, true)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
+                </template>
                 <el-descriptions-item label="创建时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).created_at) }}</span>
                 </el-descriptions-item>
@@ -274,6 +273,67 @@
               </el-descriptions>
             </div>
           </el-popover>
+        </template>
+      </el-table-column>
+      <el-table-column
+        v-for="column in displayedConsultationColumns"
+        :key="column.key"
+        :prop="column.key"
+        :label="column.label"
+        :width="column.width"
+        :show-overflow-tooltip="column.key !== 'status'"
+      >
+        <template #header>
+          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户信息" />
+          <span v-else>{{ column.label }}</span>
+        </template>
+        <template #default="{ row }">
+          <el-popover
+            v-if="column.key === 'client_short_name' && row.client_id"
+            placement="left"
+            :width="760"
+            trigger="click"
+            popper-class="consultation-client-detail-popover"
+            :title="`${row.client_short_name || row.client_name || '客户'} 客户信息`"
+            @show="loadClientDetail(row.client_id)"
+          >
+            <template #reference>
+              <el-button
+                type="primary"
+                link
+                class="client-short-name-link business-clickable-cell"
+                :title="`${row.client_short_name || '-'}（点击查看详情）`"
+                @click.stop
+              >
+                {{ row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-') }}
+              </el-button>
+            </template>
+            <div class="detail-popover" v-loading="clientDetailLoadingId === row.client_id">
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="客户编号">
+                  <span class="detail-value">{{ getClientDetailRow(row).client_code || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户全称">
+                  <span class="detail-value">{{ getClientDetailRow(row).client_name || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户简称">
+                  <span class="detail-value">{{ getClientDetailRow(row).client_short_name || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户负责人">
+                  <span class="detail-value">{{ getClientDetailRow(row).client_manager || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="负责人联系方式">
+                  <span class="detail-value">{{ getClientDetailRow(row).manager_contact || '-' }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="客户状态">
+                  <span class="detail-value">{{ getClientStatusLabel(getClientDetailRow(row).client_status) }}</span>
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
+          </el-popover>
+          <span v-else-if="column.key === 'client_short_name'">
+            {{ row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-') }}
+          </span>
           <el-dropdown
             v-else-if="column.key === 'status'"
             trigger="click"
@@ -337,7 +397,7 @@
       </el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
-          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <PrimaryEditButton @click="handleEdit(row)" />
         </template>
       </el-table-column>
     </el-table>
@@ -659,12 +719,13 @@
             <el-form-item label="口译方向" prop="project_intake.language_directions" required>
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field">
-                  <span>至少选择一组完整语种</span>
+                  <span>每个方向填写对应需求人数；合计 {{ interpretationRequiredTotal }} 人</span>
                   <el-button link type="primary" @click="addIntakeDirection">增加方向</el-button>
                 </div>
                 <div v-for="(item,index) in form.project_intake.language_directions" :key="index" class="intake-inline-row">
                   <el-select v-model="item.source_language_id" filterable placeholder="语种 A"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
                   <el-select v-model="item.target_language_id" filterable placeholder="语种 B"><el-option v-for="lang in languageOptions" :key="lang.id" :label="lang.label" :value="lang.id" /></el-select>
+                  <el-input-number v-model="item.required_count" :min="1" :precision="0" placeholder="需求人数" class="intake-direction-count" />
                   <el-button
                     link
                     type="danger"
@@ -674,7 +735,6 @@
                 </div>
               </div>
             </el-form-item>
-            <el-form-item label="译员人数" prop="project_intake.required_interpreter_count" required><el-input-number v-model="form.project_intake.required_interpreter_count" :min="1" /></el-form-item>
           </template>
 
           <template v-else-if="isAnnotationConsultationType(form.consultation_type)">
@@ -898,6 +958,22 @@
           <el-descriptions-item label="预计订单号">{{ confirmationPreview.order_no || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户简称">{{ confirmationPreview.client_short_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="负责人联系方式">{{ confirmationPreview.manager_contact || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="发件人" :span="2">
+            {{ confirmationPreview.sender_name || '未识别' }}
+            <span v-if="confirmationPreview.sender_email"> · {{ confirmationPreview.sender_email }}</span>
+            <el-tag
+              v-if="confirmationPreview.sender_mode === 'personal'"
+              size="small"
+              :type="confirmationPreview.sender_verified ? 'success' : 'warning'"
+              effect="plain"
+            >个人邮箱</el-tag>
+            <el-button
+              v-if="confirmationPreview.sender_mode === 'personal' && !confirmationPreview.sender_verified"
+              type="primary"
+              link
+              @click="openMailProfile"
+            >查看发件邮箱状态</el-button>
+          </el-descriptions-item>
         </el-descriptions>
         <el-form :model="confirmationForm" ref="confirmationFormRef" label-width="120px" @submit.prevent>
           <el-form-item
@@ -977,6 +1053,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
@@ -987,8 +1064,10 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
 import { hasPermission } from '@/utils/permission'
 
 const router = useRouter()
@@ -1008,6 +1087,8 @@ const userOptions = ref([])
 const languageOptions = ref([])
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
+const clientDetailCache = reactive({})
+const clientDetailLoadingId = ref(null)
 const clientSearchLoading = ref(false)
 
 // 口译/笔译咨询确认中间层
@@ -1023,6 +1104,7 @@ const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
   project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
   to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
+  sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
 })
 const CONFIRMED_CONSULTATION_STATUS = 'success'
 const currentUserId = localStorage.getItem('user_id') || null
@@ -1030,7 +1112,6 @@ const CONSULTATION_DRAFTS_STORAGE_KEY = `consultation_form_drafts:${currentUserI
 const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
 
 const consultationColumnOptions = [
-  { key: 'consultation_code', label: '咨询编号', width: 160 },
   { key: 'client_code', label: '客户编号', width: 150 },
   { key: 'client_name', label: '客户全称', width: 200 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
@@ -1121,7 +1202,7 @@ const pagination = reactive({
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:consultationTableRef,pagination,deleteRow:(row)=>consultationApi.deleteConsultation(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.consultation_description,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'咨询记录'})
 
 const searchForm = reactive({
-  client_name: '',
+  keyword: '',
   status: '',
   consultation_date_range: [],
   consultation_method: '',
@@ -1176,7 +1257,7 @@ const handleDebouncedSearchInput = (value) => {
 
 const resetSearch = () => {
   Object.assign(searchForm, {
-    client_name: '',
+    keyword: '',
     status: '',
     consultation_date_range: [],
     consultation_method: '',
@@ -1209,7 +1290,25 @@ const emptyProjectIntake = () => ({
   target_onboard_type: 'date', target_onboard_date: null,
 })
 
-const emptyLanguageDirection = () => ({ source_language_id: '', target_language_id: '' })
+const emptyLanguageDirection = () => ({ source_language_id: '', target_language_id: '', required_count: null })
+
+const normalizeLegacyInterpretationIntake = (projectIntake) => {
+  const normalized = { ...emptyProjectIntake(), ...(projectIntake || {}) }
+  const directions = (normalized.language_directions || []).map((item) => ({ ...item }))
+  const legacyTotal = normalized.required_interpreter_count
+  const missing = directions.filter((item) => !item.required_count)
+  if (directions.length === 1 && missing.length === 1 && Number.isInteger(legacyTotal) && legacyTotal > 0) {
+    directions[0].required_count = legacyTotal
+  } else if (directions.length > 1 && missing.length === directions.length && legacyTotal === directions.length) {
+    directions.forEach((item) => { item.required_count = 1 })
+  }
+  normalized.language_directions = directions
+  const counts = directions.map((item) => item.required_count)
+  if (counts.length && counts.every((value) => Number.isInteger(value) && value > 0)) {
+    normalized.required_interpreter_count = counts.reduce((total, value) => total + value, 0)
+  }
+  return normalized
+}
 
 const ensureInterpretationDirection = (projectIntake = form.project_intake) => {
   if (!Array.isArray(projectIntake.language_directions) || !projectIntake.language_directions.length) {
@@ -1251,6 +1350,9 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const interpretationRequiredTotal = computed(() => (
+  form.project_intake.language_directions || []
+).reduce((total, item) => total + (Number.isInteger(item.required_count) && item.required_count > 0 ? item.required_count : 0), 0))
 const canWrite = hasPermission('consultations:write')
 const availableSubClients = ref([])
 const personnelAssignmentExpanded = ref(false)
@@ -1325,10 +1427,7 @@ const restoreDraftIfNeeded = async () => {
       form.consultation_method = 'other'
     }
     if (isInterpretationConsultationType(form.consultation_type)) {
-      form.project_intake = {
-        ...emptyProjectIntake(),
-        ...(form.project_intake || {}),
-      }
+      form.project_intake = normalizeLegacyInterpretationIntake(form.project_intake)
       ensureInterpretationDirection()
     }
   } catch {
@@ -1502,6 +1601,10 @@ const validateInterpretationDirections = (_rule, value, callback) => {
     callback(new Error('请选择完整的口译方向'))
     return
   }
+  if (value.some((item) => !Number.isInteger(item?.required_count) || item.required_count < 1)) {
+    callback(new Error('请为每个口译方向填写大于等于 1 的需求人数'))
+    return
+  }
   callback()
 }
 
@@ -1562,13 +1665,6 @@ const rules = {
   }],
   'project_intake.time_ranges': [{
     validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), validateInterpretationTimeRanges),
-    trigger: 'change',
-  }],
-  'project_intake.required_interpreter_count': [{
-    validator: validateWhen(
-      () => isInterpretationConsultationType(form.consultation_type),
-      (_rule, value, callback) => { if (value) return callback(); callback(new Error('请填写译员人数')) },
-    ),
     trigger: 'change',
   }],
   'project_intake.task_description': [{
@@ -1653,6 +1749,28 @@ const isYesterday = (val) => {
 }
 
 const getDetailRow = (row) => detailCache[row.id] || row
+const cancelInlineDetailEdit = () => window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
+const saveConsultationTextField = async (row, field, value, intake = false) => {
+  const current = getDetailRow(row)
+  const request = intake ? consultationApi.updateConsultationIntakeTextField : consultationApi.updateConsultationTextField
+  const updated = await request(row.id, field, value, current.updated_at)
+  detailCache[row.id] = updated
+  Object.assign(row, updated)
+  if (Object.values(buildSearchFilters()).some(Boolean)) void fetchData()
+  return updated
+}
+
+const getClientDetailRow = (row) => clientDetailCache[row.client_id] || {
+  client_code: row.client_code,
+  client_name: row.client_name,
+  client_short_name: row.client_short_name,
+  manager_contact: row.manager_contact,
+}
+
+const getClientStatusLabel = (status) => {
+  if (!status) return '-'
+  return status === 'active' ? '合作中' : status === 'inactive' ? '已停止' : '待合作'
+}
 
 // el-autocomplete 模糊搜索客户
 const searchClientsByName = async (queryString, cb) => {
@@ -1816,7 +1934,7 @@ const handleLocateConsultationField = async (item) => {
 const buildSearchFilters = () => {
   const [consultationDateStart, consultationDateEnd] = searchForm.consultation_date_range || []
   return {
-    client_name: searchForm.client_name?.trim() || undefined,
+    keyword: searchForm.keyword?.trim() || undefined,
     status: searchForm.status || undefined,
     consultation_date_start: consultationDateStart || undefined,
     consultation_date_end: consultationDateEnd || undefined,
@@ -1873,10 +1991,14 @@ const buildPayload = () => ({
   project_name: form.project_name?.trim() || null,
   project_intake: {
     ...form.project_intake,
+    required_interpreter_count: isInterpretationConsultationType(form.consultation_type)
+      ? (interpretationRequiredTotal.value || null)
+      : form.project_intake.required_interpreter_count,
     employment_start: form.project_intake.employment_range?.[0] || null,
     employment_end: form.project_intake.employment_range?.[1] || null,
     employment_range: undefined,
   },
+  project_intake_version: 2,
   consultation_time: toNullable(form.consultation_time),
   consultation_method: toNullable(
     form.consultation_method === 'other'
@@ -1901,8 +2023,8 @@ const buildPayload = () => ({
   expected_updated_at: form.updated_at || null,
 })
 
-const loadConsultationDetail = async (id) => {
-  if (!id || detailCache[id]) return
+const loadConsultationDetail = async (id, force = false) => {
+  if (!id || (!force && detailCache[id])) return
   detailLoadingId.value = id
   try {
     const detail = await consultationApi.getConsultation(id)
@@ -1911,6 +2033,18 @@ const loadConsultationDetail = async (id) => {
     ElMessage.error('加载详情失败')
   } finally {
     detailLoadingId.value = null
+  }
+}
+
+const loadClientDetail = async (clientId) => {
+  if (!clientId || clientDetailCache[clientId]) return
+  clientDetailLoadingId.value = clientId
+  try {
+    clientDetailCache[clientId] = await clientApi.getClient(clientId)
+  } catch {
+    ElMessage.error('加载客户信息失败')
+  } finally {
+    clientDetailLoadingId.value = null
   }
 }
 
@@ -1931,14 +2065,17 @@ const fillFormByRow = (row) => {
   const consultationType = consultationTypeLabel(row.consultation_type) === '-'
     ? ''
     : consultationTypeLabel(row.consultation_type)
-  const projectIntake = {
+  let projectIntake = {
     ...emptyProjectIntake(),
     ...(row.project_intake || {}),
     employment_range: row.project_intake?.employment_start && row.project_intake?.employment_end
       ? [row.project_intake.employment_start, row.project_intake.employment_end]
       : [],
   }
-  if (isInterpretationConsultationType(consultationType)) ensureInterpretationDirection(projectIntake)
+  if (isInterpretationConsultationType(consultationType)) {
+    projectIntake = normalizeLegacyInterpretationIntake(projectIntake)
+    ensureInterpretationDirection(projectIntake)
+  }
   Object.assign(form, {
     id: row.id,
     client_id: row.client_id || null,
@@ -2162,6 +2299,10 @@ const applyConfirmationPreview = (preview) => {
     to_users: Array.isArray(preview?.to_users) ? preview.to_users : [],
     cc_users: Array.isArray(preview?.cc_users) ? preview.cc_users : [],
     email_body: preview?.email_body || '',
+    sender_mode: preview?.sender_mode || 'system',
+    sender_name: preview?.sender_name || '',
+    sender_email: preview?.sender_email || '',
+    sender_verified: !!preview?.sender_verified,
     can_send: !!preview?.can_send,
     blocking_reasons: Array.isArray(preview?.blocking_reasons) ? preview.blocking_reasons : [],
   })
@@ -2171,6 +2312,11 @@ const applyConfirmationPreview = (preview) => {
   confirmationForm.emailBody = preview?.email_body || ''
   confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
   confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
+}
+
+const openMailProfile = () => {
+  confirmationDialogVisible.value = false
+  router.push('/profile')
 }
 
 const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource, continueCreate = false }) => {
@@ -2185,6 +2331,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
     project_type: '', order_no: '', client_short_name: '', manager_contact: '',
     project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
     to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
+    sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
   })
   confirmationDialogVisible.value = true
   confirmationPreviewLoading.value = true
@@ -2468,7 +2615,8 @@ onBeforeUnmount(() => {
 .intake-list-header--field > span { color: var(--el-text-color-secondary); font-size: 12px; font-weight: 400; }
 .intake-inline-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
 .intake-inline-row > .el-select, .intake-inline-row > .el-date-editor { flex: 1; }
-@media (max-width: 768px) { .intake-inline-row { align-items: stretch; flex-direction: column; } }
+.intake-direction-count { width: 150px; flex: 0 0 150px; }
+@media (max-width: 768px) { .intake-inline-row { align-items: stretch; flex-direction: column; } .intake-direction-count { width: 100%; flex-basis: auto; } }
 
 .consultations-card :deep(.el-card__header) {
   padding: 10px 16px;
@@ -2545,7 +2693,8 @@ onBeforeUnmount(() => {
 }
 
 :global(.consultation-advanced-filter-popover),
-:global(.consultation-detail-popover) {
+:global(.consultation-detail-popover),
+:global(.consultation-client-detail-popover) {
   max-width: calc(100vw - 32px);
 }
 
@@ -2719,7 +2868,8 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.client-short-name-link {
+.client-short-name-link,
+.consultation-code-link {
   display: block;
   max-width: 100%;
   height: auto;

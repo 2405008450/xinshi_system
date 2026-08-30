@@ -22,7 +22,6 @@
       <div v-else class="header card-header">
         <div><h2>标注员账号预览</h2><p>集中查看各客户平台账号、当前分配状态及标注员分配履历</p></div>
         <div class="actions header-actions">
-          <el-radio-group v-model="viewMode" size="small" :disabled="sheetLocked" @change="viewModeChanged"><el-radio-button value="assets">账号预览</el-radio-button><el-radio-button value="project" :disabled="!projectId">项目账号表</el-radio-button></el-radio-group>
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" @reset="resetColumns" />
           <el-popover v-if="canWrite" v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
             <template #reference><el-button :disabled="!effectiveClientId">平台管理</el-button></template>
@@ -45,13 +44,16 @@
         <el-option v-for="item in clients" :key="item.id" :label="item.client_short_name || item.client_name" :value="item.id" />
       </el-select>
       <el-select v-if="viewMode === 'assets'" v-model="projectId" :disabled="sheetLocked" clearable filterable placeholder="选择项目（选择后仍停留账号预览）" style="width:min(420px, calc(100vw - 32px))" @change="projectSelectionChanged">
-        <el-option v-for="item in clientProjects" :key="item.id" :label="item.projectName || '未命名'" :value="item.id" />
+        <el-option v-for="item in clientProjects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" />
       </el-select>
+      <el-tooltip v-if="viewMode === 'assets'" content="请先选择标注项目" :disabled="Boolean(projectId)" placement="top">
+        <span><el-button type="primary" :disabled="!projectId" @click="enterProjectSheet">进入项目账号表</el-button></span>
+      </el-tooltip>
       <div v-if="viewMode === 'assets'" class="assignment-language-field">
         <el-select v-model="assignmentLanguageItemId" :disabled="sheetLocked||!projectId" clearable filterable placeholder="账号适用语言（选择人员前必选）" style="width:250px">
           <el-option v-for="item in languageItems" :key="item.id" :label="item.display" :value="item.id" />
         </el-select>
-        <el-tooltip content="表示该账号在所选项目中用于哪种语言或语言组合，选项来自“标注项目详情”。单语言项目会自动带出，多语言项目需人工选择。" placement="top"><el-icon class="language-help"><QuestionFilled /></el-icon></el-tooltip>
+        <el-tooltip content="表示该账号在所选项目中用于哪种语言或语言组合，选项来自“标注项目管理”。单语言项目会自动带出，多语言项目需人工选择。" placement="top"><el-icon class="language-help"><QuestionFilled /></el-icon></el-tooltip>
       </div>
       <el-input v-model="keyword" :disabled="sheetLocked" clearable placeholder="平台、编号、姓名或昵称" style="width:280px" @input="onKeyword" @keyup.enter="queryNow" />
       <el-button class="query-button" type="primary" :disabled="sheetLocked" @click="queryNow">查询</el-button><el-button :disabled="sheetLocked" @click="resetFilters">重置</el-button>
@@ -93,9 +95,36 @@
       @save="saveProjectSheetChanges"
       @dirty-change="sheetDirtyChanged"
       @selection-change="handleProjectDeleteSelectionChange"
-      @detail="openSheetDetail"
-      @edit="openAccount"
-    />
+    >
+      <template #selected-row-actions="{ row, dirtyCount }">
+        <BusinessDetailPopover :row="row" title="项目账号记录详情" :loading="assignmentLoading===row.id" @show="loadAssignments(row)">
+          <template #content>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="平台">{{ row.platformName || host(row.platformUrl) }}</el-descriptions-item>
+              <el-descriptions-item label="登录账号">{{ row.loginAccount || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="密码">{{ row.password || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="分配人员">{{ row.personName || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="性别">{{ row.personGender || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="项目">{{ row.projectName || selectedProject?.projectName || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="语言方向" :span="2">{{ row.languageLabels?.join('、') || '-' }}</el-descriptions-item>
+              <el-descriptions-item v-for="field in projectCustomFields" :key="field.id" :label="field.fieldLabel" :span="field.dataType==='textarea'?2:1">
+                <AnnotationCustomFieldImage v-if="field.dataType==='image'" :model-value="row.assignmentCustomValues?.[field.id]||null" :project-id="projectId" :field-id="field.id" readonly />
+                <template v-else>{{ formatValue(row.assignmentCustomValues?.[field.id]) }}</template>
+              </el-descriptions-item>
+              <el-descriptions-item label="分配履历" :span="2">
+                <el-table :data="assignmentCache[row.id] || []" size="small" max-height="260">
+                  <el-table-column prop="personName" label="标注员" />
+                  <el-table-column prop="projectName" label="项目" />
+                  <el-table-column prop="assignedOn" label="分配日期" width="110" />
+                  <el-table-column prop="releasedOn" label="释放日期" width="110"><template #default="scope">{{ scope.row.releasedOn || '使用中' }}</template></el-table-column>
+                </el-table>
+              </el-descriptions-item>
+            </el-descriptions>
+          </template>
+        </BusinessDetailPopover>
+        <PrimaryEditButton v-if="canWrite" :disabled="Boolean(dirtyCount)" title="请先保存或放弃表格修改" @click="openAccount(row)" />
+      </template>
+    </ProjectAccountSpreadsheet>
 
     <el-table ref="accountTableRef" v-else :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -135,10 +164,9 @@
       <template v-if="viewMode!=='assets'">
         <el-table-column v-for="field in visibleProjectCustomFields" :key="`assignment-view:${field.id}`" :label="field.fieldLabel" min-width="140" show-overflow-tooltip><template #default="{row}">{{ formatValue(row.assignmentCustomValues?.[field.id]) }}</template></el-table-column>
       </template>
-      <el-table-column label="详情" width="90" fixed="right"><template #default="{row}">
-        <el-popover trigger="click" placement="left" :width="760" title="标注账号详情" popper-class="account-detail-popper" @show="loadAssignments(row)">
-          <template #reference><el-button link type="primary">查看详情</el-button></template>
-          <div class="detail-content"><el-descriptions :column="2" border size="small">
+      <el-table-column label="详情" width="90" fixed="right" align="center"><template #default="{row}">
+        <BusinessDetailPopover :row="row" title="标注账号详情" :loading="assignmentLoading===row.id" @show="loadAssignments(row)">
+          <template #content><el-descriptions :column="2" border size="small">
             <el-descriptions-item label="平台">{{ row.platformName || host(row.platformUrl) }}</el-descriptions-item><el-descriptions-item label="平台链接"><el-link v-if="row.platformUrl" type="primary" :href="row.platformUrl" target="_blank" rel="noopener noreferrer">{{ row.platformUrl }}</el-link><span v-else>-</span></el-descriptions-item>
             <el-descriptions-item label="账号昵称">{{ row.nickname || '-' }}</el-descriptions-item><el-descriptions-item label="账号来源">{{ sourceLabels[row.accountSource] || row.accountSource }}</el-descriptions-item>
             <el-descriptions-item label="登录账号">{{ row.loginAccount || '-' }}</el-descriptions-item><el-descriptions-item label="密码">{{ row.password || '-' }}</el-descriptions-item>
@@ -146,10 +174,11 @@
             <el-descriptions-item label="标注员">{{ row.personName || '-' }}</el-descriptions-item><el-descriptions-item label="当前项目">{{ row.projectName || '-' }}</el-descriptions-item>
             <el-descriptions-item label="语言方向">{{ row.languageLabels?.join('、') || '-' }}</el-descriptions-item><el-descriptions-item label="分配日期">{{ row.assignedOn || '-' }}</el-descriptions-item>
             <el-descriptions-item label="备注" :span="2">{{ row.remarks || '-' }}</el-descriptions-item>
-          </el-descriptions><h4>分配履历</h4><el-table :data="assignmentCache[row.id] || []" size="small" max-height="260" v-loading="assignmentLoading===row.id"><el-table-column prop="personName" label="标注员" /><el-table-column prop="projectName" label="项目" /><el-table-column prop="assignedOn" label="分配日期" width="110" /><el-table-column prop="releasedOn" label="释放日期" width="110"><template #default="scope">{{ scope.row.releasedOn || '使用中' }}</template></el-table-column></el-table></div>
-        </el-popover>
+            <el-descriptions-item label="分配履历" :span="2"><el-table :data="assignmentCache[row.id] || []" size="small" max-height="260"><el-table-column prop="personName" label="标注员" /><el-table-column prop="projectName" label="项目" /><el-table-column prop="assignedOn" label="分配日期" width="110" /><el-table-column prop="releasedOn" label="释放日期" width="110"><template #default="scope">{{ scope.row.releasedOn || '使用中' }}</template></el-table-column></el-table></el-descriptions-item>
+          </el-descriptions></template>
+        </BusinessDetailPopover>
       </template></el-table-column>
-      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="110" fixed="right"><template #default="{row}"><el-button link type="primary" @click="openAccount(row)">{{ viewMode==='project' ? '编辑项目记录' : '编辑' }}</el-button></template></el-table-column>
+      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="120" fixed="right" align="center"><template #default="{row}"><PrimaryEditButton @click="openAccount(row)" /></template></el-table-column>
     </el-table>
     <div v-if="viewMode==='assets'" class="pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="reload" @size-change="pageSizeChanged" /></div>
   </el-card>
@@ -177,36 +206,13 @@
 
   <AccountImportDialog v-model="importVisible" :client-id="effectiveClientId" :project-id="projectId" :platforms="platforms" :language-items="languageItems" :users="users" :default-language-ids="assignmentLanguageItemId?[assignmentLanguageItemId]:[]" @imported="importCompleted" />
 
-  <el-dialog v-model="sheetDetailVisible" title="项目账号记录详情" width="min(760px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
-    <div v-if="sheetDetailRow" class="detail-content">
-      <el-descriptions :column="2" border size="small">
-        <el-descriptions-item label="平台">{{ sheetDetailRow.platformName || host(sheetDetailRow.platformUrl) }}</el-descriptions-item>
-        <el-descriptions-item label="登录账号">{{ sheetDetailRow.loginAccount || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="密码">{{ sheetDetailRow.password || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="分配人员">{{ sheetDetailRow.personName || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="性别">{{ sheetDetailRow.personGender || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="项目">{{ sheetDetailRow.projectName || selectedProject?.projectName || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="语言方向">{{ sheetDetailRow.languageLabels?.join('、') || '-' }}</el-descriptions-item>
-        <el-descriptions-item v-for="field in projectCustomFields" :key="field.id" :label="field.fieldLabel">
-          <AnnotationCustomFieldImage v-if="field.dataType==='image'" :model-value="sheetDetailRow.assignmentCustomValues?.[field.id]||null" :project-id="projectId" :field-id="field.id" readonly />
-          <template v-else>{{ formatValue(sheetDetailRow.assignmentCustomValues?.[field.id]) }}</template>
-        </el-descriptions-item>
-      </el-descriptions>
-      <h4>分配履历</h4>
-      <el-table :data="assignmentCache[sheetDetailRow.id] || []" size="small" max-height="260" v-loading="assignmentLoading===sheetDetailRow.id">
-        <el-table-column prop="personName" label="标注员" /><el-table-column prop="projectName" label="项目" /><el-table-column prop="assignedOn" label="分配日期" width="110" /><el-table-column prop="releasedOn" label="释放日期" width="110"><template #default="scope">{{ scope.row.releasedOn || '使用中' }}</template></el-table-column>
-      </el-table>
-    </div>
-    <template #footer><el-button @click="sheetDetailVisible=false">关闭</el-button></template>
-  </el-dialog>
-
 </template>
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { onBeforeRouteLeave, useRoute } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import * as clientApi from '@/api/clients'
 import * as projectApi from '@/api/annotationProjects'
 import * as talentApi from '@/api/talents'
@@ -217,6 +223,8 @@ import AnnotationCustomFieldImage from '@/components/annotation/AnnotationCustom
 import AccountImportDialog from '@/components/annotation/AccountImportDialog.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
+import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
@@ -229,13 +237,13 @@ const canWrite=hasPermission('annotation_accounts:write')
 
 const clients=ref([]),projects=ref([]),platforms=ref([]),rows=ref([]),talents=ref([]),users=ref([]),projectCustomFields=ref([]),projectSpreadsheetRef=ref(null)
 const route=useRoute()
+const router=useRouter()
 const clientId=ref(''),projectId=ref(''),assignmentLanguageItemId=ref(''),keyword=ref(''),loading=ref(false),saving=ref(false),clientSearchLoading=ref(false)
 const accountTableRef=ref(null)
 const currentUserId=localStorage.getItem('user_id')||''
 const advancedVisible=ref(false),platformManagerVisible=ref(false),platformDialog=ref(false),accountDialog=ref(false),importVisible=ref(false),viewMode=ref('assets')
 const sheetDirtyCount=ref(0)
 const sheetSaveErrors=ref({})
-const sheetDetailVisible=ref(false),sheetDetailRow=ref(null)
 const assignmentCache=reactive({}),assignmentLoading=ref(''),personProfileCache=reactive({}),personProfileLoadingId=ref('')
 const occupancy=ref([]),inlineSavingId=ref(''),talentKeyword=ref('')
 const pagination=reactive({page:1,limit:20,total:0})
@@ -285,7 +293,7 @@ const host=url=>{try{return new URL(url).hostname}catch{return url||'未命名�
 const platformName=item=>item.platformName||host(item.platformUrl)
 const talentOptionLabel=item=>talentName(item)
 const userName=item=>item.full_name||item.fullName||item.username||'-'
-const formatValue=value=>Array.isArray(value)?value.join('、'):value===true?'是':value===false?'否':value??'-'
+const formatValue=value=>Array.isArray(value)?value.join('、')||'-':value===true?'是':value===false?'否':value===null||value===undefined||value===''?'-':value
 const show=value=>value===null||value===undefined||value===''?'-':Array.isArray(value)?value.join('、')||'-':value
 const statusTag=value=>({available:'success',assigned:'primary',suspended:'warning',banned:'danger',retired:'info'}[value]||'info')
 const importCompleted=async()=>{await Promise.all([loadProjectFields(),reload()])}
@@ -346,28 +354,30 @@ const syncAssignmentLanguage=()=>{
   const items=projects.value.find(item=>item.id===projectId.value)?.languageItems||[]
   assignmentLanguageItemId.value=items.length===1?items[0].id:''
 }
-const projectSelectionChanged=async()=>{filters.languageItemId='';syncAssignmentLanguage();viewMode.value='assets';pagination.page=1;await Promise.all([loadPlatforms(),loadProjectFields()]);await reload()}
-const viewModeChanged=async value=>{if(value==='project'&&!projectId.value){viewMode.value='assets';return ElMessage.warning('请先选择项目')}pagination.page=1;await loadProjectFields();await reload()}
+const accountRouteQuery=(nextView=viewMode.value,nextProjectId=projectId.value)=>{
+  const query={...route.query,section:'accounts'}
+  if(nextProjectId)query.projectId=nextProjectId
+  else delete query.projectId
+  if(nextView==='project'&&nextProjectId)query.view='project'
+  else delete query.view
+  return query
+}
+const replaceAccountRoute=(nextView,nextProjectId)=>router.replace({name:'AnnotationProjectDetails',query:accountRouteQuery(nextView,nextProjectId)})
+const projectSelectionChanged=async()=>{filters.languageItemId='';syncAssignmentLanguage();viewMode.value='assets';pagination.page=1;await Promise.all([loadPlatforms(),loadProjectFields()]);await reload();await replaceAccountRoute('assets',projectId.value)}
+const enterProjectSheet=()=>{
+  if(!projectId.value)return ElMessage.warning('请先选择标注项目')
+  return replaceAccountRoute('project',projectId.value)
+}
 const switchProjectInSheet=async nextProjectId=>{
   if(!nextProjectId||nextProjectId===projectId.value)return
-  if(!await discardDrafts())return
   const nextProject=projects.value.find(item=>item.id===nextProjectId)
   if(!nextProject)return ElMessage.error('未找到所选标注项目')
-  exitProjectDeleteMode()
-  projectId.value=nextProject.id
-  clientId.value=nextProject.clientId||''
-  keyword.value=''
-  Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''})
-  syncAssignmentLanguage()
-  pagination.page=1
-  sheetSaveErrors.value={}
-  await Promise.all([loadPlatforms(),loadProjectFields()])
-  await reload()
+  await replaceAccountRoute('project',nextProject.id)
 }
-const returnToAssets=async()=>{if(!await discardDrafts())return;exitProjectDeleteMode();viewMode.value='assets';await viewModeChanged('assets')}
+const returnToAssets=()=>replaceAccountRoute('assets',projectId.value)
 const clearAdvanced=()=>{Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''});queryNow()}
-const changeClient=async()=>{projectId.value='';assignmentLanguageItemId.value='';viewMode.value='assets';projectCustomFields.value=[];Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''});pagination.page=1;await loadPlatforms();await reload()}
-const resetFilters=async()=>{clientId.value='';clients.value=[];projectId.value='';assignmentLanguageItemId.value='';viewMode.value='assets';projectCustomFields.value=[];keyword.value='';Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''});await loadPlatforms();queryNow()}
+const changeClient=async()=>{projectId.value='';assignmentLanguageItemId.value='';viewMode.value='assets';projectCustomFields.value=[];Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''});pagination.page=1;await loadPlatforms();await reload();await replaceAccountRoute('assets','')}
+const resetFilters=async()=>{clientId.value='';clients.value=[];projectId.value='';assignmentLanguageItemId.value='';viewMode.value='assets';projectCustomFields.value=[];keyword.value='';Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''});await loadPlatforms();queryNow();await replaceAccountRoute('assets','')}
 const pageSizeChanged=()=>{pagination.page=1;reload()}
 const talentName=item=>`${item.resourceCode||''} ${item.fullName||item.personName||''}`.trim()
 const beginTalentSearch=()=>{talentKeyword.value=''}
@@ -550,14 +560,70 @@ const saveAccount=async()=>{
   }catch(error){ElMessage.error(error.detail||error.message||'保存失败')}finally{saving.value=false}
 }
 const loadAssignments=async row=>{if(assignmentCache[row.id])return;assignmentLoading.value=row.id;try{assignmentCache[row.id]=await ops.getAccountAssignments(row.id)}catch(error){ElMessage.error(error.detail||'加载分配履历失败')}finally{assignmentLoading.value=''}}
-const openSheetDetail=async row=>{sheetDetailRow.value=row;sheetDetailVisible.value=true;await loadAssignments(row)}
 const loadPersonProfile=async personId=>{if(personProfileCache[personId])return;personProfileLoadingId.value=personId;try{personProfileCache[personId]=await ops.getAccountPersonProfile(personId)}catch(error){ElMessage.error(error.detail||'加载标注员信息失败')}finally{personProfileLoadingId.value=''}}
 const beforeUnload=event=>{if(!sheetDirtyCount.value)return;event.preventDefault();event.returnValue=''}
+let routeContextReady=false
+const applyRouteContext=async(query,{force=false}={})=>{
+  if(query.section&&query.section!=='accounts')return
+  const requestedProjectId=String(query.projectId||'')
+  const requestedView=query.view==='project'?'project':'assets'
+  const routeProject=requestedProjectId?projects.value.find(item=>String(item.id)===requestedProjectId):null
+  if(requestedProjectId&&!routeProject){
+    projectId.value=''
+    viewMode.value='assets'
+    assignmentLanguageItemId.value=''
+    projectCustomFields.value=[]
+    ElMessage.warning('未找到指定的标注项目，已返回账号预览')
+    await replaceAccountRoute('assets','')
+    await reload()
+    return
+  }
+  if(requestedView==='project'&&!routeProject){
+    viewMode.value='assets'
+    ElMessage.warning('请先选择标注项目')
+    await replaceAccountRoute('assets','')
+    await reload()
+    return
+  }
+  if(!force&&String(projectId.value||'')===requestedProjectId&&viewMode.value===requestedView)return
+  const projectChanged=String(projectId.value||'')!==requestedProjectId
+  exitProjectDeleteMode()
+  if(routeProject){
+    projectId.value=routeProject.id
+    clientId.value=routeProject.clientId||''
+    if(routeProject.clientId){
+      try{const client=await clientApi.getClient(routeProject.clientId);clients.value=client?[client]:[]}
+      catch(error){ElMessage.error(error.detail||'加载项目客户失败')}
+    }
+  }else{
+    projectId.value=''
+    assignmentLanguageItemId.value=''
+    projectCustomFields.value=[]
+  }
+  viewMode.value=requestedView
+  if(projectChanged){
+    keyword.value=''
+    Object.assign(filters,{platformId:'',assignmentState:'',accountStatus:'',languageItemId:''})
+    sheetSaveErrors.value={}
+  }
+  syncAssignmentLanguage()
+  pagination.page=1
+  await Promise.all([loadPlatforms(),loadProjectFields()])
+  await reload()
+}
+onBeforeRouteUpdate(async to=>{
+  if(!sheetDirtyCount.value)return true
+  const nextProjectId=String(to.query.projectId||'')
+  const nextView=to.query.section==='accounts'&&to.query.view==='project'?'project':'assets'
+  if(nextProjectId===String(projectId.value||'')&&nextView===viewMode.value)return true
+  return await discardDrafts()
+})
 onBeforeRouteLeave(async()=>await discardDrafts())
 watch(viewMode,value=>emit('focus-mode-change',value==='project'),{immediate:true})
-onActivated(()=>emit('focus-mode-change',viewMode.value==='project'))
+watch(()=>[route.query.section,route.query.projectId,route.query.view],()=>{if(routeContextReady&&route.query.section==='accounts')void applyRouteContext(route.query)})
+onActivated(()=>{emit('focus-mode-change',viewMode.value==='project');if(routeContextReady&&route.query.section==='accounts')void applyRouteContext(route.query)})
 onDeactivated(()=>emit('focus-mode-change',false))
-onMounted(async()=>{const results=await Promise.allSettled([projectApi.getAnnotationProjects({skip:0,limit:500}),talentApi.getProjectTalentOptions('annotation'),getUsers({skip:0,limit:500})]);projects.value=results[0].status==='fulfilled'?results[0].value:[];talents.value=results[1].status==='fulfilled'?results[1].value:[];users.value=results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[];const routeProject=projects.value.find(item=>String(item.id)===String(route.query.projectId||''));if(routeProject?.clientId){clientId.value=routeProject.clientId;projectId.value=routeProject.id;viewMode.value='assets';syncAssignmentLanguage();try{const client=await clientApi.getClient(routeProject.clientId);clients.value=client?[client]:[]}catch(error){ElMessage.error(error.detail||'加载项目客户失败')}await Promise.all([loadPlatforms(),loadProjectFields()])}await reload()})
+onMounted(async()=>{const results=await Promise.allSettled([projectApi.getAnnotationProjects({skip:0,limit:500}),talentApi.getProjectTalentOptions('annotation'),getUsers({skip:0,limit:500})]);projects.value=results[0].status==='fulfilled'?results[0].value:[];talents.value=results[1].status==='fulfilled'?results[1].value:[];users.value=results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[];routeContextReady=true;await applyRouteContext(route.query,{force:true})})
 onMounted(()=>window.addEventListener('beforeunload',beforeUnload))
 onBeforeUnmount(()=>{emit('focus-mode-change',false);clearTimeout(timer);clearTimeout(clientSearchTimer);controller?.abort();clientSearchController?.abort();window.removeEventListener('beforeunload',beforeUnload)})
 </script>

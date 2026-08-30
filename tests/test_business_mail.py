@@ -158,6 +158,7 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
         "language_directions": [{
             "source_language_id": source_language_id,
             "target_language_id": target_language_id,
+            "required_count": 1,
         }],
         "required_interpreter_count": 1,
         "consultation_description": "英语展会陪同",
@@ -167,6 +168,8 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
     assert "口译类型：现场口译" in preview["body"]
     assert "预定时段：2026-08-28 00:00 至 2026-08-30 00:00" in preview["body"]
     assert "口译方向：英语 ↔ 中文（简体）" in preview["body"]
+    assert "英语 ↔ 中文（简体）（1人）" in preview["body"]
+    assert "总需求人数：1" in preview["body"]
     assert preview["body"].count("项目类型：") == 1
     assert "onsite" not in preview["body"]
     assert "datetime.datetime" not in preview["body"]

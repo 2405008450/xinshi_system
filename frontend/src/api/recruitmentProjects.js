@@ -35,6 +35,9 @@ export const createRecruitmentProject = async (data, idempotencyKey) => {
   return fromApi(response)
 }
 export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruitment/${id}`, toApi(data)).then(fromApi)
+export const updateRecruitmentProjectTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/projects/recruitment/${id}/text-field`, {
+  field: toSnakeCase(field), value, expected_updated_at: expectedUpdatedAt,
+}).then(fromApi)
 export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, { project_status: projectStatus }).then(fromApi)
 export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`)
 export const previewRecruitmentProjectName = (data) => api.post('/projects/recruitment/name-preview', toApi(data)).then(fromApi)

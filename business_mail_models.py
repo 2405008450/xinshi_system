@@ -172,10 +172,14 @@ class BusinessMailAttempt(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="business_mail_attempt_pkey"),
         ForeignKeyConstraint(["mail_id"], ["business_mail.id"], ondelete="CASCADE", name="fk_business_mail_attempt_mail"),
+        ForeignKeyConstraint(["sender_user_id"], ["app_user.id"], ondelete="SET NULL", name="fk_business_mail_attempt_sender"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     mail_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sender_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sender_name_snapshot: Mapped[Optional[str]] = mapped_column(String(255))
+    sender_email_snapshot: Mapped[Optional[str]] = mapped_column(String(255))
     attempted_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     delivery_mode: Mapped[Optional[str]] = mapped_column(String(20))
     actual_recipients: Mapped[Optional[str]] = mapped_column(Text)

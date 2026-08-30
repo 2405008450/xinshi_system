@@ -2,7 +2,7 @@
   <el-card class="annotation-card compact-list-card">
     <template #header>
       <div class="card-header">
-        <span>标注项目详情</span>
+        <span>标注项目管理</span>
         <div class="header-actions">
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
@@ -24,26 +24,16 @@
         />
       </el-form-item>
       <el-form-item label="项目状态">
-        <el-select v-model="searchForm.projectStatus" clearable placeholder="全部" style="width: 150px" @change="handleSearch">
+        <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch">
           <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" width="min(760px, calc(100vw - 32px))" popper-class="annotation-advanced-popover">
-          <template #reference>
-            <el-button>高级筛选<span v-if="advancedCount" class="filter-count">{{ advancedCount }}</span></el-button>
-          </template>
-          <div class="advanced-panel">
-            <div class="advanced-header">
-              <span>高级筛选</span>
-              <div>
-                <el-button v-if="advancedCount" link type="primary" @click="clearAdvanced">清空高级条件</el-button>
-                <el-button link @click="advancedVisible = false">关闭</el-button>
-              </div>
-            </div>
-            <el-form label-position="top">
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="annotation-advanced-popover" @clear="clearAdvanced">
+            <CompactFilterGrid :fields="annotationAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
+            <el-form v-if="false" label-position="top">
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12"><el-form-item label="项目类型"><el-select v-model="searchForm.projectType" clearable style="width:100%" @change="handleSearch"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="语言"><el-select v-model="searchForm.languageId" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item></el-col>
@@ -57,8 +47,7 @@
                 <el-col :xs="24" :md="12"><el-form-item label="确认时间"><el-date-picker v-model="searchForm.confirmationRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
               </el-row>
             </el-form>
-          </div>
-        </el-popover>
+        </AdvancedFilterPopover>
       </el-form-item>
     </el-form>
 
@@ -66,10 +55,14 @@
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
       <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
-        <template #header><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目详情" /></template>
+        <template #header>
+          <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
+            <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目管理" /></template>
+          </ConfiguredColumnHeaderFilter>
+        </template>
         <template #default="{ row }">
           <div class="order-cell">
-            <el-popover trigger="click" placement="left" :width="760" :title="`${row.orderNo} 详情`" popper-class="annotation-detail-popover" @show="loadDetailWithHistory(row.id)">
+            <el-popover trigger="click" placement="left" :width="760" :title="`${row.orderNo} 详情`" popper-class="annotation-detail-popover" @show="loadDetailWithHistory(row.id)" @hide="cancelInlineDetailEdit">
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
               <div class="detail-content" v-loading="detailLoadingId === row.id">
                 <el-descriptions :column="2" border size="small">
@@ -78,19 +71,19 @@
                   <el-tag :type="statusType(detailRow(row).projectStatus)">{{ statusLabel(detailRow(row).projectStatus) }}</el-tag>
                 </el-descriptions-item>
                 <el-descriptions-item label="状态生效日期">{{ textValue(detailRow(row).statusEffectiveOn) }}</el-descriptions-item>
-                <el-descriptions-item label="语言地区">{{ textValue(detailRow(row).languageRegion) }}</el-descriptions-item>
-                <el-descriptions-item label="项目名称" :span="2">{{ textValue(detailRow(row).projectName) }}</el-descriptions-item>
+                <el-descriptions-item label="语言地区"><InlineTextField :model-value="detailRow(row).languageRegion" :editable="canWrite && !deleteMode" label="语言地区" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'languageRegion', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="项目名称" :span="2"><InlineTextField :model-value="detailRow(row).projectName" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'projectName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(detailRow(row)) }}</el-descriptions-item>
                 <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row).projectTypes) }}</el-descriptions-item>
-                <el-descriptions-item label="具体任务" :span="2"><div class="pre-wrap">{{ textValue(detailRow(row).taskDescription) }}</div></el-descriptions-item>
+                <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="detailRow(row).taskDescription" :editable="canWrite && !deleteMode" label="具体任务" multiline :save-field="(value) => saveDetailTextField(row, 'taskDescription', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="语言方向" :span="2">{{ textValue(detailRow(row).languageItemsDisplay) }}</el-descriptions-item>
-                <el-descriptions-item label="（潜在）需求量" :span="2"><div class="pre-wrap">{{ textValue(detailRow(row).potentialDemand) }}</div></el-descriptions-item>
+                <el-descriptions-item label="（潜在）需求量" :span="2"><InlineTextField :model-value="detailRow(row).potentialDemand" :editable="canWrite && !deleteMode" label="（潜在）需求量" multiline :save-field="(value) => saveDetailTextField(row, 'potentialDemand', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="客户简称">{{ textValue(detailRow(row).clientShortName) }}</el-descriptions-item>
                 <el-descriptions-item label="客户编号">{{ textValue(detailRow(row).clientCode) }}</el-descriptions-item>
                 <el-descriptions-item label="客户全称" :span="2">{{ textValue(detailRow(row).clientFullName) }}</el-descriptions-item>
-                <el-descriptions-item label="子客户/联系人">{{ textValue(detailRow(row).subClientContact) }}</el-descriptions-item>
-                <el-descriptions-item label="客户单号/项目标识">{{ textValue(detailRow(row).customerOrderNo) }}</el-descriptions-item>
-                <el-descriptions-item label="邮件主题预览" :span="2"><div class="pre-wrap">{{ textValue(detailRow(row).emailSubjectPreview) }}</div></el-descriptions-item>
+                <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="detailRow(row).contactName" :display-value="detailRow(row).contactName || detailRow(row).subClientContact" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'contactName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="客户单号/项目标识"><InlineTextField :model-value="detailRow(row).customerOrderNo" :editable="canWrite && !deleteMode" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveDetailTextField(row, 'customerOrderNo', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="邮件主题预览" :span="2"><InlineTextField :model-value="detailRow(row).emailSubjectPreview" :editable="canWrite && !deleteMode" label="邮件主题预览" multiline :maxlength="1000" :save-field="(value) => saveDetailTextField(row, 'emailSubjectPreview', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="客户单价" :span="2">
                   <div v-if="detailRow(row).priceItems?.length" class="price-detail-list">
                     <div v-for="item in detailRow(row).priceItems" :key="item.id">{{ item.display }}<span v-if="item.remarks">（{{ item.remarks }}）</span></div>
@@ -121,9 +114,9 @@
                 <el-descriptions-item label="任务提交时间">{{ formatDateTime(detailRow(row).taskSubmittedAt) }}</el-descriptions-item>
                 <el-descriptions-item label="客户经理">{{ textValue(detailRow(row).clientManagerName) }}</el-descriptions-item>
                 <el-descriptions-item label="创建人">{{ textValue(detailRow(row).createdByName) }}</el-descriptions-item>
-                <el-descriptions-item label="项目路径" :span="2">{{ textValue(detailRow(row).projectPath) }}</el-descriptions-item>
-                <el-descriptions-item label="报价单路径" :span="2">{{ textValue(detailRow(row).quotationPath) }}</el-descriptions-item>
-                <el-descriptions-item label="合同路径" :span="2">{{ textValue(detailRow(row).contractPath) }}</el-descriptions-item>
+                <el-descriptions-item label="项目路径" :span="2"><InlineTextField :model-value="detailRow(row).projectPath" :editable="canWrite && !deleteMode" label="项目路径" multiline :save-field="(value) => saveDetailTextField(row, 'projectPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="报价单路径" :span="2"><InlineTextField :model-value="detailRow(row).quotationPath" :editable="canWrite && !deleteMode" label="报价单路径" multiline :save-field="(value) => saveDetailTextField(row, 'quotationPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                <el-descriptions-item label="合同路径" :span="2"><InlineTextField :model-value="detailRow(row).contractPath" :editable="canWrite && !deleteMode" label="合同路径" multiline :save-field="(value) => saveDetailTextField(row, 'contractPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="关联咨询编号">{{ textValue(detailRow(row).consultationCode) }}</el-descriptions-item>
                 <el-descriptions-item label="客户咨询时间">{{ formatDateTime(detailRow(row).customerConsultationTime) }}</el-descriptions-item>
                 <el-descriptions-item label="客户确认时间">{{ formatDateTime(detailRow(row).customerConfirmationTime) }}</el-descriptions-item>
@@ -137,7 +130,17 @@
                   :label="field.fieldLabel"
                   :span="field.dataType === 'textarea' ? 2 : 1"
                 >
-                  {{ customFieldText(detailRow(row).customValues?.[field.id]) }}
+                  <InlineTextField
+                    v-if="field.dataType === 'text'"
+                    :model-value="detailRow(row).customValues?.[field.id]"
+                    :editable="canWrite && !deleteMode && field.isActive !== false"
+                    :label="field.fieldLabel"
+                    :required="field.isRequired"
+                    multiline
+                    :save-field="(value) => saveCustomDetailTextField(row, field, value)"
+                    @conflict="loadDetail(row.id, true)"
+                  />
+                  <template v-else>{{ customFieldText(detailRow(row).customValues?.[field.id]) }}</template>
                 </el-descriptions-item>
                 <el-descriptions-item label="状态履历" :span="2">
                   <el-timeline v-if="statusHistoryCache[row.id]?.length" class="status-timeline">
@@ -156,8 +159,10 @@
       </el-table-column>
       <el-table-column v-for="column in visibleTableColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)">
         <template #header>
-          <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
+            <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <el-dropdown
@@ -192,7 +197,15 @@
             </template>
           </el-dropdown>
           <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)" size="small">{{ statusLabel(row.projectStatus) }}</el-tag>
-          <span v-else-if="column.key === 'projectName'" class="project-name-cell">{{ textValue(row.projectName) }}</span>
+          <InlineTextField
+            v-else-if="column.key === 'projectName'"
+            :model-value="row.projectName"
+            :editable="canWrite && !deleteMode"
+            label="项目名称"
+            :maxlength="500"
+            :save-field="(value) => saveDetailTextField(row, 'projectName', value)"
+            @conflict="fetchData"
+          />
           <span v-else-if="column.key === 'projectTypes'">{{ projectTypesText(row.projectTypes) }}</span>
           <el-popover
             v-else-if="column.key === 'clientShortName'"
@@ -225,12 +238,17 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="170" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
-          <div v-if="canWrite" class="action-buttons">
-            <el-button link type="primary" @click="startResourceRequest(row)">发起需求</el-button>
-            <TableActionButton action="edit" @click="handleEdit(row)" />
-          </div>
+          <ProjectListRowActions
+            v-if="canWrite || canViewAccounts"
+            :editable="canWrite"
+            :show-start-request="canWrite"
+            :extra-actions="accountSheetActions"
+            @edit="handleEdit(row)"
+            @start-request="startResourceRequest(row)"
+            @extra-command="(command) => handleProjectExtraAction(command, row)"
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -413,17 +431,21 @@ import * as talentApi from '@/api/talents'
 import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
-import TableActionButton from '@/components/common/TableActionButton.vue'
+import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import InlineTextField from '@/components/common/InlineTextField.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -433,11 +455,18 @@ import { hasPermission } from '@/utils/permission'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { launchOpenPath } from '@/utils/openPath'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const canWrite = hasPermission('projects:write')
+const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
 const route = useRoute()
 const router = useRouter()
 const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'annotation', sourceProjectId: row.id } })
+const accountSheetActions = canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []
+const handleProjectExtraAction = (command, row) => {
+  if (command !== 'account-sheet') return
+  router.push({ name: 'AnnotationProjectDetails', query: { section: 'accounts', projectId: row.id, view: 'project' } })
+}
 const highlightedProjectId = ref('')
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
@@ -494,7 +523,42 @@ const activeUsers=computed(()=>users.value.filter((item)=>item.is_active ?? item
 const filterClientOptions=computed(()=>clients.value.flatMap((client)=>[{value:`client:${client.id}`,label:client.client_short_name||client.client_name},...((client.sub_clients||[]).map((sub)=>({value:`sub:${sub.id}`,label:`${client.client_short_name||client.client_name} / ${sub.client_short_name||sub.client_name}`})))]))
 const selectedProjectTypeOptions=computed(()=>projectTypeOptions.filter((item)=>form.projectTypes.includes(item.value)))
 const currentLanguageOptions=computed(()=>form.languageItems.filter((item)=>item.sourceLanguageId && (item.mode==='single'||item.targetLanguageId)).map((item)=>({key:`${item.sourceLanguageId}:${item.mode==='direction'?item.targetLanguageId:''}`,label:languageItemLabel(item)})))
-const advancedCount=computed(()=>[searchForm.projectType,searchForm.languageId,searchForm.clientManagerId,searchForm.dispatchedRange?.length===2?1:'',searchForm.submittedRange?.length===2?1:'',searchForm.clientSelection,searchForm.assigneePersonId,searchForm.createdRange?.length===2?1:'',searchForm.consultationRange?.length===2?1:'',searchForm.confirmationRange?.length===2?1:''].filter(Boolean).length)
+const baseAnnotationFilterFields=[
+  {key:'orderNo',label:'订单号',type:'text'},{key:'projectName',label:'项目名称',type:'text'},
+  {key:'projectTypes',label:'项目类型',type:'select',options:projectTypeOptions},{key:'taskDescription',label:'具体任务',type:'text'},
+  {key:'projectStatus',label:'项目状态',type:'select',options:statusOptions},{key:'clientShortName',label:'客户简称',type:'text'},
+  {key:'clientCode',label:'客户编号',type:'text'},{key:'clientFullName',label:'客户全称',type:'text'},
+  {key:'contactName',label:'子客户/联系人',type:'text'},{key:'customerOrderNo',label:'客户单号/项目标识',type:'text'},
+  {key:'languageItemsDisplay',apiKey:'language_id',label:'语言方向',type:'select',options:()=>languages.value.map((item)=>({label:item.label,value:item.id}))},
+  {key:'languageRegion',label:'语言地区',type:'text'},{key:'potentialDemand',label:'（潜在）需求量',type:'text'},
+  {key:'hasCustomerPrice',apiKey:'has_customer_price',label:'是否有客户报价',type:'boolean'},
+  {key:'customerPriceSummary',apiKey:'customer_price',label:'客户单价',type:'number-range',wide:true,min:0,precision:6},
+  {key:'assigneeSummary',apiKey:'assignee_person_id',label:'标注人员安排',type:'select',options:()=>annotationTalents.value.map((item)=>({label:`${item.fullName}${item.resourceCode?`（${item.resourceCode}）`:''}`,value:item.id}))},
+  {key:'taskDispatchedAt',label:'任务派发时间',type:'date-range',wide:true},{key:'taskSubmittedAt',label:'任务提交时间',type:'date-range',wide:true},
+  {key:'clientManagerName',apiKey:'client_manager_id',label:'客户经理',type:'select',options:()=>activeUsers.value.map((item)=>({label:userLabel(item),value:item.id}))},
+  {key:'customerConsultationTime',label:'客户咨询时间',type:'date-range',wide:true},{key:'customerConfirmationTime',label:'客户确认时间',type:'date-range',wide:true},
+  {key:'createdAt',label:'创建时间',type:'date-range',wide:true},{key:'updatedAt',label:'更新时间',type:'date-range',wide:true},
+]
+const customFilterDefinition=(field)=>{
+  const common={key:`custom:${field.id}`,apiKey:`custom:${field.id}`,label:field.fieldLabel}
+  if(field.dataType==='number')return {...common,type:'number-range',wide:true}
+  if(['date','datetime'].includes(field.dataType))return {...common,type:'date-range',wide:true}
+  if(field.dataType==='boolean')return {...common,type:'boolean'}
+  if(['single_select','multi_select'].includes(field.dataType))return {...common,type:'select',options:field.options||[]}
+  return {...common,type:'text'}
+}
+const annotationFilterFields=computed(()=>[
+  ...baseAnnotationFilterFields,
+  ...projectCustomFields.value.filter((field)=>field.isActive!==false&&!['image','url'].includes(field.dataType)).map(customFilterDefinition),
+])
+const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>item.key!=='projectStatus'))
+Object.assign(searchForm,createFilterModel(baseAnnotationFilterFields),{keyword:''})
+const ensureDynamicFilterModel=()=>annotationFilterFields.value.forEach((field)=>{if(!(field.key in searchForm))searchForm[field.key]=createFilterModel([field])[field.key]})
+const advancedCount=computed(()=>{ensureDynamicFilterModel();return countActiveFilters(searchForm,annotationAdvancedFilterFields.value)})
+const headerFilterDefinition=(key)=>{
+  if(!defaultColumns.includes(key))return null
+  return annotationFilterFields.value.find((item)=>item.key===key)||null
+}
 
 const userLabel=(item)=>item.full_name||item.fullName||item.username
 const textValue=(value)=>value===null||value===undefined||value===''?'-':String(value)
@@ -511,13 +575,18 @@ const languageName=(id)=>languages.value.find((item)=>item.id===id)?.label||''
 const languageItemLabel=(item)=>item.mode==='direction'?`${languageName(item.sourceLanguageId)}→${languageName(item.targetLanguageId)}`:languageName(item.sourceLanguageId)
 const buildGeneratedProjectName=()=>{const labels=form.languageItems.map(languageItemLabel).filter(Boolean);const directionSummary=labels.length>3?`${labels.slice(0,3).join('、')}等方向`:labels.join('、');const typeSummary=form.projectTypes.map((value)=>projectTypeMap[value]||value).join('、');const businessText=[form.clientShortName?.trim(),directionSummary,typeSummary].filter(Boolean).join('-');return businessText?`【${projectNameDate().replaceAll('-','')}-${businessText}】`:''}
 const detailRow=(row)=>detailCache[row.id]||row
+const cancelInlineDetailEdit=()=>window.dispatchEvent(new CustomEvent('business-inline-text-edit',{detail:'popover-hidden'}))
+const saveDetailTextField=async(row,field,value)=>{const current=detailRow(row);const updated=await annotationApi.updateAnnotationProjectTextField(row.id,field,value,current.updatedAt);detailCache[row.id]=updated;Object.assign(row,updated);if(Object.values(buildFilters()).some(Boolean))void fetchData();return updated}
+const saveCustomDetailTextField=async(row,field,value)=>{const current=detailRow(row);const updated=await annotationApi.updateAnnotationCustomTextField(row.id,field,value,current.updatedAt);detailCache[row.id]=updated;Object.assign(row,updated);if(Object.values(buildFilters()).some(Boolean))void fetchData();return updated}
 
-const buildFilters=()=>{const [ds,de]=searchForm.dispatchedRange||[],[ss,se]=searchForm.submittedRange||[];const selection=searchForm.clientSelection||'';return {keyword:searchForm.keyword.trim()||undefined,project_status:searchForm.projectStatus||undefined,project_type:searchForm.projectType||undefined,language_id:searchForm.languageId||undefined,client_manager_id:searchForm.clientManagerId||undefined,dispatched_date_start:ds||undefined,dispatched_date_end:de||undefined,submitted_date_start:ss||undefined,submitted_date_end:se||undefined,client_id:selection.startsWith('client:')?selection.slice(7):undefined,sub_client_id:selection.startsWith('sub:')?selection.slice(4):undefined,assignee_person_id:searchForm.assigneePersonId||undefined,created_date_start:searchForm.createdRange?.[0]||undefined,created_date_end:searchForm.createdRange?.[1]||undefined,consultation_date_start:searchForm.consultationRange?.[0]||undefined,consultation_date_end:searchForm.consultationRange?.[1]||undefined,confirmation_date_start:searchForm.confirmationRange?.[0]||undefined,confirmation_date_end:searchForm.confirmationRange?.[1]||undefined}}
+const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value)}}
 const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const [rows,count]=await Promise.all([annotationApi.getAnnotationProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal}),annotationApi.getAnnotationProjectCount(filters,{signal:requestController.signal})]);if(current!==requestId)return;tableData.value=Array.isArray(rows)?rows:[];pagination.total=count?.total||0}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
-const clearAdvanced=()=>{Object.assign(searchForm,{projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]});handleSearch()}
-const resetSearch=()=>{Object.assign(searchForm,{keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]});handleSearch()}
+const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
+const handleConfiguredTextInput=(value)=>handleTextSearch(value)
+const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFields.value);handleSearch()}
+const resetSearch=()=>{searchForm.keyword='';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 const loadDetailWithHistory=async(id)=>{await Promise.all([loadDetail(id),annotationOpsApi.getStatusHistory(id).then(rows=>{statusHistoryCache[id]=rows}).catch(()=>{statusHistoryCache[id]=[]})])}
@@ -548,7 +617,7 @@ const scrollEditorToTop=()=>dialogBodyRef.value?.parentElement?.scrollTo({top:0,
 const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;scrollEditorToTop();return}submitLoading.value=true;try{const payload=buildPayload();let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){ElMessage.error(error.detail||error.message||'保存失败');scrollEditorToTop()}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const openStatusDialog=(row,value)=>{if(!value||value===row.projectStatus)return;statusTargetRow.value=row;Object.assign(statusForm,{projectStatus:value,effectiveOn:today(),changeNote:''});statusDialogVisible.value=true}
-const confirmStatusChange=async()=>{const row=statusTargetRow.value;if(!row||!statusForm.projectStatus||!statusForm.effectiveOn)return;statusSubmitting.value=true;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,statusForm);Object.assign(row,updated);detailCache[row.id]=updated;delete statusHistoryCache[row.id];statusDialogVisible.value=false;ElMessage.success('项目状态已更新');if(searchForm.projectStatus&&searchForm.projectStatus!==updated.projectStatus)await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{statusSubmitting.value=false;setProjectStatusSaving(row.id,false)}}
+const confirmStatusChange=async()=>{const row=statusTargetRow.value;if(!row||!statusForm.projectStatus||!statusForm.effectiveOn)return;statusSubmitting.value=true;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,statusForm);Object.assign(row,updated);detailCache[row.id]=updated;delete statusHistoryCache[row.id];statusDialogVisible.value=false;ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.response?.data?.detail||error?.detail||'项目状态更新失败')}finally{statusSubmitting.value=false;setProjectStatusSaving(row.id,false)}}
 const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.value=[];nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 
 const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');if(!launchOpenPath(value))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}

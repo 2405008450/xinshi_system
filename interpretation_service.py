@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import String, cast, func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
 from concurrency import VERSION_FIELD, assert_fresh
@@ -28,6 +28,7 @@ from interpretation_schemas import (
 )
 from language_catalog import LANGUAGE_VARIANTS
 from models import Client, Consultation, SubClient, TranslationProject, Translator
+from field_filtering import apply_scalar_specs
 
 
 INTERPRETATION_TYPE_VALUES = {"口译项目", "interpretation", "口译"}
@@ -191,6 +192,10 @@ def get_interpretation_projects(
     scheduled_date_start=None,
     scheduled_date_end=None,
     translator_id: Optional[UUID] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
+    field_filters: Optional[dict] = None,
 ) -> list[InterpretationProject]:
     query = (
         db.query(InterpretationProject)
@@ -206,6 +211,10 @@ def get_interpretation_projects(
         scheduled_date_start=scheduled_date_start,
         scheduled_date_end=scheduled_date_end,
         translator_id=translator_id,
+        client_id=client_id,
+        sub_client_id=sub_client_id,
+        language_id=language_id,
+        field_filters=field_filters,
     )
     return (
         query.distinct()
@@ -233,6 +242,10 @@ def _apply_filters(
     scheduled_date_start=None,
     scheduled_date_end=None,
     translator_id=None,
+    client_id=None,
+    sub_client_id=None,
+    language_id=None,
+    field_filters=None,
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
@@ -268,6 +281,75 @@ def _apply_filters(
             InterpretationProjectInterpreter,
             InterpretationProjectInterpreter.project_id == InterpretationProject.id,
         ).filter(InterpretationProjectInterpreter.translator_id == translator_id)
+    if client_id:
+        query = query.filter(InterpretationProject.client_id == client_id)
+    if sub_client_id:
+        query = query.filter(InterpretationProject.sub_client_id == sub_client_id)
+    if language_id:
+        query = query.join(
+            InterpretationProjectLanguageDirection,
+            InterpretationProjectLanguageDirection.project_id == InterpretationProject.id,
+        ).filter(or_(
+            InterpretationProjectLanguageDirection.source_language_id == language_id,
+            InterpretationProjectLanguageDirection.target_language_id == language_id,
+        ))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "order_no": (InterpretationProject.order_no, "string"),
+        "project_name": (InterpretationProject.project_name, "string"),
+        "task_description": (InterpretationProject.task_description, "string"),
+        "project_status": (InterpretationProject.project_status, "string"),
+        "contact_name": (InterpretationProject.contact_name, "string"),
+        "customer_order_no": (InterpretationProject.customer_order_no, "string"),
+        "customer_budget": (InterpretationProject.customer_budget, "string"),
+        "customer_consultation_time": (InterpretationProject.customer_consultation_time, "datetime"),
+        "customer_confirmation_time": (InterpretationProject.customer_confirmation_time, "datetime"),
+        "interpretation_domain": (InterpretationProject.interpretation_domain, "string"),
+        "interpretation_content": (InterpretationProject.interpretation_content, "string"),
+        "required_interpreter_count": (InterpretationProject.required_interpreter_count, "integer"),
+        "required_interpreter_gender": (InterpretationProject.required_interpreter_gender, "string"),
+        "required_interpretation_level": (InterpretationProject.required_interpretation_level, "string"),
+        "interpreter_special_requirements": (InterpretationProject.interpreter_special_requirements, "string"),
+        "interpreter_height_requirement": (InterpretationProject.interpreter_height_requirement, "string"),
+        "interpreter_appearance_requirement": (InterpretationProject.interpreter_appearance_requirement, "string"),
+        "interpreter_dress_requirement": (InterpretationProject.interpreter_dress_requirement, "string"),
+        "client_rating": (InterpretationProject.client_rating, "string"),
+        "client_rating_note": (InterpretationProject.client_rating_note, "string"),
+        "remarks": (InterpretationProject.remarks, "string"),
+        "created_at": (InterpretationProject.created_at, "datetime"),
+        "updated_at": (InterpretationProject.updated_at, "datetime"),
+    })
+    for field, descriptor in field_filters.items():
+        if field == "project_types":
+            values = descriptor.get("value") or []
+            query = query.filter(or_(*(InterpretationProject.project_types.contains([value]) for value in values)))
+        elif field in {"client_short_name", "client_code", "client_full_name", "client_domain", "current_client_manager", "manager_contact"}:
+            parent_column, sub_column = {
+                "client_short_name": (Client.client_short_name, SubClient.client_short_name),
+                "client_code": (Client.client_code, SubClient.sub_client_code),
+                "client_full_name": (Client.client_name, SubClient.client_name),
+                "client_domain": (func.concat_ws(" / ", Client.field_level1, Client.field_level2), func.concat_ws(" / ", SubClient.field_level1, SubClient.field_level2)),
+                "current_client_manager": (Client.client_manager, SubClient.client_manager),
+                "manager_contact": (Client.manager_contact, SubClient.manager_contact),
+            }[field]
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+        elif field == "locations":
+            query = query.filter(cast(InterpretationProject.locations, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+        elif field in {"scheduled_date", "language_id", "translator_id"}:
+            if field == "scheduled_date":
+                start, end = descriptor.get("from"), descriptor.get("to")
+                query = query.join(InterpretationProjectTimeRange, InterpretationProjectTimeRange.project_id == InterpretationProject.id)
+                if start:
+                    query = query.filter(InterpretationProjectTimeRange.scheduled_end >= datetime.combine(datetime.fromisoformat(start).date(), time.min))
+                if end:
+                    query = query.filter(InterpretationProjectTimeRange.scheduled_start <= datetime.combine(datetime.fromisoformat(end).date(), time.max))
+            elif field == "language_id":
+                values = [UUID(str(value)) for value in descriptor.get("value") or []]
+                query = query.join(InterpretationProjectLanguageDirection, InterpretationProjectLanguageDirection.project_id == InterpretationProject.id).filter(or_(InterpretationProjectLanguageDirection.source_language_id.in_(values), InterpretationProjectLanguageDirection.target_language_id.in_(values)))
+            else:
+                values = [UUID(str(value)) for value in descriptor.get("value") or []]
+                query = query.join(InterpretationProjectInterpreter, InterpretationProjectInterpreter.project_id == InterpretationProject.id).filter(InterpretationProjectInterpreter.translator_id.in_(values))
     return query
 
 
@@ -303,6 +385,12 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
 NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
+
+
+def _direction_required_total(payload) -> Optional[int]:
+    if not payload.language_directions:
+        return None
+    return sum(item.required_count for item in payload.language_directions)
 
 
 def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
@@ -361,6 +449,7 @@ def create_interpretation_project(
     idempotency_key: Optional[str] = None,
 ) -> InterpretationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
+    data["required_interpreter_count"] = _direction_required_total(payload)
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
@@ -390,6 +479,7 @@ def update_interpretation_project(
         return None
     assert_fresh(project, payload.expected_updated_at)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
+    data["required_interpreter_count"] = _direction_required_total(payload)
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)

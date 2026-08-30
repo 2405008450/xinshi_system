@@ -1,6 +1,6 @@
 """标注项目 API。"""
 
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -29,8 +29,18 @@ from annotation_service import (
 )
 from database import get_db
 from annotation_models import AnnotationProject
+from annotation_ops_models import AnnotationCustomFieldDefinition
+from annotation_custom_field_service import validate_custom_values
+from concurrency import assert_fresh
+from inline_text_update import (
+    TextFieldRule,
+    TextFieldUpdate,
+    apply_text_field_update,
+    normalize_text_value,
+)
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
 router = APIRouter(
@@ -38,6 +48,59 @@ router = APIRouter(
     tags=["annotation_projects"],
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
+
+
+ANNOTATION_TEXT_FIELDS = {
+    "language_region": TextFieldRule(max_length=255),
+    "project_name": TextFieldRule(max_length=500),
+    "task_description": TextFieldRule(),
+    "potential_demand": TextFieldRule(),
+    "contact_name": TextFieldRule(max_length=255),
+    "customer_order_no": TextFieldRule(max_length=150),
+    "email_subject_preview": TextFieldRule(max_length=1000),
+    "project_path": TextFieldRule(managed_path=True),
+    "quotation_path": TextFieldRule(managed_path=True),
+    "contract_path": TextFieldRule(managed_path=True),
+}
+
+ANNOTATION_FILTER_FIELDS = {
+    "order_no", "project_name", "project_types", "task_description", "project_status",
+    "client_short_name", "client_code", "client_full_name", "contact_name", "customer_order_no",
+    "language_id", "language_region", "potential_demand", "has_customer_price", "customer_price",
+    "assignee_person_id", "task_dispatched_at", "task_submitted_at", "client_manager_id",
+    "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at",
+}
+
+
+def _field_filters(raw: Optional[str], db: Session):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, ANNOTATION_FILTER_FIELDS, allow_custom=True)
+    ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
+    enums = {"project_types", "project_status", "language_id", "assignee_person_id", "client_manager_id"}
+    booleans = {"has_customer_price"}
+    ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in ANNOTATION_FILTER_FIELDS}, allow_custom=True)
+    for key, descriptor in value.items():
+        if not key.startswith("custom:"):
+            continue
+        try:
+            field_id = UUID(key.split(":", 1)[1])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="动态筛选字段 ID 无效") from exc
+        definition = db.query(AnnotationCustomFieldDefinition).filter(
+            AnnotationCustomFieldDefinition.id == field_id,
+            AnnotationCustomFieldDefinition.table_code == "project",
+            AnnotationCustomFieldDefinition.is_active.is_(True),
+        ).first()
+        if not definition or definition.data_type in {"image", "url"}:
+            raise HTTPException(status_code=422, detail="动态筛选字段不存在或不支持筛选")
+        allowed_operator = {
+            "number": "between", "date": "between", "datetime": "between",
+            "boolean": "eq", "single_select": "in", "multi_select": "in",
+        }.get(definition.data_type, "contains")
+        if descriptor.get("op") != allowed_operator:
+            raise HTTPException(status_code=422, detail=f"动态字段 {definition.field_label} 不支持该操作符")
+        descriptor["data_type"] = definition.data_type
+    return value
 
 
 def _filters(
@@ -59,6 +122,7 @@ def _filters(
     consultation_date_end=None,
     confirmation_date_start=None,
     confirmation_date_end=None,
+    field_filters=None,
 ):
     return dict(
         keyword=keyword,
@@ -79,6 +143,7 @@ def _filters(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        field_filters=field_filters,
     )
 
 
@@ -104,6 +169,7 @@ def read_projects(
     consultation_date_end: Optional[date] = None,
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -125,6 +191,7 @@ def read_projects(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        field_filters=_field_filters(field_filters, db),
     )
     return get_annotation_projects(db, skip=skip, limit=limit, **filters)
 
@@ -149,6 +216,7 @@ def read_project_count(
     consultation_date_end: Optional[date] = None,
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -170,6 +238,7 @@ def read_project_count(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        field_filters=_field_filters(field_filters, db),
     )
     return {"total": count_annotation_projects(db, **filters)}
 
@@ -245,6 +314,80 @@ def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     return project
+
+
+@router.patch(
+    "/{project_id}/text-field", response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_text_field(
+    project_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+):
+    project = db.get(AnnotationProject, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    try:
+        changed = apply_text_field_update(project, payload, ANNOTATION_TEXT_FIELDS)
+        if changed:
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return get_annotation_project(db, project_id)
+
+
+@router.patch(
+    "/{project_id}/custom-fields/{field_id}/text",
+    response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_custom_text_field(
+    project_id: UUID,
+    field_id: UUID,
+    payload: TextFieldUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    project = db.get(AnnotationProject, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    definition = db.get(AnnotationCustomFieldDefinition, field_id)
+    if (
+        not definition
+        or definition.table_code != "project"
+        or definition.project_id is not None
+        or definition.data_type != "text"
+        or not definition.is_active
+    ):
+        raise HTTPException(status_code=400, detail="该动态字段不支持快捷编辑")
+    if payload.field != definition.field_key:
+        raise HTTPException(status_code=400, detail="动态字段键与接口地址不一致")
+    try:
+        assert_fresh(project, payload.expected_updated_at)
+        value = normalize_text_value(
+            payload.value,
+            TextFieldRule(required=definition.is_required),
+        )
+        values = dict(project.custom_values or {})
+        values[str(field_id)] = value
+        normalized = validate_custom_values(
+            db,
+            "project",
+            None,
+            values,
+            project.custom_values,
+            current_user.id,
+        )
+        if normalized != (project.custom_values or {}):
+            project.custom_values = normalized
+            project.updated_at = datetime.now()
+            db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    return get_annotation_project(db, project_id)
 
 
 @router.patch(

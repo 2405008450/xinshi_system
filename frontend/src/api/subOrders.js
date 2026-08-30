@@ -50,6 +50,10 @@ export const createSubOrder = async (data) => {
     return convertKeys(response, toCamelCase)
 }
 
+export const createSubOrdersBulk = (data) => {
+    return api.post('/sub-orders/bulk', convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+}
+
 export const updateSubOrder = (id, data) => {
     return api.put(`/sub-orders/${id}`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }

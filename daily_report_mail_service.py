@@ -4,22 +4,18 @@ from __future__ import annotations
 
 import datetime
 import html
-from dataclasses import replace
 from typing import Optional
 from uuid import UUID
 
-from email_validator import EmailNotValidError, validate_email
 from sqlalchemy.orm import Session, joinedload
 
 from business_mail_models import MailRecipientGroup, MailRecipientGroupMember
-from crypto_utils import decrypt_credential, encrypt_credential
 from daily_report_mail_models import (
     DailyReportMailAttempt,
     DailyReportMailDelivery,
     DailyReportMailPolicy,
     DailyReportMailPolicyGroup,
     DailyReportMailRecipient,
-    UserMailAccount,
 )
 from mail_service import (
     MailConfigurationError,
@@ -27,10 +23,19 @@ from mail_service import (
     SmtpSettings,
     get_mail_status,
     send_text_email,
-    verify_smtp_settings,
 )
 from models import AppUser
 from task_models import DailyReport
+from user_mail_account_service import (
+    delete_mail_account,
+    display_user,
+    get_mail_account,
+    personal_smtp_settings,
+    save_mail_account,
+    serialize_mail_account,
+    valid_email,
+    verify_mail_account,
+)
 
 
 SOURCE_LABELS = {"project": "项目任务", "non_project": "非项目任务", "manual": "手工补充"}
@@ -51,97 +56,15 @@ def _now() -> datetime.datetime:
 
 
 def _display_user(user: AppUser) -> str:
-    return (user.full_name or user.username or "").strip()
+    return display_user(user)
 
 
 def _valid_email(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    try:
-        return validate_email(value, check_deliverability=False).normalized
-    except EmailNotValidError:
-        return None
-
-
-def _account(db: Session, user_id: UUID) -> Optional[UserMailAccount]:
-    return db.query(UserMailAccount).filter(UserMailAccount.user_id == user_id).first()
-
-
-def serialize_mail_account(db: Session, user: AppUser) -> dict:
-    account = _account(db, user.id)
-    current_email = _valid_email(user.email)
-    email_matches = bool(account and current_email and account.email_snapshot.casefold() == current_email.casefold())
-    return {
-        "email": current_email,
-        "is_bound": bool(account),
-        "is_verified": bool(account and account.is_verified and email_matches),
-        "verified_at": account.verified_at if account else None,
-        "updated_at": account.updated_at if account else None,
-    }
-
-
-def save_mail_account(db: Session, user: AppUser, authorization_code: str) -> dict:
-    email = _valid_email(user.email)
-    if not email:
-        raise ValueError("当前用户尚未绑定有效企业邮箱，请联系管理员完善用户邮箱")
-    code = authorization_code.strip()
-    if not code:
-        raise ValueError("邮箱授权码不能为空")
-    ciphertext, version = encrypt_credential(code)
-    account = _account(db, user.id)
-    if not account:
-        account = UserMailAccount(user_id=user.id, email_snapshot=email, authorization_ciphertext=ciphertext, encryption_key_version=version)
-        db.add(account)
-    else:
-        account.email_snapshot = email
-        account.authorization_ciphertext = ciphertext
-        account.encryption_key_version = version
-    account.is_verified = False
-    account.verified_at = None
-    account.updated_at = _now()
-    db.commit()
-    return serialize_mail_account(db, user)
-
-
-def delete_mail_account(db: Session, user: AppUser) -> None:
-    account = _account(db, user.id)
-    if account:
-        db.delete(account)
-        db.commit()
+    return valid_email(value)
 
 
 def _personal_smtp_settings(db: Session, user: AppUser, *, require_verified: bool = True) -> SmtpSettings:
-    email = _valid_email(user.email)
-    if not email:
-        raise MailConfigurationError("当前用户没有有效企业邮箱")
-    account = _account(db, user.id)
-    if not account:
-        raise MailConfigurationError("尚未绑定个人邮箱授权码")
-    if account.email_snapshot.casefold() != email.casefold():
-        raise MailConfigurationError("用户邮箱已变更，请重新绑定个人邮箱授权码")
-    if require_verified and not account.is_verified:
-        raise MailConfigurationError("个人邮箱授权尚未验证")
-    authorization_code = decrypt_credential(account.authorization_ciphertext, account.encryption_key_version)
-    base = SmtpSettings.from_env()
-    return replace(
-        base,
-        username=email,
-        password=authorization_code,
-        sender_email=email,
-        sender_name=_display_user(user),
-        reply_to=email,
-    )
-
-
-def verify_mail_account(db: Session, user: AppUser) -> dict:
-    settings = _personal_smtp_settings(db, user, require_verified=False)
-    verify_smtp_settings(settings)
-    account = _account(db, user.id)
-    account.is_verified = True
-    account.verified_at = _now()
-    account.updated_at = account.verified_at
-    db.commit()
-    return serialize_mail_account(db, user)
+    return personal_smtp_settings(db, user, require_verified=require_verified)
 
 
 def _policy(db: Session, user_id: UUID) -> Optional[DailyReportMailPolicy]:
@@ -161,7 +84,7 @@ def _policy(db: Session, user_id: UUID) -> Optional[DailyReportMailPolicy]:
 def _serialize_policy(db: Session, user: AppUser) -> dict:
     policy = _policy(db, user.id)
     links = list(policy.groups) if policy else []
-    account = _account(db, user.id)
+    account = get_mail_account(db, user.id)
     return {
         "user_id": user.id,
         "user_name": _display_user(user),
