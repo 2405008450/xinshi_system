@@ -1060,7 +1060,7 @@ def _attach_word_count_matrices(
     """为项目响应批量挂载矩阵数据，并补齐每位译员的预定/实际矩阵。"""
     from word_count_models import WordCountMetric
 
-    metric_types = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words")
+    metric_types = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
     dimensions = ("company", "customer", "translator_estimate")
 
     def empty_values():

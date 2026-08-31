@@ -276,7 +276,7 @@ async function saveMatrix() {
 .word-count-matrix__header strong { font-size: 16px; color: var(--el-text-color-primary); }
 .word-count-matrix__header p { margin: 5px 0 0; color: var(--el-text-color-secondary); font-size: 12px; }
 .word-count-matrix__body { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--el-border-color); }
-table { width: 100%; min-width: 840px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+table { width: 100%; min-width: 1120px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 th, td { padding: 0; border-right: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); background: var(--el-bg-color); }
 thead th { position: sticky; top: 0; z-index: 2; padding: 10px 8px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; }
 tr:last-child th, tr:last-child td { border-bottom: 0; }

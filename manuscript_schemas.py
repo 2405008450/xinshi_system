@@ -134,9 +134,11 @@ class ManuscriptAssignmentInput(BaseModel):
                 "characters_no_spaces",
                 "cjk_chars_korean_words",
                 "foreign_words",
+                "documents",
+                "pages",
             )
         ):
-            raise ValueError("每位译员的字数与结算至少需要填写一个字数数值")
+            raise ValueError("每位译员的工作量与结算至少需要填写一个计量数值")
         if not (self.settlement_method or "").strip():
             raise ValueError("每位译员都必须填写译员结账方式")
         if self.translator_unit_price is None:
@@ -236,9 +238,11 @@ class ManuscriptArrangementCreate(BaseModel):
                 "characters_no_spaces",
                 "cjk_chars_korean_words",
                 "foreign_words",
+                "documents",
+                "pages",
             )
         ):
-            raise ValueError("字数与结算至少需要填写一个字数数值")
+            raise ValueError("工作量与结算至少需要填写一个计量数值")
         if self.planned_delivery_at is None:
             raise ValueError("必须填写译员交稿_预定时间1")
         if not (self.settlement_method or "").strip():

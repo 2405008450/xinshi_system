@@ -1024,7 +1024,7 @@ const saveDetailTextField = async (row, field, value) => {
   return updated
 }
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
-const focusRouteProject = async () => {
+const focusRouteProject = async (editorReady = Promise.resolve()) => {
   const projectId = String(route.query.projectId || '')
   if (!projectId) return
   const detail = await loadDetail(projectId)
@@ -1032,13 +1032,15 @@ const focusRouteProject = async () => {
   highlightedProjectId.value = projectId
   searchForm.keyword = detail.orderNo || ''
   pagination.page = 1
-  await fetchData()
+  const listPromise = fetchData()
   if (route.query.openEditor === '1') {
-    await handleEdit(detail)
+    await editorReady
+    await handleEdit(detail, true)
     const query = { ...route.query }
     delete query.openEditor
     await router.replace({ query })
   }
+  await Promise.all([listPromise, editorReady])
 }
 
 const fetchClientSuggestions = fetchProjectClientSuggestions
@@ -1301,8 +1303,8 @@ const assignForm = (detail) => {
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
 const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
-const handleEdit = async (row) => {
-  const detail = await loadDetail(row.id, true)
+const handleEdit = async (row, useProvidedDetail = false) => {
+  const detail = useProvidedDetail ? row : await loadDetail(row.id, true)
   if (!detail) return
   dialogTitle.value = `编辑口译项目 · ${detail.orderNo}`
   assignForm(detail)
@@ -1392,7 +1394,15 @@ const projectPath = async (row) => (await loadDetail(row.id))?.filePath || ''
 const openProjectPath = async (row) => openPathValue(await projectPath(row))
 const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
-onMounted(async () => { await Promise.all([loadReferenceData(), loadResourceRequestStatuses()]); await fetchData(); await focusRouteProject() })
+onMounted(async () => {
+  const editorReady = Promise.all([loadReferenceData(), loadResourceRequestStatuses()])
+  if (route.query.projectId) {
+    await focusRouteProject(editorReady)
+    return
+  }
+  await editorReady
+  await fetchData()
+})
 watch(
   () => [route.query.projectId, route.query.openEditor],
   ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {

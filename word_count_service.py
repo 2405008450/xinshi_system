@@ -14,7 +14,7 @@ from word_count_models import WordCountMetric
 from word_count_schemas import WordCountCreateMatrix, WordCountMatrixPatch
 
 
-METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words")
+METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
 ENTITY_DIMENSIONS = ("company", "customer", "translator_estimate")
 
 

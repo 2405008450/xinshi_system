@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 
-MetricType = Literal["words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words"]
+MetricType = Literal["words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages"]
 EntityType = Literal["project", "suborder"]
 EntityDimension = Literal["company", "customer", "translator_estimate"]
 ArrangementDimension = Literal["planned", "actual"]
@@ -18,6 +18,8 @@ class WordCountValues(BaseModel):
     characters_no_spaces: Optional[int] = Field(default=None, ge=0)
     cjk_chars_korean_words: Optional[int] = Field(default=None, ge=0)
     foreign_words: Optional[int] = Field(default=None, ge=0)
+    documents: Optional[int] = Field(default=None, ge=0)
+    pages: Optional[int] = Field(default=None, ge=0)
 
 
 class WordCountCreateMatrix(BaseModel):

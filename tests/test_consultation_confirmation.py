@@ -6,7 +6,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from models import Client
+from consultation_intake import apply_intake, validated_intake
+from models import Client, TranslationProject
 from routers.consultations import (
     ConsultationConfirmationFields,
     ConsultationConfirmationPreviewRequest,
@@ -22,6 +23,35 @@ from routers.consultations import (
 from schemas import ConsultationCreate, TranslationProjectCreate
 
 
+class _FlushOnlyDb:
+    def __init__(self):
+        self.flush_count = 0
+
+    def flush(self):
+        self.flush_count += 1
+
+
+def test_translation_empty_customer_deadline_is_normalized_before_project_write():
+    data = validated_intake("translation", {"customer_deadline_time": "  "})
+    assert data["customer_deadline_time"] is None
+
+    project = SimpleNamespace(customer_deadline_time=datetime(2026, 9, 1, 18, 0))
+    db = _FlushOnlyDb()
+    apply_intake(
+        db,
+        project_type="translation",
+        project=project,
+        intake={"customer_deadline_time": ""},
+        sub_client_id=None,
+        contact_name=None,
+        customer_order_no=None,
+        updated_by=None,
+    )
+
+    assert project.customer_deadline_time is None
+    assert db.flush_count == 1
+
+
 def test_translation_subject_uses_prefix_and_skips_empty_fields():
     parts, subject, missing = _build_subject_preview(
         project_type="translation",
@@ -35,7 +65,7 @@ def test_translation_subject_uses_prefix_and_skips_empty_fields():
 
     assert parts == ["***急***", "TP-260812-001", "信实客户", "信实客户-260812"]
     assert subject == "***急***，TP-260812-001，信实客户，信实客户-260812"
-    assert missing == ["客户经理联系方式"]
+    assert missing == []
 
 
 def test_interpretation_subject_contains_customer_identifier():
@@ -293,12 +323,15 @@ def test_order_number_conflict_stops_before_project_mutation(monkeypatch):
         "subject_prefix": None,
         "subject_parts": ["TP-260812-010", "客户", "客户-260812"],
         "email_subject_preview": "TP-260812-010，客户，客户-260812",
-        "missing_fields": ["客户经理联系方式"],
+        "missing_fields": [],
     }
-    monkeypatch.setattr(
-        "routers.consultations._confirmation_preview_values",
-        lambda _db, _payload: refreshed,
-    )
+    captured = {}
+
+    def fake_preview(_db, payload):
+        captured["manager_contact"] = payload.manager_contact
+        return refreshed
+
+    monkeypatch.setattr("routers.consultations._confirmation_preview_values", fake_preview)
 
     with pytest.raises(HTTPException) as exc_info:
         _confirm_consultation_project(
@@ -307,9 +340,65 @@ def test_order_number_conflict_stops_before_project_mutation(monkeypatch):
             ConsultationConfirmationFields(
                 expected_order_no="TP-260812-009",
                 project_name="客户-260812",
+                manager_contact="预览中补填的联系方式",
             ),
             uuid4(),
         )
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["preview"]["order_no"] == "TP-260812-010"
+    assert captured["manager_contact"] == "预览中补填的联系方式"
+
+
+def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
+    client = SimpleNamespace(id=uuid4(), manager_contact=None)
+    project = SimpleNamespace(
+        id=uuid4(), project_name="旧项目名", email_subject_preview="旧主题",
+        task_type=None, project_status="pending",
+    )
+    consultation = SimpleNamespace(
+        id=uuid4(), consultation_type="笔译项目", client_id=client.id,
+        client_short_name="客户", project_name=None, customer_order_no=None,
+        project_intake={}, sub_client_id=None, contact_name=None,
+        consultation_description=None, remarks=None,
+    )
+
+    class Query:
+        def __init__(self, result):
+            self.result = result
+
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return self.result
+
+    class Db:
+        def query(self, model):
+            return Query(client if model is Client else project if model is TranslationProject else None)
+
+        def flush(self):
+            pass
+
+    preview = {
+        "project_type": "translation", "order_no": "TP-260812-012",
+        "client_short_name": "客户", "manager_contact": "预览中补填的联系方式",
+        "project_name": "客户-260812", "customer_order_no": None,
+        "email_subject_preview": "TP-260812-012，客户，预览中补填的联系方式，客户-260812",
+        "missing_fields": [], "can_send": True, "blocking_reasons": [],
+    }
+    monkeypatch.setattr("routers.consultations._confirmation_preview_values", lambda *_args: preview)
+    monkeypatch.setattr("routers.consultations.apply_intake", lambda *_args, **_kwargs: None)
+
+    _confirm_consultation_project(
+        Db(),
+        consultation,
+        ConsultationConfirmationFields(
+            expected_order_no="TP-260812-012",
+            project_name="客户-260812",
+            manager_contact="  预览中补填的联系方式  ",
+        ),
+        uuid4(),
+    )
+
+    assert client.manager_contact == "预览中补填的联系方式"

@@ -58,6 +58,8 @@ WORD_COUNT_LABELS = {
     "characters_no_spaces": "字符数（不计空格）",
     "cjk_chars_korean_words": "中文字符和朝鲜语单词",
     "foreign_words": "外文字数",
+    "documents": "份数",
+    "pages": "页数",
 }
 MANUSCRIPT_ADMIN_ROLES = {"admin", "超级管理员"}
 
@@ -220,7 +222,7 @@ def _validate_stored_arrangement_required_fields(
     source = planned.model_dump() if hasattr(planned, "model_dump") else (planned or {})
     if not any(source.get(metric_type) is not None for metric_type in METRIC_TYPES):
         raise ValueError(
-            f"{arrangement.translator_name_snapshot}：字数与结算至少需要填写一个字数数值"
+            f"{arrangement.translator_name_snapshot}：工作量与结算至少需要填写一个计量数值"
         )
     first_phase = next(
         (

@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 
 // Vue reactive Proxy 不能直接 structuredClone；表单草稿只包含可 JSON 化字段。
@@ -23,10 +23,12 @@ export const useFormDraft = ({
   formRef,
   applyDraft,
   legacyStorageKeys = [],
+  saveDelay = 400,
 }) => {
   const storageKey = `form-drafts:${namespace}:${currentUserKey()}`
   const activeDraftKey = ref('')
   const savingEnabled = ref(false)
+  let saveTimer = null
 
   const readDrafts = () => {
     try {
@@ -73,7 +75,28 @@ export const useFormDraft = ({
     writeDrafts(drafts)
   }
 
+  const cancelScheduledSave = () => {
+    if (saveTimer !== null) window.clearTimeout(saveTimer)
+    saveTimer = null
+  }
+
+  const scheduleActiveDraft = () => {
+    if (!savingEnabled.value || !activeDraftKey.value) return
+    cancelScheduledSave()
+    saveTimer = window.setTimeout(() => {
+      saveTimer = null
+      saveActiveDraft()
+    }, saveDelay)
+  }
+
+  const flushDraft = () => {
+    if (saveTimer === null) return
+    cancelScheduledSave()
+    saveActiveDraft()
+  }
+
   const beginDraft = async (key) => {
+    cancelScheduledSave()
     savingEnabled.value = false
     activeDraftKey.value = key
     const draft = readDrafts()[key]
@@ -105,17 +128,21 @@ export const useFormDraft = ({
   }
 
   const pauseDraft = () => {
+    flushDraft()
     savingEnabled.value = false
     activeDraftKey.value = ''
   }
 
   const clearDraft = () => {
+    cancelScheduledSave()
     savingEnabled.value = false
     removeDraft()
     activeDraftKey.value = ''
   }
 
-  watch(form, saveActiveDraft, { deep: true, flush: 'sync' })
+  // 同步阶段只重置轻量计时器，JSON 克隆与 sessionStorage 写入延后执行。
+  watch(form, scheduleActiveDraft, { deep: true, flush: 'sync' })
+  onBeforeUnmount(flushDraft)
 
-  return { beginDraft, pauseDraft, clearDraft, removeDraft }
+  return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft }
 }

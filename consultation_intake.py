@@ -92,6 +92,10 @@ def validated_intake(project_type: str, intake: Optional[dict]) -> dict:
     if project_type == "recruitment":
         return RecruitmentProjectUpdate(**data).model_dump(mode="json", exclude={"expected_updated_at"})
     if project_type == "translation":
+        # 前端日期选择器清空后会提交空字符串。咨询表的 JSONB 可以保存该值，
+        # 但确认建项时不能把空字符串写入项目表的 timestamp 字段。
+        if "customer_deadline_time" in data and not str(data["customer_deadline_time"] or "").strip():
+            data["customer_deadline_time"] = None
         if "word_count_matrix" in data:
             data["word_count_matrix"] = WordCountCreateMatrix.model_validate(data["word_count_matrix"]).model_dump(mode="json")
         return {key: value for key, value in data.items() if key in {*SCALAR_FIELDS[project_type], "word_count_matrix"}}

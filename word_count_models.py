@@ -26,7 +26,7 @@ class WordCountMetric(Base):
             name="ck_word_count_metric_single_owner",
         ),
         CheckConstraint(
-            "metric_type IN ('words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words')",
+            "metric_type IN ('words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words', 'documents', 'pages')",
             name="ck_word_count_metric_type",
         ),
         CheckConstraint(

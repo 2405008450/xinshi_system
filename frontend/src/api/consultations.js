@@ -42,8 +42,8 @@ export const updateConsultationIntakeTextField = (id, field, value, expectedUpda
   })
 )
 
-export const previewConfirmation = (data) => {
-  return api.post('/consultations/confirmation-preview', data)
+export const previewConfirmation = (data, config = {}) => {
+  return api.post('/consultations/confirmation-preview', data, config)
 }
 
 export const createConfirmedConsultation = (consultation, confirmation) => {

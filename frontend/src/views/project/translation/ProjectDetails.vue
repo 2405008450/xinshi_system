@@ -1271,7 +1271,7 @@ const translationFilterFields = [
   { key: 'languagePair', label: '翻译方向', type: 'text' },
   { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
   { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司'},{value:'customer',label:'客户'},{value:'translator_estimate',label:'译员预估'}] },
-  { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'}] },
+  { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
   { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
   { key: 'customerReceptionTime', label: '客户接单时间', type: 'date-range', wide: true },
   { key: 'customerDeadlineTime', label: '客户交稿时间', type: 'date-range', wide: true },
@@ -1695,7 +1695,7 @@ const saveProjectTextField = async (row, field, value) => {
   return updated
 }
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
-const focusRouteProject = async () => {
+const focusRouteProject = async (editorReady = Promise.resolve()) => {
   const projectId = String(route.query.projectId || '')
   if (!projectId) return
   try {
@@ -1703,13 +1703,15 @@ const focusRouteProject = async () => {
     highlightedProjectId.value = projectId
     searchForm.keyword = detail.orderNo || detail.order_no || ''
     pagination.page = 1
-    await fetchData()
+    const listPromise = fetchData()
     if (route.query.openEditor === '1') {
-      await handleEdit(detail)
+      await editorReady
+      await handleEdit(detail, true)
       const query = { ...route.query }
       delete query.openEditor
       await router.replace({ query })
     }
+    await Promise.all([listPromise, editorReady])
   } catch (error) {
     ElMessage.error(error.detail || '定位笔译项目失败')
   }
@@ -1951,10 +1953,10 @@ const handleAdd = async () => {
   projectFilesTabRef.value?.resetPathGroup()
   await beginDraft('create')
 }
-const handleEdit = async (row) => {
+const handleEdit = async (row, editorOptionsReady = false) => {
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
-  await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
+  if (!editorOptionsReady) await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
   assignReactive(form, createEmptyProjectForm, row)
   if (!String(form.taskType || '').trim()) form.taskType = '笔译项目'
   form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
@@ -2169,14 +2171,23 @@ const saveAllInlineNames = async (scope) => {
   }
 }
 onMounted(async () => {
+  if (route.query.projectId) {
+    const editorReady = route.query.openEditor === '1'
+      ? Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
+      : Promise.resolve()
+    await Promise.all([focusRouteProject(editorReady), loadResourceRequestStatuses()])
+    return
+  }
   await Promise.all([fetchData(), loadProjectManagerOptions(), loadResourceRequestStatuses()])
-  await focusRouteProject()
 })
 watch(
   () => [route.query.projectId, route.query.openEditor],
   ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {
     if (projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
-      void focusRouteProject()
+      const editorReady = openEditor === '1'
+        ? Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
+        : Promise.resolve()
+      void focusRouteProject(editorReady)
     }
   }
 )

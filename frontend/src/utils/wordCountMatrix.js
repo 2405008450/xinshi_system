@@ -2,14 +2,18 @@ export const WORD_COUNT_METRICS = [
   { key: 'words', label: '字数', shortLabel: '字数' },
   { key: 'characters_no_spaces', label: '字符数（不计空格）', shortLabel: '不计空格字符' },
   { key: 'cjk_chars_korean_words', label: '中文字符和朝鲜语单词', shortLabel: '中朝统计' },
-  { key: 'foreign_words', label: '外文字数', shortLabel: '外文字数' }
+  { key: 'foreign_words', label: '外文字数', shortLabel: '外文字数' },
+  { key: 'documents', label: '份数', shortLabel: '份数' },
+  { key: 'pages', label: '页数', shortLabel: '页数' }
 ]
 
 const METRIC_KEY_ALIASES = {
   words: ['words'],
   characters_no_spaces: ['characters_no_spaces', 'charactersNoSpaces'],
   cjk_chars_korean_words: ['cjk_chars_korean_words', 'cjkCharsKoreanWords'],
-  foreign_words: ['foreign_words', 'foreignWords']
+  foreign_words: ['foreign_words', 'foreignWords'],
+  documents: ['documents', 'documentCount'],
+  pages: ['pages', 'pageCount']
 }
 
 export const createEmptyWordCountValues = () => Object.fromEntries(

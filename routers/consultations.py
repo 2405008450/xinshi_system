@@ -105,6 +105,7 @@ class ConsultationConfirmationFields(BaseModel):
     project_name: Optional[str] = Field(default=None, max_length=255)
     expected_order_no: str = Field(min_length=1, max_length=50)
     subject_prefix: Optional[str] = Field(default=None, max_length=50)
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
     project_intake: dict = Field(default_factory=dict)
     to_user_ids: List[UUID] = Field(default_factory=list)
@@ -349,9 +350,12 @@ def _build_subject_preview(
         values.append(("客户单号/标识", customer_order_no))
     values.append(("项目名称", project_name))
     parts = [_clean_text(value) for _label, value in values if _clean_text(value)]
+    optional_labels = {"标题前缀", "客户单号/标识"}
+    if project_type == "translation":
+        optional_labels.add("客户经理联系方式")
     missing = [
         label for label, value in values
-        if label not in {"标题前缀", "客户单号/标识"} and not _clean_text(value)
+        if label not in optional_labels and not _clean_text(value)
     ]
     return parts, "，".join(parts), missing
 
@@ -505,7 +509,7 @@ def _confirm_consultation_project(
             else (getattr(consultation, "project_intake", None) or {})
         )
     )
-    preview_request = ConsultationConfirmationPreviewRequest(
+    preview_request_data = dict(
         consultation_id=consultation.id,
         consultation_type=consultation.consultation_type,
         client_id=consultation.client_id,
@@ -517,6 +521,9 @@ def _confirm_consultation_project(
         consultation_description=getattr(consultation, "consultation_description", None),
         remarks=getattr(consultation, "remarks", None),
     )
+    if "manager_contact" in confirmation.model_fields_set:
+        preview_request_data["manager_contact"] = confirmation.manager_contact
+    preview_request = ConsultationConfirmationPreviewRequest(**preview_request_data)
     preview = (
         _confirmation_preview_values(db, preview_request, current_user)
         if current_user is not None
@@ -558,6 +565,10 @@ def _confirm_consultation_project(
     # 只有订单号校验通过后才写回咨询，避免并发冲突留下半成品状态。
     consultation.project_name = next_project_name
     consultation.customer_order_no = next_customer_order_no
+    if "manager_contact" in confirmation.model_fields_set and consultation.client_id:
+        client = db.query(Client).filter(Client.id == consultation.client_id).first()
+        if client:
+            client.manager_contact = _clean_text(confirmation.manager_contact) or None
     if confirmation.project_intake or confirmation_project_type == "interpretation":
         consultation.project_intake = next_project_intake
         if confirmation_project_type == "interpretation":
@@ -1134,7 +1145,11 @@ def create_project_from_consultation(
     return new_project
 
 
-@router.delete("/{consultation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{consultation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_any_permission("consultations:write"))],
+)
 def delete_consultation_endpoint(consultation_id: UUID, db: Session = Depends(get_db)):
     try:
         success = delete_consultation(db, consultation_id=consultation_id)

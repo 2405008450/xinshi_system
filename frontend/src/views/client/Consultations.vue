@@ -21,7 +21,7 @@
               <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
             </div>
           </el-popover>
-          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmConsultationBatchDelete" />
           <el-tooltip content="快捷键：N" placement="bottom" :disabled="!canWrite || deleteMode">
             <el-button v-if="canWrite && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增咨询</el-button>
           </el-tooltip>
@@ -443,7 +443,7 @@
           @clear="clearFieldSearch"
         />
       </template>
-      <div ref="consultationEditorRef" class="consultation-editor">
+      <div ref="consultationEditorRef" v-loading="editorLoading" class="consultation-editor">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <section v-if="isSimpleConsultationType(form.consultation_type)" class="form-section consultation-form-section consultation-form-section--primary simple-consultation-form">
           <div class="consultation-form-section__header">
@@ -833,13 +833,13 @@
                 </el-autocomplete>
               </el-form-item>
             </el-col>
-            <el-col v-if="showManagerContactInput" :span="12">
+            <el-col v-if="showManagerContactInput" :xs="24" :md="12">
               <el-form-item label="客户经理联系方式" prop="manager_contact">
                 <el-input
                   v-model="form.manager_contact"
                   maxlength="100"
                   clearable
-                  placeholder="请输入客户经理联系方式"
+                  placeholder="填写后同步到客户资料，并用于邮件预览"
                 />
               </el-form-item>
             </el-col>
@@ -881,14 +881,21 @@
           <template v-else-if="isInterpretationConsultationType(form.consultation_type)">
             <el-form-item label="项目类型" prop="project_intake.project_types" required><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
             <el-form-item label="具体任务"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
-            <el-form-item label="地点" prop="project_intake.locations" required><el-select v-model="form.project_intake.locations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item>
+            <el-form-item label="地点" prop="project_intake.locations" required>
+              <el-input v-model="interpretationLocationText" clearable placeholder="请输入地点，如：广州" />
+            </el-form-item>
             <el-form-item label="预定时段" prop="project_intake.time_ranges" required>
               <div class="intake-list-field">
-                <div class="intake-list-header intake-list-header--field"><span>至少保留一个有效时段</span><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
+                <div class="intake-list-header intake-list-header--field intake-list-header--actions-only"><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
                 <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
                   <StableDateTimePicker v-model="item.scheduled_start" placeholder="开始时间" />
                   <StableDateTimePicker v-model="item.scheduled_end" placeholder="结束时间" />
-                  <el-button link type="danger" @click="form.project_intake.time_ranges.splice(index,1)">删除</el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="form.project_intake.time_ranges.length <= 1"
+                    @click="removeIntakeTimeRange(index)"
+                  >删除</el-button>
                 </div>
               </div>
             </el-form-item>
@@ -1186,6 +1193,16 @@
             />
           </el-form-item>
           <template v-if="confirmationPreview.project_type === 'translation'">
+            <el-form-item label="客户经理联系方式" prop="managerContact">
+              <el-input
+                v-model="confirmationForm.managerContact"
+                maxlength="100"
+                show-word-limit
+                clearable
+                placeholder="可在此补充，填写后将同步到客户资料"
+                @input="handleConfirmationManagerContactInput"
+              />
+            </el-form-item>
             <el-form-item
               label="服务内容"
               prop="serviceContent"
@@ -1319,14 +1336,21 @@ const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
 const confirmationSubmitAction = ref('')
 const formSubmitting = ref(false)
+const editorLoading = ref(false)
 const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
 const confirmationDialogRef = ref(null)
 const confirmationRecipientGroups = ref([])
 let confirmationMailPreviewRequestId = 0
+let confirmationMailPreviewController = null
+let confirmationManagerContactPreviewTimer = null
+let confirmationRecipientGroupsLoaded = false
+let confirmationRecipientGroupsPromise = null
+let editorSessionId = 0
+let subClientRequestId = 0
 const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
 const confirmationForm = reactive({
-  projectName: '', subjectPrefix: '', customerOrderNo: '', serviceContent: '', languagePair: '',
+  projectName: '', subjectPrefix: '', customerOrderNo: '', managerContact: '', serviceContent: '', languagePair: '',
   emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
 })
 const confirmationPreview = reactive({
@@ -1429,6 +1453,37 @@ const pagination = reactive({
 })
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:consultationTableRef,pagination,deleteRow:(row)=>consultationApi.deleteConsultation(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.consultation_description,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'咨询记录'})
 
+const linkedProjectIdFields = [
+  'translation_project_id',
+  'interpretation_project_id',
+  'annotation_project_id',
+  'recruitment_project_id',
+]
+
+const isProtectedConsultation = (row) => (
+  row?.status === CONFIRMED_CONSULTATION_STATUS
+  || linkedProjectIdFields.some((field) => Boolean(row?.[field]))
+)
+
+const confirmConsultationBatchDelete = async () => {
+  const protectedRows = selectedRows.value.filter(isProtectedConsultation)
+  if (protectedRows.length) {
+    const codes = protectedRows
+      .slice(0, 5)
+      .map((row) => row.consultation_code)
+      .filter(Boolean)
+      .join('、')
+    const codeHint = codes ? `（${codes}${protectedRows.length > 5 ? ' 等' : ''}）` : ''
+    await ElMessageBox.alert(
+      `已确认或已关联项目的咨询无法删除。当前选择中有 ${protectedRows.length} 条此类咨询${codeHint}，请取消选择后重试。`,
+      '无法删除',
+      { type: 'warning', confirmButtonText: '知道了' },
+    )
+    return
+  }
+  await confirmBatchDelete()
+}
+
 const searchForm = reactive({
   keyword: '',
   status: '',
@@ -1519,6 +1574,7 @@ const emptyProjectIntake = () => ({
 })
 
 const emptyLanguageDirection = () => ({ source_language_id: '', target_language_id: '', required_count: null })
+const emptyTimeRange = () => ({ scheduled_start: '', scheduled_end: '' })
 
 const normalizeLegacyInterpretationIntake = (projectIntake) => {
   const normalized = { ...emptyProjectIntake(), ...(projectIntake || {}) }
@@ -1541,6 +1597,12 @@ const normalizeLegacyInterpretationIntake = (projectIntake) => {
 const ensureInterpretationDirection = (projectIntake = form.project_intake) => {
   if (!Array.isArray(projectIntake.language_directions) || !projectIntake.language_directions.length) {
     projectIntake.language_directions = [emptyLanguageDirection()]
+  }
+}
+
+const ensureInterpretationTimeRange = (projectIntake = form.project_intake) => {
+  if (!Array.isArray(projectIntake.time_ranges) || !projectIntake.time_ranges.length) {
+    projectIntake.time_ranges = [emptyTimeRange()]
   }
 }
 
@@ -1578,10 +1640,16 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
-const showManagerContactInput = computed(() => (
-  !form.client_id
-  && Boolean(form.client_short_name?.trim() || form.client_name?.trim())
-))
+const showManagerContactInput = computed(() => !form.client_id)
+const interpretationLocationText = computed({
+  get: () => (Array.isArray(form.project_intake.locations) ? form.project_intake.locations : [])
+    .filter((item) => String(item || '').trim())
+    .join('、'),
+  set: (value) => {
+    const location = String(value || '')
+    form.project_intake.locations = location.trim() ? [location] : []
+  },
+})
 const interpretationRequiredTotal = computed(() => (
   form.project_intake.language_directions || []
 ).reduce((total, item) => total + (Number.isInteger(item.required_count) && item.required_count > 0 ? item.required_count : 0), 0))
@@ -1603,6 +1671,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
     if (isInterpretationConsultationType(form.consultation_type)) {
       form.project_intake = normalizeLegacyInterpretationIntake(form.project_intake)
       ensureInterpretationDirection()
+      ensureInterpretationTimeRange()
     }
   },
 })
@@ -1726,7 +1795,10 @@ const handleConsultationTypeChange = (consultationType) => {
     form.status = 'following'
     ElMessage.info('简单咨询不能直接确认，咨询状态已调整为“跟进中”')
   }
-  if (isInterpretationConsultationType(consultationType)) ensureInterpretationDirection()
+  if (isInterpretationConsultationType(consultationType)) {
+    ensureInterpretationDirection()
+    ensureInterpretationTimeRange()
+  }
   nextTick(() => formRef.value?.clearValidate())
 }
 const handleTranslationQuotationRequiredChange = (required) => {
@@ -1734,7 +1806,11 @@ const handleTranslationQuotationRequiredChange = (required) => {
   form.project_intake.quotation_status = ''
   form.project_intake.quotation_path = ''
 }
-const addIntakeTimeRange = () => form.project_intake.time_ranges.push({ scheduled_start: '', scheduled_end: '' })
+const addIntakeTimeRange = () => form.project_intake.time_ranges.push(emptyTimeRange())
+const removeIntakeTimeRange = (index) => {
+  if (form.project_intake.time_ranges.length <= 1) return
+  form.project_intake.time_ranges.splice(index, 1)
+}
 const addIntakeDirection = () => form.project_intake.language_directions.push(emptyLanguageDirection())
 const removeIntakeDirection = (index) => {
   if (form.project_intake.language_directions.length <= 1) return
@@ -1751,13 +1827,19 @@ const projectRouteName = (consultationType) => {
 }
 const routeToProjectBoard = async (consultationType, projectId = null) => {
   const name = projectRouteName(consultationType)
-  if (!name) return
+  if (!name) return false
   if (!hasPermission('projects:read')) {
     ElMessage.warning('项目已生成，但当前账号没有项目查看权限，无法打开项目编辑窗口')
-    return
+    return false
   }
   const query = projectId ? { projectId, openEditor: '1' } : undefined
-  await router.push({ name, query })
+  try {
+    await router.push({ name, query })
+    return true
+  } catch {
+    ElMessage.warning('项目已生成，但项目页面打开失败，请稍后从项目列表进入')
+    return false
+  }
 }
 const confirmationTypeLabel = computed(() => {
   const sourceType = confirmationContext.consultationPayload?.consultation_type
@@ -1789,7 +1871,10 @@ const confirmationSubjectParts = computed(() => {
 })
 const confirmationSubjectPreview = computed(() => confirmationSubjectParts.value.join('，'))
 const confirmationMissingFields = computed(() => {
-  return confirmationPreview.missing_fields || []
+  return (confirmationPreview.missing_fields || []).filter((item) => !(
+    confirmationPreview.project_type === 'translation'
+    && item === '客户经理联系方式'
+  ))
 })
 const regenerateConfirmationSubject = () => { confirmationForm.emailSubject = confirmationSubjectPreview.value }
 
@@ -1891,8 +1976,8 @@ const rules = {
     trigger: 'change',
   }],
   'project_intake.locations': [{
-    validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), requireIntakeArray('请选择地点')),
-    trigger: 'change',
+    validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), requireIntakeArray('请输入地点')),
+    trigger: ['change', 'blur'],
   }],
   'project_intake.time_ranges': [{
     validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), validateInterpretationTimeRanges),
@@ -2052,15 +2137,18 @@ const handleExistingClientSelect = (item) => {
   if (!availableSubClients.value.length) loadSubClients(item.id)
 }
 
-const loadSubClients = async (clientId) => {
+const loadSubClients = async (clientId, sessionId = editorSessionId) => {
+  const requestId = ++subClientRequestId
   if (!clientId) {
     availableSubClients.value = []
     return
   }
   try {
     const detail = await clientApi.getClient(clientId)
+    if (requestId !== subClientRequestId || sessionId !== editorSessionId || form.client_id !== clientId) return
     availableSubClients.value = detail?.sub_clients || []
   } catch {
+    if (requestId !== subClientRequestId || sessionId !== editorSessionId) return
     availableSubClients.value = []
   }
 }
@@ -2277,6 +2365,9 @@ const loadClientDetail = async (clientId) => {
 }
 
 const handleAdd = async () => {
+  editorSessionId += 1
+  subClientRequestId += 1
+  editorLoading.value = false
   dialogTitle.value = '新增咨询'
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
@@ -2304,6 +2395,7 @@ const fillFormByRow = (row) => {
   if (isInterpretationConsultationType(consultationType)) {
     projectIntake = normalizeLegacyInterpretationIntake(projectIntake)
     ensureInterpretationDirection(projectIntake)
+    ensureInterpretationTimeRange(projectIntake)
   }
   Object.assign(form, {
     id: row.id,
@@ -2337,21 +2429,24 @@ const fillFormByRow = (row) => {
     follow_up_person_id: row.follow_up_person_id ?? null,
     updated_at: row.updated_at || null,
   })
-  loadSubClients(row.client_id)
+  availableSubClients.value = []
+  void loadSubClients(row.client_id, editorSessionId)
 }
 
 const handleEdit = async (row) => {
+  editorSessionId += 1
+  const sessionId = editorSessionId
+  subClientRequestId += 1
+  editorLoading.value = true
   dialogTitle.value = '编辑咨询'
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
-  try {
-    const detail = await consultationApi.getConsultation(row.id)
-    detailCache[row.id] = detail
-    fillFormByRow(detail)
-  } catch {
-    fillFormByRow(row)
-  }
   dialogVisible.value = true
+  await nextTick()
+  if (sessionId !== editorSessionId) return
+  detailCache[row.id] = row
+  fillFormByRow(row)
+  editorLoading.value = false
   await nextTick()
   resetConsultationDialogPosition()
   await beginDraft(`edit:${row.id}`)
@@ -2540,6 +2635,7 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   })
   confirmationForm.projectName = preview?.project_name || confirmationForm.projectName
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
+  confirmationForm.managerContact = preview?.manager_contact || ''
   confirmationForm.emailSubject = preview?.email_subject_preview || ''
   confirmationForm.emailBody = preview?.email_body || ''
   if (!preserveRecipients) {
@@ -2558,8 +2654,39 @@ const buildConfirmationProjectIntake = () => {
   return intake
 }
 
+const loadConfirmationRecipientGroups = async () => {
+  if (confirmationRecipientGroupsLoaded) return confirmationRecipientGroups.value
+  if (!confirmationRecipientGroupsPromise) {
+    confirmationRecipientGroupsPromise = mailApi.getAvailableMailGroups()
+      .then((groups) => {
+        confirmationRecipientGroups.value = Array.isArray(groups) ? groups : []
+        confirmationRecipientGroupsLoaded = true
+        return confirmationRecipientGroups.value
+      })
+      .finally(() => {
+        confirmationRecipientGroupsPromise = null
+      })
+  }
+  return confirmationRecipientGroupsPromise
+}
+
+const beginConfirmationPreviewRequest = () => {
+  confirmationMailPreviewController?.abort()
+  confirmationMailPreviewController = new AbortController()
+  return {
+    requestId: ++confirmationMailPreviewRequestId,
+    signal: confirmationMailPreviewController.signal,
+  }
+}
+
+const isCanceledRequest = (error) => (
+  error?.code === 'ERR_CANCELED'
+  || error?.name === 'CanceledError'
+  || error?.name === 'AbortError'
+)
+
 const refreshConfirmationMailPreview = async () => {
-  const requestId = ++confirmationMailPreviewRequestId
+  const { requestId, signal } = beginConfirmationPreviewRequest()
   const source = confirmationContext.consultationPayload || confirmationContext.row || {}
   confirmationPreviewLoading.value = true
   try {
@@ -2568,7 +2695,7 @@ const refreshConfirmationMailPreview = async () => {
       consultation_type: source.consultation_type,
       client_id: source.client_id || null,
       client_short_name: source.client_short_name || null,
-      manager_contact: source.manager_contact?.trim() || null,
+      manager_contact: confirmationForm.managerContact?.trim() || null,
       project_name: confirmationForm.projectName?.trim() || null,
       subject_prefix: confirmationForm.subjectPrefix?.trim() || null,
       customer_order_no: confirmationPreview.project_type !== 'translation'
@@ -2577,13 +2704,14 @@ const refreshConfirmationMailPreview = async () => {
       project_intake: buildConfirmationProjectIntake(),
       consultation_description: source.consultation_description || null,
       remarks: source.remarks || null,
-    })
+    }, { signal })
     if (requestId !== confirmationMailPreviewRequestId) return
     applyConfirmationPreview(preview, { preserveRecipients: true })
     await nextTick()
     confirmationFormRef.value?.validateField(['serviceContent', 'languagePair']).catch(() => {})
   } catch (error) {
     if (requestId !== confirmationMailPreviewRequestId) return
+    if (isCanceledRequest(error)) return
     ElMessage.error(error?.response?.data?.detail || error?.detail || '刷新邮件预览失败')
   } finally {
     if (requestId === confirmationMailPreviewRequestId) confirmationPreviewLoading.value = false
@@ -2595,17 +2723,33 @@ const handleConfirmationLanguagePairChange = (value) => {
   refreshConfirmationMailPreview()
 }
 
+const handleConfirmationManagerContactInput = (value) => {
+  confirmationMailPreviewController?.abort()
+  confirmationMailPreviewController = null
+  confirmationMailPreviewRequestId += 1
+  confirmationPreviewLoading.value = false
+  confirmationPreview.manager_contact = value?.trim() || ''
+  regenerateConfirmationSubject()
+  if (confirmationManagerContactPreviewTimer) clearTimeout(confirmationManagerContactPreviewTimer)
+  confirmationManagerContactPreviewTimer = setTimeout(() => {
+    confirmationManagerContactPreviewTimer = null
+    refreshConfirmationMailPreview()
+  }, 400)
+}
+
 const openMailProfile = () => {
   confirmationDialogVisible.value = false
   router.push('/profile')
 }
 
 const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource, continueCreate = false }) => {
+  const { requestId, signal } = beginConfirmationPreviewRequest()
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
     projectName: previewSource?.project_name || buildAutoProjectName(previewSource?.client_short_name),
     subjectPrefix: '',
     customerOrderNo: previewSource?.customer_order_no || '',
+    managerContact: previewSource?.manager_contact || '',
     serviceContent: previewSource?.project_intake?.service_content || '',
     languagePair: previewSource?.project_intake?.language_pair || '',
     emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
@@ -2632,18 +2776,20 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
         project_intake: previewSource?.project_intake || {},
         consultation_description: previewSource?.consultation_description || null,
         remarks: previewSource?.remarks || null,
-      }),
-      mailApi.getAvailableMailGroups(),
+      }, { signal }),
+      loadConfirmationRecipientGroups(),
     ])
+    if (requestId !== confirmationMailPreviewRequestId) return
     confirmationRecipientGroups.value = groups || []
     applyConfirmationPreview(preview)
     await nextTick()
     confirmationFormRef.value?.clearValidate()
   } catch (error) {
+    if (requestId !== confirmationMailPreviewRequestId || isCanceledRequest(error)) return
     confirmationDialogVisible.value = false
     ElMessage.error(error?.response?.data?.detail || error?.detail || '加载确认预览失败')
   } finally {
-    confirmationPreviewLoading.value = false
+    if (requestId === confirmationMailPreviewRequestId) confirmationPreviewLoading.value = false
   }
 }
 
@@ -2672,6 +2818,7 @@ const handleConfirmConsultation = async (sendEmail) => {
     project_name: confirmationForm.projectName?.trim() || null,
     expected_order_no: confirmationPreview.order_no,
     subject_prefix: confirmationForm.subjectPrefix?.trim() || null,
+    manager_contact: confirmationForm.managerContact?.trim() || null,
     customer_order_no: confirmationPreview.project_type !== 'translation'
       ? confirmationForm.customerOrderNo?.trim() || null
       : null,
@@ -2699,6 +2846,13 @@ const handleConfirmConsultation = async (sendEmail) => {
           confirmationContext.mode === 'update' ? confirmationContext.consultationPayload : null,
           confirmation
         )
+    // 关闭确认弹窗会重置 confirmationContext，跳转判断必须先保存快照。
+    const shouldContinueCreate = (
+      confirmationContext.mode === 'create'
+      && confirmationContext.continueCreate
+    )
+    const targetProjectType = result?.project_type
+    const targetProjectId = result?.project_id
 
     if (confirmationContext.row) confirmationContext.row.status = CONFIRMED_CONSULTATION_STATUS
     if (confirmationContext.consultationId) delete detailCache[confirmationContext.consultationId]
@@ -2723,8 +2877,10 @@ const handleConfirmConsultation = async (sendEmail) => {
           : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
       )
     }
-    await fetchData()
-    await routeToProjectBoard(result?.project_type, result?.project_id)
+    const navigated = shouldContinueCreate
+      ? false
+      : await routeToProjectBoard(targetProjectType, targetProjectId)
+    if (!navigated) await fetchData()
   } catch (error) {
     const detail = error?.response?.data?.detail || error?.detail
     if (error?.response?.status === 409 && detail?.preview) {
@@ -2741,10 +2897,17 @@ const handleConfirmConsultation = async (sendEmail) => {
 }
 
 const resetConfirmationDraft = () => {
+  confirmationMailPreviewController?.abort()
+  confirmationMailPreviewController = null
+  if (confirmationManagerContactPreviewTimer) {
+    clearTimeout(confirmationManagerContactPreviewTimer)
+    confirmationManagerContactPreviewTimer = null
+  }
   confirmationMailPreviewRequestId += 1
+  confirmationPreviewLoading.value = false
   Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
   Object.assign(confirmationForm, {
-    projectName: '', subjectPrefix: '', customerOrderNo: '', serviceContent: '', languagePair: '',
+    projectName: '', subjectPrefix: '', customerOrderNo: '', managerContact: '', serviceContent: '', languagePair: '',
     emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
   })
   confirmationFormRef.value?.clearValidate()
@@ -2757,8 +2920,12 @@ const resetForm = () => {
 }
 
 const handleDialogClose = () => {
+  editorSessionId += 1
+  subClientRequestId += 1
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
+  availableSubClients.value = []
+  editorLoading.value = false
   pauseDraft()
   resetForm()
 }
@@ -2798,14 +2965,15 @@ const handleGlobalKeydown = (event) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown)
-  await Promise.all([loadUsers(), loadLanguages()])
-  await fetchData()
+  await Promise.allSettled([fetchData(), loadUsers(), loadLanguages()])
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  if (confirmationManagerContactPreviewTimer) clearTimeout(confirmationManagerContactPreviewTimer)
   consultationSearchController?.abort()
+  confirmationMailPreviewController?.abort()
 })
 </script>
 
@@ -2931,6 +3099,7 @@ onBeforeUnmount(() => {
 .intake-list-header { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; color: var(--el-text-color-regular); font-size: 14px; font-weight: 500; }
 .intake-list-field { width: 100%; }
 .intake-list-header--field { margin-top: 0; }
+.intake-list-header--actions-only { justify-content: flex-end; }
 .intake-list-header--field > span { color: var(--el-text-color-secondary); font-size: 12px; font-weight: 400; }
 .intake-inline-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
 .intake-inline-row > .el-select, .intake-inline-row > .el-date-editor { flex: 1; }
