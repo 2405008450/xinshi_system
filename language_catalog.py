@@ -114,8 +114,8 @@ LANGUAGE_SEARCH_SHORTCUTS = {
     "lo-LA": ["老", "老挝语"],
 }
 
-LANGUAGE_LABELS = frozenset(item["label"] for item in LANGUAGE_VARIANTS)
 LANGUAGE_PAIR_SPLIT_PATTERN = re.compile(r"[；;，,、\n]+")
+LANGUAGE_LABEL_FORBIDDEN_PATTERN = re.compile(r"[→；;,，、\r\n]")
 
 
 def get_searchable_language_variants() -> list[dict]:
@@ -129,8 +129,20 @@ def get_searchable_language_variants() -> list[dict]:
     ]
 
 
+def normalize_language_label(value: object) -> str:
+    """规范语种名称，并阻止名称占用翻译方向的结构分隔符。"""
+    normalized = " ".join(str(value or "").split())
+    if not normalized:
+        raise ValueError("语种名称不能为空")
+    if len(normalized) > 100:
+        raise ValueError("语种名称不能超过100个字符")
+    if LANGUAGE_LABEL_FORBIDDEN_PATTERN.search(normalized):
+        raise ValueError("语种名称不能包含箭头或列表分隔符")
+    return normalized
+
+
 def normalize_language_pairs(value: Optional[str]) -> Optional[str]:
-    """校验并规范化一个或多个受控语言对。"""
+    """校验语言对结构并规范化；目录成员校验由持有数据库会话的业务层完成。"""
     if value is None:
         return None
 
@@ -143,18 +155,47 @@ def normalize_language_pairs(value: Optional[str]) -> Optional[str]:
         return None
 
     normalized = []
+    normalized_keys = set()
     for pair in parts:
         source, separator, target = pair.partition("→")
-        source = source.strip()
-        target = target.strip()
-        if (
-            separator != "→"
-            or source not in LANGUAGE_LABELS
-            or target not in LANGUAGE_LABELS
-            or source == target
-        ):
-            raise ValueError(f"“{pair}”不在受控翻译方向候选项中")
+        if separator != "→":
+            raise ValueError(f"“{pair}”不是有效的翻译方向，请使用“原文语种→译文语种”格式")
+        source = normalize_language_label(source)
+        target = normalize_language_label(target)
+        if source.casefold() == target.casefold():
+            raise ValueError("翻译方向的原文语种和译文语种不能相同")
         canonical_pair = f"{source}→{target}"
-        if canonical_pair not in normalized:
+        canonical_key = canonical_pair.casefold()
+        if canonical_key not in normalized_keys:
             normalized.append(canonical_pair)
+            normalized_keys.add(canonical_key)
     return "；".join(normalized)
+
+
+def validate_language_pairs_against_catalog(
+    value: Optional[str], available_labels: list[str] | tuple[str, ...] | set[str],
+) -> Optional[str]:
+    """确认语言对两端均存在于共享目录，并返回使用目录规范名称的结果。"""
+    normalized = normalize_language_pairs(value)
+    if normalized is None:
+        return None
+
+    catalog = {
+        normalize_language_label(label).casefold(): normalize_language_label(label)
+        for label in available_labels
+    }
+    result = []
+    result_keys = set()
+    for pair in LANGUAGE_PAIR_SPLIT_PATTERN.split(normalized):
+        source, _, target = pair.partition("→")
+        source_label = catalog.get(source.casefold())
+        target_label = catalog.get(target.casefold())
+        missing = [label for label, canonical in ((source, source_label), (target, target_label)) if canonical is None]
+        if missing:
+            raise ValueError(f"语种“{'、'.join(missing)}”不在共享语种目录中")
+        canonical_pair = f"{source_label}→{target_label}"
+        canonical_key = canonical_pair.casefold()
+        if canonical_key not in result_keys:
+            result.append(canonical_pair)
+            result_keys.add(canonical_key)
+    return "；".join(result)

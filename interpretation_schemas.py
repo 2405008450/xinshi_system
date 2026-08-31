@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from path_security import validate_managed_path
+from language_catalog import normalize_language_label
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 
 
@@ -347,10 +348,7 @@ class InterpretationLanguageCreate(BaseModel):
     @field_validator("label")
     @classmethod
     def normalize_label(cls, value):
-        normalized = " ".join(value.split())
-        if not normalized:
-            raise ValueError("语种名称不能为空")
-        return normalized
+        return normalize_language_label(value)
 
 
 class InterpretationLanguageUpdate(BaseModel):
@@ -362,10 +360,7 @@ class InterpretationLanguageUpdate(BaseModel):
     def normalize_label(cls, value):
         if value is None:
             return value
-        normalized = " ".join(value.split())
-        if not normalized:
-            raise ValueError("语种名称不能为空")
-        return normalized
+        return normalize_language_label(value)
 
     @model_validator(mode="after")
     def validate_changes(self):

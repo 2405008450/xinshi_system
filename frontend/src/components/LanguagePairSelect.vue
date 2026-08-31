@@ -27,17 +27,55 @@
           <el-tag v-if="item.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag>
         </el-option>
       </el-select>
-      <el-popover v-model:visible="createVisible" trigger="click" placement="bottom-end" :width="300">
+      <el-popover
+        v-model:visible="createVisible"
+        trigger="click"
+        placement="bottom-end"
+        :width="520"
+        popper-class="language-pair-create-popper"
+      >
         <template #reference>
-          <el-button :disabled="loading" title="新增共享语种">新增语种</el-button>
+          <el-button :disabled="loading" title="新增翻译方向">新增方向</el-button>
         </template>
-        <el-form @submit.prevent>
-          <el-form-item label="语种名称">
-            <el-input v-model="newLanguageLabel" maxlength="100" placeholder="例如：吴语（上海话）" @keyup.enter="handleCreateLanguage" />
-          </el-form-item>
+        <el-form class="direction-create-form" label-position="top" @submit.prevent>
+          <div class="direction-create-fields">
+            <el-form-item label="原文语种">
+              <el-select
+                v-model="newDirection.source"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                :loading="creating"
+                placeholder="选择或输入原文语种"
+              >
+                <el-option v-for="language in languages" :key="language.id" :label="language.label" :value="language.label" />
+              </el-select>
+            </el-form-item>
+            <span class="direction-create-arrow" aria-hidden="true">→</span>
+            <el-form-item label="译文语种">
+              <el-select
+                v-model="newDirection.target"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                :loading="creating"
+                placeholder="选择或输入译文语种"
+              >
+                <el-option
+                  v-for="language in languages"
+                  :key="language.id"
+                  :label="language.label"
+                  :value="language.label"
+                  :disabled="isSameLanguage(language.label, newDirection.source)"
+                />
+              </el-select>
+            </el-form-item>
+          </div>
           <div class="create-actions">
-            <el-button @click="createVisible = false">取消</el-button>
-            <el-button type="primary" :loading="creating" @click="handleCreateLanguage">添加</el-button>
+            <el-button :disabled="creating" @click="handleCreateCancel">取消</el-button>
+            <el-button type="primary" :loading="creating" @click="handleCreateDirection">添加方向</el-button>
           </div>
         </el-form>
       </el-popover>
@@ -64,7 +102,7 @@ const loading = ref(false)
 const loadingFailed = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
-const newLanguageLabel = ref('')
+const newDirection = ref({ source: '', target: '' })
 
 // 常用笔译方向固定前置；同一语种对按“简中译外语、外语译简中”相邻排列。
 const COMMON_LANGUAGE_PAIR_CODES = [
@@ -115,6 +153,12 @@ const parseLanguagePairs = (value) => {
   if (!value) return []
   return [...new Set(String(value).split(/[；;，,、\n]+/).map((item) => item.trim()).filter(Boolean))]
 }
+
+const normalizeLanguageLabel = (value) => String(value || '').trim().replace(/\s+/g, ' ')
+const comparableLanguageLabel = (value) => normalizeLanguageLabel(value).toLocaleLowerCase()
+const isSameLanguage = (left, right) => (
+  Boolean(comparableLanguageLabel(left)) && comparableLanguageLabel(left) === comparableLanguageLabel(right)
+)
 
 const normalizeSearchText = (value) => String(value || '').toLocaleLowerCase().replace(/\s+/g, '')
 const normalizeDirectionQuery = (value) => normalizeSearchText(value).replace(
@@ -221,19 +265,44 @@ const loadLanguages = async () => {
   }
 }
 
-const handleCreateLanguage = async () => {
-  const label = newLanguageLabel.value.trim()
-  if (!label) return ElMessage.warning('请输入语种名称')
+const findLanguage = (label) => languages.value.find((item) => isSameLanguage(item.label, label))
+const addLanguageLocally = (language) => {
+  if (!findLanguage(language.label)) languages.value.push(language)
+  languages.value.sort((a, b) => Number(a.isCustom) - Number(b.isCustom) || a.label.localeCompare(b.label, 'zh-CN'))
+}
+const ensureLanguage = async (label) => {
+  const existing = findLanguage(label)
+  if (existing) return existing
+  const created = await createProjectLanguage(label)
+  addLanguageLocally(created)
+  return created
+}
+const resetCreateDirection = () => {
+  newDirection.value = { source: '', target: '' }
+}
+const handleCreateCancel = () => {
+  createVisible.value = false
+  resetCreateDirection()
+}
+const handleCreateDirection = async () => {
+  const sourceLabel = normalizeLanguageLabel(newDirection.value.source)
+  const targetLabel = normalizeLanguageLabel(newDirection.value.target)
+  if (!sourceLabel || !targetLabel) return ElMessage.warning('请选择或输入原文语种和译文语种')
+  if (isSameLanguage(sourceLabel, targetLabel)) return ElMessage.warning('原文语种和译文语种不能相同')
+  if (/[→；;,，、\r\n]/.test(sourceLabel) || /[→；;,，、\r\n]/.test(targetLabel)) {
+    return ElMessage.warning('语种名称不能包含箭头或列表分隔符')
+  }
   creating.value = true
   try {
-    const created = await createProjectLanguage(label)
-    languages.value.push(created)
-    languages.value.sort((a, b) => Number(a.isCustom) - Number(b.isCustom) || a.label.localeCompare(b.label, 'zh-CN'))
-    newLanguageLabel.value = ''
+    const source = await ensureLanguage(sourceLabel)
+    const target = await ensureLanguage(targetLabel)
+    const pair = `${source.label}→${target.label}`
+    selectedPairs.value = [...selectedPairs.value, pair]
+    resetCreateDirection()
     createVisible.value = false
-    ElMessage.success('语种已添加到共享目录')
+    ElMessage.success('翻译方向已添加')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '新增语种失败')
+    ElMessage.error(error?.response?.data?.detail || '新增翻译方向失败')
   } finally {
     creating.value = false
   }
@@ -250,4 +319,17 @@ onMounted(loadLanguages)
 .language-pair-shortcut { float: right; margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
 .new-language-tag { float: right; margin-left: 8px; }
 .create-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.direction-create-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 10px; }
+.direction-create-fields :deep(.el-form-item) { margin-bottom: 16px; }
+.direction-create-fields :deep(.el-select) { width: 100%; }
+.direction-create-arrow { padding-bottom: 23px; color: var(--el-color-primary); font-size: 20px; font-weight: 700; }
+
+@media (max-width: 600px) {
+  .direction-create-fields { grid-template-columns: 1fr; gap: 0; }
+  .direction-create-arrow { padding: 0 0 10px; text-align: center; }
+}
+</style>
+
+<style>
+.language-pair-create-popper { max-width: calc(100vw - 24px); }
 </style>

@@ -60,12 +60,12 @@ def read_languages(include_inactive: bool = False, db: Session = Depends(get_db)
 @router.post(
     "", response_model=InterpretationLanguageResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_any_permission("projects:write", "talents:write"))],
+    dependencies=[Depends(require_any_permission("projects:write", "consultations:write", "talents:write"))],
 )
 @router.post(
     "/", response_model=InterpretationLanguageResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_any_permission("projects:write", "talents:write"))],
+    dependencies=[Depends(require_any_permission("projects:write", "consultations:write", "talents:write"))],
     include_in_schema=False,
 )
 def create_language(

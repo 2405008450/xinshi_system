@@ -31,6 +31,7 @@ from utils import generate_order_no
 from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
+from language_catalog import validate_language_pairs_against_catalog
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -1871,6 +1872,16 @@ def _validate_written_translator(db: Session, translator_id: Optional[UUID]) -> 
         raise ValueError("所选人员已停用或不具备有效的笔译能力")
 
 
+def _normalize_catalog_language_pairs(db: Session, value: Optional[str]) -> Optional[str]:
+    """使用包含已停用项的完整共享目录校验笔译方向，兼容历史记录。"""
+    if value is None:
+        return None
+    from interpretation_models import InterpretationLanguage
+
+    labels = [row[0] for row in db.query(InterpretationLanguage.label).all()]
+    return validate_language_pairs_against_catalog(value, labels)
+
+
 def create_translation_project(
     db: Session,
     project: TranslationProjectCreate,
@@ -1884,6 +1895,9 @@ def create_translation_project(
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments'
     })
+    project_data['language_pair'] = _normalize_catalog_language_pairs(
+        db, project_data.get('language_pair')
+    )
     normalized_roles = _normalize_project_role_assignments(role_assignments)
     role_manager_id = normalized_roles.get('project_manager')
     if (
@@ -1958,6 +1972,10 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         exclude={'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
+    if 'language_pair' in update_data:
+        update_data['language_pair'] = _normalize_catalog_language_pairs(
+            db, update_data.get('language_pair')
+        )
     if 'translator_id' in update_data:
         _validate_written_translator(db, update_data.get('translator_id'))
     if role_assignments_provided:
@@ -2922,6 +2940,7 @@ def _create_sub_order_in_transaction(
 ) -> TranslationSubOrder:
     sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
     data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix'})
+    data['language_pair'] = _normalize_catalog_language_pairs(db, data.get('language_pair'))
     _validate_written_translator(db, data.get('translator_id'))
     db_sub = TranslationSubOrder(
         sub_order_no=sub_order_no, idempotency_key=idempotency_key, **data,
@@ -3028,6 +3047,10 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     if not db_sub:
         return None
     update_data = sub_order_update.model_dump(exclude_unset=True, exclude={'word_count_matrix'})
+    if 'language_pair' in update_data:
+        update_data['language_pair'] = _normalize_catalog_language_pairs(
+            db, update_data.get('language_pair')
+        )
     if 'translator_id' in update_data:
         _validate_written_translator(db, update_data.get('translator_id'))
     for field, value in update_data.items():

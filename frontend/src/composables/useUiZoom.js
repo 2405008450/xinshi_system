@@ -41,7 +41,8 @@ export function applyUiZoom(zoom) {
   clearZoomStyles(body)
 
   // 只缩放应用根节点。Element Plus 的浮层 Teleport 到 body 后仍处于正常
-  // 视口坐标系，Popper 可直接使用触发元素的视觉坐标，避免缩放后错位。
+  // 视口坐标系；transform 还会让浏览器自动反算 Canvas 的指针坐标，
+  // 避免 Univer 等画布组件在缩放后出现点击区域错位。
   const target = document.getElementById('app')
   if (!target) return level
   if (level === 1) {
@@ -49,7 +50,8 @@ export function applyUiZoom(zoom) {
     return level
   }
 
-  target.style.zoom = String(level)
+  target.style.transform = `scale(${level})`
+  target.style.transformOrigin = 'top left'
   target.style.width = `${100 / level}vw`
   target.style.height = `${100 / level}vh`
   return level

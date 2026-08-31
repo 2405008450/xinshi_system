@@ -38,7 +38,8 @@
             clearZoom(target)
             return
           }
-          target.style.zoom = String(level)
+          target.style.transform = 'scale(' + level + ')'
+          target.style.transformOrigin = 'top left'
           target.style.width = 100 / level + 'vw'
           target.style.height = 100 / level + 'vh'
         }
