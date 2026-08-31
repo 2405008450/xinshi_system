@@ -372,7 +372,7 @@
                       <h3>关键必填信息</h3>
                       <p>请优先完成以下内容，再补充其余项目资料。</p>
                     </div>
-                    <el-tag type="danger" effect="plain">6 项必填</el-tag>
+                    <el-tag type="danger" effect="plain">7 项必填</el-tag>
                   </div>
                   <el-row :gutter="16">
                     <el-col :xs="24">
@@ -518,7 +518,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24">
-                    <el-form-item label="服务内容" data-field-key="serviceContent">
+                    <el-form-item label="服务内容" prop="serviceContent" data-field-key="serviceContent">
                       <div class="service-content-field">
                         <el-select
                           v-model="serviceContentSelection"
@@ -1422,6 +1422,7 @@ const validateWordCountMatrix = (_rule, value, callback) => {
 const rules = {
   projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
   clientShortName: [{ validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  serviceContent: [{ validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
   languagePair: [{ validator: requiredTextValidator('请选择翻译方向'), trigger: 'change' }],
   wordCountMatrix: [{ validator: validateWordCountMatrix, trigger: 'change' }],
   customerReceptionTime: [{ required: true, message: '请选择客户接单时间', trigger: 'change' }],

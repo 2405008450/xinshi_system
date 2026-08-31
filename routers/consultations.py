@@ -299,6 +299,36 @@ def _clean_text(value: Optional[str]) -> str:
     return (value or "").strip()
 
 
+OPTIONAL_CUSTOMER_IDENTIFIER_LABELS = {"客户单号/标识", "客户单号/项目标识"}
+
+
+def _remove_customer_identifier_requirement(mail_preview: dict) -> dict:
+    """兼容旧邮件策略返回的客户单号必填结果，该字段现在统一为选填。"""
+    result = dict(mail_preview)
+    result["missing_fields"] = [
+        item for item in (mail_preview.get("missing_fields") or [])
+        if item not in OPTIONAL_CUSTOMER_IDENTIFIER_LABELS
+    ]
+
+    core_prefix = "请先填写核心字段："
+    blocking_reasons = []
+    removed_requirement = False
+    for reason in mail_preview.get("blocking_reasons") or []:
+        if not reason.startswith(core_prefix):
+            blocking_reasons.append(reason)
+            continue
+        original_fields = [item.strip() for item in reason.removeprefix(core_prefix).split("、") if item.strip()]
+        remaining = [item for item in original_fields if item not in OPTIONAL_CUSTOMER_IDENTIFIER_LABELS]
+        removed_requirement = removed_requirement or len(remaining) != len(original_fields)
+        if remaining:
+            blocking_reasons.append(f"{core_prefix}{'、'.join(remaining)}")
+    result["blocking_reasons"] = blocking_reasons
+    result["can_send"] = (
+        not blocking_reasons if removed_requirement else bool(mail_preview.get("can_send"))
+    )
+    return result
+
+
 def _build_subject_preview(
     *,
     project_type: str,
@@ -321,7 +351,7 @@ def _build_subject_preview(
     parts = [_clean_text(value) for _label, value in values if _clean_text(value)]
     missing = [
         label for label, value in values
-        if label != "标题前缀" and not _clean_text(value)
+        if label not in {"标题前缀", "客户单号/标识"} and not _clean_text(value)
     ]
     return parts, "，".join(parts), missing
 
@@ -432,6 +462,7 @@ def _confirmation_preview_values(
             "sender_email": None,
             "sender_verified": False,
         }
+    mail_preview = _remove_customer_identifier_requirement(mail_preview)
     return {
         "project_type": project_type,
         "order_no": order_no,

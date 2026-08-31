@@ -42,12 +42,18 @@
       </el-descriptions>
       <el-form label-width="92px" @submit.prevent>
         <el-form-item label="收件人" required>
-          <InternalMailRecipientSelector v-model="form.toUserIds" :users="availableUsers" placeholder="请选择收件人" />
+          <InternalMailRecipientSelector
+            v-model="form.toUserIds"
+            :users="availableUsers"
+            :groups="recipientGroups"
+            placeholder="请选择收件人"
+          />
         </el-form-item>
         <el-form-item label="抄送">
           <InternalMailRecipientSelector
             v-model="form.ccUserIds"
             :users="availableUsers"
+            :groups="recipientGroups"
             :excluded-user-ids="form.toUserIds"
             placeholder="请选择抄送人"
           />
@@ -120,6 +126,7 @@ const preview = reactive({
 })
 const form = reactive({ toUserIds: [], ccUserIds: [], subject: '', body: '' })
 const availableUsers = ref([])
+const recipientGroups = ref([])
 const history = ref([])
 const SUBJECT_MAX_LENGTH = 120
 const SUBJECT_WARNING_LENGTH = 100
@@ -138,9 +145,10 @@ const loadPreview = async () => {
   if (!props.projectId) return
   loading.value = true
   try {
-    const [mailPreview, users, rows] = await Promise.all([
+    const [mailPreview, users, groups, rows] = await Promise.all([
       mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId }),
       userApi.getUsers({ skip: 0, limit: 500 }),
+      mailApi.getAvailableMailGroups(),
       mailApi.getProjectMailHistory({ project_type: props.projectType, project_id: props.projectId }),
     ])
     Object.assign(preview, mailPreview)
@@ -149,6 +157,7 @@ const loadPreview = async () => {
     form.subject = mailPreview.subject || ''
     form.body = mailPreview.body || ''
     availableUsers.value = (users || []).filter((item) => item.is_active && item.email)
+    recipientGroups.value = groups || []
     history.value = rows || []
   } catch (error) {
     ElMessage.error(error.detail || '加载邮件预览失败')

@@ -14,6 +14,7 @@ from routers.consultations import (
     _confirm_consultation_project,
     _confirmation_project_type,
     _confirmation_preview_values,
+    _remove_customer_identifier_requirement,
     consultation_task_type_label,
     validate_consultation_required_fields,
     validate_simple_consultation,
@@ -51,6 +52,49 @@ def test_interpretation_subject_contains_customer_identifier():
     assert parts[-2:] == ["PO-88", "信实客户-260812"]
     assert subject == "IP-260812-001，信实客户，张经理 13800000000，PO-88，信实客户-260812"
     assert missing == []
+
+
+def test_customer_identifier_is_optional_in_confirmation_preview():
+    parts, subject, missing = _build_subject_preview(
+        project_type="interpretation",
+        subject_prefix=None,
+        order_no="IP-260812-002",
+        client_short_name="信实客户",
+        manager_contact="张经理 13800000000",
+        customer_order_no=None,
+        project_name="信实客户-260812",
+    )
+
+    assert parts == ["IP-260812-002", "信实客户", "张经理 13800000000", "信实客户-260812"]
+    assert "客户单号/标识" not in missing
+    assert subject == "IP-260812-002，信实客户，张经理 13800000000，信实客户-260812"
+
+
+def test_legacy_customer_identifier_blocker_is_removed_without_hiding_other_errors():
+    preview = _remove_customer_identifier_requirement({
+        "missing_fields": ["客户单号/标识", "服务内容"],
+        "blocking_reasons": [
+            "请先填写核心字段：客户单号/项目标识、服务内容",
+            "默认邮件组中没有可用用户",
+        ],
+        "can_send": False,
+    })
+
+    assert preview["missing_fields"] == ["服务内容"]
+    assert preview["blocking_reasons"] == [
+        "请先填写核心字段：服务内容",
+        "默认邮件组中没有可用用户",
+    ]
+    assert preview["can_send"] is False
+
+    customer_identifier_only = _remove_customer_identifier_requirement({
+        "missing_fields": ["客户单号/标识"],
+        "blocking_reasons": ["请先填写核心字段：客户单号/标识"],
+        "can_send": False,
+    })
+    assert customer_identifier_only["missing_fields"] == []
+    assert customer_identifier_only["blocking_reasons"] == []
+    assert customer_identifier_only["can_send"] is True
 
 
 def test_confirmation_prefix_length_and_translation_snapshot_schema():

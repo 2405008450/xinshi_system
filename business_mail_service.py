@@ -342,8 +342,8 @@ def save_policy(db: Session, project_type: str, payload, actor_id: UUID) -> Proj
     invalid = [str(item) for item in all_ids if item not in by_id or not by_id[item].is_active]
     if invalid:
         raise ValueError(f"邮件组不存在或已停用：{', '.join(invalid)}")
-    if not to_ids:
-        raise ValueError("至少需要配置一个默认收件组")
+    if not all_ids:
+        raise ValueError("至少需要配置一个默认主送组或抄送组")
     policy = db.query(ProjectMailPolicy).filter(ProjectMailPolicy.project_type == project_type).first()
     if not policy:
         policy = ProjectMailPolicy(project_type=project_type)
@@ -376,8 +376,8 @@ def policy_recipients(db: Session, project_type: str) -> tuple[list[AppUser], li
     to_users = validate_internal_users(db, to_ids)
     to_set = {item.id for item in to_users}
     cc_users = validate_internal_users(db, [item for item in cc_ids if item not in to_set])
-    if not to_users:
-        raise ValueError("默认收件组中没有可用用户")
+    if not to_users and not cc_users:
+        raise ValueError("默认邮件组中没有可用用户")
     return to_users, cc_users
 
 
@@ -412,7 +412,7 @@ def _project_source(project_type: str, project) -> dict:
 
 
 CORE_FIELDS = {
-    "translation": (("项目名称", "project_name"), ("服务内容", "service_content"), ("翻译方向", "language_pair"), ("客户交期", "customer_deadline_time")),
+    "translation": (("项目名称", "project_name"), ("服务内容", "service_content"), ("翻译方向", "language_pair")),
     "interpretation": (("项目名称", "project_name"), ("项目类型", "project_types"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("总需求人数", "required_interpreter_count")),
     "annotation": (("项目名称", "project_name"), ("项目类型", "project_types"), ("具体任务", "task_description"), ("语言范围", "language_items")),
     "recruitment": (("项目名称", "project_name"), ("职位名称/类型", "position_title"), ("招聘人数", "headcount_min"), ("拟履职开始日期", "employment_start"), ("拟履职结束日期", "employment_end"), ("任职工作属地", "work_location")),
@@ -420,7 +420,7 @@ CORE_FIELDS = {
 
 
 BODY_LABELS = {
-    "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交期", "customer_deadline_time"), ("优先级", "priority"), ("专业要求", "customer_requirement_professional"), ("特殊要求", "customer_requirement_special")),
+    "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交稿时间", "customer_deadline_time"), ("优先级", "priority"), ("专业要求", "customer_requirement_professional"), ("特殊要求", "customer_requirement_special")),
     "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
@@ -490,7 +490,14 @@ def build_preview(
         ("客户单号/项目标识", values.get("customer_order_no")),
     )
     lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value)]
-    lines.extend(f"{label}：{_clean(values.get(key))}" for label, key in BODY_LABELS[project_type] if _clean(values.get(key)))
+    core_body_keys = {key for _label, key in CORE_FIELDS[project_type]}
+    # 核心字段为空时也要在邮件预览中保留对应行，避免用户只能从“缺失字段”标签猜测正文缺了什么。
+    # 缺失核心字段会继续阻止发送，因此“（待填写）”只用于预览提示，不会进入实际投递邮件。
+    lines.extend(
+        f"{label}：{_clean(values.get(key)) or '（待填写）'}"
+        for label, key in BODY_LABELS[project_type]
+        if _clean(values.get(key)) or key in core_body_keys
+    )
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
     if _clean(values.get("remarks")):

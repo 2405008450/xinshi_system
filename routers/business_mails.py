@@ -127,6 +127,15 @@ def preview(
         _raise(exc)
 
 
+@mail_router.get(
+    "/recipient-groups",
+    response_model=list[MailRecipientGroupResponse],
+    dependencies=[Depends(require_any_permission("consultations:write", "projects:write"))],
+)
+def available_recipient_groups(db: Session = Depends(get_db)):
+    return [serialize_group(item) for item in list_groups(db) if item.is_active]
+
+
 @mail_router.post("/", response_model=BusinessMailResponse, dependencies=[Depends(require_any_permission("consultations:write", "projects:write"))])
 def send(payload: BusinessMailSendRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:

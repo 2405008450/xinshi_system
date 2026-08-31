@@ -107,6 +107,52 @@ def test_business_mail_payload_rejects_header_injection():
         )
 
 
+def test_translation_preview_allows_missing_customer_deadline(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-260831-001",
+        "project_name": "待确认交稿时间项目",
+        "service_content": "翻译",
+        "language_pair": "中英",
+    })
+
+    assert "客户交稿时间" not in preview["missing_fields"]
+    assert not any("客户交稿时间" in reason for reason in preview["blocking_reasons"])
+
+
+def test_translation_preview_shows_missing_core_fields_in_body(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-260831-003",
+        "project_name": "待补核心字段项目",
+    })
+
+    assert preview["missing_fields"] == ["服务内容", "翻译方向"]
+    assert "服务内容：（待填写）" in preview["body"]
+    assert "翻译方向：（待填写）" in preview["body"]
+    assert "文本类型：（待填写）" not in preview["body"]
+
+
+def test_translation_preview_uses_customer_deadline_business_label(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-260831-002",
+        "project_name": "已确认交稿时间项目",
+        "service_content": "翻译",
+        "language_pair": "中英",
+        "customer_deadline_time": "2026-09-01 18:00",
+    })
+
+    assert "客户交稿时间：2026-09-01 18:00" in preview["body"]
+    assert "客户交期：" not in preview["body"]
+
+
 def test_recipient_group_requires_name_and_internal_members():
     with pytest.raises(ValidationError):
         MailRecipientGroupWrite(name="   ", user_ids=[])

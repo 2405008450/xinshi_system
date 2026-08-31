@@ -44,25 +44,46 @@
               />
             </div>
 
-            <div class="department-filter" role="group" aria-label="按部门筛选">
-              <button
-                type="button"
-                class="department-chip"
-                :class="{ active: activeDepartment === '' }"
-                @click="activeDepartment = ''"
-              >
-                全部成员 {{ availableUsers.length }}
-              </button>
-              <button
-                v-for="group in departmentGroups"
-                :key="group.key"
-                type="button"
-                class="department-chip"
-                :class="{ active: activeDepartment === group.key }"
-                @click="activeDepartment = group.key"
-              >
-                {{ group.label }} {{ group.users.length }}
-              </button>
+            <div class="member-filters">
+              <div v-if="mailGroups.length" class="filter-row" role="group" aria-label="按邮件组筛选">
+                <span class="filter-label">邮件组</span>
+                <div class="filter-chips">
+                  <button
+                    v-for="group in mailGroups"
+                    :key="group.id"
+                    type="button"
+                    class="department-chip mail-group-chip"
+                    :class="{ active: activeMailGroup === group.id }"
+                    :title="`筛选“${group.name}”成员后可全选当前结果`"
+                    @click="selectMailGroup(group.id)"
+                  >
+                    {{ group.name }} {{ group.userIds.length }}
+                  </button>
+                </div>
+              </div>
+              <div class="filter-row" role="group" aria-label="按部门筛选">
+                <span class="filter-label">部门</span>
+                <div class="filter-chips">
+                  <button
+                    type="button"
+                    class="department-chip"
+                    :class="{ active: !activeDepartment && !activeMailGroup }"
+                    @click="showAllUsers"
+                  >
+                    全部成员 {{ availableUsers.length }}
+                  </button>
+                  <button
+                    v-for="group in departmentGroups"
+                    :key="group.key"
+                    type="button"
+                    class="department-chip"
+                    :class="{ active: activeDepartment === group.key && !activeMailGroup }"
+                    @click="selectDepartment(group.key)"
+                  >
+                    {{ group.label }} {{ group.users.length }}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="panel-actions">
@@ -136,6 +157,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   users: { type: Array, default: () => [] },
+  groups: { type: Array, default: () => [] },
   excludedUserIds: { type: Array, default: () => [] },
   placeholder: { type: String, default: '请选择内部用户' },
 })
@@ -144,6 +166,7 @@ const emit = defineEmits(['update:modelValue'])
 const panelVisible = ref(false)
 const searchKeyword = ref('')
 const activeDepartment = ref('')
+const activeMailGroup = ref('')
 const dragPosition = ref(null)
 let dragContext = null
 let previousBodyUserSelect = ''
@@ -165,6 +188,15 @@ const availableUsers = computed(() => (props.users || [])
   .filter((user) => user?.id && user.is_active && user.email && !excludedSet.value.has(user.id))
   .sort((left, right) => userLabel(left).localeCompare(userLabel(right), 'zh-CN')))
 const availableIdSet = computed(() => new Set(availableUsers.value.map((user) => user.id)))
+const mailGroups = computed(() => (props.groups || [])
+  .filter((group) => group?.id && group.is_active !== false)
+  .map((group) => ({
+    id: group.id,
+    name: group.name || '未命名邮件组',
+    userIds: [...new Set(group.user_ids || [])].filter((id) => availableIdSet.value.has(id)),
+  }))
+  .filter((group) => group.userIds.length)
+  .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')))
 const selectedIds = computed(() => [...new Set(props.modelValue || [])].filter((id) => availableIdSet.value.has(id)))
 const selectedIdSet = computed(() => new Set(selectedIds.value))
 const selectedUsers = computed(() => {
@@ -186,7 +218,12 @@ const departmentGroups = computed(() => {
 })
 const filteredUsers = computed(() => {
   const keyword = searchKeyword.value.trim().toLocaleLowerCase('zh-CN')
+  const mailGroup = activeMailGroup.value
+    ? mailGroups.value.find((group) => group.id === activeMailGroup.value)
+    : null
+  const mailGroupUserIds = mailGroup ? new Set(mailGroup.userIds) : null
   return availableUsers.value.filter((user) => {
+    if (mailGroupUserIds && !mailGroupUserIds.has(user.id)) return false
     if (activeDepartment.value && departmentLabel(user) !== activeDepartment.value) return false
     if (!keyword) return true
     return [user.full_name, user.username, user.email, user.department]
@@ -216,6 +253,18 @@ const clearFiltered = () => {
   updateSelected(selectedIds.value.filter((id) => !filteredIdSet.has(id)))
 }
 const clearSelected = () => emit('update:modelValue', [])
+const showAllUsers = () => {
+  activeMailGroup.value = ''
+  activeDepartment.value = ''
+}
+const selectMailGroup = (groupId) => {
+  activeMailGroup.value = activeMailGroup.value === groupId ? '' : groupId
+  activeDepartment.value = ''
+}
+const selectDepartment = (department) => {
+  activeDepartment.value = activeDepartment.value === department ? '' : department
+  activeMailGroup.value = ''
+}
 
 const clampDragPosition = (left, top, width, height) => ({
   left: Math.min(Math.max(8, left), Math.max(8, window.innerWidth - width - 8)),
@@ -273,12 +322,15 @@ const startPanelDrag = (event) => {
 }
 
 watch(
-  () => [props.excludedUserIds, props.users],
+  () => [props.excludedUserIds, props.users, props.groups],
   () => {
     const normalized = selectedIds.value
     if (normalized.length !== (props.modelValue || []).length) emit('update:modelValue', normalized)
     if (activeDepartment.value && !departmentGroups.value.some((group) => group.key === activeDepartment.value)) {
       activeDepartment.value = ''
+    }
+    if (activeMailGroup.value && !mailGroups.value.some((group) => group.id === activeMailGroup.value)) {
+      activeMailGroup.value = ''
     }
   },
   { deep: true },
@@ -288,6 +340,7 @@ watch(panelVisible, (value) => {
   if (!value) {
     searchKeyword.value = ''
     activeDepartment.value = ''
+    activeMailGroup.value = ''
   }
 })
 
@@ -373,9 +426,12 @@ onBeforeUnmount(stopPanelDrag)
 .panel-drag-handle:active { cursor: grabbing; }
 .panel-title { color: var(--el-text-color-primary); font-size: 16px; font-weight: 700; line-height: 1.4; }
 .panel-subtitle { margin-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; }
-.panel-header, .panel-search, .department-filter, .panel-actions { flex-shrink: 0; }
+.panel-header, .panel-search, .member-filters, .panel-actions { flex-shrink: 0; }
 .panel-search { padding: 12px 16px 8px; }
-.department-filter { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 16px 10px; overflow: visible; }
+.member-filters { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 10px; }
+.filter-row { display: flex; align-items: flex-start; gap: 9px; }
+.filter-label { flex: 0 0 38px; padding-top: 5px; color: var(--el-text-color-secondary); font-size: 12px; font-weight: 600; }
+.filter-chips { display: flex; flex: 1; flex-wrap: wrap; gap: 7px; min-width: 0; }
 .department-chip {
   min-height: 28px;
   padding: 3px 10px;
@@ -390,6 +446,8 @@ onBeforeUnmount(stopPanelDrag)
 }
 .department-chip:hover { color: var(--el-color-primary); border-color: var(--el-color-primary-light-5); }
 .department-chip.active { color: var(--el-color-primary); border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); font-weight: 600; }
+.mail-group-chip { border-style: dashed; }
+.mail-group-chip.active { border-style: solid; }
 .panel-actions { min-height: 38px; padding: 0 18px; color: var(--el-text-color-secondary); background: var(--el-fill-color-light); font-size: 12px; }
 .panel-action-buttons { flex-wrap: wrap; justify-content: flex-end; gap: 0 10px; }
 .panel-action-buttons :deep(.el-button + .el-button) { margin-left: 0; }

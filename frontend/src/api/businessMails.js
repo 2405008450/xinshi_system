@@ -12,6 +12,7 @@ export const updateDailyReportMailPolicy = (userId, data) =>
   api.put(`/mail-settings/daily-report-policies/${userId}`, data)
 
 export const previewProjectMail = (data) => api.post('/project-mails/preview', data)
+export const getAvailableMailGroups = () => api.get('/project-mails/recipient-groups')
 // SMTP 连接超时高于全局普通接口超时，避免邮件实际已发送但页面误报超时。
 export const sendProjectMail = (data) => api.post('/project-mails/', data, { timeout: 30000 })
 export const retryProjectMail = (id) => api.post(`/project-mails/${id}/retry`, null, { timeout: 30000 })

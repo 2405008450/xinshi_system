@@ -22,11 +22,18 @@
         </el-table>
       </el-tab-pane>
       <el-tab-pane label="项目默认收件组" name="policies">
+        <el-alert
+          class="policy-tip"
+          title="默认主送组可以留空；仅配置抄送组时，发送预览中需要手动选择至少一名主送人。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
         <el-form label-width="110px" class="policy-form">
           <section v-for="item in projectTypes" :key="item.value" class="policy-section">
             <h3>{{ item.label }}</h3>
-            <el-form-item label="收件组"><el-select v-model="policies[item.value].to_group_ids" multiple filterable style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
-            <el-form-item label="抄送组"><el-select v-model="policies[item.value].cc_group_ids" multiple filterable style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
+            <el-form-item label="默认主送组"><el-select v-model="policies[item.value].to_group_ids" multiple filterable placeholder="可留空，发送时手动选择" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
+            <el-form-item label="默认抄送组"><el-select v-model="policies[item.value].cc_group_ids" multiple filterable placeholder="请选择默认抄送组" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
             <el-button v-if="canWrite" type="primary" plain @click="savePolicy(item.value)">保存{{ item.label }}策略</el-button>
           </section>
         </el-form>
@@ -57,7 +64,13 @@
       <el-form label-width="90px">
         <el-form-item label="组名" required><el-input v-model="groupForm.name" maxlength="100" /></el-form-item>
         <el-form-item label="说明"><el-input v-model="groupForm.description" maxlength="500" /></el-form-item>
-        <el-form-item label="成员" required><el-select v-model="groupForm.user_ids" multiple filterable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="user in validUsers" :key="user.id" :label="`${user.full_name || user.username} · ${user.email}`" :value="user.id" /></el-select></el-form-item>
+        <el-form-item label="成员" required>
+          <InternalMailRecipientSelector
+            v-model="groupForm.user_ids"
+            :users="validUsers"
+            placeholder="请选择邮件组成员"
+          />
+        </el-form-item>
         <el-form-item label="启用"><el-switch v-model="groupForm.is_active" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="groupDialog=false">取消</el-button><el-button type="primary" @click="saveGroup">保存</el-button></template>
@@ -70,6 +83,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
+import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import { hasPermission } from '@/utils/permission'
 
 const canWrite = hasPermission('system:mail_settings:write')

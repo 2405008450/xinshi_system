@@ -420,12 +420,15 @@
       @current-change="fetchData"
     />
 
-    <DraggableFormDialog
+    <el-dialog
+      ref="consultationDialogRef"
       v-model="dialogVisible"
-      class="consultation-dialog"
+      class="consultation-dialog draggable-form-dialog"
       width="min(1040px, calc(100vw - 32px))"
       top="5vh"
-      @opened="resetConsultationDialogScroll"
+      draggable
+      :overflow="false"
+      @opened="handleConsultationDialogOpened"
       @close="handleDialogClose"
     >
       <template #header>
@@ -435,7 +438,7 @@
           :title="dialogTitle"
           subtitle="搜索并快速定位表单字段"
           :fetch-suggestions="fetchFieldSuggestions"
-          placeholder="搜索字段，如客户交期"
+          placeholder="搜索字段，如客户交稿时间"
           @select="handleLocateConsultationField"
           @clear="clearFieldSearch"
         />
@@ -659,7 +662,7 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="客户交期">
+                <el-form-item label="客户交稿时间">
                   <el-date-picker
                     v-model="form.project_intake.customer_deadline_time"
                     type="datetime"
@@ -1109,20 +1112,25 @@
         <el-button v-if="!form.id" :disabled="formSubmitting" @click="handleSubmit(true)">保存并继续新增</el-button>
         <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">确定</el-button>
       </template>
-    </DraggableFormDialog>
+    </el-dialog>
 
     <!-- 四类咨询确认、建项与内部邮件发送中间层 -->
     <el-dialog
+      ref="confirmationDialogRef"
       v-model="confirmationDialogVisible"
+      class="consultation-confirmation-dialog draggable-form-dialog"
       title="确认咨询并生成项目"
       width="min(720px, calc(100vw - 32px))"
       :close-on-click-modal="false"
       top="8vh"
+      draggable
+      :overflow="false"
+      @opened="resetConfirmationDialogPosition"
       @close="resetConfirmationDraft"
     >
       <div v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
         <el-alert
-          title="确认后将更新咨询状态、生成对应项目并向内部用户发送邮件；投递失败不会回滚已生成项目。"
+          title="确认后将更新咨询状态并生成对应项目；可选择仅建项，或同时向内部用户发送邮件。邮件投递失败不会回滚已生成项目。"
           type="info"
           :closable="false"
           show-icon
@@ -1177,10 +1185,41 @@
               @input="regenerateConfirmationSubject"
             />
           </el-form-item>
+          <template v-if="confirmationPreview.project_type === 'translation'">
+            <el-form-item
+              label="服务内容"
+              prop="serviceContent"
+              :rules="[{ required: true, message: '请选择或输入服务内容', trigger: 'change' }]"
+            >
+              <el-select
+                v-model="confirmationForm.serviceContent"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                placeholder="请选择翻译、排版，或输入自定义内容"
+                style="width: 100%"
+                @change="refreshConfirmationMailPreview"
+              >
+                <el-option v-for="item in serviceContentOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+            </el-form-item>
+            <el-form-item
+              label="翻译方向"
+              prop="languagePair"
+              :rules="[{ required: true, message: '请选择翻译方向', trigger: 'change' }]"
+            >
+              <LanguagePairSelect
+                :model-value="confirmationForm.languagePair"
+                @update:model-value="handleConfirmationLanguagePairChange"
+              />
+            </el-form-item>
+          </template>
           <el-form-item label="收件人" required>
             <InternalMailRecipientSelector
               v-model="confirmationForm.toUserIds"
               :users="validInternalUsers"
+              :groups="confirmationRecipientGroups"
               placeholder="请选择收件人"
             />
           </el-form-item>
@@ -1188,6 +1227,7 @@
             <InternalMailRecipientSelector
               v-model="confirmationForm.ccUserIds"
               :users="validInternalUsers"
+              :groups="confirmationRecipientGroups"
               :excluded-user-ids="confirmationForm.toUserIds"
               placeholder="请选择抄送人"
             />
@@ -1210,10 +1250,15 @@
       <template #footer>
         <el-button :disabled="confirmationSubmitting" @click="confirmationDialogVisible = false">取消</el-button>
         <el-button
+          :loading="confirmationSubmitting && confirmationSubmitAction === 'project-only'"
+          :disabled="confirmationSubmitting || confirmationPreviewLoading || !confirmationPreview.order_no"
+          @click="handleConfirmConsultation(false)"
+        >只建项（不发邮件）</el-button>
+        <el-button
           type="primary"
-          :loading="confirmationSubmitting"
-          :disabled="confirmationPreviewLoading || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length || !confirmationForm.emailSubject.trim() || !confirmationForm.emailBody.trim()"
-          @click="handleConfirmConsultation"
+          :loading="confirmationSubmitting && confirmationSubmitAction === 'with-email'"
+          :disabled="confirmationSubmitting || confirmationPreviewLoading || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length || !confirmationForm.emailSubject.trim() || !confirmationForm.emailBody.trim()"
+          @click="handleConfirmConsultation(true)"
         >确认建项并发送邮件</el-button>
       </template>
     </el-dialog>
@@ -1226,6 +1271,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
+import * as mailApi from '@/api/businessMails'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import * as clientApi from '@/api/clients'
@@ -1237,7 +1283,6 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
-import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
@@ -1250,6 +1295,7 @@ const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
+const consultationDialogRef = ref(null)
 const formRef = ref(null)
 const consultationEditorRef = ref(null)
 const {
@@ -1271,11 +1317,18 @@ const clientSearchLoading = ref(false)
 const confirmationDialogVisible = ref(false)
 const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
+const confirmationSubmitAction = ref('')
 const formSubmitting = ref(false)
 const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
+const confirmationDialogRef = ref(null)
+const confirmationRecipientGroups = ref([])
+let confirmationMailPreviewRequestId = 0
 const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
-const confirmationForm = reactive({ projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
+const confirmationForm = reactive({
+  projectName: '', subjectPrefix: '', customerOrderNo: '', serviceContent: '', languagePair: '',
+  emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
+})
 const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
   project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
@@ -2300,6 +2353,7 @@ const handleEdit = async (row) => {
   }
   dialogVisible.value = true
   await nextTick()
+  resetConsultationDialogPosition()
   await beginDraft(`edit:${row.id}`)
 }
 
@@ -2464,7 +2518,7 @@ const handleSubmit = async (continueCreate = false) => {
   })
 }
 
-const applyConfirmationPreview = (preview) => {
+const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) => {
   Object.assign(confirmationPreview, {
     project_type: preview?.project_type || '',
     order_no: preview?.order_no || '',
@@ -2488,8 +2542,57 @@ const applyConfirmationPreview = (preview) => {
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
   confirmationForm.emailSubject = preview?.email_subject_preview || ''
   confirmationForm.emailBody = preview?.email_body || ''
-  confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
-  confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
+  if (!preserveRecipients) {
+    confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
+    confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
+  }
+}
+
+const buildConfirmationProjectIntake = () => {
+  const source = confirmationContext.consultationPayload || confirmationContext.row || {}
+  const intake = { ...(source.project_intake || {}) }
+  if (confirmationPreview.project_type === 'translation' || isTranslationConsultationType(source.consultation_type)) {
+    intake.service_content = confirmationForm.serviceContent?.trim() || null
+    intake.language_pair = confirmationForm.languagePair?.trim() || null
+  }
+  return intake
+}
+
+const refreshConfirmationMailPreview = async () => {
+  const requestId = ++confirmationMailPreviewRequestId
+  const source = confirmationContext.consultationPayload || confirmationContext.row || {}
+  confirmationPreviewLoading.value = true
+  try {
+    const preview = await consultationApi.previewConfirmation({
+      consultation_id: confirmationContext.consultationId || null,
+      consultation_type: source.consultation_type,
+      client_id: source.client_id || null,
+      client_short_name: source.client_short_name || null,
+      manager_contact: source.manager_contact?.trim() || null,
+      project_name: confirmationForm.projectName?.trim() || null,
+      subject_prefix: confirmationForm.subjectPrefix?.trim() || null,
+      customer_order_no: confirmationPreview.project_type !== 'translation'
+        ? confirmationForm.customerOrderNo?.trim() || null
+        : null,
+      project_intake: buildConfirmationProjectIntake(),
+      consultation_description: source.consultation_description || null,
+      remarks: source.remarks || null,
+    })
+    if (requestId !== confirmationMailPreviewRequestId) return
+    applyConfirmationPreview(preview, { preserveRecipients: true })
+    await nextTick()
+    confirmationFormRef.value?.validateField(['serviceContent', 'languagePair']).catch(() => {})
+  } catch (error) {
+    if (requestId !== confirmationMailPreviewRequestId) return
+    ElMessage.error(error?.response?.data?.detail || error?.detail || '刷新邮件预览失败')
+  } finally {
+    if (requestId === confirmationMailPreviewRequestId) confirmationPreviewLoading.value = false
+  }
+}
+
+const handleConfirmationLanguagePairChange = (value) => {
+  confirmationForm.languagePair = value
+  refreshConfirmationMailPreview()
 }
 
 const openMailProfile = () => {
@@ -2503,6 +2606,8 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
     projectName: previewSource?.project_name || buildAutoProjectName(previewSource?.client_short_name),
     subjectPrefix: '',
     customerOrderNo: previewSource?.customer_order_no || '',
+    serviceContent: previewSource?.project_intake?.service_content || '',
+    languagePair: previewSource?.project_intake?.language_pair || '',
     emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
   })
   Object.assign(confirmationPreview, {
@@ -2514,19 +2619,23 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   confirmationDialogVisible.value = true
   confirmationPreviewLoading.value = true
   try {
-    const preview = await consultationApi.previewConfirmation({
-      consultation_id: consultationId || null,
-      consultation_type: previewSource?.consultation_type,
-      client_id: previewSource?.client_id || null,
-      client_short_name: previewSource?.client_short_name || null,
-      manager_contact: previewSource?.manager_contact?.trim() || null,
-      project_name: confirmationForm.projectName || null,
-      subject_prefix: null,
-      customer_order_no: confirmationForm.customerOrderNo || null,
-      project_intake: previewSource?.project_intake || {},
-      consultation_description: previewSource?.consultation_description || null,
-      remarks: previewSource?.remarks || null,
-    })
+    const [preview, groups] = await Promise.all([
+      consultationApi.previewConfirmation({
+        consultation_id: consultationId || null,
+        consultation_type: previewSource?.consultation_type,
+        client_id: previewSource?.client_id || null,
+        client_short_name: previewSource?.client_short_name || null,
+        manager_contact: previewSource?.manager_contact?.trim() || null,
+        project_name: confirmationForm.projectName || null,
+        subject_prefix: null,
+        customer_order_no: confirmationForm.customerOrderNo || null,
+        project_intake: previewSource?.project_intake || {},
+        consultation_description: previewSource?.consultation_description || null,
+        remarks: previewSource?.remarks || null,
+      }),
+      mailApi.getAvailableMailGroups(),
+    ])
+    confirmationRecipientGroups.value = groups || []
     applyConfirmationPreview(preview)
     await nextTick()
     confirmationFormRef.value?.clearValidate()
@@ -2538,11 +2647,18 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   }
 }
 
-const handleConfirmConsultation = async () => {
+const handleConfirmConsultation = async (sendEmail) => {
   if (!confirmationFormRef.value) return
   const valid = await confirmationFormRef.value.validate().catch(() => false)
-  if (!valid || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length) return
-  if (confirmationAllMembersSelected.value) {
+  if (!valid || !confirmationPreview.order_no) return
+  if (
+    sendEmail
+    && (!confirmationPreview.can_send
+      || !confirmationForm.toUserIds.length
+      || !confirmationForm.emailSubject.trim()
+      || !confirmationForm.emailBody.trim())
+  ) return
+  if (sendEmail && confirmationAllMembersSelected.value) {
     try {
       await ElMessageBox.confirm(
         `本邮件将发送给全体 ${validInternalUsers.value.length} 名内部成员，并同时确认建项。确认继续吗？`,
@@ -2559,13 +2675,18 @@ const handleConfirmConsultation = async () => {
     customer_order_no: confirmationPreview.project_type !== 'translation'
       ? confirmationForm.customerOrderNo?.trim() || null
       : null,
-    project_intake: confirmationContext.consultationPayload?.project_intake || confirmationContext.row?.project_intake || {},
-    to_user_ids: confirmationForm.toUserIds,
-    cc_user_ids: confirmationForm.ccUserIds.filter((id) => !confirmationForm.toUserIds.includes(id)),
-    email_subject: confirmationForm.emailSubject.trim(),
-    email_body: confirmationForm.emailBody.trim(),
-    idempotency_key: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    project_intake: buildConfirmationProjectIntake(),
+    to_user_ids: sendEmail ? confirmationForm.toUserIds : [],
+    cc_user_ids: sendEmail
+      ? confirmationForm.ccUserIds.filter((id) => !confirmationForm.toUserIds.includes(id))
+      : [],
+    email_subject: sendEmail ? confirmationForm.emailSubject.trim() : null,
+    email_body: sendEmail ? confirmationForm.emailBody.trim() : null,
+    idempotency_key: sendEmail
+      ? (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+      : null,
   }
+  confirmationSubmitAction.value = sendEmail ? 'with-email' : 'project-only'
   confirmationSubmitting.value = true
   if (confirmationContext.mode === 'inline') {
     statusUpdatingId.value = confirmationContext.consultationId
@@ -2593,11 +2714,15 @@ const handleConfirmConsultation = async () => {
       }
     }
     confirmationDialogVisible.value = false
-    ElMessage.success(
-      result?.mail?.status === 'sent'
-        ? `${confirmationTypeLabel.value}咨询已确认，项目已生成且内部邮件已发送`
-        : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
-    )
+    if (!sendEmail) {
+      ElMessage.success(`${confirmationTypeLabel.value}咨询已确认，项目已生成（未发送内部邮件）`)
+    } else {
+      ElMessage.success(
+        result?.mail?.status === 'sent'
+          ? `${confirmationTypeLabel.value}咨询已确认，项目已生成且内部邮件已发送`
+          : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
+      )
+    }
     await fetchData()
     await routeToProjectBoard(result?.project_type, result?.project_id)
   } catch (error) {
@@ -2610,13 +2735,18 @@ const handleConfirmConsultation = async () => {
     }
   } finally {
     confirmationSubmitting.value = false
+    confirmationSubmitAction.value = ''
     statusUpdatingId.value = null
   }
 }
 
 const resetConfirmationDraft = () => {
+  confirmationMailPreviewRequestId += 1
   Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
-  Object.assign(confirmationForm, { projectName: '', subjectPrefix: '', customerOrderNo: '', emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [] })
+  Object.assign(confirmationForm, {
+    projectName: '', subjectPrefix: '', customerOrderNo: '', serviceContent: '', languagePair: '',
+    emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
+  })
   confirmationFormRef.value?.clearValidate()
 }
 
@@ -2636,6 +2766,19 @@ const handleDialogClose = () => {
 const resetConsultationDialogScroll = () => {
   const dialogBody = formRef.value?.$el?.closest('.el-dialog__body')
   if (dialogBody) dialogBody.scrollTop = 0
+}
+
+const resetConsultationDialogPosition = () => {
+  nextTick(() => consultationDialogRef.value?.resetPosition?.())
+}
+
+const handleConsultationDialogOpened = () => {
+  resetConsultationDialogPosition()
+  resetConsultationDialogScroll()
+}
+
+const resetConfirmationDialogPosition = () => {
+  nextTick(() => confirmationDialogRef.value?.resetPosition?.())
 }
 
 const isEditableTarget = (target) => {
@@ -3147,6 +3290,61 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
   overflow: hidden;
   border-radius: 10px;
+}
+
+:global(.consultation-dialog.is-draggable .el-dialog__header),
+:global(.consultation-confirmation-dialog.is-draggable .el-dialog__header) {
+  cursor: grab;
+}
+
+:global(.consultation-dialog.is-dragging),
+:global(.consultation-confirmation-dialog.is-dragging) {
+  box-shadow: 0 18px 48px rgb(15 23 42 / 24%);
+}
+
+:global(.consultation-dialog.is-dragging .el-dialog__header),
+:global(.consultation-confirmation-dialog.is-dragging .el-dialog__header) {
+  cursor: grabbing;
+}
+
+:global(.consultation-dialog .el-dialog__headerbtn),
+:global(.consultation-dialog .el-dialog__header button),
+:global(.consultation-dialog .el-dialog__header a),
+:global(.consultation-confirmation-dialog .el-dialog__headerbtn),
+:global(.consultation-confirmation-dialog .el-dialog__header button),
+:global(.consultation-confirmation-dialog .el-dialog__header a) {
+  cursor: pointer;
+}
+
+:global(.consultation-dialog .el-dialog__header input),
+:global(.consultation-dialog .el-dialog__header textarea) {
+  cursor: text;
+  user-select: text;
+}
+
+:global(.consultation-confirmation-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: 84vh;
+  margin-bottom: 0;
+  overflow: hidden;
+}
+
+:global(.consultation-confirmation-dialog .el-dialog__header),
+:global(.consultation-confirmation-dialog .el-dialog__footer) {
+  flex: none;
+}
+
+:global(.consultation-confirmation-dialog .el-dialog__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+:global(.consultation-confirmation-dialog .el-dialog__footer) {
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 4%);
 }
 
 :global(.consultation-dialog .el-dialog__header) {
