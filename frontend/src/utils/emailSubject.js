@@ -2,7 +2,7 @@ const EMAIL_SUBJECT_FIELDS = [
   ['标题前缀', 'subjectPrefix'],
   ['订单号', 'orderNo'],
   ['客户简称', 'clientShortName'],
-  ['负责人联系方式', 'managerContact'],
+  ['客户经理联系方式', 'managerContact'],
   ['客户单号/标识', 'customerOrderNo'],
   ['项目名称', 'projectName'],
 ]
@@ -57,4 +57,3 @@ export const extractSubjectPrefix = (preview, form = {}) => {
   if (known.includes(parts[0])) return ''
   return parts[0]
 }
-

@@ -66,6 +66,51 @@ const createVisible = ref(false)
 const creating = ref(false)
 const newLanguageLabel = ref('')
 
+// 常用笔译方向固定前置；同一语种对按“简中译外语、外语译简中”相邻排列。
+const COMMON_LANGUAGE_PAIR_CODES = [
+  ['zh-CN', 'en-US'],
+  ['en-US', 'zh-CN'],
+  ['zh-CN', 'en-GB'],
+  ['en-GB', 'zh-CN'],
+  ['zh-CN', 'ja-JP'],
+  ['ja-JP', 'zh-CN'],
+  ['zh-CN', 'ko-KR'],
+  ['ko-KR', 'zh-CN'],
+  ['zh-CN', 'zh-TW'],
+  ['zh-TW', 'zh-CN'],
+  ['zh-CN', 'zh-HK'],
+  ['zh-HK', 'zh-CN'],
+  ['zh-CN', 'fr-FR'],
+  ['fr-FR', 'zh-CN'],
+  ['zh-CN', 'de-DE'],
+  ['de-DE', 'zh-CN'],
+  ['zh-CN', 'es-419'],
+  ['es-419', 'zh-CN'],
+  ['zh-CN', 'es-ES'],
+  ['es-ES', 'zh-CN'],
+  ['zh-CN', 'pt-BR'],
+  ['pt-BR', 'zh-CN'],
+  ['zh-CN', 'ru-RU'],
+  ['ru-RU', 'zh-CN'],
+  ['zh-CN', 'ar-MSA'],
+  ['ar-MSA', 'zh-CN'],
+  ['zh-CN', 'it-IT'],
+  ['it-IT', 'zh-CN'],
+  ['zh-CN', 'vi-VN'],
+  ['vi-VN', 'zh-CN'],
+  ['zh-CN', 'th-TH'],
+  ['th-TH', 'zh-CN'],
+  ['zh-CN', 'id-ID'],
+  ['id-ID', 'zh-CN'],
+  ['zh-CN', 'ms-MY'],
+  ['ms-MY', 'zh-CN'],
+]
+const COMMON_LANGUAGE_PAIR_RANK = new Map(
+  COMMON_LANGUAGE_PAIR_CODES.map(([sourceCode, targetCode], index) => (
+    [`${sourceCode}→${targetCode}`, index]
+  ))
+)
+
 const parseLanguagePairs = (value) => {
   if (!value) return []
   return [...new Set(String(value).split(/[；;，,、\n]+/).map((item) => item.trim()).filter(Boolean))]
@@ -97,6 +142,7 @@ const languagePairOptions = computed(() => {
       return {
         label: value,
         value,
+        commonRank: COMMON_LANGUAGE_PAIR_RANK.get(`${source.code}→${target.code}`) ?? Number.MAX_SAFE_INTEGER,
         isCustom: source.isCustom || target.isCustom,
         shortLabel: `${shortestShortcut(sourceSearch.shortcuts)}译${shortestShortcut(targetSearch.shortcuts)}`,
         searchText: normalizeSearchText([
@@ -113,6 +159,7 @@ const languagePairOptions = computed(() => {
         ),
       }
     }))
+  generated.sort((left, right) => left.commonRank - right.commonRank)
   const known = new Set(generated.map((item) => item.value))
   const legacy = parseLanguagePairs(props.modelValue)
     .filter((value) => !known.has(value))

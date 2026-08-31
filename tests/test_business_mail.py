@@ -135,9 +135,11 @@ class _InterpretationPreviewDb:
 def test_interpretation_preview_uses_business_labels_instead_of_internal_values(monkeypatch):
     source_language_id = uuid4()
     target_language_id = uuid4()
+    extra_language_id = uuid4()
     db = _InterpretationPreviewDb([
         SimpleNamespace(id=source_language_id, label="英语"),
         SimpleNamespace(id=target_language_id, label="中文（简体）"),
+        SimpleNamespace(id=extra_language_id, label="日语"),
     ])
     monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
     monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
@@ -156,8 +158,7 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
         }],
         "locations": ["阿拉斯加"],
         "language_directions": [{
-            "source_language_id": source_language_id,
-            "target_language_id": target_language_id,
+            "language_ids": [source_language_id, target_language_id, extra_language_id],
             "required_count": 1,
         }],
         "required_interpreter_count": 1,
@@ -167,8 +168,8 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
     assert "项目类型：口译" in preview["body"]
     assert "口译类型：现场口译" in preview["body"]
     assert "预定时段：2026-08-28 00:00 至 2026-08-30 00:00" in preview["body"]
-    assert "口译方向：英语 ↔ 中文（简体）" in preview["body"]
-    assert "英语 ↔ 中文（简体）（1人）" in preview["body"]
+    assert "口译方向：英语 ↔ 中文（简体） ↔ 日语" in preview["body"]
+    assert "英语 ↔ 中文（简体） ↔ 日语（1人）" in preview["body"]
     assert "总需求人数：1" in preview["body"]
     assert preview["body"].count("项目类型：") == 1
     assert "onsite" not in preview["body"]

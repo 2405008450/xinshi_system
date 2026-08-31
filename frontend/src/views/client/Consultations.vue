@@ -58,6 +58,7 @@
           :count="advancedFilterCount"
           popper-class="consultation-advanced-filter-popover"
           @clear="clearAdvancedFilters"
+          @reset="resetSearch"
         >
           <el-form :model="searchForm" label-position="top" class="advanced-filter-form">
               <el-row :gutter="16">
@@ -90,7 +91,13 @@
                 <el-col :xs="24" :sm="12" :lg="8">
                   <el-form-item label="咨询类型">
                     <el-select v-model="searchForm.consultation_type" placeholder="全部" clearable @change="handleSearch">
-                      <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
+                      <el-option
+                        v-for="item in consultationTypeOptions"
+                        :key="item"
+                        :label="item"
+                        :value="item"
+                        :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
+                      />
                     </el-select>
                   </el-form-item>
                 </el-col>
@@ -195,7 +202,7 @@
                   <span class="detail-value">{{ getStatusText(getDetailRow(row).status) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="咨询方式">
-                  <span class="detail-value">{{ consultationMethodLabel(getDetailRow(row).consultation_method) }}</span>
+                  <span class="detail-value">{{ consultationMethodDisplay(getDetailRow(row)) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户来源">
                   <InlineTextField :model-value="getDetailRow(row).client_source" :editable="canWrite && !deleteMode" label="客户来源" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'client_source', value)" @conflict="loadConsultationDetail(row.id, true)" />
@@ -319,10 +326,10 @@
                 <el-descriptions-item label="客户简称">
                   <span class="detail-value">{{ getClientDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户负责人">
+                <el-descriptions-item label="客户经理">
                   <span class="detail-value">{{ getClientDetailRow(row).client_manager || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="负责人联系方式">
+                <el-descriptions-item label="客户经理联系方式">
                   <span class="detail-value">{{ getClientDetailRow(row).manager_contact || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户状态">
@@ -355,7 +362,7 @@
                   v-for="item in consultationStatusOptions"
                   :key="item.value"
                   :command="item.value"
-                  :disabled="item.value === row.status || statusUpdatingId === row.id"
+                  :disabled="item.value === row.status || statusUpdatingId === row.id || (item.value === CONFIRMED_CONSULTATION_STATUS && isSimpleConsultationType(row.consultation_type))"
                 >
                   <span class="status-option-row">
                     <el-tag :type="getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">
@@ -390,7 +397,7 @@
           </template>
           <span v-else-if="column.type === 'datetime'">{{ formatDatetime(row[column.key]) }}</span>
           <span v-else-if="column.type === 'user'">{{ getUserName(row[column.key]) }}</span>
-          <span v-else-if="column.key === 'consultation_method'">{{ consultationMethodLabel(row.consultation_method) }}</span>
+          <span v-else-if="column.key === 'consultation_method'">{{ consultationMethodDisplay(row) }}</span>
           <span v-else-if="column.key === 'consultation_type'">{{ consultationTypeLabel(row.consultation_type) }}</span>
           <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
@@ -413,7 +420,7 @@
       @current-change="fetchData"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       class="consultation-dialog"
       width="min(1040px, calc(100vw - 32px))"
@@ -435,6 +442,97 @@
       </template>
       <div ref="consultationEditorRef" class="consultation-editor">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <section v-if="isSimpleConsultationType(form.consultation_type)" class="form-section consultation-form-section consultation-form-section--primary simple-consultation-form">
+          <div class="consultation-form-section__header">
+            <h3>简单咨询</h3>
+            <span>仅记录初步咨询；如需确认建项，请先切换为具体项目类型</span>
+          </div>
+          <el-alert title="简单咨询不能直接设为“已确认”，确定项目方向后再切换咨询类型并补充项目资料。" type="info" :closable="false" show-icon />
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="咨询类型" prop="consultation_type">
+                <el-select v-model="form.consultation_type" filterable allow-create placeholder="请选择咨询类型" style="width:100%" @change="handleConsultationTypeChange">
+                  <el-option
+                    v-for="item in consultationTypeOptions"
+                    :key="item"
+                    :label="item"
+                    :value="item"
+                    :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="12">
+              <el-form-item label="咨询状态" prop="status">
+                <el-select v-model="form.status" placeholder="请选择" style="width:100%">
+                  <el-option v-for="item in consultationStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value === CONFIRMED_CONSULTATION_STATUS" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="客户简称" prop="client_short_name">
+                <el-autocomplete
+                  v-model="form.client_short_name"
+                  :fetch-suggestions="searchClientsByShortName"
+                  placeholder="输入简称联想客户，无匹配时保存后自动新增"
+                  value-key="client_short_name"
+                  clearable
+                  style="width:100%"
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientShortNameClear"
+                  @input="handleClientShortNameInput"
+                >
+                  <template #default="{ item }">
+                    <div class="client-suggestion">
+                      <span>{{ item.client_short_name || item.client_name }}</span>
+                      <span class="client-suggestion-meta">{{ [item.client_code, item.client_name].filter(Boolean).join(' · ') }}</span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="12">
+              <el-form-item label="客户来源" prop="client_source" required>
+                <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="咨询时间" prop="consultation_time">
+                <el-date-picker v-model="form.consultation_time" type="datetime" placeholder="选择日期时间" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :md="12">
+              <el-form-item label="咨询方式" prop="consultation_method" required>
+                <div class="consultation-method-field">
+                  <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
+                    <el-option v-for="item in consultationMethodOptions" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                  <el-input
+                    v-if="form.consultation_method"
+                    v-model="form.consultation_method_custom"
+                    :placeholder="consultationMethodDetailPlaceholder(form.consultation_method)"
+                    maxlength="255"
+                    clearable
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="咨询描述" prop="consultation_description" required>
+            <el-input
+              v-model="form.consultation_description"
+              type="textarea"
+              :rows="3"
+              placeholder="不知道可写“无”"
+            />
+          </el-form-item>
+        </section>
+
+        <template v-else>
         <section class="form-section consultation-form-section consultation-form-section--primary">
           <div class="consultation-form-section__header">
             <h3>咨询基本信息</h3>
@@ -452,16 +550,85 @@
                   style="width: 100%"
                   @change="handleConsultationTypeChange"
                 >
-                  <el-option v-for="item in consultationTypeOptions" :key="item" :label="item" :value="item" />
+                  <el-option
+                    v-for="item in consultationTypeOptions"
+                    :key="item"
+                    :label="item"
+                    :value="item"
+                    :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
+                  />
                 </el-select>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
-              <el-form-item label="客户来源" prop="client_source">
-                <el-input v-model="form.client_source" placeholder="请输入客户来源" />
+            <el-col v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)" :span="12">
+              <el-form-item
+                label="客户来源"
+                prop="client_source"
+                required
+              >
+                <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
               </el-form-item>
             </el-col>
           </el-row>
+
+          <div
+            v-if="isCoreFieldsRequiredProjectType(form.consultation_type)"
+            class="consultation-confirmation-fields consultation-core-required-fields"
+          >
+            <div class="consultation-confirmation-fields__title">
+              {{ consultationTypeLabel(form.consultation_type) }}关键必填信息
+              <span>请优先填写以下咨询信息</span>
+            </div>
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="客户来源" prop="client_source" required>
+                  <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="咨询方式" prop="consultation_method" required>
+                  <div class="consultation-method-field">
+                    <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
+                      <el-option
+                        v-for="item in consultationMethodOptions"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                      />
+                    </el-select>
+                    <el-input
+                      v-if="form.consultation_method"
+                      v-model="form.consultation_method_custom"
+                      :placeholder="consultationMethodDetailPlaceholder(form.consultation_method)"
+                      maxlength="255"
+                      clearable
+                    />
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="咨询时间" prop="consultation_time" required>
+                  <el-date-picker
+                    v-model="form.consultation_time"
+                    type="datetime"
+                    placeholder="选择日期时间"
+                    style="width: 100%"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="来源关键词" prop="source_keyword" required>
+                  <el-input v-model="form.source_keyword" placeholder="请输入来源渠道或推广关键词" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-form-item label="咨询描述" prop="consultation_description" required>
+              <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="不知道可写“无”" />
+            </el-form-item>
+          </div>
 
           <div v-if="isTranslationConsultationType(form.consultation_type)" class="consultation-confirmation-fields">
             <div class="consultation-confirmation-fields__title">
@@ -492,7 +659,7 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="客户交期" required>
+                <el-form-item label="客户交期">
                   <el-date-picker
                     v-model="form.project_intake.customer_deadline_time"
                     type="datetime"
@@ -504,9 +671,9 @@
             </el-row>
           </div>
 
-          <el-row :gutter="20">
+          <el-row v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)" :gutter="20">
             <el-col :span="12">
-              <el-form-item label="咨询方式" prop="consultation_method">
+              <el-form-item label="咨询方式" prop="consultation_method" required>
                 <div class="consultation-method-field">
                   <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
                     <el-option
@@ -517,9 +684,10 @@
                     />
                   </el-select>
                   <el-input
-                    v-if="form.consultation_method === 'other'"
+                    v-if="form.consultation_method"
                     v-model="form.consultation_method_custom"
-                    placeholder="请输入其他咨询方式"
+                    :placeholder="consultationMethodDetailPlaceholder(form.consultation_method)"
+                    maxlength="255"
                     clearable
                   />
                 </div>
@@ -539,7 +707,7 @@
           </el-row>
 
           <el-row :gutter="20">
-            <el-col :span="12">
+            <el-col v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)" :span="12">
               <el-form-item label="来源关键词" prop="source_keyword">
                 <el-input v-model="form.source_keyword" placeholder="请输入来源渠道或推广关键词" />
               </el-form-item>
@@ -558,8 +726,13 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="咨询描述" prop="consultation_description">
-            <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="请简要记录客户的咨询需求" />
+          <el-form-item
+            v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)"
+            label="咨询描述"
+            prop="consultation_description"
+            required
+          >
+            <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="不知道可写“无”" />
           </el-form-item>
         </section>
 
@@ -657,13 +830,13 @@
                 </el-autocomplete>
               </el-form-item>
             </el-col>
-            <el-col :span="12">
-              <el-form-item label="负责人联系方式" prop="manager_contact">
+            <el-col v-if="showManagerContactInput" :span="12">
+              <el-form-item label="客户经理联系方式" prop="manager_contact">
                 <el-input
                   v-model="form.manager_contact"
                   maxlength="100"
                   clearable
-                  placeholder="请输入客户负责人联系方式"
+                  placeholder="请输入客户经理联系方式"
                 />
               </el-form-item>
             </el-col>
@@ -927,6 +1100,7 @@
             </el-col>
           </el-row>
         </section>
+        </template>
       </el-form>
       </div>
 
@@ -935,7 +1109,7 @@
         <el-button v-if="!form.id" :disabled="formSubmitting" @click="handleSubmit(true)">保存并继续新增</el-button>
         <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <!-- 四类咨询确认、建项与内部邮件发送中间层 -->
     <el-dialog
@@ -957,7 +1131,7 @@
           <el-descriptions-item label="咨询类型">{{ confirmationTypeLabel }}</el-descriptions-item>
           <el-descriptions-item label="预计订单号">{{ confirmationPreview.order_no || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户简称">{{ confirmationPreview.client_short_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="负责人联系方式">{{ confirmationPreview.manager_contact || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户经理联系方式">{{ confirmationPreview.manager_contact || '-' }}</el-descriptions-item>
           <el-descriptions-item label="发件人" :span="2">
             {{ confirmationPreview.sender_name || '未识别' }}
             <span v-if="confirmationPreview.sender_email"> · {{ confirmationPreview.sender_email }}</span>
@@ -1060,8 +1234,10 @@ import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
+import { useFormDraft } from '@/composables/useFormDraft'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
@@ -1108,7 +1284,6 @@ const confirmationPreview = reactive({
 })
 const CONFIRMED_CONSULTATION_STATUS = 'success'
 const currentUserId = localStorage.getItem('user_id') || null
-const CONSULTATION_DRAFTS_STORAGE_KEY = `consultation_form_drafts:${currentUserId || 'anonymous'}`
 const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
 
 const consultationColumnOptions = [
@@ -1350,78 +1525,24 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const showManagerContactInput = computed(() => (
+  !form.client_id
+  && Boolean(form.client_short_name?.trim() || form.client_name?.trim())
+))
 const interpretationRequiredTotal = computed(() => (
   form.project_intake.language_directions || []
 ).reduce((total, item) => total + (Number.isInteger(item.required_count) && item.required_count > 0 ? item.required_count : 0), 0))
 const canWrite = hasPermission('consultations:write')
 const availableSubClients = ref([])
 const personnelAssignmentExpanded = ref(false)
-const activeDraftKey = ref(null)
-const draftSavingEnabled = ref(false)
-
-const readDrafts = () => {
-  try {
-    const drafts = JSON.parse(sessionStorage.getItem(CONSULTATION_DRAFTS_STORAGE_KEY) || '{}')
-    return drafts && typeof drafts === 'object' ? drafts : {}
-  } catch {
-    sessionStorage.removeItem(CONSULTATION_DRAFTS_STORAGE_KEY)
-    return {}
-  }
-}
-
-const writeDrafts = (drafts) => {
-  if (Object.keys(drafts).length) {
-    sessionStorage.setItem(CONSULTATION_DRAFTS_STORAGE_KEY, JSON.stringify(drafts))
-  } else {
-    sessionStorage.removeItem(CONSULTATION_DRAFTS_STORAGE_KEY)
-  }
-}
-
-const removeDraft = (draftKey) => {
-  if (!draftKey) return
-  const drafts = readDrafts()
-  delete drafts[draftKey]
-  writeDrafts(drafts)
-}
-
-const saveActiveDraft = () => {
-  if (!draftSavingEnabled.value || !activeDraftKey.value) return
-  const drafts = readDrafts()
-  drafts[activeDraftKey.value] = {
-    form: { ...form },
-    savedAt: new Date().toISOString(),
-  }
-  writeDrafts(drafts)
-}
-
-const restoreDraftIfNeeded = async () => {
-  const draftKey = activeDraftKey.value
-  const draft = readDrafts()[draftKey]
-  if (!draft?.form) {
-    draftSavingEnabled.value = true
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      '检测到该表单有未提交的草稿，是否恢复上次填写的内容？',
-      '恢复未提交草稿',
-      {
-        confirmButtonText: '恢复草稿',
-        cancelButtonText: '放弃草稿',
-        type: 'info',
-        showClose: false,
-        closeOnClickModal: false,
-        closeOnPressEscape: false,
-      }
-    )
-    const restoredForm = defaultForm()
-    Object.keys(restoredForm).forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(draft.form, key)) {
-        restoredForm[key] = draft.form[key]
-      }
-    })
-    Object.assign(form, restoredForm)
+const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
+  namespace: 'consultation',
+  form,
+  createDefault: defaultForm,
+  formRef,
+  legacyStorageKeys: [`consultation_form_drafts:${currentUserId || 'anonymous'}`],
+  applyDraft: (draft) => {
+    Object.assign(form, defaultForm(), draft)
     if (form.consultation_method && !consultationMethodLabels[form.consultation_method]) {
       form.consultation_method_custom = form.consultation_method
       form.consultation_method = 'other'
@@ -1430,17 +1551,10 @@ const restoreDraftIfNeeded = async () => {
       form.project_intake = normalizeLegacyInterpretationIntake(form.project_intake)
       ensureInterpretationDirection()
     }
-  } catch {
-    removeDraft(draftKey)
-  } finally {
-    draftSavingEnabled.value = true
-    await nextTick()
-    formRef.value?.clearValidate()
-  }
-}
-
-watch(form, saveActiveDraft, { deep: true, flush: 'sync' })
+  },
+})
 const consultationTypeOptions = [
+  '简单咨询',
   '笔译项目',
   '口译项目',
   '招聘项目',
@@ -1450,7 +1564,6 @@ const consultationTypeOptions = [
   '公证项目',
   '认证项目',
   '其他项目',
-  '非项目工作',
 ]
 const consultationStatusOptions = [
   { label: '跟进中', value: 'following' },
@@ -1469,13 +1582,24 @@ const consultationMethodLabels = Object.fromEntries(
   consultationMethodOptions.map((item) => [item.value, item.label])
 )
 const consultationMethodLabel = (value) => consultationMethodLabels[value] || value || '-'
-const normalizeConsultationMethod = (value) => {
+const consultationMethodDisplay = (row) => {
+  const label = consultationMethodLabel(row?.consultation_method)
+  const detail = row?.consultation_method_detail?.trim()
+  return detail ? `${label}（${detail}）` : label
+}
+const consultationMethodDetailPlaceholder = (method) => (
+  method === 'other'
+    ? '请输入具体咨询方式'
+    : '可补充具体号码、邮箱、平台或联系人（选填）'
+)
+const normalizeConsultationMethod = (value, detail = '') => {
   if (!value || consultationMethodLabels[value]) {
-    return { method: value || '', custom: '' }
+    return { method: value || '', custom: detail || '' }
   }
-  return { method: 'other', custom: value }
+  return { method: 'other', custom: detail || value }
 }
 const legacyConsultationTypeLabels = {
+  simple: '简单咨询',
   translation: '笔译项目',
   interpretation: '口译项目',
   recruitment: '招聘项目',
@@ -1492,6 +1616,7 @@ const legacyConsultationTypeLabels = {
   其他: '其他项目',
 }
 const consultationTypeLabel = (value) => legacyConsultationTypeLabels[value] || value || '-'
+const isSimpleConsultationType = (value) => ['简单咨询', 'simple'].includes(value)
 const isInterpretationConsultationType = (value) => (
   ['口译项目', 'interpretation', '口译'].includes(value)
 )
@@ -1502,7 +1627,19 @@ const isRecruitmentConsultationType = (value) => (
   ['招聘项目', 'recruitment', '招聘'].includes(value)
 )
 const isTranslationConsultationType = (value) => (
-  ['笔译项目', 'translation', '笔译'].includes(value)
+  [
+    '笔译项目', 'translation', '笔译',
+    '配音项目', 'dubbing',
+    '字幕项目', 'subtitle',
+    '公证项目', 'notarization',
+    '认证项目', 'certification',
+    '其他项目', 'equipment_rental', 'other', '其他',
+  ].includes(value)
+)
+const isCoreFieldsRequiredProjectType = (value) => (
+  isInterpretationConsultationType(value)
+  || isRecruitmentConsultationType(value)
+  || isAnnotationConsultationType(value)
 )
 const isSupportedProjectType = (value) => (
   isTranslationConsultationType(value) || isInterpretationConsultationType(value)
@@ -1512,6 +1649,7 @@ const interpretationTypeOptions = [
   { value: 'onsite', label: '现场口译' }, { value: 'booth', label: '展会摊位口译' },
   { value: 'exhibition_escort', label: '展会陪同口译' }, { value: 'escort', label: '陪同口译' },
   { value: 'small_business_meeting', label: '小型商务会议口译' }, { value: 'consecutive', label: '会议交传口译' },
+  { value: 'small_non_business_meeting', label: '小型（非商务）会议口译' },
   { value: 'simultaneous', label: '会议同传口译' }, { value: 'online_meeting', label: '线上会议口译' },
   { value: 'online_simultaneous', label: '线上同传口译' },
 ]
@@ -1531,7 +1669,12 @@ const serviceContentOptions = ['翻译', '排版']
 const priorityOptions = ['低', '中', '高', '紧急']
 const handleConsultationTypeChange = (consultationType) => {
   form.project_intake = emptyProjectIntake()
+  if (isSimpleConsultationType(consultationType) && form.status === CONFIRMED_CONSULTATION_STATUS) {
+    form.status = 'following'
+    ElMessage.info('简单咨询不能直接确认，咨询状态已调整为“跟进中”')
+  }
   if (isInterpretationConsultationType(consultationType)) ensureInterpretationDirection()
+  nextTick(() => formRef.value?.clearValidate())
 }
 const handleTranslationQuotationRequiredChange = (required) => {
   if (required) return
@@ -1553,13 +1696,22 @@ const projectRouteName = (consultationType) => {
   if (isRecruitmentConsultationType(consultationType)) return 'RecruitmentProjectDetails'
   return ''
 }
-const routeToProjectBoard = async (consultationType) => {
+const routeToProjectBoard = async (consultationType, projectId = null) => {
   const name = projectRouteName(consultationType)
-  if (name) await router.push({ name })
+  if (!name) return
+  if (!hasPermission('projects:read')) {
+    ElMessage.warning('项目已生成，但当前账号没有项目查看权限，无法打开项目编辑窗口')
+    return
+  }
+  const query = projectId ? { projectId, openEditor: '1' } : undefined
+  await router.push({ name, query })
 }
-const confirmationTypeLabel = computed(() => (
-  ({ translation: '笔译项目', interpretation: '口译项目', annotation: '标注项目', recruitment: '招聘项目' }[confirmationPreview.project_type] || '-')
-))
+const confirmationTypeLabel = computed(() => {
+  const sourceType = confirmationContext.consultationPayload?.consultation_type
+    || confirmationContext.row?.consultation_type
+  if (sourceType) return consultationTypeLabel(sourceType)
+  return ({ translation: '笔译项目', interpretation: '口译项目', annotation: '标注项目', recruitment: '招聘项目' }[confirmationPreview.project_type] || '-')
+})
 const validInternalUsers = computed(() => userOptions.value.filter((item) => item.is_active && item.email))
 const confirmationRecipientCount = computed(() => new Set([
   ...confirmationForm.toUserIds,
@@ -1646,11 +1798,37 @@ const validateRecruitmentHeadcount = (_rule, value, callback) => {
   if (value || form.project_intake.headcount_max) return callback()
   callback(new Error('请填写招聘人数'))
 }
+const validateCoreConsultationRequired = (message, includeSimple = false) => (_rule, value, callback) => {
+  const required = isCoreFieldsRequiredProjectType(form.consultation_type)
+    || (includeSimple && isSimpleConsultationType(form.consultation_type))
+  if (!required) return callback()
+  if (value !== null && value !== undefined && String(value).trim()) return callback()
+  callback(new Error(message))
+}
+const validateConsultationMethod = (_rule, value, callback) => {
+  if (!value) return callback(new Error('请选择咨询方式'))
+  if (value === 'other' && !form.consultation_method_custom?.trim()) {
+    return callback(new Error('请输入其他咨询方式'))
+  }
+  callback()
+}
+const validateConsultationStatus = (_rule, value, callback) => {
+  if (!value) return callback(new Error('请选择咨询状态'))
+  if (isSimpleConsultationType(form.consultation_type) && value === CONFIRMED_CONSULTATION_STATUS) {
+    return callback(new Error('简单咨询不能直接确认，请先选择具体项目类型'))
+  }
+  callback()
+}
 
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
-  status: [{ required: true, message: '请选择咨询状态', trigger: 'change' }],
+  status: [{ validator: validateConsultationStatus, trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
+  consultation_time: [{ validator: validateCoreConsultationRequired('请选择咨询时间', true), trigger: 'change' }],
+  consultation_method: [{ validator: validateConsultationMethod, trigger: ['change', 'blur'] }],
+  client_source: [{ required: true, message: '请输入客户来源，不知道可写“未知”', trigger: 'blur' }],
+  source_keyword: [{ validator: validateCoreConsultationRequired('请输入来源关键词'), trigger: 'blur' }],
+  consultation_description: [{ required: true, message: '请输入咨询描述，不知道可写“无”', trigger: 'blur' }],
   'project_intake.language_directions': [{ validator: validateInterpretationDirections, trigger: 'change' }],
   'project_intake.project_types': [{
     validator: validateWhen(
@@ -2000,11 +2178,8 @@ const buildPayload = () => ({
   },
   project_intake_version: 2,
   consultation_time: toNullable(form.consultation_time),
-  consultation_method: toNullable(
-    form.consultation_method === 'other'
-      ? (form.consultation_method_custom?.trim() || null)
-      : form.consultation_method
-  ),
+  consultation_method: toNullable(form.consultation_method),
+  consultation_method_detail: toNullable(form.consultation_method_custom?.trim()),
   client_source: toNullable(form.client_source),
   source_keyword: toNullable(form.source_keyword),
   consultation_description: toNullable(form.consultation_description),
@@ -2052,16 +2227,17 @@ const handleAdd = async () => {
   dialogTitle.value = '新增咨询'
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
-  draftSavingEnabled.value = false
-  activeDraftKey.value = 'create'
   resetForm()
   dialogVisible.value = true
   await nextTick()
-  await restoreDraftIfNeeded()
+  await beginDraft('create')
 }
 
 const fillFormByRow = (row) => {
-  const consultationMethod = normalizeConsultationMethod(row.consultation_method)
+  const consultationMethod = normalizeConsultationMethod(
+    row.consultation_method,
+    row.consultation_method_detail,
+  )
   const consultationType = consultationTypeLabel(row.consultation_type) === '-'
     ? ''
     : consultationTypeLabel(row.consultation_type)
@@ -2115,8 +2291,6 @@ const handleEdit = async (row) => {
   dialogTitle.value = '编辑咨询'
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
-  draftSavingEnabled.value = false
-  activeDraftKey.value = `edit:${row.id}`
   try {
     const detail = await consultationApi.getConsultation(row.id)
     detailCache[row.id] = detail
@@ -2126,7 +2300,7 @@ const handleEdit = async (row) => {
   }
   dialogVisible.value = true
   await nextTick()
-  await restoreDraftIfNeeded()
+  await beginDraft(`edit:${row.id}`)
 }
 
 const statusUpdatingId = ref(null)
@@ -2136,6 +2310,11 @@ const statusUpdatingId = ref(null)
 // 四类项目统一确认建项信息并向内部用户发送邮件。
 const handleInlineStatusChange = async (row, newStatus) => {
   if (!newStatus || newStatus === row.status || statusUpdatingId.value === row.id) return
+
+  if (newStatus === CONFIRMED_CONSULTATION_STATUS && isSimpleConsultationType(row.consultation_type)) {
+    ElMessage.warning('简单咨询不能直接确认，请先编辑并选择具体项目类型')
+    return
+  }
 
   if (
     newStatus === CONFIRMED_CONSULTATION_STATUS
@@ -2244,12 +2423,11 @@ const handleSubmit = async (continueCreate = false) => {
           }
         }
       }
-      draftSavingEnabled.value = false
-      removeDraft(activeDraftKey.value)
+      clearDraft()
       if (shouldContinueCreate) {
         // 连续录入：保持弹窗打开并重置表单，草稿键切回 create 以继续记录新草稿。
-        activeDraftKey.value = 'create'
         resetForm()
+        await beginDraft('create')
         await fetchData()
         await nextTick()
         resetConsultationDialogScroll()
@@ -2404,12 +2582,11 @@ const handleConfirmConsultation = async () => {
     if (confirmationContext.row) confirmationContext.row.status = CONFIRMED_CONSULTATION_STATUS
     if (confirmationContext.consultationId) delete detailCache[confirmationContext.consultationId]
     if (confirmationContext.mode === 'create' || confirmationContext.mode === 'update') {
-      draftSavingEnabled.value = false
-      removeDraft(activeDraftKey.value)
+      clearDraft()
       if (confirmationContext.mode === 'create' && confirmationContext.continueCreate) {
         // 连续录入：确认建项成功后同样保持主弹窗打开并重置表单。
-        activeDraftKey.value = 'create'
         resetForm()
+        await beginDraft('create')
         nextTick(resetConsultationDialogScroll)
       } else {
         dialogVisible.value = false
@@ -2422,7 +2599,7 @@ const handleConfirmConsultation = async () => {
         : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
     )
     await fetchData()
-    await routeToProjectBoard(result?.project_type)
+    await routeToProjectBoard(result?.project_type, result?.project_id)
   } catch (error) {
     const detail = error?.response?.data?.detail || error?.detail
     if (error?.response?.status === 409 && detail?.preview) {
@@ -2452,8 +2629,7 @@ const resetForm = () => {
 const handleDialogClose = () => {
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
-  draftSavingEnabled.value = false
-  activeDraftKey.value = null
+  pauseDraft()
   resetForm()
 }
 
@@ -2948,6 +3124,20 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:global(.el-select-dropdown__item.consultation-type-option--simple) {
+  color: #47705a;
+  font-weight: 600;
+  background-color: #f1f8f3;
+  box-shadow: inset 3px 0 #a8cdb3;
+}
+
+:global(.el-select-dropdown__item.consultation-type-option--simple:hover),
+:global(.el-select-dropdown__item.consultation-type-option--simple.is-hovering),
+:global(.el-select-dropdown__item.consultation-type-option--simple.is-selected) {
+  color: #365b47;
+  background-color: #e8f3eb;
 }
 
 :global(.consultation-dialog) {

@@ -37,7 +37,14 @@ from field_filtering import apply_scalar_filter, apply_scalar_specs
 
 
 ANNOTATION_TYPE_VALUES = {"标注项目", "annotation"}
-TRANSLATION_TYPE_VALUES = {"笔译项目", "translation", "笔译"}
+TRANSLATION_TYPE_VALUES = {
+    "笔译项目", "translation", "笔译",
+    "配音项目", "dubbing",
+    "字幕项目", "subtitle",
+    "公证项目", "notarization",
+    "认证项目", "certification",
+    "其他项目", "equipment_rental", "other", "其他",
+}
 
 
 def is_annotation_type(value: Optional[str]) -> bool:
@@ -548,20 +555,21 @@ def build_annotation_project_name(
     language_labels: list[str],
     name_date: Optional[date] = None,
 ) -> str:
-    parts = [(client_short_name or "").strip()]
+    client_name = (client_short_name or "").strip()
+    type_labels = [ANNOTATION_PROJECT_TYPE_LABELS[value] for value in project_types]
+    if not client_name and not language_labels and not type_labels:
+        return ""
+    project_date = name_date or datetime.now(ZoneInfo("Asia/Hong_Kong")).date()
+    parts = [client_name, f"{project_date:%Y%m%d}"]
     if language_labels:
         summary = "、".join(language_labels[:3])
         if len(language_labels) > 3:
             summary += "等方向"
         parts.append(summary)
-    type_labels = [ANNOTATION_PROJECT_TYPE_LABELS[value] for value in project_types]
     if type_labels:
         parts.append("、".join(type_labels))
     business_text = "-".join(part for part in parts if part)
-    if not business_text:
-        return ""
-    project_date = name_date or datetime.now(ZoneInfo("Asia/Hong_Kong")).date()
-    return f"【{project_date:%Y%m%d}-{business_text}】"
+    return f"【{business_text}】"
 
 
 def preview_annotation_project_name(

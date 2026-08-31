@@ -9,12 +9,20 @@ export const ROLE_SUPER_ADMIN = '超级管理员'
 export const ROLE_CUSTOMER_SPECIALIST = '客户专员'
 export const ROLE_PROJECT_SPECIALIST = '项目专员'
 export const ROLE_PROJECT_MANAGER = '项目经理'
+export const ROLE_PROJECT_ASSISTANT = '项目助理'
 export const ROLE_TEST = '测试'
 export const ROLE_REVIEW = '译审'
 export const ROLE_SALES = '销售'
 
 /** 拥有全部权限的角色（任一即可） */
 export const SUPER_ROLES = [ROLE_ADMIN, ROLE_SUPER_ADMIN]
+
+/** 可查看“稿件安排”的普通角色；超级管理员由 canAccessRoute 单独放行。 */
+export const MANUSCRIPT_VIEW_ROLES = [ROLE_PROJECT_MANAGER, ROLE_PROJECT_ASSISTANT]
+/** 可查看“客户信息”列表页的普通角色；超级管理员始终放行。 */
+export const CLIENT_VIEW_ROLES = [ROLE_PROJECT_MANAGER]
+/** 可查看“新咨询管理”列表页的普通角色；超级管理员始终放行。 */
+export const CONSULTATION_VIEW_ROLES = [ROLE_CUSTOMER_SPECIALIST]
 
 /**
  * 从 localStorage 读取当前用户角色列表
@@ -61,6 +69,24 @@ export function hasRole(roleOrRoles, userRoles) {
   const list = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles]
   const target = userRoles ?? roles
   return list.some((r) => target.includes(r))
+}
+
+/** 是否允许查看“稿件安排”模块。 */
+export function canViewManuscriptArrangements(userRoles) {
+  const roles = userRoles ?? getStoredRoles()
+  return isSuperAdmin(roles) || hasRole(MANUSCRIPT_VIEW_ROLES, roles)
+}
+
+/** 是否允许查看“客户信息”列表页。 */
+export function canViewClients(userRoles) {
+  const roles = userRoles ?? getStoredRoles()
+  return isSuperAdmin(roles) || hasRole(CLIENT_VIEW_ROLES, roles)
+}
+
+/** 是否允许查看“新咨询管理”列表页。 */
+export function canViewConsultations(userRoles) {
+  const roles = userRoles ?? getStoredRoles()
+  return isSuperAdmin(roles) || hasRole(CONSULTATION_VIEW_ROLES, roles)
 }
 
 /**

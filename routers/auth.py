@@ -238,6 +238,25 @@ def require_super_admin(
     return current_user
 
 
+def require_any_role(*allowed_role_names: str) -> Callable:
+    """要求当前用户至少拥有一个指定角色；超级管理员始终放行。"""
+    allowed_roles = set(allowed_role_names) | SUPER_ROLE_NAMES
+
+    def role_dependency(
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ):
+        role_names = set(get_user_roles_with_role_names(db, current_user.id))
+        if role_names.isdisjoint(allowed_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"仅以下角色可以访问：{', '.join(allowed_role_names)}",
+            )
+        return current_user
+
+    return role_dependency
+
+
 def require_permission(permission_code: str) -> Callable:
     """创建权限依赖，供路由在后端强制执行 RBAC。"""
     def permission_dependency(

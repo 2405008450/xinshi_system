@@ -11,6 +11,8 @@ const convert = (value, keyFn) => Array.isArray(value) ? value.map((item) => con
 export const getResourceRequests = (params, config = {}) => api.get('/resource-requests/', { ...config, params }).then((res) => convert(res, camel))
 export const getResourceRequestCount = (params, config = {}) => api.get('/resource-requests/count', { ...config, params })
 export const getResourceRequestSourcePrefill = (sourceType, sourceProjectId) => api.get('/resource-requests/source-prefill', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
+export const getResourceRequestBySource = (sourceType, sourceProjectId) => api.get('/resource-requests/source-request', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
+export const getResourceRequestSourceStatuses = (sourceType) => api.get('/resource-requests/source-statuses', { params: { source_type: sourceType } })
 export const getResourceRequest = (id) => api.get(`/resource-requests/${id}`).then((res) => convert(res, camel))
 export const createResourceRequest = async (data, idempotencyKey) => {
   const payload = convert(data, snake)
@@ -22,6 +24,8 @@ export const createResourceRequest = async (data, idempotencyKey) => {
   return convert(response, camel)
 }
 export const updateResourceRequest = (id, data) => api.put(`/resource-requests/${id}`, convert(data, snake)).then((res) => convert(res, camel))
+export const sendResourceRequest = (id) => api.post(`/resource-requests/${id}/send`).then((res) => convert(res, camel))
+export const cancelResourceRequest = (id) => api.post(`/resource-requests/${id}/cancel`).then((res) => convert(res, camel))
 export const updateResourceRequestTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/resource-requests/${id}/text-field`, {
   field: snake(field), value, expected_updated_at: expectedUpdatedAt,
 }).then((res) => convert(res, camel))

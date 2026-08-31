@@ -221,6 +221,7 @@ class Consultation(Base):
     project_intake_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('2'))
     consultation_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     consultation_method: Mapped[Optional[str]] = mapped_column(String(50))
+    consultation_method_detail: Mapped[Optional[str]] = mapped_column(String(255))
     client_source: Mapped[Optional[str]] = mapped_column(String(100))
     source_keyword: Mapped[Optional[str]] = mapped_column(String(255))
     consultation_description: Mapped[Optional[str]] = mapped_column(Text)

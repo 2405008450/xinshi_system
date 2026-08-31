@@ -13,21 +13,43 @@ class ResourceRequestItemWrite(BaseModel):
     id: Optional[UUID] = None
     source_language_id: Optional[UUID] = None
     target_language_id: Optional[UUID] = None
+    language_ids: list[UUID] = Field(default_factory=list, max_length=5)
     required_count: Optional[int] = Field(default=None, gt=0)
     requirement_detail: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_language_ids(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        language_ids = list(data.get("language_ids") or [])
+        source_id = data.get("source_language_id")
+        target_id = data.get("target_language_id")
+        if language_ids:
+            if source_id and str(source_id) != str(language_ids[0]):
+                raise ValueError("资源需求的首个语种与源语种不一致")
+            if len(language_ids) > 1 and target_id and str(target_id) != str(language_ids[1]):
+                raise ValueError("资源需求的第二个语种与目标语种不一致")
+            data["source_language_id"] = language_ids[0]
+            data["target_language_id"] = language_ids[1] if len(language_ids) > 1 else None
+        else:
+            data["language_ids"] = [item for item in (source_id, target_id) if item]
+        return data
 
     @model_validator(mode="after")
     def validate_languages(self):
         if self.target_language_id and not self.source_language_id:
             raise ValueError("目标语种存在时必须填写源语种")
-        if self.target_language_id == self.source_language_id and self.target_language_id:
-            raise ValueError("源语种与目标语种不能相同")
+        if len(set(self.language_ids)) != len(self.language_ids):
+            raise ValueError("同一资源需求明细内的语种不能重复")
         return self
 
 
 class ResourceRequestItemResponse(ResourceRequestItemWrite):
     id: UUID
     sequence_no: int
+    language_labels: list[str] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -88,6 +110,7 @@ class ResourceRequestSourcePrefillResponse(BaseModel):
 class ResourceRequestResponse(ResourceRequestWrite):
     id: UUID
     request_no: str
+    demand_status: str = "confirmed"
     source_project_types_snapshot: list = Field(default_factory=list)
     source_order_no_snapshot: Optional[str] = None
     source_project_name_snapshot: str

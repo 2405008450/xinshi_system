@@ -57,7 +57,7 @@ def test_annotation_project_name_lists_first_three_directions():
         ["audio_annotation", "quality_inspection"],
         ["英文", "粤语→普通话", "日文→中文", "法文→中文"],
         date(2026, 8, 13),
-    ) == "【20260813-测试客户-英文、粤语→普通话、日文→中文等方向-音频标注、质检】"
+    ) == "【测试客户-20260813-英文、粤语→普通话、日文→中文等方向-音频标注、质检】"
 
 
 def test_annotation_project_name_stays_empty_without_business_fields():

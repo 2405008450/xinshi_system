@@ -42,24 +42,24 @@ def test_fixed_project_assistant_can_manage_manuscript_at_any_stage():
     assert result["project_assistant_id"] == actor.id
 
 
-def test_temporary_project_assistant_handover_can_manage_without_replacing_fixed_role():
+def test_any_project_assistant_can_manage_without_replacing_fixed_role():
     fixed_assistant = _user(name="固定项目助理")
     temporary_assistant = _user(name="临时项目助理")
 
     result = manuscript_service._project_assistant_responsibility_summary(
         temporary_assistant,
         fixed_assignment=_assignment(fixed_assistant),
-        workflow=_workflow("project_assistant", temporary_assistant),
+        workflow=_workflow("project_manager"),
         actor_state=(True, None, False),
     )
 
     assert result["can_manage_manuscript"] is True
     assert result["project_assistant_id"] == fixed_assistant.id
     assert result["project_assistant_name"] == "固定项目助理"
-    assert "临时交接" in result["manuscript_access_reason"]
+    assert "可操作全部项目" in result["manuscript_access_reason"]
 
 
-def test_claimed_project_assistant_role_pool_task_can_manage():
+def test_claimed_project_assistant_role_pool_task_can_manage_by_role():
     actor = _user()
 
     result = manuscript_service._project_assistant_responsibility_summary(
@@ -71,10 +71,10 @@ def test_claimed_project_assistant_role_pool_task_can_manage():
 
     assert result["can_manage_manuscript"] is True
     assert result["project_assistant_assignment_type"] == "role_pool"
-    assert "认领" in result["manuscript_access_reason"]
+    assert "可操作全部项目" in result["manuscript_access_reason"]
 
 
-def test_unclaimed_project_assistant_role_pool_task_must_be_claimed_first():
+def test_unclaimed_project_assistant_role_pool_task_does_not_block_management():
     actor = _user()
 
     result = manuscript_service._project_assistant_responsibility_summary(
@@ -84,11 +84,11 @@ def test_unclaimed_project_assistant_role_pool_task_must_be_claimed_first():
         actor_state=(True, None, False),
     )
 
-    assert result["can_manage_manuscript"] is False
-    assert "工作台认领" in result["manuscript_access_reason"]
+    assert result["can_manage_manuscript"] is True
+    assert "可操作全部项目" in result["manuscript_access_reason"]
 
 
-def test_non_project_assistant_stage_does_not_grant_manuscript_authority():
+def test_project_assistant_can_manage_at_an_unrelated_workflow_stage():
     actor = _user()
 
     result = manuscript_service._project_assistant_responsibility_summary(
@@ -98,7 +98,8 @@ def test_non_project_assistant_stage_does_not_grant_manuscript_authority():
         actor_state=(True, None, False),
     )
 
-    assert result["can_manage_manuscript"] is False
+    assert result["can_manage_manuscript"] is True
+    assert "可操作全部项目" in result["manuscript_access_reason"]
 
 
 def test_missing_role_or_active_leave_blocks_manuscript_authority(monkeypatch):

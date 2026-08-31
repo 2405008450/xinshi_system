@@ -1,3 +1,4 @@
+from datetime import datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -11,9 +12,13 @@ from routers.consultations import (
     ConsultationConfirmationPreviewRequest,
     _build_subject_preview,
     _confirm_consultation_project,
+    _confirmation_project_type,
     _confirmation_preview_values,
+    consultation_task_type_label,
+    validate_consultation_required_fields,
+    validate_simple_consultation,
 )
-from schemas import TranslationProjectCreate
+from schemas import ConsultationCreate, TranslationProjectCreate
 
 
 def test_translation_subject_uses_prefix_and_skips_empty_fields():
@@ -29,7 +34,7 @@ def test_translation_subject_uses_prefix_and_skips_empty_fields():
 
     assert parts == ["***急***", "TP-260812-001", "信实客户", "信实客户-260812"]
     assert subject == "***急***，TP-260812-001，信实客户，信实客户-260812"
-    assert missing == ["负责人联系方式"]
+    assert missing == ["客户经理联系方式"]
 
 
 def test_interpretation_subject_contains_customer_identifier():
@@ -60,6 +65,107 @@ def test_confirmation_prefix_length_and_translation_snapshot_schema():
         email_subject_preview="TP-260812-001，测试客户，测试项目",
     )
     assert payload.email_subject_preview.endswith("测试项目")
+
+
+@pytest.mark.parametrize(
+    ("consultation_type", "task_type"),
+    [
+        ("配音项目", "配音项目"),
+        ("字幕项目", "字幕项目"),
+        ("公证项目", "公证项目"),
+        ("认证项目", "认证项目"),
+        ("其他项目", "其他项目"),
+    ],
+)
+def test_translation_family_types_use_translation_confirmation_and_keep_task_type(
+    consultation_type, task_type
+):
+    assert _confirmation_project_type(consultation_type) == "translation"
+    assert consultation_task_type_label(consultation_type) == task_type
+
+
+def test_simple_consultation_requires_minimum_fields_and_rejects_confirmation():
+    valid = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_time=datetime(2026, 8, 31, 10, 30),
+        consultation_method="phone",
+        client_source="电话来访",
+        consultation_description="测试咨询需求",
+        consultation_type="简单咨询",
+        status="following",
+    )
+    validate_simple_consultation(valid)
+
+    with pytest.raises(ValueError, match="客户来源"):
+        validate_simple_consultation(valid.model_copy(update={"client_source": ""}))
+
+    with pytest.raises(ValueError, match="不能直接设为已确认"):
+        validate_simple_consultation(valid.model_copy(update={"status": "success"}))
+
+    with pytest.raises(ValueError, match="不能直接确认建项"):
+        _confirmation_project_type("简单咨询")
+
+
+@pytest.mark.parametrize("consultation_type", ["口译项目", "招聘项目", "标注项目"])
+def test_project_consultation_requires_front_loaded_core_fields(consultation_type):
+    valid = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_time=datetime(2026, 8, 31, 10, 30),
+        consultation_method="phone",
+        client_source="电话来访",
+        source_keyword="老客户推荐",
+        consultation_description="测试咨询需求",
+        consultation_type=consultation_type,
+        status="following",
+    )
+    validate_consultation_required_fields(valid)
+
+    with pytest.raises(ValueError, match="来源关键词、咨询描述"):
+        validate_consultation_required_fields(
+            valid.model_copy(update={"source_keyword": "", "consultation_description": ""})
+        )
+
+
+@pytest.mark.parametrize("consultation_type", ["简单咨询", "笔译项目", "口译项目", "其他项目"])
+def test_all_consultation_types_require_source_and_description(consultation_type):
+    payload = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_time=datetime(2026, 8, 31, 10, 30),
+        consultation_method="phone",
+        client_source="未知",
+        source_keyword="无",
+        consultation_description="无",
+        consultation_type=consultation_type,
+        status="following",
+    )
+    validate_consultation_required_fields(payload)
+
+    with pytest.raises(ValueError, match="客户来源、咨询描述"):
+        validate_consultation_required_fields(
+            payload.model_copy(update={"client_source": "", "consultation_description": ""})
+        )
+
+
+def test_consultation_method_is_required_and_supports_optional_detail():
+    payload = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_method="phone",
+        consultation_method_detail="总机 021-12345678，张经理 13800000000",
+        client_source="未知",
+        consultation_description="无",
+        consultation_type="笔译项目",
+        status="following",
+    )
+    validate_consultation_required_fields(payload)
+    assert payload.consultation_method_detail.startswith("总机")
+
+    with pytest.raises(ValueError, match="咨询方式"):
+        validate_consultation_required_fields(payload.model_copy(update={"consultation_method": ""}))
+
+    with pytest.raises(ValueError, match="具体咨询方式"):
+        validate_consultation_required_fields(
+            payload.model_copy(update={"consultation_method": "other", "consultation_method_detail": ""})
+        )
 
 
 class _ClientQuery:
@@ -143,7 +249,7 @@ def test_order_number_conflict_stops_before_project_mutation(monkeypatch):
         "subject_prefix": None,
         "subject_parts": ["TP-260812-010", "客户", "客户-260812"],
         "email_subject_preview": "TP-260812-010，客户，客户-260812",
-        "missing_fields": ["负责人联系方式"],
+        "missing_fields": ["客户经理联系方式"],
     }
     monkeypatch.setattr(
         "routers.consultations._confirmation_preview_values",

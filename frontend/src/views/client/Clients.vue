@@ -65,6 +65,7 @@
             :count="advancedFilterCount"
             popper-class="client-advanced-filter-popper"
             @clear="clearAdvancedFilters"
+            @reset="resetSearch"
           >
             <template #reference>
               <el-button>
@@ -338,7 +339,7 @@
       style="margin-top: 20px"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       class="client-form-dialog"
@@ -465,9 +466,9 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="subDialogVisible"
       :title="subDialogTitle"
       width="min(900px, calc(100vw - 32px))"
@@ -542,7 +543,7 @@
         <el-button @click="subDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="subSubmitLoading" @click="handleSubSubmit">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 
@@ -556,9 +557,11 @@ import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { hasPermission } from '@/utils/permission'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useFormDraft } from '@/composables/useFormDraft'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const loading = ref(false)
@@ -570,9 +573,7 @@ const formRef = ref(null)
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const currentUserId = localStorage.getItem('user_id') || null
-const CLIENT_DRAFTS_STORAGE_KEY = `client_form_drafts:${currentUserId || 'anonymous'}`
 const CLIENT_COLUMNS_STORAGE_KEY = `client_visible_columns:${currentUserId || 'anonymous'}`
-const CREATE_DRAFT_KEY = 'create'
 
 const clientColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 140 },
@@ -678,81 +679,10 @@ const defaultClientForm = () => ({
 })
 
 const form = reactive(defaultClientForm())
-const activeDraftKey = ref(null)
-const draftSavingEnabled = ref(false)
-
-const readDrafts = () => {
-  try {
-    const drafts = JSON.parse(sessionStorage.getItem(CLIENT_DRAFTS_STORAGE_KEY) || '{}')
-    return drafts && typeof drafts === 'object' ? drafts : {}
-  } catch {
-    sessionStorage.removeItem(CLIENT_DRAFTS_STORAGE_KEY)
-    return {}
-  }
-}
-
-const writeDrafts = (drafts) => {
-  if (Object.keys(drafts).length) {
-    sessionStorage.setItem(CLIENT_DRAFTS_STORAGE_KEY, JSON.stringify(drafts))
-  } else {
-    sessionStorage.removeItem(CLIENT_DRAFTS_STORAGE_KEY)
-  }
-}
-
-const removeDraft = (draftKey) => {
-  if (!draftKey) return
-  const drafts = readDrafts()
-  delete drafts[draftKey]
-  writeDrafts(drafts)
-}
-
-const saveActiveDraft = () => {
-  if (!draftSavingEnabled.value || activeDraftKey.value !== CREATE_DRAFT_KEY) return
-  const drafts = readDrafts()
-  drafts[CREATE_DRAFT_KEY] = {
-    form: { ...form },
-    savedAt: new Date().toISOString()
-  }
-  writeDrafts(drafts)
-}
-
-const restoreDraftIfNeeded = async () => {
-  const draft = readDrafts()[CREATE_DRAFT_KEY]
-  if (!draft?.form) {
-    draftSavingEnabled.value = true
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      '检测到该表单有未提交的草稿，是否恢复上次填写的内容？',
-      '恢复未提交草稿',
-      {
-        confirmButtonText: '恢复草稿',
-        cancelButtonText: '放弃草稿',
-        type: 'info',
-        showClose: false,
-        closeOnClickModal: false,
-        closeOnPressEscape: false
-      }
-    )
-    const restoredForm = defaultClientForm()
-    Object.keys(restoredForm).forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(draft.form, key)) {
-        restoredForm[key] = draft.form[key]
-      }
-    })
-    Object.assign(form, restoredForm)
-  } catch {
-    removeDraft(CREATE_DRAFT_KEY)
-  } finally {
-    draftSavingEnabled.value = true
-    await nextTick()
-    formRef.value?.clearValidate()
-  }
-}
-
-watch(form, saveActiveDraft, { deep: true, flush: 'sync' })
+const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
+  namespace: 'client', form, createDefault: defaultClientForm, formRef,
+  legacyStorageKeys: [`client_form_drafts:${currentUserId || 'anonymous'}`],
+})
 
 const subForm = reactive({
   id: null,
@@ -920,12 +850,10 @@ const fetchData = async () => {
 
 const handleAdd = async () => {
   dialogTitle.value = '新增客户'
-  draftSavingEnabled.value = false
-  activeDraftKey.value = CREATE_DRAFT_KEY
   resetForm()
   dialogVisible.value = true
   await nextTick()
-  await restoreDraftIfNeeded()
+  await beginDraft('create')
 }
 
 const getClientStatusLabel = (status) => {
@@ -952,10 +880,8 @@ const loadClientDetail = async (id) => {
   }
 }
 
-const handleEdit = (row) => {
+const handleEdit = async (row) => {
   dialogTitle.value = '编辑客户'
-  draftSavingEnabled.value = false
-  activeDraftKey.value = null
   resetForm()
   Object.assign(form, {
     id: row.id,
@@ -977,6 +903,8 @@ const handleEdit = (row) => {
     updated_at: row.updated_at || null,
   })
   dialogVisible.value = true
+  await nextTick()
+  await beginDraft(`edit:${row.id}`)
 }
 
 const handleSubmit = async () => {
@@ -1003,10 +931,7 @@ const handleSubmit = async () => {
           pagination.page = 1
           ElMessage.success('创建成功')
         }
-        if (!form.id) {
-          draftSavingEnabled.value = false
-          removeDraft(CREATE_DRAFT_KEY)
-        }
+        clearDraft()
         dialogVisible.value = false
         fetchData()
       } catch (error) {
@@ -1025,8 +950,7 @@ const resetForm = () => {
 }
 
 const handleDialogClose = () => {
-  draftSavingEnabled.value = false
-  activeDraftKey.value = null
+  pauseDraft()
   resetForm()
 }
 

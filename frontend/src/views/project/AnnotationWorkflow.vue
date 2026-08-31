@@ -46,7 +46,7 @@
       <el-empty v-if="!loading&&!rows.length" :description="projectId?'该项目暂无正式标注安排':'暂无正式标注安排'" />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.id?'编辑正式安排':'新增正式安排'" width="min(760px,calc(100vw - 32px))" top="5vh" class="workflow-dialog">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id?'编辑正式安排':'新增正式安排'" width="min(760px,calc(100vw - 32px))" top="5vh" class="workflow-dialog">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="标注项目" prop="projectId"><el-select v-model="form.projectId" filterable :disabled="Boolean(form.id)" placeholder="请选择归属项目" style="width:100%" @change="editorProjectChanged"><el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" /></el-select></el-form-item>
         <el-row :gutter="16">
@@ -62,7 +62,7 @@
         <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" />
       </el-form>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRow">保存</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 
@@ -79,6 +79,7 @@ import AnnotationCustomFieldInputs from '@/components/annotation/AnnotationCusto
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 
 const projects=ref([]),talents=ref([]),rows=ref([]),customFields=ref([]),editorFields=ref([]),projectId=ref(''),languageItemId=ref(''),roleFilter=ref(''),statusFilter=ref(''),keyword=ref(''),loading=ref(false),dialogVisible=ref(false),saving=ref(false),languageFilterVisible=ref(false),formRef=ref(),workflowTableRef=ref(null)

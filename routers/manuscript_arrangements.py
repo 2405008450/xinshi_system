@@ -47,14 +47,15 @@ from manuscript_service import (
     update_settlement,
 )
 from models import AppUser
-from routers.auth import get_current_user, require_module_access
+from routers.auth import get_current_user, require_any_role, require_module_access
 
 
 router = APIRouter(
     prefix="/manuscript-arrangements",
     tags=["manuscript-arrangements"],
     dependencies=[
-        Depends(require_module_access("projects:read", "projects:write"))
+        Depends(require_module_access("projects:read", "projects:write")),
+        Depends(require_any_role("项目经理", "项目助理")),
     ],
 )
 

@@ -37,23 +37,23 @@
           <template #title>新咨询管理</template>
         </el-menu-item>
 
-        <el-menu-item v-if="canViewProjects" index="/translation-details">
+        <el-menu-item index="/translation-details">
           <el-icon><Document /></el-icon>
           <template #title>笔译项目</template>
         </el-menu-item>
-        <el-menu-item v-if="canViewProjects" index="/interpretation-details">
+        <el-menu-item index="/interpretation-details">
           <el-icon><Headset /></el-icon>
           <template #title>口译项目</template>
         </el-menu-item>
-        <el-menu-item v-if="canViewAnnotation" index="/annotation-details">
+        <el-menu-item index="/annotation-details">
           <el-icon><EditPen /></el-icon>
           <template #title>标注项目</template>
         </el-menu-item>
-        <el-menu-item v-if="canViewProjects" index="/recruitment-details">
+        <el-menu-item index="/recruitment-details">
           <el-icon><UserFilled /></el-icon>
           <template #title>招聘项目</template>
         </el-menu-item>
-        <el-menu-item v-if="canViewProjects" index="/manuscript-arrangements">
+        <el-menu-item v-if="canViewManuscript" index="/manuscript-arrangements">
           <el-icon><Calendar /></el-icon>
           <template #title>稿件安排</template>
         </el-menu-item>
@@ -155,7 +155,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
-import { hasPermission } from '../utils/permission'
+import {
+  canViewClients,
+  canViewConsultations,
+  canViewManuscriptArrangements,
+  hasPermission
+} from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
@@ -212,20 +217,14 @@ const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value |
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
-/** 项目菜单按具体权限显示；标注账号权限可独立进入标注工作区。 */
+/** 项目相关扩展模块仍按具体权限显示；四个基础业务表对所有登录用户开放。 */
 const canViewProjects = computed(() => hasPermission('projects:read'))
-const canViewAnnotation = computed(() => hasPermission([
-  'projects:read',
-  'annotation_accounts:read',
-  'annotation_accounts:write'
-]))
-const showClients = computed(() => hasPermission('clients:read'))
-const showConsultations = computed(() => hasPermission('consultations:read'))
+const canViewManuscript = computed(() => canViewManuscriptArrangements())
+const showClients = computed(() => canViewClients())
+const showConsultations = computed(() => canViewConsultations())
 const showResourceManagement = computed(() => hasPermission(['talents:read', 'translators:read']))
 const showResourceRequests = computed(() => canViewProjects.value)
-const showBusinessGroup = computed(() => (
-  showConsultations.value || canViewProjects.value || canViewAnnotation.value
-))
+const showBusinessGroup = computed(() => true)
 const showResourceGroup = computed(() => (
   showClients.value || showResourceManagement.value || showResourceRequests.value
 ))

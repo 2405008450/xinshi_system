@@ -10,6 +10,7 @@
     </style>
   </head>
   <body>
+    <div id="app"></div>
     <script>
       (function () {
         var levels = [0.8, 0.9, 1, 1.1, 1.25]
@@ -20,6 +21,8 @@
         function clearZoom(el) {
           if (!el) return
           el.style.removeProperty('zoom')
+          el.style.removeProperty('transform')
+          el.style.removeProperty('transform-origin')
           el.style.removeProperty('width')
           el.style.removeProperty('height')
         }
@@ -28,7 +31,9 @@
           var body = document.body
           root.style.setProperty('--ui-zoom', String(level))
           clearZoom(root)
-          var target = body || root
+          clearZoom(body)
+          var target = document.getElementById('app')
+          if (!target) return
           if (level === 1) {
             clearZoom(target)
             return
@@ -45,7 +50,6 @@
         } catch (e) {}
       })()
     </script>
-    <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

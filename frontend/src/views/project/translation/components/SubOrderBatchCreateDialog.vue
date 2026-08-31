@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     :model-value="modelValue"
     class="suborder-batch-create-dialog"
     title="批量新增子订单"
@@ -90,7 +90,7 @@
         {{ mode === 'filenames' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
       </el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>
@@ -99,6 +99,7 @@ import { ElMessage } from 'element-plus'
 import { createSubOrdersBulk } from '@/api/subOrders'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
 
 const props = defineProps({

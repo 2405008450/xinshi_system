@@ -6,7 +6,7 @@
       <el-table-column label="详情" width="90" fixed="right" align="center"><template #default="{row}"><BusinessDetailPopover :row="row" title="试标记录详情"><template #content><el-descriptions :column="2" border size="small"><el-descriptions-item label="订单号">{{ row.projectOrderNo||'-' }}</el-descriptions-item><el-descriptions-item label="项目名称">{{ row.projectName||'-' }}</el-descriptions-item><el-descriptions-item label="客户简称">{{ row.clientShortName||'-' }}</el-descriptions-item><el-descriptions-item label="标注员">{{ row.personName||'-' }}（{{ row.resourceCode||'-' }}）</el-descriptions-item><el-descriptions-item label="轮次">第 {{ row.roundNo }} 轮</el-descriptions-item><el-descriptions-item label="平台账号">{{ trialAccountLabel(row) }}</el-descriptions-item><el-descriptions-item label="状态">{{ statusLabels[row.trialStatus]||'-' }}</el-descriptions-item><el-descriptions-item label="意愿" :span="2">{{ row.willingnessText||'-' }}</el-descriptions-item><el-descriptions-item label="结果">{{ resultLabels[row.trialResult]||'-' }}</el-descriptions-item><el-descriptions-item label="评语" :span="2">{{ row.resultNote||'-' }}</el-descriptions-item><el-descriptions-item v-for="field in customFields" :key="field.id" :label="field.fieldLabel" :span="field.dataType==='textarea'?2:1">{{ customText(row.customValues?.[field.id]) }}</el-descriptions-item></el-descriptions></template></BusinessDetailPopover></template></el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="120" fixed="right" align="center"><template #default="{row}"><PrimaryEditButton @click="openEditor(row)" /></template></el-table-column></el-table>
   </el-card>
-  <el-dialog v-model="dialogVisible" :title="form.id?'编辑试标记录':'新增试标记录'" width="min(760px,calc(100vw - 32px))" top="5vh" class="trial-dialog">
+  <DraggableFormDialog v-model="dialogVisible" :title="form.id?'编辑试标记录':'新增试标记录'" width="min(760px,calc(100vw - 32px))" top="5vh" class="trial-dialog">
     <el-form label-width="90px">
       <el-form-item label="标注项目" required><el-select v-model="form.projectId" filterable :disabled="Boolean(form.id)" placeholder="请选择归属项目" style="width:100%" @change="editorProjectChanged"><el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" /></el-select></el-form-item>
       <el-row :gutter="16">
@@ -23,7 +23,7 @@
       <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" />
     </el-form>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>
@@ -37,6 +37,7 @@ import AnnotationCustomFieldInputs from '@/components/annotation/AnnotationCusto
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { hasPermission } from '@/utils/permission'
 const projects=ref([]),talents=ref([]),rows=ref([]),customFields=ref([]),editorFields=ref([]),accountOptions=ref([]),projectId=ref(''),keyword=ref(''),statusFilter=ref(''),loading=ref(false),accountLoading=ref(false),dialogVisible=ref(false),saving=ref(false),trialTableRef=ref(null)

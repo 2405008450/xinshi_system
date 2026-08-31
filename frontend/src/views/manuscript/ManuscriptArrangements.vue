@@ -293,7 +293,7 @@
                   </el-tabs>
 
                   <div v-if="activeWorkbenchAssignment" class="legacy-field-grid">
-                    <label>字数与结算</label>
+                    <label class="is-required">字数与结算</label>
                     <div class="legacy-word-count-summary">
                       <span>{{ assignmentWordSummary(activeWorkbenchAssignment) }}</span>
                       <WordCountMatrixPopover
@@ -324,7 +324,9 @@
                       v-for="milestone in activeWorkbenchAssignment.milestones"
                       :key="`${activeWorkbenchAssignment.translator_id}-${milestone.sequence_no}`"
                     >
-                      <label>{{ workbenchMilestoneLabel(milestone) }}</label>
+                      <label :class="{ 'is-required': isRequiredFirstMilestone(activeWorkbenchAssignment, milestone) }">
+                        {{ workbenchMilestoneLabel(milestone) }}
+                      </label>
                       <el-date-picker
                         v-model="milestone.planned_at"
                         type="datetime"
@@ -335,7 +337,7 @@
                       />
                     </template>
 
-                    <label>译员结账方式</label>
+                    <label class="is-required">译员结账方式</label>
                     <el-input
                       v-model="activeWorkbenchAssignment.settlement_method"
                       clearable
@@ -344,7 +346,16 @@
                       placeholder="请输入结账方式，如：单结、月结"
                     />
 
-                    <label>单价</label>
+                    <label>译员计价方式</label>
+                    <el-input
+                      v-model="activeWorkbenchAssignment.translator_pricing_method"
+                      clearable
+                      :disabled="workbenchReadonly"
+                      maxlength="100"
+                      placeholder="如：按字数、按页数、按工作耗时"
+                    />
+
+                    <label class="is-required">单价</label>
                     <el-input-number
                       v-model="activeWorkbenchAssignment.translator_unit_price"
                       :min="0"
@@ -594,6 +605,19 @@
                 />
               </template>
             </el-table-column>
+            <el-table-column label="译员计价方式" width="150">
+              <template #default="{ row }">
+                <el-input
+                  v-model="row.translator_pricing_method"
+                  size="small"
+                  clearable
+                  maxlength="100"
+                  placeholder="如：按页数"
+                  style="width: 100%"
+                  :disabled="row.status === 'cancelled'"
+                />
+              </template>
+            </el-table-column>
             <el-table-column label="译员单价" width="110">
               <template #default="{ row }">
                 <el-input-number
@@ -636,9 +660,14 @@
             </el-table-column>
           </template>
           <template v-else>
-            <el-table-column label="译员结账方式" min-width="180">
+            <el-table-column label="译员结账方式" min-width="120">
               <template #default="{ row }">
-                <div>{{ settlementLabel(row) }}</div>
+                {{ settlementLabel(row) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="译员计价方式" min-width="180">
+              <template #default="{ row }">
+                <div>{{ pricingMethodLabel(row) }}</div>
                 <small>单价 {{ formatMoney(row.translator_unit_price) }} / 总价 {{ formatMoney(row.translator_total_price) }}</small>
               </template>
             </el-table-column>
@@ -871,9 +900,9 @@
                 <el-table-column label="译员交稿_全稿预定时间" width="205">
                   <template #default="{ row: item }">{{ formatDateTime(item.planned_delivery_at) }}</template>
                 </el-table-column>
-                <el-table-column label="译员结账方式" width="170">
+                <el-table-column label="译员计价方式" width="170">
                   <template #default="{ row: item }">
-                    <div>{{ settlementLabel(item) }}</div>
+                    <div>{{ pricingMethodLabel(item) }}</div>
                     <small>单价 {{ formatMoney(item.translator_unit_price) }} / 总价 {{ formatMoney(item.translator_total_price) }}</small>
                   </template>
                 </el-table-column>
@@ -965,6 +994,9 @@
         <el-table-column label="译员" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ translatorSummary(row) }}</template>
         </el-table-column>
+        <el-table-column label="译员计价方式" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ pricingMethodSummary(row) }}</template>
+        </el-table-column>
         <el-table-column label="人数" width="70" align="center">
           <template #default="{ row }">{{ activeAssignments(row).length }}</template>
         </el-table-column>
@@ -1036,7 +1068,7 @@
       </el-table>
     </el-card>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dispatchDialogVisible"
       :title="dispatchForm.id ? '编辑稿件安排草稿' : '新建稿件安排'"
       width="1120px"
@@ -1102,7 +1134,7 @@
 
           <el-row :gutter="16">
             <el-col :span="16">
-              <el-form-item label="字数与结算">
+              <el-form-item label="字数与结算" required>
                 <div class="dialog-word-count-summary">
                   <span>{{ assignmentWordSummary(assignment) }}</span>
                   <WordCountMatrixPopover
@@ -1122,7 +1154,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="译员结账方式">
+              <el-form-item label="译员结账方式" required>
                 <el-input
                   v-model="assignment.settlement_method"
                   clearable
@@ -1134,7 +1166,17 @@
           </el-row>
           <el-row :gutter="16">
             <el-col :span="8">
-              <el-form-item label="译员单价">
+              <el-form-item label="译员计价方式">
+                <el-input
+                  v-model="assignment.translator_pricing_method"
+                  clearable
+                  maxlength="100"
+                  placeholder="如：按字数、按页数、按工作耗时"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="译员单价" required>
                 <el-input-number v-model="assignment.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
               </el-form-item>
             </el-col>
@@ -1179,13 +1221,14 @@
                   v-model="milestone.planned_at"
                   type="datetime"
                   value-format="YYYY-MM-DDTHH:mm:ss"
-                  placeholder="选择预定时间"
+                  :placeholder="isRequiredFirstMilestone(assignment, milestone) ? '必填：选择预定时间' : '选择预定时间'"
+                  :aria-required="isRequiredFirstMilestone(assignment, milestone)"
                   style="width: 100%"
                 />
               </el-col>
               <el-col :span="2">
                 <el-button
-                  v-if="milestone.milestone_type !== 'final'"
+                  v-if="milestone.milestone_type !== 'final' && !isRequiredFirstMilestone(assignment, milestone)"
                   type="danger"
                   link
                   @click="removeMilestone(assignment, milestoneIndex)"
@@ -1228,7 +1271,7 @@
         <el-button :loading="saving" @click="saveDraft(false)">保存草稿</el-button>
         <el-button type="primary" :loading="saving" @click="saveDraft(true)">确认安排</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <el-dialog
       v-model="mailSendPreviewDialogVisible"
@@ -1319,7 +1362,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
+    <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
       <el-form :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
           <el-input :model-value="settlementForm.translator_name" disabled />
@@ -1347,6 +1390,14 @@
             placeholder="请输入结账方式，如：单结、月结"
           />
         </el-form-item>
+        <el-form-item label="译员计价方式">
+          <el-input
+            v-model="settlementForm.translator_pricing_method"
+            clearable
+            maxlength="100"
+            placeholder="如：按字数、按页数、按工作耗时"
+          />
+        </el-form-item>
         <el-form-item label="译员单价">
           <el-input-number v-model="settlementForm.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
         </el-form-item>
@@ -1361,7 +1412,7 @@
         <el-button @click="settlementDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="settlementSaving" @click="saveSettlement">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
   </div>
 </template>
@@ -1385,6 +1436,7 @@ import {
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import {
   createEmptyWordCountMatrix,
@@ -1806,6 +1858,7 @@ function buildInlineSettlement(dispatch) {
     milestones: item.milestones || [],
     settlement_method: settlementInputValue(item),
     custom_settlement_method: item.custom_settlement_method || '',
+    translator_pricing_method: item.translator_pricing_method || '',
     translator_unit_price:
       item.translator_unit_price === null ? null : Number(item.translator_unit_price),
     translator_total_price:
@@ -1830,6 +1883,7 @@ async function saveInlineSettlement(row) {
     await updateManuscriptSettlement(dispatch.id, row.id, {
       settlement_method: String(row.settlement_method || '').trim() || null,
       custom_settlement_method: null,
+      translator_pricing_method: String(row.translator_pricing_method || '').trim() || null,
       translator_unit_price: row.translator_unit_price,
       translator_total_price: row.translator_total_price
     })
@@ -1876,6 +1930,7 @@ const settlementForm = reactive({
   word_count_matrix: createEmptyWordCountMatrix(),
   settlement_method: null,
   custom_settlement_method: '',
+  translator_pricing_method: '',
   translator_unit_price: null,
   translator_total_price: null,
   remarks: ''
@@ -2057,6 +2112,10 @@ function settlementLabel(row) {
   return settlementInputValue(row) || '未填写'
 }
 
+function pricingMethodLabel(row) {
+  return String(row?.translator_pricing_method || '').trim() || '未填写'
+}
+
 function dispatchStatusMeta(status) {
   const map = {
     draft: { label: '草稿', type: 'info' },
@@ -2227,6 +2286,31 @@ function defaultMilestones() {
   ]
 }
 
+function isRequiredFirstMilestone(assignment, milestone) {
+  const firstPhase = [...(assignment?.milestones || [])]
+    .filter((item) => item.milestone_type === 'phase')
+    .sort((left, right) => left.sequence_no - right.sequence_no)[0]
+  return firstPhase === milestone
+}
+
+function normalizeAssignmentMilestones(milestones) {
+  const normalized = milestones?.length
+    ? milestones.map((milestone) => ({
+        milestone_type: milestone.milestone_type,
+        name: legacyMilestoneName(milestone),
+        sequence_no: milestone.sequence_no,
+        planned_at: milestone.planned_at
+      })).sort((left, right) => left.sequence_no - right.sequence_no)
+    : defaultMilestones()
+  if (!normalized.some((milestone) => milestone.milestone_type === 'phase')) {
+    normalized.unshift({ ...defaultMilestones()[0] })
+  }
+  normalized.forEach((milestone, index) => {
+    milestone.sequence_no = index + 1
+  })
+  return normalized
+}
+
 function defaultSubject() {
   if (!selectedProject.value) return ''
   const projectName = selectedProject.value.sub_project_name || selectedProject.value.project_name
@@ -2260,6 +2344,7 @@ function createAssignment(translator) {
     translation_scope: '',
     settlement_method: '',
     custom_settlement_method: '',
+    translator_pricing_method: '',
     translator_unit_price: null,
     translator_total_price: null,
     email_subject: defaultSubject(),
@@ -2393,6 +2478,17 @@ function translatorSummary(dispatch) {
   return names.length ? names.join('、') : '-'
 }
 
+function pricingMethodSummary(dispatch) {
+  const assignments = activeAssignments(dispatch)
+  if (!assignments.length) return '-'
+  const methods = assignments.map((item) => pricingMethodLabel(item))
+  const uniqueMethods = [...new Set(methods)]
+  if (uniqueMethods.length === 1) return uniqueMethods[0]
+  return assignments
+    .map((item) => `${item.translator_name_snapshot || '译员'}：${pricingMethodLabel(item)}`)
+    .join('；')
+}
+
 function sumField(dispatch, field, nullWhenEmpty = false) {
   const values = activeAssignments(dispatch)
     .map((item) => item[field])
@@ -2422,6 +2518,7 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
     translation_scope: item.translation_scope || '',
     settlement_method: settlementInputValue(item),
     custom_settlement_method: item.custom_settlement_method || '',
+    translator_pricing_method: item.translator_pricing_method || '',
     translator_unit_price:
       item.translator_unit_price === null ? null : Number(item.translator_unit_price),
     translator_total_price:
@@ -2429,14 +2526,7 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
     email_subject: item.email_subject || '',
     email_body: item.email_body || '',
     remarks: item.remarks || '',
-    milestones: item.milestones?.length
-      ? item.milestones.map((milestone) => ({
-          milestone_type: milestone.milestone_type,
-          name: legacyMilestoneName(milestone),
-          sequence_no: milestone.sequence_no,
-          planned_at: milestone.planned_at
-        }))
-      : defaultMilestones()
+    milestones: normalizeAssignmentMilestones(item.milestones)
   }))
   selectedTranslatorIds.value = dispatchForm.arrangements.map(
     (item) => item.translator_id
@@ -2546,6 +2636,26 @@ function validateDispatchForm() {
     return '多人派稿时，每位译员都必须填写需翻译部分'
   }
   for (const assignment of dispatchForm.arrangements) {
+    const translatorName = translatorById(assignment.translator_id)?.translator_name || '译员'
+    if (!hasWordCountValue(assignment.planned)) {
+      return `${translatorName}：字数与结算至少需要填写一个字数数值`
+    }
+    const firstPhase = [...assignment.milestones]
+      .filter((item) => item.milestone_type === 'phase')
+      .sort((left, right) => left.sequence_no - right.sequence_no)[0]
+    if (!firstPhase?.planned_at) {
+      return `${translatorName}：请填写译员交稿_预定时间1`
+    }
+    if (!String(assignment.settlement_method || '').trim()) {
+      return `${translatorName}：请填写译员结账方式`
+    }
+    if (
+      assignment.translator_unit_price === null
+      || assignment.translator_unit_price === undefined
+      || assignment.translator_unit_price === ''
+    ) {
+      return `${translatorName}：请填写单价`
+    }
     const dated = assignment.milestones
       .filter((item) => item.planned_at)
       .sort((a, b) => a.sequence_no - b.sequence_no)
@@ -2575,6 +2685,7 @@ function buildDispatchPayload() {
       translation_scope: item.translation_scope || null,
       settlement_method: String(item.settlement_method || '').trim() || null,
       custom_settlement_method: null,
+      translator_pricing_method: String(item.translator_pricing_method || '').trim() || null,
       translator_unit_price: item.translator_unit_price,
       translator_total_price: item.translator_total_price,
       email_subject: item.email_subject || null,
@@ -2744,6 +2855,7 @@ function openSettlementDialog(dispatch, assignment) {
     word_count_matrix: createEmptyWordCountMatrix(),
     settlement_method: settlementInputValue(assignment),
     custom_settlement_method: assignment.custom_settlement_method || '',
+    translator_pricing_method: assignment.translator_pricing_method || '',
     translator_unit_price:
       assignment.translator_unit_price === null ? null : Number(assignment.translator_unit_price),
     translator_total_price:
@@ -2766,6 +2878,7 @@ async function saveSettlement() {
       {
         settlement_method: String(settlementForm.settlement_method || '').trim() || null,
         custom_settlement_method: null,
+        translator_pricing_method: String(settlementForm.translator_pricing_method || '').trim() || null,
         translator_unit_price: settlementForm.translator_unit_price,
         translator_total_price: settlementForm.translator_total_price,
         remarks: settlementForm.remarks || null
@@ -3221,6 +3334,12 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-regular);
   font-size: 13px;
   word-break: break-word;
+}
+
+.legacy-field-grid > label.is-required::before {
+  margin-right: 4px;
+  color: var(--el-color-danger);
+  content: '*';
 }
 
 .legacy-field-grid > :not(label),

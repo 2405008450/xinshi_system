@@ -4,7 +4,7 @@
       <span class="dialog-field-search-header__title">{{ title }}</span>
       <span v-if="subtitle" class="dialog-field-search-header__subtitle">{{ subtitle }}</span>
     </div>
-    <div class="dialog-field-search-header__search">
+    <div class="dialog-field-search-header__search" @mousedown.stop>
       <el-autocomplete
         ref="autocompleteRef"
         :model-value="modelValue"

@@ -49,6 +49,7 @@
           :count="advancedCount"
           popper-class="interpretation-advanced-popover"
           @clear="clearAdvanced"
+          @reset="resetSearch"
         >
           <CompactFilterGrid
             :fields="interpretationAdvancedFilterFields"
@@ -143,7 +144,7 @@
                   <el-descriptions-item label="客户全称">{{ textValue(detailRow(row).clientFullName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户领域">{{ textValue(detailRow(row).clientDomain) }}</el-descriptions-item>
                   <el-descriptions-item label="现客户经理">{{ textValue(detailRow(row).currentClientManager) }}</el-descriptions-item>
-                  <el-descriptions-item label="负责人联系方式">{{ textValue(detailRow(row).managerContact) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户经理联系方式">{{ textValue(detailRow(row).managerContact) }}</el-descriptions-item>
                   <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="detailRow(row).contactName" :display-value="detailRow(row).contactName || detailRow(row).subClientContact" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'contactName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="客户单号/项目标识" :span="2"><InlineTextField :model-value="detailRow(row).customerOrderNo" :editable="canWrite && !deleteMode" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveDetailTextField(row, 'customerOrderNo', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="项目时间" :span="2">{{ timeRangesText(detailRow(row).timeRanges) }}</el-descriptions-item>
@@ -321,6 +322,7 @@
         <template #default="{ row }">
           <ProjectListRowActions
             v-if="canWrite"
+            :start-request-label="resourceRequestActionLabel(row.id)"
             @edit="handleEdit(row)"
             @start-request="startResourceRequest(row)"
           />
@@ -339,12 +341,12 @@
       @current-change="fetchData"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       class="interpretation-editor-dialog"
       width="min(1080px, calc(100vw - 32px))"
       top="5vh"
-      @closed="resetForm"
+      @closed="onEditorClosed"
     >
       <template #header>
         <DialogFieldSearchHeader
@@ -358,19 +360,14 @@
       </template>
       <div ref="dialogBodyRef" class="editor-body">
         <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-          <section class="form-section">
-            <h3>基础与客户</h3>
+          <section class="form-section interpretation-key-fields">
+            <div class="interpretation-key-fields__header">
+              <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
+              <el-tag type="danger" effect="plain">8 项必填</el-tag>
+            </div>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12">
-                <el-form-item label="项目状态" prop="projectStatus">
-                  <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="16">
-              <el-col :span="24">
-                <el-form-item label="项目名称">
+              <el-col :xs="24">
+                <el-form-item label="项目名称" prop="projectName">
                   <GeneratedProjectNameInput
                     v-model="form.projectName"
                     placeholder="可手工填写，或根据时间、地点、方向和类型生成"
@@ -383,26 +380,14 @@
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
-                <el-form-item label="项目类型">
+                <el-form-item label="项目类型" prop="projectTypes">
                   <el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width: 100%">
                     <el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
                   </el-select>
                 </el-form-item>
               </el-col>
-            </el-row>
-            <el-form-item label="具体任务">
-              <el-input
-                v-model="form.taskDescription"
-                type="textarea"
-                :autosize="{ minRows: 4, maxRows: 10 }"
-                placeholder="请输入具体任务，可填写详细的工作内容和要求"
-                resize="vertical"
-              />
-            </el-form-item>
-            <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
-            <el-row :gutter="16">
               <el-col :xs="24" :md="12">
-                <el-form-item label="客户简称" data-field-key="clientShortName">
+                <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
                     <el-autocomplete
                       v-model="form.clientShortName"
@@ -427,6 +412,59 @@
                   </div>
                 </el-form-item>
               </el-col>
+            </el-row>
+            <el-form-item label="具体任务" prop="taskDescription">
+              <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
+            </el-form-item>
+            <div class="section-title-row"><h3>预定时间</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
+            <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card">
+              <div class="repeat-title">时间段 {{ index + 1 }}<el-button v-if="form.timeRanges.length > 1" link type="danger" @click="form.timeRanges.splice(index, 1)">删除</el-button></div>
+              <el-row :gutter="12">
+                <el-col :xs="24" :md="12"><el-form-item label="预定开始" :prop="`timeRanges.${index}.scheduledStart`" :rules="requiredScheduledStartRule"><el-date-picker v-model="item.scheduledStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="预定结束" :prop="`timeRanges.${index}.scheduledEnd`" :rules="requiredScheduledEndRule"><el-date-picker v-model="item.scheduledEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
+              </el-row>
+            </div>
+            <el-form-item label="地点" prop="locations" class="composite-required-item">
+              <div class="location-panel">
+                <div class="location-panel__header">
+                  <div><h4>项目地点</h4><div class="location-panel__hint">默认保留 1 个地点，最多可添加 {{ MAX_LOCATIONS }} 个</div></div>
+                  <el-button type="primary" plain :icon="Plus" :disabled="form.locations.length >= MAX_LOCATIONS" @click="addLocation">增加地点</el-button>
+                </div>
+                <el-row :gutter="12" class="location-list">
+                  <el-col v-for="(location, index) in form.locations" :key="index" :xs="24" :md="12">
+                    <div class="location-item">
+                      <div class="location-item__header"><span>地点 {{ index + 1 }}</span><el-button v-if="form.locations.length > 1" link type="danger" @click="removeLocation(index)">删除</el-button></div>
+                      <el-input v-model="form.locations[index]" :aria-label="`项目地点 ${index + 1}`" placeholder="请输入项目地点" clearable />
+                    </div>
+                  </el-col>
+                </el-row>
+              </div>
+            </el-form-item>
+            <el-form-item label="口译方向" prop="languageDirections" class="composite-required-item">
+              <InterpretationDirectionEditor
+                v-model="form.languageDirections"
+                :languages="selectableLanguages"
+                :required-total="directionRequiredTotal"
+                @manage-languages="openLanguageManager"
+                @create-language="addLanguage"
+              />
+            </el-form-item>
+          </section>
+
+          <section class="form-section">
+            <h3>基础与客户</h3>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="项目状态" prop="projectStatus">
+                  <el-select v-model="form.projectStatus" style="width: 100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
+            <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><ReadonlyField :model-value="form.currentClientManager" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
@@ -437,84 +475,12 @@
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="负责人联系方式"><ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
+              <el-col v-if="showManagerContactInput" :xs="24" :md="8"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
             </el-row>
-          </section>
-
-          <section class="form-section">
-            <div class="section-title-row"><h3>时间、地点与命名</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
-            <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card">
-              <div class="repeat-title">时间段 {{ index + 1 }}<el-button v-if="form.timeRanges.length > 1" link type="danger" @click="form.timeRanges.splice(index, 1)">删除</el-button></div>
-              <el-row :gutter="12">
-                <el-col :xs="24" :md="12"><el-form-item label="预定开始"><el-date-picker v-model="item.scheduledStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="预定结束"><el-date-picker v-model="item.scheduledEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
-              </el-row>
-            </div>
-            <div class="location-panel">
-              <div class="location-panel__header">
-                <div>
-                  <h4>项目地点</h4>
-                  <div class="location-panel__hint">默认保留 1 个地点，最多可添加 {{ MAX_LOCATIONS }} 个</div>
-                </div>
-                <el-button
-                  type="primary"
-                  plain
-                  :icon="Plus"
-                  :disabled="form.locations.length >= MAX_LOCATIONS"
-                  @click="addLocation"
-                >
-                  增加地点
-                </el-button>
-              </div>
-              <el-row :gutter="12" class="location-list">
-                <el-col v-for="(location, index) in form.locations" :key="index" :xs="24" :md="12">
-                  <div class="location-item">
-                    <div class="location-item__header">
-                      <span>地点 {{ index + 1 }}</span>
-                      <el-button
-                        v-if="form.locations.length > 1"
-                        link
-                        type="danger"
-                        @click="removeLocation(index)"
-                      >
-                        删除
-                      </el-button>
-                    </div>
-                    <el-input
-                      v-model="form.locations[index]"
-                      :aria-label="`项目地点 ${index + 1}`"
-                      placeholder="请输入项目地点"
-                      clearable
-                    />
-                  </div>
-                </el-col>
-              </el-row>
-            </div>
-            <div class="section-title-row">
-              <h4>口译方向 <el-tag v-if="directionRequiredTotal" size="small" type="info">合计 {{ directionRequiredTotal }} 人</el-tag></h4>
-              <div>
-                <el-button link type="primary" @click="openLanguageManager">管理语种</el-button>
-                <el-button link type="primary" @click="addLanguage">新增语种</el-button>
-                <el-button type="primary" plain @click="addDirection">增加方向</el-button>
-              </div>
-            </div>
-            <div v-for="(item, index) in form.languageDirections" :key="index" class="direction-row">
-              <el-select v-model="item.sourceLanguageId" filterable placeholder="语种 A">
-                <el-option v-for="lang in selectableLanguages" :key="lang.id" :label="lang.label" :value="lang.id" :disabled="lang.isActive === false"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag><el-tag v-if="lang.isActive === false" size="small" type="info" class="new-language-tag">已停用</el-tag></el-option>
-              </el-select>
-              <span class="direction-arrow">↔</span>
-              <el-select v-model="item.targetLanguageId" filterable placeholder="语种 B">
-                <el-option v-for="lang in selectableLanguages" :key="lang.id" :label="lang.label" :value="lang.id" :disabled="lang.isActive === false"><span>{{ lang.label }}</span><el-tag v-if="lang.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag><el-tag v-if="lang.isActive === false" size="small" type="info" class="new-language-tag">已停用</el-tag></el-option>
-              </el-select>
-              <el-input-number v-model="item.requiredCount" :min="1" :precision="0" class="direction-count" placeholder="需求人数" />
-              <el-button link type="danger" @click="form.languageDirections.splice(index, 1)">删除</el-button>
-            </div>
           </section>
 
           <section class="form-section">
@@ -568,7 +534,7 @@
               <div class="subject-preview-field">
                 <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="3" />
                 <div class="subject-preview-toolbar">
-                  <span>按“标题前缀、订单号、客户简称、负责人联系方式、客户单号/标识、项目名称”顺序生成</span>
+                  <span>按“标题前缀、订单号、客户简称、客户经理联系方式、客户单号/标识、项目名称”顺序生成</span>
                   <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
                 </div>
               </div>
@@ -582,7 +548,7 @@
         <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <el-dialog
       v-model="languageManagerVisible"
@@ -645,6 +611,7 @@ import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
@@ -654,9 +621,12 @@ import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import InlineTextField from '@/components/common/InlineTextField.vue'
+import InterpretationDirectionEditor from './components/InterpretationDirectionEditor.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useFormDraft } from '@/composables/useFormDraft'
+import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
@@ -682,6 +652,7 @@ const dialogTitle = ref('新增口译项目')
 const formRef = ref(null)
 const route = useRoute()
 const router = useRouter()
+const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLabel } = useResourceRequestStatuses('interpretation')
 const startResourceRequest = (row) => {
   if (!row.languageDirectionCountsComplete) {
     ElMessage.warning('该项目的语言方向人数尚未补齐，请先编辑项目后再发起需求')
@@ -725,6 +696,7 @@ const projectTypeOptions = [
   { value: 'exhibition_escort', label: '展会陪同口译' },
   { value: 'escort', label: '陪同口译' },
   { value: 'small_business_meeting', label: '小型商务会议口译' },
+  { value: 'small_non_business_meeting', label: '小型（非商务）会议口译' },
   { value: 'consecutive', label: '会议交传口译' },
   { value: 'simultaneous', label: '会议同传口译' },
   { value: 'online_meeting', label: '线上会议口译' },
@@ -760,7 +732,7 @@ const tableColumns = [
   { key: 'clientCode', label: '客户编号', width: 100 },
   { key: 'clientFullName', label: '客户全称', minWidth: 150 },
   { key: 'clientDomain', label: '客户领域', minWidth: 120 },
-  { key: 'managerContact', label: '负责人联系方式', minWidth: 130 },
+  { key: 'managerContact', label: '客户经理联系方式', minWidth: 150 },
   { key: 'subClientContact', label: '子客户/联系人', minWidth: 125 },
   { key: 'customerOrderNo', label: '客户单号/项目标识', minWidth: 140 },
   { key: 'timeRanges', label: '项目时间', minWidth: 200 },
@@ -870,6 +842,7 @@ const headerFilterDefinition = (key) => {
 
 const MAX_LOCATIONS = 4
 const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '' })
+const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: null })
 const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
@@ -880,17 +853,56 @@ const defaultForm = () => ({
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
   interpretationDomain: '', interpretationContent: '', filePath: '', quotationPath: '', contractPath: '',
   clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
-  timeRanges: [emptyTimeRange()], languageDirections: [], interpreterAssignments: [], roleAssignments: [],
+  timeRanges: [emptyTimeRange()], languageDirections: [emptyLanguageDirection()], interpreterAssignments: [], roleAssignments: [],
 })
 const form = reactive(defaultForm())
+const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
+  namespace: 'interpretation-project',
+  form,
+  createDefault: defaultForm,
+  formRef,
+  applyDraft: (draft) => {
+    Object.assign(form, defaultForm(), draft)
+    nameManuallyEdited.value = Boolean(draft.projectName)
+  },
+})
+const showManagerContactInput = computed(() => (
+  !form.clientId
+  && Boolean(form.clientShortName?.trim() || form.clientFullName?.trim())
+))
 const directionRequiredTotal = computed(() => form.languageDirections.reduce(
   (total, item) => total + (Number.isInteger(item.requiredCount) && item.requiredCount > 0 ? item.requiredCount : 0),
   0,
 ))
-const rules = { projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }] }
+const requiredTextValidator = (message) => (_rule, value, callback) => {
+  if (!String(value || '').trim()) return callback(new Error(message))
+  callback()
+}
+const validateLocations = (_rule, value, callback) => {
+  if (!(value || []).some((item) => String(item || '').trim())) return callback(new Error('请至少填写一个地点'))
+  callback()
+}
+const validateLanguageDirections = (_rule, value, callback) => {
+  const directions = value || []
+  if (!directions.length) return callback(new Error('请至少添加一个口译方向'))
+  if (directions.some((item) => item.languageIds.length < 2 || item.languageIds.length > 5 || item.languageIds.some((id) => !id))) return callback(new Error('每个口译方向必须完整选择 2 至 5 个语种'))
+  if (directions.some((item) => !Number.isInteger(item.requiredCount) || item.requiredCount < 1)) return callback(new Error('请填写每个口译方向的需求人数'))
+  callback()
+}
+const requiredScheduledStartRule = [{ required: true, message: '请选择预定开始时间', trigger: 'change' }]
+const requiredScheduledEndRule = [{ required: true, message: '请选择预定结束时间', trigger: 'change' }]
+const rules = {
+  projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
+  projectTypes: [{ type: 'array', required: true, min: 1, message: '请至少选择一个项目类型', trigger: 'change' }],
+  taskDescription: [{ validator: requiredTextValidator('请输入具体任务'), trigger: ['blur', 'change'] }],
+  clientShortName: [{ validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  locations: [{ validator: validateLocations, trigger: 'change' }],
+  languageDirections: [{ validator: validateLanguageDirections, trigger: 'change' }],
+  projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }],
+}
 
 const selectedLanguageIds = computed(() => new Set(
-  form.languageDirections.flatMap((item) => [item.sourceLanguageId, item.targetLanguageId]).filter(Boolean)
+  form.languageDirections.flatMap((item) => item.languageIds).filter(Boolean)
 ))
 const selectableLanguages = computed(() => languages.value.filter(
   (item) => item.isActive !== false || selectedLanguageIds.value.has(item.id)
@@ -1021,6 +1033,12 @@ const focusRouteProject = async () => {
   searchForm.keyword = detail.orderNo || ''
   pagination.page = 1
   await fetchData()
+  if (route.query.openEditor === '1') {
+    await handleEdit(detail)
+    const query = { ...route.query }
+    delete query.openEditor
+    await router.replace({ query })
+  }
 }
 
 const fetchClientSuggestions = fetchProjectClientSuggestions
@@ -1061,7 +1079,6 @@ const addLocation = () => {
 const removeLocation = (index) => {
   if (form.locations.length > 1) form.locations.splice(index, 1)
 }
-const addDirection = () => form.languageDirections.push({ sourceLanguageId: '', targetLanguageId: '', requiredCount: null })
 const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
   Number(a.isActive === false) - Number(b.isActive === false)
@@ -1137,9 +1154,8 @@ const normalizedNestedPayload = () => ({
     actualStart: item.actualStart || null,
     actualEnd: item.actualEnd || null,
   })),
-  languageDirections: form.languageDirections.filter((item) => item.sourceLanguageId || item.targetLanguageId || item.requiredCount).map((item) => ({
-    sourceLanguageId: item.sourceLanguageId,
-    targetLanguageId: item.targetLanguageId,
+  languageDirections: form.languageDirections.filter((item) => item.languageIds.some(Boolean) || item.requiredCount).map((item) => ({
+    languageIds: item.languageIds,
     requiredCount: item.requiredCount,
   })),
   interpreterAssignments: form.interpreterAssignments.filter((item) => item.translatorId).map((item) => ({
@@ -1151,10 +1167,10 @@ const normalizedNestedPayload = () => ({
 const validateNested = (nested) => {
   if (form.timeRanges.some((item) => (item.scheduledStart || item.scheduledEnd) && (!item.scheduledStart || !item.scheduledEnd))) throw new Error('每个时间段必须同时填写预定开始和预定结束')
   if (nested.timeRanges.some((item) => new Date(item.scheduledEnd) < new Date(item.scheduledStart))) throw new Error('预定结束时间不能早于预定开始时间')
-  if (form.languageDirections.some((item) => (item.sourceLanguageId || item.targetLanguageId || item.requiredCount) && (!item.sourceLanguageId || !item.targetLanguageId))) throw new Error('每个口译方向必须选择两个语种')
+  if (form.languageDirections.some((item) => (item.languageIds.some(Boolean) || item.requiredCount) && (item.languageIds.length < 2 || item.languageIds.length > 5 || item.languageIds.some((id) => !id)))) throw new Error('每个口译方向必须完整选择 2 至 5 个语种')
   if (nested.languageDirections.some((item) => !Number.isInteger(item.requiredCount) || item.requiredCount < 1)) throw new Error('每个口译方向都必须填写大于等于 1 的需求人数')
-  if (nested.languageDirections.some((item) => item.sourceLanguageId === item.targetLanguageId)) throw new Error('口译方向的两个语种不能相同')
-  const directionKeys = nested.languageDirections.map((item) => [item.sourceLanguageId, item.targetLanguageId].sort().join(':'))
+  if (nested.languageDirections.some((item) => new Set(item.languageIds).size !== item.languageIds.length)) throw new Error('同一口译方向内的语种不能重复')
+  const directionKeys = nested.languageDirections.map((item) => [...item.languageIds].sort().join(':'))
   if (new Set(directionKeys).size !== directionKeys.length) throw new Error('同一双向口译方向不能重复')
   const translatorIds = nested.interpreterAssignments.map((item) => item.translatorId)
   if (new Set(translatorIds).size !== translatorIds.length) throw new Error('同一译员不能重复安排')
@@ -1174,7 +1190,7 @@ const hasCompleteProjectNameSource = (payload) => (
   && payload.timeRanges.length > 0
   && payload.languageDirections.length > 0
   && payload.timeRanges.every((item) => item.scheduledStart && item.scheduledEnd)
-  && payload.languageDirections.every((item) => item.sourceLanguageId && item.targetLanguageId)
+  && payload.languageDirections.every((item) => item.languageIds.length >= 2 && item.languageIds.every(Boolean))
 )
 const previewProjectName = async ({ automatic = false } = {}) => {
   const payload = projectNamePayload()
@@ -1212,6 +1228,7 @@ const buildPayload = () => {
     clientName: form.clientFullName?.trim() || null,
     clientShortName: form.clientShortName?.trim() || null,
     clientCode: form.clientCode?.trim() || null,
+    managerContact: form.managerContact?.trim() || null,
     contactName: form.contactName?.trim() || null,
     customerOrderNo: form.customerOrderNo?.trim() || null,
     projectStatus: form.projectStatus,
@@ -1273,7 +1290,9 @@ const assignForm = (detail) => {
     locations: detail.locations?.length ? detail.locations.slice(0, MAX_LOCATIONS) : [''],
     customerConsultationTime: detail.customerConsultationTime || '', customerConfirmationTime: detail.customerConfirmationTime || '',
     timeRanges: detail.timeRanges?.length ? detail.timeRanges.map((item) => ({ scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, actualStart: item.actualStart || '', actualEnd: item.actualEnd || '' })) : [emptyTimeRange()],
-    languageDirections: (detail.languageDirections || []).map((item) => ({ sourceLanguageId: item.sourceLanguageId, targetLanguageId: item.targetLanguageId, requiredCount: item.requiredCount ?? null })),
+    languageDirections: detail.languageDirections?.length
+      ? detail.languageDirections.map((item) => ({ languageIds: item.languageIds?.length ? item.languageIds : [item.sourceLanguageId, item.targetLanguageId], requiredCount: item.requiredCount ?? null }))
+      : [emptyLanguageDirection()],
     interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
     roleAssignments: detail.roleAssignments || [],
   })
@@ -1281,7 +1300,7 @@ const assignForm = (detail) => {
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
-const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll() }
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
 const handleEdit = async (row) => {
   const detail = await loadDetail(row.id, true)
   if (!detail) return
@@ -1289,12 +1308,15 @@ const handleEdit = async (row) => {
   assignForm(detail)
   dialogVisible.value = true
   await resetEditorScroll()
+  await beginDraft(`edit:${detail.id}`)
 }
 const handleSubmit = async (sendAfterSave = false) => {
   if (submitLocked) return
   submitLocked = true
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) {
+    await nextTick()
+    dialogBodyRef.value?.querySelector('.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     submitLocked = false
     return
   }
@@ -1307,6 +1329,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     if (form.id) delete detailCache[form.id]
     if (saved?.id) detailCache[saved.id] = saved
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
+    clearDraft()
     dialogVisible.value = false
     if (sendAfterSave) {
       mailProjectId.value = saved?.id || form.id
@@ -1345,6 +1368,7 @@ const changeProjectStatus = async (row, value) => {
   }
 }
 const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate(); clearFieldSearch() }
+const onEditorClosed = () => { pauseDraft(); resetForm() }
 
 watch(
   () => [form.projectTypes, form.locations, form.timeRanges, form.languageDirections],
@@ -1368,7 +1392,15 @@ const projectPath = async (row) => (await loadDetail(row.id))?.filePath || ''
 const openProjectPath = async (row) => openPathValue(await projectPath(row))
 const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
-onMounted(async () => { await loadReferenceData(); await fetchData(); await focusRouteProject() })
+onMounted(async () => { await Promise.all([loadReferenceData(), loadResourceRequestStatuses()]); await fetchData(); await focusRouteProject() })
+watch(
+  () => [route.query.projectId, route.query.openEditor],
+  ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {
+    if (projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
+      void focusRouteProject()
+    }
+  }
+)
 onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 </script>
 
@@ -1378,7 +1410,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .client-suggestion { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; line-height: 1.45; }
 .client-suggestion__meta { overflow: hidden; color: var(--el-text-color-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.card-header, .header-actions, .advanced-header, .section-title-row, .repeat-title, .order-cell, .direction-row { display: flex; align-items: center; }
+.card-header, .header-actions, .advanced-header, .section-title-row, .repeat-title, .order-cell { display: flex; align-items: center; }
 .card-header, .advanced-header, .section-title-row, .repeat-title { justify-content: space-between; }
 .header-actions { display: flex; gap: 8px; }
 .search-form { margin-bottom: 4px; }
@@ -1395,6 +1427,12 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .form-section { margin-bottom: 18px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-blank); }
 .form-section h3 { margin: 0 0 16px; font-size: 16px; }
 .form-section h4 { margin: 0; font-size: 15px; }
+.interpretation-key-fields { border-color: var(--el-color-primary-light-7); background: var(--el-color-primary-light-9); }
+.interpretation-key-fields__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.interpretation-key-fields__header h3 { margin-bottom: 0; }
+.interpretation-key-fields__header p { margin: 3px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.composite-required-item :deep(.el-form-item__content), .direction-panel { width: 100%; }
+.composite-required-item .location-panel { width: 100%; margin-top: 0; }
 .section-title-row { margin-bottom: 12px; }
 .section-title-row h3 { margin-bottom: 0; }
 .repeat-card { margin-bottom: 12px; padding: 12px 12px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
@@ -1409,7 +1447,6 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .interpreter-requirement-group { margin: 4px 0 16px; padding: 14px 14px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
 .requirement-group-title { margin-bottom: 12px; color: var(--el-text-color-regular); font-weight: 600; }
 .repeat-title { margin-bottom: 8px; color: var(--el-text-color-regular); font-weight: 600; }
-.direction-row { gap: 10px; margin-bottom: 10px; }
 .project-name-cell { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .status-switch-tag.el-tag { display: inline-flex; min-width: 92px; max-width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity .15s ease; }
 .status-switch-tag :deep(.el-tag__content) { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
@@ -1419,9 +1456,6 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .status-switch-tag.is-updating { pointer-events: none; opacity: .55; }
 .status-option-row { display: inline-flex; width: 100%; align-items: center; gap: 8px; }
 .status-current-icon { color: var(--el-color-primary); }
-.direction-row .el-select { flex: 1; }
-.direction-count { width: 150px; flex: 0 0 150px; }
-.direction-arrow { flex: 0 0 auto; color: var(--el-color-primary); font-size: 20px; font-weight: 700; }
 .soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
 .subject-preview-field { width: 100%; min-width: 0; }
 .subject-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
@@ -1462,8 +1496,5 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
   .interpretation-card .search-form .el-input, .interpretation-card .search-form .el-select { width: 100% !important; }
   .location-panel__header { align-items: flex-start; flex-direction: column; }
   .location-panel__header .el-button { width: 100%; }
-  .direction-row { align-items: stretch; flex-direction: column; }
-  .direction-arrow { text-align: center; transform: rotate(90deg); }
-  .direction-count { width: 100%; flex-basis: auto; }
 }
 </style>

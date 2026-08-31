@@ -323,6 +323,27 @@ class InterpretationProjectLanguageDirection(Base):
     target_language: Mapped[InterpretationLanguage] = relationship(
         InterpretationLanguage, foreign_keys=[target_language_id]
     )
+    extra_languages: Mapped[list["InterpretationProjectDirectionExtraLanguage"]] = relationship(
+        back_populates="direction",
+        cascade="all, delete-orphan",
+        order_by="InterpretationProjectDirectionExtraLanguage.sequence_no",
+    )
+
+    @property
+    def language_ids(self) -> list[uuid.UUID]:
+        return [
+            self.source_language_id,
+            self.target_language_id,
+            *(item.language_id for item in self.extra_languages),
+        ]
+
+    @property
+    def language_labels(self) -> list[str]:
+        return [
+            self.source_language_label,
+            self.target_language_label,
+            *(item.language_label for item in self.extra_languages),
+        ]
 
     @property
     def source_language_label(self) -> str:
@@ -335,7 +356,47 @@ class InterpretationProjectLanguageDirection(Base):
     @property
     def display(self) -> str:
         count_text = f"{self.required_count}人" if self.required_count else "人数待补充"
-        return f"{self.source_language_label} ↔ {self.target_language_label}（{count_text}）"
+        return f"{' ↔ '.join(self.language_labels)}（{count_text}）"
+
+
+class InterpretationProjectDirectionExtraLanguage(Base):
+    __tablename__ = "interpretation_project_direction_extra_language"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "direction_id", "sequence_no",
+            name="interpretation_project_direction_extra_language_pkey",
+        ),
+        ForeignKeyConstraint(
+            ["direction_id"], ["interpretation_project_language_direction.id"],
+            ondelete="CASCADE", name="fk_interpretation_direction_extra_direction",
+        ),
+        ForeignKeyConstraint(
+            ["language_id"], ["interpretation_language.id"],
+            ondelete="RESTRICT", name="fk_interpretation_direction_extra_language",
+        ),
+        UniqueConstraint(
+            "direction_id", "language_id",
+            name="uq_interpretation_direction_extra_language",
+        ),
+        CheckConstraint(
+            "sequence_no BETWEEN 3 AND 5",
+            name="ck_interpretation_direction_extra_sequence",
+        ),
+        Index("ix_interpretation_direction_extra_language", "language_id"),
+    )
+
+    direction_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+
+    direction: Mapped[InterpretationProjectLanguageDirection] = relationship(
+        back_populates="extra_languages"
+    )
+    language: Mapped[InterpretationLanguage] = relationship(InterpretationLanguage)
+
+    @property
+    def language_label(self) -> str:
+        return self.language.label
 
 
 class InterpretationProjectInterpreter(Base):

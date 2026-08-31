@@ -445,6 +445,7 @@ FIELD_DESCRIPTIONS = {
     "count_value": "字数统计值",
     "translation_scope": "翻译范围说明",
     "custom_settlement_method": "自定义结算方式",
+    "translator_pricing_method": "译员计价方式",
     "translator_unit_price": "译员单价",
     "translator_total_price": "译员总价",
     "milestone_type": "节点类型：阶段/最终",

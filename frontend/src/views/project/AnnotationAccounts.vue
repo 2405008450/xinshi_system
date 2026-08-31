@@ -183,12 +183,12 @@
     <div v-if="viewMode==='assets'" class="pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="reload" @size-change="pageSizeChanged" /></div>
   </el-card>
 
-  <el-dialog v-model="platformDialog" :title="platformForm.id ? '编辑平台' : '新增平台'" width="min(680px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
+  <DraggableFormDialog v-model="platformDialog" :title="platformForm.id ? '编辑平台' : '新增平台'" width="min(680px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
     <el-form label-width="100px"><el-form-item label="平台名称"><el-input v-model="platformForm.platformName" /></el-form-item><el-form-item label="平台链接" required><el-input v-model="platformForm.platformUrl" /></el-form-item><el-form-item label="登录说明"><el-input v-model="platformForm.loginNotes" type="textarea" :rows="4" /></el-form-item><el-form-item label="启用"><el-switch v-model="platformForm.isActive" /></el-form-item></el-form>
     <template #footer><el-button @click="platformDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePlatform">保存</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 
-  <el-dialog v-model="accountDialog" title="编辑账号" width="min(880px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body destroy-on-close @closed="cleanupAccountImageDrafts">
+  <DraggableFormDialog v-model="accountDialog" title="编辑账号" width="min(880px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body destroy-on-close @closed="cleanupAccountImageDrafts">
     <el-form label-width="110px"><el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="平台" required><el-select v-model="accountForm.platformId" style="width:100%"><el-option v-for="item in platforms" :key="item.id" :label="platformName(item)" :value="item.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="账号昵称"><el-input v-model="accountForm.nickname" /></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="登录账号"><el-input v-model="accountForm.loginAccount" autocomplete="off" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="密码"><el-input v-model="accountForm.password" type="text" autocomplete="off" /></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="所属项目"><el-select v-model="accountForm.projectId" clearable filterable style="width:100%" @change="accountFormProjectChanged"><el-option v-for="item in accountFormProjects" :key="item.id" :label="item.projectName || item.orderNo || '未命名'" :value="item.id" /></el-select></el-form-item></el-col>
@@ -202,7 +202,7 @@
       <el-form-item label="备注"><el-input v-model="accountForm.remarks" type="textarea" :rows="3" /></el-form-item>
       <template v-if="accountForm.projectId && accountFormCustomFields.length"><el-divider content-position="left">项目账号字段</el-divider><AnnotationCustomFieldInputs ref="assignmentCustomFieldInputs" :fields="accountFormCustomFields" :values="accountForm.assignmentCustomValues" :project-id="accountForm.projectId" /></template>
     </el-form><template #footer><el-button @click="accountDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveAccount">保存</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 
   <AccountImportDialog v-model="importVisible" :client-id="effectiveClientId" :project-id="projectId" :platforms="platforms" :language-items="languageItems" :users="users" :default-language-ids="assignmentLanguageItemId?[assignmentLanguageItemId]:[]" @imported="importCompleted" />
 
@@ -225,6 +225,7 @@ import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'

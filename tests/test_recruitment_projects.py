@@ -109,11 +109,13 @@ def test_recruitment_payload_accepts_manual_client_fields():
         client_short_name="  新客户  ",
         client_name="  新客户有限公司  ",
         client_code="  TEMP-001  ",
+        manager_contact="  张经理 13800000000  ",
     )
 
     assert payload.client_short_name == "新客户"
     assert payload.client_name == "新客户有限公司"
     assert payload.client_code == "TEMP-001"
+    assert payload.manager_contact == "张经理 13800000000"
 
 
 class MissingClientQuery:
@@ -147,7 +149,7 @@ def test_translation_client_resolver_creates_pending_client_for_new_short_name(m
     monkeypatch.setattr("crud.generate_client_code", lambda _db: "C000001")
 
     client_id, sub_client_id, created = _resolve_or_create_project_client(
-        db, "  新增简称  ", client_name="  新增客户全称  "
+        db, "  新增简称  ", client_name="  新增客户全称  ", manager_contact="  10086  "
     )
 
     assert created is True
@@ -156,6 +158,7 @@ def test_translation_client_resolver_creates_pending_client_for_new_short_name(m
     assert db.added.client_short_name == "新增简称"
     assert db.added.client_name == "新增客户全称"
     assert db.added.client_code == "C000001"
+    assert db.added.manager_contact == "10086"
     assert db.added.client_status == "pending"
 
 

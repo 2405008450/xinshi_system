@@ -326,7 +326,8 @@ class ConsultationBase(BaseModel):
     project_intake: dict = Field(default_factory=dict)
     project_intake_version: int = 2
     consultation_time: Optional[datetime] = None
-    consultation_method: Optional[str] = None
+    consultation_method: Optional[str] = Field(default=None, max_length=50)
+    consultation_method_detail: Optional[str] = Field(default=None, max_length=255)
     client_source: Optional[str] = None
     source_keyword: Optional[str] = None
     consultation_description: Optional[str] = None
@@ -363,7 +364,8 @@ class ConsultationUpdate(BaseModel):
     client_short_name: Optional[str] = None
     manager_contact: Optional[str] = None
     consultation_time: Optional[datetime] = None
-    consultation_method: Optional[str] = None
+    consultation_method: Optional[str] = Field(default=None, max_length=50)
+    consultation_method_detail: Optional[str] = Field(default=None, max_length=255)
     client_source: Optional[str] = None
     source_keyword: Optional[str] = None
     consultation_description: Optional[str] = None
@@ -657,6 +659,7 @@ class TranslationProjectBase(BaseModel):
     sub_client_id: Optional[UUID] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = None
     service_content: Optional[str] = None
@@ -721,6 +724,7 @@ class TranslationProjectUpdate(BaseModel):
     sub_client_id: Optional[UUID] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = None
     service_content: Optional[str] = None

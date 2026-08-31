@@ -14,7 +14,7 @@
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
-          <el-dropdown-item v-if="showStartRequest" command="start-request">发起需求</el-dropdown-item>
+          <el-dropdown-item v-if="showStartRequest" command="start-request">{{ startRequestLabel }}</el-dropdown-item>
           <el-dropdown-item
             v-for="item in extraActions"
             :key="item.command"
@@ -37,6 +37,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 const props = defineProps({
   editable: { type: Boolean, default: true },
   showStartRequest: { type: Boolean, default: true },
+  startRequestLabel: { type: String, default: '发起需求' },
   extraActions: { type: Array, default: () => [] },
 })
 

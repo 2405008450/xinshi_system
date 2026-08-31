@@ -12,16 +12,17 @@
       </el-table>
     </div>
   </el-popover>
-  <el-dialog v-model="dialogVisible" :title="editingId?'编辑动态字段':'新增动态字段'" width="min(620px, calc(100vw - 32px))" append-to-body>
+  <DraggableFormDialog v-model="dialogVisible" :title="editingId?'编辑动态字段':'新增动态字段'" width="min(620px, calc(100vw - 32px))" append-to-body>
     <el-form label-width="90px"><el-form-item v-if="!autoFieldKey" label="字段键"><el-input v-model="form.fieldKey" :disabled="!!editingId" placeholder="例如 delivery_batch" /></el-form-item><el-form-item label="显示名称"><el-input v-model="form.fieldLabel" placeholder="例如：验收批次" /></el-form-item><el-form-item label="数据类型"><el-select v-model="form.dataType" style="width:100%"><el-option v-for="item in types" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item v-if="form.dataType.includes('select')" label="选项"><el-select v-model="form.options" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item><el-form-item label="设置"><el-checkbox v-model="form.isRequired">必填</el-checkbox><el-checkbox v-model="form.isActive">启用</el-checkbox></el-form-item></el-form>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createCustomField, deleteCustomField, getCustomFields, updateCustomField } from '@/api/annotationOps'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 
 const props = defineProps({ tableCode:{type:String,required:true}, projectId:{type:String,default:''}, buttonLabel:{type:String,default:'动态字段'}, disabled:{type:Boolean,default:false}, scopeHint:{type:String,default:''}, autoFieldKey:{type:Boolean,default:false} })
 const emit = defineEmits(['changed'])

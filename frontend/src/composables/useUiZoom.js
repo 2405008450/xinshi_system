@@ -24,6 +24,8 @@ export function normalizeUiZoom(value) {
 function clearZoomStyles(el) {
   if (!el) return
   el.style.removeProperty('zoom')
+  el.style.removeProperty('transform')
+  el.style.removeProperty('transform-origin')
   el.style.removeProperty('width')
   el.style.removeProperty('height')
 }
@@ -35,8 +37,13 @@ export function applyUiZoom(zoom) {
   root.style.setProperty('--ui-zoom', String(level))
   // 旧实现把 zoom 写在 html 上，视口 overflow:hidden 会裁掉补偿宽度。
   clearZoomStyles(root)
+  // 旧版本曾缩放 body；必须显式清理，避免它和新的应用层缩放叠加。
+  clearZoomStyles(body)
 
-  const target = body || root
+  // 只缩放应用根节点。Element Plus 的浮层 Teleport 到 body 后仍处于正常
+  // 视口坐标系，Popper 可直接使用触发元素的视觉坐标，避免缩放后错位。
+  const target = document.getElementById('app')
+  if (!target) return level
   if (level === 1) {
     clearZoomStyles(target)
     return level

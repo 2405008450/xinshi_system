@@ -74,6 +74,13 @@ def main() -> int:
             assert dialog.get_by_text("译员人数", exact=True).count() == 0, "不应再显示可编辑的全局译员人数"
             dialog.get_by_role("button", name="增加方向", exact=True).click()
             assert dialog.get_by_placeholder("需求人数").count() == 1
+            add_language_button = dialog.get_by_role("button", name="增加语种", exact=True)
+            add_language_button.click()
+            assert dialog.get_by_placeholder("语种 C").count() == 1, "第三语种未在同一方向行中出现"
+            add_language_button.click()
+            add_language_button.click()
+            assert dialog.get_by_placeholder("语种 E").count() == 1, "单行应支持添加到五个语种"
+            assert dialog.get_by_role("button", name="最多 5 个", exact=True).is_disabled()
             assert dialog.get_by_text("口译方向", exact=False).count()
             assert dialog.get_by_text("译员性别", exact=True).count()
             assert dialog.get_by_text("口译水平", exact=True).count()

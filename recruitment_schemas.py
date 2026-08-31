@@ -67,6 +67,7 @@ class RecruitmentProjectBase(BaseModel):
     client_name: Optional[str] = Field(default=None, max_length=255)
     client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_code: Optional[str] = Field(default=None, max_length=100)
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
     contact_name: Optional[str] = Field(default=None, max_length=255)
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
     client_manager_id: Optional[UUID] = None
@@ -101,7 +102,7 @@ class RecruitmentProjectBase(BaseModel):
 
     @field_validator(
         "project_name", "job_description", "position_title", "client_name", "client_short_name",
-        "client_code", "contact_name", "customer_order_no",
+        "client_code", "manager_contact", "contact_name", "customer_order_no",
         "work_location", "service_fee_currency", "service_fee_note", "project_path", "quotation_path",
         "contract_path", "remarks", "email_subject_preview", "social_post_request", "resource_request",
         mode="before",

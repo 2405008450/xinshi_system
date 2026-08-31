@@ -18,6 +18,7 @@
       <div class="advanced-filter-header">
         <span class="advanced-filter-title">高级筛选</span>
         <div class="advanced-filter-actions">
+          <el-button type="primary" link @click="$emit('reset')">重置</el-button>
           <el-button v-if="count" type="primary" link @click="$emit('clear')">清空高级条件</el-button>
           <el-button link @click="visibleModel = false">关闭</el-button>
         </div>
@@ -39,7 +40,7 @@ const props = defineProps({
   compact: { type: Boolean, default: true },
 })
 
-const emit = defineEmits(['update:visible', 'clear'])
+const emit = defineEmits(['update:visible', 'clear', 'reset'])
 
 const visibleModel = computed({
   get: () => props.visible,

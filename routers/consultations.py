@@ -59,9 +59,9 @@ router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies
 
 
 CONSULTATION_TEXT_FIELDS = {
-    "client_source": TextFieldRule(max_length=100),
+    "client_source": TextFieldRule(max_length=100, required=True),
     "source_keyword": TextFieldRule(max_length=255),
-    "consultation_description": TextFieldRule(),
+    "consultation_description": TextFieldRule(required=True),
     "project_name": TextFieldRule(max_length=500),
     "customer_order_no": TextFieldRule(max_length=150),
     "contact_name": TextFieldRule(max_length=255),
@@ -171,17 +171,35 @@ class ConsultationConfirmationResponse(BaseModel):
 
 CONSULTATION_CONFIRMED_STATUS = "success"
 PROJECT_CONFIRMED_STATUS = "confirmed"
+SIMPLE_CONSULTATION_TYPE_VALUES = {"简单咨询", "simple"}
+SIMPLE_CONSULTATION_ALLOWED_STATUSES = {"following", "emphasis", "failed"}
+CORE_REQUIRED_PROJECT_TYPE_VALUES = {
+    "口译项目", "interpretation", "口译",
+    "招聘项目", "recruitment", "招聘",
+    "标注项目", "annotation",
+}
 
 
 CONSULTATION_TASK_TYPE_LABELS = {
+    "简单咨询": "简单咨询",
+    "simple": "简单咨询",
+    "笔译项目": "笔译项目",
     "translation": "笔译项目",
+    "口译项目": "口译项目",
     "interpretation": "口译项目",
+    "招聘项目": "招聘项目",
     "recruitment": "招聘项目",
+    "标注项目": "标注项目",
     "annotation": "标注项目",
+    "配音项目": "配音项目",
     "dubbing": "配音项目",
+    "字幕项目": "字幕项目",
     "subtitle": "字幕项目",
+    "公证项目": "公证项目",
     "notarization": "公证项目",
+    "认证项目": "认证项目",
     "certification": "认证项目",
+    "其他项目": "其他项目",
     "equipment_rental": "其他项目",
     "other": "其他项目",
     "笔译": "笔译项目",
@@ -191,7 +209,81 @@ CONSULTATION_TASK_TYPE_LABELS = {
 }
 
 
+def is_simple_consultation_type(value: Optional[str]) -> bool:
+    return (value or "").strip() in SIMPLE_CONSULTATION_TYPE_VALUES
+
+
+def consultation_task_type_label(value: Optional[str]) -> str:
+    normalized = (value or "").strip()
+    return CONSULTATION_TASK_TYPE_LABELS.get(normalized, normalized)
+
+
+def _consultation_value(payload, field: str, existing=None):
+    if field in payload.model_fields_set:
+        return getattr(payload, field, None)
+    return getattr(existing, field, None) if existing is not None else getattr(payload, field, None)
+
+
+def validate_simple_consultation(payload, existing=None) -> None:
+    consultation_type = _consultation_value(payload, "consultation_type", existing)
+    if not is_simple_consultation_type(consultation_type):
+        return
+
+    required_fields = (
+        ("客户简称", "client_short_name"),
+        ("咨询时间", "consultation_time"),
+        ("咨询方式", "consultation_method"),
+        ("客户来源", "client_source"),
+    )
+    missing = []
+    for label, field in required_fields:
+        value = _consultation_value(payload, field, existing)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(label)
+    if missing:
+        raise ValueError(f"简单咨询请填写：{'、'.join(missing)}")
+
+    consultation_status = _consultation_value(payload, "status", existing)
+    if consultation_status not in SIMPLE_CONSULTATION_ALLOWED_STATUSES:
+        raise ValueError("简单咨询不能直接设为已确认，请先选择具体项目类型")
+
+
+def validate_consultation_required_fields(payload, existing=None) -> None:
+    consultation_type = (_consultation_value(payload, "consultation_type", existing) or "").strip()
+    if consultation_type in CORE_REQUIRED_PROJECT_TYPE_VALUES:
+        required_fields = (
+            ("客户来源", "client_source"),
+            ("咨询方式", "consultation_method"),
+            ("咨询时间", "consultation_time"),
+            ("来源关键词", "source_keyword"),
+            ("咨询描述", "consultation_description"),
+        )
+    else:
+        required_fields = (
+            ("客户来源", "client_source"),
+            ("咨询方式", "consultation_method"),
+            ("咨询描述", "consultation_description"),
+        )
+    missing = []
+    for label, field in required_fields:
+        value = _consultation_value(payload, field, existing)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(label)
+    if missing:
+        project_label = consultation_task_type_label(consultation_type) or "咨询"
+        raise ValueError(f"{project_label}请填写：{'、'.join(missing)}")
+
+    method = (_consultation_value(payload, "consultation_method", existing) or "").strip()
+    method_detail = (_consultation_value(payload, "consultation_method_detail", existing) or "").strip()
+    if method == "other" and not method_detail:
+        raise ValueError("选择其他咨询方式时，请填写具体咨询方式")
+
+    validate_simple_consultation(payload, existing)
+
+
 def _confirmation_project_type(value: Optional[str]) -> str:
+    if is_simple_consultation_type(value):
+        raise ValueError("简单咨询不能直接确认建项，请先选择具体项目类型")
     if is_interpretation_type(value):
         return "interpretation"
     if is_translation_type(value):
@@ -221,7 +313,7 @@ def _build_subject_preview(
         ("标题前缀", subject_prefix),
         ("订单号", order_no),
         ("客户简称", client_short_name),
-        ("负责人联系方式", manager_contact),
+        ("客户经理联系方式", manager_contact),
     ]
     if project_type != "translation":
         values.append(("客户单号/标识", customer_order_no))
@@ -282,9 +374,14 @@ def _confirmation_preview_values(
         generate_recruitment_order_no(db) if project_type == "recruitment" else
         generate_order_no(db)
     )
+    intake_values = validated_intake(project_type, payload.project_intake)
     project_name = _clean_text(payload.project_name) or _clean_text(
         getattr(existing_project, "project_name", None)
-    ) or build_auto_project_name(client_short_name)
+    ) or build_auto_project_name(
+        client_short_name,
+        language_pair=intake_values.get("language_pair") if project_type == "translation" else None,
+        customer_deadline_time=intake_values.get("customer_deadline_time") if project_type == "translation" else None,
+    )
     customer_order_no = (
         _clean_text(payload.customer_order_no)
         if project_type != "translation"
@@ -303,7 +400,7 @@ def _confirmation_preview_values(
         project_name=project_name,
     )
     source = {
-        **validated_intake(project_type, payload.project_intake),
+        **intake_values,
         "order_no": order_no,
         "project_name": project_name,
         "client_short_name": client_short_name,
@@ -454,13 +551,14 @@ def _confirm_consultation_project(
         if project:
             project.project_name = preview["project_name"]
             project.email_subject_preview = preview["email_subject_preview"]
+            project.task_type = consultation_task_type_label(consultation.consultation_type)
             if project.project_status in (None, "", "pending", "pending_confirmation"):
                 project.project_status = PROJECT_CONFIRMED_STATUS
             db.flush()
         else:
             project_data = TranslationProjectCreate(
                 project_name=preview["project_name"],
-                task_type="笔译项目",
+                task_type=consultation_task_type_label(consultation.consultation_type),
                 consultation_id=consultation.id,
                 client_id=consultation.client_id,
                 sub_client_id=consultation.sub_client_id,
@@ -564,6 +662,7 @@ def create_confirmed_consultation(
 ):
     try:
         _confirmation_project_type(body.consultation.consultation_type)
+        validate_consultation_required_fields(body.consultation)
         confirmed_payload = body.consultation.model_copy(
             update={"status": CONSULTATION_CONFIRMED_STATUS}
         )
@@ -626,6 +725,7 @@ def update_confirmed_consultation(
     )
     try:
         _confirmation_project_type(target_type)
+        validate_consultation_required_fields(update_payload, existing)
         validate_consultation_project_type_change(db, consultation_id, target_type)
         validate_consultation_annotation_type_change(db, consultation_id, target_type)
         validate_consultation_recruitment_type_change(db, consultation_id, target_type)
@@ -679,6 +779,7 @@ def create_consultation_endpoint(
     current_user: AppUser = Depends(get_current_user),
 ):
     try:
+        validate_consultation_required_fields(consultation)
         db_consultation = create_consultation(
             db=db, consultation=consultation, idempotency_key=idempotency_key, commit=False
         )
@@ -888,6 +989,7 @@ def update_consultation_endpoint(
         else existing.consultation_type
     )
     try:
+        validate_consultation_required_fields(consultation_update, existing)
         validate_consultation_project_type_change(db, consultation_id, target_type)
         validate_consultation_annotation_type_change(db, consultation_id, target_type)
         validate_consultation_recruitment_type_change(db, consultation_id, target_type)
@@ -936,7 +1038,7 @@ def create_project_from_consultation(
 ):
     """
     基于已确认的咨询记录创建翻译项目。
-    项目名称默认复用项目详情的“客户简称-日期-批次”命名规则。
+    项目名称默认复用笔译项目详情的自动命名规则。
     避免重复：同一条咨询只能生成一个翻译项目。
     """
     db_consultation = get_consultation(db, consultation_id=consultation_id)
@@ -970,8 +1072,13 @@ def create_project_from_consultation(
             db.refresh(existing_project)
         return existing_project
 
+    intake_values = validated_intake(
+        "translation", getattr(db_consultation, "project_intake", None) or {}
+    )
     project_name = (body.project_name or "").strip() or build_auto_project_name(
-        getattr(db_consultation, "client_short_name", None)
+        getattr(db_consultation, "client_short_name", None),
+        language_pair=intake_values.get("language_pair"),
+        customer_deadline_time=intake_values.get("customer_deadline_time"),
     )
     if not project_name:
         raise HTTPException(

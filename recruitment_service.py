@@ -45,7 +45,7 @@ RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
 NESTED_FIELDS = {"language_directions", "role_assignments"}
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 
 
 def is_recruitment_type(value: Optional[str]) -> bool:
@@ -258,6 +258,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data.get("client_short_name"),
         data.get("client_code"),
         data.get("client_name"),
+        data.get("manager_contact"),
     )
     if client_id:
         data["client_id"] = client_id

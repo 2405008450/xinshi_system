@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base
+from interpretation_models import InterpretationLanguage
 
 
 class ResourceRequest(Base):
@@ -35,6 +36,7 @@ class ResourceRequest(Base):
         CheckConstraint("progress_percent BETWEEN 0 AND 100", name="ck_resource_request_progress"),
         CheckConstraint("priority IN ('high','medium','low')", name="ck_resource_request_priority"),
         CheckConstraint("request_status IN ('draft','submitted','in_progress','fulfilled','cancelled')", name="ck_resource_request_status"),
+        CheckConstraint("demand_status IN ('draft','confirmed','cancelled')", name="ck_resource_request_demand_status"),
         CheckConstraint("completed_at IS NULL OR completed_at >= requested_at", name="ck_resource_request_completed_at"),
         CheckConstraint("(source_type='annotation' AND annotation_project_id IS NOT NULL AND recruitment_project_id IS NULL AND interpretation_project_id IS NULL AND translation_project_id IS NULL AND other_source_name IS NULL) OR (source_type='recruitment' AND annotation_project_id IS NULL AND recruitment_project_id IS NOT NULL AND interpretation_project_id IS NULL AND translation_project_id IS NULL AND other_source_name IS NULL) OR (source_type='interpretation' AND annotation_project_id IS NULL AND recruitment_project_id IS NULL AND interpretation_project_id IS NOT NULL AND translation_project_id IS NULL AND other_source_name IS NULL) OR (source_type='translation' AND annotation_project_id IS NULL AND recruitment_project_id IS NULL AND interpretation_project_id IS NULL AND translation_project_id IS NOT NULL AND other_source_name IS NULL) OR (source_type='other' AND annotation_project_id IS NULL AND recruitment_project_id IS NULL AND interpretation_project_id IS NULL AND translation_project_id IS NULL AND other_source_name IS NOT NULL)", name="ck_resource_request_source_xor"),
         CheckConstraint("(source_type='annotation' AND request_category IN ('annotation_trial','annotation_formal')) OR (source_type=request_category)", name="ck_resource_request_category_source"),
@@ -42,6 +44,7 @@ class ResourceRequest(Base):
         Index("ix_resource_request_source", "source_type", text("requested_at DESC")),
         Index("ix_resource_request_client", "client_id"),
         Index("ix_resource_request_owner_status", "owner_id", "request_status"),
+        Index("ix_resource_request_demand_status", "demand_status", text("updated_at DESC")),
         Index("ix_resource_request_annotation", "annotation_project_id", postgresql_where=text("annotation_project_id IS NOT NULL")),
         Index("ix_resource_request_recruitment", "recruitment_project_id", postgresql_where=text("recruitment_project_id IS NOT NULL")),
         Index("ix_resource_request_interpretation", "interpretation_project_id", postgresql_where=text("interpretation_project_id IS NOT NULL")),
@@ -69,6 +72,7 @@ class ResourceRequest(Base):
     progress_percent: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("0"))
     priority: Mapped[str] = mapped_column(String(10), nullable=False, server_default=text("'medium'"))
     request_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'submitted'"))
+    demand_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'confirmed'"))
     requested_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     requested_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     owner_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
@@ -101,6 +105,67 @@ class ResourceRequestItem(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     request = relationship("ResourceRequest", back_populates="items")
+    source_language: Mapped[Optional[InterpretationLanguage]] = relationship(
+        InterpretationLanguage, foreign_keys=[source_language_id]
+    )
+    target_language: Mapped[Optional[InterpretationLanguage]] = relationship(
+        InterpretationLanguage, foreign_keys=[target_language_id]
+    )
+    extra_languages: Mapped[list["ResourceRequestItemExtraLanguage"]] = relationship(
+        back_populates="item",
+        cascade="all, delete-orphan",
+        order_by="ResourceRequestItemExtraLanguage.sequence_no",
+    )
+
+    @property
+    def language_ids(self) -> list[uuid.UUID]:
+        return [
+            *(value for value in (self.source_language_id, self.target_language_id) if value),
+            *(item.language_id for item in self.extra_languages),
+        ]
+
+    @property
+    def language_labels(self) -> list[str]:
+        return [
+            *(item.label for item in (self.source_language, self.target_language) if item),
+            *(item.language_label for item in self.extra_languages),
+        ]
+
+
+class ResourceRequestItemExtraLanguage(Base):
+    __tablename__ = "resource_request_item_extra_language"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "item_id", "sequence_no",
+            name="resource_request_item_extra_language_pkey",
+        ),
+        ForeignKeyConstraint(
+            ["item_id"], ["resource_request_item.id"], ondelete="CASCADE",
+            name="fk_resource_request_item_extra_item",
+        ),
+        ForeignKeyConstraint(
+            ["language_id"], ["interpretation_language.id"], ondelete="RESTRICT",
+            name="fk_resource_request_item_extra_language",
+        ),
+        UniqueConstraint(
+            "item_id", "language_id", name="uq_resource_request_item_extra_language"
+        ),
+        CheckConstraint(
+            "sequence_no BETWEEN 3 AND 5",
+            name="ck_resource_request_item_extra_sequence",
+        ),
+        Index("ix_resource_request_item_extra_language", "language_id"),
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+
+    item: Mapped[ResourceRequestItem] = relationship(back_populates="extra_languages")
+    language: Mapped[InterpretationLanguage] = relationship(InterpretationLanguage)
+
+    @property
+    def language_label(self) -> str:
+        return self.language.label
 
 
 class ResourceRequestProgressLog(Base):

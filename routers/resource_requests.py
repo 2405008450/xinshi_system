@@ -13,9 +13,10 @@ from models import AppUser
 from resource_request_models import ResourceRequest, ResourceRequestItem
 from resource_request_schemas import ResourceProgressLogResponse, ResourceProgressUpdate, ResourceRequestResponse, ResourceRequestSourcePrefillResponse, ResourceRequestWrite
 from resource_request_service import (
-    count_resource_requests, create_resource_request, delete_resource_request,
-    get_resource_request, get_resource_request_source_prefill, list_progress_logs, list_resource_requests,
-    update_resource_progress, update_resource_request,
+    cancel_resource_request, count_resource_requests, create_resource_request, delete_resource_request,
+    get_resource_request, get_resource_request_by_source, get_resource_request_source_prefill,
+    list_progress_logs, list_resource_request_source_statuses, list_resource_requests,
+    send_resource_request, update_resource_progress, update_resource_request,
 )
 from routers.auth import get_current_user, require_any_permission, require_module_access
 from concurrency import assert_fresh
@@ -42,7 +43,7 @@ RESOURCE_REQUEST_FILTER_FIELDS = {
     "request_no", "source_type", "project_type", "project_status", "order_no",
     "project_name", "client_code", "client_short_name", "owner_name", "languages",
     "required_count", "request_detail", "priority", "progress_percent", "request_status",
-    "requested_at", "request_category", "owner_id",
+    "requested_at", "request_category", "owner_id", "demand_status",
 }
 
 
@@ -50,7 +51,7 @@ def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, RESOURCE_REQUEST_FILTER_FIELDS)
     ranges = {"required_count", "progress_percent", "requested_at"}
-    enums = {"source_type", "project_type", "project_status", "languages", "priority", "request_status", "request_category", "owner_id"}
+    enums = {"source_type", "project_type", "project_status", "languages", "priority", "request_status", "request_category", "owner_id", "demand_status"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"contains"}) for field in RESOURCE_REQUEST_FILTER_FIELDS})
     return value
 
@@ -80,6 +81,23 @@ def read_source_prefill(source_type: str, source_project_id: UUID, db: Session =
     return value
 
 
+@router.get("/source-request", response_model=Optional[ResourceRequestResponse])
+def read_source_request(source_type: str, source_project_id: UUID, db: Session = Depends(get_db)):
+    try:
+        row = get_resource_request_by_source(db, source_type, source_project_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return get_resource_request(db, row.id) if row else None
+
+
+@router.get("/source-statuses")
+def read_source_statuses(source_type: str, db: Session = Depends(get_db)):
+    try:
+        return list_resource_request_source_statuses(db, source_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.post("/", response_model=ResourceRequestResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
 def create_request(
     payload: ResourceRequestWrite,
@@ -89,6 +107,17 @@ def create_request(
         default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
     ),
 ):
+    if getattr(payload, "request_status", None) == "draft" and getattr(payload, "source_type", None) != "other":
+        source_field = f"{payload.source_type}_project_id"
+        source_project_id = getattr(payload, source_field, None)
+        existing = (
+            db.query(ResourceRequest)
+            .filter(getattr(ResourceRequest, source_field) == source_project_id)
+            .order_by(ResourceRequest.updated_at.desc())
+            .first()
+        )
+        if existing:
+            return update_resource_request(db, existing.id, payload)
     if idempotency_key:
         existing = db.query(ResourceRequest).filter(
             ResourceRequest.idempotency_key == idempotency_key
@@ -166,6 +195,25 @@ def edit_request(request_id: UUID, payload: ResourceRequestWrite, db: Session = 
     except (ValueError, IntegrityError) as exc:
         db.rollback(); raise HTTPException(400, str(exc))
     if not row: raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.post("/{request_id}/send", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def send_request(request_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    row = send_resource_request(db, request_id, user.id)
+    if not row:
+        raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.post("/{request_id}/cancel", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def cancel_request(request_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    try:
+        row = cancel_resource_request(db, request_id, user.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not row:
+        raise HTTPException(404, "资源需求不存在")
     return row
 
 

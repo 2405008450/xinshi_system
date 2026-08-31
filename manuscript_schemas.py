@@ -107,6 +107,7 @@ class ManuscriptAssignmentInput(BaseModel):
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
     settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
+    translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(
         default=None,
         ge=0,
@@ -126,6 +127,21 @@ class ManuscriptAssignmentInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_settlement_and_milestones(self):
+        if not any(
+            getattr(self.planned, metric_type) is not None
+            for metric_type in (
+                "words",
+                "characters_no_spaces",
+                "cjk_chars_korean_words",
+                "foreign_words",
+            )
+        ):
+            raise ValueError("每位译员的字数与结算至少需要填写一个字数数值")
+        if not (self.settlement_method or "").strip():
+            raise ValueError("每位译员都必须填写译员结账方式")
+        if self.translator_unit_price is None:
+            raise ValueError("每位译员都必须填写单价")
+
         sequence_numbers = [item.sequence_no for item in self.milestones]
         if len(sequence_numbers) != len(set(sequence_numbers)):
             raise ValueError("同一译员的交稿节点顺序不能重复")
@@ -134,6 +150,20 @@ class ManuscriptAssignmentInput(BaseModel):
         )
         if final_count > 1:
             raise ValueError("同一译员只能设置一个全稿交付节点")
+
+        first_phase = next(
+            (
+                item
+                for item in sorted(
+                    self.milestones,
+                    key=lambda row: row.sequence_no,
+                )
+                if item.milestone_type == "phase"
+            ),
+            None,
+        )
+        if first_phase is None or first_phase.planned_at is None:
+            raise ValueError("每位译员都必须填写译员交稿_预定时间1")
 
         dated = [
             item
@@ -186,6 +216,7 @@ class ManuscriptArrangementCreate(BaseModel):
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
     settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
+    translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
     email_subject: Optional[str] = Field(default=None, max_length=500)
@@ -198,6 +229,22 @@ class ManuscriptArrangementCreate(BaseModel):
             raise ValueError("子订单稿件安排必须提供子订单 ID")
         if self.entity_type == "project" and self.sub_order_id is not None:
             raise ValueError("母订单稿件安排不能提供子订单 ID")
+        if not any(
+            getattr(self.planned, metric_type) is not None
+            for metric_type in (
+                "words",
+                "characters_no_spaces",
+                "cjk_chars_korean_words",
+                "foreign_words",
+            )
+        ):
+            raise ValueError("字数与结算至少需要填写一个字数数值")
+        if self.planned_delivery_at is None:
+            raise ValueError("必须填写译员交稿_预定时间1")
+        if not (self.settlement_method or "").strip():
+            raise ValueError("必须填写译员结账方式")
+        if self.translator_unit_price is None:
+            raise ValueError("必须填写单价")
         return self
 
 
@@ -206,6 +253,7 @@ class ManuscriptArrangementUpdate(BaseModel):
     actual: Optional[WordCountValues] = None
     settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
+    translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
     email_subject: Optional[str] = Field(default=None, max_length=500)
@@ -217,6 +265,7 @@ class ManuscriptSettlementUpdate(BaseModel):
     actual: Optional[WordCountValues] = None
     settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
+    translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
     remarks: Optional[str] = Field(default=None, max_length=5000)
@@ -238,6 +287,7 @@ class ManuscriptArrangementResponse(BaseModel):
     translation_scope: Optional[str] = None
     settlement_method: Optional[str] = None
     custom_settlement_method: Optional[str] = None
+    translator_pricing_method: Optional[str] = None
     translator_unit_price: Optional[Decimal] = None
     translator_total_price: Optional[Decimal] = None
     planned_delivery_at: Optional[datetime] = None

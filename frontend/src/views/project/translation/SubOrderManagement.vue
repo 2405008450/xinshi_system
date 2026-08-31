@@ -94,7 +94,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       class="suborder-editor-dialog"
       :title="dialogTitle"
@@ -152,7 +152,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <SubOrderBatchCreateDialog
       v-model="batchDialogVisible"
@@ -173,6 +173,7 @@ import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder }
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'

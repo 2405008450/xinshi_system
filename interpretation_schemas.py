@@ -15,6 +15,7 @@ PROJECT_TYPE_LABELS = {
     "exhibition_escort": "展会陪同口译",
     "escort": "陪同口译",
     "small_business_meeting": "小型商务会议口译",
+    "small_non_business_meeting": "小型（非商务）会议口译",
     "consecutive": "会议交传口译",
     "simultaneous": "会议同传口译",
     "online_meeting": "线上会议口译",
@@ -63,12 +64,34 @@ class InterpretationTimeRangeResponse(InterpretationTimeRangeInput):
 class InterpretationLanguageDirectionInput(BaseModel):
     source_language_id: UUID
     target_language_id: UUID
+    language_ids: list[UUID] = Field(min_length=2, max_length=5)
     required_count: Optional[int] = Field(default=None, gt=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_language_ids(cls, value):
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        language_ids = list(data.get("language_ids") or [])
+        source_id = data.get("source_language_id")
+        target_id = data.get("target_language_id")
+        if language_ids:
+            if len(language_ids) >= 2:
+                if source_id and str(source_id) != str(language_ids[0]):
+                    raise ValueError("口译方向的首个语种与源语种不一致")
+                if target_id and str(target_id) != str(language_ids[1]):
+                    raise ValueError("口译方向的第二个语种与目标语种不一致")
+                data["source_language_id"] = language_ids[0]
+                data["target_language_id"] = language_ids[1]
+        elif source_id and target_id:
+            data["language_ids"] = [source_id, target_id]
+        return data
 
     @model_validator(mode="after")
     def validate_distinct(self):
-        if self.source_language_id == self.target_language_id:
-            raise ValueError("口译方向的两个语种不能相同")
+        if len(set(self.language_ids)) != len(self.language_ids):
+            raise ValueError("同一口译方向内的语种不能重复")
         return self
 
 
@@ -77,6 +100,7 @@ class InterpretationLanguageDirectionResponse(InterpretationLanguageDirectionInp
     sequence_no: int
     source_language_label: str
     target_language_label: str
+    language_labels: list[str]
     display: str
     model_config = ConfigDict(from_attributes=True)
 
@@ -122,6 +146,7 @@ class InterpretationProjectWrite(BaseModel):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    manager_contact: Optional[str] = Field(default=None, max_length=100)
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
     project_status: str = "initial_follow_up"
@@ -159,7 +184,7 @@ class InterpretationProjectWrite(BaseModel):
 
     @field_validator(
         "project_name", "task_description", "client_name", "client_short_name",
-        "client_code", "contact_name", "customer_order_no", "customer_budget",
+        "client_code", "manager_contact", "contact_name", "customer_order_no", "customer_budget",
         "interpretation_domain", "interpretation_content", "file_path",
         "quotation_path", "contract_path", "client_rating_note", "remarks",
         "email_subject_preview", "social_post_request", "resource_request",
@@ -228,7 +253,7 @@ class InterpretationProjectWrite(BaseModel):
     def validate_nested_duplicates(self):
         direction_keys = []
         for item in self.language_directions:
-            key = frozenset((item.source_language_id, item.target_language_id))
+            key = frozenset(item.language_ids)
             if key in direction_keys:
                 raise ValueError("同一双向口译方向不能重复")
             direction_keys.append(key)

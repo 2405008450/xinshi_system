@@ -40,7 +40,7 @@
       <el-form-item>
         <el-button type="primary" @click="searchNow">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="talent-advanced-popper" @clear="clearAdvanced">
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="talent-advanced-popper" @clear="clearAdvanced" @reset="resetSearch">
           <CompactFilterGrid :fields="talentAdvancedFilterFields" :model="search" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" />
         </AdvancedFilterPopover>
       </el-form-item>
@@ -138,7 +138,7 @@
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
-    <el-dialog v-model="editorVisible" width="min(980px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" @closed="resetForm">
+    <DraggableFormDialog v-model="editorVisible" width="min(980px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -189,7 +189,7 @@
         </el-form>
       </div>
       <template #footer><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">保存</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 
@@ -205,12 +205,14 @@ import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
@@ -353,6 +355,7 @@ const handleBirthDateChange=value=>{form.age=calculateAge(value)}
 const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?null:birthDateFromAge(value,form.birthDate)}
 const emptyForm=()=>({id:null,resourceCode:'',fullName:'',cooperationType:'',contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',resumePath:'',gender:'',birthDate:null,age:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',nationality:'',ethnicity:'',overallRating:'',firstContactDate:null,remarks:'',status:'standby',capabilityTypes:capabilityType.value?[capabilityType.value]:[],writtenProfile:{languages:'',direction:'',domainSkills:[],qualityScore:'',defaultPriority:0,dailyAcceptCount:null,hourlySpeed:null,dailyWordCapacity:null,canCloudEdit:null,canRevision:null,availableTimeSlot:'',scheduleRemarks:''},interpretationProfile:{languages:'',direction:'',interpretationLevel:null,interpretationModes:[],domainSkills:[],qualityScore:'',evaluationSummary:''},annotationProfile:{taskTypes:[],dataModalities:[],tools:[],domainSkills:[],qualityScore:'',dailyCapacity:null,remarks:''},annotationLanguageSkills:[],careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''}})
 const form=reactive(emptyForm());const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const rules={fullName:[{required:true,message:'请输入姓名',trigger:'blur'}]};const hasCapability=type=>form.capabilityTypes.includes(type)
+const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'talent',form,createDefault:emptyForm,formRef})
 const editorBodyRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 const blankToNull=value=>typeof value==='string'&&!value.trim()?null:value
@@ -360,9 +363,9 @@ const cleanWrittenProfile=p=>p?{...p,languages:blankToNull(p.languages),directio
 const cleanInterpretationProfile=p=>p?{...p,languages:blankToNull(p.languages),direction:blankToNull(p.direction),interpretationLevel:blankToNull(p.interpretationLevel),qualityScore:blankToNull(p.qualityScore),evaluationSummary:blankToNull(p.evaluationSummary)}:null
 const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore),remarks:blankToNull(p.remarks)}:null
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
-function resetForm(){Object.assign(form,emptyForm());formRef.value?.clearValidate();clearFieldSearch()}function openCreate(){resetForm();editorTitle.value='新增人才';editorVisible.value=true}
+function resetForm(){Object.assign(form,emptyForm());formRef.value?.clearValidate();clearFieldSearch()}function onEditorClosed(){pauseDraft();resetForm()}async function openCreate(){resetForm();editorTitle.value='新增人才';editorVisible.value=true;await beginDraft('create')}
 function fromDetail(d){const base=emptyForm();return {...base,...d,id:d.id,age:calculateAge(d.birthDate),capabilityTypes:d.capabilityTypes||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
-async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;Object.assign(form,fromDetail(detail));editorTitle.value=`编辑人才：${detail.fullName}`;editorVisible.value=true}
+async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;Object.assign(form,fromDetail(detail));editorTitle.value=`编辑人才：${detail.fullName}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const payload=(allowDuplicate=false)=>({resourceCode:form.resourceCode||null,fullName:form.fullName,cooperationType:form.cooperationType||null,contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,resumePath:form.resumePath||null,gender:form.gender||null,birthDate:blankToNull(form.birthDate),nativePlace:form.nativePlace||null,residenceAddress:form.residenceAddress||null,dialects:form.dialects||[],dialectRegions:form.dialectRegions||[],height:form.height||null,appearance:form.appearance||null,nationality:form.nationality||null,ethnicity:form.ethnicity||null,overallRating:form.overallRating||null,firstContactDate:blankToNull(form.firstContactDate),remarks:form.remarks||null,status:form.status,allowDuplicate,capabilities:form.capabilityTypes.map(capabilityType=>({capabilityType,status:'active'})),writtenProfile:hasCapability('written_translation')?cleanWrittenProfile(form.writtenProfile):null,interpretationProfile:hasCapability('interpretation')?cleanInterpretationProfile(form.interpretationProfile):null,annotationProfile:hasCapability('annotation')?cleanAnnotationProfile(form.annotationProfile):null,annotationLanguageSkills:hasCapability('annotation')?form.annotationLanguageSkills.map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})):[],careerProfile:cleanCareerProfile(form.careerProfile)})
 async function savePayload(allowDuplicate=false){const client=talentClient.value;return form.id?client.update(form.id,payload(allowDuplicate)):client.create(payload(allowDuplicate))}
 async function submit(){
@@ -371,7 +374,7 @@ async function submit(){
     if(!valid){
       editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({behavior:'smooth',block:'center'})
       return
-    }if(hasCapability('annotation')){if(form.annotationLanguageSkills.some(item=>!item.sourceLanguageId))return ElMessage.warning('请选择完整的标注语言方向');if(form.annotationLanguageSkills.some(item=>item.directionType==='translation'&&!item.targetLanguageId))return ElMessage.warning('翻译类标注必须选择目标语种');const keys=form.annotationLanguageSkills.map(item=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)return ElMessage.warning('标注语言方向不能重复')}saving.value=true;let saved;try{saved=await savePayload()}catch(error){const detail=error.detail;if(detail?.code!=='duplicate_talent')throw error;const first=detail.duplicates?.[0];try{await ElMessageBox.confirm(`发现联系方式相同的人才“${first?.fullName||first?.full_name||'未知'}”。打开已有档案，还是仍然新建？`,'疑似重复人才',{confirmButtonText:'打开已有档案',cancelButtonText:'仍然新建',distinguishCancelAndClose:true,type:'warning'});editorVisible.value=false;if(first)openEdit(first);return}catch(action){if(action==='cancel')saved=await savePayload(true);else return}}detailCache[saved.id]=saved;editorVisible.value=false;ElMessage.success('人才档案已保存');fetchData()}catch(error){if(error!==false&&error!=='cancel'&&error!=='close')ElMessage.error(error.detail?.message||error.detail||error.message||'保存失败')}finally{saving.value=false}}
+    }if(hasCapability('annotation')){if(form.annotationLanguageSkills.some(item=>!item.sourceLanguageId))return ElMessage.warning('请选择完整的标注语言方向');if(form.annotationLanguageSkills.some(item=>item.directionType==='translation'&&!item.targetLanguageId))return ElMessage.warning('翻译类标注必须选择目标语种');const keys=form.annotationLanguageSkills.map(item=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)return ElMessage.warning('标注语言方向不能重复')}saving.value=true;let saved;try{saved=await savePayload()}catch(error){const detail=error.detail;if(detail?.code!=='duplicate_talent')throw error;const first=detail.duplicates?.[0];try{await ElMessageBox.confirm(`发现联系方式相同的人才“${first?.fullName||first?.full_name||'未知'}”。打开已有档案，还是仍然新建？`,'疑似重复人才',{confirmButtonText:'打开已有档案',cancelButtonText:'仍然新建',distinguishCancelAndClose:true,type:'warning'});editorVisible.value=false;if(first)openEdit(first);return}catch(action){if(action==='cancel')saved=await savePayload(true);else return}}detailCache[saved.id]=saved;clearDraft();editorVisible.value=false;ElMessage.success('人才档案已保存');fetchData()}catch(error){if(error!==false&&error!=='cancel'&&error!=='close')ElMessage.error(error.detail?.message||error.detail||error.message||'保存失败')}finally{saving.value=false}}
 watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(fetchData);onBeforeUnmount(()=>{clearTimeout(timer);controller?.abort()})
 </script>
 

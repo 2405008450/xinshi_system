@@ -16,6 +16,7 @@ import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作�
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
+    InterpretationProjectDirectionExtraLanguage,
     InterpretationProjectInterpreter,
     InterpretationProjectLanguageDirection,
     InterpretationProjectTimeRange,
@@ -141,7 +142,7 @@ def preview_interpretation_project_name(
     ids = {
         language_id
         for item in payload.language_directions
-        for language_id in (item.source_language_id, item.target_language_id)
+        for language_id in item.language_ids
     }
     languages = {
         item.id: item.label
@@ -150,7 +151,7 @@ def preview_interpretation_project_name(
     if len(languages) != len(ids):
         raise ValueError("所选口译语种不存在或已失效")
     labels = [
-        f"{languages[item.source_language_id]} ↔ {languages[item.target_language_id]}"
+        " ↔ ".join(languages[language_id] for language_id in item.language_ids)
         for item in payload.language_directions
     ]
     return build_interpretation_project_name(payload, labels)
@@ -165,6 +166,9 @@ def _project_options():
         .selectinload(InterpretationProjectLanguageDirection.source_language),
         selectinload(InterpretationProject.language_directions)
         .selectinload(InterpretationProjectLanguageDirection.target_language),
+        selectinload(InterpretationProject.language_directions)
+        .selectinload(InterpretationProjectLanguageDirection.extra_languages)
+        .selectinload(InterpretationProjectDirectionExtraLanguage.language),
         selectinload(InterpretationProject.interpreter_assignments)
         .selectinload(InterpretationProjectInterpreter.translator),
         selectinload(InterpretationProject.workbench_responsibilities)
@@ -286,12 +290,16 @@ def _apply_filters(
     if sub_client_id:
         query = query.filter(InterpretationProject.sub_client_id == sub_client_id)
     if language_id:
-        query = query.join(
+        query = query.outerjoin(
             InterpretationProjectLanguageDirection,
             InterpretationProjectLanguageDirection.project_id == InterpretationProject.id,
+        ).outerjoin(
+            InterpretationProjectDirectionExtraLanguage,
+            InterpretationProjectDirectionExtraLanguage.direction_id == InterpretationProjectLanguageDirection.id,
         ).filter(or_(
             InterpretationProjectLanguageDirection.source_language_id == language_id,
             InterpretationProjectLanguageDirection.target_language_id == language_id,
+            InterpretationProjectDirectionExtraLanguage.language_id == language_id,
         ))
     field_filters = field_filters or {}
     query = apply_scalar_specs(query, field_filters, {
@@ -346,7 +354,7 @@ def _apply_filters(
                     query = query.filter(InterpretationProjectTimeRange.scheduled_start <= datetime.combine(datetime.fromisoformat(end).date(), time.max))
             elif field == "language_id":
                 values = [UUID(str(value)) for value in descriptor.get("value") or []]
-                query = query.join(InterpretationProjectLanguageDirection, InterpretationProjectLanguageDirection.project_id == InterpretationProject.id).filter(or_(InterpretationProjectLanguageDirection.source_language_id.in_(values), InterpretationProjectLanguageDirection.target_language_id.in_(values)))
+                query = query.outerjoin(InterpretationProjectLanguageDirection, InterpretationProjectLanguageDirection.project_id == InterpretationProject.id).outerjoin(InterpretationProjectDirectionExtraLanguage, InterpretationProjectDirectionExtraLanguage.direction_id == InterpretationProjectLanguageDirection.id).filter(or_(InterpretationProjectLanguageDirection.source_language_id.in_(values), InterpretationProjectLanguageDirection.target_language_id.in_(values), InterpretationProjectDirectionExtraLanguage.language_id.in_(values)))
             else:
                 values = [UUID(str(value)) for value in descriptor.get("value") or []]
                 query = query.join(InterpretationProjectInterpreter, InterpretationProjectInterpreter.project_id == InterpretationProject.id).filter(InterpretationProjectInterpreter.translator_id.in_(values))
@@ -376,6 +384,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data.get("client_short_name"),
         data.get("client_code"),
         data.get("client_name"),
+        data.get("manager_contact"),
     )
     if client_id:
         data["client_id"] = client_id
@@ -383,7 +392,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data["sub_client_id"] = sub_client_id
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
 
 
@@ -398,7 +407,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     language_ids = {
         value
         for item in payload.language_directions
-        for value in (item.source_language_id, item.target_language_id)
+        for value in item.language_ids
     }
     if language_ids:
         found = {
@@ -434,10 +443,23 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         InterpretationProjectTimeRange(sequence_no=index, **item.model_dump())
         for index, item in enumerate(payload.time_ranges, start=1)
     ]
-    project.language_directions = [
-        InterpretationProjectLanguageDirection(sequence_no=index, **item.model_dump())
-        for index, item in enumerate(payload.language_directions, start=1)
-    ]
+    directions = []
+    for index, item in enumerate(payload.language_directions, start=1):
+        direction = InterpretationProjectLanguageDirection(
+            sequence_no=index,
+            source_language_id=item.language_ids[0],
+            target_language_id=item.language_ids[1],
+            required_count=item.required_count,
+        )
+        direction.extra_languages = [
+            InterpretationProjectDirectionExtraLanguage(
+                sequence_no=language_index,
+                language_id=language_id,
+            )
+            for language_index, language_id in enumerate(item.language_ids[2:], start=3)
+        ]
+        directions.append(direction)
+    project.language_directions = directions
     project.interpreter_assignments = [
         InterpretationProjectInterpreter(sequence_no=index, **item.model_dump())
         for index, item in enumerate(payload.interpreter_assignments, start=1)

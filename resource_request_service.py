@@ -14,7 +14,12 @@ from annotation_models import AnnotationProject
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from models import Client, SubClient, TranslationProject
 from recruitment_models import RecruitmentProject
-from resource_request_models import ResourceRequest, ResourceRequestItem, ResourceRequestProgressLog
+from resource_request_models import (
+    ResourceRequest,
+    ResourceRequestItem,
+    ResourceRequestItemExtraLanguage,
+    ResourceRequestProgressLog,
+)
 
 
 SOURCE_MODELS = {
@@ -100,6 +105,11 @@ def _interpretation_request_items(project) -> list[dict]:
         {
             "source_language_id": item.source_language_id,
             "target_language_id": item.target_language_id,
+            "language_ids": getattr(
+                item,
+                "language_ids",
+                [item.source_language_id, item.target_language_id],
+            ),
             "required_count": item.required_count,
         }
         for item in project.language_directions
@@ -202,6 +212,29 @@ def _source_snapshot(db: Session, payload) -> dict:
 
 
 def _sync_items(db: Session, request: ResourceRequest, payload_items) -> None:
+    def item_language_ids(item) -> list:
+        values = getattr(item, "language_ids", None)
+        if values is not None:
+            return list(values)
+        return [
+            value for value in (
+                getattr(item, "source_language_id", None),
+                getattr(item, "target_language_id", None),
+            ) if value
+        ]
+
+    language_ids = {
+        language_id
+        for item in payload_items
+        for language_id in item_language_ids(item)
+    }
+    if language_ids:
+        found = {
+            language_id for (language_id,) in db.query(InterpretationLanguage.id)
+            .filter(InterpretationLanguage.id.in_(language_ids)).all()
+        }
+        if found != language_ids:
+            raise ValueError("资源需求包含不存在或已失效的语种")
     by_id = {row.id: row for row in request.items}
     requested_ids = {item.id for item in payload_items if item.id}
     if requested_ids - set(by_id):
@@ -217,11 +250,21 @@ def _sync_items(db: Session, request: ResourceRequest, payload_items) -> None:
         if row.id not in requested_ids:
             request.items.remove(row)
     for index, item in enumerate(payload_items, start=1):
+        current_language_ids = item_language_ids(item)
         row = by_id.get(item.id) if item.id else ResourceRequestItem()
         if not item.id:
             request.items.append(row)
-        for key, value in item.model_dump(exclude={"id"}).items():
+        for key, value in item.model_dump(exclude={"id", "language_ids"}).items():
             setattr(row, key, value)
+        row.source_language_id = current_language_ids[0] if current_language_ids else None
+        row.target_language_id = current_language_ids[1] if len(current_language_ids) > 1 else None
+        row.extra_languages = [
+            ResourceRequestItemExtraLanguage(
+                sequence_no=language_index,
+                language_id=language_id,
+            )
+            for language_index, language_id in enumerate(current_language_ids[2:], start=3)
+        ]
         row.sequence_no = index
         row.updated_at = datetime.now()
 
@@ -232,18 +275,31 @@ def create_resource_request(
     data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
     row = ResourceRequest(
         request_no=generate_resource_request_no(db), requested_by=user_id,
-        idempotency_key=idempotency_key, **data,
+        idempotency_key=idempotency_key,
+        demand_status="draft" if payload.request_status == "draft" else "confirmed",
+        **data,
     )
     _sync_items(db, row, payload.items)
     db.add(row)
     db.flush()
-    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=0, progress_note="资源需求已创建", changed_by=user_id))
+    note = "资源需求草稿已创建" if row.demand_status == "draft" else "资源需求已发送"
+    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=0, progress_note=note, changed_by=user_id))
     db.commit()
     return get_resource_request(db, row.id)
 
 
+def _request_options():
+    return (
+        selectinload(ResourceRequest.items).selectinload(ResourceRequestItem.source_language),
+        selectinload(ResourceRequest.items).selectinload(ResourceRequestItem.target_language),
+        selectinload(ResourceRequest.items)
+        .selectinload(ResourceRequestItem.extra_languages)
+        .selectinload(ResourceRequestItemExtraLanguage.language),
+    )
+
+
 def update_resource_request(db: Session, request_id: UUID, payload):
-    row = db.query(ResourceRequest).options(selectinload(ResourceRequest.items)).filter(ResourceRequest.id == request_id).first()
+    row = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id == request_id).first()
     if not row:
         return None
     data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
@@ -251,6 +307,75 @@ def update_resource_request(db: Session, request_id: UUID, payload):
         setattr(row, key, value)
     _sync_items(db, row, payload.items)
     row.updated_at = datetime.now()
+    db.commit()
+    return get_resource_request(db, row.id)
+
+
+def get_resource_request_by_source(db: Session, source_type: str, source_project_id: UUID):
+    """获取来源项目最近一条资源需求，草稿也必须能从项目入口恢复。"""
+    if source_type not in SOURCE_MODELS:
+        raise ValueError("不支持的来源项目类型")
+    _model, field = SOURCE_MODELS[source_type]
+    return (
+        db.query(ResourceRequest)
+        .filter(getattr(ResourceRequest, field) == source_project_id)
+        .order_by(ResourceRequest.updated_at.desc())
+        .first()
+    )
+
+
+def list_resource_request_source_statuses(db: Session, source_type: str) -> dict[str, str]:
+    """返回某一项目类型的项目 ID 与最近需求状态映射。"""
+    if source_type not in SOURCE_MODELS:
+        raise ValueError("不支持的来源项目类型")
+    _model, field = SOURCE_MODELS[source_type]
+    rows = (
+        db.query(getattr(ResourceRequest, field), ResourceRequest.demand_status, ResourceRequest.updated_at)
+        .filter(getattr(ResourceRequest, field).is_not(None))
+        .order_by(ResourceRequest.updated_at.desc())
+        .all()
+    )
+    result = {}
+    for project_id, demand_status, _updated_at in rows:
+        result.setdefault(str(project_id), demand_status)
+    return result
+
+
+def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]):
+    row = db.get(ResourceRequest, request_id)
+    if not row:
+        return None
+    row.demand_status = "confirmed"
+    row.request_status = "submitted"
+    row.requested_at = datetime.now()
+    row.completed_at = None
+    row.updated_at = datetime.now()
+    db.add(ResourceRequestProgressLog(
+        request_id=row.id,
+        progress_percent=row.progress_percent,
+        progress_note="资源需求已发送",
+        changed_by=user_id,
+    ))
+    db.commit()
+    return get_resource_request(db, row.id)
+
+
+def cancel_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]):
+    row = db.get(ResourceRequest, request_id)
+    if not row:
+        return None
+    if row.demand_status == "draft":
+        raise ValueError("草稿尚未发送，无需取消需求")
+    row.demand_status = "cancelled"
+    row.request_status = "cancelled"
+    row.completed_at = None
+    row.updated_at = datetime.now()
+    db.add(ResourceRequestProgressLog(
+        request_id=row.id,
+        progress_percent=row.progress_percent,
+        progress_note="资源需求已取消",
+        changed_by=user_id,
+    ))
     db.commit()
     return get_resource_request(db, row.id)
 
@@ -273,7 +398,7 @@ def _detail_dict(db: Session, row: ResourceRequest) -> dict:
 
 
 def get_resource_request(db: Session, request_id: UUID):
-    row = db.query(ResourceRequest).options(selectinload(ResourceRequest.items)).filter(ResourceRequest.id == request_id).first()
+    row = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id == request_id).first()
     return _detail_dict(db, row) if row else None
 
 
@@ -307,7 +432,7 @@ def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, r
         "client_code": "client_code_snapshot", "client_short_name": "client_short_name_snapshot",
     }
     scalar_columns = {
-        "source_type": "source_type", "priority": "priority", "request_status": "request_status",
+        "source_type": "source_type", "priority": "priority", "request_status": "request_status", "demand_status": "demand_status",
         "request_category": "request_category", "owner_id": "owner_id", "project_status": "current_project_status",
     }
     for index, (field, descriptor) in enumerate(field_filters.items()):
@@ -340,7 +465,11 @@ def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, r
             parts = []
             for value_index, value in enumerate(values):
                 name = f"{prefix}_{value_index}"
-                parts.append(f"item.source_language_id::text=:{name} OR item.target_language_id::text=:{name}")
+                parts.append(
+                    f"item.source_language_id::text=:{name} OR item.target_language_id::text=:{name} "
+                    f"OR EXISTS (SELECT 1 FROM resource_request_item_extra_language extra "
+                    f"WHERE extra.item_id=item.id AND extra.language_id::text=:{name})"
+                )
                 params[name] = str(value)
             clauses.append(f"EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND ({' OR '.join(parts)}))")
         elif field == "request_detail":
@@ -381,7 +510,7 @@ def list_resource_requests(db: Session, *, skip=0, limit=100, keyword=None, sour
     request_ids = [row["id"] for row in result]
     items_by_request = {}
     if request_ids:
-        requests = db.query(ResourceRequest).options(selectinload(ResourceRequest.items)).filter(ResourceRequest.id.in_(request_ids)).all()
+        requests = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id.in_(request_ids)).all()
         items_by_request = {row.id: list(row.items) for row in requests}
     return [row | {"items": items_by_request.get(row["id"], [])} for row in result]
 

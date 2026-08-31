@@ -52,6 +52,7 @@ def project_query(model):
         (recruitment_field_filters, {"candidate_count": {"op": "between", "min": 1, "max": 5}}),
         (talent_field_filters, {"duplicate_review_required": {"op": "eq", "value": True}}),
         (request_field_filters, {"languages": {"op": "in", "value": ["00000000-0000-0000-0000-000000000001"]}}),
+        (request_field_filters, {"demand_status": {"op": "in", "value": ["confirmed", "cancelled"]}}),
     ],
 )
 def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):

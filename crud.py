@@ -26,6 +26,7 @@ from schemas import (
 )
 from passlib.context import CryptContext
 import hashlib
+import re
 from utils import generate_order_no
 from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
@@ -1372,14 +1373,28 @@ def build_auto_project_name(
     client_short_name: Optional[str],
     sub_order_count: int = 0,
     current_time: Optional[datetime] = None,
+    language_pair: Optional[str] = None,
+    customer_deadline_time: Optional[datetime | str] = None,
 ) -> str:
-    """按客户简称、当前日期和子订单数量生成项目名称。"""
+    """按客户、建项日期、翻译方向和客户交稿时间生成项目名称。"""
     normalized_short_name = (client_short_name or "").strip()
     if not normalized_short_name:
         return ""
 
     date_text = (current_time or datetime.now()).strftime("%y%m%d")
-    base_name = f"{normalized_short_name}-{date_text}"
+    parts = [normalized_short_name, date_text]
+    normalized_language_pair = (language_pair or "").strip()
+    if normalized_language_pair:
+        parts.append(normalized_language_pair)
+    deadline = customer_deadline_time
+    if isinstance(deadline, str):
+        try:
+            deadline = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+        except ValueError:
+            deadline = None
+    if deadline:
+        parts.append(f'{deadline:%Y%m%d-%H:%M}回稿')
+    base_name = "-".join(parts)
     return f"{base_name}-{sub_order_count}批" if sub_order_count > 0 else base_name
 
 
@@ -1396,6 +1411,9 @@ def _is_auto_project_name(
 
     suffix = normalized_project_name[len(prefix):]
     if len(suffix) == 6 and suffix.isdigit():
+        return True
+    # 翻译方向本身可能包含连接符，因此只固定首尾结构。
+    if re.fullmatch(r"\d{6}-.+-\d{8}-\d{2}:?\d{2}回稿(?:-\d+批)?", suffix):
         return True
     if not suffix.endswith("批"):
         return False
@@ -1443,6 +1461,8 @@ def _sync_project_name_with_sub_order_count(
         client_short_name,
         sub_order_count,
         current_time,
+        project.language_pair,
+        project.customer_deadline_time,
     )
     if generated_name and (
         not project.project_name
@@ -1862,7 +1882,7 @@ def create_translation_project(
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
-        'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments'
+        'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments'
     })
     normalized_roles = _normalize_project_role_assignments(role_assignments)
     role_manager_id = normalized_roles.get('project_manager')
@@ -1878,6 +1898,7 @@ def create_translation_project(
             db,
             project.client_short_name,
             project.client_code,
+            manager_contact=project.manager_contact,
         )
         if client_id:
             project_data['client_id'] = client_id
@@ -1934,7 +1955,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     role_assignments = project_update.role_assignments if role_assignments_provided else None
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'word_count_matrix', 'role_assignments', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'translator_id' in update_data:
@@ -1959,6 +1980,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
             db,
             project_update.client_short_name,
             project_update.client_code,
+            manager_contact=project_update.manager_contact,
         )
         if client_id:
             update_data['client_id'] = client_id
@@ -2535,6 +2557,7 @@ def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultatio
 
 
 CONSULTATION_TYPE_FILTER_ALIASES = {
+    '简单咨询': ('简单咨询', 'simple'),
     '笔译项目': ('笔译项目', 'translation', '笔译'),
     '口译项目': ('口译项目', 'interpretation', '口译'),
     '招聘项目': ('招聘项目', 'recruitment', '招聘'),
@@ -2733,7 +2756,7 @@ def create_consultation(
         )
         consultation_data['client_id'] = client_id
 
-    # 负责人联系方式属于关联客户资料；咨询表单仅提供就地编辑入口，不重复落库。
+    # 客户经理联系方式属于关联客户资料；咨询表单仅提供就地编辑入口，不重复落库。
     if 'manager_contact' in consultation.model_fields_set and consultation_data.get('client_id'):
         client = db.query(Client).filter(Client.id == consultation_data['client_id']).first()
         if client:

@@ -130,8 +130,11 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
         for item in raw_directions
         if not isinstance(item, str)
         for language_id in (
-            _item_get(item, "source_language_id", "sourceLanguageId"),
-            _item_get(item, "target_language_id", "targetLanguageId"),
+            _item_get(item, "language_ids", "languageIds")
+            or [
+                _item_get(item, "source_language_id", "sourceLanguageId"),
+                _item_get(item, "target_language_id", "targetLanguageId"),
+            ]
         )
         if language_id
     }
@@ -143,14 +146,15 @@ def _normalize_interpretation_mail_values(db: Session, values: dict) -> dict:
             if _clean(item):
                 directions.append(_clean(item))
             continue
-        source_id = _item_get(item, "source_language_id", "sourceLanguageId")
-        target_id = _item_get(item, "target_language_id", "targetLanguageId")
-        source_label = language_labels.get(str(source_id), "")
-        target_label = language_labels.get(str(target_id), "")
-        if source_label and target_label:
+        language_ids = _item_get(item, "language_ids", "languageIds") or [
+            _item_get(item, "source_language_id", "sourceLanguageId"),
+            _item_get(item, "target_language_id", "targetLanguageId"),
+        ]
+        labels = [language_labels.get(str(language_id), "") for language_id in language_ids if language_id]
+        if len(labels) >= 2 and all(labels):
             required_count = _item_get(item, "required_count", "requiredCount")
             count_text = f"（{required_count}人）" if required_count else "（人数待补充）"
-            directions.append(f"{source_label} ↔ {target_label}{count_text}")
+            directions.append(f"{' ↔ '.join(labels)}{count_text}")
     normalized["language_directions"] = directions
     counts = [
         _item_get(item, "required_count", "requiredCount")
@@ -482,7 +486,7 @@ def build_preview(
         missing.insert(0, "订单号")
     common = (
         ("项目类型", TYPE_LABELS[project_type]), ("订单号", order_no), ("项目名称", project_name),
-        ("客户简称", values.get("client_short_name")), ("负责人联系方式", values.get("manager_contact")),
+        ("客户简称", values.get("client_short_name")), ("客户经理联系方式", values.get("manager_contact")),
         ("客户单号/项目标识", values.get("customer_order_no")),
     )
     lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value)]

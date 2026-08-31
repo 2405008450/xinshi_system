@@ -89,7 +89,7 @@ def _project_assistant_responsibility_summary(
     workflow: Optional[WorkflowInstance],
     actor_state: tuple[bool, Optional[str], bool],
 ) -> dict:
-    """区分项目固定负责人、当前临时处理人与实际操作权限。"""
+    """展示项目助理责任信息；派稿权限只取决于操作人的系统角色。"""
     fixed_user = fixed_assignment.assignee if fixed_assignment else None
     fixed_id = fixed_assignment.assignee_id if fixed_assignment else None
     fixed_name = (
@@ -99,11 +99,6 @@ def _project_assistant_responsibility_summary(
         "role_code": None,
         "role_name": None,
     }
-    workflow_assignee = workflow.current_assignee if workflow else None
-    workflow_assignee_name = (
-        (workflow_assignee.full_name or workflow_assignee.username)
-        if workflow_assignee else None
-    )
     result = {
         "project_assistant_id": fixed_id,
         "project_assistant_name": fixed_name,
@@ -123,41 +118,9 @@ def _project_assistant_responsibility_summary(
         result["manuscript_access_reason"] = actor_reason
         return result
 
-    if fixed_id == current_user.id:
-        result["can_manage_manuscript"] = True
-        result["manuscript_access_reason"] = "你是该项目的固定项目助理"
-        return result
-
-    is_project_assistant_stage = stage_role["role_code"] == "project_assistant"
-    if (
-        is_project_assistant_stage
-        and workflow
-        and workflow.current_assignee_id == current_user.id
-    ):
-        result["can_manage_manuscript"] = True
-        result["manuscript_access_reason"] = (
-            "你是当前项目助理流程负责人（临时交接）"
-            if fixed_id else
-            "你已认领该项目的项目助理角色池任务"
-        )
-        return result
-
-    if fixed_id:
-        result["manuscript_access_reason"] = (
-            f"该项目由项目助理“{fixed_name or '已停用用户'}”负责；如需代办，请先完成任务交接"
-        )
-    elif is_project_assistant_stage and workflow and workflow.current_assignee_id:
-        result["manuscript_access_reason"] = (
-            f"该项目助理任务当前由“{workflow_assignee_name or '其他用户'}”负责"
-        )
-    elif is_project_assistant_stage:
-        result["manuscript_access_reason"] = (
-            "项目未绑定固定项目助理，请先在工作台认领项目助理角色池任务"
-        )
-    else:
-        result["manuscript_access_reason"] = (
-            "项目未配置项目助理，且当前流程尚无可由你处理的项目助理任务"
-        )
+    # 项目归属和流程认领只用于展示责任人，不再限制派稿操作。
+    result["can_manage_manuscript"] = True
+    result["manuscript_access_reason"] = "当前账号具有“项目助理”角色，可操作全部项目的稿件安排"
     return result
 
 
@@ -247,6 +210,37 @@ def _word_count_summary(values) -> str:
     if not items:
         return "待确认"
     return items[0] if len(items) == 1 else f"{items[0]}（另有 {len(items) - 1} 项）"
+
+
+def _validate_stored_arrangement_required_fields(
+    arrangement: ManuscriptArrangement,
+) -> None:
+    """确认历史草稿前补做必填校验，防止绕过新版表单规则。"""
+    planned = getattr(arrangement, "planned", None)
+    source = planned.model_dump() if hasattr(planned, "model_dump") else (planned or {})
+    if not any(source.get(metric_type) is not None for metric_type in METRIC_TYPES):
+        raise ValueError(
+            f"{arrangement.translator_name_snapshot}：字数与结算至少需要填写一个字数数值"
+        )
+    first_phase = next(
+        (
+            item
+            for item in sorted(
+                arrangement.milestones,
+                key=lambda row: row.sequence_no,
+            )
+            if item.milestone_type == "phase"
+        ),
+        None,
+    )
+    if first_phase is None or first_phase.planned_at is None:
+        raise ValueError(
+            f"{arrangement.translator_name_snapshot}：必须填写译员交稿_预定时间1"
+        )
+    if not (arrangement.settlement_method or "").strip():
+        raise ValueError(f"{arrangement.translator_name_snapshot}：必须填写译员结账方式")
+    if arrangement.translator_unit_price is None:
+        raise ValueError(f"{arrangement.translator_name_snapshot}：必须填写单价")
 
 
 def _effective_order_status_expression(sub_order_id_column):
@@ -617,6 +611,9 @@ def _create_arrangement_line(
             assignment.custom_settlement_method,
         ),
         custom_settlement_method=None,
+        translator_pricing_method=(
+            assignment.translator_pricing_method or ""
+        ).strip() or None,
         translator_unit_price=assignment.translator_unit_price,
         translator_total_price=assignment.translator_total_price,
         manuscript_source_path=entity_values["dispatch_path"],
@@ -1368,6 +1365,7 @@ def confirm_dispatch(
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     now = datetime.datetime.now()
     for arrangement in dispatch.arrangements:
+        _validate_stored_arrangement_required_fields(arrangement)
         translator = (
             db.query(Translator)
             .filter(Translator.id == arrangement.translator_id)
@@ -1464,9 +1462,15 @@ def create_arrangement(
 
         milestones = [
             ManuscriptMilestoneInput(
+                milestone_type="phase",
+                name="译员交稿_预定时间1",
+                sequence_no=1,
+                planned_at=payload.planned_delivery_at,
+            ),
+            ManuscriptMilestoneInput(
                 milestone_type="final",
                 name="全稿",
-                sequence_no=1,
+                sequence_no=2,
                 planned_at=payload.planned_delivery_at,
             )
         ]
@@ -1483,6 +1487,7 @@ def create_arrangement(
                 translation_scope=payload.translation_scope,
                 settlement_method=payload.settlement_method,
                 custom_settlement_method=payload.custom_settlement_method,
+                translator_pricing_method=payload.translator_pricing_method,
                 translator_unit_price=payload.translator_unit_price,
                 translator_total_price=payload.translator_total_price,
                 email_subject=payload.email_subject,

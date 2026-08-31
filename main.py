@@ -40,6 +40,7 @@ from routers import users, roles, translation_projects, interpretation_projects,
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
+    InterpretationProjectDirectionExtraLanguage,
     InterpretationProjectInterpreter,
     InterpretationProjectLanguageDirection,
     InterpretationProjectTimeRange,
@@ -112,7 +113,12 @@ from annotation_ops_models import (
     AnnotationTrialRecord,
 )
 from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
-from resource_request_models import ResourceRequest, ResourceRequestItem, ResourceRequestProgressLog
+from resource_request_models import (
+    ResourceRequest,
+    ResourceRequestItem,
+    ResourceRequestItemExtraLanguage,
+    ResourceRequestProgressLog,
+)
 from routers import business_mails
 
 app = FastAPI()
@@ -347,6 +353,18 @@ RESOURCE_COMPAT_COLUMN_STATEMENTS = (
     $$
     """,
 )
+RESOURCE_REQUEST_LIFECYCLE_STATEMENTS = (
+    "ALTER TABLE resource_request ADD COLUMN IF NOT EXISTS demand_status VARCHAR(30) NOT NULL DEFAULT 'confirmed'",
+    "UPDATE resource_request SET demand_status=CASE WHEN request_status='cancelled' THEN 'cancelled' ELSE 'confirmed' END WHERE demand_status IS NULL OR demand_status NOT IN ('draft','confirmed','cancelled')",
+    """
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_resource_request_demand_status') THEN
+        ALTER TABLE resource_request ADD CONSTRAINT ck_resource_request_demand_status CHECK(demand_status IN ('draft','confirmed','cancelled'));
+      END IF;
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_resource_request_demand_status ON resource_request(demand_status, updated_at DESC)",
+)
 INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS = (
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS updated_by UUID",
@@ -417,6 +435,7 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS settlement_method VARCHAR(100)",
     "ALTER TABLE manuscript_arrangement ALTER COLUMN settlement_method TYPE VARCHAR(100)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS custom_settlement_method VARCHAR(100)",
+    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translator_pricing_method VARCHAR(100)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translator_unit_price NUMERIC(14, 4)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS translator_total_price NUMERIC(14, 2)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS send_attempted_at TIMESTAMP",
@@ -576,8 +595,11 @@ def ensure_resource_request_view():
     if not required.issubset(set(inspect(engine).get_table_names())):
         return
     with engine.begin() as conn:
+        # 视图中的 r.* 会在创建时展开；主表增加列后 CREATE OR REPLACE 无法在
+        # 中间插入新列，因此先删除再创建，确保展示视图与主表字段同步。
+        conn.execute(text("DROP VIEW IF EXISTS v_resource_request_display"))
         conn.execute(text("""
-            CREATE OR REPLACE VIEW v_resource_request_display AS
+            CREATE VIEW v_resource_request_display AS
             SELECT r.*,
               COALESCE(ap.project_status, rp.project_status, ip.project_status, tp.project_status) AS current_project_status,
               COALESCE(ap.order_no, rp.order_no, ip.order_no, tp.order_no) AS current_order_no,
@@ -650,6 +672,15 @@ def ensure_resource_compat_columns():
         return
     with engine.begin() as conn:
         for statement in RESOURCE_COMPAT_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_resource_request_lifecycle_columns():
+    """补齐资源需求草稿、发送与取消的独立生命周期字段。"""
+    if "resource_request" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in RESOURCE_REQUEST_LIFECYCLE_STATEMENTS:
             conn.execute(text(statement))
 
 
@@ -850,6 +881,7 @@ def ensure_consultation_project_intake_columns():
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake JSONB NOT NULL DEFAULT '{}'::jsonb",
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS project_intake_version INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)",
+        "ALTER TABLE consultation ADD COLUMN IF NOT EXISTS consultation_method_detail VARCHAR(255)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_consultation_idempotency_key ON consultation(idempotency_key) WHERE idempotency_key IS NOT NULL",
     )
     with engine.begin() as connection:
@@ -1108,6 +1140,7 @@ def run_runtime_migrations():
     InterpretationProject.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectTimeRange.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProjectDirectionExtraLanguage.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectInterpreter.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_requirement_columns()
     AnnotationProject.__table__.create(bind=engine, checkfirst=True)
@@ -1182,7 +1215,9 @@ def run_runtime_migrations():
     RecruitmentCandidateInterview.__table__.create(bind=engine, checkfirst=True)
     ResourceRequest.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestItem.__table__.create(bind=engine, checkfirst=True)
+    ResourceRequestItemExtraLanguage.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestProgressLog.__table__.create(bind=engine, checkfirst=True)
+    ensure_resource_request_lifecycle_columns()
     ensure_project_idempotency_columns()
     ensure_resource_request_view()
     with engine.begin() as conn:

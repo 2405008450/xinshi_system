@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 
 import annotation_custom_field_service as custom_field_service
+import resource_request_service as request_service
 from annotation_custom_field_service import _resequence, _validate_scope, deactivate_custom_field
 from annotation_models import AnnotationProjectAssignee
 from annotation_ops_models import (
@@ -166,6 +167,55 @@ def test_resource_request_list_and_count_share_current_project_keyword_filter():
     assert "sc.client_name ILIKE :keyword" in where_sql
     assert "request_status = :request_status" in where_sql
     assert params == {"request_status": "submitted", "keyword": "%新项目名%"}
+
+
+def test_resource_request_list_includes_server_drafts_and_filters_demand_status():
+    where_sql, params = _view_filter_sql(field_filters={
+        "demand_status": {"op": "in", "value": ["confirmed", "cancelled"]},
+    })
+
+    assert "demand_status <> 'draft'" not in where_sql
+    assert "demand_status IN" in where_sql
+    assert set(params.values()) == {"confirmed", "cancelled"}
+
+
+def test_resource_request_send_cancel_and_resend_lifecycle(monkeypatch):
+    request_id = uuid4()
+    row = SimpleNamespace(
+        id=request_id,
+        demand_status="draft",
+        request_status="draft",
+        progress_percent=0,
+        requested_at=None,
+        completed_at=None,
+        updated_at=None,
+    )
+
+    class FakeDb:
+        commits = 0
+        logs = []
+
+        def get(self, _model, value):
+            return row if value == request_id else None
+
+        def add(self, value):
+            self.logs.append(value)
+
+        def commit(self):
+            self.commits += 1
+
+    db = FakeDb()
+    monkeypatch.setattr(request_service, "get_resource_request", lambda _db, _id: row)
+
+    request_service.send_resource_request(db, request_id, uuid4())
+    assert (row.demand_status, row.request_status) == ("confirmed", "submitted")
+
+    request_service.cancel_resource_request(db, request_id, uuid4())
+    assert (row.demand_status, row.request_status) == ("cancelled", "cancelled")
+
+    request_service.send_resource_request(db, request_id, uuid4())
+    assert (row.demand_status, row.request_status) == ("confirmed", "submitted")
+    assert db.commits == 3
 
 
 def test_resource_request_allows_empty_detail_for_source_without_requirement_text():

@@ -6,8 +6,14 @@ import pytest
 from fastapi import HTTPException
 
 import workflow_models  # noqa: F401  注册 TranslationProject 使用的关系模型
-from interpretation_models import InterpretationLanguage, InterpretationProject
+from interpretation_models import (
+    InterpretationLanguage,
+    InterpretationProject,
+    InterpretationProjectDirectionExtraLanguage,
+    InterpretationProjectLanguageDirection,
+)
 from interpretation_schemas import (
+    PROJECT_TYPE_LABELS,
     InterpretationLanguageUpdate,
     InterpretationLanguageDirectionInput,
     InterpretationNamePreviewRequest,
@@ -25,6 +31,7 @@ from interpretation_service import (
 )
 from consultation_intake import normalize_legacy_interpretation_intake
 from resource_request_service import _interpretation_request_items
+from resource_request_schemas import ResourceRequestItemWrite
 from models import TranslationProject
 from schemas import TranslatorCreate
 
@@ -49,6 +56,13 @@ def test_name_uses_same_day_period_all_locations_directions_and_types():
         "2026年8月2日上午东莞、深圳朝鲜语 ↔ 中文（简体）"
         "陪同口译；会议交传口译项目"
     )
+
+
+def test_small_non_business_meeting_type_is_supported():
+    payload = InterpretationNamePreviewRequest(project_types=["small_non_business_meeting"])
+
+    assert payload.project_types == ["small_non_business_meeting"]
+    assert PROJECT_TYPE_LABELS["small_non_business_meeting"] == "小型（非商务）会议口译"
 
 
 def test_date_ranges_compress_same_month_and_repeated_year():
@@ -98,6 +112,68 @@ def test_nested_payload_rejects_duplicate_bidirectional_pair_and_translator():
                 {"translator_id": translator_id},
             ]
         )
+
+
+def test_multilingual_direction_normalizes_legacy_fields_and_rejects_invalid_groups():
+    first, second, third, fourth, fifth, sixth = (uuid4() for _ in range(6))
+    direction = InterpretationLanguageDirectionInput(
+        language_ids=[first, second, third], required_count=2,
+    )
+
+    assert direction.source_language_id == first
+    assert direction.target_language_id == second
+    assert direction.language_ids == [first, second, third]
+
+    with pytest.raises(ValueError, match="语种不能重复"):
+        InterpretationLanguageDirectionInput(
+            language_ids=[first, second, first], required_count=1,
+        )
+    with pytest.raises(ValueError):
+        InterpretationLanguageDirectionInput(
+            language_ids=[first, second, third, fourth, fifth, sixth], required_count=1,
+        )
+
+
+def test_multilingual_direction_group_duplicate_is_order_independent():
+    first, second, third = uuid4(), uuid4(), uuid4()
+    with pytest.raises(ValueError, match="双向口译方向不能重复"):
+        InterpretationProjectCreate(language_directions=[
+            {"language_ids": [first, second, third], "required_count": 1},
+            {"language_ids": [third, first, second], "required_count": 2},
+        ])
+
+
+def test_multilingual_direction_model_exposes_ordered_ids_labels_and_display():
+    languages = [
+        InterpretationLanguage(id=uuid4(), label=label, is_custom=False)
+        for label in ("中文（简体）", "英语", "日语")
+    ]
+    direction = InterpretationProjectLanguageDirection(
+        source_language_id=languages[0].id,
+        target_language_id=languages[1].id,
+        required_count=2,
+        source_language=languages[0],
+        target_language=languages[1],
+        extra_languages=[InterpretationProjectDirectionExtraLanguage(
+            sequence_no=3, language_id=languages[2].id, language=languages[2],
+        )],
+    )
+
+    assert direction.language_ids == [item.id for item in languages]
+    assert direction.language_labels == [item.label for item in languages]
+    assert direction.display == "中文（简体） ↔ 英语 ↔ 日语（2人）"
+
+
+def test_resource_request_item_accepts_multilingual_and_legacy_payloads():
+    first, second, third = uuid4(), uuid4(), uuid4()
+    multilingual = ResourceRequestItemWrite(language_ids=[first, second, third], required_count=2)
+    legacy = ResourceRequestItemWrite(source_language_id=first, target_language_id=second)
+
+    assert multilingual.source_language_id == first
+    assert multilingual.target_language_id == second
+    assert legacy.language_ids == [first, second]
+    with pytest.raises(ValueError, match="语种不能重复"):
+        ResourceRequestItemWrite(language_ids=[first, second, first])
 
 
 def test_direction_required_counts_are_required_and_summed():
@@ -155,6 +231,25 @@ def test_resource_request_items_keep_each_direction_count_and_reject_incomplete_
     project.language_directions[1].required_count = None
     with pytest.raises(ValueError, match="人数尚未补齐"):
         _interpretation_request_items(project)
+
+
+def test_resource_request_items_keep_complete_multilingual_group():
+    first, second, third = uuid4(), uuid4(), uuid4()
+    project = SimpleNamespace(language_directions=[
+        SimpleNamespace(
+            source_language_id=first,
+            target_language_id=second,
+            language_ids=[first, second, third],
+            required_count=2,
+        ),
+    ])
+
+    assert _interpretation_request_items(project) == [{
+        "source_language_id": first,
+        "target_language_id": second,
+        "language_ids": [first, second, third],
+        "required_count": 2,
+    }]
 
 
 def test_interpreter_requirements_and_translator_level_validation():

@@ -192,6 +192,7 @@ class ManuscriptArrangement(Base):
     translation_scope: Mapped[Optional[str]] = mapped_column(Text)
     settlement_method: Mapped[Optional[str]] = mapped_column(String(100))
     custom_settlement_method: Mapped[Optional[str]] = mapped_column(String(100))
+    translator_pricing_method: Mapped[Optional[str]] = mapped_column(String(100))
     translator_unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
     translator_total_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
 

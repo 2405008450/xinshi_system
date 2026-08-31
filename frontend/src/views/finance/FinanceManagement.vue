@@ -163,7 +163,7 @@
       v-model="dialogVisible"
       :title="isEdit ? '编辑财务记录' : '新增财务记录'"
       width="920px"
-      @close="resetForm"
+      @close="onDialogClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-divider content-position="left">关联项目</el-divider>
@@ -373,6 +373,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Delete, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useFormDraft } from '@/composables/useFormDraft'
 import {
   getFinanceRecords,
   getFinanceCount,
@@ -431,6 +432,7 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
+const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'finance-record', form, createDefault: defaultForm, formRef })
 
 const toMoney = (val) => (val != null ? `￥${Number(val).toFixed(2)}` : '-')
 
@@ -586,11 +588,12 @@ const fillFormByRecord = (record) => {
   form.payments = sortedPayments(record.payments || [])
 }
 
-const handleAdd = () => {
+const handleAdd = async () => {
   isEdit.value = false
   editId.value = null
   Object.assign(form, defaultForm())
   dialogVisible.value = true
+  await beginDraft('create')
 }
 
 const handleEdit = async (row) => {
@@ -611,6 +614,7 @@ const handleEdit = async (row) => {
 
   fillFormByRecord(source)
   dialogVisible.value = true
+  await beginDraft(`edit:${row.finance_id}`)
 }
 
 const handleDelete = async (row) => {
@@ -652,6 +656,7 @@ const handleSubmit = async () => {
         ElMessage.success('创建成功')
       }
 
+      clearDraft()
       dialogVisible.value = false
       fetchData()
     } catch (e) {
@@ -666,6 +671,7 @@ const resetForm = () => {
   Object.assign(form, defaultForm())
   formRef.value?.resetFields()
 }
+const onDialogClose = () => { pauseDraft(); resetForm() }
 
 onMounted(() => {
   fetchData()
