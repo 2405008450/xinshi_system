@@ -130,6 +130,7 @@ class BusinessMail(Base):
     recruitment_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     subject: Mapped[str] = mapped_column(String(1000), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    body_html: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
     smtp_message_id: Mapped[str] = mapped_column(String(255), nullable=False)

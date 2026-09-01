@@ -201,6 +201,7 @@ class ManuscriptArrangement(Base):
     manuscript_source_path: Mapped[Optional[str]] = mapped_column(Text)
     email_subject: Mapped[Optional[str]] = mapped_column(String(500))
     email_body: Mapped[Optional[str]] = mapped_column(Text)
+    email_body_html: Mapped[Optional[str]] = mapped_column(Text)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         String(20),

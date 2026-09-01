@@ -66,6 +66,8 @@ class BusinessMailPreviewResponse(BaseModel):
     cc_users: list[MailRecipientUser]
     subject: str
     body: str
+    body_html: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     missing_fields: list[str]
     sender_mode: Literal["system", "personal"]
     sender_name: Optional[str] = None
@@ -84,6 +86,8 @@ class BusinessMailSendRequest(BaseModel):
     cc_user_ids: list[UUID] = Field(default_factory=list)
     subject: str = Field(min_length=1, max_length=1000)
     body: str = Field(min_length=1, max_length=50000)
+    body_html: Optional[str] = Field(default=None, max_length=100000)
+    inline_image_ids: list[UUID] = Field(default_factory=list, max_length=5)
     idempotency_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
 
     @field_validator("subject")
@@ -123,6 +127,8 @@ class BusinessMailResponse(BaseModel):
     project_id: Optional[UUID]
     subject: str
     body: str
+    body_html: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     status: str
     recipients: list[MailRecipientUser]
     sender_name: Optional[str] = None

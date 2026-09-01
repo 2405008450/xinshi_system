@@ -89,6 +89,13 @@ function getTerminalHint(status, mode) {
     return null
   }
   const normalized = normalizeProjectStatus(status)
+  if (mode === 'translator') {
+    if (['translator_returned', 'special_checked', 'special_checked_typeset', 'reviewed', 'sent_to_client', 'client_feedback', 'feedback_sent_to_client'].includes(normalized)) {
+      return { label: '已回稿', type: 'success' }
+    }
+    if (ENDED_PROJECT_STATUSES.has(normalized)) return { label: '已结束', type: 'info' }
+    return null
+  }
   if (DELIVERED_PROJECT_STATUSES.has(normalized)) return { label: '已交付', type: 'success' }
   if (ENDED_PROJECT_STATUSES.has(normalized)) return { label: '已结束', type: 'info' }
   return null

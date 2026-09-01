@@ -10,6 +10,7 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
     "@tiptap/starter-kit": "^3.29.1",
+    "@tiptap/extension-image": "3.29.1",
     "@tiptap/vue-3": "^3.29.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/preset-sheets-data-validation": "0.25.1",

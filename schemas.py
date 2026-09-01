@@ -781,6 +781,8 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     planned: WordCountValues = Field(default_factory=WordCountValues)
     actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = None
+    # 与稿件安排的“译员交稿全稿预定时间”共用同一数据源。
+    translator_return_time: Optional[datetime] = None
 
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級

@@ -2,16 +2,30 @@
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import Integer, and_, case, cast, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from crud import get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
 from concurrency import assert_fresh
 from mail_service import MailAttachment, send_plain_text_email
+from manuscript_archive import (
+    build_manuscript_path_archive,
+    validate_manuscript_mail_size,
+)
+from mail_inline_image_service import (
+    bind_images,
+    bound_images,
+    plain_text_to_html,
+    previewable_body_html,
+    prepare_trusted_mail_html,
+    sanitize_body_html,
+    serialize_inline_image,
+)
 from manuscript_models import (
     ManuscriptArrangement,
     ManuscriptDeliveryMilestone,
@@ -224,20 +238,17 @@ def _validate_stored_arrangement_required_fields(
         raise ValueError(
             f"{arrangement.translator_name_snapshot}：工作量与结算至少需要填写一个计量数值"
         )
-    first_phase = next(
+    final_milestone = next(
         (
             item
-            for item in sorted(
-                arrangement.milestones,
-                key=lambda row: row.sequence_no,
-            )
-            if item.milestone_type == "phase"
+            for item in arrangement.milestones
+            if item.milestone_type == "final"
         ),
         None,
     )
-    if first_phase is None or first_phase.planned_at is None:
+    if final_milestone is None or final_milestone.planned_at is None:
         raise ValueError(
-            f"{arrangement.translator_name_snapshot}：必须填写译员交稿_预定时间1"
+            f"{arrangement.translator_name_snapshot}：必须填写全稿预定时间"
         )
     if not (arrangement.settlement_method or "").strip():
         raise ValueError(f"{arrangement.translator_name_snapshot}：必须填写译员结账方式")
@@ -272,8 +283,8 @@ def _preferred_email(translator: Translator) -> Optional[str]:
     return None
 
 
-def _default_subject(order_no: str, project_name: str) -> str:
-    return f"稿件安排｜{order_no}｜{project_name}"
+def _default_subject(translator_name: str) -> str:
+    return f"信实翻译派发稿件 -- {translator_name}"
 
 
 def _default_body(
@@ -366,6 +377,9 @@ def _entity_values(
             "order_no": sub_order.sub_order_no,
             "project_name": sub_order.sub_project_name or project.project_name,
             "language_pair": sub_order.language_pair or project.language_pair,
+            "customer_requirement_special": getattr(
+                project, "customer_requirement_special", None
+            ),
             "dispatch_path": dispatch_path,
             "reference_file_path_one": project.reference_file_path_one,
             "customer_deadline_time": (
@@ -376,6 +390,9 @@ def _entity_values(
         "order_no": project.order_no,
         "project_name": project.project_name,
         "language_pair": project.language_pair,
+        "customer_requirement_special": getattr(
+            project, "customer_requirement_special", None
+        ),
         "dispatch_path": dispatch_path,
         "reference_file_path_one": project.reference_file_path_one,
         "customer_deadline_time": project.customer_deadline_time,
@@ -397,6 +414,35 @@ def _get_project_dispatch_path(db: Session, translation_project_id: UUID) -> Opt
     if not project_file:
         return None
     return (project_file.dispatch_path or "").strip() or None
+
+
+_INTERNAL_MAIL_TEXT_LINE = re.compile(
+    r"(?m)^[ \t]*(?:派稿文路径|参考文件路径一|译员交稿_?全稿预定时间)[：:].*(?:\r?\n|$)"
+)
+_EMPTY_OPTIONAL_MILESTONE_TEXT_LINE = re.compile(
+    r"(?m)^[ \t]*译员交稿_预定时间(?:[2-9]|\d{2,})[：:]待确认[ \t]*(?:\r?\n|$)"
+)
+_INTERNAL_MAIL_HTML_BLOCK = re.compile(
+    r"<(?P<tag>p|div)>\s*(?:派稿文路径|参考文件路径一|译员交稿_?全稿预定时间)[：:].*?</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
+)
+_EMPTY_OPTIONAL_MILESTONE_HTML_BLOCK = re.compile(
+    r"<(?P<tag>p|div)>\s*译员交稿_预定时间(?:[2-9]|\d{2,})[：:]待确认\s*</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _strip_internal_mail_text(body: str) -> str:
+    """移除仅供内部跟进的信息，以及历史模板生成的空阶段节点。"""
+    cleaned = _INTERNAL_MAIL_TEXT_LINE.sub("", body or "")
+    return _EMPTY_OPTIONAL_MILESTONE_TEXT_LINE.sub("", cleaned).strip()
+
+
+def _strip_internal_mail_html(body_html: Optional[str]) -> Optional[str]:
+    if not body_html:
+        return body_html
+    cleaned = _INTERNAL_MAIL_HTML_BLOCK.sub("", body_html)
+    return _EMPTY_OPTIONAL_MILESTONE_HTML_BLOCK.sub("", cleaned)
 
 
 def _mail_preview_values(
@@ -428,47 +474,49 @@ def _mail_preview_values(
         arrangement.milestones,
         key=lambda item: item.sequence_no,
     ):
+        # 全稿预定时间仅供项目助理跟进收稿，不进入发给译员的邮件正文。
+        if milestone.milestone_type == "final" or not milestone.planned_at:
+            continue
         label = (
             "译员交稿全稿预定时间"
             if milestone.milestone_type == "final"
             else milestone.name
         )
-        planned_at_text = (
-            milestone.planned_at.strftime("%Y-%m-%d %H:%M")
-            if milestone.planned_at
-            else "待确认"
-        )
         milestone_lines.append(
-            f"{label}：{planned_at_text}"
+            f"{label}：{milestone.planned_at.strftime('%Y-%m-%d %H:%M')}"
         )
-    if not milestone_lines:
-        milestone_lines.append("译员交稿全稿预定时间：待确认")
-    milestone_text = "\n".join(milestone_lines)
 
     dispatch_path = (entity_values["dispatch_path"] or "").strip()
     reference_path = (entity_values["reference_file_path_one"] or "").strip()
     scope_text = (arrangement.translation_scope or "").strip() or "以项目经理提供的稿件为准"
     word_text = _word_count_summary(getattr(arrangement, "planned", None))
+    customer_requirement_special = (
+        entity_values["customer_requirement_special"] or ""
+    ).strip()
+    detail_lines = [
+        f"订单号：{entity_values['order_no']}",
+        f"项目名称：{entity_values['project_name']}",
+        f"语种：{entity_values['language_pair'] or '待确认'}",
+        f"需翻译部分：{scope_text}",
+        f"预定译员结算字数：{word_text}",
+        *(
+            [f"客户特殊要求：{customer_requirement_special}"]
+            if customer_requirement_special
+            else []
+        ),
+        *milestone_lines,
+    ]
+    detail_text = "\n".join(detail_lines)
     body = (
         f"{translator.translator_name}您好：\n\n"
         "现安排您处理以下稿件：\n"
-        f"订单号：{entity_values['order_no']}\n"
-        f"项目名称：{entity_values['project_name']}\n"
-        f"语种：{entity_values['language_pair'] or '待确认'}\n"
-        f"需翻译部分：{scope_text}\n"
-        f"预定译员结算字数：{word_text}\n"
-        f"{milestone_text}\n"
-        f"派稿文路径：{dispatch_path or '待填写'}\n"
-        f"参考文件路径一：{reference_path or '无'}\n\n"
+        f"{detail_text}\n\n"
         "请以项目经理提供的稿件文件和最终要求为准。"
     )
     return {
         "arrangement_id": arrangement.id,
         "recipient_email": _preferred_email(translator),
-        "subject": _default_subject(
-            entity_values["order_no"],
-            entity_values["project_name"],
-        ),
+        "subject": _default_subject(translator.translator_name),
         "body": body,
         "dispatch_path": dispatch_path or None,
         "reference_file_path_one": reference_path or None,
@@ -497,7 +545,16 @@ def update_dispatch_mail_paths(
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     project_file = _get_project_file(db, project.id)
     if not project_file:
-        raise ValueError("项目详情中尚无文件记录，请先新增项目文件后再填写派稿文路径")
+        # 项目文件实际按“每个项目一组路径”维护。首次从稿件安排填写时，
+        # 直接创建路径组，避免要求用户先跳转项目详情做一次空壳初始化。
+        project_file = ProjectFile(
+            translation_project_id=project.id,
+            file_name=(project.order_no or project.project_name or "项目文件").strip(),
+            # 兼容 project_file 的历史非空约束；原文路径仍可稍后在项目详情补充。
+            storage_path="",
+            uploaded_by=current_user.id,
+        )
+        db.add(project_file)
 
     project_file.dispatch_path = (payload.dispatch_path or "").strip() or None
     project.reference_file_path_one = (
@@ -525,7 +582,12 @@ def get_arrangement_mail_preview(
         raise ValueError("确认安排后才能生成邮件预览")
     if arrangement.status == "cancelled":
         raise ValueError("已取消的译员明细不能生成邮件预览")
-    return _mail_preview_values(db, arrangement)
+    preview = _mail_preview_values(db, arrangement)
+    images = bound_images(db, "manuscript_arrangement", arrangement.id)
+    saved_html = _strip_internal_mail_html(arrangement.email_body_html)
+    preview["body_html"] = previewable_body_html(saved_html) or plain_text_to_html(preview["body"])
+    preview["inline_images"] = [serialize_inline_image(item) for item in images]
+    return preview
 
 
 def _final_delivery_at(
@@ -586,8 +648,7 @@ def _create_arrangement_line(
 
     final_delivery_at = _final_delivery_at(assignment.milestones)
     email_subject = (assignment.email_subject or "").strip() or _default_subject(
-        entity_values["order_no"],
-        entity_values["project_name"],
+        translator.translator_name
     )
     email_body = (assignment.email_body or "").strip() or _default_body(
         translator.translator_name,
@@ -641,6 +702,37 @@ def _get_active_manuscript_projects(
     deadline = func.coalesce(
         TranslationSubOrder.customer_deadline_time,
         TranslationProject.customer_deadline_time,
+    )
+    # 与笔译项目列表保持一致：优先按订单号中的日期、母单流水号展示新项目。
+    # 子订单沿用母订单日期和流水号，再按完整订单号倒序排列。
+    effective_order_no = func.coalesce(
+        TranslationSubOrder.sub_order_no,
+        TranslationProject.order_no,
+    )
+    order_date_part = func.substring(
+        effective_order_no,
+        r"^TP-([0-9]{6}|[0-9]{8})-",
+    )
+    normalized_order_date = case(
+        (func.length(order_date_part) == 6, func.concat("20", order_date_part)),
+        else_=order_date_part,
+    )
+    order_date_key = case(
+        (order_date_part.isnot(None), normalized_order_date),
+        else_=func.to_char(WorkflowInstance.updated_at, "YYYYMMDD"),
+    )
+    order_sequence = case(
+        (
+            order_date_part.isnot(None),
+            cast(
+                func.substring(
+                    effective_order_no,
+                    r"^TP-[0-9]{6,8}-([0-9]+)",
+                ),
+                Integer,
+            ),
+        ),
+        else_=None,
     )
     query = (
         db.query(
@@ -708,7 +800,13 @@ def _get_active_manuscript_projects(
         deadline <= due_soon,
     ).count()
     rows = (
-        query.order_by(deadline.asc().nullslast(), WorkflowInstance.updated_at.desc())
+        query.order_by(
+            order_date_key.desc(),
+            order_sequence.desc().nullslast(),
+            effective_order_no.desc(),
+            WorkflowInstance.updated_at.desc(),
+            WorkflowInstance.id.desc(),
+        )
         .limit(limit)
         .all()
     )
@@ -1509,6 +1607,11 @@ def send_arrangement(
     arrangement_id: UUID,
     current_user: AppUser,
     attachment: Optional[MailAttachment] = None,
+    subject_override: Optional[str] = None,
+    body_override: Optional[str] = None,
+    body_html: Optional[str] = None,
+    inline_images: Optional[list] = None,
+    append_inline_html: Optional[str] = None,
 ) -> Optional[ManuscriptArrangement]:
     arrangement = get_arrangement(db, arrangement_id)
     if not arrangement:
@@ -1547,8 +1650,34 @@ def send_arrangement(
     # 发送前按项目与派稿明细的最新数据重新生成，确保实际邮件与预览一致。
     arrangement.recipient_email = preview["recipient_email"]
     arrangement.manuscript_source_path = preview["dispatch_path"]
-    arrangement.email_subject = preview["subject"]
-    arrangement.email_body = preview["body"]
+    arrangement.email_subject = (subject_override or "").strip() or preview["subject"]
+    arrangement.email_body = _strip_internal_mail_text(
+        (body_override or "").strip() or preview["body"]
+    )
+    selected_images = list(inline_images or [])
+    if not selected_images and arrangement.status == "failed":
+        selected_images = bound_images(db, "manuscript_arrangement", arrangement.id)
+    if append_inline_html is not None:
+        safe_fragment = sanitize_body_html(append_inline_html, "", selected_images) if selected_images else ""
+        arrangement.email_body_html = plain_text_to_html(arrangement.email_body) + safe_fragment
+    elif body_html is not None or selected_images:
+        arrangement.email_body_html = sanitize_body_html(body_html, arrangement.email_body, selected_images)
+    elif body_override is not None:
+        arrangement.email_body_html = plain_text_to_html(arrangement.email_body)
+    else:
+        arrangement.email_body_html = arrangement.email_body_html or plain_text_to_html(arrangement.email_body)
+    arrangement.email_body_html = _strip_internal_mail_html(arrangement.email_body_html)
+    bind_images(db, selected_images, "manuscript_arrangement", arrangement.id)
+
+    path_archive = build_manuscript_path_archive(
+        preview["dispatch_path"],
+        preview["reference_file_path_one"],
+        filename_stem=project.order_no or project.project_name,
+    )
+    mail_attachments = [path_archive]
+    if attachment:
+        mail_attachments.insert(0, attachment)
+    validate_manuscript_mail_size(mail_attachments, selected_images)
 
     now = datetime.datetime.now()
     arrangement.send_attempted_at = now
@@ -1556,11 +1685,17 @@ def send_arrangement(
     arrangement.updated_at = now
     message_id = f"<manuscript-{arrangement.id}@xinshi-system.local>"
     try:
+        rendered_html, inline_parts = prepare_trusted_mail_html(
+            arrangement.email_body_html,
+            selected_images,
+        )
         send_result = send_plain_text_email(
             recipient_email=arrangement.recipient_email,
             subject=arrangement.email_subject,
             body=arrangement.email_body,
-            attachment=attachment,
+            html_body=rendered_html,
+            inline_images=inline_parts,
+            attachments=mail_attachments,
             message_id=message_id,
         )
     except Exception as exc:
@@ -1590,6 +1725,10 @@ def send_dispatch(
     dispatch_id: UUID,
     current_user: AppUser,
     attachment: Optional[MailAttachment] = None,
+    subject_override: Optional[str] = None,
+    body_override: Optional[str] = None,
+    inline_images: Optional[list] = None,
+    append_inline_html: Optional[str] = None,
 ) -> tuple[ManuscriptDispatch, int, int, int]:
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
@@ -1617,6 +1756,10 @@ def send_dispatch(
                 arrangement.id,
                 current_user,
                 attachment=attachment,
+                subject_override=subject_override,
+                body_override=body_override,
+                inline_images=inline_images,
+                append_inline_html=append_inline_html,
             )
             sent_count += 1
         except Exception:

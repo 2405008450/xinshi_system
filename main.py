@@ -113,13 +113,15 @@ from annotation_ops_models import (
     AnnotationTrialRecord,
 )
 from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
+from mail_inline_image_models import MailInlineImage, MailInlineImageBinding
+from mail_inline_image_service import cleanup_orphan_inline_images
 from resource_request_models import (
     ResourceRequest,
     ResourceRequestItem,
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
 )
-from routers import business_mails
+from routers import business_mails, mail_inline_images
 
 app = FastAPI()
 
@@ -200,6 +202,7 @@ app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)
 app.include_router(business_mails.mail_router)
+app.include_router(mail_inline_images.router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
@@ -1177,6 +1180,8 @@ def run_runtime_migrations():
     ProjectMailPolicy.__table__.create(bind=engine, checkfirst=True)
     ProjectMailPolicyGroup.__table__.create(bind=engine, checkfirst=True)
     BusinessMail.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE business_mail ADD COLUMN IF NOT EXISTS body_html TEXT"))
     BusinessMailRecipient.__table__.create(bind=engine, checkfirst=True)
     BusinessMailAttempt.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as conn:
@@ -1206,6 +1211,12 @@ def run_runtime_migrations():
     DailyReportMailDelivery.__table__.create(bind=engine, checkfirst=True)
     DailyReportMailRecipient.__table__.create(bind=engine, checkfirst=True)
     DailyReportMailAttempt.__table__.create(bind=engine, checkfirst=True)
+    MailInlineImage.__table__.create(bind=engine, checkfirst=True)
+    MailInlineImageBinding.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS email_body_html TEXT"))
+    with Session(engine) as db:
+        cleanup_orphan_inline_images(db, prune_missing_scopes=True)
     RecruitmentProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     RecruitmentProjectProgress.__table__.create(bind=engine, checkfirst=True)
     RecruitmentCandidate.__table__.create(bind=engine, checkfirst=True)

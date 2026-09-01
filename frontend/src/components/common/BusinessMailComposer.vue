@@ -76,7 +76,14 @@
           </div>
         </el-form-item>
         <el-form-item label="邮件正文" required>
-          <el-input v-model="form.body" type="textarea" :rows="12" maxlength="50000" show-word-limit />
+          <MailBodyEditor
+            ref="bodyEditorRef"
+            v-model="form.body"
+            v-model:html-value="form.bodyHtml"
+            :images="form.inlineImages"
+            @update:images="form.inlineImages = $event"
+            @uploading-change="imageUploading = $event"
+          />
         </el-form-item>
       </el-form>
       <div v-if="history.length" class="mail-history-hint">
@@ -107,6 +114,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
+import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -124,14 +132,16 @@ const preview = reactive({
   missing_fields: [], blocking_reasons: [], can_send: false,
   sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
 })
-const form = reactive({ toUserIds: [], ccUserIds: [], subject: '', body: '' })
+const form = reactive({ toUserIds: [], ccUserIds: [], subject: '', body: '', bodyHtml: '', inlineImages: [] })
+const bodyEditorRef = ref(null)
+const imageUploading = ref(false)
 const availableUsers = ref([])
 const recipientGroups = ref([])
 const history = ref([])
 const SUBJECT_MAX_LENGTH = 120
 const SUBJECT_WARNING_LENGTH = 100
 
-const canSubmit = computed(() => preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
+const canSubmit = computed(() => !imageUploading.value && preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
 const subjectCharacterCount = computed(() => Array.from(form.subject || '').length)
 const selectedRecipientCount = computed(() => new Set([...form.toUserIds, ...form.ccUserIds]).size)
 const isAllMembersSelected = computed(() => availableUsers.value.length > 1 && selectedRecipientCount.value >= availableUsers.value.length)
@@ -156,6 +166,8 @@ const loadPreview = async () => {
     form.ccUserIds = mailPreview.cc_users.map((item) => item.user_id)
     form.subject = mailPreview.subject || ''
     form.body = mailPreview.body || ''
+    form.bodyHtml = mailPreview.body_html || ''
+    form.inlineImages = mailPreview.inline_images || []
     availableUsers.value = (users || []).filter((item) => item.is_active && item.email)
     recipientGroups.value = groups || []
     history.value = rows || []
@@ -191,9 +203,12 @@ const submitMail = async () => {
       cc_user_ids: form.ccUserIds.filter((id) => !form.toUserIds.includes(id)),
       subject: form.subject.trim(),
       body: form.body.trim(),
+      body_html: form.bodyHtml || null,
+      inline_image_ids: form.inlineImages.map(item => item.id),
       idempotency_key: makeIdempotencyKey(),
     })
     if (result.status === 'sent') {
+      bodyEditorRef.value?.markImagesSaved()
       ElMessage.success('内部项目邮件已发送')
       visible.value = false
     } else {
@@ -206,6 +221,10 @@ const submitMail = async () => {
     sending.value = false
   }
 }
+
+watch(visible, (isVisible, wasVisible) => {
+  if (!isVisible && wasVisible) bodyEditorRef.value?.cleanupDraftImages()
+})
 
 const retryFailedMail = async () => {
   if (!latestFailedMail.value || !preview.can_send) return

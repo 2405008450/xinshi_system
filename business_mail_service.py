@@ -8,7 +8,7 @@ from uuid import UUID
 
 from email_validator import EmailNotValidError, validate_email
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, object_session
 
 from annotation_models import AnnotationProject
 from business_mail_models import (
@@ -26,6 +26,15 @@ from interpretation_models import InterpretationLanguage, InterpretationProject
 from annotation_schemas import ANNOTATION_PROJECT_TYPE_LABELS
 from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LABELS
 from mail_service import SmtpSettings, send_text_email
+from mail_inline_image_service import (
+    bind_images,
+    bound_images,
+    load_owned_images,
+    plain_text_to_html,
+    prepare_inline_mail,
+    sanitize_body_html,
+    serialize_inline_image,
+)
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
 from word_count_service import get_word_count_matrix
@@ -565,7 +574,8 @@ def build_preview(
         "project_type": project_type, "order_no": order_no or None, "project_name": project_name or None,
         "to_users": [serialize_user(item, "to") for item in to_users],
         "cc_users": [serialize_user(item, "cc") for item in cc_users],
-        "subject": subject, "body": body, "missing_fields": missing,
+        "subject": subject, "body": body, "body_html": plain_text_to_html(body),
+        "inline_images": [], "missing_fields": missing,
         **sender_view,
         "can_send": not blocking, "blocking_reasons": blocking,
     }
@@ -575,16 +585,26 @@ def _project_id(mail: BusinessMail) -> Optional[UUID]:
     return getattr(mail, PROJECT_FK_FIELDS[mail.project_type])
 
 
+def _object_session_or_none(value):
+    try:
+        return object_session(value)
+    except Exception:
+        return None
+
+
 def serialize_mail(mail: BusinessMail) -> dict:
     attempts = sorted(
         list(mail.attempts or []),
         key=lambda item: item.attempted_at or datetime.min,
     )
     latest_attempt = attempts[-1] if attempts else None
+    session = _object_session_or_none(mail)
     return {
         "id": mail.id, "source_kind": mail.source_kind, "project_type": mail.project_type,
         "consultation_id": mail.consultation_id, "project_id": _project_id(mail),
-        "subject": mail.subject, "body": mail.body, "status": mail.status,
+        "subject": mail.subject, "body": mail.body, "body_html": getattr(mail, "body_html", None),
+        "inline_images": [serialize_inline_image(item) for item in bound_images(db=session, scope_type="business_mail", scope_id=mail.id)] if session else [],
+        "status": mail.status,
         "recipients": [{
             "user_id": item.user_id, "display_name": item.display_name_snapshot,
             "email": item.email_snapshot, "department": None, "recipient_type": item.recipient_type,
@@ -627,9 +647,12 @@ def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
         attempt.sender_email_snapshot = sender_view["sender_email"]
         attempt.delivery_mode = settings.mode
         mail.delivery_mode = settings.mode
+        inline_images = bound_images(db, "business_mail", mail.id) if isinstance(mail, BusinessMail) else []
+        html_body, inline_parts = prepare_inline_mail(getattr(mail, "body_html", None), mail.body, inline_images)
         result = send_text_email(
             to_emails=to_emails, cc_emails=cc_emails, subject=mail.subject,
-            body=mail.body, message_id=mail.smtp_message_id, settings=settings,
+            body=mail.body, html_body=html_body, inline_images=inline_parts,
+            message_id=mail.smtp_message_id, settings=settings,
         )
         mail.status = "sent"
         mail.sent_at = now
@@ -663,15 +686,19 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     project_consultation_id = getattr(project, "consultation_id", None)
     if payload.consultation_id and project_consultation_id != payload.consultation_id:
         raise ValueError("咨询记录与项目不匹配")
+    inline_images = load_owned_images(db, payload.inline_image_ids, actor.id)
+    safe_body_html = sanitize_body_html(payload.body_html, payload.body, inline_images)
     mail = BusinessMail(
         source_kind=payload.source_kind, project_type=payload.project_type,
         consultation_id=payload.consultation_id, subject=payload.subject.strip(), body=payload.body.strip(),
+        body_html=safe_body_html,
         idempotency_key=payload.idempotency_key, smtp_message_id=f"<project-mail-{payload.idempotency_key}@xinshi-system.local>",
         created_by=actor.id,
     )
     setattr(mail, PROJECT_FK_FIELDS[payload.project_type], payload.project_id)
     db.add(mail)
     db.flush()
+    bind_images(db, inline_images, "business_mail", mail.id)
     mail.recipients = [
         BusinessMailRecipient(user_id=user.id, recipient_type=kind, display_name_snapshot=user.full_name or user.username, email_snapshot=_valid_email(user.email) or "")
         for kind, users in (("to", to_users), ("cc", cc_users)) for user in users

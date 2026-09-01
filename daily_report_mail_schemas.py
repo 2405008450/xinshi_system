@@ -59,6 +59,8 @@ class DailyReportMailPreviewResponse(BaseModel):
     subject: str
     rows: list[DailyReportMailRow]
     supplemental_note: Optional[str] = None
+    inline_image_html: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     to_users: list[DailyReportMailRecipientView]
     cc_users: list[DailyReportMailRecipientView]
     can_send: bool
@@ -71,6 +73,8 @@ class DailyReportMailSendRequest(BaseModel):
     subject: str = Field(min_length=1, max_length=1000)
     rows: list[DailyReportMailRow]
     supplemental_note: Optional[str] = Field(default=None, max_length=10000)
+    inline_image_html: Optional[str] = Field(default=None, max_length=50000)
+    inline_image_ids: list[UUID] = Field(default_factory=list, max_length=5)
     idempotency_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
 
     @field_validator("subject")
@@ -92,6 +96,7 @@ class DailyReportMailDeliveryResponse(BaseModel):
     subject: str
     rows: list[DailyReportMailRow]
     supplemental_note: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     recipients: list[DailyReportMailRecipientView]
     status: str
     delivery_mode: Optional[str] = None

@@ -77,6 +77,7 @@
       top="5vh"
       class="daily-report-dialog mail-preview-dialog"
       destroy-on-close
+      @closed="clearMailImageDraft"
     >
       <div v-loading="previewLoading" class="mail-preview-content">
         <el-alert
@@ -118,6 +119,17 @@
               height="390px"
             />
           </el-form-item>
+          <el-form-item label="正文图片（位于表格后、补充说明前）">
+            <MailBodyEditor
+              ref="mailBodyEditorRef"
+              v-model:html-value="mailPreview.inline_image_html"
+              :images="mailPreview.inline_images"
+              image-only
+              min-height="150px"
+              @update:images="mailPreview.inline_images = $event"
+              @uploading-change="mailImageUploading = $event"
+            />
+          </el-form-item>
           <el-form-item v-if="mailPreview.supplemental_note" label="补充说明（来自已确认日报）">
             <div class="readonly-note">{{ mailPreview.supplemental_note }}</div>
           </el-form-item>
@@ -125,7 +137,7 @@
       </div>
       <template #footer>
         <el-button @click="mailPreviewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="sending" :disabled="!mailPreview.can_send || !mailPreview.subject?.trim()" @click="sendMail">确认发送</el-button>
+        <el-button type="primary" :loading="sending" :disabled="mailImageUploading || !mailPreview.can_send || !mailPreview.subject?.trim()" @click="sendMail">确认发送</el-button>
       </template>
     </el-dialog>
   </div>
@@ -136,6 +148,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DailyReportSpreadsheet from './DailyReportSpreadsheet.vue'
+import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import { getPersonalMailAccount } from '@/api/auth'
 import {
   exportDailyReport,
@@ -161,6 +174,8 @@ const supplementExpanded = ref(false)
 const selectedIndexes = ref([])
 const sheetRef = ref(null)
 const mailSheetRef = ref(null)
+const mailBodyEditorRef = ref(null)
+const mailImageUploading = ref(false)
 const mailPreviewDialog = ref(false)
 const mailRows = ref([])
 const report = reactive({ id: null, status: 'draft', supplemental_note: '', items: [] })
@@ -168,6 +183,7 @@ const mailAccount = reactive({ email: null, is_bound: false, is_verified: false,
 const mailPreview = reactive({
   report_id: null, report_date: '', sender_name: '', sender_email: null, subject: '', rows: [],
   supplemental_note: null, to_users: [], cc_users: [], can_send: false, blocking_reasons: [],
+  inline_image_html: '', inline_images: [],
   delivery_mode: 'disabled', test_recipient_masked: null
 })
 
@@ -287,6 +303,12 @@ async function loadMailAccount() {
 
 function openMailAccount() { router.push('/profile') }
 
+function clearMailImageDraft() {
+  mailBodyEditorRef.value?.cleanupDraftImages()
+  mailPreview.inline_image_html = ''
+  mailPreview.inline_images = []
+}
+
 async function openMailPreview() {
   previewLoading.value = true
   mailPreviewDialog.value = true
@@ -312,9 +334,12 @@ async function sendMail() {
     sending.value = true
     const result = await sendDailyReportMail(props.reportDate, {
       subject: mailPreview.subject.trim(), rows, supplemental_note: mailPreview.supplemental_note || null,
+      inline_image_html: mailPreview.inline_image_html || null,
+      inline_image_ids: mailPreview.inline_images.map(item => item.id),
       idempotency_key: idempotencyKey()
     })
     if (result.status === 'sent') {
+      mailBodyEditorRef.value?.markImagesSaved()
       mailPreviewDialog.value = false
       ElMessage.success('工作报告邮件发送成功')
     } else ElMessage.error(result.send_error || '邮件发送失败，可重新打开预览后重试')

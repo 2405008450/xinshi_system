@@ -484,7 +484,7 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
-      <el-form ref="subFormRef" :model="subForm" :rules="rules" label-width="120px">
+      <el-form ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="子客户编号" prop="sub_client_code">
@@ -513,7 +513,7 @@
           <el-col :xs="24" :md="12"><el-form-item label="地级市"><el-input v-model="subForm.city" /></el-form-item></el-col>
           <el-col :xs="24" :md="12"><el-form-item label="区县"><el-input v-model="subForm.district" /></el-form-item></el-col>
         </el-row>
-        <el-form-item label="开始合作时间"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
+        <el-form-item label="开始合作时间" prop="cooperation_start_date"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
@@ -713,6 +713,11 @@ const subForm = reactive({
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
   client_manager: [{ required: true, message: '请输入客户负责人', trigger: 'blur' }]
+}
+
+const subRules = {
+  ...rules,
+  cooperation_start_date: [{ required: true, message: '请选择开始合作时间', trigger: 'change' }]
 }
 
 const searchForm = reactive({

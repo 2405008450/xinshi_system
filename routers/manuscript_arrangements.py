@@ -1,9 +1,10 @@
 """稿件安排 API。"""
+import json
 import re
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -13,6 +14,7 @@ from mail_service import (
     MailDeliveryError,
     get_mail_status,
 )
+from mail_inline_image_service import load_owned_images, load_owned_or_bound_images
 from manuscript_schemas import (
     ManuscriptArrangementContext,
     ManuscriptArrangementCreate,
@@ -60,6 +62,54 @@ router = APIRouter(
 )
 
 MAX_MANUSCRIPT_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 15 * 1024 * 1024
+
+
+def _inline_images(
+    db: Session,
+    current_user: AppUser,
+    value: str,
+    *,
+    scope_id: Optional[UUID] = None,
+) -> list:
+    try:
+        raw_ids = json.loads(value or "[]")
+        if not isinstance(raw_ids, list):
+            raise ValueError
+        image_ids = [UUID(str(item)) for item in raw_ids]
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="正文图片参数格式错误") from exc
+    try:
+        if scope_id:
+            return load_owned_or_bound_images(
+                db, image_ids, current_user.id,
+                scope_type="manuscript_arrangement", scope_id=scope_id,
+            )
+        return load_owned_images(db, image_ids, current_user.id)
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+def _validate_total_mail_content(attachment: Optional[MailAttachment], images: list) -> None:
+    total = (len(attachment.content) if attachment else 0) + sum(item.file_size for item in images)
+    if total > MAX_MANUSCRIPT_MAIL_CONTENT_BYTES:
+        raise HTTPException(status_code=413, detail="邮件附件与正文图片合计不能超过 15MB")
+
+
+def _validate_mail_html(value: Optional[str], max_length: int) -> None:
+    if value and len(value) > max_length:
+        raise HTTPException(status_code=413, detail="邮件正文内容过长")
+
+
+def _validate_mail_subject(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="邮件标题不能为空")
+    if len(normalized) > 500:
+        raise HTTPException(status_code=413, detail="邮件标题不能超过 500 个字符")
+    return normalized
 
 
 def validate_manuscript_attachment(
@@ -232,16 +282,29 @@ def cancel_dispatch_endpoint(
 async def send_dispatch_endpoint(
     dispatch_id: UUID,
     attachment: Optional[UploadFile] = File(None),
+    subject: Optional[str] = Form(None),
+    body: Optional[str] = Form(None),
+    inline_image_html: Optional[str] = Form(None),
+    inline_image_ids_json: str = Form("[]"),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
     mail_attachment = await _read_manuscript_attachment(attachment)
+    subject = _validate_mail_subject(subject)
+    images = _inline_images(db, current_user, inline_image_ids_json)
+    _validate_mail_html(body, 20000)
+    _validate_mail_html(inline_image_html, 50000)
+    _validate_total_mail_content(mail_attachment, images)
     try:
         dispatch, sent_count, failed_count, skipped_count = send_dispatch(
             db,
             dispatch_id,
             current_user,
             attachment=mail_attachment,
+            subject_override=subject,
+            body_override=body,
+            inline_images=images,
+            append_inline_html=inline_image_html,
         )
     except Exception as exc:
         db.rollback()
@@ -262,18 +325,32 @@ async def send_dispatch_arrangement_endpoint(
     dispatch_id: UUID,
     arrangement_id: UUID,
     attachment: Optional[UploadFile] = File(None),
+    subject: Optional[str] = Form(None),
+    body: Optional[str] = Form(None),
+    body_html: Optional[str] = Form(None),
+    inline_image_ids_json: str = Form("[]"),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
     current = get_arrangement(db, arrangement_id)
     if not current or current.dispatch_id != dispatch_id:
         raise HTTPException(status_code=404, detail="译员派稿明细不存在")
+    mail_attachment = await _read_manuscript_attachment(attachment)
+    subject = _validate_mail_subject(subject)
+    images = _inline_images(db, current_user, inline_image_ids_json, scope_id=arrangement_id)
+    _validate_mail_html(body, 20000)
+    _validate_mail_html(body_html, 100000)
+    _validate_total_mail_content(mail_attachment, images)
     try:
         arrangement = send_arrangement(
             db,
             arrangement_id,
             current_user,
-            attachment=await _read_manuscript_attachment(attachment),
+            attachment=mail_attachment,
+            subject_override=subject,
+            body_override=body,
+            body_html=body_html,
+            inline_images=images,
         )
     except Exception as exc:
         _raise_business_error(exc)
@@ -406,15 +483,29 @@ def update_arrangement_endpoint(
 async def send_arrangement_endpoint(
     arrangement_id: UUID,
     attachment: Optional[UploadFile] = File(None),
+    subject: Optional[str] = Form(None),
+    body: Optional[str] = Form(None),
+    body_html: Optional[str] = Form(None),
+    inline_image_ids_json: str = Form("[]"),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    mail_attachment = await _read_manuscript_attachment(attachment)
+    subject = _validate_mail_subject(subject)
+    images = _inline_images(db, current_user, inline_image_ids_json, scope_id=arrangement_id)
+    _validate_mail_html(body, 20000)
+    _validate_mail_html(body_html, 100000)
+    _validate_total_mail_content(mail_attachment, images)
     try:
         arrangement = send_arrangement(
             db,
             arrangement_id,
             current_user,
-            attachment=await _read_manuscript_attachment(attachment),
+            attachment=mail_attachment,
+            subject_override=subject,
+            body_override=body,
+            body_html=body_html,
+            inline_images=images,
         )
     except Exception as exc:
         _raise_business_error(exc)

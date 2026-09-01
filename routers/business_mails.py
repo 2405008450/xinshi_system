@@ -31,6 +31,8 @@ mail_router = APIRouter(prefix="/project-mails", tags=["project-mails"])
 
 
 def _raise(exc: Exception):
+    if isinstance(exc, PermissionError):
+        raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, ValueError):

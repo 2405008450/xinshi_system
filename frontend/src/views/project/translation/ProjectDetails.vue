@@ -157,6 +157,17 @@
               <el-table-column v-if="isSubOrderColumnVisible('assignedTranslators')" label="译员安排" min-width="180" show-overflow-tooltip>
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
+              <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="220">
+                <template #default="{ row: subRow }">
+                  <div class="translator-return-deadlines">
+                    <div v-for="item in getTranslatorReturnDeadlineItems(subRow.assignedTranslators)" :key="item.key" class="translator-return-deadline">
+                      <span class="translator-return-deadline__name">{{ item.name }}</span>
+                      <DeadlineHintCell :deadline="item.time" :status="subRow.status" mode="translator" />
+                    </div>
+                    <span v-if="!getTranslatorReturnDeadlineItems(subRow.assignedTranslators).length">-</span>
+                  </div>
+                </template>
+              </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
                 <template #default="{ row: subRow }">
                   <el-tag :type="getStatusType(subRow.status)">{{ getStatusLabel(subRow.status) }}</el-tag>
@@ -284,6 +295,17 @@
             :deadline="row.customerDeadlineTime"
             :status="row.projectStatus"
           />
+          <div v-else-if="column.key === 'translatorReturnTime'" class="translator-return-deadlines">
+            <div
+              v-for="item in getTranslatorReturnDeadlineItems(row.assignedTranslators)"
+              :key="item.key"
+              class="translator-return-deadline"
+            >
+              <span class="translator-return-deadline__name">{{ item.name }}</span>
+              <DeadlineHintCell :deadline="item.time" :status="row.projectStatus" mode="translator" />
+            </div>
+            <span v-if="!getTranslatorReturnDeadlineItems(row.assignedTranslators).length">-</span>
+          </div>
           <div
             v-else-if="column.key === 'languagePair'"
             class="compact-cell-value"
@@ -675,6 +697,13 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
+                  <el-col :xs="24">
+                    <el-form-item label="译员回稿时间">
+                      <ReadonlyField :model-value="formatTranslatorReturnTimes(form.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
@@ -858,6 +887,9 @@
               <div class="form-section">
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="已分配译员"><ReadonlyField :model-value="formatAssignedTranslators(subOrderForm.assignedTranslators, subOrderForm.translatorName)" source="auto" placeholder="请在“稿件安排”模块中分配译员" /></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :xs="24"><el-form-item label="译员回稿时间"><ReadonlyField :model-value="formatTranslatorReturnTimes(subOrderForm.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
@@ -1070,6 +1102,7 @@ const basicProjectFieldSearchItems = [
   { key: 'customerReceptionTime', label: '客户接单时间', aliases: ['接单时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'customerDeadlineTime', label: '客户交稿时间', aliases: ['交稿时间', '截止时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'sentToClientTime', label: '发客户时间', aliases: ['发送客户时间'], section: 'execution', sectionLabel: '项目执行信息' },
+  { key: 'translatorReturnTime', label: '译员回稿时间', aliases: ['全稿预定时间', '译员交稿全稿预定时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'pmConfirmedBy', label: 'PM确认人 ID', aliases: ['PM确认人', '确认人'], section: 'execution', sectionLabel: '项目执行信息' },
 ].map((item) => ({ ...item, tab: 'basic', tabLabel: '基础信息', location: `基础信息 · ${item.sectionLabel}` }))
 const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
@@ -1144,6 +1177,7 @@ const projectDetailItems = [
   { label: '客户反馈', key: 'clientFeedback', span: 2, editable: true, multiline: true },
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
+  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
   { label: '审校前 QC', key: 'preReviewQcProgress' },
@@ -1167,6 +1201,7 @@ const subOrderDetailItems = [
   { label: '发客户时间', key: 'sentToClientTime' },
   { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
+  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
   { label: '审校前 QC', key: 'preReviewQcProgress' },
@@ -1343,6 +1378,7 @@ const tableColumnOverrides = {
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
   assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
+  translatorReturnTime: { minWidth: 220 },
   translatorAssignmentTime: { minWidth: 150 },
   translatorDeliveryProgress: { minWidth: 110 },
   preReviewQcProgress: { minWidth: 96 },
@@ -1366,11 +1402,17 @@ const subOrderTableColumns = [
   { key: 'languagePair', label: '翻译方向' },
   { key: 'wordCountMatrix', label: '字数统计' },
   { key: 'assignedTranslators', label: '译员安排' },
+  { key: 'translatorReturnTime', label: '译员回稿时间' },
   { key: 'status', label: '状态' },
 ]
+const legacyTranslationDefaultColumnKeys = ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
+const translationDefaultColumnKeys = [...legacyTranslationDefaultColumnKeys]
+translationDefaultColumnKeys.splice(5, 0, 'translatorReturnTime')
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
-  'translation-details-v4', tableColumns,
-  ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
+  'translation-details-v4',
+  tableColumns,
+  translationDefaultColumnKeys,
+  { legacyDefaultKeys: [legacyTranslationDefaultColumnKeys] }
 )
 const {
   selectedKeys: visibleSubOrderColumnKeys,
@@ -1505,6 +1547,27 @@ const formatAssignedTranslators = (items, legacyName = '') => {
   }
   return legacyName || '-'
 }
+const formatTranslatorReturnTimes = (items) => {
+  if (!Array.isArray(items) || !items.length) return '-'
+  const values = items
+    .map((item) => {
+      const time = item.translatorReturnTime || item.translator_return_time
+      if (!time) return ''
+      const name = item.translatorName || item.translator_name || '译员'
+      return `${name}：${formatDateTime(time)}`
+    })
+    .filter(Boolean)
+  return values.length ? values.join('；') : '-'
+}
+const getTranslatorReturnDeadlineItems = (items) => (
+  Array.isArray(items)
+    ? items.map((item, index) => ({
+        key: item.arrangementId || item.arrangement_id || item.translatorId || item.translator_id || index,
+        name: item.translatorName || item.translator_name || '译员',
+        time: item.translatorReturnTime || item.translator_return_time || '',
+      })).filter((item) => item.time)
+    : []
+)
 const getAssignedTranslatorNames = (items, legacyName = '') => {
   if (Array.isArray(items) && items.length) {
     return items
@@ -2268,6 +2331,9 @@ onBeforeUnmount(() => {
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }
+.translator-return-deadlines { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.translator-return-deadline { display: grid; grid-template-columns: minmax(64px, auto) minmax(0, 1fr); align-items: start; gap: 8px; }
+.translator-return-deadline__name { overflow: hidden; padding-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 :global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog .el-dialog__header),

@@ -119,6 +119,16 @@ class MailAttachment:
     content_type: str = "application/octet-stream"
 
 
+@dataclass(frozen=True)
+class MailInlineImagePart:
+    """作为 HTML 正文相关资源发送的 CID 图片。"""
+
+    cid: str
+    filename: str
+    content: bytes
+    content_type: str
+
+
 def get_mail_status() -> dict:
     """返回不包含密码的邮件配置状态。"""
     project_sender_mode = _env("PROJECT_MAIL_SENDER_MODE", "system").lower()
@@ -173,6 +183,7 @@ def send_text_email(
     body: Optional[str],
     html_body: Optional[str] = None,
     attachments: Iterable[MailAttachment] = (),
+    inline_images: Iterable[MailInlineImagePart] = (),
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
@@ -220,6 +231,20 @@ def send_text_email(
     message.set_content(body or "", subtype="plain", charset="utf-8")
     if html_body:
         message.add_alternative(html_body, subtype="html", charset="utf-8")
+        html_part = message.get_payload()[-1]
+        for image in inline_images:
+            content_type = (image.content_type or "").partition(";")[0].strip().lower()
+            maintype, _, subtype = content_type.partition("/")
+            if maintype != "image" or not subtype:
+                raise MailConfigurationError("正文内嵌资源必须是有效图片")
+            html_part.add_related(
+                image.content,
+                maintype="image",
+                subtype=subtype,
+                cid=f"<{image.cid.strip('<>')}>",
+                filename=image.filename,
+                disposition="inline",
+            )
     for attachment in attachments:
         content_type = (attachment.content_type or "").partition(";")[0].strip().lower()
         if "/" in content_type:
@@ -305,15 +330,23 @@ def send_plain_text_email(
     subject: Optional[str],
     body: Optional[str],
     attachment: Optional[MailAttachment] = None,
+    attachments: Iterable[MailAttachment] = (),
+    html_body: Optional[str] = None,
+    inline_images: Iterable[MailInlineImagePart] = (),
     message_id: str,
     settings: Optional[SmtpSettings] = None,
 ) -> MailSendResult:
     """兼容稿件安排的单收件人调用。"""
+    normalized_attachments = list(attachments)
+    if attachment:
+        normalized_attachments.insert(0, attachment)
     return send_text_email(
         to_emails=[recipient_email] if recipient_email else [],
         subject=subject,
         body=body,
-        attachments=[attachment] if attachment else [],
+        html_body=html_body,
+        attachments=normalized_attachments,
+        inline_images=inline_images,
         message_id=message_id,
         settings=settings,
     )

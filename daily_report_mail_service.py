@@ -7,7 +7,7 @@ import html
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, object_session
 
 from business_mail_models import MailRecipientGroup, MailRecipientGroupMember
 from daily_report_mail_models import (
@@ -23,6 +23,14 @@ from mail_service import (
     SmtpSettings,
     get_mail_status,
     send_text_email,
+)
+from mail_inline_image_service import (
+    bind_images,
+    bound_images,
+    load_owned_images,
+    prepare_trusted_mail_html,
+    sanitize_body_html,
+    serialize_inline_image,
 )
 from models import AppUser
 from task_models import DailyReport
@@ -227,6 +235,8 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
         "subject": f"{report.report_date:%Y年%m月%d日}{_display_user(user)}工作报告",
         "rows": _report_rows(report),
         "supplemental_note": report.supplemental_note,
+        "inline_image_html": None,
+        "inline_images": [],
         "to_users": [_recipient_view(item, "to") for item in to_users],
         "cc_users": [_recipient_view(item, "cc") for item in cc_users],
         "can_send": not reasons,
@@ -236,7 +246,7 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
     }
 
 
-def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str]) -> tuple[str, str]:
+def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str], inline_image_html: str = "") -> tuple[str, str]:
     header_html = "".join(
         f'<th style="border:1px solid #9ca3af;background:#dbeafe;color:#1e3a5f;padding:7px 9px;text-align:center;font-weight:700;">{html.escape(label)}</th>'
         for _, label in MAIL_COLUMNS
@@ -279,7 +289,7 @@ def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str])
     html_body = (
         '<div style="font-family:Microsoft YaHei,Arial,sans-serif;color:#1f2937;font-size:13px;">'
         '<table role="presentation" style="border-collapse:collapse;width:100%;table-layout:auto;">'
-        f"<thead><tr>{header_html}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>{note_html}</div>"
+        f"<thead><tr>{header_html}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>{inline_image_html}{note_html}</div>"
     )
     return html_body, "\n".join(plain_lines)
 
@@ -302,6 +312,7 @@ def serialize_delivery(delivery: DailyReportMailDelivery) -> dict:
         "subject": delivery.subject,
         "rows": delivery.body_rows,
         "supplemental_note": delivery.supplemental_note,
+        "inline_images": [serialize_inline_image(item) for item in bound_images(db=object_session(delivery), scope_type="daily_report_delivery", scope_id=delivery.id)] if object_session(delivery) else [],
         "recipients": [
             {
                 "user_id": item.user_id,
@@ -332,7 +343,9 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
     settings = _personal_smtp_settings(db, user)
     to_users, cc_users = _policy_recipients(db, user.id)
     rows = [item.model_dump() for item in payload.rows]
-    body_html, body_text = render_daily_report_mail(rows, payload.supplemental_note)
+    inline_images = load_owned_images(db, payload.inline_image_ids, user.id)
+    inline_fragment = sanitize_body_html(payload.inline_image_html, "", inline_images) if inline_images else ""
+    body_html, body_text = render_daily_report_mail(rows, payload.supplemental_note, inline_fragment)
     message_id = f"<daily-report-{payload.idempotency_key}@xinshi-system.local>"
     delivery = DailyReportMailDelivery(
         report_id=report.id,
@@ -350,6 +363,7 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
     )
     db.add(delivery)
     db.flush()
+    bind_images(db, inline_images, "daily_report_delivery", delivery.id)
     for kind, recipients in (("to", to_users), ("cc", cc_users)):
         for recipient in recipients:
             delivery.recipients.append(DailyReportMailRecipient(
@@ -364,12 +378,14 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
     attempt = DailyReportMailAttempt(delivery_id=delivery.id)
     db.add(attempt)
     try:
+        rendered_html, inline_parts = prepare_trusted_mail_html(body_html, inline_images)
         result = send_text_email(
             to_emails=[_valid_email(item.email) for item in to_users],
             cc_emails=[_valid_email(item.email) for item in cc_users],
             subject=payload.subject,
             body=body_text,
-            html_body=body_html,
+            html_body=rendered_html,
+            inline_images=inline_parts,
             message_id=message_id,
             settings=settings,
         )
@@ -380,7 +396,7 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
         attempt.delivery_mode = result.delivery_mode
         attempt.actual_recipients = result.delivery_recipient
         attempt.success = True
-    except (MailConfigurationError, MailDeliveryError) as exc:
+    except Exception as exc:
         delivery.status = "failed"
         delivery.delivery_mode = settings.mode
         delivery.send_error = str(exc)

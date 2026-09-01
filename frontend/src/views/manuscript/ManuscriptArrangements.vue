@@ -324,7 +324,7 @@
                       v-for="milestone in activeWorkbenchAssignment.milestones"
                       :key="`${activeWorkbenchAssignment.translator_id}-${milestone.sequence_no}`"
                     >
-                      <label :class="{ 'is-required': isRequiredFirstMilestone(activeWorkbenchAssignment, milestone) }">
+                      <label :class="{ 'is-required': isRequiredMilestone(activeWorkbenchAssignment, milestone) }">
                         {{ workbenchMilestoneLabel(milestone) }}
                       </label>
                       <el-date-picker
@@ -411,7 +411,7 @@
 
                     <div v-loading="mailPreviewLoading" class="mail-stage">
                       <el-alert
-                        title="派稿文路径直接关联项目详情中的项目文件记录；参考文件路径一关联母项目；译员邮箱关联译员资料。"
+                        title="发送时会自动将派稿文路径和参考文件路径一中的文件合并打包为 ZIP 附件；路径分别关联项目文件和母项目，译员邮箱关联译员资料。"
                         type="info"
                         :closable="false"
                         show-icon
@@ -471,19 +471,6 @@
                         </el-button>
                       </div>
 
-                      <el-collapse class="legacy-mail-editor">
-                        <el-collapse-item title="邮件预览" name="mail">
-                          <el-input :model-value="mailPreview.subject" readonly placeholder="邮件标题" />
-                          <el-input
-                            :model-value="mailPreview.body"
-                            type="textarea"
-                            :rows="10"
-                            readonly
-                            placeholder="邮件正文"
-                            class="mail-body-input"
-                          />
-                        </el-collapse-item>
-                      </el-collapse>
                     </div>
 
                     <div v-if="canManageSelectedProject && selectedProjectDispatch" class="legacy-actions">
@@ -494,7 +481,7 @@
                         :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || !mailPathForm.dispatch_path || !mailPreview.recipient_email"
                         @click="sendActiveWorkbenchAssignment"
                       >
-                        发送稿件
+                        预览并发送
                       </el-button>
                       <el-button
                         v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
@@ -1226,8 +1213,8 @@
                   v-model="milestone.planned_at"
                   type="datetime"
                   value-format="YYYY-MM-DDTHH:mm:ss"
-                  :placeholder="isRequiredFirstMilestone(assignment, milestone) ? '必填：选择预定时间' : '选择预定时间'"
-                  :aria-required="isRequiredFirstMilestone(assignment, milestone)"
+                  :placeholder="isRequiredMilestone(assignment, milestone) ? '必填：选择预定时间' : '选择预定时间'"
+                  :aria-required="isRequiredMilestone(assignment, milestone)"
                   style="width: 100%"
                   format="YYYY-MM-DD HH:mm"
                   time-format="HH:mm"
@@ -1238,7 +1225,7 @@
               </el-col>
               <el-col :span="2">
                 <el-button
-                  v-if="milestone.milestone_type !== 'final' && !isRequiredFirstMilestone(assignment, milestone)"
+                  v-if="milestone.milestone_type !== 'final' && !isRequiredMilestone(assignment, milestone)"
                   type="danger"
                   link
                   @click="removeMilestone(assignment, milestoneIndex)"
@@ -1338,25 +1325,58 @@
           <el-descriptions-item label="收件邮箱">
             {{ mailSendPreview.preview.recipient_email || '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="派稿文路径">
-            {{ mailSendPreview.preview.dispatch_path || '-' }}
+          <el-descriptions-item v-if="mailSendPreview.preview.dispatch_path" label="派稿文路径">
+            {{ mailSendPreview.preview.dispatch_path }}
           </el-descriptions-item>
-          <el-descriptions-item label="参考文件路径一">
-            {{ mailSendPreview.preview.reference_file_path_one || '-' }}
+          <el-descriptions-item v-if="mailSendPreview.preview.reference_file_path_one" label="参考文件路径一">
+            {{ mailSendPreview.preview.reference_file_path_one }}
           </el-descriptions-item>
         </el-descriptions>
 
         <div v-if="mailSendPreview.preview.arrangement_id" class="mail-send-preview-content">
           <label>邮件标题</label>
-          <el-input :model-value="mailSendPreview.preview.subject" readonly />
-          <label>邮件正文</label>
           <el-input
-            :model-value="mailSendPreview.preview.body"
-            type="textarea"
-            :rows="14"
-            readonly
-            resize="none"
+            v-model="mailSendPreview.preview.subject"
+            maxlength="500"
+            show-word-limit
+            :disabled="mailSendPreviewSending"
           />
+          <label>邮件正文</label>
+          <MailBodyEditor
+            v-if="mailSendPreviewMode === 'single'"
+            ref="mailBodyEditorRef"
+            v-model="mailSendPreview.preview.body"
+            v-model:html-value="mailSendPreview.preview.body_html"
+            :images="mailSendPreview.preview.inline_images"
+            min-height="280px"
+            @update:images="mailSendPreview.preview.inline_images = $event"
+            @uploading-change="mailImageUploading = $event"
+          />
+          <template v-else>
+            <el-alert
+              title="修改正文后，将把当前内容统一用于本批次所有待发送译员；不修改则仍按每位译员分别生成正文。"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+            <el-input
+              v-model="mailSendPreview.preview.body"
+              type="textarea"
+              :rows="10"
+              maxlength="20000"
+              show-word-limit
+            />
+            <label>批量正文图片（统一追加到每封邮件末尾）</label>
+            <MailBodyEditor
+              ref="mailBodyEditorRef"
+              v-model:html-value="mailSendPreview.batch_image_html"
+              :images="mailSendPreview.batch_inline_images"
+              image-only
+              min-height="150px"
+              @update:images="mailSendPreview.batch_inline_images = $event"
+              @uploading-change="mailImageUploading = $event"
+            />
+          </template>
         </div>
       </div>
       <template #footer>
@@ -1448,6 +1468,7 @@ import { hasPermission } from '@/utils/permission'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
+import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
@@ -1510,6 +1531,7 @@ function toggleProjectPanel() {
 const canWrite = computed(() => hasPermission('projects:write'))
 const creatingNewBatch = ref(false)
 const SEARCH_DEBOUNCE_MS = 400
+const DEFAULT_SETTLEMENT_METHOD = '次月结'
 let projectSearchTimer = null
 let dispatchSearchTimer = null
 let contextRequestId = 0
@@ -1606,6 +1628,10 @@ const mailSendPreviewLoading = ref(false)
 const mailSendPreviewSending = ref(false)
 const mailSendPreviewError = ref('')
 const mailSendPreviewMode = ref('single')
+const mailBatchOriginalSubject = ref('')
+const mailBatchOriginalBody = ref('')
+const mailBodyEditorRef = ref(null)
+const mailImageUploading = ref(false)
 const MAX_MAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024
 const mailAttachmentFile = ref(null)
 const mailAttachmentList = ref([])
@@ -1614,6 +1640,8 @@ const mailPreview = reactive({
   recipient_email: '',
   subject: '',
   body: '',
+  body_html: '',
+  inline_images: [],
   dispatch_path: '',
   reference_file_path_one: ''
 })
@@ -1624,11 +1652,15 @@ const mailPathForm = reactive({
 const mailSendPreview = reactive({
   dispatch: null,
   assignment: null,
+  batch_image_html: '',
+  batch_inline_images: [],
   preview: {
     arrangement_id: '',
     recipient_email: '',
     subject: '',
     body: '',
+    body_html: '',
+    inline_images: [],
     dispatch_path: '',
     reference_file_path_one: ''
   }
@@ -1647,9 +1679,11 @@ const mailSendPreviewConfirmDisabled = computed(() => {
   return Boolean(
     mailSendPreviewLoading.value
     || mailSendPreviewSending.value
+    || mailImageUploading.value
     || mailSendPreviewError.value
     || !preview.arrangement_id
     || !preview.recipient_email
+    || !preview.subject.trim()
     || !preview.dispatch_path
   )
 })
@@ -1660,6 +1694,8 @@ function clearMailPreview() {
     recipient_email: '',
     subject: '',
     body: '',
+    body_html: '',
+    inline_images: [],
     dispatch_path: '',
     reference_file_path_one: ''
   })
@@ -1676,19 +1712,26 @@ function resetMailPathForm() {
 }
 
 function clearMailSendPreview() {
+  mailBodyEditorRef.value?.cleanupDraftImages()
   mailSendPreviewRequestId += 1
   mailSendPreviewLoading.value = false
   mailSendPreviewError.value = ''
   mailSendPreviewMode.value = 'single'
+  mailBatchOriginalSubject.value = ''
+  mailBatchOriginalBody.value = ''
   mailSendPreview.dispatch = null
   mailSendPreview.assignment = null
   mailAttachmentFile.value = null
   mailAttachmentList.value = []
+  mailSendPreview.batch_image_html = ''
+  mailSendPreview.batch_inline_images = []
   Object.assign(mailSendPreview.preview, {
     arrangement_id: '',
     recipient_email: '',
     subject: '',
     body: '',
+    body_html: '',
+    inline_images: [],
     dispatch_path: '',
     reference_file_path_one: ''
   })
@@ -1752,6 +1795,8 @@ async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
     const preview = await getManuscriptMailPreview(dispatch.id, assignment.id)
     if (requestId !== mailSendPreviewRequestId) return
     Object.assign(mailSendPreview.preview, preview || {})
+    mailBatchOriginalSubject.value = mode === 'batch' ? (preview?.subject || '') : ''
+    mailBatchOriginalBody.value = mode === 'batch' ? (preview?.body || '') : ''
   } catch (error) {
     if (requestId !== mailSendPreviewRequestId) return
     mailSendPreviewError.value = error.detail || '加载邮件预览失败'
@@ -2296,11 +2341,8 @@ function defaultMilestones() {
   ]
 }
 
-function isRequiredFirstMilestone(assignment, milestone) {
-  const firstPhase = [...(assignment?.milestones || [])]
-    .filter((item) => item.milestone_type === 'phase')
-    .sort((left, right) => left.sequence_no - right.sequence_no)[0]
-  return firstPhase === milestone
+function isRequiredMilestone(assignment, milestone) {
+  return milestone?.milestone_type === 'final'
 }
 
 function normalizeAssignmentMilestones(milestones) {
@@ -2321,10 +2363,9 @@ function normalizeAssignmentMilestones(milestones) {
   return normalized
 }
 
-function defaultSubject() {
-  if (!selectedProject.value) return ''
-  const projectName = selectedProject.value.sub_project_name || selectedProject.value.project_name
-  return `稿件安排｜${selectedProject.value.order_no}｜${projectName}`
+function defaultSubject(translator) {
+  if (!translator) return ''
+  return `信实翻译派发稿件 -- ${translator.translator_name}`
 }
 
 function defaultBody(translator) {
@@ -2338,9 +2379,6 @@ function defaultBody(translator) {
 语种：${selectedProject.value.language_pair || '待确认'}
 需翻译部分：待填写
 预定译员结算字数：待确认
-译员交稿_全稿预定时间：待确认
-派稿文路径：${selectedProject.value.dispatch_path || '待填写'}
-参考文件路径一：${selectedProject.value.reference_file_path_one || '无'}
 
 请以项目经理提供的稿件文件和最终要求为准。`
 }
@@ -2352,12 +2390,12 @@ function createAssignment(translator) {
     planned: createEmptyWordCountValues(),
     actual: createEmptyWordCountValues(),
     translation_scope: '',
-    settlement_method: '',
+    settlement_method: DEFAULT_SETTLEMENT_METHOD,
     custom_settlement_method: '',
     translator_pricing_method: '',
     translator_unit_price: null,
     translator_total_price: null,
-    email_subject: defaultSubject(),
+    email_subject: defaultSubject(translator),
     email_body: defaultBody(translator),
     remarks: '',
     milestones: defaultMilestones()
@@ -2650,11 +2688,9 @@ function validateDispatchForm() {
     if (!hasWordCountValue(assignment.planned)) {
       return `${translatorName}：字数与结算至少需要填写一个字数数值`
     }
-    const firstPhase = [...assignment.milestones]
-      .filter((item) => item.milestone_type === 'phase')
-      .sort((left, right) => left.sequence_no - right.sequence_no)[0]
-    if (!firstPhase?.planned_at) {
-      return `${translatorName}：请填写译员交稿_预定时间1`
+    const finalMilestone = assignment.milestones.find((item) => item.milestone_type === 'final')
+    if (!finalMilestone?.planned_at) {
+      return `${translatorName}：请填写全稿预定时间`
     }
     if (!String(assignment.settlement_method || '').trim()) {
       return `${translatorName}：请填写译员结账方式`
@@ -2782,7 +2818,17 @@ async function sendBatch(row) {
   }
   try {
     sendingBatchId.value = row.id
-    const result = await sendManuscriptDispatch(row.id, mailAttachmentFile.value)
+    const result = await sendManuscriptDispatch(row.id, mailAttachmentFile.value, {
+      subject: mailSendPreview.preview.subject !== mailBatchOriginalSubject.value
+        ? mailSendPreview.preview.subject.trim()
+        : null,
+      body: mailSendPreview.preview.body !== mailBatchOriginalBody.value
+        ? mailSendPreview.preview.body
+        : null,
+      inlineImageHtml: mailSendPreview.batch_image_html || null,
+      inlineImageIds: mailSendPreview.batch_inline_images.map(item => item.id)
+    })
+    mailBodyEditorRef.value?.markImagesSaved()
     if (result.failed_count) {
       ElMessage.warning(`发送完成：成功 ${result.sent_count}，失败 ${result.failed_count}，跳过 ${result.skipped_count}`)
     } else {
@@ -2809,8 +2855,15 @@ async function sendAssignment(dispatch, assignment) {
     await sendManuscriptAssignment(
       dispatch.id,
       assignment.id,
-      mailAttachmentFile.value
+      mailAttachmentFile.value,
+      {
+        subject: mailSendPreview.preview.subject.trim(),
+        body: mailSendPreview.preview.body,
+        bodyHtml: mailSendPreview.preview.body_html || null,
+        inlineImageIds: mailSendPreview.preview.inline_images.map(item => item.id)
+      }
     )
+    mailBodyEditorRef.value?.markImagesSaved()
     ElMessage.success('邮件发送成功')
     await Promise.all([loadContext(), loadDispatches()])
     return true
@@ -3418,10 +3471,6 @@ onBeforeUnmount(() => {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.legacy-mail-editor {
-  margin-top: 12px;
 }
 
 .mail-path-actions {

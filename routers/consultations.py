@@ -112,6 +112,8 @@ class ConsultationConfirmationFields(BaseModel):
     cc_user_ids: List[UUID] = Field(default_factory=list)
     email_subject: Optional[str] = Field(default=None, max_length=1000)
     email_body: Optional[str] = Field(default=None, max_length=50000)
+    email_body_html: Optional[str] = Field(default=None, max_length=100000)
+    inline_image_ids: List[UUID] = Field(default_factory=list, max_length=5)
     idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=100)
 
 
@@ -153,6 +155,8 @@ class ConsultationConfirmationPreviewResponse(BaseModel):
     to_users: list[dict] = Field(default_factory=list)
     cc_users: list[dict] = Field(default_factory=list)
     email_body: str = ""
+    email_body_html: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     sender_mode: str = "system"
     sender_name: Optional[str] = None
     sender_email: Optional[str] = None
@@ -481,6 +485,8 @@ def _confirmation_preview_values(
         "to_users": mail_preview["to_users"],
         "cc_users": mail_preview["cc_users"],
         "email_body": mail_preview["body"],
+        "email_body_html": mail_preview.get("body_html"),
+        "inline_images": mail_preview.get("inline_images", []),
         "sender_mode": mail_preview["sender_mode"],
         "sender_name": mail_preview["sender_name"],
         "sender_email": mail_preview["sender_email"],
@@ -652,6 +658,8 @@ def _send_confirmation_mail(
         to_user_ids=confirmation.to_user_ids, cc_user_ids=confirmation.cc_user_ids,
         subject=(confirmation.email_subject or preview["email_subject_preview"]).strip(),
         body=(confirmation.email_body or preview.get("email_body") or "").strip(),
+        body_html=confirmation.email_body_html,
+        inline_image_ids=confirmation.inline_image_ids,
         idempotency_key=confirmation.idempotency_key or f"consultation-{consultation.id}-{uuid4()}",
     )
     return serialize_mail(create_and_send(db, payload, actor))

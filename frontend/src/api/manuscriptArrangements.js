@@ -24,9 +24,16 @@ export const confirmManuscriptDispatch = (id) =>
 export const cancelManuscriptDispatch = (id) =>
   api.post(`/manuscript-arrangements/batches/${id}/cancel`)
 
-const buildAttachmentForm = (attachment) => {
+const buildAttachmentForm = (attachment, mailContent = {}) => {
   const formData = new FormData()
   if (attachment) formData.append('attachment', attachment)
+  if (mailContent.subject !== undefined && mailContent.subject !== null) {
+    formData.append('subject', mailContent.subject)
+  }
+  if (mailContent.body) formData.append('body', mailContent.body)
+  if (mailContent.bodyHtml) formData.append('body_html', mailContent.bodyHtml)
+  if (mailContent.inlineImageHtml) formData.append('inline_image_html', mailContent.inlineImageHtml)
+  formData.append('inline_image_ids_json', JSON.stringify(mailContent.inlineImageIds || []))
   return formData
 }
 
@@ -36,17 +43,17 @@ const attachmentRequestConfig = {
   timeout: 300000
 }
 
-export const sendManuscriptDispatch = (id, attachment = null) =>
+export const sendManuscriptDispatch = (id, attachment = null, mailContent = {}) =>
   api.post(
     `/manuscript-arrangements/batches/${id}/send`,
-    buildAttachmentForm(attachment),
+    buildAttachmentForm(attachment, mailContent),
     attachmentRequestConfig
   )
 
-export const sendManuscriptAssignment = (dispatchId, arrangementId, attachment = null) =>
+export const sendManuscriptAssignment = (dispatchId, arrangementId, attachment = null, mailContent = {}) =>
   api.post(
     `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/send`,
-    buildAttachmentForm(attachment),
+    buildAttachmentForm(attachment, mailContent),
     attachmentRequestConfig
   )
 
@@ -70,10 +77,10 @@ export const createManuscriptArrangement = (data) =>
 export const updateManuscriptArrangement = (id, data) =>
   api.put(`/manuscript-arrangements/${id}`, data)
 
-export const sendManuscriptArrangement = (id, attachment = null) =>
+export const sendManuscriptArrangement = (id, attachment = null, mailContent = {}) =>
   api.post(
     `/manuscript-arrangements/${id}/send`,
-    buildAttachmentForm(attachment),
+    buildAttachmentForm(attachment, mailContent),
     attachmentRequestConfig
   )
 

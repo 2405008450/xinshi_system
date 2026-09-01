@@ -1035,6 +1035,7 @@ def _attach_manuscript_assignees(
             "planned": {},
             "actual": {},
             "translation_scope": row.translation_scope,
+            "translator_return_time": row.planned_delivery_at,
         }
 
     for project in projects:

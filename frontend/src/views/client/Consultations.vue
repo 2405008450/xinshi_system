@@ -1289,7 +1289,14 @@
             <el-input v-model="confirmationForm.emailSubject" type="textarea" :rows="2" maxlength="1000" />
           </el-form-item>
           <el-form-item label="邮件正文" required>
-            <el-input v-model="confirmationForm.emailBody" type="textarea" :rows="10" maxlength="50000" show-word-limit />
+            <MailBodyEditor
+              ref="confirmationBodyEditorRef"
+              v-model="confirmationForm.emailBody"
+              v-model:html-value="confirmationForm.emailBodyHtml"
+              :images="confirmationForm.inlineImages"
+              @update:images="confirmationForm.inlineImages = $event"
+              @uploading-change="confirmationImageUploading = $event"
+            />
           </el-form-item>
           <el-form-item v-if="confirmationMissingFields.length" label="缺失字段">
             <div class="missing-field-list">
@@ -1310,7 +1317,7 @@
         <el-button
           type="primary"
           :loading="confirmationSubmitting && confirmationSubmitAction === 'with-email'"
-          :disabled="confirmationSubmitting || confirmationPreviewLoading || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length || !confirmationForm.emailSubject.trim() || !confirmationForm.emailBody.trim()"
+          :disabled="confirmationSubmitting || confirmationImageUploading || confirmationPreviewLoading || !confirmationPreview.order_no || !confirmationPreview.can_send || !confirmationForm.toUserIds.length || !confirmationForm.emailSubject.trim() || !confirmationForm.emailBody.trim()"
           @click="handleConfirmConsultation(true)"
         >确认建项并发送邮件</el-button>
       </template>
@@ -1337,6 +1344,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
+import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
@@ -1378,6 +1386,8 @@ const formSubmitting = ref(false)
 const editorLoading = ref(false)
 const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
+const confirmationBodyEditorRef = ref(null)
+const confirmationImageUploading = ref(false)
 const confirmationDialogRef = ref(null)
 const confirmationRecipientGroups = ref([])
 let confirmationMailPreviewRequestId = 0
@@ -1390,7 +1400,7 @@ let subClientRequestId = 0
 const confirmationContext = reactive({ mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
 const confirmationForm = reactive({
   projectName: '', subjectPrefix: '', customerOrderNo: '', managerContact: '', serviceContent: '', languagePair: '',
-  emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
+  emailSubject: '', emailBody: '', emailBodyHtml: '', inlineImages: [], toUserIds: [], ccUserIds: [],
 })
 const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
@@ -2687,7 +2697,11 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
   confirmationForm.managerContact = preview?.manager_contact || ''
   confirmationForm.emailSubject = preview?.email_subject_preview || ''
-  confirmationForm.emailBody = preview?.email_body || ''
+  if (!confirmationForm.inlineImages.length) {
+    confirmationForm.emailBody = preview?.email_body || ''
+    confirmationForm.emailBodyHtml = preview?.email_body_html || ''
+    confirmationForm.inlineImages = preview?.inline_images || []
+  }
   if (!preserveRecipients) {
     confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
     confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
@@ -2809,7 +2823,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
     managerContact: previewSource?.manager_contact || '',
     serviceContent: previewSource?.project_intake?.service_content || '',
     languagePair: previewSource?.project_intake?.language_pair || '',
-    emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
+    emailSubject: '', emailBody: '', emailBodyHtml: '', inlineImages: [], toUserIds: [], ccUserIds: [],
   })
   Object.assign(confirmationPreview, {
     project_type: '', order_no: '', client_short_name: '', manager_contact: '',
@@ -2859,7 +2873,8 @@ const handleConfirmConsultation = async (sendEmail) => {
     && (!confirmationPreview.can_send
       || !confirmationForm.toUserIds.length
       || !confirmationForm.emailSubject.trim()
-      || !confirmationForm.emailBody.trim())
+      || !confirmationForm.emailBody.trim()
+      || confirmationImageUploading.value)
   ) return
   if (sendEmail && confirmationAllMembersSelected.value) {
     try {
@@ -2886,6 +2901,8 @@ const handleConfirmConsultation = async (sendEmail) => {
       : [],
     email_subject: sendEmail ? confirmationForm.emailSubject.trim() : null,
     email_body: sendEmail ? confirmationForm.emailBody.trim() : null,
+    email_body_html: sendEmail ? confirmationForm.emailBodyHtml || null : null,
+    inline_image_ids: sendEmail ? confirmationForm.inlineImages.map(item => item.id) : [],
     idempotency_key: sendEmail
       ? (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
       : null,
@@ -2924,6 +2941,7 @@ const handleConfirmConsultation = async (sendEmail) => {
         dialogVisible.value = false
       }
     }
+    if (sendEmail && result?.mail) confirmationBodyEditorRef.value?.markImagesSaved()
     confirmationDialogVisible.value = false
     if (!sendEmail) {
       ElMessage.success(`${confirmationTypeLabel.value}咨询已确认，项目已生成（未发送内部邮件）`)
@@ -2954,6 +2972,7 @@ const handleConfirmConsultation = async (sendEmail) => {
 }
 
 const resetConfirmationDraft = () => {
+  confirmationBodyEditorRef.value?.cleanupDraftImages()
   confirmationMailPreviewController?.abort()
   confirmationMailPreviewController = null
   if (confirmationManagerContactPreviewTimer) {
@@ -2965,7 +2984,7 @@ const resetConfirmationDraft = () => {
   Object.assign(confirmationContext, { mode: '', consultationId: null, consultationPayload: null, row: null, continueCreate: false })
   Object.assign(confirmationForm, {
     projectName: '', subjectPrefix: '', customerOrderNo: '', managerContact: '', serviceContent: '', languagePair: '',
-    emailSubject: '', emailBody: '', toUserIds: [], ccUserIds: [],
+    emailSubject: '', emailBody: '', emailBodyHtml: '', inlineImages: [], toUserIds: [], ccUserIds: [],
   })
   confirmationFormRef.value?.clearValidate()
 }

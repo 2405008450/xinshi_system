@@ -13,6 +13,7 @@ ArrangementStatus = Literal["draft", "ready", "sent", "failed", "cancelled"]
 DispatchStatus = Literal["draft", "ready", "partially_sent", "sent", "cancelled"]
 MilestoneType = Literal["phase", "final"]
 SettlementMethod = str
+DEFAULT_SETTLEMENT_METHOD = "次月结"
 
 
 class ManuscriptTranslatorItem(BaseModel):
@@ -105,7 +106,10 @@ class ManuscriptAssignmentInput(BaseModel):
     planned: WordCountValues = Field(default_factory=WordCountValues)
     actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
-    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
+    settlement_method: Optional[SettlementMethod] = Field(
+        default=DEFAULT_SETTLEMENT_METHOD,
+        max_length=100,
+    )
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(
@@ -152,20 +156,16 @@ class ManuscriptAssignmentInput(BaseModel):
         )
         if final_count > 1:
             raise ValueError("同一译员只能设置一个全稿交付节点")
-
-        first_phase = next(
+        final_milestone = next(
             (
                 item
-                for item in sorted(
-                    self.milestones,
-                    key=lambda row: row.sequence_no,
-                )
-                if item.milestone_type == "phase"
+                for item in self.milestones
+                if item.milestone_type == "final"
             ),
             None,
         )
-        if first_phase is None or first_phase.planned_at is None:
-            raise ValueError("每位译员都必须填写译员交稿_预定时间1")
+        if final_milestone is None or final_milestone.planned_at is None:
+            raise ValueError("每位译员都必须填写全稿预定时间")
 
         dated = [
             item
@@ -216,7 +216,10 @@ class ManuscriptArrangementCreate(BaseModel):
     planned: WordCountValues = Field(default_factory=WordCountValues)
     actual: WordCountValues = Field(default_factory=WordCountValues)
     translation_scope: Optional[str] = Field(default=None, max_length=5000)
-    settlement_method: Optional[SettlementMethod] = Field(default=None, max_length=100)
+    settlement_method: Optional[SettlementMethod] = Field(
+        default=DEFAULT_SETTLEMENT_METHOD,
+        max_length=100,
+    )
     custom_settlement_method: Optional[str] = Field(default=None, max_length=100)
     translator_pricing_method: Optional[str] = Field(default=None, max_length=100)
     translator_unit_price: Optional[Decimal] = Field(default=None, ge=0)
@@ -244,7 +247,7 @@ class ManuscriptArrangementCreate(BaseModel):
         ):
             raise ValueError("工作量与结算至少需要填写一个计量数值")
         if self.planned_delivery_at is None:
-            raise ValueError("必须填写译员交稿_预定时间1")
+            raise ValueError("必须填写全稿预定时间")
         if not (self.settlement_method or "").strip():
             raise ValueError("必须填写译员结账方式")
         if self.translator_unit_price is None:
@@ -355,6 +358,8 @@ class ManuscriptMailPreview(BaseModel):
     recipient_email: Optional[str] = None
     subject: str
     body: str
+    body_html: Optional[str] = None
+    inline_images: list[dict] = Field(default_factory=list)
     dispatch_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
 
