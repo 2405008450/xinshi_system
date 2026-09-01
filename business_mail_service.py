@@ -28,6 +28,7 @@ from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LA
 from mail_service import SmtpSettings, send_text_email
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
+from word_count_service import get_word_count_matrix
 from user_mail_account_service import (
     display_user,
     project_mail_sender_mode,
@@ -427,6 +428,51 @@ BODY_LABELS = {
 }
 
 
+WORD_COUNT_METRIC_LABELS = (
+    ("words", "字数"),
+    ("characters_no_spaces", "字符数（不计空格）"),
+    ("cjk_chars_korean_words", "中文字符和朝鲜语单词"),
+    ("foreign_words", "外文字数"),
+    ("documents", "份数"),
+    ("pages", "页数"),
+)
+
+
+def _format_word_count_lines(matrix: Optional[dict]) -> list[str]:
+    """把项目字数统计完整转换为适合纯文本邮件阅读的行。"""
+    if not isinstance(matrix, dict):
+        return []
+
+    dimensions = [
+        ("我司字数", matrix.get("company")),
+        ("客户字数", matrix.get("customer")),
+        ("译员预定（项目预估）", matrix.get("translator_estimate") or matrix.get("translatorEstimate")),
+    ]
+    for translator in matrix.get("translators") or []:
+        name = _clean(_nested_value(translator, "translator_name")) or "当前译员"
+        dimensions.extend((
+            (f"{name} · 预定", _nested_value(translator, "planned")),
+            (f"{name} · 实际", _nested_value(translator, "actual")),
+        ))
+
+    result = []
+    for dimension_label, raw_values in dimensions:
+        values = raw_values if isinstance(raw_values, dict) else {}
+        metrics = []
+        for key, label in WORD_COUNT_METRIC_LABELS:
+            value = values.get(key)
+            if value is None or value == "":
+                continue
+            try:
+                value_text = f"{int(value):,}"
+            except (TypeError, ValueError):
+                value_text = _clean(value)
+            metrics.append(f"{label} {value_text}")
+        if metrics:
+            result.append(f"  {dimension_label}：{'；'.join(metrics)}")
+    return result
+
+
 def build_preview(
     db: Session,
     project_type: str,
@@ -442,7 +488,10 @@ def build_preview(
         project = db.query(PROJECT_MODELS[project_type]).filter(PROJECT_MODELS[project_type].id == project_id).first()
         if not project:
             raise LookupError("项目不存在")
-        values = {**_project_source(project_type, project), **values}
+        project_values = _project_source(project_type, project)
+        if project_type == "translation":
+            project_values["word_count_matrix"] = get_word_count_matrix(db, "project", project.id)
+        values = {**project_values, **values}
     if project_type == "interpretation":
         values = _normalize_interpretation_mail_values(db, values)
     elif project_type == "annotation":
@@ -498,6 +547,9 @@ def build_preview(
         for label, key in BODY_LABELS[project_type]
         if _clean(values.get(key)) or key in core_body_keys
     )
+    word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
+    if word_count_lines:
+        lines.extend(["项目字数统计：", *word_count_lines])
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
     if _clean(values.get("remarks")):

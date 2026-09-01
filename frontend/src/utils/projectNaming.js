@@ -17,7 +17,7 @@ export const formatProjectNameDeadline = (value) => {
 export const buildAutoProjectName = (
   clientShortName,
   subOrderCount = 0,
-  date = new Date(),
+  _date = new Date(),
   languagePair = '',
   customerDeadlineTime = ''
 ) => {
@@ -26,9 +26,10 @@ export const buildAutoProjectName = (
 
   const normalizedLanguagePair = String(languagePair || '').trim()
   const deadlineText = formatProjectNameDeadline(customerDeadlineTime)
-  const parts = [normalizedClientShortName, formatProjectNameDate(date)]
+  const parts = [normalizedClientShortName]
   if (normalizedLanguagePair) parts.push(normalizedLanguagePair)
-  if (deadlineText) parts.push(`${deadlineText}回稿`)
+  if (deadlineText) parts.push(`${deadlineText}回`)
+  if (!normalizedLanguagePair && !deadlineText) parts.push(formatProjectNameDate(_date))
   const baseName = parts.join('-')
   return subOrderCount > 0 ? `${baseName}-${subOrderCount}批` : baseName
 }
@@ -40,6 +41,7 @@ export const isAutoProjectName = (projectName, clientShortName) => {
   if (!normalizedClientShortName || !normalizedProjectName.startsWith(prefix)) return false
 
   const suffix = normalizedProjectName.slice(prefix.length)
+  if (/^.+-\d{8}-\d{2}:?\d{2}回(?:-\d+批)?$/.test(suffix)) return true
   if (/^\d{6}$/.test(suffix)) return true
   if (/^\d{6}-\d+批$/.test(suffix)) return true
   return /^\d{6}-.+-\d{8}-\d{2}:?\d{2}回稿(?:-\d+批)?$/.test(suffix)

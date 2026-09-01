@@ -1377,13 +1377,12 @@ def build_auto_project_name(
     language_pair: Optional[str] = None,
     customer_deadline_time: Optional[datetime | str] = None,
 ) -> str:
-    """按客户、建项日期、翻译方向和客户交稿时间生成项目名称。"""
+    """按客户、翻译方向和客户交稿时间生成项目名称。"""
     normalized_short_name = (client_short_name or "").strip()
     if not normalized_short_name:
         return ""
 
-    date_text = (current_time or datetime.now()).strftime("%y%m%d")
-    parts = [normalized_short_name, date_text]
+    parts = [normalized_short_name]
     normalized_language_pair = (language_pair or "").strip()
     if normalized_language_pair:
         parts.append(normalized_language_pair)
@@ -1394,7 +1393,9 @@ def build_auto_project_name(
         except ValueError:
             deadline = None
     if deadline:
-        parts.append(f'{deadline:%Y%m%d-%H:%M}回稿')
+        parts.append(f'{deadline:%Y%m%d-%H:%M}回')
+    if not normalized_language_pair and not deadline:
+        parts.append((current_time or datetime.now()).strftime("%y%m%d"))
     base_name = "-".join(parts)
     return f"{base_name}-{sub_order_count}批" if sub_order_count > 0 else base_name
 
@@ -1411,6 +1412,8 @@ def _is_auto_project_name(
         return False
 
     suffix = normalized_project_name[len(prefix):]
+    if re.fullmatch(r".+-\d{8}-\d{2}:?\d{2}回(?:-\d+批)?", suffix):
+        return True
     if len(suffix) == 6 and suffix.isdigit():
         return True
     # 翻译方向本身可能包含连接符，因此只固定首尾结构。

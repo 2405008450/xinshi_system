@@ -7,6 +7,8 @@ const EMAIL_SUBJECT_FIELDS = [
   ['项目名称', 'projectName'],
 ]
 
+export const COMMON_SUBJECT_PREFIX_OPTIONS = ['***急***']
+
 export const buildEmailSubject = (source = {}) => {
   const values = EMAIL_SUBJECT_FIELDS.map(([label, key]) => [
     label,
@@ -40,20 +42,25 @@ export const notifyEmailSubjectGenerated = (form, ElMessage) => {
 export const extractSubjectPrefix = (preview, form = {}) => {
   const previewText = String(preview || '').trim()
   const existing = String(form.subjectPrefix || '').trim()
-  if (existing) return existing
+  if (existing && existing.length <= 50) return existing
   if (!previewText) return ''
-  const known = [
+  const generatedParts = [
     form.orderNo,
     form.clientShortName,
     form.managerContact,
     form.customerOrderNo,
     form.projectName,
   ].map((value) => String(value || '').trim()).filter(Boolean)
-  const parts = previewText.split('，').map((item) => item.trim()).filter(Boolean)
-  if (!parts.length) return ''
-  const orderNo = String(form.orderNo || '').trim()
-  if (orderNo && parts[0] === orderNo) return ''
-  if (orderNo && parts.length >= 2 && parts[1] === orderNo) return parts[0]
-  if (known.includes(parts[0])) return ''
-  return parts[0]
+  if (!generatedParts.length) return ''
+
+  const generatedSubject = generatedParts.join('，')
+  if (previewText === generatedSubject) return ''
+
+  // 仅当预览严格符合本页面的生成格式时才反推出标题前缀。
+  // 历史数据或人工编辑的主题可能没有中文逗号，不能把整段预览误当作前缀。
+  const suffix = `，${generatedSubject}`
+  if (!previewText.endsWith(suffix)) return ''
+
+  const prefix = previewText.slice(0, -suffix.length).trim()
+  return prefix.length <= 50 ? prefix : ''
 }

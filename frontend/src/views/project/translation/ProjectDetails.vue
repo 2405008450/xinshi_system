@@ -384,7 +384,7 @@
                             @manual-input="handleProjectNameInput"
                             @regenerate="regenerateProjectName"
                           />
-                          <div class="auto-name-field__hint">按“客户简称-当前日期-翻译方向-客户交稿日期时分回稿”自动生成，存在子订单时追加批次；也可手动修改。</div>
+                          <div class="auto-name-field__hint">按“客户简称-翻译方向-客户交稿日期时分回”自动生成，存在子订单时追加批次；也可手动修改。</div>
                         </div>
                       </el-form-item>
                     </el-col>
@@ -465,7 +465,17 @@
                 <el-row :gutter="16">
                   <el-col :xs="24">
                     <el-form-item label="标题前缀">
-                      <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
+                      <el-select
+                        v-model="form.subjectPrefix"
+                        filterable
+                        allow-create
+                        default-first-option
+                        clearable
+                        placeholder="可直接选择常用前缀，也可自行输入"
+                        style="width: 100%"
+                      >
+                        <el-option v-for="item in COMMON_SUBJECT_PREFIX_OPTIONS" :key="item" :label="item" :value="item" />
+                      </el-select>
                     </el-form-item>
                   </el-col>
                   <el-col :xs="24">
@@ -963,7 +973,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
-import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
+import { COMMON_SUBJECT_PREFIX_OPTIONS, notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
@@ -1380,6 +1390,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   formRef,
   applyDraft: (draft) => {
     assignReactive(form, createEmptyProjectForm, draft)
+    form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
     projectNameManuallyEdited.value = Boolean(draft.projectName)
   },
 })

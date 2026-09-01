@@ -672,6 +672,18 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-form-item label="项目字数统计">
+              <div class="consultation-word-count-field">
+                <span>{{ formatWordCountMatrix(form.project_intake.word_count_matrix) }}</span>
+                <WordCountMatrixPopover
+                  v-model="form.project_intake.word_count_matrix"
+                  local
+                  title="项目字数统计"
+                >
+                  <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                </WordCountMatrixPopover>
+              </div>
+            </el-form-item>
           </div>
 
           <el-row v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)" :gutter="20">
@@ -1174,14 +1186,18 @@
             <div class="project-name-hint">已按“客户简称-当前日期”预填，可在确认前修改。</div>
           </el-form-item>
           <el-form-item label="标题前缀">
-            <el-input
+            <el-select
               v-model="confirmationForm.subjectPrefix"
-              maxlength="50"
-              show-word-limit
+              filterable
+              allow-create
+              default-first-option
               clearable
-              placeholder="例如：***急***"
-              @input="regenerateConfirmationSubject"
-            />
+              placeholder="可直接选择常用前缀，也可自行输入"
+              style="width: 100%"
+              @change="regenerateConfirmationSubject"
+            >
+              <el-option v-for="item in COMMON_SUBJECT_PREFIX_OPTIONS" :key="item" :label="item" :value="item" />
+            </el-select>
           </el-form-item>
           <el-form-item v-if="confirmationPreview.project_type !== 'translation'" label="客户单号/标识">
             <el-input
@@ -1306,7 +1322,10 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
 import InlineTextField from '@/components/common/InlineTextField.vue'
+import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import { hasPermission } from '@/utils/permission'
+import { COMMON_SUBJECT_PREFIX_OPTIONS } from '@/utils/emailSubject'
+import { createEmptyWordCountMatrix, formatWordCountMatrix, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 
 const router = useRouter()
 const loading = ref(false)
@@ -1571,7 +1590,17 @@ const emptyProjectIntake = () => ({
   position_title: '', job_description: '', headcount_min: null, headcount_max: null,
   employment_range: [], employment_start: null, employment_end: null, work_location: '',
   target_onboard_type: 'date', target_onboard_date: null,
+  word_count_matrix: createEmptyWordCountMatrix(),
 })
+
+const serializeWordCountMatrix = (matrix) => {
+  const normalized = normalizeWordCountMatrix(matrix)
+  return {
+    company: normalized.company,
+    customer: normalized.customer,
+    translator_estimate: normalized.translatorEstimate,
+  }
+}
 
 const emptyLanguageDirection = () => ({ source_language_id: '', target_language_id: '', required_count: null })
 const emptyTimeRange = () => ({ scheduled_start: '', scheduled_end: '' })
@@ -2310,6 +2339,7 @@ const buildPayload = () => ({
   project_name: form.project_name?.trim() || null,
   project_intake: {
     ...form.project_intake,
+    word_count_matrix: serializeWordCountMatrix(form.project_intake.word_count_matrix),
     required_interpreter_count: isInterpretationConsultationType(form.consultation_type)
       ? (interpretationRequiredTotal.value || null)
       : form.project_intake.required_interpreter_count,
@@ -2650,6 +2680,7 @@ const buildConfirmationProjectIntake = () => {
   if (confirmationPreview.project_type === 'translation' || isTranslationConsultationType(source.consultation_type)) {
     intake.service_content = confirmationForm.serviceContent?.trim() || null
     intake.language_pair = confirmationForm.languagePair?.trim() || null
+    intake.word_count_matrix = serializeWordCountMatrix(intake.word_count_matrix)
   }
   return intake
 }
@@ -2746,7 +2777,13 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   const { requestId, signal } = beginConfirmationPreviewRequest()
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
-    projectName: previewSource?.project_name || buildAutoProjectName(previewSource?.client_short_name),
+    projectName: previewSource?.project_name || buildAutoProjectName(
+      previewSource?.client_short_name,
+      0,
+      new Date(),
+      previewSource?.project_intake?.language_pair,
+      previewSource?.project_intake?.customer_deadline_time,
+    ),
     subjectPrefix: '',
     customerOrderNo: previewSource?.customer_order_no || '',
     managerContact: previewSource?.manager_contact || '',
@@ -2978,6 +3015,27 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.consultation-word-count-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-fill-color-blank);
+}
+
+.consultation-word-count-field > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--el-text-color-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

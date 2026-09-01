@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: '0.0.0.0', // 允许局域网访问
-      port: 3000,
+      port: 12213,
       proxy: {
         '/api': {
           target: apiProxyTarget,

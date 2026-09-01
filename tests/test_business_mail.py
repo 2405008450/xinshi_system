@@ -153,6 +153,35 @@ def test_translation_preview_uses_customer_deadline_business_label(monkeypatch):
     assert "客户交期：" not in preview["body"]
 
 
+def test_translation_preview_contains_complete_project_word_count_matrix(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-260901-001",
+        "project_name": "字数统计项目",
+        "service_content": "翻译",
+        "language_pair": "中英",
+        "word_count_matrix": {
+            "company": {"words": 1200, "pages": 5},
+            "customer": {"characters_no_spaces": 2345},
+            "translator_estimate": {"foreign_words": 1000, "documents": 2},
+            "translators": [{
+                "translator_name": "张译员",
+                "planned": {"words": 900},
+                "actual": {"words": 950, "pages": 4},
+            }],
+        },
+    })
+
+    assert "项目字数统计：" in preview["body"]
+    assert "我司字数：字数 1,200；页数 5" in preview["body"]
+    assert "客户字数：字符数（不计空格） 2,345" in preview["body"]
+    assert "译员预定（项目预估）：外文字数 1,000；份数 2" in preview["body"]
+    assert "张译员 · 预定：字数 900" in preview["body"]
+    assert "张译员 · 实际：字数 950；页数 4" in preview["body"]
+
+
 def test_recipient_group_requires_name_and_internal_members():
     with pytest.raises(ValidationError):
         MailRecipientGroupWrite(name="   ", user_ids=[])
