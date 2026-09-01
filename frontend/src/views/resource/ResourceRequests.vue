@@ -238,6 +238,7 @@ import { getInterpretationProjects } from '@/api/interpretationProjects'
 import { getProjects as getTranslationProjects } from '@/api/projects'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import { getUsers } from '@/api/users'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
@@ -250,6 +251,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
+import { formatDateTimeMinute as formatDate, formatTimeMinute } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const languageText = (items, languages) => {
@@ -448,7 +450,6 @@ const ownerName = (row) => {
   const user = users.value.find((item) => item.id === ownerId)
   return user ? userName(user) : '-'
 }
-const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const languageOptionLabel = (language) => language.isCustom ? `${language.label}（自定义）` : language.label
 const priorityType = (value) => ({ high: 'danger', medium: 'warning', low: 'info' }[value])
 const statusType = (value) => ({ draft: 'info', submitted: 'warning', in_progress: 'primary', fulfilled: 'success', cancelled: 'danger' }[value])
@@ -613,7 +614,7 @@ const performPersistDraft = async ({ automatic = false } = {}) => {
   savedRevision = revision
   if (automatic) {
     autoSaveState.value = 'saved'
-    lastAutoSavedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    lastAutoSavedAt.value = formatTimeMinute(new Date())
   }
   if (editorRevision !== revision) scheduleAutoSave()
   return saved
@@ -684,7 +685,7 @@ const sendDemand = async () => {
     ElMessage.success('需求已发送')
     await fetchData()
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '发送需求失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '发送需求失败'))
   } finally {
     sending.value = false
     submitLocked = false

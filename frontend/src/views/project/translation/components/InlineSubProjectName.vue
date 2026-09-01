@@ -34,6 +34,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { Check, Close, EditPen } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { updateSubOrder } from '@/api/subOrders'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props = defineProps({
   subOrderId: { type: String, required: true },
@@ -87,7 +88,7 @@ const save = async () => {
     editing.value = false
     ElMessage.success('子项目名称已更新')
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '子项目名称更新失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '子项目名称更新失败'))
   } finally {
     saving.value = false
   }

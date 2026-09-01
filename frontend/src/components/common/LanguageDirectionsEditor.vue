@@ -64,7 +64,7 @@ const createLanguage=async()=>{
     languages.value.push(created)
     languages.value.sort((a,b)=>Number(a.isCustom)-Number(b.isCustom)||a.label.localeCompare(b.label,'zh-CN'))
     newLabel.value='';createVisible.value=false;ElMessage.success('已添加到共享语种目录')
-  }catch(error){ElMessage.error(error?.response?.data?.detail||error.detail||'新增共享语种失败')}
+  }catch(error){ElMessage.error(error?.detail||'新增共享语种失败')}
   finally{creating.value=false}
 }
 onMounted(load)

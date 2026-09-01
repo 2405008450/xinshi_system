@@ -77,6 +77,7 @@ import { computed, onMounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { getCurrentSession, getPersonalMailAccount } from '@/api/auth'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 const session = reactive({ username: '', full_name: '' })
 const mailAccount = reactive({
@@ -99,10 +100,6 @@ const mailStatusDescription = computed(() => {
   if (mailAccount.email) return '企业邮箱已维护，但管理员尚未配置 SMTP 发件凭据。'
   return '尚未维护企业邮箱，请联系管理员配置。'
 })
-const formatDateTime = (value) => value
-  ? new Date(value).toLocaleString('zh-CN', { hour12: false })
-  : ''
-
 async function load() {
   try {
     const [sessionData, accountData] = await Promise.all([

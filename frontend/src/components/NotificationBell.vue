@@ -91,6 +91,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { formatDateTimeMinute as formatTime } from '@/utils/dateTime'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   createNotificationSocket,
   getNotifications,
@@ -226,7 +228,7 @@ const markItemRead = async (item, showError = false) => {
     return true
   } catch (error) {
     console.error('标记通知已读失败', error)
-    if (showError) ElMessage.error(error?.detail || error?.message || '更新通知失败')
+    if (showError) ElMessage.error(getLocalizedErrorMessage(error, '更新通知失败'))
     return false
   } finally {
     readingNotificationIds.delete(id)
@@ -382,7 +384,7 @@ const handleMarkAllRead = async () => {
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '批量已读失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '批量已读失败'))
   }
 }
 
@@ -399,12 +401,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', syncDesktopNotificationState)
 })
 
-const formatTime = (value) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
-}
 </script>
 
 <style scoped>

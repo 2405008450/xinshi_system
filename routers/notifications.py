@@ -51,7 +51,7 @@ def read_notification(
 ):
     notification = mark_notification_read(db, notification_id, current_user.id)
     if not notification:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="通知不存在")
     return notification
 
 

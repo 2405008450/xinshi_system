@@ -1,5 +1,6 @@
 """统一人才资源库 API。"""
 
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -41,6 +42,7 @@ router = APIRouter(
     tags=["talents"],
     dependencies=[Depends(require_module_access("talents:read", "talents:write"))],
 )
+logger = logging.getLogger(__name__)
 
 recruitment_router = APIRouter(
     prefix="/recruitment-talents",
@@ -162,7 +164,7 @@ def create_talent_endpoint(
         raise HTTPException(status_code=409, detail={
             "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
         })
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
         if idempotency_key:
             existing = db.query(ResourcePerson).filter(
@@ -170,7 +172,8 @@ def create_talent_endpoint(
             ).first()
             if existing:
                 return get_talent(db, existing.id)
-        raise HTTPException(status_code=400, detail=str(exc.orig))
+        logger.exception("创建人才档案时触发数据库约束")
+        raise HTTPException(status_code=400, detail="人才档案数据不符合保存要求，请检查后重试")
 
 
 @router.get("/{person_id}", response_model=ResourcePersonDetailResponse)

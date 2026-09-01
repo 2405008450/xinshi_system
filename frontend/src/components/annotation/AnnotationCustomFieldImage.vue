@@ -28,6 +28,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { deletePendingCustomFieldImage, getCustomFieldImageBlob, uploadCustomFieldImage } from '@/api/annotationOps'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props=defineProps({
   modelValue:{type:String,default:null},
@@ -73,7 +74,7 @@ const upload=async({file})=>{
     if(disposed){await deleteIfPending(image.id);return}
     emit('update:modelValue',image.id)
     await deleteIfPending(previous)
-  }catch(error){ElMessage.error(error.detail||error.message||'图片上传失败')}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'图片上传失败'))}
   finally{uploading.value=false}
 }
 const remove=async()=>{

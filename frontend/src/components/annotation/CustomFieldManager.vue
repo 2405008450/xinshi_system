@@ -23,6 +23,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createCustomField, deleteCustomField, getCustomFields, updateCustomField } from '@/api/annotationOps'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props = defineProps({ tableCode:{type:String,required:true}, projectId:{type:String,default:''}, buttonLabel:{type:String,default:'动态字段'}, disabled:{type:Boolean,default:false}, scopeHint:{type:String,default:''}, autoFieldKey:{type:Boolean,default:false} })
 const emit = defineEmits(['changed'])
@@ -50,7 +51,7 @@ const disable=async(row)=>{
     ElMessage.success('字段已停用，历史值已保留')
   }catch(error){
     if(error==='cancel'||error==='close') return
-    ElMessage.error(error.detail||error.message||'停用失败')
+    ElMessage.error(getLocalizedErrorMessage(error,'停用失败'))
   }
 }
 const restore=async(row)=>{saving.value=true;try{await updateCustomField(row.id,payload({...row,isActive:true}));await load();emit('changed');ElMessage.success('字段已恢复')}catch(error){ElMessage.error(error.detail||'恢复失败')}finally{saving.value=false}}

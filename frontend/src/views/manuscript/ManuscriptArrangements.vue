@@ -159,6 +159,15 @@
               <div class="translator-header__tools">
                 <el-input v-model="translatorKeyword" size="small" clearable placeholder="姓名、编号或语种" />
                 <el-button
+                  v-if="canWrite"
+                  size="small"
+                  type="primary"
+                  plain
+                  @click="openQuickTranslatorDialog"
+                >
+                  快捷添加译员
+                </el-button>
+                <el-button
                   size="small"
                   :type="showTranslatorCode ? 'primary' : 'default'"
                   :plain="!showTranslatorCode"
@@ -360,7 +369,7 @@
                       placeholder="如：按字数、按页数、按工作耗时"
                     />
 
-                    <label class="is-required">单价</label>
+                    <label>单价</label>
                     <el-input-number
                       v-model="activeWorkbenchAssignment.translator_unit_price"
                       :min="0"
@@ -1168,7 +1177,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="译员单价" required>
+              <el-form-item label="译员单价">
                 <el-input-number v-model="assignment.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
               </el-form-item>
             </el-col>
@@ -1312,7 +1321,7 @@
             <el-button :disabled="mailSendPreviewSending">选择文件</el-button>
             <template #tip>
               <div class="el-upload__tip">
-                单个文件不超过 10MB；文件仅用于本次发送，不依赖局域网共享路径。批量发送时将附到每封邮件中。
+                单个文件不超过 50MB；文件仅用于本次发送，不依赖局域网共享路径。批量发送时将附到每封邮件中。
               </div>
             </template>
           </el-upload>
@@ -1342,41 +1351,44 @@
             :disabled="mailSendPreviewSending"
           />
           <label>邮件正文</label>
-          <MailBodyEditor
-            v-if="mailSendPreviewMode === 'single'"
-            ref="mailBodyEditorRef"
-            v-model="mailSendPreview.preview.body"
-            v-model:html-value="mailSendPreview.preview.body_html"
-            :images="mailSendPreview.preview.inline_images"
-            min-height="280px"
-            @update:images="mailSendPreview.preview.inline_images = $event"
-            @uploading-change="mailImageUploading = $event"
-          />
-          <template v-else>
-            <el-alert
-              title="修改正文后，将把当前内容统一用于本批次所有待发送译员；不修改则仍按每位译员分别生成正文。"
-              type="info"
-              :closable="false"
-              show-icon
-            />
-            <el-input
-              v-model="mailSendPreview.preview.body"
-              type="textarea"
-              :rows="10"
-              maxlength="20000"
-              show-word-limit
-            />
-            <label>批量正文图片（统一追加到每封邮件末尾）</label>
+          <div class="mail-send-preview-editor">
             <MailBodyEditor
+              v-if="mailSendPreviewMode === 'single'"
               ref="mailBodyEditorRef"
-              v-model:html-value="mailSendPreview.batch_image_html"
-              :images="mailSendPreview.batch_inline_images"
-              image-only
-              min-height="150px"
-              @update:images="mailSendPreview.batch_inline_images = $event"
+              v-model="mailSendPreview.preview.body"
+              v-model:html-value="mailSendPreview.preview.body_html"
+              :images="mailSendPreview.preview.inline_images"
+              min-height="280px"
+              @update:images="mailSendPreview.preview.inline_images = $event"
               @uploading-change="mailImageUploading = $event"
             />
-          </template>
+            <template v-else>
+              <el-alert
+                title="修改正文后，将把当前内容统一用于本批次所有待发送译员；不修改则仍按每位译员分别生成正文。"
+                type="info"
+                :closable="false"
+                show-icon
+              />
+              <el-input
+                v-model="mailSendPreview.preview.body"
+                type="textarea"
+                :rows="10"
+                maxlength="20000"
+                show-word-limit
+                :disabled="mailSendPreviewSending"
+              />
+              <label>批量正文图片（统一追加到每封邮件末尾）</label>
+              <MailBodyEditor
+                ref="mailBodyEditorRef"
+                v-model:html-value="mailSendPreview.batch_image_html"
+                :images="mailSendPreview.batch_inline_images"
+                image-only
+                min-height="150px"
+                @update:images="mailSendPreview.batch_inline_images = $event"
+                @uploading-change="mailImageUploading = $event"
+              />
+            </template>
+          </div>
         </div>
       </div>
       <template #footer>
@@ -1444,11 +1456,90 @@
       </template>
     </DraggableFormDialog>
 
+    <el-dialog
+      v-model="quickTranslatorDialogVisible"
+      title="快捷添加译员"
+      width="min(640px, calc(100vw - 32px))"
+      top="8vh"
+      destroy-on-close
+      :close-on-click-modal="!quickTranslatorSaving"
+      :close-on-press-escape="!quickTranslatorSaving"
+      :show-close="!quickTranslatorSaving"
+      @closed="resetQuickTranslatorForm"
+    >
+      <el-alert
+        title="保存后会建立笔译人员档案，并自动加入当前译员列表；更多资料可稍后在人才资源库补充。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="quick-translator-tip"
+      />
+      <el-form
+        ref="quickTranslatorFormRef"
+        :model="quickTranslatorForm"
+        :rules="quickTranslatorRules"
+        label-width="88px"
+      >
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="姓名" prop="translator_name">
+              <el-input v-model="quickTranslatorForm.translator_name" maxlength="255" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="邮箱" prop="email">
+              <el-input v-model="quickTranslatorForm.email" maxlength="320" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="语种" prop="languages">
+              <el-input v-model="quickTranslatorForm.languages" maxlength="500" placeholder="如：中英、中日" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="合作形式" prop="cooperation_type">
+              <el-select v-model="quickTranslatorForm.cooperation_type" style="width: 100%">
+                <el-option label="全职" value="全职" />
+                <el-option label="兼职" value="兼职" />
+                <el-option label="自由职业" value="自由职业" />
+                <el-option label="外包" value="外包" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="翻译方向" prop="direction">
+              <el-select v-model="quickTranslatorForm.direction" clearable style="width: 100%">
+                <el-option label="中译外" value="中译外" />
+                <el-option label="外译中" value="外译中" />
+                <el-option label="双向" value="双向" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="联系电话" prop="phone">
+              <el-input v-model="quickTranslatorForm.phone" maxlength="100" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="备注" prop="remarks">
+              <el-input v-model="quickTranslatorForm.remarks" type="textarea" :rows="2" maxlength="5000" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="quickTranslatorSaving" @click="quickTranslatorDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="quickTranslatorSaving" @click="saveQuickTranslator">
+          保存并选择
+        </el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   cancelManuscriptDispatch,
@@ -1458,6 +1549,7 @@ import {
   getManuscriptDispatches,
   getManuscriptMailPreview,
   getManuscriptMailStatus,
+  quickCreateManuscriptTranslator,
   sendManuscriptAssignment,
   sendManuscriptDispatch,
   updateManuscriptDispatch,
@@ -1505,6 +1597,28 @@ const workspaceSelectedTranslators = ref([])
 const translatorKeyword = ref('')
 const translatorTab = ref('all')
 const showTranslatorCode = ref(false)
+const quickTranslatorDialogVisible = ref(false)
+const quickTranslatorSaving = ref(false)
+const quickTranslatorFormRef = ref(null)
+const createDefaultQuickTranslatorForm = () => ({
+  translator_name: '',
+  email: '',
+  languages: selectedProject.value?.language_pair || '',
+  cooperation_type: '兼职',
+  direction: '',
+  phone: '',
+  remarks: ''
+})
+const quickTranslatorForm = reactive(createDefaultQuickTranslatorForm())
+const quickTranslatorRules = {
+  translator_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '请输入正确的邮箱格式', trigger: ['blur', 'change'] }
+  ],
+  languages: [{ required: true, message: '请输入语种', trigger: 'blur' }],
+  cooperation_type: [{ required: true, message: '请选择合作形式', trigger: 'change' }]
+}
 const manuscriptLayoutUserKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
 const projectPanelStorageKey = `manuscript_project_panel_collapsed:${manuscriptLayoutUserKey}`
 const projectPanelCollapsed = ref(false)
@@ -1632,7 +1746,7 @@ const mailBatchOriginalSubject = ref('')
 const mailBatchOriginalBody = ref('')
 const mailBodyEditorRef = ref(null)
 const mailImageUploading = ref(false)
-const MAX_MAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_MAIL_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const mailAttachmentFile = ref(null)
 const mailAttachmentList = ref([])
 const mailPreview = reactive({
@@ -1746,7 +1860,7 @@ function handleMailAttachmentChange(uploadFile) {
   if (rawFile.size > MAX_MAIL_ATTACHMENT_BYTES) {
     mailAttachmentFile.value = null
     mailAttachmentList.value = []
-    ElMessage.error('上传文件不能超过 10MB')
+    ElMessage.error('上传文件不能超过 50MB')
     return
   }
   if (rawFile.size === 0) {
@@ -2148,6 +2262,49 @@ function handleTranslatorRowClick(row, column) {
     && dispatchForm.arrangements.some((item) => item.translator_id === row.id)
   ) {
     activeArrangementTranslatorId.value = row.id
+  }
+}
+
+function resetQuickTranslatorForm() {
+  Object.assign(quickTranslatorForm, createDefaultQuickTranslatorForm())
+  quickTranslatorFormRef.value?.clearValidate()
+}
+
+function openQuickTranslatorDialog() {
+  resetQuickTranslatorForm()
+  quickTranslatorDialogVisible.value = true
+}
+
+async function saveQuickTranslator() {
+  if (!quickTranslatorFormRef.value) return
+  try {
+    await quickTranslatorFormRef.value.validate()
+  } catch {
+    return
+  }
+
+  quickTranslatorSaving.value = true
+  try {
+    const created = await quickCreateManuscriptTranslator({
+      translator_name: quickTranslatorForm.translator_name.trim(),
+      email: quickTranslatorForm.email.trim(),
+      languages: quickTranslatorForm.languages.trim(),
+      cooperation_type: quickTranslatorForm.cooperation_type,
+      direction: quickTranslatorForm.direction || null,
+      phone: quickTranslatorForm.phone.trim() || null,
+      remarks: quickTranslatorForm.remarks.trim() || null
+    })
+    translators.value = [created, ...translators.value.filter((item) => item.id !== created.id)]
+    translatorKeyword.value = ''
+    translatorTab.value = 'all'
+    quickTranslatorDialogVisible.value = false
+    await nextTick()
+    workspaceTranslatorTableRef.value?.toggleRowSelection(created, true)
+    ElMessage.success(`已添加并选择译员“${created.translator_name}”`)
+  } catch (error) {
+    ElMessage.error(error?.detail || '快捷添加译员失败')
+  } finally {
+    quickTranslatorSaving.value = false
   }
 }
 
@@ -2694,13 +2851,6 @@ function validateDispatchForm() {
     }
     if (!String(assignment.settlement_method || '').trim()) {
       return `${translatorName}：请填写译员结账方式`
-    }
-    if (
-      assignment.translator_unit_price === null
-      || assignment.translator_unit_price === undefined
-      || assignment.translator_unit_price === ''
-    ) {
-      return `${translatorName}：请填写单价`
     }
     const dated = assignment.milestones
       .filter((item) => item.planned_at)
@@ -3555,8 +3705,35 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.mail-send-preview-editor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mail-send-preview-editor > label {
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+@media (max-width: 600px) {
+  .mail-send-preview-content {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .mail-attachment-upload {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mail-stage .el-alert {
   margin-bottom: 8px;
+}
+
+.quick-translator-tip {
+  margin-bottom: 18px;
 }
 
 .mail-body-input {
@@ -3616,6 +3793,8 @@ onBeforeUnmount(() => {
 .translator-header__tools {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

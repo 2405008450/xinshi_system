@@ -28,6 +28,8 @@ from manuscript_schemas import (
     ManuscriptMailPathsResponse,
     ManuscriptMailPathsUpdate,
     ManuscriptMailStatus,
+    ManuscriptQuickTranslatorCreate,
+    ManuscriptTranslatorItem,
     ManuscriptSettlementUpdate,
 )
 from manuscript_service import (
@@ -35,6 +37,7 @@ from manuscript_service import (
     confirm_dispatch,
     create_arrangement,
     create_dispatch,
+    create_quick_translator,
     delete_arrangement,
     get_arrangement,
     get_arrangement_context,
@@ -61,8 +64,26 @@ router = APIRouter(
     ],
 )
 
-MAX_MANUSCRIPT_ATTACHMENT_BYTES = 10 * 1024 * 1024
-MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 15 * 1024 * 1024
+MAX_MANUSCRIPT_ATTACHMENT_BYTES = 50 * 1024 * 1024
+# 为 50MB 手动附件、正文图片和自动生成的共享文件压缩包预留总量空间。
+MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 75 * 1024 * 1024
+
+
+@router.post(
+    "/translators/quick-create",
+    response_model=ManuscriptTranslatorItem,
+    status_code=status.HTTP_201_CREATED,
+)
+def quick_create_translator_endpoint(
+    payload: ManuscriptQuickTranslatorCreate,
+    db: Session = Depends(get_db),
+):
+    """在派稿过程中快捷建立可立即选择的笔译人员。"""
+    try:
+        return create_quick_translator(db, payload)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _inline_images(
@@ -93,7 +114,7 @@ def _inline_images(
 def _validate_total_mail_content(attachment: Optional[MailAttachment], images: list) -> None:
     total = (len(attachment.content) if attachment else 0) + sum(item.file_size for item in images)
     if total > MAX_MANUSCRIPT_MAIL_CONTENT_BYTES:
-        raise HTTPException(status_code=413, detail="邮件附件与正文图片合计不能超过 15MB")
+        raise HTTPException(status_code=413, detail="邮件附件与正文图片合计不能超过 75MB")
 
 
 def _validate_mail_html(value: Optional[str], max_length: int) -> None:
@@ -121,7 +142,7 @@ def validate_manuscript_attachment(
     if not content:
         raise HTTPException(status_code=400, detail="上传文件内容为空")
     if len(content) > MAX_MANUSCRIPT_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=413, detail="上传文件不能超过 10MB")
+        raise HTTPException(status_code=413, detail="上传文件不能超过 50MB")
     normalized_name = (filename or "附件").replace("\\", "/").rsplit("/", 1)[-1]
     normalized_name = re.sub(r"[\x00-\x1f\x7f]", "_", normalized_name).strip()
     if not normalized_name:

@@ -1,14 +1,10 @@
 import { h, nextTick, ref, unref, watch } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const resolveValue = (source) => (typeof source === 'function' ? source() : unref(source))
 
-const errorMessage = (error) => {
-  const detail = error?.response?.data?.detail ?? error?.detail ?? error?.message
-  if (typeof detail === 'string' && detail.trim()) return detail
-  if (detail?.message) return detail.message
-  return '该记录可能已被删除，或存在关联数据限制'
-}
+const errorMessage = (error) => getLocalizedErrorMessage(error, '该记录可能已被删除，或存在关联数据限制')
 
 export function useBatchDelete({
   rows,

@@ -972,6 +972,7 @@ import { getProjects, getProjectCount, getProject, createProject, updateProject,
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
@@ -1754,7 +1755,7 @@ const fetchData = async () => {
     pagination.total = countResponse?.total || tableData.value.length
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || sequence !== requestSequence) return
-    ElMessage.error(error.detail || error.message || '网络异常，项目列表未刷新，请检查网络后重试')
+    ElMessage.error(getLocalizedErrorMessage(error, '网络异常，项目列表未刷新，请检查网络后重试'))
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -1821,7 +1822,7 @@ const loadProjectRoleOptions = async () => {
     projectRoleOptionsLoaded.value = true
   } catch (error) {
     projectRoleOptionsLoaded.value = false
-    ElMessage.error(error?.detail || error?.message || '加载项目角色候选人失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载项目角色候选人失败'))
   } finally {
     projectRoleOptionsLoading.value = false
   }
@@ -1872,7 +1873,7 @@ const openOriginalPath = async (row) => {
     }
     launchOpenPath(path)
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '获取原文路径失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '获取原文路径失败'))
   }
 }
 const copyOriginalPath = async (row) => {
@@ -1885,7 +1886,7 @@ const copyOriginalPath = async (row) => {
     await navigator.clipboard.writeText(path)
     ElMessage.success('路径已复制')
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '复制失败，请稍后重试')
+    ElMessage.error(getLocalizedErrorMessage(error, '复制失败，请稍后重试'))
   }
 }
 
@@ -2046,7 +2047,7 @@ const handleEdit = async (row, editorOptionsReady = false) => {
     try {
       await refreshProjectSubOrders(row.id)
     } catch (error) {
-      ElMessage.error(error.detail || error.message || '加载子订单失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '加载子订单失败'))
     }
   }
   await beginDraft(`edit:${row.id}`)
@@ -2077,7 +2078,7 @@ const changeProjectStatus = async (row, value) => {
       await fetchData()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || error?.detail || error?.message || '项目状态更新失败')
+    ElMessage.error(error?.detail || '项目状态更新失败')
   } finally {
     setProjectStatusSaving(row.id, false)
   }
@@ -2152,8 +2153,8 @@ const handleSubmit = async (sendAfterSave = false) => {
   } catch (error) {
     ElMessage.error(
       projectSaved
-        ? `项目已保存，但路径组保存失败：${error.detail || error.message || '请重新进入项目补充保存'}`
-        : (error.detail || error.message || '保存失败')
+        ? `项目已保存，但路径组保存失败：${getLocalizedErrorMessage(error, '请重新进入项目补充保存')}`
+        : getLocalizedErrorMessage(error, '保存失败')
     )
   } finally {
     submitLoading.value = false
@@ -2172,8 +2173,8 @@ const openSubOrderEditorFromList = (projectRow, subOrderRow) => {
 const buildSubOrderPayload = (source) => {
   return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 }
-const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(error.detail || error.message || '子订单保存失败') } }
-const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(error.detail || error.message || '子订单删除失败') } }
+const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '子订单保存失败')) } }
+const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '子订单删除失败')) } }
 const openBatchDialog = (project, mode = 'quantity') => {
   const target = project?.id ? project : form
   if (!target?.id) return

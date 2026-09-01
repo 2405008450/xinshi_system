@@ -113,6 +113,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 
@@ -147,7 +148,6 @@ const selectedRecipientCount = computed(() => new Set([...form.toUserIds, ...for
 const isAllMembersSelected = computed(() => availableUsers.value.length > 1 && selectedRecipientCount.value >= availableUsers.value.length)
 const latestFailedMail = computed(() => history.value[0]?.status === 'failed' ? history.value[0] : null)
 const statusLabel = (value) => ({ sent: '已发送', failed: '发送失败', pending: '待发送', sending: '发送中' }[value] || value)
-const formatDateTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const makeIdempotencyKey = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const openProfile = () => { visible.value = false; router.push('/profile') }
 

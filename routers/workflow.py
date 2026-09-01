@@ -551,7 +551,7 @@ def get_workflow_state(project_id: UUID, db: Session = Depends(get_db)):
     if not instance:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow not found for this project"
+            detail="该项目尚未初始化工作流"
         )
     return _build_state_response(instance)
 
@@ -688,7 +688,7 @@ def get_sub_order_workflow_state(sub_order_id: UUID, db: Session = Depends(get_d
     """获取子订单的工作流状态"""
     instance = get_workflow_by_sub_order(db, sub_order_id)
     if not instance:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found for this sub-order")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该子订单尚未初始化工作流")
     return _build_state_response(instance)
 
 

@@ -1,10 +1,14 @@
 import datetime as dt
+import logging
 import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -35,6 +39,7 @@ from models import (
     TranslatorSchedule,
 )
 from concurrency import StaleUpdateError
+from error_localization import localize_http_detail, localize_validation_errors
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
 from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
@@ -123,6 +128,8 @@ from resource_request_models import (
 )
 from routers import business_mails, mail_inline_images
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 
 
@@ -138,6 +145,32 @@ def _configured_cors_origins() -> list[str]:
 @app.exception_handler(StaleUpdateError)
 async def stale_update_handler(_request: Request, exc: StaleUpdateError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(_request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(localize_validation_errors(exc.errors()))},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": jsonable_encoder(localize_http_detail(exc.detail, exc.status_code))},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(request: Request, exc: Exception):
+    logger.exception("未处理的服务异常：%s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务暂时异常，请稍后重试"},
+    )
 
 
 app.add_middleware(

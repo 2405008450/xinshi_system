@@ -82,6 +82,7 @@ def test_plain_text_mail_keeps_manual_and_automatic_attachments(monkeypatch):
 
     result = mail_service.send_plain_text_email(
         recipient_email="translator@example.com",
+        cc_emails=["sender@example.com"],
         subject="subject",
         body="body",
         attachment=manual,
@@ -91,3 +92,4 @@ def test_plain_text_mail_keeps_manual_and_automatic_attachments(monkeypatch):
 
     assert result == "sent"
     assert captured["attachments"] == [manual, automatic]
+    assert captured["cc_emails"] == ["sender@example.com"]

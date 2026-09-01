@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { normalizeApiError } from '@/utils/errorMessages'
 
 const api = axios.create({
   baseURL: '/api',
@@ -39,18 +40,7 @@ api.interceptors.response.use(
         window.location.href = '/login'
       }
     }
-    // FastAPI 的 422 detail 是校验错误数组，统一转换为可读文本，避免消息框显示空白。
-    const responseDetail = error.response?.data?.detail
-    const isNetworkError = !error.response && (
-      error.code === 'ERR_NETWORK' || /network error/i.test(String(error.message || ''))
-    )
-    const errorMessage = Array.isArray(responseDetail)
-      ? responseDetail.map(item => {
-          const field = Array.isArray(item?.loc) ? item.loc.filter(part => part !== 'body').join('.') : ''
-          return `${field ? `${field}：` : ''}${item?.msg || '字段校验失败'}`
-        }).join('；')
-      : responseDetail || (isNetworkError ? '网络异常，请检查网络后重试' : (error.message || '请求失败'))
-    return Promise.reject({ ...error, detail: errorMessage, message: errorMessage })
+    return Promise.reject(normalizeApiError(error))
   }
 )
 

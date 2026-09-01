@@ -2,6 +2,7 @@ import { computed, reactive, ref } from 'vue'
 
 import { getProjects } from '@/api/projects'
 import { getSubOrders } from '@/api/subOrders'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 const DEFAULT_PICKER_PAGE_SIZE = 10
 
@@ -16,11 +17,6 @@ function orderNoComparator(getOrderNo) {
     const [rightDate, rightSeq] = parseOrderNoParts(getOrderNo(right))
     return leftDate !== rightDate ? leftDate - rightDate : leftSeq - rightSeq
   }
-}
-
-function formatDateTime(value) {
-  if (!value) return '-'
-  return String(value).replace('T', ' ').substring(0, 19)
 }
 
 export function useEntityPicker({

@@ -82,6 +82,7 @@ import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createLeave, deleteLeave, getLeaveRecords, updateLeave } from '@/api/leave'
 import { getStaffList } from '@/api/schedule'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 defineProps({ canEdit: { type: Boolean, default: false } })
 const leaveTypes = ['请假', '调休', '事假', '病假', '年假']
@@ -103,7 +104,6 @@ let debounceTimer = null
 let requestController = null
 let requestSequence = 0
 
-function formatDateTime(value) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-' }
 function statusLabel(value) { return ({ active: '请假中', upcoming: '即将请假', past: '已结束' })[value] || value }
 function statusType(value) { return value === 'active' ? 'danger' : value === 'upcoming' ? 'warning' : 'info' }
 

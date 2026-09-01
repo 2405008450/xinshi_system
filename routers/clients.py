@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from typing import List, Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from models import Client, SubClient
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
+logger = logging.getLogger(__name__)
 
 CLIENT_FILTER_FIELDS = {
     "client_code", "client_name", "client_short_name", "english_name", "english_short_name",
@@ -45,13 +47,14 @@ def create_client_endpoint(
             return get_client(db, existing.id)
     try:
         return create_client(db=db, client=client, idempotency_key=idempotency_key)
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
         if idempotency_key:
             existing = db.query(Client).filter(Client.idempotency_key == idempotency_key).first()
             if existing:
                 return get_client(db, existing.id)
-        raise HTTPException(status_code=400, detail=str(exc.orig))
+        logger.exception("创建客户时触发数据库约束")
+        raise HTTPException(status_code=400, detail="客户数据不符合保存要求，请检查后重试")
 
 @router.get("/", response_model=List[ClientResponse])
 def read_clients(
@@ -145,7 +148,7 @@ def read_client_count(
 def read_client(client_id: UUID, db: Session = Depends(get_db)):
     db_client = get_client(db, client_id=client_id)
     if not db_client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     return db_client
 
 @router.put("/{client_id}", response_model=ClientResponse)
@@ -155,7 +158,7 @@ def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Ses
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_client:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     return db_client
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -166,7 +169,7 @@ def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="无法删除该客户：仍被咨询或项目引用，请先处理关联记录")
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     return None
 
 # --- Sub Client Endpoints ---
@@ -181,7 +184,7 @@ def create_sub_client_endpoint(
     ),
 ):
     if sub_client.parent_client_id != client_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path ID and Body ID mismatch")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请求路径中的客户标识与提交内容不一致")
     if idempotency_key:
         existing = db.query(SubClient).filter(
             SubClient.idempotency_key == idempotency_key
@@ -192,7 +195,7 @@ def create_sub_client_endpoint(
         return create_sub_client(
             db=db, sub_client=sub_client, idempotency_key=idempotency_key,
         )
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
         if idempotency_key:
             existing = db.query(SubClient).filter(
@@ -200,7 +203,8 @@ def create_sub_client_endpoint(
             ).first()
             if existing:
                 return get_sub_client(db, existing.id)
-        raise HTTPException(status_code=400, detail=str(exc.orig))
+        logger.exception("创建子客户时触发数据库约束")
+        raise HTTPException(status_code=400, detail="子客户数据不符合保存要求，请检查后重试")
 
 @router.put("/sub_clients/{sub_id}", response_model=SubClientResponse)
 def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db)):
@@ -209,12 +213,12 @@ def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate,
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_sub:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sub client not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子客户不存在")
     return db_sub
 
 @router.delete("/sub_clients/{sub_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_sub_client_endpoint(sub_id: UUID, db: Session = Depends(get_db)):
     success = delete_sub_client(db, sub_id=sub_id)
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sub client not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子客户不存在")
     return None

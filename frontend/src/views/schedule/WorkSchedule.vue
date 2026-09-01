@@ -125,7 +125,9 @@
                     </el-table-column>
                     <el-table-column prop="content" label="任务内容" min-width="300" show-overflow-tooltip />
                     <el-table-column prop="projectNo" label="项目编号" width="140" show-overflow-tooltip />
-                    <el-table-column prop="deadline" label="交稿时间" width="140" show-overflow-tooltip />
+                    <el-table-column prop="deadline" label="交稿时间" width="140" show-overflow-tooltip>
+                      <template #default="{ row }">{{ formatDateTimeMinute(row.deadline) }}</template>
+                    </el-table-column>
                     <el-table-column v-if="canEdit" label="操作" width="100" fixed="right">
                       <template #default="{ row }">
                         <el-button type="primary" link size="small" @click="handleEditDeptTask(person, row)">编辑</el-button>
@@ -218,6 +220,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { canEditSchedule } from '@/utils/permission'
+import { formatDateTimeMinute } from '@/utils/dateTime'
 import { getSchedule, saveSchedule, copySchedule, getStaffList } from '@/api/schedule'
 import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftPanel from './components/EmployeeShiftPanel.vue'

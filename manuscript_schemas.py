@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from path_security import validate_managed_path
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
@@ -34,6 +34,25 @@ class ManuscriptTranslatorItem(BaseModel):
     can_revision: Optional[bool] = None
     domain_skills: list = Field(default_factory=list)
     remarks: Optional[str] = None
+
+
+class ManuscriptQuickTranslatorCreate(BaseModel):
+    """派稿现场快捷建立笔译人员档案所需的最小字段。"""
+
+    translator_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    languages: str = Field(min_length=1, max_length=500)
+    cooperation_type: Literal["全职", "兼职", "自由职业", "外包"] = "兼职"
+    direction: Optional[Literal["中译外", "外译中", "双向"]] = None
+    phone: Optional[str] = Field(default=None, max_length=100)
+    remarks: Optional[str] = Field(default=None, max_length=5000)
+
+    @field_validator("translator_name", "languages", "phone", "remarks", mode="before")
+    @classmethod
+    def normalize_text(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class ManuscriptActiveProjectItem(BaseModel):
@@ -145,9 +164,6 @@ class ManuscriptAssignmentInput(BaseModel):
             raise ValueError("每位译员的工作量与结算至少需要填写一个计量数值")
         if not (self.settlement_method or "").strip():
             raise ValueError("每位译员都必须填写译员结账方式")
-        if self.translator_unit_price is None:
-            raise ValueError("每位译员都必须填写单价")
-
         sequence_numbers = [item.sequence_no for item in self.milestones]
         if len(sequence_numbers) != len(set(sequence_numbers)):
             raise ValueError("同一译员的交稿节点顺序不能重复")
@@ -250,8 +266,6 @@ class ManuscriptArrangementCreate(BaseModel):
             raise ValueError("必须填写全稿预定时间")
         if not (self.settlement_method or "").strip():
             raise ValueError("必须填写译员结账方式")
-        if self.translator_unit_price is None:
-            raise ValueError("必须填写单价")
         return self
 
 

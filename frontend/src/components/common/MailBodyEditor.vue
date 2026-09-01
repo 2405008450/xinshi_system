@@ -37,6 +37,7 @@ import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import { ElMessage } from 'element-plus'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   deleteMailInlineImage,
   getMailInlineImageContent,
@@ -188,11 +189,11 @@ async function addFile(file) {
         }).run()
         await nextTick()
       } catch (error) {
-        ElMessage.error(error?.detail || error?.message || '图片上传失败')
+        ElMessage.error(getLocalizedErrorMessage(error, '图片上传失败'))
       }
     }
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '图片上传失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '图片上传失败'))
   } finally {
     setBusy(false)
   }

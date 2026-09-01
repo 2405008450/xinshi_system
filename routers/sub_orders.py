@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -20,6 +21,7 @@ from models import AppUser, TranslationSubOrder
 from routers.auth import get_current_user, require_module_access
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=TranslationSubOrderResponse, status_code=status.HTTP_201_CREATED)
@@ -45,7 +47,7 @@ def create_sub_order_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError as e:
+    except IntegrityError:
         db.rollback()
         if idempotency_key:
             existing = db.query(TranslationSubOrder).filter(
@@ -53,11 +55,12 @@ def create_sub_order_endpoint(
             ).first()
             if existing:
                 return get_sub_order(db, existing.id)
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误: {error_msg}")
-    except Exception as e:
+        logger.exception("创建子订单时触发数据库约束")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="子订单数据不符合保存要求，请检查后重试")
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.exception("创建子订单时发生未知异常")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="子订单保存失败，请稍后重试")
 
 
 @router.post("/bulk", response_model=TranslationSubOrderBulkResponse, status_code=status.HTTP_201_CREATED)
@@ -77,13 +80,14 @@ def create_sub_orders_bulk_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError as e:
+    except IntegrityError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误: {error_msg}")
-    except Exception as e:
+        logger.exception("批量创建子订单时触发数据库约束")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="子订单数据不符合保存要求，请检查后重试")
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        logger.exception("批量创建子订单时发生未知异常")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="批量创建子订单失败，请稍后重试")
 
 
 @router.get("/", response_model=List[TranslationSubOrderResponse])

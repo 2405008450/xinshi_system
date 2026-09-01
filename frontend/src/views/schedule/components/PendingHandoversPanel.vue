@@ -106,6 +106,8 @@ import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import RichTextContent from '@/components/RichTextContent.vue'
 import { getProjectChatAttachmentBlob } from '@/api/projectChat'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   acceptHandoverRequestAPI,
   getIncomingHandoverRequestsAPI,
@@ -128,12 +130,6 @@ const TYPE_LABELS = {
 }
 
 const handoverTypeLabel = (type) => TYPE_LABELS[type] || type || '-'
-
-const formatDateTime = (value) => {
-  if (!value) return '-'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
 
 const clearAttachmentUrls = () => {
   objectUrls.forEach(url => URL.revokeObjectURL(url))
@@ -165,7 +161,7 @@ const loadRequests = async ({ openDialog = false } = {}) => {
     if (!requests.value.length) dialogVisible.value = false
   } catch (error) {
     requests.value = []
-    ElMessage.error(error?.detail || error?.message || '加载待确认交接失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载待确认交接失败'))
   }
 }
 
@@ -199,7 +195,7 @@ const handleDecision = async (request, decision) => {
     await loadRequests()
     emit('updated')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || `${actionLabel}失败`)
+    ElMessage.error(getLocalizedErrorMessage(error, `${actionLabel}失败`))
     await loadRequests()
   } finally {
     processingId.value = ''

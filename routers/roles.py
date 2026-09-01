@@ -22,7 +22,7 @@ def create_role_endpoint(role: RoleCreate, db: Session = Depends(get_db)):
     if db_role:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role name already exists"
+            detail="角色名称已存在"
         )
     return create_role(db=db, role=role)
 
@@ -39,7 +39,7 @@ def read_role(role_id: UUID, db: Session = Depends(get_db)):
     if db_role is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found"
+            detail="角色不存在"
         )
     return db_role
 
@@ -54,7 +54,7 @@ def update_role_endpoint(
     if db_role is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found"
+            detail="角色不存在"
         )
     return db_role
 
@@ -80,6 +80,6 @@ def delete_role_endpoint(role_id: UUID, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found"
+            detail="角色不存在"
         )
     return None

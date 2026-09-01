@@ -952,7 +952,7 @@ def read_consultations(
 def read_consultation(consultation_id: UUID, db: Session = Depends(get_db)):
     db_consultation = get_consultation(db, consultation_id=consultation_id)
     if not db_consultation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="咨询记录不存在")
     return _attach_linked_project_ids(db, db_consultation)
 
 
@@ -1032,7 +1032,7 @@ def update_consultation_endpoint(
 ):
     existing = get_consultation(db, consultation_id=consultation_id)
     if not existing:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="咨询记录不存在")
     target_type = (
         consultation_update.consultation_type
         if "consultation_type" in consultation_update.model_fields_set
@@ -1167,5 +1167,5 @@ def delete_consultation_endpoint(consultation_id: UUID, db: Session = Depends(ge
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该咨询仍被其他业务数据引用，不能删除")
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="咨询记录不存在")
     return None

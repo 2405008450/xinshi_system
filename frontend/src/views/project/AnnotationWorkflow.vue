@@ -74,6 +74,7 @@ import * as annotationApi from '@/api/annotationProjects'
 import * as opsApi from '@/api/annotationOps'
 import { getProjectTalentOptions } from '@/api/talents'
 import { hasPermission } from '@/utils/permission'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import AnnotationCustomFieldInputs from '@/components/annotation/AnnotationCustomFieldInputs.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -105,7 +106,7 @@ const resetFilters=()=>{projectId.value='';keyword.value='';roleFilter.value='';
 const clearLanguageFilter=()=>{languageItemId.value='';languageFilterVisible.value=false;loadRows()}
 const editorProjectChanged=async()=>{form.languageItemId=null;form.customValues={};editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[]}
 const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?{...row,projectId:row.projectId,customValues:{...(row.customValues||{})}}:{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
-const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{const data=payload();form.id?await opsApi.updateAnnotationWorkflow(form.projectId,form.id,data):await opsApi.createAnnotationWorkflow(form.projectId,data);dialogVisible.value=false;ElMessage.success('正式安排已保存');await loadRows()}catch(error){ElMessage.error(error.detail||error.message||'保存失败')}finally{saving.value=false}}
+const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{const data=payload();form.id?await opsApi.updateAnnotationWorkflow(form.projectId,form.id,data):await opsApi.createAnnotationWorkflow(form.projectId,data);dialogVisible.value=false;ElMessage.success('正式安排已保存');await loadRows()}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}}
 const amountText=(amount,unit,labels)=>amount===null||amount===undefined?'-':`${amount} ${labels[unit]||unit||''}`
 const priceText=(amount,unit,currency)=>amount===null||amount===undefined?'-':`${amount} ${currency||'CNY'} / ${priceUnitLabels[unit]||unit||'-'}`
 const customText=value=>Array.isArray(value)?value.join('、')||'-':value===true?'是':value===false?'否':value===null||value===undefined||value===''?'-':value

@@ -150,6 +150,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import DailyReportSpreadsheet from './DailyReportSpreadsheet.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import { getPersonalMailAccount } from '@/api/auth'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   exportDailyReport,
   finalizeDailyReport,
@@ -242,7 +243,7 @@ async function save(finalize) {
     applyReport(await (finalize ? finalizeDailyReport : saveDailyReport)(props.reportDate, payload))
     ElMessage.success(finalize ? '日报已确认' : '草稿已保存')
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.detail || error?.message || '保存日报失败')
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '保存日报失败'))
   } finally { saving.value = false }
 }
 
@@ -259,7 +260,7 @@ async function withdrawReport() {
     ElMessage.success('日报已撤回为草稿')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '撤回日报失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '撤回日报失败'))
     }
   } finally {
     saving.value = false
@@ -292,7 +293,7 @@ async function downloadReport() {
     const link = document.createElement('a')
     link.href = url; link.download = `个人工作日报-${props.reportDate}.xlsx`
     document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url)
-  } catch (error) { ElMessage.error(error?.detail || error?.message || '导出日报失败') }
+  } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '导出日报失败')) }
   finally { exporting.value = false }
 }
 
@@ -344,7 +345,7 @@ async function sendMail() {
       ElMessage.success('工作报告邮件发送成功')
     } else ElMessage.error(result.send_error || '邮件发送失败，可重新打开预览后重试')
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.detail || error?.message || '邮件发送失败')
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '邮件发送失败'))
   } finally { sending.value = false }
 }
 

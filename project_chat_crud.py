@@ -235,7 +235,7 @@ def create_project_chat_message(
 ) -> ChatProjectMessage:
     settings = get_project_chat_settings(db, project_id)
     if not bypass_enabled and (settings is None or not settings.enabled):
-        raise ValueError('Project chat is disabled')
+        raise ValueError('项目沟通功能未启用')
 
     project = (
         db.query(TranslationProject)
@@ -244,17 +244,17 @@ def create_project_chat_message(
         .first()
     )
     if project is None:
-        raise ValueError('Project not found')
+        raise ValueError('项目不存在')
 
     normalized_json = normalize_rich_text_json(content_json)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
-        raise ValueError('Rich text content is too large')
+        raise ValueError('消息内容过长')
     plain_content = (content or '').strip()
     if normalized_json:
         plain_content = (rich_text_to_plain(normalized_json) or plain_content)[:10000]
     attachment_ids = list(dict.fromkeys(attachment_ids or []))
     if not plain_content and not attachment_ids:
-        raise ValueError('Message content or attachment is required')
+        raise ValueError('消息内容和附件不能同时为空')
 
     message = ChatProjectMessage(
         project_id=project_id,
@@ -278,7 +278,7 @@ def create_project_chat_message(
             .all()
         )
         if len(attachments) != len(attachment_ids):
-            raise ValueError('Attachment not found or does not belong to current user')
+            raise ValueError('附件不存在或不属于当前用户')
         db.add_all(
             ChatProjectMessageAttachment(message_id=message.id, attachment_id=attachment.id)
             for attachment in attachments
@@ -292,7 +292,7 @@ def create_project_chat_message(
             .first()
         )
         if mention_user is None:
-            raise ValueError('Mentioned user not found')
+            raise ValueError('被提及的用户不存在')
         db.add(ChatProjectMention(
             message_id=message.id,
             mentioned_user_id=mention_user.id,
@@ -311,7 +311,7 @@ def create_project_chat_message(
             .first()
         )
         if created is None:
-            raise ValueError('Failed to load created message')
+            raise ValueError('消息已创建，但读取消息失败')
     else:
         db.flush()
         created = message

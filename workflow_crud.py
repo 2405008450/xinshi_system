@@ -2135,7 +2135,7 @@ def init_workflow(
     commit: bool = True,
 ) -> WorkflowInstance:
     if not project_id and not sub_order_id:
-        raise ValueError("Must specify either project_id or sub_order_id")
+        raise ValueError("必须指定项目或子订单")
 
     existing = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if existing:
@@ -2340,9 +2340,9 @@ def set_difficulty(
 ) -> WorkflowInstance:
     instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized")
+        raise ValueError("工作流尚未初始化")
     if instance.current_stage_key != 'reception':
-        raise ValueError("Can only set difficulty at reception stage")
+        raise ValueError("只能在接稿阶段设置难度")
 
     current_notes = dict(instance.stage_notes or {})
     current_notes['reception'] = note or ''
@@ -2359,7 +2359,7 @@ def set_difficulty(
 
     steps = get_effective_stages(difficulty, file_editable)
     if len(steps) < 2:
-        raise ValueError("No next stage available")
+        raise ValueError("当前没有可进入的下一阶段")
     next_stage = steps[1]
 
     next_assignee_id, group_assign_role = _resolve_stage_assignment(
@@ -2415,12 +2415,12 @@ def transition_forward(
 ) -> WorkflowInstance:
     instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized")
+        raise ValueError("工作流尚未初始化")
 
     steps = get_effective_stages(instance.difficulty, instance.file_editable)
     current_idx = next((i for i, s in enumerate(steps) if s['key'] == instance.current_stage_key), -1)
     if current_idx < 0:
-        raise ValueError(f"Current stage '{instance.current_stage_key}' not found in effective stages")
+        raise ValueError(f"当前阶段“{instance.current_stage_key}”不在有效流程中")
 
     current_stage_key = instance.current_stage_key
     current_notes = dict(instance.stage_notes or {})
@@ -2493,7 +2493,7 @@ def transition_forward(
         notify_stage_key = next_stage['key']
         notify_group_assign_role = group_assign_role
     else:
-        raise ValueError("Must specify next_assignee_id or group_assign_role for non-completed stages")
+        raise ValueError("未完成阶段必须指定下一负责人或指派角色组")
 
     log = WorkflowLog(
         workflow_instance_id=instance.id,
@@ -2528,12 +2528,12 @@ def rollback(
 ) -> WorkflowInstance:
     instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized")
+        raise ValueError("工作流尚未初始化")
 
     effective = get_effective_stages(instance.difficulty, instance.file_editable)
     current_idx = next((i for i, s in enumerate(effective) if s['key'] == instance.current_stage_key), -1)
     if current_idx <= 0:
-        raise ValueError("Cannot rollback from the first stage")
+        raise ValueError("第一阶段不能回退")
 
     target_idx = 0 if to_start else max(0, current_idx - steps)
     target = effective[target_idx]
@@ -2602,7 +2602,7 @@ def update_stage_data(
     """暂存当前阶段的进度表单数据"""
     instance = _get_instance(db, project_id=project_id, sub_order_id=sub_order_id)
     if not instance:
-        raise ValueError("Workflow not initialized")
+        raise ValueError("工作流尚未初始化")
 
     current_data = dict(instance.stage_data or {})
     current_data[instance.current_stage_key] = stage_data or {}

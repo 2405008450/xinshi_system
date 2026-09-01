@@ -302,7 +302,7 @@ const handleCreateDirection = async () => {
     createVisible.value = false
     ElMessage.success('翻译方向已添加')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '新增翻译方向失败')
+    ElMessage.error(error?.detail || '新增翻译方向失败')
   } finally {
     creating.value = false
   }

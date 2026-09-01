@@ -242,6 +242,7 @@ import {
   updateNonProjectTask
 } from '@/api/tasks'
 import { hasRole, isSuperAdmin } from '@/utils/permission'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { DEADLINE_STATE, compareWorkItemsByDeadline, getWorkItemDeadlineState } from '@/utils/workItemDeadline'
 
 const props = defineProps({
@@ -440,7 +441,7 @@ async function submitTask() {
     taskDialogVisible.value = false
     emit('refresh')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '保存任务失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '保存任务失败'))
   } finally {
     taskSubmitting.value = false
   }
@@ -457,7 +458,7 @@ async function runAction(row, action) {
     emit('refresh')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '任务操作失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '任务操作失败'))
     }
   }
 }
@@ -537,7 +538,7 @@ async function submitWorkEntry() {
     workEntryVisible.value = false
     emit('refresh')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '保存进展失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '保存进展失败'))
   } finally {
     workEntrySubmitting.value = false
   }

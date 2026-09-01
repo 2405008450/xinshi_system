@@ -240,9 +240,9 @@
           <el-descriptions-item label="难度评级">
             {{ workflowState.difficulty ? difficultyLabel(workflowState.difficulty) : '未设定' }}
           </el-descriptions-item>
-          <el-descriptions-item label="客户交稿时间">{{ currentProject.customerDeadlineTime || currentProject.customer_deadline_time || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="创建时间" :span="2">{{ currentProject.createdAt || currentProject.created_at || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="更新时间" :span="2">{{ currentProject.updatedAt || currentProject.updated_at || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户交稿时间">{{ formatDisplayDateTime(currentProject.customerDeadlineTime || currentProject.customer_deadline_time) }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间" :span="2">{{ formatDisplayDateTime(currentProject.createdAt || currentProject.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="更新时间" :span="2">{{ formatDisplayDateTime(currentProject.updatedAt || currentProject.updated_at) }}</el-descriptions-item>
         </el-descriptions>
         <el-empty v-else description="请先选择项目" />
       </el-tab-pane>
@@ -259,13 +259,13 @@
       <el-tab-pane label="翻译/审核进度" name="progress">
         <el-descriptions v-if="currentProject" :column="2" border>
           <el-descriptions-item label="译员安排">{{ currentProject.translatorAssignee || currentProject.translatorId || currentProject.translator_id || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="译员安排时间">{{ currentProject.translatorAssignmentTime || currentProject.translator_assignment_time || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="译员安排时间">{{ formatDisplayDateTime(currentProject.translatorAssignmentTime || currentProject.translator_assignment_time) }}</el-descriptions-item>
           <el-descriptions-item label="译员交稿进度">{{ currentProject.translatorDeliveryProgress || currentProject.translator_delivery_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="审核 1 进度">{{ currentProject.review1Progress || currentProject.review1_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="审核前专检进度">{{ currentProject.preReviewQcProgress || currentProject.pre_review_qc_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="排版进度">{{ currentProject.layoutProgress || currentProject.layout_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="整理进度">{{ currentProject.consolidationProgress || currentProject.consolidation_progress || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="发客户时间">{{ currentProject.sentToClientTime || currentProject.sent_to_client_time || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="发客户时间">{{ formatDisplayDateTime(currentProject.sentToClientTime || currentProject.sent_to_client_time) }}</el-descriptions-item>
           <el-descriptions-item label="审核后专检进度">{{ currentProject.postReviewQcProgress || currentProject.post_review_qc_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="审核 2 进度">{{ currentProject.review2Progress || currentProject.review2_progress || '-' }}</el-descriptions-item>
         </el-descriptions>
@@ -360,6 +360,8 @@ import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { getProject } from '@/api/projects'
 import { getSubOrder } from '@/api/subOrders'
 import { getStoredRoles } from '@/utils/permission'
+import { formatDateTimeMinute as formatDisplayDateTime } from '@/utils/dateTime'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { useEntityPicker } from '@/composables/useEntityPicker'
 import { buildPreviewEffectiveStages, difficultyLabel, getStatusLabel, getStatusType, useNextStageUsers, useWorkflow } from '@/composables/useWorkflow'
 import MyTasksTab from './components/MyTasksTab.vue'
@@ -925,7 +927,7 @@ async function confirmDifficulty() {
     )
     loadProjects()
   } catch (error) {
-    ElMessage.error(`操作失败：${error?.detail || error?.message || '请稍后重试'}`)
+    ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
 }
 
@@ -938,7 +940,7 @@ async function saveCurrentStageProgress() {
     })
     ElMessage.success('本阶段进度已更新（暂存）')
   } catch (error) {
-    ElMessage.error(`暂存数据失败：${error?.detail || error?.message || '请稍后重试'}`)
+    ElMessage.error(`暂存数据失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
 }
 
@@ -984,7 +986,7 @@ async function completeCurrentStage() {
     )
     loadProjects()
   } catch (error) {
-    ElMessage.error(`操作失败：${error?.detail || error?.message || '请稍后重试'}`)
+    ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
 }
 
@@ -1005,7 +1007,7 @@ async function confirmRollback() {
     ElMessage.success(currentEntityType.value === 'suborder' ? '已成功打回子订单' : '已成功打回项目')
     loadProjects()
   } catch (error) {
-    ElMessage.error(`操作失败：${error?.detail || error?.message || '请稍后重试'}`)
+    ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
 }
 

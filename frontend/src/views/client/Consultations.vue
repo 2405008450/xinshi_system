@@ -497,8 +497,20 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :md="12">
-              <el-form-item label="客户来源" prop="client_source" required>
+              <el-form-item label="客户来源" prop="client_source">
                 <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="客户经理联系方式" prop="manager_contact">
+                <el-input
+                  v-model="form.manager_contact"
+                  maxlength="100"
+                  clearable
+                  placeholder="填写后同步到客户资料"
+                />
               </el-form-item>
             </el-col>
           </el-row>
@@ -509,7 +521,7 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :md="12">
-              <el-form-item label="咨询方式" prop="consultation_method" required>
+              <el-form-item label="咨询方式" prop="consultation_method">
                 <div class="consultation-method-field">
                   <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
                     <el-option v-for="item in consultationMethodOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -525,7 +537,7 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item label="咨询描述" prop="consultation_description" required>
+          <el-form-item label="咨询描述" prop="consultation_description">
             <el-input
               v-model="form.consultation_description"
               type="textarea"
@@ -567,7 +579,6 @@
               <el-form-item
                 label="客户来源"
                 prop="client_source"
-                required
               >
                 <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
               </el-form-item>
@@ -584,12 +595,12 @@
             </div>
             <el-row :gutter="20">
               <el-col :xs="24" :md="12">
-                <el-form-item label="客户来源" prop="client_source" required>
+                <el-form-item label="客户来源" prop="client_source">
                   <el-input v-model="form.client_source" placeholder="不知道可写“未知”" />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="12">
-                <el-form-item label="咨询方式" prop="consultation_method" required>
+                <el-form-item label="咨询方式" prop="consultation_method">
                   <div class="consultation-method-field">
                     <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
                       <el-option
@@ -612,7 +623,7 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :xs="24" :md="12">
-                <el-form-item label="咨询时间" prop="consultation_time" required>
+                <el-form-item label="咨询时间" prop="consultation_time">
                   <el-date-picker
                     v-model="form.consultation_time"
                     type="datetime"
@@ -628,12 +639,12 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="12">
-                <el-form-item label="来源关键词" prop="source_keyword" required>
+                <el-form-item label="来源关键词" prop="source_keyword">
                   <el-input v-model="form.source_keyword" placeholder="请输入来源渠道或推广关键词" />
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-form-item label="咨询描述" prop="consultation_description" required>
+            <el-form-item label="咨询描述" prop="consultation_description">
               <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="不知道可写“无”" />
             </el-form-item>
           </div>
@@ -698,7 +709,7 @@
 
           <el-row v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)" :gutter="20">
             <el-col :span="12">
-              <el-form-item label="咨询方式" prop="consultation_method" required>
+              <el-form-item label="咨询方式" prop="consultation_method">
                 <div class="consultation-method-field">
                   <el-select v-model="form.consultation_method" placeholder="请选择" clearable>
                     <el-option
@@ -760,7 +771,6 @@
             v-if="!isCoreFieldsRequiredProjectType(form.consultation_type)"
             label="咨询描述"
             prop="consultation_description"
-            required
           >
             <el-input v-model="form.consultation_description" type="textarea" :rows="3" placeholder="不知道可写“无”" />
           </el-form-item>
@@ -906,12 +916,12 @@
           </template>
 
           <template v-else-if="isInterpretationConsultationType(form.consultation_type)">
-            <el-form-item label="项目类型" prop="project_intake.project_types" required><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="项目类型" prop="project_intake.project_types"><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
             <el-form-item label="具体任务"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
-            <el-form-item label="地点" prop="project_intake.locations" required>
+            <el-form-item label="地点" prop="project_intake.locations">
               <el-input v-model="interpretationLocationText" clearable placeholder="请输入地点，如：广州" />
             </el-form-item>
-            <el-form-item label="预定时段" prop="project_intake.time_ranges" required>
+            <el-form-item label="预定时段" prop="project_intake.time_ranges">
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field intake-list-header--actions-only"><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
                 <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
@@ -926,7 +936,7 @@
                 </div>
               </div>
             </el-form-item>
-            <el-form-item label="口译方向" prop="project_intake.language_directions" required>
+            <el-form-item label="口译方向" prop="project_intake.language_directions">
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field">
                   <span>每个方向填写对应需求人数；合计 {{ interpretationRequiredTotal }} 人</span>
@@ -948,10 +958,10 @@
           </template>
 
           <template v-else-if="isAnnotationConsultationType(form.consultation_type)">
-            <el-form-item label="项目类型" prop="project_intake.project_types" required><el-select v-model="form.project_intake.project_types" multiple filterable allow-create style="width:100%"><el-option v-for="item in annotationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
-            <el-form-item label="具体任务" prop="project_intake.task_description" required><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="项目类型" prop="project_intake.project_types"><el-select v-model="form.project_intake.project_types" multiple filterable allow-create style="width:100%"><el-option v-for="item in annotationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="具体任务" prop="project_intake.task_description"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="潜在需求量"><el-input v-model="form.project_intake.potential_demand" /></el-form-item>
-            <el-form-item label="语言范围" prop="project_intake.language_items" required>
+            <el-form-item label="语言范围" prop="project_intake.language_items">
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field"><span>至少保留一组语种</span><el-button link type="primary" @click="addAnnotationLanguage">增加语言</el-button></div>
                 <div v-for="(item,index) in form.project_intake.language_items" :key="index" class="intake-inline-row">
@@ -964,7 +974,7 @@
           </template>
 
           <template v-else-if="isRecruitmentConsultationType(form.consultation_type)">
-            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="project_intake.position_title" required><el-input v-model="form.project_intake.position_title" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="project_intake.headcount_min" required><div class="intake-inline-row"><el-input-number v-model="form.project_intake.headcount_min" :min="1" /><span>至</span><el-input-number v-model="form.project_intake.headcount_max" :min="form.project_intake.headcount_min || 1" /></div></el-form-item></el-col></el-row>
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="project_intake.position_title"><el-input v-model="form.project_intake.position_title" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="project_intake.headcount_min"><div class="intake-inline-row"><el-input-number v-model="form.project_intake.headcount_min" :min="1" /><span>至</span><el-input-number v-model="form.project_intake.headcount_max" :min="form.project_intake.headcount_min || 1" /></div></el-form-item></el-col></el-row>
             <el-form-item label="职位描述"><el-input v-model="form.project_intake.job_description" type="textarea" :rows="3" /></el-form-item>
             <el-form-item label="外语/翻译方向" prop="project_intake.language_directions">
               <div class="intake-list-field">
@@ -980,7 +990,7 @@
                 </div>
               </div>
             </el-form-item>
-            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="拟履职周期" prop="project_intake.employment_range" required><el-date-picker v-model="form.project_intake.employment_range" type="daterange" value-format="YYYY-MM-DD" clearable style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="工作地点" prop="project_intake.work_location" required><el-input v-model="form.project_intake.work_location" /></el-form-item></el-col></el-row>
+            <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="拟履职周期" prop="project_intake.employment_range"><el-date-picker v-model="form.project_intake.employment_range" type="daterange" value-format="YYYY-MM-DD" clearable style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="工作地点" prop="project_intake.work_location"><el-input v-model="form.project_intake.work_location" /></el-form-item></el-col></el-row>
           </template>
         </div>
 
@@ -1338,6 +1348,7 @@ import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
+import { formatDateTimeMinute as formatDatetime, formatTimeMinute as formatTime } from '@/utils/dateTime'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -2019,15 +2030,22 @@ const validateConsultationStatus = (_rule, value, callback) => {
 
 const rules = {
   client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
-  status: [{ validator: validateConsultationStatus, trigger: 'change' }],
+  status: [{ required: true, message: '请选择咨询状态', validator: validateConsultationStatus, trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
-  consultation_time: [{ validator: validateCoreConsultationRequired('请选择咨询时间', true), trigger: 'change' }],
-  consultation_method: [{ validator: validateConsultationMethod, trigger: ['change', 'blur'] }],
+  consultation_time: [{ required: true, message: '请选择咨询时间', validator: validateCoreConsultationRequired('请选择咨询时间', true), trigger: 'change' }],
+  consultation_method: [{ required: true, message: '请选择咨询方式', validator: validateConsultationMethod, trigger: ['change', 'blur'] }],
   client_source: [{ required: true, message: '请输入客户来源，不知道可写“未知”', trigger: 'blur' }],
-  source_keyword: [{ validator: validateCoreConsultationRequired('请输入来源关键词'), trigger: 'blur' }],
+  source_keyword: [{ required: true, message: '请输入来源关键词', validator: validateCoreConsultationRequired('请输入来源关键词'), trigger: 'blur' }],
   consultation_description: [{ required: true, message: '请输入咨询描述，不知道可写“无”', trigger: 'blur' }],
-  'project_intake.language_directions': [{ validator: validateInterpretationDirections, trigger: 'change' }],
+  'project_intake.language_directions': [{
+    required: true,
+    message: '请至少添加一个口译方向',
+    validator: validateInterpretationDirections,
+    trigger: 'change',
+  }],
   'project_intake.project_types': [{
+    required: true,
+    message: '请选择项目类型',
     validator: validateWhen(
       () => isInterpretationConsultationType(form.consultation_type) || isAnnotationConsultationType(form.consultation_type),
       requireIntakeArray('请选择项目类型'),
@@ -2035,34 +2053,50 @@ const rules = {
     trigger: 'change',
   }],
   'project_intake.locations': [{
+    required: true,
+    message: '请输入地点',
     validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), requireIntakeArray('请输入地点')),
     trigger: ['change', 'blur'],
   }],
   'project_intake.time_ranges': [{
+    required: true,
+    message: '请至少添加一个预定时段',
     validator: validateWhen(() => isInterpretationConsultationType(form.consultation_type), validateInterpretationTimeRanges),
     trigger: 'change',
   }],
   'project_intake.task_description': [{
+    required: true,
+    message: '请填写具体任务',
     validator: validateWhen(() => isAnnotationConsultationType(form.consultation_type), requireIntakeText('请填写具体任务')),
     trigger: 'blur',
   }],
   'project_intake.language_items': [{
+    required: true,
+    message: '请至少添加一个语言范围',
     validator: validateWhen(() => isAnnotationConsultationType(form.consultation_type), validateAnnotationLanguages),
     trigger: 'change',
   }],
   'project_intake.position_title': [{
+    required: true,
+    message: '请填写职位名称/类型',
     validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeText('请填写职位名称/类型')),
     trigger: 'blur',
   }],
   'project_intake.headcount_min': [{
+    required: true,
+    message: '请填写招聘人数',
     validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), validateRecruitmentHeadcount),
     trigger: 'change',
   }],
   'project_intake.employment_range': [{
+    required: true,
+    message: '请选择拟履职周期',
     validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeArray('请选择拟履职周期')),
     trigger: 'change',
   }],
   'project_intake.work_location': [{
+    required: true,
+    message: '请填写工作地点',
     validator: validateWhen(() => isRecruitmentConsultationType(form.consultation_type), requireIntakeText('请填写工作地点')),
     trigger: 'blur',
   }],
@@ -2086,20 +2120,6 @@ const getStatusText = (status) => {
     success: '已确认',
   }
   return statusMap[status] || status || '-'
-}
-
-const formatDatetime = (val) => {
-  if (!val) return '-'
-  const date = new Date(String(val).replace(' ', 'T'))
-  return Number.isNaN(date.getTime()) ? val : date.toLocaleString('zh-CN', { hour12: false })
-}
-
-const formatTime = (val) => {
-  if (!val) return '-'
-  const date = new Date(String(val).replace(' ', 'T'))
-  return Number.isNaN(date.getTime())
-    ? '-'
-    : date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 const isToday = (val) => {
@@ -2575,7 +2595,7 @@ const handleInlineStatusChange = async (row, newStatus) => {
       await routeToProjectBoard(row.consultation_type)
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '切换状态失败')
+    ElMessage.error(error?.detail || '切换状态失败')
   } finally {
     statusUpdatingId.value = null
   }
@@ -2666,7 +2686,7 @@ const handleSubmit = async (continueCreate = false) => {
         await routeToProjectBoard(payload.consultation_type)
       }
     } catch (error) {
-      ElMessage.error(error?.response?.data?.detail || error?.detail || '操作失败')
+      ElMessage.error(error?.detail || '操作失败')
     } finally {
       formSubmitting.value = false
     }
@@ -2777,7 +2797,7 @@ const refreshConfirmationMailPreview = async () => {
   } catch (error) {
     if (requestId !== confirmationMailPreviewRequestId) return
     if (isCanceledRequest(error)) return
-    ElMessage.error(error?.response?.data?.detail || error?.detail || '刷新邮件预览失败')
+    ElMessage.error(error?.detail || '刷新邮件预览失败')
   } finally {
     if (requestId === confirmationMailPreviewRequestId) confirmationPreviewLoading.value = false
   }
@@ -2858,7 +2878,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   } catch (error) {
     if (requestId !== confirmationMailPreviewRequestId || isCanceledRequest(error)) return
     confirmationDialogVisible.value = false
-    ElMessage.error(error?.response?.data?.detail || error?.detail || '加载确认预览失败')
+    ElMessage.error(error?.detail || '加载确认预览失败')
   } finally {
     if (requestId === confirmationMailPreviewRequestId) confirmationPreviewLoading.value = false
   }
@@ -2957,7 +2977,7 @@ const handleConfirmConsultation = async (sendEmail) => {
       : await routeToProjectBoard(targetProjectType, targetProjectId)
     if (!navigated) await fetchData()
   } catch (error) {
-    const detail = error?.response?.data?.detail || error?.detail
+    const detail = error?.rawDetail || error?.detail
     if (error?.response?.status === 409 && detail?.preview) {
       applyConfirmationPreview(detail.preview)
       ElMessage.warning(detail.message || '订单号已变化，请核对刷新后的主题并再次确认')

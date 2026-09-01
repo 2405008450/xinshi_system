@@ -327,6 +327,7 @@ def verify_smtp_settings(settings: SmtpSettings) -> None:
 def send_plain_text_email(
     *,
     recipient_email: Optional[str],
+    cc_emails: Iterable[str] = (),
     subject: Optional[str],
     body: Optional[str],
     attachment: Optional[MailAttachment] = None,
@@ -342,6 +343,7 @@ def send_plain_text_email(
         normalized_attachments.insert(0, attachment)
     return send_text_email(
         to_emails=[recipient_email] if recipient_email else [],
+        cc_emails=cc_emails,
         subject=subject,
         body=body,
         html_body=html_body,

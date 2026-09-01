@@ -121,7 +121,7 @@ async function changeStatus(value) {
       project: updated,
     })
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || error?.detail || error?.message || '项目状态更新失败')
+    ElMessage.error(error?.detail || '项目状态更新失败')
   } finally {
     saving.value = false
   }

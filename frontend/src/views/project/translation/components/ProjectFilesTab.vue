@@ -181,6 +181,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { createProjectFile, deleteProjectFile, getProjectFilesByProject, updateProjectFile } from '@/api/projectFiles'
 import { hasPermission } from '@/utils/permission'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const emit = defineEmits(['status-change', 'update:referenceFilePathOne'])
 const props = defineProps({
@@ -345,7 +346,7 @@ async function savePathGroup(options = {}) {
     }
     return savedFile
   } catch (error) {
-    if (!options.silent) ElMessage.error(error?.detail || error.message || '路径组保存失败')
+    if (!options.silent) ElMessage.error(getLocalizedErrorMessage(error, '路径组保存失败'))
     throw error
   } finally {
     fileSaving.value = false

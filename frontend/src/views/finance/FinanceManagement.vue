@@ -379,6 +379,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { Delete, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { formatDateTimeMinute as formatDatetime } from '@/utils/dateTime'
 import {
   getFinanceRecords,
   getFinanceCount,
@@ -440,11 +441,6 @@ const form = reactive(defaultForm())
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'finance-record', form, createDefault: defaultForm, formRef })
 
 const toMoney = (val) => (val != null ? `￥${Number(val).toFixed(2)}` : '-')
-
-const formatDatetime = (val) => {
-  if (!val) return '-'
-  return new Date(val).toLocaleString('zh-CN', { hour12: false })
-}
 
 const userNameById = (userId) => {
   if (!userId) return '-'

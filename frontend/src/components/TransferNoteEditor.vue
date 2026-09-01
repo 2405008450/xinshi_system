@@ -35,6 +35,7 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import { uploadProjectChatAttachment } from '@/api/projectChat'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props = defineProps({
   modelValue: {
@@ -61,7 +62,7 @@ const handleUpload = async ({ file }) => {
     const attachment = await uploadProjectChatAttachment(file)
     patch({ attachments: [...attachments.value, attachment] })
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '图片上传失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '图片上传失败'))
   } finally {
     uploading.value = false
   }

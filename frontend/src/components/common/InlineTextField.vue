@@ -114,9 +114,7 @@ const beginEdit = async () => {
 }
 
 const errorMessage = (error) => {
-  const detail = error?.response?.data?.detail
-  if (typeof detail === 'string') return detail
-  return error?.detail || error?.message || '保存失败，请稍后重试'
+  return error?.detail || '保存失败，请稍后重试'
 }
 
 const save = async () => {

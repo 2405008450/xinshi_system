@@ -1,3 +1,4 @@
+import logging
 from typing import List, Literal, Optional
 from uuid import UUID
 from datetime import date
@@ -19,6 +20,7 @@ from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
+logger = logging.getLogger(__name__)
 
 TRANSLATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=255, required=True),
@@ -108,21 +110,22 @@ def create_project_endpoint(
             if existing:
                 return get_translation_project(db, existing.id)
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        logger.exception("创建笔译项目时触发数据库约束")
         if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Foreign key constraint violation: The referenced user (created_by) may not exist. {error_msg}"
+                detail="关联用户不存在或已失效，请刷新后重试"
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database integrity error: {error_msg}"
+            detail="项目数据不符合保存要求，请检查后重试"
         )
-    except DatabaseError as e:
+    except DatabaseError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        logger.exception("创建笔译项目时数据库异常")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {error_msg}"
+            detail="项目保存失败，请稍后重试"
         )
     except ValueError as e:
         db.rollback()
@@ -130,11 +133,12 @@ def create_project_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except Exception as e:
+    except Exception:
         db.rollback()
+        logger.exception("创建笔译项目时发生未知异常")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            detail="项目保存失败，请稍后重试"
         )
 
 
@@ -231,7 +235,7 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
     if db_project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            detail="笔译项目不存在"
         )
     return db_project
 
@@ -253,7 +257,7 @@ def update_project_endpoint(
     if db_project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            detail="笔译项目不存在"
         )
     return db_project
 
@@ -290,6 +294,6 @@ def delete_project_endpoint(project_id: UUID, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
+            detail="笔译项目不存在"
         )
     return None

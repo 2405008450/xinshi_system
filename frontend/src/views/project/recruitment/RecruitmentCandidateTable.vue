@@ -316,7 +316,7 @@ const addCommunication = async (row) => {
     }
     ElMessage.success('沟通情况已添加')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '沟通情况添加失败')
+    ElMessage.error(error?.detail || '沟通情况添加失败')
   } finally { draft.saving = false }
 }
 const saveCommunication = async (record) => {
@@ -328,7 +328,7 @@ const saveCommunication = async (record) => {
     emit('refresh')
     ElMessage.success('沟通情况已更新')
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '沟通情况更新失败')
+    ElMessage.error(error?.detail || '沟通情况更新失败')
   } finally { draft.saving = false }
 }
 
@@ -349,7 +349,7 @@ const saveInterview = async (row, interview) => {
     emit('row-updated', updated)
     ElMessage.success(`${interviewLabel(interview.roundNo)}详情已保存`)
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '面试详情保存失败')
+    ElMessage.error(error?.detail || '面试详情保存失败')
   } finally { draft.saving = false }
 }
 
@@ -377,7 +377,7 @@ const saveSource = async (row, value) => {
     ElMessage.success('简历来源已保存')
   } catch (error) {
     sourceDrafts[row.id] = row.resumeSourceId || ''
-    ElMessage.error(error?.response?.data?.detail || '简历来源保存失败')
+    ElMessage.error(error?.detail || '简历来源保存失败')
   } finally { setSourceSaving(row.id, false) }
 }
 

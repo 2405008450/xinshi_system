@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +16,7 @@ from schemas import ProjectFileCreate, ProjectFileUpdate, ProjectFileResponse
 from routers.auth import require_module_access
 
 router = APIRouter(prefix="/project-files", tags=["project-files"], dependencies=[Depends(require_module_access("project_files:read", "project_files:write"))])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=ProjectFileResponse, status_code=status.HTTP_201_CREATED)
@@ -37,19 +39,21 @@ def create_project_file_endpoint(project_file: ProjectFileCreate, db: Session = 
     except IntegrityError as e:
         db.rollback()
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        logger.exception("创建项目文件记录时触发数据库约束")
         if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"项目或用户不存在：{error_msg}"
+                detail="关联项目或用户不存在，请刷新后重试"
             )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误：{error_msg}")
-    except DatabaseError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件记录数据不符合保存要求，请检查后重试")
+    except DatabaseError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误：{error_msg}")
-    except Exception as e:
+        logger.exception("创建项目文件记录时数据库异常")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件记录保存失败，请稍后重试")
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"未知错误：{str(e)}")
+        logger.exception("创建项目文件记录时发生未知异常")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件记录保存失败，请稍后重试")
 
 
 @router.get("/", response_model=List[ProjectFileResponse])
@@ -109,14 +113,14 @@ def update_project_file_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError as e:
+    except IntegrityError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"数据库约束错误：{error_msg}")
-    except DatabaseError as e:
+        logger.exception("更新项目文件记录时触发数据库约束")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件记录数据不符合保存要求，请检查后重试")
+    except DatabaseError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误：{error_msg}")
+        logger.exception("更新项目文件记录时数据库异常")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="文件记录保存失败，请稍后重试")
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

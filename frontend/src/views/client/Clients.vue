@@ -564,6 +564,7 @@ import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHe
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { hasPermission } from '@/utils/permission'
+import { formatDateTimeMinute as formatDatetime } from '@/utils/dateTime'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -868,12 +869,6 @@ const handleAdd = async () => {
 
 const getClientStatusLabel = (status) => {
   return status === 'active' ? '合作中' : status === 'inactive' ? '已停止' : '待合作'
-}
-
-const formatDatetime = (value) => {
-  if (!value) return '-'
-  const date = new Date(String(value).replace(' ', 'T'))
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
 }
 
 const getDetailRow = (row) => detailCache[row.id] || row

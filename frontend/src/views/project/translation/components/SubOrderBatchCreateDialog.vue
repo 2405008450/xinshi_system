@@ -101,6 +101,7 @@ import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -209,7 +210,7 @@ const handleFileChange = async (uploadFile) => {
     filenameText.value = await decodeTextFile(uploadFile.raw)
   } catch (error) {
     fileList.value = []
-    ElMessage.error(error.message || '读取 TXT 文件失败')
+    ElMessage.error('读取 TXT 文件失败，请确认文件内容和编码格式')
   }
 }
 const handleFileRemove = () => { fileList.value = [] }
@@ -255,7 +256,7 @@ const submit = async () => {
     emit('created', result)
     emit('update:modelValue', false)
   } catch (error) {
-    ElMessage.error(error.detail || error.message || '批量创建子订单失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '批量创建子订单失败'))
   } finally {
     submitting.value = false
   }

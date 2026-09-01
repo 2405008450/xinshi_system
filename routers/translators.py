@@ -131,19 +131,19 @@ def read_translator_count(
 def read_translator(translator_id: UUID, db: Session = Depends(get_db)):
     db_translator = get_translator(db, translator_id=translator_id)
     if not db_translator:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Translator not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在")
     return db_translator
 
 @router.put("/{translator_id}", response_model=TranslatorResponse)
 def update_translator_endpoint(translator_id: UUID, translator_update: TranslatorUpdate, db: Session = Depends(get_db)):
     db_translator = update_translator(db, translator_id=translator_id, translator_update=translator_update)
     if not db_translator:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Translator not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在")
     return db_translator
 
 @router.delete("/{translator_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_translator_endpoint(translator_id: UUID, db: Session = Depends(get_db)):
     success = delete_translator(db, translator_id=translator_id)
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Translator not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在")
     return None

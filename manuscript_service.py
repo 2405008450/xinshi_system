@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import Integer, and_, case, cast, func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from crud import get_user_roles_with_role_names
+from crud import create_translator as create_translator_record, get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
 from concurrency import assert_fresh
 from mail_service import MailAttachment, send_plain_text_email
@@ -38,6 +38,7 @@ from manuscript_schemas import (
     ManuscriptDispatchCreate,
     ManuscriptDispatchUpdate,
     ManuscriptMailPathsUpdate,
+    ManuscriptQuickTranslatorCreate,
     ManuscriptSettlementUpdate,
 )
 from models import (
@@ -50,6 +51,8 @@ from models import (
     Translator,
 )
 from project_roles import get_stage_role
+from schemas import TranslatorCreate
+from user_mail_account_service import resolve_project_sender
 from word_count_service import (
     METRIC_TYPES,
     attach_arrangement_matrices,
@@ -76,6 +79,66 @@ WORD_COUNT_LABELS = {
     "pages": "页数",
 }
 MANUSCRIPT_ADMIN_ROLES = {"admin", "超级管理员"}
+
+
+def _serialize_manuscript_translator(row: Translator) -> dict:
+    return {
+        "id": row.id,
+        "translator_code": row.translator_code,
+        "translator_name": row.translator_name,
+        "cooperation_type": row.cooperation_type,
+        "status": row.status,
+        "languages": row.languages,
+        "translation_type": row.translation_type,
+        "direction": row.direction,
+        "quality_score": row.quality_score,
+        "email1": row.email1,
+        "email2": row.email2,
+        "available_time_slot": row.available_time_slot,
+        "daily_word_capacity": row.daily_word_capacity,
+        "can_cloud_edit": row.can_cloud_edit,
+        "can_revision": row.can_revision,
+        "domain_skills": row.domain_skills or [],
+        "remarks": row.remarks,
+    }
+
+
+def create_quick_translator(
+    db: Session,
+    payload: ManuscriptQuickTranslatorCreate,
+) -> dict:
+    """从稿件安排现场建立最小笔译档案，并同步到统一人才资源库。"""
+    email = str(payload.email).strip().lower()
+    existing = (
+        db.query(Translator)
+        .filter(
+            or_(
+                func.lower(Translator.email1) == email,
+                func.lower(Translator.email2) == email,
+            )
+        )
+        .first()
+    )
+    if existing:
+        raise ValueError(
+            f"邮箱 {email} 已属于译员“{existing.translator_name}”，请直接搜索并选择该译员"
+        )
+
+    translator = create_translator_record(
+        db,
+        TranslatorCreate(
+            translator_name=payload.translator_name,
+            cooperation_type=payload.cooperation_type,
+            translation_type="笔译",
+            languages=payload.languages,
+            direction=payload.direction,
+            phone=payload.phone,
+            email1=email,
+            remarks=payload.remarks,
+            status="standby",
+        ),
+    )
+    return _serialize_manuscript_translator(translator)
 
 
 def _project_assistant_actor_state(
@@ -252,8 +315,6 @@ def _validate_stored_arrangement_required_fields(
         )
     if not (arrangement.settlement_method or "").strip():
         raise ValueError(f"{arrangement.translator_name_snapshot}：必须填写译员结账方式")
-    if arrangement.translator_unit_price is None:
-        raise ValueError(f"{arrangement.translator_name_snapshot}：必须填写单价")
 
 
 def _effective_order_status_expression(sub_order_id_column):
@@ -417,17 +478,17 @@ def _get_project_dispatch_path(db: Session, translation_project_id: UUID) -> Opt
 
 
 _INTERNAL_MAIL_TEXT_LINE = re.compile(
-    r"(?m)^[ \t]*(?:派稿文路径|参考文件路径一|译员交稿_?全稿预定时间)[：:].*(?:\r?\n|$)"
+    r"(?m)^[ \t]*(?:派稿文路径|参考文件路径一)[：:].*(?:\r?\n|$)"
 )
 _EMPTY_OPTIONAL_MILESTONE_TEXT_LINE = re.compile(
-    r"(?m)^[ \t]*译员交稿_预定时间(?:[2-9]|\d{2,})[：:]待确认[ \t]*(?:\r?\n|$)"
+    r"(?m)^[ \t]*(?:译员交稿_预定时间(?:[2-9]|\d{2,})|译员交稿_?全稿预定时间)[：:]待确认[ \t]*(?:\r?\n|$)"
 )
 _INTERNAL_MAIL_HTML_BLOCK = re.compile(
-    r"<(?P<tag>p|div)>\s*(?:派稿文路径|参考文件路径一|译员交稿_?全稿预定时间)[：:].*?</(?P=tag)>",
+    r"<(?P<tag>p|div)>\s*(?:派稿文路径|参考文件路径一)[：:].*?</(?P=tag)>",
     re.IGNORECASE | re.DOTALL,
 )
 _EMPTY_OPTIONAL_MILESTONE_HTML_BLOCK = re.compile(
-    r"<(?P<tag>p|div)>\s*译员交稿_预定时间(?:[2-9]|\d{2,})[：:]待确认\s*</(?P=tag)>",
+    r"<(?P<tag>p|div)>\s*(?:译员交稿_预定时间(?:[2-9]|\d{2,})|译员交稿_?全稿预定时间)[：:]待确认\s*</(?P=tag)>",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -474,8 +535,7 @@ def _mail_preview_values(
         arrangement.milestones,
         key=lambda item: item.sequence_no,
     ):
-        # 全稿预定时间仅供项目助理跟进收稿，不进入发给译员的邮件正文。
-        if milestone.milestone_type == "final" or not milestone.planned_at:
+        if not milestone.planned_at:
             continue
         label = (
             "译员交稿全稿预定时间"
@@ -987,28 +1047,7 @@ def get_arrangement_context(
     )
     return {
         "active_projects": active_projects,
-        "translators": [
-            {
-                "id": row.id,
-                "translator_code": row.translator_code,
-                "translator_name": row.translator_name,
-                "cooperation_type": row.cooperation_type,
-                "status": row.status,
-                "languages": row.languages,
-                "translation_type": row.translation_type,
-                "direction": row.direction,
-                "quality_score": row.quality_score,
-                "email1": row.email1,
-                "email2": row.email2,
-                "available_time_slot": row.available_time_slot,
-                "daily_word_capacity": row.daily_word_capacity,
-                "can_cloud_edit": row.can_cloud_edit,
-                "can_revision": row.can_revision,
-                "domain_skills": row.domain_skills or [],
-                "remarks": row.remarks,
-            }
-            for row in translators
-        ],
+        "translators": [_serialize_manuscript_translator(row) for row in translators],
     }
 
 
@@ -1685,6 +1724,7 @@ def send_arrangement(
     arrangement.updated_at = now
     message_id = f"<manuscript-{arrangement.id}@xinshi-system.local>"
     try:
+        sender_settings, _sender_view = resolve_project_sender(db, current_user)
         rendered_html, inline_parts = prepare_trusted_mail_html(
             arrangement.email_body_html,
             selected_images,
@@ -1697,6 +1737,8 @@ def send_arrangement(
             inline_images=inline_parts,
             attachments=mail_attachments,
             message_id=message_id,
+            cc_emails=[sender_settings.sender_email],
+            settings=sender_settings,
         )
     except Exception as exc:
         arrangement.status = "failed"

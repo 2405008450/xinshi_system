@@ -421,6 +421,7 @@ import {
   WORKBENCH_PROJECT_TYPE_VALUES
 } from '@/constants/workbenchFields'
 import { hasPermission } from '@/utils/permission'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   getProjectStatusLabel,
   normalizeProjectStatus,
@@ -843,7 +844,7 @@ const openHandoverDialog = async () => {
     eligibleUsers.value = await getEligibleTransferUsersAPI(directSelectedTasks.value)
   } catch (error) {
     eligibleUsers.value = []
-    ElMessage.error(error?.detail || error?.message || '加载可交接用户失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载可交接用户失败'))
   }
 }
 
@@ -874,7 +875,7 @@ const submitHandover = async () => {
     selectedTasks.value = []
     taskTableRef.value?.clearSelection()
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '任务交接失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '任务交接失败'))
   } finally {
     submittingHandover.value = false
   }
@@ -893,7 +894,7 @@ const returnDelegation = async (row) => {
     emit('refresh')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '归还任务失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '归还任务失败'))
     }
   }
 }
@@ -923,7 +924,7 @@ const claimSelectedRolePoolTasks = async () => {
     emit('refresh')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '认领任务失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '认领任务失败'))
     }
   } finally {
     claimingRolePool.value = false
@@ -945,7 +946,7 @@ const loadTransferableTasks = async () => {
     transferableTasks.value = Array.isArray(rows) ? rows : []
   } catch (error) {
     if (requestId !== claimRequestId || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError') return
-    ElMessage.error(error?.detail || error?.message || '网络异常，可继承任务列表未刷新')
+    ElMessage.error(getLocalizedErrorMessage(error, '网络异常，可继承任务列表未刷新'))
   } finally {
     if (requestId === claimRequestId) claimLoading.value = false
   }
@@ -996,7 +997,7 @@ const submitClaim = async () => {
     claimSelectedTasks.value = []
     emit('refresh')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '任务继承失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '任务继承失败'))
   } finally {
     submittingClaim.value = false
   }

@@ -166,6 +166,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getUsers } from '@/api/users'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   createProjectChatMessage,
   getProjectChatAttachmentBlob,
@@ -232,13 +234,6 @@ const ensureAttachmentUrls = async (items) => {
   }))
 }
 
-const formatDateTime = (value) => {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
-
 const resetChatState = () => {
   settings.enabled = false
   settings.canManage = false
@@ -277,7 +272,7 @@ const loadSettings = async () => {
   } catch (error) {
     settings.enabled = false
     settings.canManage = false
-    ElMessage.error(error?.detail || error?.message || '加载项目沟通配置失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载项目沟通配置失败'))
   } finally {
     settingsLoading.value = false
   }
@@ -308,7 +303,7 @@ const loadMessages = async () => {
   } catch (error) {
     messages.value = []
     pagination.total = 0
-    ElMessage.error(error?.detail || error?.message || '加载沟通记录失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
   } finally {
     messagesLoading.value = false
   }
@@ -337,7 +332,7 @@ const handleToggle = async (enabled) => {
     ElMessage.success(settings.enabled ? '已开启项目沟通' : '已关闭项目沟通')
   } catch (error) {
     settings.enabled = !enabled
-    ElMessage.error(error?.detail || error?.message || '更新项目沟通配置失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '更新项目沟通配置失败'))
   } finally {
     toggleLoading.value = false
     setupPolling()
@@ -380,7 +375,7 @@ const handleSend = async () => {
     await loadMessages()
     ElMessage.success('消息已发送')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '发送消息失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '发送消息失败'))
   } finally {
     sending.value = false
   }
@@ -396,7 +391,7 @@ const handleAttachmentUpload = async ({ file }) => {
     const attachment = await uploadProjectChatAttachment(file)
     composer.attachments.push(attachment)
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '图片上传失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '图片上传失败'))
   } finally {
     uploading.value = false
   }

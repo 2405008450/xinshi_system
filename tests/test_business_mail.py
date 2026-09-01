@@ -94,6 +94,22 @@ def test_send_text_email_adds_uploaded_attachment(monkeypatch):
     assert attachments[0].get_payload(decode=True) == b"document-content"
 
 
+def test_live_mode_keeps_sender_self_copy(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+
+    send_text_email(
+        to_emails=["translator@example.com"],
+        cc_emails=["system@example.com"],
+        subject="稿件安排",
+        body="请查收附件",
+        message_id="<self-copy-test@xinshi-system.local>",
+        settings=_settings(mode="live"),
+    )
+
+    assert _FakeSmtp.last_message["To"] == "translator@example.com"
+    assert _FakeSmtp.last_message["Cc"] == "system@example.com"
+
+
 def test_business_mail_payload_rejects_header_injection():
     with pytest.raises(ValidationError):
         BusinessMailSendRequest(

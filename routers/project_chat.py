@@ -94,7 +94,7 @@ def _serialize_message(message) -> ProjectChatMessageResponse:
 def _require_project(db: Session, project_id: UUID):
     project = get_translation_project(db, project_id)
     if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Project not found')
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='项目不存在')
     return project
 
 
@@ -185,7 +185,7 @@ def update_settings_endpoint(
 ):
     _require_project(db, project_id)
     if not _can_manage_chat(db, current_user.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='You do not have permission to manage project chat')
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='没有权限管理项目沟通')
     settings = set_project_chat_settings(db, project_id, payload.enabled, current_user.id)
     return _serialize_settings(project_id, settings, True)
 

@@ -1,3 +1,4 @@
+import logging
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,7 @@ router = APIRouter(
     tags=["user-roles"],
     dependencies=[Depends(require_permission("system:user_roles:write"))],
 )
+logger = logging.getLogger(__name__)
 
 
 @router.get("/", response_model=List[UserRoleDetailResponse])
@@ -47,7 +49,7 @@ def create_user_role_endpoint(user_role: UserRoleCreate, db: Session = Depends(g
         if db_user_role:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User role already exists"
+                detail="用户已拥有该角色"
             )
         return create_user_role(db=db, user_role=user_role)
     except HTTPException:
@@ -55,27 +57,29 @@ def create_user_role_endpoint(user_role: UserRoleCreate, db: Session = Depends(g
     except IntegrityError as e:
         db.rollback()
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        logger.exception("保存用户角色时触发数据库约束")
         if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Foreign key constraint violation. User or Role may not exist: {error_msg}"
+                detail="用户或角色不存在，请刷新后重试"
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database integrity error: {error_msg}"
+            detail="用户角色数据不符合保存要求，请检查后重试"
         )
-    except DatabaseError as e:
+    except DatabaseError:
         db.rollback()
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        logger.exception("保存用户角色时数据库异常")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {error_msg}"
+            detail="用户角色保存失败，请稍后重试"
         )
-    except Exception as e:
+    except Exception:
         db.rollback()
+        logger.exception("保存用户角色时发生未知异常")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            detail="用户角色保存失败，请稍后重试"
         )
 
 
@@ -97,7 +101,7 @@ def read_user_role(user_role_id: UUID, db: Session = Depends(get_db)):
     if db_user_role is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User role not found"
+            detail="用户角色关联不存在"
         )
     return db_user_role
 
@@ -108,7 +112,7 @@ def delete_user_role_endpoint(user_role_id: UUID, db: Session = Depends(get_db))
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User role not found"
+            detail="用户角色关联不存在"
         )
     return None
 
@@ -123,6 +127,6 @@ def delete_user_role_by_user_and_role_endpoint(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User role not found"
+            detail="用户角色关联不存在"
         )
     return None

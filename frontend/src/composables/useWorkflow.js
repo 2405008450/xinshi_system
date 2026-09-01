@@ -1,4 +1,5 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { formatDateTimeMinute } from '@/utils/dateTime'
 
 import {
   getMyTasksAPI,
@@ -186,8 +187,7 @@ function normalizeStageDefinitions(stages) {
 }
 
 function formatLogTime(value) {
-  if (!value) return ''
-  return String(value).replace('T', ' ').substring(0, 19)
+  return formatDateTimeMinute(value, '')
 }
 
 function buildStoreKey(entityType, entityId) {

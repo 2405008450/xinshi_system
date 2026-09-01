@@ -11,8 +11,12 @@
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column prop="employee_name" label="员工姓名" width="150" />
       <el-table-column prop="attendance_date" label="日期" width="120" />
-      <el-table-column prop="check_in_time" label="签到时间" width="120" />
-      <el-table-column prop="check_out_time" label="签退时间" width="120" />
+      <el-table-column prop="check_in_time" label="签到时间" width="120">
+        <template #default="{ row }">{{ formatClockMinute(row.check_in_time) }}</template>
+      </el-table-column>
+      <el-table-column prop="check_out_time" label="签退时间" width="120">
+        <template #default="{ row }">{{ formatClockMinute(row.check_out_time) }}</template>
+      </el-table-column>
       <el-table-column prop="work_hours" label="工作时长" width="120" />
       <el-table-column prop="attendance_type" label="考勤类型" width="120">
         <template #default="{ row }">
@@ -129,6 +133,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatClockMinute } from '@/utils/dateTime'
 
 const loading = ref(false)
 const dialogVisible = ref(false)

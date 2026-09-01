@@ -1,5 +1,7 @@
 """标注运营 API。"""
 
+import logging
+
 from typing import List, Optional
 from uuid import UUID
 
@@ -47,6 +49,7 @@ def _can_reveal_accounts(db: Session, user: AppUser) -> bool:
 
 
 router = APIRouter(prefix="/annotation-ops", tags=["annotation_ops"])
+logger = logging.getLogger(__name__)
 account_router = APIRouter(dependencies=[Depends(require_any_permission(
     "annotation_accounts:read", "annotation_accounts:write",
 ))])
@@ -58,7 +61,11 @@ def _run(db: Session, callback):
         return callback()
     except (ValueError, IntegrityError) as exc:
         db.rollback()
-        detail = str(exc.orig) if isinstance(exc, IntegrityError) else str(exc)
+        if isinstance(exc, IntegrityError):
+            logger.exception("标注运营数据触发数据库约束")
+            detail = "数据不符合保存要求，请检查后重试"
+        else:
+            detail = str(exc)
         raise HTTPException(status_code=400, detail=detail)
 
 

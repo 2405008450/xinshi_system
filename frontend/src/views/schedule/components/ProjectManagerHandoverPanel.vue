@@ -299,6 +299,7 @@ import {
 } from '@/api/workflow'
 import { hasRole, hasPermission } from '@/utils/permission'
 import { createWorkEntry } from '@/api/tasks'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
@@ -363,7 +364,7 @@ const submitProgress = async () => {
     ElMessage.success('管理项目进展已记录')
     progressVisible.value = false
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '记录进展失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '记录进展失败'))
   } finally {
     progressSubmitting.value = false
   }
@@ -534,7 +535,7 @@ async function loadData() {
   } catch (error) {
     projects.value = []
     incomingRequests.value = []
-    ElMessage.error(error?.detail || error?.message || '加载管理层项目交接失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载管理层项目交接失败'))
   } finally {
     loading.value = false
   }
@@ -551,7 +552,7 @@ async function openHandoverDialog() {
     managerCandidates.value = Array.isArray(response) ? response : []
     dialogVisible.value = true
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '加载项目经理列表失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '加载项目经理列表失败'))
   }
 }
 
@@ -574,7 +575,7 @@ async function submitHandover() {
     await loadData()
     emit('updated')
   } catch (error) {
-    ElMessage.error(error?.detail || error?.message || '发起管理层项目交接失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '发起管理层项目交接失败'))
   } finally {
     submitting.value = false
   }
@@ -611,7 +612,7 @@ async function claimSelectedProjects() {
     emit('updated')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '自主承接管理项目失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '自主承接管理项目失败'))
     }
   } finally {
     claiming.value = false
@@ -637,7 +638,7 @@ async function decideRequest(request, decision) {
     emit('updated')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.detail || error?.message || '处理管理层交接失败')
+      ElMessage.error(getLocalizedErrorMessage(error, '处理管理层交接失败'))
     }
   }
 }

@@ -41,7 +41,6 @@ def _valid_values():
         ({"planned": {}}, "至少需要填写一个计量数值"),
         ({"milestones": []}, "全稿预定时间"),
         ({"settlement_method": "  "}, "译员结账方式"),
-        ({"translator_unit_price": None}, "必须填写单价"),
     ],
 )
 def test_assignment_required_fields(changes, message):
@@ -83,6 +82,15 @@ def test_zero_is_a_filled_word_count_and_unit_price():
 
     assert assignment.planned.words == 0
     assert assignment.translator_unit_price == 0
+
+
+def test_assignment_allows_empty_unit_price():
+    values = _valid_values()
+    values["translator_unit_price"] = None
+
+    assignment = ManuscriptAssignmentInput(**values)
+
+    assert assignment.translator_unit_price is None
 
 
 def test_translator_pricing_method_accepts_free_text():

@@ -104,6 +104,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock, OfficeBuilding, Picture } from '@element-plus/icons-vue'
 import { checkCaptchaRequired, fetchCaptcha, login } from '@/api/auth'
 import { getDefaultRoute } from '@/utils/permission'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const router = useRouter()
 const loginFormRef = ref(null)
@@ -243,7 +244,7 @@ const handleLogin = async () => {
     if (serverRequiresCaptcha || submittedWithCaptcha) {
       await enableCaptcha({ focus: !submittedWithCaptcha })
     }
-    ElMessage.error(error.detail || error.message || '登录或页面加载失败')
+    ElMessage.error(getLocalizedErrorMessage(error, '登录或页面加载失败'))
   } finally {
     loading.value = false
     loginStatusText.value = '正在验证账号...'

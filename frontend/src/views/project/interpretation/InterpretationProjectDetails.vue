@@ -603,6 +603,7 @@ import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { getProjectTalentOptions } from '@/api/talents'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -632,6 +633,7 @@ import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const canWrite = hasPermission('projects:write')
@@ -916,11 +918,6 @@ const internalRolesText = (row) => {
   return (row.roleAssignments || []).map((item) => `${labels[item.roleCode] || item.roleName}：${item.assigneeName || '未分配'}`).join('；') || '-'
 }
 const arrayText = (value, separator = '；') => Array.isArray(value) && value.length ? value.join(separator) : '-'
-const formatDateTime = (value) => {
-  if (!value) return '-'
-  const date = new Date(String(value).replace(' ', 'T'))
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false })
-}
 const formatRange = (item) => {
   const scheduled = `${formatDateTime(item.scheduledStart)} 至 ${formatDateTime(item.scheduledEnd)}`
   const actual = item.actualStart || item.actualEnd ? `；实际 ${formatDateTime(item.actualStart)} 至 ${formatDateTime(item.actualEnd)}` : ''
@@ -1206,7 +1203,7 @@ const previewProjectName = async ({ automatic = false } = {}) => {
     nameManuallyEdited.value = false
     if (!automatic) ElMessage.success('项目名称已重新生成，仍可手工修改')
   } catch (error) {
-    if (!automatic) ElMessage.warning(error.detail || error.message || '无法生成项目名称')
+    if (!automatic) ElMessage.warning(getLocalizedErrorMessage(error, '无法生成项目名称'))
   } finally {
     if (!automatic) nameLoading.value = false
   }
@@ -1340,7 +1337,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     }
     await fetchData()
   } catch (error) {
-    const message = error.detail || error.message || '保存失败'
+    const message = getLocalizedErrorMessage(error, '保存失败')
     ElMessage.error(message)
     if (message.includes('时间')) dialogBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
   } finally {
@@ -1364,7 +1361,7 @@ const changeProjectStatus = async (row, value) => {
     ElMessage.success('项目状态已更新')
     if (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || error?.detail || '项目状态更新失败')
+    ElMessage.error(error?.detail || '项目状态更新失败')
   } finally {
     setProjectStatusSaving(row.id, false)
   }

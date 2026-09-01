@@ -54,6 +54,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { LocaleType, mergeLocales } from '@univerjs/core'
 import { createUniver } from '@/utils/createUniver'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import UniverPresetSheetsCoreZhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
 import { UniverSheetsDataValidationPreset } from '@univerjs/preset-sheets-data-validation'
@@ -258,7 +259,7 @@ const uploadImageFile=async file=>{
     if(previous&&pendingImageIds.has(previous))await cleanupPendingImage(previous)
     await renderImageCell(target.rowIndex,target.columnIndex,image.id)
     markRowsDirty(target.rowIndex+1)
-  }catch(error){ElMessage.error(error.detail||error.message||'图片上传失败')}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'图片上传失败'))}
   finally{imageUploading.value=false}
 }
 const handleImageUpload=({file})=>uploadImageFile(file)
@@ -533,7 +534,7 @@ const submitChanges=()=>{
       }
     })
     emit('save',changes)
-  }catch(error){validationMessage.value=error.message||'表格数据校验失败';ElMessage.error(validationMessage.value)}
+  }catch(error){validationMessage.value=getLocalizedErrorMessage(error,'表格数据校验失败');ElMessage.error(validationMessage.value)}
 }
 
 const discardChanges=async()=>{

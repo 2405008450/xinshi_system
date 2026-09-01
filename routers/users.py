@@ -83,7 +83,7 @@ def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
+            detail="用户名已存在"
         )
     if get_user_by_email(db, user.email):
         raise HTTPException(
@@ -165,7 +165,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="用户不存在"
         )
     account = db.query(UserMailAccount).filter(UserMailAccount.user_id == user_id).first()
     return _serialize_user(db_user, account)
@@ -179,7 +179,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
 def read_user_mail_account(user_id: UUID, db: Session = Depends(get_db)):
     db_user = get_user(db, user_id=user_id)
     if db_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     return serialize_mail_account(db, db_user)
 
 
@@ -195,7 +195,7 @@ def save_user_mail_account(
 ):
     db_user = get_user(db, user_id=user_id)
     if db_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     try:
         save_mail_account(db, db_user, payload.authorization_code)
         return verify_mail_account(db, db_user)
@@ -212,7 +212,7 @@ def save_user_mail_account(
 def verify_user_mail_account(user_id: UUID, db: Session = Depends(get_db)):
     db_user = get_user(db, user_id=user_id)
     if db_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     try:
         return verify_mail_account(db, db_user)
     except Exception as exc:
@@ -228,7 +228,7 @@ def verify_user_mail_account(user_id: UUID, db: Session = Depends(get_db)):
 def delete_user_mail_account(user_id: UUID, db: Session = Depends(get_db)):
     db_user = get_user(db, user_id=user_id)
     if db_user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     delete_mail_account(db, db_user)
 
 
@@ -257,7 +257,7 @@ def update_user_endpoint(
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="用户不存在"
         )
     current_email = (db_user.email or "").strip().casefold()
     if previous_email != current_email:
@@ -281,7 +281,7 @@ def reset_user_password_endpoint(
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="用户不存在"
         )
     return None
 
@@ -292,6 +292,6 @@ def delete_user_endpoint(user_id: UUID, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="用户不存在"
         )
     return None

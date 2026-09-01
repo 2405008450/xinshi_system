@@ -553,6 +553,7 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref
 import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
 import * as translatorApi from '@/api/translators'
 import * as scheduleApi from '@/api/schedule'
+import { formatDateTimeMinute as formatDetailDatetime } from '@/utils/dateTime'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 
@@ -749,12 +750,6 @@ const detailItems = [
   { label: '创建时间', key: 'created_at', type: 'datetime' },
   { label: '更新时间', key: 'updated_at', type: 'datetime' }
 ]
-
-const formatDetailDatetime = (value) => {
-  if (!value) return '-'
-  const date = new Date(String(value).replace(' ', 'T'))
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
-}
 
 const formatBooleanValue = (value) => {
   if (value === null || value === undefined) return '-'

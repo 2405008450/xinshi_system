@@ -97,7 +97,7 @@ def test_mail_preview_returns_paths_but_never_includes_them_in_body():
     assert "参考文件路径一" not in preview["body"]
     assert r"\\server\dispatch" not in preview["body"]
     assert r"\\server\reference" not in preview["body"]
-    assert "全稿预定时间" not in preview["body"]
+    assert "译员交稿全稿预定时间：2026-09-02 18:00" in preview["body"]
     assert "客户特殊要求：术语必须使用客户词库" in preview["body"]
     assert "legacy-network-path" not in preview["body"]
 
@@ -181,6 +181,14 @@ def test_historical_mail_content_strips_internal_paths_and_empty_nodes():
 
     assert cleaned_text == "正文开头\n正文结尾"
     assert cleaned_html == "<p>正文开头</p>\n\n\n\n\n\n<p>正文结尾</p>"
+
+
+def test_mail_cleanup_keeps_confirmed_final_delivery_time():
+    body = "译员交稿全稿预定时间：2026-09-02 18:00"
+    body_html = "<p>译员交稿全稿预定时间：2026-09-02 18:00</p>"
+
+    assert manuscript_service._strip_internal_mail_text(body) == body
+    assert manuscript_service._strip_internal_mail_html(body_html) == body_html
 
 
 def test_update_mail_paths_writes_back_to_project_detail(monkeypatch):

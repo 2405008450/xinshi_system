@@ -98,7 +98,9 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180" />
+      <el-table-column prop="created_at" label="创建时间" width="180">
+        <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="230" fixed="right" align="center">
         <template #default="{ row }">
           <TableActionButton
@@ -342,6 +344,7 @@ import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
+import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShiftTemplateDialog.vue'
 
@@ -381,10 +384,6 @@ const mailAccount = reactive({
   verified_at: null,
   updated_at: null
 })
-const formatDateTime = (value) => value
-  ? new Date(value).toLocaleString('zh-CN', { hour12: false })
-  : ''
-
 const validateConfirmPassword = (_rule, value, callback) => {
   if (!value) {
     callback(new Error('请再次输入新密码'))

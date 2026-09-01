@@ -218,6 +218,7 @@ import * as projectApi from '@/api/annotationProjects'
 import * as talentApi from '@/api/talents'
 import * as ops from '@/api/annotationOps'
 import { getUsers } from '@/api/users'
+import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import AnnotationCustomFieldInputs from '@/components/annotation/AnnotationCustomFieldInputs.vue'
 import AnnotationCustomFieldImage from '@/components/annotation/AnnotationCustomFieldImage.vue'
 import AccountImportDialog from '@/components/annotation/AccountImportDialog.vue'
@@ -317,7 +318,7 @@ const saveProjectSheetChanges=async changes=>{
     if(failed.length)ElMessage.warning(`已保存 ${(response.results||[]).length-failed.length} 行，${failed.length} 行失败：${failed[0].error||'请检查数据'}`)
     else ElMessage.success(`已保存 ${changes.length} 行项目账号记录`)
     if(!failed.length)await reload()
-  }catch(error){ElMessage.error(error.detail||error.message||'保存项目账号表失败')}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存项目账号表失败'))}
   finally{saving.value=false}
 }
 const sheetDirtyChanged=count=>{sheetDirtyCount.value=count;if(count)advancedVisible.value=false;else sheetSaveErrors.value={}}
@@ -450,7 +451,7 @@ const inlinePersonChanged=async(row,personId)=>{
     delete assignmentCache[row.id]
     ElMessage.success(personId?'标注员已绑定':'已解除标注员绑定')
     await reload()
-  }catch(error){ElMessage.error(error.detail||error.message||'绑定失败')}finally{inlineSavingId.value=''}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'绑定失败'))}finally{inlineSavingId.value=''}
 }
 const exactTalentMatch=value=>{
   const normalized=String(value||'').trim().toLocaleLowerCase()
@@ -558,7 +559,7 @@ const saveAccount=async()=>{
     }else await ops.updateAccount(accountForm.id,account)
     assignmentCustomFieldInputs.value?.markSaved?.()
     accountDialog.value=false;ElMessage.success('账号已保存');await reload()
-  }catch(error){ElMessage.error(error.detail||error.message||'保存失败')}finally{saving.value=false}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}
 }
 const loadAssignments=async row=>{if(assignmentCache[row.id])return;assignmentLoading.value=row.id;try{assignmentCache[row.id]=await ops.getAccountAssignments(row.id)}catch(error){ElMessage.error(error.detail||'加载分配履历失败')}finally{assignmentLoading.value=''}}
 const loadPersonProfile=async personId=>{if(personProfileCache[personId])return;personProfileLoadingId.value=personId;try{personProfileCache[personId]=await ops.getAccountPersonProfile(personId)}catch(error){ElMessage.error(error.detail||'加载标注员信息失败')}finally{personProfileLoadingId.value=''}}
