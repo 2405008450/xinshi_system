@@ -118,6 +118,33 @@ LANGUAGE_PAIR_SPLIT_PATTERN = re.compile(r"[；;，,、\n]+")
 LANGUAGE_LABEL_FORBIDDEN_PATTERN = re.compile(r"[→；;,，、\r\n]")
 
 
+def compact_language_name(value: object) -> str:
+    """返回项目名称使用的业务语种简称，例如“法语（法国）”返回“法”。"""
+    normalized = " ".join(str(value or "").split())
+    normalized_key = normalized.casefold()
+    for item in LANGUAGE_VARIANTS:
+        candidates = [item["label"], *item.get("aliases", [])]
+        if any(candidate.casefold() == normalized_key for candidate in candidates):
+            shortcuts = LANGUAGE_SEARCH_SHORTCUTS.get(item["code"], [])
+            return shortcuts[0] if shortcuts else normalized
+    return re.sub(r"[（(].*?[）)]", "", normalized).removesuffix("语").removesuffix("文")
+
+
+def compact_translation_direction(value: object) -> str:
+    """将规范语言对转换为项目名称用简称，例如“法语（法国）→中文（简体）”转为“法译中”。"""
+    directions = []
+    for item in LANGUAGE_PAIR_SPLIT_PATTERN.split(str(value or "")):
+        item = item.strip()
+        if not item:
+            continue
+        source, separator, target = item.partition("→")
+        if not separator:
+            directions.append(item)
+            continue
+        directions.append(f"{compact_language_name(source)}译{compact_language_name(target)}")
+    return "、".join(directions)
+
+
 def get_searchable_language_variants() -> list[dict]:
     """返回带业务简称映射的前端候选语种。"""
     return [

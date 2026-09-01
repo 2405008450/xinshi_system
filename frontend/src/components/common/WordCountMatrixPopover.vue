@@ -41,6 +41,7 @@
               <td v-for="metric in WORD_COUNT_METRICS" :key="metric.key">
                 <el-input-number
                   v-model="row.values[metric.key]"
+                  size="small"
                   :min="0"
                   :step="1"
                   :precision="0"
@@ -271,26 +272,30 @@ async function saveMatrix() {
 </script>
 
 <style scoped>
-.word-count-matrix { display: flex; flex-direction: column; max-height: min(560px, calc(100vh - 120px)); }
-.word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 2px 2px 12px; }
+.word-count-matrix { display: flex; flex-direction: column; max-height: min(620px, calc(100vh - 96px)); }
+.word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 2px 8px; }
 .word-count-matrix__header strong { font-size: 16px; color: var(--el-text-color-primary); }
-.word-count-matrix__header p { margin: 5px 0 0; color: var(--el-text-color-secondary); font-size: 12px; }
+.word-count-matrix__header p { margin: 3px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .word-count-matrix__body { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--el-border-color); }
-table { width: 100%; min-width: 1120px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 th, td { padding: 0; border-right: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); background: var(--el-bg-color); }
-thead th { position: sticky; top: 0; z-index: 2; padding: 10px 8px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; }
+thead th { position: sticky; top: 0; z-index: 2; padding: 6px 4px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
 tr:last-child th, tr:last-child td { border-bottom: 0; }
 th:last-child, td:last-child { border-right: 0; }
-.word-count-matrix__row-title { width: 210px; padding: 9px 10px; text-align: left; background: var(--el-fill-color-lighter); }
+.word-count-matrix__row-title { width: 156px; padding: 6px 8px; text-align: left; background: var(--el-fill-color-lighter); line-height: 1.35; }
 .word-count-matrix__row-title span { display: block; }
 .word-count-matrix__row-title small { display: block; margin-top: 3px; color: var(--el-text-color-secondary); font-weight: 400; }
 td :deep(.el-input-number) { width: 100%; }
-td :deep(.el-input__wrapper) { border-radius: 0; box-shadow: none; }
+td :deep(.el-input__wrapper) { min-height: 28px; padding: 0 5px; border-radius: 0; box-shadow: none; }
 .word-count-matrix__empty { padding: 28px; text-align: center; color: var(--el-text-color-secondary); }
-.word-count-matrix__footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px solid var(--el-border-color-lighter); }
+.word-count-matrix__footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }
 .word-count-matrix__footer > span { color: var(--el-text-color-secondary); font-size: 12px; }
 </style>
 
 <style>
-.word-count-matrix-popper { max-width: calc(100vw - 32px) !important; padding: 14px !important; }
+.word-count-matrix-popper { max-width: calc(100vw - 32px) !important; padding: 10px !important; }
+
+@media (max-width: 760px) {
+  .word-count-matrix-popper .word-count-matrix__body table { min-width: 720px; }
+}
 </style>

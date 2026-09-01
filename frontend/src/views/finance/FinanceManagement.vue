@@ -221,6 +221,11 @@
                 style="width:100%"
                 readonly
                 placeholder="选择项目后自动带出"
+                format="YYYY-MM-DD HH:mm"
+                time-format="HH:mm"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
               />
             </el-form-item>
           </el-col>
@@ -330,7 +335,7 @@
           <el-row :gutter="12">
             <el-col :span="7">
               <el-form-item label="付款时间" label-width="70px">
-                <el-date-picker v-model="p.payment_time" type="datetime" style="width:100%" placeholder="选择时间" value-format="YYYY-MM-DDTHH:mm:ss" />
+                <el-date-picker v-model="p.payment_time" type="datetime" style="width:100%" placeholder="选择时间" value-format="YYYY-MM-DDTHH:mm:ss" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
               </el-form-item>
             </el-col>
             <el-col :span="5">
@@ -347,7 +352,7 @@
             </el-col>
             <el-col :span="7">
               <el-form-item label="确认时间" label-width="70px">
-                <el-date-picker v-model="p.confirmed_at" type="datetime" style="width:100%" placeholder="选择时间" value-format="YYYY-MM-DDTHH:mm:ss" />
+                <el-date-picker v-model="p.confirmed_at" type="datetime" style="width:100%" placeholder="选择时间" value-format="YYYY-MM-DDTHH:mm:ss" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
               </el-form-item>
             </el-col>
           </el-row>

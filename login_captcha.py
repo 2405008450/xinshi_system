@@ -11,6 +11,7 @@ import hmac
 import logging
 import os
 import secrets
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -66,7 +67,8 @@ def captcha_required(account_failure_count: int, source_failure_count: int) -> b
 
 
 def normalize_code(code: str | None) -> str:
-    return (code or "").strip().upper()
+    # 兼容大小写及中文输入法可能产生的全角字母、数字。
+    return unicodedata.normalize("NFKC", code or "").strip().upper()
 
 
 def _answer_hash(code: str) -> str:

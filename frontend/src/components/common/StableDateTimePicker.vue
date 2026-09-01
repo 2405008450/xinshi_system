@@ -6,6 +6,11 @@
       type="datetime"
       value-format="YYYY-MM-DDTHH:mm:ss"
       @update:model-value="$emit('update:modelValue', $event)"
+      format="YYYY-MM-DD HH:mm"
+      time-format="HH:mm"
+      :show-now="true"
+      :show-confirm="true"
+      :show-footer="true"
     />
   </span>
 </template>

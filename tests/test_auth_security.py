@@ -208,6 +208,14 @@ def test_json_login_switches_from_401_to_429_with_retry_after(monkeypatch):
 
 
 CAPTCHA_HEADER = login_captcha.CAPTCHA_REQUIRED_HEADER.lower()
+
+
+def test_captcha_code_normalization_is_case_and_width_insensitive():
+    assert login_captcha.normalize_code(" ab34 ") == "AB34"
+    assert login_captcha.normalize_code(" AB34 ") == "AB34"
+    assert login_captcha.normalize_code(" ａｂ３４ ") == "AB34"
+
+
 WRONG_CREDENTIALS = {"username": "gray_user", "password": "GRAY-REG-WRONG"}
 
 

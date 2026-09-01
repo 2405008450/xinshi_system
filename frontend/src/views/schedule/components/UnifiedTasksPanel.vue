@@ -144,7 +144,7 @@
             <el-date-picker v-model="taskForm.end_date" type="date" value-format="YYYY-MM-DD" clearable style="width: 100%" />
           </el-form-item>
           <el-form-item label="默认截止时间">
-            <el-time-picker v-model="taskForm.default_due_time" value-format="HH:mm:ss" clearable style="width: 100%" />
+            <el-time-picker v-model="taskForm.default_due_time" format="HH:mm" value-format="HH:mm:ss" clearable style="width: 100%" />
           </el-form-item>
         </template>
         <el-form-item v-else label="预定完成时间">
@@ -154,6 +154,11 @@
             value-format="YYYY-MM-DDTHH:mm:ss"
             clearable
             style="width: 100%"
+            format="YYYY-MM-DD HH:mm"
+            time-format="HH:mm"
+            :show-now="true"
+            :show-confirm="true"
+            :show-footer="true"
           />
         </el-form-item>
         <el-form-item label="实际完成时间">

@@ -334,6 +334,11 @@
                         :disabled="workbenchReadonly"
                         placeholder="选择预定时间"
                         style="width: 100%"
+                        format="YYYY-MM-DD HH:mm"
+                        time-format="HH:mm"
+                        :show-now="true"
+                        :show-confirm="true"
+                        :show-footer="true"
                       />
                     </template>
 
@@ -1224,6 +1229,11 @@
                   :placeholder="isRequiredFirstMilestone(assignment, milestone) ? '必填：选择预定时间' : '选择预定时间'"
                   :aria-required="isRequiredFirstMilestone(assignment, milestone)"
                   style="width: 100%"
+                  format="YYYY-MM-DD HH:mm"
+                  time-format="HH:mm"
+                  :show-now="true"
+                  :show-confirm="true"
+                  :show-footer="true"
                 />
               </el-col>
               <el-col :span="2">

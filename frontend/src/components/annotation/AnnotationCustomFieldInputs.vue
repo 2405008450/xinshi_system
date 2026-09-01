@@ -33,6 +33,11 @@
       type="datetime"
       value-format="YYYY-MM-DDTHH:mm:ss"
       style="width: 100%"
+      format="YYYY-MM-DD HH:mm"
+      time-format="HH:mm"
+      :show-now="true"
+      :show-confirm="true"
+      :show-footer="true"
     />
     <el-select
       v-else-if="field.dataType === 'single_select' || field.dataType === 'multi_select'"

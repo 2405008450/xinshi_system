@@ -293,6 +293,11 @@
               value-format="YYYY-MM-DDTHH:mm:ss"
               placeholder="请选择计划结束时间"
               style="width: 100%"
+              format="YYYY-MM-DD HH:mm"
+              time-format="HH:mm"
+              :show-now="true"
+              :show-confirm="true"
+              :show-footer="true"
             />
             <span>到期仅提醒，不会自动归还。</span>
           </div>

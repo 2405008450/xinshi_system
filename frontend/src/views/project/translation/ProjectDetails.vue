@@ -384,7 +384,7 @@
                             @manual-input="handleProjectNameInput"
                             @regenerate="regenerateProjectName"
                           />
-                          <div class="auto-name-field__hint">按“客户简称-翻译方向-客户交稿日期时分回”自动生成，存在子订单时追加批次；也可手动修改。</div>
+                          <div class="auto-name-field__hint">按“客户简称，翻译方向简称，月日时回稿”自动生成，例如“广州学在华留学咨询，法译中，9月1日16点回稿”；存在子订单时追加批次，也可手动修改。</div>
                         </div>
                       </el-form-item>
                     </el-col>
@@ -445,8 +445,8 @@
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
-                    <el-col :xs="24" :md="12"><el-form-item label="客户接单时间" prop="customerReceptionTime" data-field-key="customerReceptionTime"><el-date-picker v-model="form.customerReceptionTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                    <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间" prop="customerDeadlineTime" data-field-key="customerDeadlineTime"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+                    <el-col :xs="24" :md="12"><el-form-item label="客户接单时间" prop="customerReceptionTime" data-field-key="customerReceptionTime"><el-date-picker v-model="form.customerReceptionTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+                    <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间" prop="customerDeadlineTime" data-field-key="customerDeadlineTime"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   </el-row>
                 </div>
                 <el-collapse v-model="projectBasicExpandedSections" class="project-basic-collapse">
@@ -675,7 +675,7 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
                       <el-row :gutter="16">
@@ -842,8 +842,8 @@
                   <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="subOrderForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="subOrderForm.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="subOrderForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="subOrderForm.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="客户反馈"><el-input v-model="subOrderForm.clientFeedback" /></el-form-item></el-col>

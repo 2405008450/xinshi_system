@@ -47,6 +47,11 @@
               range-separator="至"
               start-placeholder="开始"
               end-placeholder="结束"
+              format="YYYY-MM-DD HH:mm"
+              time-format="HH:mm"
+              :show-now="true"
+              :show-confirm="true"
+              :show-footer="true"
             />
           </el-form-item>
           <el-form-item>

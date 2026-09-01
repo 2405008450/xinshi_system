@@ -31,7 +31,7 @@ from utils import generate_order_no
 from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
-from language_catalog import validate_language_pairs_against_catalog
+from language_catalog import compact_translation_direction, validate_language_pairs_against_catalog
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -1383,7 +1383,7 @@ def build_auto_project_name(
         return ""
 
     parts = [normalized_short_name]
-    normalized_language_pair = (language_pair or "").strip()
+    normalized_language_pair = compact_translation_direction(language_pair)
     if normalized_language_pair:
         parts.append(normalized_language_pair)
     deadline = customer_deadline_time
@@ -1393,9 +1393,12 @@ def build_auto_project_name(
         except ValueError:
             deadline = None
     if deadline:
-        parts.append(f'{deadline:%Y%m%d-%H:%M}回')
+        parts.append(f'{deadline.month}月{deadline.day}日{deadline.hour}点回稿')
     if not normalized_language_pair and not deadline:
         parts.append((current_time or datetime.now()).strftime("%y%m%d"))
+    if normalized_language_pair or deadline:
+        base_name = "，".join(parts)
+        return f"{base_name}，{sub_order_count}批" if sub_order_count > 0 else base_name
     base_name = "-".join(parts)
     return f"{base_name}-{sub_order_count}批" if sub_order_count > 0 else base_name
 
@@ -1407,10 +1410,17 @@ def _is_auto_project_name(
     """判断当前名称是否仍遵循自动命名格式，避免覆盖人工修改。"""
     normalized_project_name = (project_name or "").strip()
     normalized_short_name = (client_short_name or "").strip()
-    prefix = f"{normalized_short_name}-"
-    if not normalized_short_name or not normalized_project_name.startswith(prefix):
+    if not normalized_short_name:
         return False
 
+    current_prefix = f"{normalized_short_name}，"
+    if normalized_project_name.startswith(current_prefix):
+        suffix = normalized_project_name[len(current_prefix):]
+        return bool(re.fullmatch(r".+，\d{1,2}月\d{1,2}日\d{1,2}点回稿(?:，\d+批)?", suffix))
+
+    prefix = f"{normalized_short_name}-"
+    if not normalized_project_name.startswith(prefix):
+        return False
     suffix = normalized_project_name[len(prefix):]
     if re.fullmatch(r".+-\d{8}-\d{2}:?\d{2}回(?:-\d+批)?", suffix):
         return True

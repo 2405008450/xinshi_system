@@ -58,7 +58,10 @@
                   size="large"
                   :prefix-icon="Picture"
                   maxlength="6"
+                  autocapitalize="characters"
+                  :spellcheck="false"
                   clearable
+                  @input="normalizeCaptchaInput"
                   @keyup.enter="handleLogin"
                 />
                 <button
@@ -173,6 +176,12 @@ const loginForm = reactive({
   captchaCode: ''
 })
 
+const normalizeCaptchaCode = (value) => String(value || '').normalize('NFKC').trim().toUpperCase()
+
+const normalizeCaptchaInput = (value) => {
+  loginForm.captchaCode = String(value || '').normalize('NFKC').toUpperCase()
+}
+
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' }
@@ -210,7 +219,7 @@ const handleLogin = async () => {
     const payload = { username: loginForm.username, password: loginForm.password }
     if (submittedWithCaptcha) {
       payload.captcha_id = captchaId.value
-      payload.captcha_code = loginForm.captchaCode.trim()
+      payload.captcha_code = normalizeCaptchaCode(loginForm.captchaCode)
     }
     const res = await login(payload)
     localStorage.setItem('token', res.access_token)

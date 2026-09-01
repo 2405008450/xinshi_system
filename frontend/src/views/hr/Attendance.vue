@@ -78,6 +78,7 @@
                 v-model="form.check_in_time"
                 placeholder="选择时间"
                 style="width: 100%"
+                format="HH:mm"
                 value-format="HH:mm:ss"
               />
             </el-form-item>
@@ -88,6 +89,7 @@
                 v-model="form.check_out_time"
                 placeholder="选择时间"
                 style="width: 100%"
+                format="HH:mm"
                 value-format="HH:mm:ss"
               />
             </el-form-item>

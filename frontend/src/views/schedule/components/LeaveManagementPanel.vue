@@ -24,6 +24,11 @@
         value-format="YYYY-MM-DDTHH:mm:ss"
         style="width: 340px"
         @change="runQuery"
+        format="YYYY-MM-DD HH:mm"
+        time-format="HH:mm"
+        :show-now="true"
+        :show-confirm="true"
+        :show-footer="true"
       />
       <el-button type="primary" @click="runQuery">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
@@ -59,8 +64,8 @@
             <el-option v-for="user in staff" :key="user.id" :label="`${user.name}${user.dept ? `（${user.dept}）` : ''}`" :value="user.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="开始时间" prop="start_date"><el-date-picker v-model="form.start_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item>
-        <el-form-item label="结束时间" prop="end_date"><el-date-picker v-model="form.end_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item>
+        <el-form-item label="开始时间" prop="start_date"><el-date-picker v-model="form.start_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
+        <el-form-item label="结束时间" prop="end_date"><el-date-picker v-model="form.end_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
         <el-form-item label="类型"><el-select v-model="form.leave_type" style="width: 100%"><el-option v-for="type in leaveTypes" :key="type" :label="type" :value="type" /></el-select></el-form-item>
         <el-form-item label="原因"><el-input v-model="form.reason" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
       </el-form>

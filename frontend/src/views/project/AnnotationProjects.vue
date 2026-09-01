@@ -299,8 +299,8 @@
               </div>
             </el-form-item>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="任务派发时间" prop="taskDispatchedAt"><el-date-picker v-model="form.taskDispatchedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="任务提交时间" prop="taskSubmittedAt"><el-date-picker v-model="form.taskSubmittedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="任务派发时间" prop="taskDispatchedAt"><el-date-picker v-model="form.taskDispatchedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="任务提交时间" prop="taskSubmittedAt"><el-date-picker v-model="form.taskSubmittedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
             </el-row>
           </section>
 
@@ -347,7 +347,7 @@
               <el-switch v-if="field.dataType==='boolean'" v-model="form.customValues[field.id]" />
               <el-input-number v-else-if="field.dataType==='number'" v-model="form.customValues[field.id]" style="width:100%" />
               <el-date-picker v-else-if="field.dataType==='date'" v-model="form.customValues[field.id]" value-format="YYYY-MM-DD" style="width:100%" />
-              <el-date-picker v-else-if="field.dataType==='datetime'" v-model="form.customValues[field.id]" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" />
+              <el-date-picker v-else-if="field.dataType==='datetime'" v-model="form.customValues[field.id]" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
               <el-select v-else-if="field.dataType==='single_select'" v-model="form.customValues[field.id]" clearable style="width:100%"><el-option v-for="option in field.options" :key="option.value||option" :label="option.label||option" :value="option.value||option" /></el-select>
               <el-select v-else-if="field.dataType==='multi_select'" v-model="form.customValues[field.id]" multiple clearable style="width:100%"><el-option v-for="option in field.options" :key="option.value||option" :label="option.label||option" :value="option.value||option" /></el-select>
               <el-input v-else v-model="form.customValues[field.id]" :type="field.dataType==='text'?'textarea':'text'" />

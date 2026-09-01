@@ -53,9 +53,13 @@
                 v-model="stageFormData[field.key]"
                 type="datetime"
                 placeholder="请选择日期时间"
-                format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
+                time-format="HH:mm"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
               />
               <el-select
                 v-else-if="field.type === 'select'"
@@ -163,9 +167,13 @@
                 v-model="stageFormData[field.key]"
                 type="datetime"
                 placeholder="请选择日期时间"
-                format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
+                time-format="HH:mm"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
               />
               <el-select
                 v-else-if="field.type === 'select'"

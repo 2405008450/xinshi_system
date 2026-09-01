@@ -505,7 +505,7 @@
           <el-row :gutter="20">
             <el-col :xs="24" :md="12">
               <el-form-item label="咨询时间" prop="consultation_time">
-                <el-date-picker v-model="form.consultation_time" type="datetime" placeholder="选择日期时间" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+                <el-date-picker v-model="form.consultation_time" type="datetime" placeholder="选择日期时间" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :md="12">
@@ -619,6 +619,11 @@
                     placeholder="选择日期时间"
                     style="width: 100%"
                     value-format="YYYY-MM-DD HH:mm:ss"
+                    format="YYYY-MM-DD HH:mm"
+                    time-format="HH:mm"
+                    :show-now="true"
+                    :show-confirm="true"
+                    :show-footer="true"
                   />
                 </el-form-item>
               </el-col>
@@ -668,6 +673,11 @@
                     type="datetime"
                     value-format="YYYY-MM-DDTHH:mm:ss"
                     style="width: 100%"
+                    format="YYYY-MM-DD HH:mm"
+                    time-format="HH:mm"
+                    :show-now="true"
+                    :show-confirm="true"
+                    :show-footer="true"
                   />
                 </el-form-item>
               </el-col>
@@ -716,6 +726,11 @@
                   placeholder="选择日期时间"
                   style="width: 100%"
                   value-format="YYYY-MM-DD HH:mm:ss"
+                  format="YYYY-MM-DD HH:mm"
+                  time-format="HH:mm"
+                  :show-now="true"
+                  :show-confirm="true"
+                  :show-footer="true"
                 />
               </el-form-item>
             </el-col>
@@ -1001,6 +1016,11 @@
                 placeholder="选择日期时间"
                 style="width: 100%"
                 value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
+                time-format="HH:mm"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
               />
             </el-form-item>
           </el-col>

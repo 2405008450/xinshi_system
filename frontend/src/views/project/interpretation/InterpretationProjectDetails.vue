@@ -420,10 +420,10 @@
             <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card">
               <div class="repeat-title">时间段 {{ index + 1 }}<el-button v-if="form.timeRanges.length > 1" link type="danger" @click="form.timeRanges.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
-                <el-col :xs="24" :md="12"><el-form-item label="预定开始" :prop="`timeRanges.${index}.scheduledStart`" :rules="requiredScheduledStartRule"><el-date-picker v-model="item.scheduledStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="预定结束" :prop="`timeRanges.${index}.scheduledEnd`" :rules="requiredScheduledEndRule"><el-date-picker v-model="item.scheduledEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="预定开始" :prop="`timeRanges.${index}.scheduledStart`" :rules="requiredScheduledStartRule"><el-date-picker v-model="item.scheduledStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="预定结束" :prop="`timeRanges.${index}.scheduledEnd`" :rules="requiredScheduledEndRule"><el-date-picker v-model="item.scheduledEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
               </el-row>
             </div>
             <el-form-item label="地点" prop="locations" class="composite-required-item">
@@ -478,8 +478,8 @@
               <el-col v-if="showManagerContactInput" :xs="24" :md="8"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户确认时间"><el-date-picker v-model="form.customerConfirmationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
             </el-row>
           </section>
 

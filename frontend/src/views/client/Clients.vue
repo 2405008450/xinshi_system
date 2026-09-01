@@ -438,6 +438,11 @@
                 placeholder="选择日期时间"
                 style="width: 100%"
                 value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
+                time-format="HH:mm"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
               />
             </el-form-item>
           </el-col>
@@ -508,7 +513,7 @@
           <el-col :xs="24" :md="12"><el-form-item label="地级市"><el-input v-model="subForm.city" /></el-form-item></el-col>
           <el-col :xs="24" :md="12"><el-form-item label="区县"><el-input v-model="subForm.district" /></el-form-item></el-col>
         </el-row>
-        <el-form-item label="开始合作时间"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></el-form-item>
+        <el-form-item label="开始合作时间"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
         <el-row :gutter="20">
           <el-col :span="12">
