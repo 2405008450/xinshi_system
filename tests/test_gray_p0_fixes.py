@@ -71,6 +71,15 @@ def test_manuscript_dispatch_update_accepts_expected_updated_at():
         entity_type="project",
         translation_project_id=uuid4(),
         expected_updated_at=datetime(2026, 8, 27, 20, 31, 5),
-        arrangements=[{"translator_id": uuid4()}],
+        arrangements=[{
+            "translator_id": uuid4(),
+            "planned": {"words": 1000},
+            "milestones": [{
+                "milestone_type": "final",
+                "name": "译员交稿_全稿预定时间",
+                "sequence_no": 1,
+                "planned_at": datetime(2026, 8, 28, 18, 0),
+            }],
+        }],
     )
     assert payload.expected_updated_at == datetime(2026, 8, 27, 20, 31, 5)

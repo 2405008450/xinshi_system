@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from crud import create_translator as create_translator_record, get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
 from concurrency import assert_fresh
-from mail_service import MailAttachment, send_plain_text_email
+from mail_service import MailAttachment, SmtpSettings, send_plain_text_email
 from manuscript_archive import (
     build_manuscript_path_archive,
     validate_manuscript_mail_size,
@@ -52,7 +52,6 @@ from models import (
 )
 from project_roles import get_stage_role
 from schemas import TranslatorCreate
-from user_mail_account_service import resolve_project_sender
 from word_count_service import (
     METRIC_TYPES,
     attach_arrangement_matrices,
@@ -79,6 +78,11 @@ WORD_COUNT_LABELS = {
     "pages": "页数",
 }
 MANUSCRIPT_ADMIN_ROLES = {"admin", "超级管理员"}
+
+
+def _manuscript_smtp_settings() -> SmtpSettings:
+    """稿件安排固定使用板块专用 SMTP，不解析当前用户的个人邮箱。"""
+    return SmtpSettings.from_env()
 
 
 def _serialize_manuscript_translator(row: Translator) -> dict:
@@ -1724,7 +1728,8 @@ def send_arrangement(
     arrangement.updated_at = now
     message_id = f"<manuscript-{arrangement.id}@xinshi-system.local>"
     try:
-        sender_settings, _sender_view = resolve_project_sender(db, current_user)
+        # 稿件安排始终使用该板块专用的固定 SMTP 邮箱，不跟随当前用户的个人邮箱。
+        sender_settings = _manuscript_smtp_settings()
         rendered_html, inline_parts = prepare_trusted_mail_html(
             arrangement.email_body_html,
             selected_images,

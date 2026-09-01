@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -59,5 +59,9 @@ def apply_text_field_update(row, payload: TextFieldUpdate, rules: dict[str, Text
     if getattr(row, payload.field) == value:
         return False
     setattr(row, payload.field, value)
-    row.updated_at = datetime.now()
+    previous_updated_at = getattr(row, "updated_at", None)
+    next_updated_at = datetime.now()
+    if previous_updated_at is not None and next_updated_at <= previous_updated_at:
+        next_updated_at = previous_updated_at + timedelta(microseconds=1)
+    row.updated_at = next_updated_at
     return True
