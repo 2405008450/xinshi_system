@@ -7,7 +7,7 @@ import socket
 import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, make_msgid
 from typing import Iterable, Optional
 
 from email_validator import EmailNotValidError, validate_email
@@ -236,6 +236,11 @@ def send_text_email(
     if html_body:
         message.add_alternative(html_body, subtype="html", charset="utf-8")
         html_part = message.get_payload()[-1]
+        if normalized_inline_images:
+            # RFC 2387 要求 multipart/related 声明根资源类型；显式 start 可避免
+            # Foxmail 将无法识别根资源的 related 部分降级为普通附件集合。
+            html_root_cid = make_msgid(domain="xinshi-system.local")
+            html_part["Content-ID"] = html_root_cid
         for image in normalized_inline_images:
             content_type = (image.content_type or "").partition(";")[0].strip().lower()
             maintype, _, subtype = content_type.partition("/")
@@ -249,6 +254,9 @@ def send_text_email(
                 filename=image.filename,
                 disposition="inline",
             )
+        if normalized_inline_images:
+            html_part.set_param("type", "text/html", header="Content-Type")
+            html_part.set_param("start", html_root_cid, header="Content-Type")
     if normalized_inline_images:
         # Foxmail 桌面端对以 multipart/alternative 为最外层的 CID 图片兼容较差。
         # 即使没有普通附件，也固定使用 mixed -> alternative -> related 的层级。

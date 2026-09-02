@@ -1284,8 +1284,8 @@ const DEFAULT_SORT_MODE = 'unfinished_first_order_no_desc'
 const sortMode = ref(DEFAULT_SORT_MODE)
 const sortModeOptions = [
   { label: '默认：订单号倒序', value: DEFAULT_SORT_MODE },
-  { label: '译员回稿：最早优先', value: 'translator_return_time_asc' },
-  { label: '客户交稿：最早优先', value: 'customer_deadline_time_asc' },
+  { label: '译员回稿：待回稿紧急优先', value: 'translator_return_time_asc' },
+  { label: '客户交稿：待交稿紧急优先', value: 'customer_deadline_time_asc' },
 ]
 const {
   deleteMode,

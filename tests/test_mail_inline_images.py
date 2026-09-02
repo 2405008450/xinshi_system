@@ -207,6 +207,10 @@ def test_send_text_email_builds_related_cid_image(monkeypatch):
     ]
     related_parts = list(alternative_parts[1].iter_parts())
     assert [part.get_content_type() for part in related_parts] == ["text/html", "image/jpeg"]
+    assert alternative_parts[1].get_param("type") == "text/html"
+    assert alternative_parts[1].get_param("start") == related_parts[0]["Content-ID"]
+    assert related_parts[0]["Content-ID"].startswith("<")
+    assert related_parts[0]["Content-ID"].endswith("@xinshi-system.local>")
     assert message.get_body(preferencelist=("plain",)).get_content_type() == "text/plain"
     assert message.get_body(preferencelist=("html",)).get_content_type() == "text/html"
     related = [part for part in message.walk() if part.get_content_type() == "image/jpeg"]
@@ -259,6 +263,9 @@ def test_send_text_email_keeps_inline_images_related_with_regular_attachment(mon
     ]
     related_parts = list(list(mixed_parts[0].iter_parts())[1].iter_parts())
     assert [part.get_content_type() for part in related_parts] == ["text/html", "image/jpeg"]
+    related_container = list(mixed_parts[0].iter_parts())[1]
+    assert related_container.get_param("type") == "text/html"
+    assert related_container.get_param("start") == related_parts[0]["Content-ID"]
     assert related_parts[1].get_content_disposition() == "inline"
     assert mixed_parts[1].get_content_disposition() == "attachment"
 

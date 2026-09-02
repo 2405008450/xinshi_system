@@ -1823,7 +1823,25 @@ def get_translation_projects(
             )
             ordering = (ended_rank.asc(), *order_no_ordering)
         elif sort == "customer_deadline_time_asc":
+            customer_deadline_rank = case(
+                (
+                    TranslationProject.project_status.in_((
+                        "sent_to_client",
+                        "client_feedback",
+                        "feedback_sent_to_client",
+                        "completed",
+                        "cancelled",
+                        "partially_cancelled",
+                        "terminated",
+                        "paused",
+                    )),
+                    2,
+                ),
+                (TranslationProject.customer_deadline_time.is_(None), 1),
+                else_=0,
+            )
             ordering = (
+                customer_deadline_rank.asc(),
                 TranslationProject.customer_deadline_time.asc().nullslast(),
                 *order_no_ordering,
             )
@@ -1849,7 +1867,30 @@ def get_translation_projects(
                 .correlate(TranslationProject)
                 .scalar_subquery()
             )
+            translator_return_rank = case(
+                (
+                    TranslationProject.project_status.in_((
+                        "translator_returned",
+                        "special_checked",
+                        "typeset",
+                        "special_checked_typeset",
+                        "reviewed",
+                        "sent_to_client",
+                        "client_feedback",
+                        "feedback_sent_to_client",
+                        "completed",
+                        "cancelled",
+                        "partially_cancelled",
+                        "terminated",
+                        "paused",
+                    )),
+                    2,
+                ),
+                (earliest_translator_return_time.is_(None), 1),
+                else_=0,
+            )
             ordering = (
+                translator_return_rank.asc(),
                 earliest_translator_return_time.asc().nullslast(),
                 *order_no_ordering,
             )
