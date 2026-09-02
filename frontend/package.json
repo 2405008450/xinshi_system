@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
-    "@tiptap/starter-kit": "^3.29.1",
     "@tiptap/extension-image": "3.29.1",
+    "@tiptap/starter-kit": "^3.29.1",
     "@tiptap/vue-3": "^3.29.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/preset-sheets-data-validation": "0.25.1",
@@ -24,8 +24,8 @@
     "vue-router": "^4.2.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^4.5.2",
-    "vite": "^5.0.8"
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "^8.2.2"
   },
   "overrides": {
     "@univerjs/core": {

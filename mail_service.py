@@ -232,21 +232,26 @@ def send_text_email(
     message["Message-ID"] = message_id
     if normalized_reply_to:
         message["Reply-To"] = normalized_reply_to
-    message.set_content(body or "", subtype="plain", charset="utf-8")
-    if html_body:
-        message.add_alternative(html_body, subtype="html", charset="utf-8")
-        html_part = message.get_payload()[-1]
-        if normalized_inline_images:
-            # RFC 2387 要求 multipart/related 声明根资源类型；显式 start 可避免
-            # Foxmail 将无法识别根资源的 related 部分降级为普通附件集合。
-            html_root_cid = make_msgid(domain="xinshi-system.local")
-            html_part["Content-ID"] = html_root_cid
+    if normalized_inline_images:
+        # Foxmail 等桌面客户端更兼容 related 包含 alternative 的结构：
+        # mixed -> related -> alternative(text/plain + text/html) + inline images。
+        body_root_cid = make_msgid(domain="xinshi-system.local")
+        alternative_part = EmailMessage()
+        alternative_part.set_content(body or "", subtype="plain", charset="utf-8")
+        alternative_part.add_alternative(html_body, subtype="html", charset="utf-8")
+        alternative_part["Content-ID"] = body_root_cid
+
+        related_part = EmailMessage()
+        related_part.make_related()
+        related_part.set_param("type", "multipart/alternative", header="Content-Type")
+        related_part.set_param("start", body_root_cid, header="Content-Type")
+        related_part.attach(alternative_part)
         for image in normalized_inline_images:
             content_type = (image.content_type or "").partition(";")[0].strip().lower()
             maintype, _, subtype = content_type.partition("/")
             if maintype != "image" or not subtype:
                 raise MailConfigurationError("正文内嵌资源必须是有效图片")
-            html_part.add_related(
+            related_part.add_related(
                 image.content,
                 maintype="image",
                 subtype=subtype,
@@ -254,13 +259,12 @@ def send_text_email(
                 filename=image.filename,
                 disposition="inline",
             )
-        if normalized_inline_images:
-            html_part.set_param("type", "text/html", header="Content-Type")
-            html_part.set_param("start", html_root_cid, header="Content-Type")
-    if normalized_inline_images:
-        # Foxmail 桌面端对以 multipart/alternative 为最外层的 CID 图片兼容较差。
-        # 即使没有普通附件，也固定使用 mixed -> alternative -> related 的层级。
         message.make_mixed()
+        message.attach(related_part)
+    else:
+        message.set_content(body or "", subtype="plain", charset="utf-8")
+        if html_body:
+            message.add_alternative(html_body, subtype="html", charset="utf-8")
     for attachment in normalized_attachments:
         content_type = (attachment.content_type or "").partition(";")[0].strip().lower()
         if "/" in content_type:
