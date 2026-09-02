@@ -90,7 +90,7 @@
     </section>
 
     <el-dialog v-model="taskDialogVisible" :title="taskDialogTitle" width="640px" destroy-on-close>
-      <el-form ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="110px">
+      <AppForm ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="110px">
         <el-form-item label="任务类型" prop="task_type">
           <el-select v-model="taskForm.task_type" style="width: 100%">
             <el-option v-for="type in TASK_TYPES" :key="type" :label="type" :value="type" />
@@ -167,7 +167,7 @@
         <el-form-item label="备注">
           <el-input v-model="taskForm.remark" type="textarea" :rows="3" maxlength="5000" show-word-limit />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="taskDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="taskSubmitting" @click="submitTask">保存</el-button>
@@ -201,7 +201,7 @@
     </el-dialog>
 
     <el-dialog v-model="workEntryVisible" title="记录今日进展" width="620px" destroy-on-close>
-      <el-form ref="workEntryFormRef" :model="workEntryForm" :rules="workEntryRules" label-width="110px">
+      <AppForm ref="workEntryFormRef" :model="workEntryForm" :rules="workEntryRules" label-width="110px">
         <el-form-item label="关联任务">
           <el-input :model-value="activeWorkItem?.task_name || activeWorkItem?.project_name" disabled />
         </el-form-item>
@@ -217,7 +217,7 @@
         <el-form-item label="工作成果">
           <el-input v-model="workEntryForm.result_content" type="textarea" :rows="2" maxlength="10000" show-word-limit />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="workEntryVisible = false">取消</el-button>
         <el-button type="primary" :loading="workEntrySubmitting" @click="submitWorkEntry">保存进展</el-button>

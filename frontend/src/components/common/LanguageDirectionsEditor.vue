@@ -24,10 +24,10 @@
       <el-button class="soft-action-button" :icon="Plus" @click="add">新增方向</el-button>
       <el-popover v-model:visible="createVisible" trigger="click" placement="bottom-end" :width="320">
         <template #reference><el-button class="soft-action-button" :icon="Plus">新增共享语种</el-button></template>
-        <el-form @submit.prevent>
+        <AppForm @submit.prevent>
           <el-form-item label="语种/方言名称"><el-input v-model="newLabel" maxlength="100" placeholder="例如：温州话" @keyup.enter="createLanguage" /></el-form-item>
           <div class="create-actions"><el-button @click="createVisible=false">取消</el-button><el-button type="primary" :loading="creating" @click="createLanguage">添加</el-button></div>
-        </el-form>
+        </AppForm>
       </el-popover>
     </div>
     <div class="hint">单语听音、正字转写等任务选择“单语/方言”；翻译类标注选择完整方向。自定义方言会进入项目共享语种目录。</div>

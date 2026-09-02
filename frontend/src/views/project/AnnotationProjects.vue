@@ -12,7 +12,7 @@
       </div>
     </template>
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
         <el-input
           v-model="searchForm.keyword"
@@ -33,7 +33,7 @@
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="annotation-advanced-popover" @clear="clearAdvanced" @reset="resetSearch">
             <CompactFilterGrid :fields="annotationAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
-            <el-form v-if="false" label-position="top">
+            <AppForm v-if="false" label-position="top">
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12"><el-form-item label="项目类型"><el-select v-model="searchForm.projectType" clearable style="width:100%" @change="handleSearch"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="语言"><el-select v-model="searchForm.languageId" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item></el-col>
@@ -46,10 +46,10 @@
                 <el-col :xs="24" :md="12"><el-form-item label="咨询时间"><el-date-picker v-model="searchForm.consultationRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="确认时间"><el-date-picker v-model="searchForm.confirmationRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
               </el-row>
-            </el-form>
+            </AppForm>
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -268,7 +268,7 @@
         />
       </template>
       <div ref="dialogBodyRef" class="editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="125px">
+        <AppForm ref="formRef" :model="form" :rules="rules" label-width="125px">
           <section class="form-section annotation-key-fields">
             <div class="annotation-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">8 项必填</el-tag></div>
             <el-row :gutter="16">
@@ -392,16 +392,16 @@
             </el-form-item>
           </section>
           <InternalProjectRolesForm v-model="form.roleAssignments" />
-        </el-form>
+        </AppForm>
       </div>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
     </DraggableFormDialog>
     <el-dialog v-model="statusDialogVisible" title="修改项目状态" width="min(520px, calc(100vw - 32px))" append-to-body>
-      <el-form label-width="100px">
+      <AppForm label-width="100px">
         <el-form-item label="新状态"><el-select v-model="statusForm.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
         <el-form-item label="生效日期"><el-date-picker v-model="statusForm.effectiveOn" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="变更说明"><el-input v-model="statusForm.changeNote" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer><el-button @click="statusDialogVisible=false">取消</el-button><el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">确认修改</el-button></template>
     </el-dialog>
     <BusinessMailComposer

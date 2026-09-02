@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-card>
     <template #header>
       <div class="card-header">
@@ -165,7 +165,7 @@
       width="920px"
       @close="onDialogClose"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-divider content-position="left">关联项目</el-divider>
 
         <el-row :gutter="20">
@@ -364,7 +364,7 @@
           <el-button type="success" plain @click="addPayment('final')">+ 添加尾款</el-button>
           <el-button type="info" plain @click="addPayment()">+ 添加默认阶段</el-button>
         </div>
-      </el-form>
+      </AppForm>
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>

@@ -45,7 +45,7 @@
       <div v-if="currentStageEditableFields.length" class="stage-progress">
         <div class="section-label">本阶段进度填写</div>
         <p class="handover-hint">请填写接稿阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
-        <el-form :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
+        <AppForm :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
           <template v-for="field in currentStageEditableFields" :key="field.key">
             <el-form-item :label="field.label">
               <el-date-picker
@@ -78,7 +78,7 @@
               <el-input v-else v-model="stageFormData[field.key]" placeholder="请输入" />
             </el-form-item>
           </template>
-        </el-form>
+        </AppForm>
         <div class="stage-actions">
           <el-button type="info" plain :disabled="!canOperateCurrentStage" @click="$emit('save-progress')">
             更新本阶段进度
@@ -159,7 +159,7 @@
       <div v-if="currentStageEditableFields.length && !isCurrentStageDone" class="stage-progress">
         <div class="section-label">本阶段进度填写</div>
         <p class="handover-hint">请填写本阶段的关键进度信息，提交后将传递给下一阶段查看。</p>
-        <el-form :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
+        <AppForm :disabled="!canOperateCurrentStage" label-width="130px" size="small" class="stage-form">
           <template v-for="field in currentStageEditableFields" :key="field.key">
             <el-form-item :label="field.label">
               <el-date-picker
@@ -192,7 +192,7 @@
               <el-input v-else v-model="stageFormData[field.key]" placeholder="请输入" />
             </el-form-item>
           </template>
-        </el-form>
+        </AppForm>
         <div class="stage-actions">
           <el-button type="info" plain :disabled="!canOperateCurrentStage" @click="$emit('save-progress')">
             更新本阶段进度

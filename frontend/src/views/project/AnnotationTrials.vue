@@ -7,7 +7,7 @@
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="120" fixed="right" align="center"><template #default="{row}"><PrimaryEditButton @click="openEditor(row)" /></template></el-table-column></el-table>
   </el-card>
   <DraggableFormDialog v-model="dialogVisible" :title="form.id?'编辑试标记录':'新增试标记录'" width="min(760px,calc(100vw - 32px))" top="5vh" class="trial-dialog">
-    <el-form label-width="90px">
+    <AppForm label-width="90px">
       <el-form-item label="标注项目" required><el-select v-model="form.projectId" filterable :disabled="Boolean(form.id)" placeholder="请选择归属项目" style="width:100%" @change="editorProjectChanged"><el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" /></el-select></el-form-item>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="标注员" required><el-select v-model="form.personId" filterable :disabled="!form.projectId" placeholder="请先选择项目；人员按项目语种过滤" style="width:100%" @change="personChanged"><el-option v-for="item in eligibleTalents" :key="item.id" :label="`${item.fullName}（${item.resourceCode||'-'}）`" :value="item.id" /></el-select></el-form-item></el-col>
@@ -21,7 +21,7 @@
       <el-form-item label="人工意愿"><el-input v-model="form.willingnessText" type="textarea" :rows="3" /></el-form-item>
       <el-form-item label="结果评语"><el-input v-model="form.resultNote" type="textarea" :rows="4" /></el-form-item>
       <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" />
-    </el-form>
+    </AppForm>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
   </DraggableFormDialog>
 </template>

@@ -291,6 +291,11 @@ class ManuscriptSettlementUpdate(BaseModel):
     translator_total_price: Optional[Decimal] = Field(default=None, ge=0)
     remarks: Optional[str] = Field(default=None, max_length=5000)
 
+
+class ManuscriptCompletionUpdate(BaseModel):
+    completion_remarks: Optional[str] = Field(default=None, max_length=255)
+
+
 class ManuscriptArrangementResponse(BaseModel):
     id: UUID
     dispatch_id: Optional[UUID] = None
@@ -316,6 +321,7 @@ class ManuscriptArrangementResponse(BaseModel):
     email_subject: Optional[str] = None
     email_body: Optional[str] = None
     remarks: Optional[str] = None
+    completion_remarks: Optional[str] = None
     status: ArrangementStatus
     created_by: Optional[UUID] = None
     created_by_name: Optional[str] = None

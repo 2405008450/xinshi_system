@@ -18,7 +18,7 @@
         show-icon
       />
 
-      <el-form label-position="top" class="profile-form" @submit.prevent>
+      <AppForm label-position="top" class="profile-form" @submit.prevent>
         <el-row :gutter="18">
           <el-col :xs="24" :sm="12">
             <el-form-item label="登录账号">
@@ -67,7 +67,7 @@
           :closable="false"
           show-icon
         />
-      </el-form>
+      </AppForm>
     </el-card>
   </div>
 </template>

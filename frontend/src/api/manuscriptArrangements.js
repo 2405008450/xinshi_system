@@ -74,6 +74,12 @@ export const updateManuscriptSettlement = (dispatchId, arrangementId, data) =>
     data
   )
 
+export const updateManuscriptCompletion = (dispatchId, arrangementId, data) =>
+  api.patch(
+    `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/completion`,
+    data
+  )
+
 export const createManuscriptArrangement = (data) =>
   api.post('/manuscript-arrangements', data)
 

@@ -28,7 +28,7 @@
       </el-button>
     </nav>
 
-    <el-form :inline="true" :model="search" class="search-form">
+    <AppForm :inline="true" :model="search" class="search-form">
       <el-form-item label="关键词">
         <el-input v-model="search.keyword" clearable placeholder="姓名、编号、电话或邮箱" style="width:240px" @input="handleTextInput" @keyup.enter="searchNow" />
       </el-form-item>
@@ -44,7 +44,7 @@
           <CompactFilterGrid :fields="talentAdvancedFilterFields" :model="search" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" />
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table ref="talentTableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -151,7 +151,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="talent-editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="105px">
+        <AppForm ref="formRef" :model="form" :rules="rules" label-width="105px">
         <div class="form-section"><h3>基础信息</h3>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="姓名" prop="fullName"><el-input v-model="form.fullName" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
           <el-form-item v-if="!isRecruitmentPool" label="专业能力" prop="capabilityTypes"><el-checkbox-group v-model="form.capabilityTypes"><el-checkbox value="written_translation">笔译</el-checkbox><el-checkbox value="interpretation">口译</el-checkbox><el-checkbox value="annotation">标注</el-checkbox></el-checkbox-group></el-form-item>
@@ -186,7 +186,7 @@
           <el-form-item label="标注备注"><el-input v-model="form.annotationProfile.remarks" type="textarea" :rows="2" /></el-form-item>
         </div>
         <div class="form-section"><h3>招聘职业档案</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="行业"><el-select v-model="form.careerProfile.industries" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="职能"><el-select v-model="form.careerProfile.functions" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="岗位"><el-select v-model="form.careerProfile.jobTitles" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col></el-row><el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="工作年限"><el-input-number v-model="form.careerProfile.yearsExperience" :min="0" :precision="1" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="期望地点"><el-select v-model="form.careerProfile.preferredLocations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="期望薪资"><el-input v-model="form.careerProfile.expectedSalary" /></el-form-item></el-col></el-row><el-form-item label="职业概述"><el-input v-model="form.careerProfile.summary" type="textarea" :rows="2" /></el-form-item></div>
-        </el-form>
+        </AppForm>
       </div>
       <template #footer><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">保存</el-button></template>
     </DraggableFormDialog>

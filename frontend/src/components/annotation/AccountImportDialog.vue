@@ -11,7 +11,7 @@
   >
     <el-alert type="info" :closable="false" show-icon title="请先从腾讯文档导出 XLSX。系统会识别说明行、双表头和重复列名，确认预览后才写入数据。" />
 
-    <el-form label-position="top" class="defaults-grid">
+    <AppForm label-position="top" class="defaults-grid">
       <el-form-item label="XLSX 文件*">
         <el-upload :auto-upload="false" :limit="1" accept=".xlsx" :on-change="selectFile" :on-remove="removeFile">
           <el-button>选择文件</el-button>
@@ -29,7 +29,7 @@
       <el-form-item label="账号来源">
         <el-select v-model="defaults.accountSource"><el-option label="客户提供" value="client_provided" /><el-option label="自行注册" value="self_registered" /><el-option label="标注员自有" value="annotator_owned" /></el-select>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <div class="toolbar">
       <el-button type="primary" :loading="previewing" :disabled="!canPreview" @click="preview(false)">生成预览</el-button>

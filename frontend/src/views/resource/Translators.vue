@@ -17,7 +17,7 @@
     </template>
 
     <div class="search-area">
-      <el-form :inline="true" :model="searchForm" class="search-form">
+      <AppForm :inline="true" :model="searchForm" class="search-form">
         <el-form-item label="姓名">
           <el-input
             v-model="searchForm.translator_name"
@@ -63,7 +63,7 @@
             </template>
             <div class="advanced-filter-panel">
               <div class="advanced-filter-title">高级筛选</div>
-              <el-form :model="advancedFilters" label-width="104px" class="advanced-filter-form">
+              <AppForm :model="advancedFilters" label-width="104px" class="advanced-filter-form">
                 <el-row :gutter="16">
                   <el-col :xs="24" :sm="12">
                     <el-form-item label="译员编号">
@@ -185,7 +185,7 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
-              </el-form>
+              </AppForm>
               <div class="advanced-filter-actions">
                 <el-button link type="primary" @click="clearAdvancedFilters">清空高级条件</el-button>
                 <el-button @click="advancedFilterVisible = false">关闭</el-button>
@@ -193,7 +193,7 @@
             </div>
           </el-popover>
         </el-form-item>
-      </el-form>
+      </AppForm>
     </div>
 
     <!-- 主表格 -->
@@ -268,7 +268,7 @@
       top="5vh"
       @close="resetForm"
     >
-      <el-form
+      <AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -463,7 +463,7 @@
         <el-form-item label="总评" prop="overall_rating">
           <el-input v-model="form.overall_rating" type="textarea" :rows="2" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>

@@ -479,6 +479,7 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS delivery_mode VARCHAR(20)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS smtp_message_id VARCHAR(255)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS send_error TEXT",
+    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS completion_remarks VARCHAR(255)",
 )
 
 

@@ -18,7 +18,7 @@
       show-icon
     />
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="用户名">
         <el-input
           v-model="searchForm.username"
@@ -48,7 +48,7 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table :data="tableData" v-loading="loading" border>
       <el-table-column prop="username" label="用户名" width="150" />
@@ -139,7 +139,7 @@
       width="500px"
       @close="resetForm"
     >
-      <el-form
+      <AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -165,7 +165,7 @@
         <el-form-item label="状态" prop="is_active">
           <el-switch v-model="form.is_active" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
@@ -194,7 +194,7 @@
         </el-descriptions-item>
         <el-descriptions-item label="最近验证">{{ formatDateTime(mailAccount.verified_at) || '-' }}</el-descriptions-item>
       </el-descriptions>
-      <el-form label-position="top" class="mail-account-form" @submit.prevent>
+      <AppForm label-position="top" class="mail-account-form" @submit.prevent>
         <el-form-item :label="mailAccount.is_bound ? '新 SMTP 密码/授权码（填写后覆盖原凭据）' : 'SMTP 密码/授权码'" required>
           <el-input
             v-model="mailAuthorizationCode"
@@ -207,7 +207,7 @@
             @keyup.enter="saveAndVerifyMailAccount"
           />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <el-alert
         v-if="!mailTargetUser?.email"
         title="请先编辑该用户并填写企业邮箱地址，再配置发件凭据。"
@@ -253,7 +253,7 @@
         :closable="false"
         show-icon
       />
-      <el-form
+      <AppForm
         ref="passwordFormRef"
         :model="passwordForm"
         :rules="passwordRules"
@@ -280,7 +280,7 @@
             @keyup.enter="submitPasswordReset"
           />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="passwordDialogVisible = false">取消</el-button>
         <el-button
@@ -305,7 +305,7 @@
         :closable="false"
         show-icon
       />
-      <el-form label-width="90px" class="role-form">
+      <AppForm label-width="90px" class="role-form">
         <el-form-item label="角色">
           <el-select
             v-model="selectedRoleIds"
@@ -324,7 +324,7 @@
             />
           </el-select>
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="roleDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingRoles" @click="saveUserRoles">

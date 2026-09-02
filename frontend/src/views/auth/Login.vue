@@ -22,7 +22,7 @@
               <h2>欢迎登录</h2>
             </div>
           </template>
-          <el-form
+          <AppForm
             ref="loginFormRef"
             :model="loginForm"
             :rules="rules"
@@ -87,7 +87,7 @@
                 {{ loading ? loginStatusText : '登录' }}
               </el-button>
             </el-form-item>
-          </el-form>
+          </AppForm>
         </el-card>
         <div class="login-footer">
           <el-text type="info" size="small">© 2026 综合业务项目管理平台 版权所有</el-text>

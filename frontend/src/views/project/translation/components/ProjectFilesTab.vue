@@ -26,7 +26,7 @@
       title="可直接填写路径组，保存项目时会自动关联到新订单。"
     />
 
-    <el-form
+    <AppForm
       ref="pathGroupFormRef"
       v-loading="fileLoading"
       :model="pathGroupForm"
@@ -155,7 +155,7 @@
           </div>
         </el-collapse-item>
       </el-collapse>
-    </el-form>
+    </AppForm>
 
     <div v-if="canWrite && showSaveAction && projectId" class="path-group-actions">
       <el-button

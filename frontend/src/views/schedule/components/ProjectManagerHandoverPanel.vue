@@ -232,7 +232,7 @@
         :closable="false"
         show-icon
       />
-      <el-form label-width="100px" class="handover-form">
+      <AppForm label-width="100px" class="handover-form">
         <el-form-item label="接收经理" required>
           <el-select
             v-model="targetManagerId"
@@ -255,7 +255,7 @@
         <el-form-item label="交接说明">
           <el-input v-model="note" type="textarea" :rows="4" maxlength="5000" show-word-limit />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button
@@ -270,13 +270,13 @@
     </el-dialog>
 
     <el-dialog v-model="progressVisible" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
-      <el-form label-width="90px">
+      <AppForm label-width="90px">
         <el-form-item label="项目"><el-input :model-value="progressProject?.project_name || progressProject?.order_no" disabled /></el-form-item>
         <el-form-item label="工作日期" required><el-date-picker v-model="progressForm.work_date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
         <el-form-item label="进展内容" required><el-input v-model="progressForm.progress_content" type="textarea" :rows="4" maxlength="10000" show-word-limit /></el-form-item>
         <el-form-item label="耗时（分钟）"><el-input-number v-model="progressForm.duration_minutes" :min="0" :max="1440" style="width: 100%" /></el-form-item>
         <el-form-item label="工作结果"><el-input v-model="progressForm.result_content" type="textarea" :rows="2" maxlength="10000" show-word-limit /></el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="progressVisible = false">取消</el-button>
         <el-button type="primary" :loading="progressSubmitting" @click="submitProgress">保存</el-button>

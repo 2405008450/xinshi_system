@@ -783,6 +783,8 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     translation_scope: Optional[str] = None
     # 与稿件安排的“译员交稿全稿预定时间”共用同一数据源。
     translator_return_time: Optional[datetime] = None
+    # 译员回稿后的本次任务完成情况，由稿件安排模块维护。
+    completion_remarks: Optional[str] = None
 
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級

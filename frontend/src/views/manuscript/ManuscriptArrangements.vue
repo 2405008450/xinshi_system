@@ -246,6 +246,17 @@
                 {{ dispatchStatusMeta(selectedProjectDispatch.status).label }}
               </el-tag>
               <el-button
+                v-if="canWrite && canManageSelectedProject && selectedProjectDispatch?.status === 'ready'"
+                type="warning"
+                link
+                size="small"
+                :loading="withdrawingBatchId === selectedProjectDispatch.id"
+                :disabled="Boolean(withdrawingBatchId)"
+                @click="withdrawAndEdit(selectedProjectDispatch)"
+              >
+                撤回并编辑
+              </el-button>
+              <el-button
                 v-if="canWrite && canManageSelectedProject && selectedProjectDispatch && selectedProjectDispatch.status !== 'draft'"
                 type="primary"
                 link
@@ -930,7 +941,12 @@
                     <span v-else>{{ item.recipient_email || '缺少邮箱' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column v-if="canWrite" label="操作" width="150" fixed="right">
+                <el-table-column label="任务完成情况" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row: item }">
+                    {{ item.completion_remarks || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="canWrite" label="操作" width="260" fixed="right">
                   <template #default="{ row: item }">
                     <template v-if="canManageDispatch(row)">
                       <el-button
@@ -952,6 +968,15 @@
                       @click="openSettlementDialog(row, item)"
                       >
                         结算
+                      </el-button>
+                      <el-button
+                        v-if="item.status !== 'cancelled'"
+                        type="primary"
+                        link
+                        size="small"
+                        @click="openCompletionDialog(row, item)"
+                      >
+                        {{ item.completion_remarks ? '编辑完成情况' : '登记完成情况' }}
                       </el-button>
                       <el-button
                       v-if="row.status === 'cancelled' && item.status === 'cancelled'"
@@ -1026,7 +1051,7 @@
         <el-table-column label="创建时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column v-if="canWrite" label="操作" width="200" fixed="right">
+        <el-table-column v-if="canWrite" label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <template v-if="canManageDispatch(row)">
             <el-button v-if="row.status === 'draft'" type="primary" link size="small" @click="editDraft(row)">编辑</el-button>
@@ -1052,7 +1077,18 @@
               批量发送
             </el-button>
             <el-button
-              v-if="['draft', 'ready'].includes(row.status)"
+              v-if="row.status === 'ready'"
+              type="warning"
+              link
+              size="small"
+              :loading="withdrawingBatchId === row.id"
+              :disabled="Boolean(withdrawingBatchId)"
+              @click="withdrawAndEdit(row)"
+            >
+              撤回并编辑
+            </el-button>
+            <el-button
+              v-if="row.status === 'draft'"
               type="danger"
               link
               size="small"
@@ -1088,7 +1124,7 @@
         <el-descriptions-item label="派稿文路径" :span="3">{{ selectedProject.dispatch_path || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <el-form label-width="155px" class="dispatch-form">
+      <AppForm label-width="155px" class="dispatch-form">
         <el-form-item label="选择译员" required>
           <el-select
             v-model="selectedTranslatorIds"
@@ -1270,7 +1306,7 @@
         <el-form-item label="批次备注">
           <el-input v-model="dispatchForm.remarks" type="textarea" :rows="2" maxlength="5000" />
         </el-form-item>
-      </el-form>
+      </AppForm>
 
       <template #footer>
         <el-button @click="dispatchDialogVisible = false">取消</el-button>
@@ -1404,8 +1440,34 @@
       </template>
     </el-dialog>
 
+    <DraggableFormDialog
+      v-model="completionDialogVisible"
+      :title="completionEditingExisting ? '编辑任务完成情况' : '登记任务完成情况'"
+      width="560px"
+    >
+      <AppForm :model="completionForm" label-width="110px">
+        <el-form-item label="译员">
+          <el-input :model-value="completionForm.translator_name" disabled />
+        </el-form-item>
+        <el-form-item label="任务完成情况">
+          <el-input
+            v-model="completionForm.completion_remarks"
+            type="textarea"
+            :rows="4"
+            maxlength="255"
+            show-word-limit
+            placeholder="简要记录实际耗时、处理效果、质量、异常或返工情况"
+          />
+        </el-form-item>
+      </AppForm>
+      <template #footer>
+        <el-button :disabled="completionSaving" @click="completionDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="completionSaving" @click="saveCompletion">保存</el-button>
+      </template>
+    </DraggableFormDialog>
+
     <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
-      <el-form :model="settlementForm" label-width="155px">
+      <AppForm :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
           <el-input :model-value="settlementForm.translator_name" disabled />
         </el-form-item>
@@ -1449,7 +1511,7 @@
         <el-form-item label="备注">
           <el-input v-model="settlementForm.remarks" type="textarea" :rows="3" maxlength="5000" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="settlementDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="settlementSaving" @click="saveSettlement">保存</el-button>
@@ -1474,7 +1536,7 @@
         show-icon
         class="quick-translator-tip"
       />
-      <el-form
+      <AppForm
         ref="quickTranslatorFormRef"
         :model="quickTranslatorForm"
         :rules="quickTranslatorRules"
@@ -1526,7 +1588,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button :disabled="quickTranslatorSaving" @click="quickTranslatorDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="quickTranslatorSaving" @click="saveQuickTranslator">
@@ -1553,6 +1615,7 @@ import {
   sendManuscriptAssignment,
   sendManuscriptDispatch,
   updateManuscriptDispatch,
+  updateManuscriptCompletion,
   updateManuscriptMailPaths,
   updateManuscriptSettlement
 } from '@/api/manuscriptArrangements'
@@ -1576,8 +1639,10 @@ const contextLoading = ref(false)
 const recordsLoading = ref(false)
 const saving = ref(false)
 const settlementSaving = ref(false)
+const completionSaving = ref(false)
 const sendingId = ref('')
 const sendingBatchId = ref('')
+const withdrawingBatchId = ref('')
 const activeProjects = ref([])
 const translators = ref([])
 const dispatches = ref([])
@@ -1589,6 +1654,8 @@ const projectKeyword = ref('')
 const dispatchKeyword = ref('')
 const dispatchDialogVisible = ref(false)
 const settlementDialogVisible = ref(false)
+const completionDialogVisible = ref(false)
+const completionEditingExisting = ref(false)
 const selectedTranslatorIds = ref([])
 const activeArrangementTranslatorId = ref('')
 const workbenchStage = ref('arrange')
@@ -2103,6 +2170,13 @@ const settlementForm = reactive({
   translator_unit_price: null,
   translator_total_price: null,
   remarks: ''
+})
+
+const completionForm = reactive({
+  dispatch_id: '',
+  arrangement_id: '',
+  translator_name: '',
+  completion_remarks: ''
 })
 
 const PROJECT_STATUS_LABELS = {
@@ -2831,6 +2905,31 @@ function reEditCancelled(row, translatorId = '') {
   dispatchDialogVisible.value = true
 }
 
+function editCancelledInWorkbench(row, translatorId = '') {
+  const matchedProject = activeProjects.value.find(
+    (item) => projectIdentity(item) === projectIdentity(row)
+  )
+  selectedProject.value = matchedProject || {
+    entity_type: row.entity_type,
+    translation_project_id: row.translation_project_id,
+    sub_order_id: row.sub_order_id,
+    order_no: row.order_no_snapshot,
+    project_name: row.project_name_snapshot,
+    can_manage_manuscript: row.can_manage_manuscript,
+    manuscript_access_reason: row.manuscript_access_reason
+  }
+  creatingNewBatch.value = true
+  hydrateDispatchForm(row, { asNew: true })
+  if (
+    translatorId &&
+    dispatchForm.arrangements.some((item) => item.translator_id === translatorId)
+  ) {
+    activeArrangementTranslatorId.value = translatorId
+  }
+  dispatchDialogVisible.value = false
+  workbenchStage.value = 'arrange'
+}
+
 function validateDispatchForm() {
   if (!selectedProject.value) return '请选择订单'
   if (!dispatchForm.arrangements.length) return '请至少选择一位译员'
@@ -3028,21 +3127,18 @@ async function sendAssignment(dispatch, assignment) {
 
 async function cancelBatch(row) {
   if (!ensureCanManage(row)) return
-  const isConfirmedBatch = row.status === 'ready'
+  if (row.status !== 'draft') {
+    ElMessage.warning('只有草稿批次可以取消')
+    return
+  }
   try {
     await ElMessageBox.confirm(
-      isConfirmedBatch
-        ? `确定取消 ${row.order_no_snapshot} 的本次派稿批次吗？取消后订单状态将根据剩余有效安排自动回退。`
-        : `确定取消 ${row.order_no_snapshot} 的派稿草稿吗？`,
+      `确定取消 ${row.order_no_snapshot} 的派稿草稿吗？`,
       '取消派稿',
       { type: 'warning' }
     )
     await cancelManuscriptDispatch(row.id)
-    ElMessage.success(
-      isConfirmedBatch
-        ? '派稿批次已取消，订单状态已回退；可点击“重新编辑”修改参数'
-        : '派稿草稿已取消'
-    )
+    ElMessage.success('派稿草稿已取消')
     await Promise.all([loadContext(), loadDispatches()])
     if (
       selectedProject.value &&
@@ -3053,6 +3149,40 @@ async function cancelBatch(row) {
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
     ElMessage.error(error.detail || '取消派稿失败')
+  }
+}
+
+async function withdrawAndEdit(row) {
+  if (!ensureCanManage(row)) return
+  if (withdrawingBatchId.value) return
+  if (
+    row.status !== 'ready' ||
+    (row.arrangements || []).some((item) => item.status === 'sent')
+  ) {
+    ElMessage.warning('只有尚未发送给译员的已确认批次可以撤回编辑')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定撤回 ${row.order_no_snapshot} 的本次派稿安排并重新编辑吗？撤回后订单状态将根据其他有效安排自动回退，原确认记录会保留，原字段将自动带入新草稿。`,
+      '撤回并编辑',
+      {
+        type: 'warning',
+        confirmButtonText: '撤回并编辑',
+        cancelButtonText: '暂不撤回'
+      }
+    )
+    withdrawingBatchId.value = row.id
+    const cancelled = await cancelManuscriptDispatch(row.id)
+    await Promise.all([loadContext(), loadDispatches()])
+    const refreshedCancelled = dispatches.value.find((item) => item.id === row.id)
+    editCancelledInWorkbench(refreshedCancelled || cancelled || row)
+    ElMessage.success('安排已撤回，原字段已带入新草稿，可修改后重新确认')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error.detail || '撤回稿件安排失败')
+  } finally {
+    withdrawingBatchId.value = ''
   }
 }
 
@@ -3076,6 +3206,42 @@ function openSettlementDialog(dispatch, assignment) {
     remarks: assignment.remarks || ''
   })
   settlementDialogVisible.value = true
+}
+
+function openCompletionDialog(dispatch, assignment) {
+  if (!ensureCanManage(dispatch)) return
+  completionEditingExisting.value = Boolean(assignment.completion_remarks)
+  Object.assign(completionForm, {
+    dispatch_id: dispatch.id,
+    arrangement_id: assignment.id,
+    translator_name: assignment.translator_name_snapshot,
+    completion_remarks: assignment.completion_remarks || ''
+  })
+  completionDialogVisible.value = true
+}
+
+async function saveCompletion() {
+  const dispatch = dispatches.value.find(
+    (item) => item.id === completionForm.dispatch_id
+  )
+  if (!ensureCanManage(dispatch)) return
+  completionSaving.value = true
+  try {
+    await updateManuscriptCompletion(
+      completionForm.dispatch_id,
+      completionForm.arrangement_id,
+      {
+        completion_remarks: completionForm.completion_remarks.trim() || null
+      }
+    )
+    completionDialogVisible.value = false
+    ElMessage.success('任务完成情况已保存')
+    await loadDispatches()
+  } catch (error) {
+    ElMessage.error(error.detail || '保存任务完成情况失败')
+  } finally {
+    completionSaving.value = false
+  }
 }
 
 async function saveSettlement() {

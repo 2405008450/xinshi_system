@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-card>
     <template #header>
       <div class="page-header">
@@ -102,7 +102,7 @@
       top="5vh"
       @closed="resetSubOrderForm"
     >
-      <el-form ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="130px">
+      <AppForm ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="130px">
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="母订单号"><el-input :model-value="project.orderNo || route.query.orderNo" disabled /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="子订单号"><ReadonlyField :model-value="subOrderForm.subOrderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
@@ -147,7 +147,7 @@
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="subOrderForm.remarks" type="textarea" :rows="3" /></el-form-item></el-col>
         </el-row>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">保存</el-button>

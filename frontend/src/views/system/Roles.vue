@@ -50,14 +50,14 @@
     </el-table>
 
     <el-dialog v-model="roleDialogVisible" :title="roleDialogTitle" width="520px" @close="resetRoleForm">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="角色名称" prop="role_name">
           <el-input v-model="form.role_name" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="form.description" type="textarea" :rows="4" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="roleDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleRoleSubmit">保存</el-button>

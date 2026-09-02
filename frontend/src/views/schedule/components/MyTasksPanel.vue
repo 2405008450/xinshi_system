@@ -278,7 +278,7 @@
         show-icon
         class="dialog-alert"
       />
-      <el-form label-width="92px">
+      <AppForm label-width="92px">
         <el-form-item label="责任方式" required>
           <el-radio-group v-model="handoverTransferMode">
             <el-radio label="permanent">永久转交</el-radio>
@@ -333,7 +333,7 @@
         <el-form-item label="交接留言">
           <TransferNoteEditor v-model="handoverNote" style="width: 100%" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="handoverVisible = false">取消</el-button>
         <el-button type="primary" :loading="submittingHandover" :disabled="!canSubmitHandover" @click="submitHandover">
@@ -350,7 +350,7 @@
         show-icon
         class="dialog-alert"
       />
-      <el-form :inline="true" class="claim-search">
+      <AppForm :inline="true" class="claim-search">
         <el-form-item label="原负责人">
           <el-select v-model="claimFilters.ownerUserId" clearable filterable placeholder="全部" style="width: 180px" @change="loadTransferableTasks">
             <el-option v-for="owner in claimOwnerOptions" :key="owner.id" :label="owner.name" :value="owner.id" />
@@ -370,7 +370,7 @@
         <el-form-item>
           <el-button type="primary" :loading="claimLoading" @click="runClaimSearch">查询</el-button>
         </el-form-item>
-      </el-form>
+      </AppForm>
       <el-table
         v-loading="claimLoading"
         :data="transferableTasks"

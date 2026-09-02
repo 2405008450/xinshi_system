@@ -46,7 +46,7 @@
       width="800px"
       @close="resetForm"
     >
-      <el-form
+      <AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -100,7 +100,7 @@
         <el-form-item label="备注" prop="remarks">
           <el-input v-model="form.remarks" type="textarea" :rows="2" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>

@@ -37,7 +37,7 @@
         <template #reference>
           <el-button :disabled="loading" title="新增翻译方向">新增方向</el-button>
         </template>
-        <el-form class="direction-create-form" label-position="top" @submit.prevent>
+        <AppForm class="direction-create-form" label-position="top" @submit.prevent>
           <div class="direction-create-fields">
             <el-form-item label="原文语种">
               <el-select
@@ -77,7 +77,7 @@
             <el-button :disabled="creating" @click="handleCreateCancel">取消</el-button>
             <el-button type="primary" :loading="creating" @click="handleCreateDirection">添加方向</el-button>
           </div>
-        </el-form>
+        </AppForm>
       </el-popover>
     </div>
     <div v-if="showHint" class="language-pair-select__hint">{{ hintText }}</div>

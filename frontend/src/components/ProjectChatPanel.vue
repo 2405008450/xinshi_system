@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode }]">
     <el-empty v-if="!projectId" description="请先选择母订单项目" :image-size="72" />
     <template v-else>
@@ -30,7 +30,7 @@
       />
 
       <template>
-        <el-form :inline="true" :model="filters" size="small" class="chat-filter-bar">
+        <AppForm :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词">
             <el-input v-model="filters.keyword" clearable placeholder="搜消息内容" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -58,7 +58,7 @@
             <el-button type="primary" @click="handleSearch">查询</el-button>
             <el-button @click="handleResetSearch">重置</el-button>
           </el-form-item>
-        </el-form>
+        </AppForm>
 
         <el-scrollbar v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
           <div v-if="messages.length" class="chat-list__items">

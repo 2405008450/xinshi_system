@@ -11,14 +11,14 @@
       </div>
     </template>
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" style="width:320px" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
       <el-form-item label="项目状态"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button><el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="recruitment-advanced-filter-popover" @clear="clearAdvanced" @reset="resetSearch">
             <CompactFilterGrid :fields="recruitmentAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
-            <el-form v-if="false" :model="searchForm" label-width="110px">
+            <AppForm v-if="false" :model="searchForm" label-width="110px">
               <el-row :gutter="16">
                 <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="searchForm.clientManagerId" clearable filterable style="width:100%" @change="handleSearch"><el-option v-for="user in activeUsers" :key="user.id" :label="userLabel(user)" :value="user.id" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="履职日期范围"><el-date-picker v-model="searchForm.employmentRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
@@ -27,10 +27,10 @@
                 <el-col :xs="24" :md="12"><el-form-item label="拟入职日期范围"><el-date-picker v-model="searchForm.targetOnboardRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="创建时间范围"><el-date-picker v-model="searchForm.createdRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" @change="handleSearch" /></el-form-item></el-col>
               </el-row>
-            </el-form>
+            </AppForm>
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table ref="projectTableRef" :data="rows" v-loading="loading" :row-class-name="projectRowClass" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -131,7 +131,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
+        <AppForm ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
           <div class="form-section"><h3>项目与职位</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
@@ -243,7 +243,7 @@
               @row-updated="replaceCandidate" @source-created="addResumeSource"
             />
           </div>
-        </el-form>
+        </AppForm>
       </div>
       <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button></div></template>
     </DraggableFormDialog>
@@ -294,7 +294,7 @@
     </el-dialog>
 
     <DraggableFormDialog v-model="candidateEditorVisible" :title="candidateForm.id ? '编辑候选人' : '新增候选人'" width="min(760px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-editor-dialog">
-      <div class="candidate-editor-body"><el-form ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">
+      <div class="candidate-editor-body"><AppForm ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">
         <el-form-item label="复用人才档案"><el-select v-model="candidateForm.personId" filterable clearable placeholder="可选择人才库已有人员" style="width:100%" @change="handleCandidatePersonChange"><el-option v-for="person in talentOptions" :key="person.id" :label="`${person.fullName}${person.resourceCode ? `（${person.resourceCode}）` : ''}`" :value="person.id" /></el-select></el-form-item>
         <el-form-item label="候选人姓名" prop="candidateName"><el-input v-model="candidateForm.candidateName" /></el-form-item>
         <el-form-item label="简历路径"><el-input v-model="candidateForm.resumePath" /></el-form-item>
@@ -316,7 +316,7 @@
           <el-form-item label="计划入职"><el-date-picker v-model="candidateForm.plannedOnboardDate" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
           <el-form-item label="备注"><el-input v-model="candidateForm.remarks" type="textarea" :rows="3" /></el-form-item>
         </el-collapse-item></el-collapse>
-      </el-form></div>
+      </AppForm></div>
       <template #footer><el-button @click="candidateEditorVisible=false">取消</el-button><el-button type="primary" :loading="candidateSaving" @click="saveCandidate">保存</el-button></template>
     </DraggableFormDialog>
     <BusinessMailComposer

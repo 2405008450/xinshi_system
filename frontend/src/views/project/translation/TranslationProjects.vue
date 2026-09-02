@@ -273,7 +273,7 @@
       </el-tab-pane>
 
       <el-tab-pane label="日志记录" name="logs">
-        <el-form :inline="true" :model="logFilters" size="small" class="log-filter-bar">
+        <AppForm :inline="true" :model="logFilters" size="small" class="log-filter-bar">
           <el-form-item label="类型">
             <el-select v-model="logFilters.direction" clearable placeholder="全部" style="width: 120px">
               <el-option label="推进" value="forward" />
@@ -300,7 +300,7 @@
               end-placeholder="结束日期"
             />
           </el-form-item>
-        </el-form>
+        </AppForm>
         <el-timeline v-if="filteredTransitionLog.length" reverse>
           <el-timeline-item
             v-for="(entry, index) in filteredTransitionLog"

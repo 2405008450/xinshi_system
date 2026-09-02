@@ -40,7 +40,7 @@
           >查看发件邮箱状态</el-button>
         </el-descriptions-item>
       </el-descriptions>
-      <el-form label-width="92px" @submit.prevent>
+      <AppForm label-width="92px" @submit.prevent>
         <el-form-item label="收件人" required>
           <InternalMailRecipientSelector
             v-model="form.toUserIds"
@@ -85,7 +85,7 @@
             @uploading-change="imageUploading = $event"
           />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <div v-if="history.length" class="mail-history-hint">
         上次发送：{{ formatDateTime(history[0].sent_at || history[0].send_attempted_at) }}，
         发件人：{{ history[0].sender_name || '历史未记录' }}<span v-if="history[0].sender_email"> · {{ history[0].sender_email }}</span>，

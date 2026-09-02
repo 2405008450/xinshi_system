@@ -46,7 +46,7 @@ ALL_COLUMN_KEYS = [
     "priority", "customerWordCount", "customerWordCountType", "internalWordCount",
     "internalWordCountType", "wordCount", "customerReceptionTime", "customerDeadlineTime",
     "sentToClientTime", "clientFeedback", "pmConfirmedBy", "majorProjectManagerConfirmation",
-    "assignedTranslators", "translatorAssignmentTime", "expectedTranslatorStatsMethod",
+    "assignedTranslators", "translatorCompletionRemarks", "translatorAssignmentTime", "expectedTranslatorStatsMethod",
     "expectedTranslatorWordCount", "translatorDeliveryProgress", "preReviewQcProgress",
     "review1Progress", "review2Progress", "postReviewQcProgress", "layoutProgress",
     "consolidationProgress", "createdBy",

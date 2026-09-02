@@ -168,7 +168,7 @@
 
     <!-- 新增/编辑任务弹窗 -->
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="560px" @close="resetTaskForm">
-      <el-form ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="100px">
+      <AppForm ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="100px">
         <el-form-item label="人员" prop="personName">
           <el-input v-model="taskForm.personName" placeholder="请输入人员姓名" />
         </el-form-item>
@@ -206,7 +206,7 @@
         <el-form-item label="备注" prop="remarks">
           <el-input v-model="taskForm.remarks" type="textarea" :rows="2" placeholder="选填" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submitTask">确定</el-button>

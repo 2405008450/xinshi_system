@@ -47,7 +47,7 @@
     </el-card>
 
     <DraggableFormDialog v-model="dialogVisible" :title="form.id?'编辑正式安排':'新增正式安排'" width="min(760px,calc(100vw - 32px))" top="5vh" class="workflow-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="标注项目" prop="projectId"><el-select v-model="form.projectId" filterable :disabled="Boolean(form.id)" placeholder="请选择归属项目" style="width:100%" @change="editorProjectChanged"><el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" /></el-select></el-form-item>
         <el-row :gutter="16">
           <el-col :xs="24" :md="12"><el-form-item label="人员角色" prop="assignmentRole"><el-select v-model="form.assignmentRole" style="width:100%"><el-option v-for="(label,value) in roleLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
@@ -60,7 +60,7 @@
         <el-form-item label="质量评分"><el-input v-model="form.qualityScore" /></el-form-item>
         <el-form-item label="评价备注"><el-input v-model="form.evaluationNote" type="textarea" :rows="3" /></el-form-item>
         <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" />
-      </el-form>
+      </AppForm>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRow">保存</el-button></template>
     </DraggableFormDialog>
   </div>

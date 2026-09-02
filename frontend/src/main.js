@@ -8,6 +8,7 @@ import './styles/common.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import TableActionButton from './components/common/TableActionButton.vue'
+import AppForm from './components/common/AppForm.vue'
 import { installChineseMessageGuard } from './utils/errorMessages'
 import { installChineseValidationMessages } from './utils/validationLocale'
 
@@ -31,4 +32,6 @@ app.component('TableActionButton', TableActionButton)
 
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+// 增强新增、编辑表单：提交校验失败时滚动并聚焦到第一个错误字段。
+app.component('AppForm', AppForm)
 app.mount('#app')

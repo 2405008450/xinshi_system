@@ -11,14 +11,14 @@
   >
     <el-tabs v-model="mode">
       <el-tab-pane label="按数量生成" name="quantity">
-        <el-form label-position="top">
+        <AppForm label-position="top">
           <el-row :gutter="16">
             <el-col :xs="24" :md="12"><el-form-item label="生成数量"><el-input-number v-model="form.count" :min="1" :max="500" style="width:100%" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="起始序号"><el-input-number v-model="form.startIndex" :min="1" style="width:100%" /></el-form-item></el-col>
           </el-row>
           <el-form-item label="子项目名前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则按 母项目名称-子订单01 自动生成" /></el-form-item>
           <el-alert type="info" :closable="false" show-icon :title="`将生成 ${quantityNames.length} 个子订单，名称示例：${quantityNames.slice(0, 3).join('、')}`" />
-        </el-form>
+        </AppForm>
       </el-tab-pane>
 
       <el-tab-pane label="按文件名导入" name="filenames">
@@ -61,7 +61,7 @@
     </el-tabs>
 
     <el-divider content-position="left">批量公共字段</el-divider>
-    <el-form label-position="top">
+    <AppForm label-position="top">
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="状态"><el-select v-model="form.status" clearable style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
         <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="form.priority" clearable style="width:100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
@@ -82,7 +82,7 @@
         <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
         <el-col :xs="24" :md="12"><el-form-item label="译员 ID"><el-input v-model="form.translatorId" /></el-form-item></el-col>
       </el-row>
-    </el-form>
+    </AppForm>
 
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>

@@ -25,7 +25,7 @@
       </div>
     </template>
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
         <el-input
           v-model="searchForm.keyword"
@@ -59,7 +59,7 @@
             @change="handleSearch"
             @enter="handleSearch"
           />
-          <el-form v-if="false" label-position="top">
+          <AppForm v-if="false" label-position="top">
               <el-row :gutter="16">
                 <el-col :xs="24" :sm="12" :lg="8">
                   <el-form-item label="项目类型">
@@ -103,10 +103,10 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-          </el-form>
+          </AppForm>
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -359,7 +359,7 @@
         />
       </template>
       <div ref="dialogBodyRef" class="editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
           <section class="form-section interpretation-key-fields">
             <div class="interpretation-key-fields__header">
               <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
@@ -541,7 +541,7 @@
             </el-form-item>
           </section>
           <InternalProjectRolesForm v-model="form.roleAssignments" />
-        </el-form>
+        </AppForm>
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>

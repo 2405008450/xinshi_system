@@ -29,7 +29,7 @@
       </div>
     </template>
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
         <el-input
           v-model="searchForm.keyword"
@@ -60,7 +60,7 @@
           @clear="clearAdvancedFilters"
           @reset="resetSearch"
         >
-          <el-form :model="searchForm" label-position="top" class="advanced-filter-form">
+          <AppForm :model="searchForm" label-position="top" class="advanced-filter-form">
               <el-row :gutter="16">
                 <el-col :xs="24" :sm="12" :lg="8">
                   <el-form-item label="咨询日期">
@@ -145,10 +145,10 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-          </el-form>
+          </AppForm>
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
@@ -444,7 +444,7 @@
         />
       </template>
       <div ref="consultationEditorRef" v-loading="editorLoading" class="consultation-editor">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
         <section v-if="isSimpleConsultationType(form.consultation_type)" class="form-section consultation-form-section consultation-form-section--primary simple-consultation-form">
           <div class="consultation-form-section__header">
             <h3>简单咨询</h3>
@@ -1153,7 +1153,7 @@
           </el-row>
         </section>
         </template>
-      </el-form>
+      </AppForm>
       </div>
 
       <template #footer>
@@ -1206,7 +1206,7 @@
             >查看发件邮箱状态</el-button>
           </el-descriptions-item>
         </el-descriptions>
-        <el-form :model="confirmationForm" ref="confirmationFormRef" label-width="120px" @submit.prevent>
+        <AppForm :model="confirmationForm" ref="confirmationFormRef" label-width="120px" @submit.prevent>
           <el-form-item
             label="项目名称"
             prop="projectName"
@@ -1315,7 +1315,7 @@
             </div>
           </el-form-item>
           <el-alert v-if="confirmationPreview.blocking_reasons?.length" :title="confirmationPreview.blocking_reasons.join('；')" type="error" :closable="false" show-icon />
-        </el-form>
+        </AppForm>
       </div>
       <template #footer>
         <el-button :disabled="confirmationSubmitting" @click="confirmationDialogVisible = false">取消</el-button>

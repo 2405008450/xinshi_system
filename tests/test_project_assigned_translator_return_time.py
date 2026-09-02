@@ -44,6 +44,7 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
         status="ready",
         translation_scope="全文",
         planned_delivery_at=return_time,
+        completion_remarks="实际耗时 3 小时，质量良好",
     )
     project = SimpleNamespace(id=project_id, sub_orders=[])
     monkeypatch.setattr(crud, "_attach_word_count_matrices", lambda *args, **kwargs: None)
@@ -51,3 +52,4 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
     crud._attach_manuscript_assignees(DbStub([arrangement]), projects=[project])
 
     assert project.assigned_translators[0]["translator_return_time"] == return_time
+    assert project.assigned_translators[0]["completion_remarks"] == "实际耗时 3 小时，质量良好"

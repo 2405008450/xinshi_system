@@ -35,6 +35,7 @@ from manuscript_schemas import (
     ManuscriptArrangementCreate,
     ManuscriptArrangementUpdate,
     ManuscriptAssignmentInput,
+    ManuscriptCompletionUpdate,
     ManuscriptDispatchCreate,
     ManuscriptDispatchUpdate,
     ManuscriptMailPathsUpdate,
@@ -1846,6 +1847,33 @@ def update_settlement(
         setattr(arrangement, field, value)
     if actual_values is not None:
         replace_arrangement_values(db, arrangement.id, "actual", actual_values)
+    arrangement.updated_at = datetime.datetime.now()
+    db.commit()
+    return get_arrangement(db, arrangement.id)
+
+
+def update_completion(
+    db: Session,
+    arrangement_id: UUID,
+    payload: ManuscriptCompletionUpdate,
+    current_user: AppUser,
+) -> Optional[ManuscriptArrangement]:
+    """登记单次派稿中对应译员的任务完成情况。"""
+    arrangement = get_arrangement(db, arrangement_id)
+    if not arrangement:
+        return None
+    project, sub_order = _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    if arrangement.status == "cancelled":
+        raise ValueError("已取消的译员明细不能登记任务完成情况")
+
+    value = payload.completion_remarks
+    arrangement.completion_remarks = value.strip() if value and value.strip() else None
     arrangement.updated_at = datetime.datetime.now()
     db.commit()
     return get_arrangement(db, arrangement.id)

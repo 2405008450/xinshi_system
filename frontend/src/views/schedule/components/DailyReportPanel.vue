@@ -53,7 +53,7 @@
         </el-icon>
       </button>
       <el-collapse-transition>
-        <el-form v-show="supplementExpanded" label-position="top" class="supplement-form">
+        <AppForm v-show="supplementExpanded" label-position="top" class="supplement-form">
           <el-form-item>
             <el-input
               v-model="report.supplemental_note"
@@ -66,7 +66,7 @@
               @input="supplementDirty = true"
             />
           </el-form-item>
-        </el-form>
+        </AppForm>
       </el-collapse-transition>
     </section>
 
@@ -106,7 +106,7 @@
             <span v-if="!mailPreview.cc_users?.length">-</span>
           </el-descriptions-item>
         </el-descriptions>
-        <el-form label-position="top" class="mail-form">
+        <AppForm label-position="top" class="mail-form">
           <el-form-item label="邮件主题" required>
             <el-input v-model="mailPreview.subject" maxlength="1000" />
           </el-form-item>
@@ -133,7 +133,7 @@
           <el-form-item v-if="mailPreview.supplemental_note" label="补充说明（来自已确认日报）">
             <div class="readonly-note">{{ mailPreview.supplemental_note }}</div>
           </el-form-item>
-        </el-form>
+        </AppForm>
       </div>
       <template #footer>
         <el-button @click="mailPreviewDialog = false">取消</el-button>

@@ -31,7 +31,7 @@
     </template>
 
     <div class="search-bar">
-      <el-form :inline="true" :model="searchForm" class="search-form-inline">
+      <AppForm :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户名称">
           <el-input
             v-model="advancedFilters.client_name"
@@ -80,7 +80,7 @@
             <CompactFilterGrid :fields="clientAdvancedFilterFields" :model="advancedFilters" @update="updateConfiguredFilter" @text-input="handleAdvancedTextInput" @change="handleSelectionChange" @enter="handleSearch" />
             <div v-if="false" class="advanced-filter-panel">
               <div class="advanced-filter-title">高级筛选</div>
-              <el-form :model="advancedFilters" label-width="112px" class="advanced-filter-form">
+              <AppForm :model="advancedFilters" label-width="112px" class="advanced-filter-form">
                 <el-row :gutter="16">
                   <el-col :xs="24" :sm="12">
                     <el-form-item label="客户编号">
@@ -153,7 +153,7 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
-              </el-form>
+              </AppForm>
               <div class="advanced-filter-actions">
                 <el-button link type="primary" @click="clearAdvancedFilters">清空高级条件</el-button>
                 <el-button @click="advancedFilterVisible = false">关闭</el-button>
@@ -161,7 +161,7 @@
             </div>
           </AdvancedFilterPopover>
         </el-form-item>
-      </el-form>
+      </AppForm>
     </div>
 
     <el-table
@@ -347,7 +347,7 @@
       top="5vh"
       @close="handleDialogClose"
     >
-      <el-form
+      <AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -466,7 +466,7 @@
             </el-table-column>
           </el-table>
         </div>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
@@ -484,7 +484,7 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
-      <el-form ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
+      <AppForm ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="子客户编号" prop="sub_client_code">
@@ -543,7 +543,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="subDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="subSubmitLoading" @click="handleSubSubmit">确定</el-button>

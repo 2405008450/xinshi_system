@@ -203,6 +203,7 @@ class ManuscriptArrangement(Base):
     email_body: Mapped[Optional[str]] = mapped_column(Text)
     email_body_html: Mapped[Optional[str]] = mapped_column(Text)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
+    completion_remarks: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

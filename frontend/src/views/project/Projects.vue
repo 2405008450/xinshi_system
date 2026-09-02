@@ -11,7 +11,7 @@
     </template>
 
     <div class="search-bar">
-      <el-form :inline="true" :model="searchForm" class="search-form-inline">
+      <AppForm :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="项目编号">
           <el-input v-model="searchForm.project_no" placeholder="支持模糊搜索" clearable />
         </el-form-item>
@@ -22,7 +22,7 @@
           <el-button type="primary" @click="handleSearch">搜索</el-button>
           <el-button @click="resetSearch">重置</el-button>
         </el-form-item>
-      </el-form>
+      </AppForm>
     </div>
 
     <el-table :data="tableData" v-loading="loading" border>
@@ -60,7 +60,7 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
-      <el-form
+      <AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -125,7 +125,7 @@
         <el-form-item label="备注" prop="remarks">
           <el-input v-model="form.remarks" type="textarea" :rows="4" />
         </el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>

@@ -29,14 +29,14 @@
           :closable="false"
           show-icon
         />
-        <el-form label-width="110px" class="policy-form">
+        <AppForm label-width="110px" class="policy-form">
           <section v-for="item in projectTypes" :key="item.value" class="policy-section">
             <h3>{{ item.label }}</h3>
             <el-form-item label="默认主送组"><el-select v-model="policies[item.value].to_group_ids" multiple filterable placeholder="可留空，发送时手动选择" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
             <el-form-item label="默认抄送组"><el-select v-model="policies[item.value].cc_group_ids" multiple filterable placeholder="请选择默认抄送组" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
             <el-button v-if="canWrite" type="primary" plain @click="savePolicy(item.value)">保存{{ item.label }}策略</el-button>
           </section>
-        </el-form>
+        </AppForm>
       </el-tab-pane>
       <el-tab-pane label="工作报告收件策略" name="daily-reports">
         <el-alert title="为每位用户配置固定的工作报告主送组和抄送组；用户发送时只能查看收件人，不能临时修改。" type="info" :closable="false" show-icon class="policy-tip" />
@@ -61,7 +61,7 @@
       </el-tab-pane>
     </el-tabs>
     <el-dialog v-model="groupDialog" :title="groupForm.id ? '编辑邮件组' : '新增邮件组'" width="min(680px, calc(100vw - 32px))">
-      <el-form label-width="90px">
+      <AppForm label-width="90px">
         <el-form-item label="组名" required><el-input v-model="groupForm.name" maxlength="100" /></el-form-item>
         <el-form-item label="说明"><el-input v-model="groupForm.description" maxlength="500" /></el-form-item>
         <el-form-item label="成员" required>
@@ -72,7 +72,7 @@
           />
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="groupForm.is_active" /></el-form-item>
-      </el-form>
+      </AppForm>
       <template #footer><el-button @click="groupDialog=false">取消</el-button><el-button type="primary" @click="saveGroup">保存</el-button></template>
     </el-dialog>
   </el-card>

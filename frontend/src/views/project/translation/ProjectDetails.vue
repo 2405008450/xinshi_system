@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-card class="compact-list-card">
     <template #header>
       <div class="card-header">
@@ -31,7 +31,7 @@
       </div>
     </template>
 
-    <el-form :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
         <el-input v-model="searchForm.keyword" placeholder="订单号、项目名称、客户名称或客户单号" clearable style="width: 320px" @input="handleTextSearch" @keyup.enter="handleSearch" />
       </el-form-item>
@@ -54,7 +54,7 @@
           />
         </AdvancedFilterPopover>
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <el-table
       ref="projectTableRef"
@@ -166,6 +166,16 @@
                     </div>
                     <span v-if="!getTranslatorReturnDeadlineItems(subRow.assignedTranslators).length">-</span>
                   </div>
+                </template>
+              </el-table-column>
+              <el-table-column
+                v-if="isSubOrderColumnVisible('translatorCompletionRemarks')"
+                label="译员任务完成情况"
+                min-width="240"
+                show-overflow-tooltip
+              >
+                <template #default="{ row: subRow }">
+                  {{ formatTranslatorCompletionRemarks(subRow.assignedTranslators) }}
                 </template>
               </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
@@ -384,7 +394,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="editor-body">
-        <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
           <el-tabs v-model="projectDialogTab" class="editor-tabs project-editor-tabs">
             <el-tab-pane label="基础信息" name="basic">
               <div class="form-section">
@@ -840,7 +850,7 @@
               />
             </el-tab-pane>
           </el-tabs>
-        </el-form>
+        </AppForm>
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -851,7 +861,7 @@
 
     <DraggableFormDialog v-model="subOrderDialogVisible" class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="resetSubOrderForm">
       <div class="editor-body">
-        <el-form ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="120px">
+        <AppForm ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="120px">
           <el-tabs v-model="subOrderDialogTab" class="editor-tabs">
             <el-tab-pane label="基础信息" name="basic">
               <div class="form-section">
@@ -937,7 +947,7 @@
               </div>
             </el-tab-pane>
           </el-tabs>
-        </el-form>
+        </AppForm>
       </div>
       <template #footer>
         <el-button @click="subOrderDialogVisible = false">取消</el-button>
@@ -1179,6 +1189,7 @@ const projectDetailItems = [
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
   { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
+  { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
   { label: '审校前 QC', key: 'preReviewQcProgress' },
@@ -1203,6 +1214,7 @@ const subOrderDetailItems = [
   { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
   { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
+  { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
   { label: '审校前 QC', key: 'preReviewQcProgress' },
@@ -1380,6 +1392,7 @@ const tableColumnOverrides = {
   majorProjectManagerConfirmation: { minWidth: 160 },
   assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
   translatorReturnTime: { minWidth: 220 },
+  translatorCompletionRemarks: { minWidth: 240 },
   translatorAssignmentTime: { minWidth: 150 },
   translatorDeliveryProgress: { minWidth: 110 },
   preReviewQcProgress: { minWidth: 96 },
@@ -1404,6 +1417,7 @@ const subOrderTableColumns = [
   { key: 'wordCountMatrix', label: '字数统计' },
   { key: 'assignedTranslators', label: '译员安排' },
   { key: 'translatorReturnTime', label: '译员回稿时间' },
+  { key: 'translatorCompletionRemarks', label: '译员任务完成情况' },
   { key: 'status', label: '状态' },
 ]
 const legacyTranslationDefaultColumnKeys = ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
@@ -1422,7 +1436,9 @@ const {
 } = useTableColumns(
   'translation-details-sub-orders-v1',
   subOrderTableColumns,
-  subOrderTableColumns.map((column) => column.key),
+  subOrderTableColumns
+    .filter((column) => column.key !== 'translatorCompletionRemarks')
+    .map((column) => column.key),
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
 const form = reactive(createEmptyProjectForm())
@@ -1556,6 +1572,18 @@ const formatTranslatorReturnTimes = (items) => {
       if (!time) return ''
       const name = item.translatorName || item.translator_name || '译员'
       return `${name}：${formatDateTime(time)}`
+    })
+    .filter(Boolean)
+  return values.length ? values.join('；') : '-'
+}
+const formatTranslatorCompletionRemarks = (items) => {
+  if (!Array.isArray(items) || !items.length) return '-'
+  const values = items
+    .map((item) => {
+      const remarks = item.completionRemarks || item.completion_remarks
+      if (!remarks) return ''
+      const name = item.translatorName || item.translator_name || '译员'
+      return `${name}：${remarks}`
     })
     .filter(Boolean)
   return values.length ? values.join('；') : '-'

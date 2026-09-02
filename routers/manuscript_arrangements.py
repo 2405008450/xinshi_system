@@ -21,6 +21,7 @@ from manuscript_schemas import (
     ManuscriptArrangementResponse,
     ManuscriptArrangementUpdate,
     ManuscriptBatchSendResponse,
+    ManuscriptCompletionUpdate,
     ManuscriptDispatchCreate,
     ManuscriptDispatchResponse,
     ManuscriptDispatchUpdate,
@@ -47,6 +48,7 @@ from manuscript_service import (
     send_arrangement,
     send_dispatch,
     update_arrangement,
+    update_completion,
     update_dispatch,
     update_dispatch_mail_paths,
     update_settlement,
@@ -435,6 +437,30 @@ def update_settlement_endpoint(
         raise HTTPException(status_code=404, detail="译员派稿明细不存在")
     try:
         arrangement = update_settlement(
+            db, arrangement_id, payload, current_user
+        )
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+    return arrangement
+
+
+@router.patch(
+    "/batches/{dispatch_id}/arrangements/{arrangement_id}/completion",
+    response_model=ManuscriptArrangementResponse,
+)
+def update_completion_endpoint(
+    dispatch_id: UUID,
+    arrangement_id: UUID,
+    payload: ManuscriptCompletionUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    current = get_arrangement(db, arrangement_id)
+    if not current or current.dispatch_id != dispatch_id:
+        raise HTTPException(status_code=404, detail="译员派稿明细不存在")
+    try:
+        arrangement = update_completion(
             db, arrangement_id, payload, current_user
         )
     except Exception as exc:

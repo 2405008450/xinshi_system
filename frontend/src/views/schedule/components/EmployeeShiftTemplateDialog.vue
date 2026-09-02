@@ -7,7 +7,7 @@
     class="shift-template-dialog"
     @open="loadTemplate"
   >
-    <el-form label-width="96px">
+    <AppForm label-width="96px">
       <el-form-item label="生效周">
         <el-date-picker
           v-model="effectiveFrom"
@@ -25,7 +25,7 @@
       <el-form-item v-if="lockEnabled !== initialLocked || lockEnabled" label="锁定说明">
         <el-input v-model="lockReason" maxlength="500" show-word-limit placeholder="请填写锁定或解锁原因" />
       </el-form-item>
-    </el-form>
+    </AppForm>
 
     <section class="workday-quick-set">
       <div class="workday-quick-set__header">

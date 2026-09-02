@@ -138,7 +138,7 @@
     </el-card>
 
     <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @closed="onEditorClosed">
-      <el-form ref="formRef" :model="form" :rules="formRules" :validate-on-rule-change="false" label-width="110px">
+      <AppForm ref="formRef" :model="form" :rules="formRules" :validate-on-rule-change="false" label-width="110px">
         <div class="lifecycle-bar">
           <div>
             <span class="lifecycle-label">当前状态</span>
@@ -205,7 +205,7 @@
             <el-input v-model="item.requirementDetail" type="textarea" :rows="2" placeholder="该语种具体要求；完整需求默认放在第一条明细" style="margin-top: 10px" />
           </div>
         </section>
-      </el-form>
+      </AppForm>
       <template #footer>
         <div class="editor-footer">
           <el-button v-if="form.demandStatus === 'confirmed'" type="danger" plain :loading="cancelling" @click="cancelDemand">取消需求</el-button>
@@ -220,7 +220,7 @@
     </DraggableFormDialog>
 
     <el-dialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))">
-      <el-form label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></el-form>
+      <AppForm label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></AppForm>
       <template #footer><el-button @click="progressDialog = false">取消</el-button><el-button type="primary" @click="saveProgress">保存进度</el-button></template>
     </el-dialog>
   </div>
