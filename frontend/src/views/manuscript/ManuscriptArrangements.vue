@@ -400,7 +400,7 @@
                       style="width: 100%"
                     />
 
-                    <label>备注</label>
+                    <label>派稿补充要求（发送给译员）</label>
                     <el-input
                       v-model="activeWorkbenchAssignment.remarks"
                       type="textarea"
@@ -890,35 +890,29 @@
           <template #default="{ row }">
             <div class="assignment-detail-wrap">
               <el-table :data="row.arrangements || []" border size="small">
-                <el-table-column label="状态" width="92">
+                <el-table-column label="状态" width="82">
                   <template #default="{ row: item }">
                     <el-tag :type="assignmentStatusMeta(item.status).type" size="small">
                       {{ assignmentStatusMeta(item.status).label }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="译员 / 译员合作形式" width="180">
+                <el-table-column label="译员 / 合作形式" width="150">
                   <template #default="{ row: item }">
                     <div>{{ item.translator_name_snapshot }}</div>
                     <small>{{ cooperationLabel(item) }}</small>
                   </template>
                 </el-table-column>
-                <el-table-column prop="translation_scope" label="需翻译部分" min-width="180" show-overflow-tooltip />
-                <el-table-column label="译员结算字数" width="220">
+                <el-table-column prop="translation_scope" label="需翻译部分" min-width="145" show-overflow-tooltip />
+                <el-table-column label="译员结算字数" width="175">
                   <template #default="{ row: item }">
                     {{ assignmentWordSummary(item) }}
                   </template>
                 </el-table-column>
-                <el-table-column label="译员交稿_全稿预定时间" width="205">
+                <el-table-column label="全稿预定时间" width="170">
                   <template #default="{ row: item }">{{ formatDateTime(item.planned_delivery_at) }}</template>
                 </el-table-column>
-                <el-table-column label="译员计价方式" width="170">
-                  <template #default="{ row: item }">
-                    <div>{{ pricingMethodLabel(item) }}</div>
-                    <small>单价 {{ formatMoney(item.translator_unit_price) }} / 总价 {{ formatMoney(item.translator_total_price) }}</small>
-                  </template>
-                </el-table-column>
-                <el-table-column label="译员交稿_预定时间" min-width="230">
+                <el-table-column label="交稿节点" min-width="185">
                   <template #default="{ row: item }">
                     <div
                       v-for="milestone in item.milestones || []"
@@ -929,7 +923,7 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="邮件投递" min-width="180" show-overflow-tooltip>
+                <el-table-column label="邮件投递" min-width="155" show-overflow-tooltip>
                   <template #default="{ row: item }">
                     <span v-if="item.status === 'sent'">
                       {{ item.delivery_mode === 'test' ? '测试收件箱' : '译员邮箱' }}
@@ -941,12 +935,17 @@
                     <span v-else>{{ item.recipient_email || '缺少邮箱' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="任务完成情况" min-width="220" show-overflow-tooltip>
+                <el-table-column label="派稿补充要求" min-width="190" show-overflow-tooltip>
+                  <template #default="{ row: item }">
+                    {{ item.remarks || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="任务完成情况" min-width="190" show-overflow-tooltip>
                   <template #default="{ row: item }">
                     {{ item.completion_remarks || '-' }}
                   </template>
                 </el-table-column>
-                <el-table-column v-if="canWrite" label="操作" width="260" fixed="right">
+                <el-table-column v-if="canWrite" label="操作" width="230" fixed="right">
                   <template #default="{ row: item }">
                     <template v-if="canManageDispatch(row)">
                       <el-button
@@ -970,15 +969,6 @@
                         结算
                       </el-button>
                       <el-button
-                        v-if="item.status !== 'cancelled'"
-                        type="primary"
-                        link
-                        size="small"
-                        @click="openCompletionDialog(row, item)"
-                      >
-                        {{ item.completion_remarks ? '编辑完成情况' : '登记完成情况' }}
-                      </el-button>
-                      <el-button
                       v-if="row.status === 'cancelled' && item.status === 'cancelled'"
                       type="primary"
                       link
@@ -995,7 +985,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="订单号" width="180" show-overflow-tooltip>
+        <el-table-column label="订单号" width="145" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="dispatch-order-cell">
               <TableExpandButton
@@ -1009,24 +999,21 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="批次状态" width="105">
+        <el-table-column label="批次状态" width="88">
           <template #default="{ row }">
             <el-tag :type="dispatchStatusMeta(row.status).type" size="small">
               {{ dispatchStatusMeta(row.status).label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="project_name_snapshot" label="项目" min-width="180" show-overflow-tooltip />
-        <el-table-column label="译员" min-width="180" show-overflow-tooltip>
+        <el-table-column prop="project_name_snapshot" label="项目" min-width="230" show-overflow-tooltip />
+        <el-table-column label="译员" width="105" show-overflow-tooltip>
           <template #default="{ row }">{{ translatorSummary(row) }}</template>
         </el-table-column>
-        <el-table-column label="译员计价方式" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ pricingMethodSummary(row) }}</template>
-        </el-table-column>
-        <el-table-column label="人数" width="70" align="center">
+        <el-table-column label="人数" width="55" align="center">
           <template #default="{ row }">{{ activeAssignments(row).length }}</template>
         </el-table-column>
-        <el-table-column label="译员结算字数" width="200">
+        <el-table-column label="译员结算字数" width="165">
           <template #default="{ row }">
             <div>{{ assignmentTotalSummary(row, 'planned') }} / {{ assignmentTotalSummary(row, 'actual') }}</div>
             <WordCountMatrixPopover
@@ -1041,17 +1028,47 @@
             </WordCountMatrixPopover>
           </template>
         </el-table-column>
-        <el-table-column label="译员总价" width="110" align="right">
-          <template #default="{ row }">{{ formatMoney(sumField(row, 'translator_total_price', true)) }}</template>
+        <el-table-column label="任务完成情况" width="240">
+          <template #default="{ row }">
+            <div class="dispatch-completion-cell">
+              <div
+                v-for="item in row.arrangements || []"
+                :key="item.id"
+                class="arrangement-completion-line"
+              >
+                <span v-if="(row.arrangements || []).length > 1" class="completion-translator-name">
+                  {{ item.translator_name_snapshot }}
+                </span>
+                <el-input
+                  :model-value="completionRemarkDrafts[item.id] ?? item.completion_remarks ?? ''"
+                  size="small"
+                  maxlength="255"
+                  :disabled="!canManageDispatch(row) || item.status === 'cancelled'"
+                  placeholder="填写完成情况"
+                  @update:model-value="completionRemarkDrafts[item.id] = $event"
+                  @keyup.enter="saveCompletionRemark(row, item)"
+                />
+                <el-button
+                  v-if="canManageDispatch(row) && item.status !== 'cancelled'"
+                  type="primary"
+                  link
+                  size="small"
+                  :loading="completionRemarksSavingId === item.id"
+                  :disabled="!isCompletionRemarkChanged(item)"
+                  @click="saveCompletionRemark(row, item)"
+                >
+                  保存
+                </el-button>
+              </div>
+              <span v-if="!(row.arrangements || []).length">-</span>
+            </div>
+          </template>
         </el-table-column>
-        <el-table-column label="项目助理" width="110" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.project_assistant_name || '角色池' }}</template>
-        </el-table-column>
-        <el-table-column prop="created_by_name" label="实际安排人" width="120" show-overflow-tooltip />
-        <el-table-column label="创建时间" width="165">
+        <el-table-column prop="created_by_name" label="实际安排人" width="100" show-overflow-tooltip />
+        <el-table-column label="创建时间" width="140">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column v-if="canWrite" label="操作" width="250" fixed="right">
+        <el-table-column v-if="canWrite" label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <template v-if="canManageDispatch(row)">
             <el-button v-if="row.status === 'draft'" type="primary" link size="small" @click="editDraft(row)">编辑</el-button>
@@ -1289,14 +1306,14 @@
           </div>
 
           <el-collapse class="mail-editor">
-            <el-collapse-item title="邮件与备注" :name="assignmentIndex">
+            <el-collapse-item title="邮件与派稿要求" :name="assignmentIndex">
               <el-form-item label="邮件标题">
                 <el-input v-model="assignment.email_subject" maxlength="500" />
               </el-form-item>
               <el-form-item label="邮件正文">
                 <el-input v-model="assignment.email_body" type="textarea" :rows="7" maxlength="20000" show-word-limit />
               </el-form-item>
-              <el-form-item label="备注">
+              <el-form-item label="派稿补充要求（发送给译员）">
                 <el-input v-model="assignment.remarks" type="textarea" :rows="2" maxlength="5000" />
               </el-form-item>
             </el-collapse-item>
@@ -1440,32 +1457,6 @@
       </template>
     </el-dialog>
 
-    <DraggableFormDialog
-      v-model="completionDialogVisible"
-      :title="completionEditingExisting ? '编辑任务完成情况' : '登记任务完成情况'"
-      width="560px"
-    >
-      <AppForm :model="completionForm" label-width="110px">
-        <el-form-item label="译员">
-          <el-input :model-value="completionForm.translator_name" disabled />
-        </el-form-item>
-        <el-form-item label="任务完成情况">
-          <el-input
-            v-model="completionForm.completion_remarks"
-            type="textarea"
-            :rows="4"
-            maxlength="255"
-            show-word-limit
-            placeholder="简要记录实际耗时、处理效果、质量、异常或返工情况"
-          />
-        </el-form-item>
-      </AppForm>
-      <template #footer>
-        <el-button :disabled="completionSaving" @click="completionDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="completionSaving" @click="saveCompletion">保存</el-button>
-      </template>
-    </DraggableFormDialog>
-
     <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
       <AppForm :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
@@ -1508,7 +1499,7 @@
         <el-form-item label="译员总价">
           <el-input-number v-model="settlementForm.translator_total_price" :min="0" :precision="2" :controls="false" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="备注">
+        <el-form-item label="派稿补充要求（发送给译员）">
           <el-input v-model="settlementForm.remarks" type="textarea" :rows="3" maxlength="5000" />
         </el-form-item>
       </AppForm>
@@ -1639,7 +1630,8 @@ const contextLoading = ref(false)
 const recordsLoading = ref(false)
 const saving = ref(false)
 const settlementSaving = ref(false)
-const completionSaving = ref(false)
+const completionRemarksSavingId = ref('')
+const completionRemarkDrafts = reactive({})
 const sendingId = ref('')
 const sendingBatchId = ref('')
 const withdrawingBatchId = ref('')
@@ -1654,8 +1646,6 @@ const projectKeyword = ref('')
 const dispatchKeyword = ref('')
 const dispatchDialogVisible = ref(false)
 const settlementDialogVisible = ref(false)
-const completionDialogVisible = ref(false)
-const completionEditingExisting = ref(false)
 const selectedTranslatorIds = ref([])
 const activeArrangementTranslatorId = ref('')
 const workbenchStage = ref('arrange')
@@ -2170,13 +2160,6 @@ const settlementForm = reactive({
   translator_unit_price: null,
   translator_total_price: null,
   remarks: ''
-})
-
-const completionForm = reactive({
-  dispatch_id: '',
-  arrangement_id: '',
-  translator_name: '',
-  completion_remarks: ''
 })
 
 const PROJECT_STATUS_LABELS = {
@@ -3208,39 +3191,30 @@ function openSettlementDialog(dispatch, assignment) {
   settlementDialogVisible.value = true
 }
 
-function openCompletionDialog(dispatch, assignment) {
-  if (!ensureCanManage(dispatch)) return
-  completionEditingExisting.value = Boolean(assignment.completion_remarks)
-  Object.assign(completionForm, {
-    dispatch_id: dispatch.id,
-    arrangement_id: assignment.id,
-    translator_name: assignment.translator_name_snapshot,
-    completion_remarks: assignment.completion_remarks || ''
-  })
-  completionDialogVisible.value = true
+function isCompletionRemarkChanged(assignment) {
+  const draft = String(completionRemarkDrafts[assignment.id] ?? assignment.completion_remarks ?? '').trim()
+  const saved = String(assignment.completion_remarks || '').trim()
+  return draft !== saved
 }
 
-async function saveCompletion() {
-  const dispatch = dispatches.value.find(
-    (item) => item.id === completionForm.dispatch_id
-  )
-  if (!ensureCanManage(dispatch)) return
-  completionSaving.value = true
+async function saveCompletionRemark(dispatch, assignment) {
+  if (!ensureCanManage(dispatch) || assignment.status === 'cancelled') return
+  if (!isCompletionRemarkChanged(assignment)) return
+  completionRemarksSavingId.value = assignment.id
+  const completionRemarks = String(
+    completionRemarkDrafts[assignment.id] ?? assignment.completion_remarks ?? ''
+  ).trim()
   try {
-    await updateManuscriptCompletion(
-      completionForm.dispatch_id,
-      completionForm.arrangement_id,
-      {
-        completion_remarks: completionForm.completion_remarks.trim() || null
-      }
-    )
-    completionDialogVisible.value = false
+    const updated = await updateManuscriptCompletion(dispatch.id, assignment.id, {
+      completion_remarks: completionRemarks || null
+    })
+    assignment.completion_remarks = updated?.completion_remarks ?? null
+    completionRemarkDrafts[assignment.id] = updated?.completion_remarks || ''
     ElMessage.success('任务完成情况已保存')
-    await loadDispatches()
   } catch (error) {
     ElMessage.error(error.detail || '保存任务完成情况失败')
   } finally {
-    completionSaving.value = false
+    completionRemarksSavingId.value = ''
   }
 }
 
@@ -3356,6 +3330,11 @@ async function loadDispatches() {
     }, { signal: dispatchController.signal })
     if (requestId !== dispatchRequestId) return
     dispatches.value = Array.isArray(response) ? response : []
+    for (const dispatch of dispatches.value) {
+      for (const assignment of dispatch.arrangements || []) {
+        completionRemarkDrafts[assignment.id] = assignment.completion_remarks || ''
+      }
+    }
   } catch (error) {
     if (requestId !== dispatchRequestId || isAbortError(error)) return
     ElMessage.error(error.detail || '加载稿件安排记录失败，请检查网络后重试')
@@ -4043,8 +4022,42 @@ small {
 }
 
 .assignment-detail-wrap {
-  padding: 10px 18px;
+  padding: 8px 10px;
   background: var(--el-fill-color-lighter);
+}
+
+.assignment-detail-wrap :deep(.el-table .cell),
+.dispatch-records-table :deep(.el-table__cell .cell) {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
+.arrangement-completion-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.arrangement-completion-line + .arrangement-completion-line {
+  margin-top: 4px;
+}
+
+.arrangement-completion-line .el-input {
+  min-width: 0;
+}
+
+.arrangement-completion-line .el-button {
+  flex: none;
+  margin: 0;
+}
+
+.completion-translator-name {
+  width: 68px;
+  flex: none;
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dispatch-records-table :deep(.dispatch-expand-column) {

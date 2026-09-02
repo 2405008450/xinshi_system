@@ -193,6 +193,10 @@ def send_text_email(
     """
     config = settings or SmtpSettings.from_env()
     config.validate()
+    normalized_attachments = list(attachments)
+    normalized_inline_images = list(inline_images)
+    if normalized_inline_images and not html_body:
+        raise MailConfigurationError("邮件包含正文图片时必须同时提供 HTML 正文")
 
     if config.mode == "test":
         delivery_to = [_validated_email(
@@ -232,7 +236,7 @@ def send_text_email(
     if html_body:
         message.add_alternative(html_body, subtype="html", charset="utf-8")
         html_part = message.get_payload()[-1]
-        for image in inline_images:
+        for image in normalized_inline_images:
             content_type = (image.content_type or "").partition(";")[0].strip().lower()
             maintype, _, subtype = content_type.partition("/")
             if maintype != "image" or not subtype:
@@ -245,7 +249,11 @@ def send_text_email(
                 filename=image.filename,
                 disposition="inline",
             )
-    for attachment in attachments:
+    if normalized_inline_images:
+        # Foxmail 桌面端对以 multipart/alternative 为最外层的 CID 图片兼容较差。
+        # 即使没有普通附件，也固定使用 mixed -> alternative -> related 的层级。
+        message.make_mixed()
+    for attachment in normalized_attachments:
         content_type = (attachment.content_type or "").partition(";")[0].strip().lower()
         if "/" in content_type:
             maintype, subtype = content_type.split("/", 1)

@@ -22,6 +22,7 @@
 - 所有会启动项目运行时或消耗较多 CPU、内存、磁盘的命令，默认通过远程连接在 `192.168.31.144` 执行，包括 Conda 后端、前端服务、完整构建、完整测试和浏览器联调。
 - 局域网项目不是 Docker 部署，不得使用 `docker compose` 启停或验证该环境。
 - 后端固定使用 `E:\xinshi_system\.conda_env\python.exe`，不得误用 Conda `base`、`fastapi-llm-py311` 或系统 Python。
+- 后端依赖交互式 Windows 登录会话中的 SMB 凭据读取 `\\Win-server` 共享目录。Coding Agent 远程重启时只能启动计划任务 `XinshiDebugBackendInteractive`；禁止使用 WMI/CIM `Win32_Process.Create`、SSH 会话中的 `Start-Process`、Windows 服务或其他会把 Uvicorn 放入 Session 0 的方式。
 - 远程命令必须先确认当前主机名、工作目录为 `E:\xinshi_system`，并核对 Git 提交，避免在错误目录或生产机执行。
 - 局域网调试入口以 `http://192.168.31.144:3000/` 为准；后端端口仅供受控联调，不作为员工正式入口。
 - 云端 `43.132.156.72` 是生产环境。除非用户明确要求发布或运维，否则只能进行必要的只读核查，不得部署、迁移、重启或修改数据。
@@ -69,14 +70,39 @@ ssh xinshi-lan 'powershell -NoProfile -Command "$env:COMPUTERNAME; Set-Location 
 
 ## 局域网启动方式
 
-后端使用项目已配置好的 Conda 环境：
+后端使用项目已配置好的 Conda 环境。服务器本机人工启动时，可以在已登录的 `Administrator` 桌面会话中执行：
 
 ```powershell
 Set-Location -LiteralPath 'E:\xinshi_system'
 & '.\.conda_env\python.exe' -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-也可以在服务器上运行 `E:\xinshi_system\start_backend.bat`。前端使用：
+也可以在服务器桌面上运行 `E:\xinshi_system\start_backend.bat`。
+
+Coding Agent 通过 SSH 远程重启时，不得直接执行上述 Uvicorn 命令，也不得使用 WMI、CIM 或 `Start-Process` 创建后台进程。必须先确认交互式会话与计划任务：
+
+```powershell
+quser
+Get-ScheduledTask -TaskName 'XinshiDebugBackendInteractive' |
+    Select-Object TaskName, State, @{Name='UserId'; Expression={$_.Principal.UserId}}, @{Name='LogonType'; Expression={$_.Principal.LogonType}}
+```
+
+只有在 `Administrator` 控制台会话处于活动状态，且任务的 `LogonType` 为 `Interactive` 时，才允许停止经过命令行校验的旧 Uvicorn 进程并执行：
+
+```powershell
+Start-ScheduledTask -TaskName 'XinshiDebugBackendInteractive'
+```
+
+重启验收必须同时满足：
+
+1. 8000 端口返回 HTTP 200；
+2. 监听进程使用 `E:\xinshi_system\.conda_env\python.exe`；
+3. 监听进程的 `SessionId` 与 `explorer.exe` 的 `SessionId` 一致，当前应为交互式控制台会话而不是 Session 0；
+4. 使用 `LogonType=Interactive` 的临时只读计划任务，在同一会话中对实际 `\\Win-server` 业务目录执行 `Get-Item` 和一次 `Get-ChildItem`，验证完成后删除临时任务和结果文件。
+
+SSH 自身属于另一个登录会话。在 SSH 终端中直接执行 `Test-Path \\Win-server\...` 得到成功或失败，都不能证明后端进程拥有相同的共享目录权限。如果交互式会话不存在、任务配置不符或共享目录验收失败，应保持服务停止或恢复原交互式任务状态并向用户报告，不得回退到 Session 0 启动。
+
+前端使用：
 
 ```powershell
 Set-Location -LiteralPath 'E:\xinshi_system\frontend'

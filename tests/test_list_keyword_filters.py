@@ -89,6 +89,7 @@ def test_translation_keyword_and_advanced_filters_share_one_and_query():
         created_date_end=date(2026, 8, 31),
     ))
     _assert_keyword_columns(sql, "translation_project")
+    assert "translation_sub_order.sub_order_no" in sql
     for column in (
         "translation_project.project_status",
         "translation_project.task_type",

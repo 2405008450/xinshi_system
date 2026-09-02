@@ -21,7 +21,7 @@ except AttributeError:
 
 
 MODULES = [
-    ("笔译项目管理", "/translation-details", "订单号、项目名称、客户名称或客户单号", 9),
+    ("笔译项目管理", "/translation-details", "母/子订单号、项目名称、客户名称或客户单号", 9),
     ("口译项目管理", "/interpretation-details", "订单号、项目名称、客户名称或客户单号", 9),
     ("标注项目管理", "/annotation-details", "订单号、项目名称、客户名称或客户单号", 12),
     ("招聘项目管理", "/recruitment-details", "订单号、项目名称、客户名称或客户单号", 11),

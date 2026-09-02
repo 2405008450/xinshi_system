@@ -5,6 +5,8 @@
 - 当前开发机只用于 Coding Agent、源码编辑、文件搜索、差异检查和轻量静态分析。
 - 项目运行、完整构建、数据库迁移、自动化测试和浏览器联调默认在局域网调试机 `192.168.31.144` 的 `E:\xinshi_system` 中执行，SSH 用户为 `Administrator`。
 - 局域网项目使用已有 Conda 环境 `E:\xinshi_system\.conda_env` 启动，不使用 Docker。后端命令必须使用 `.conda_env\python.exe`，不得误用其他 Conda 环境或系统 Python；前端使用服务器已有的 Node.js/npm。
+- 局域网后端会读取 `\\Win-server` 等需要交互式 Windows 登录凭据的 UNC 共享路径。远程重启后端时必须使用现有计划任务 `XinshiDebugBackendInteractive`，并确认任务主体为 `Administrator`、`LogonType=Interactive`；禁止通过 WMI/CIM `Win32_Process.Create`、SSH 会话中的 `Start-Process`、Windows 服务或任何 Session 0 方式直接启动 Uvicorn，否则即使账号名称相同也无法继承资源管理器所在登录会话的 SMB 凭据。
+- 启动 `XinshiDebugBackendInteractive` 前必须用 `quser` 确认 `Administrator` 的交互式控制台会话仍处于活动状态；如果没有活动会话、计划任务不存在或任务登录类型不是 `Interactive`，必须停止重启并向用户报告，不得回退到 Session 0 启动。重启后必须核对 8000 端口进程的 `SessionId` 与 `explorer.exe` 一致，并在同一交互式任务上下文中对实际 UNC 目录执行只读枚举验证；SSH 会话中的 `Test-Path` 不能替代该验证。
 - 云端生产环境地址为 `43.132.156.72`。没有用户明确的发布或运维指令时，不得在生产环境执行部署、迁移、重启或数据修改。
 - 连接远程主机后，执行变更命令前必须先核对主机名、项目目录和 Git 提交；环境详情与凭据规则见 `docs/infra.md`。
 - 密码、私钥等敏感凭据不得写入仓库文档、脚本、`.env.example` 或 Git 提交，优先使用用户级 SSH 配置与密钥认证。

@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import date, datetime, time, timedelta
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, func, or_
+from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, func, or_, select
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification, ProjectRoleAssignment
 from project_roles import (
@@ -1564,6 +1564,9 @@ def _apply_translation_project_filters(
         pattern = f"%{keyword.strip()}%"
         query = query.filter(or_(
             TranslationProject.order_no.ilike(pattern),
+            TranslationProject.sub_orders.any(
+                TranslationSubOrder.sub_order_no.ilike(pattern)
+            ),
             TranslationProject.project_name.ilike(pattern),
             TranslationProject.customer_order_no.ilike(pattern),
             Client.client_name.ilike(pattern),
@@ -1770,7 +1773,12 @@ def get_translation_projects(
         created_date_end=created_date_end,
         field_filters=field_filters,
     )
-    if sort in {"order_no_desc", "unfinished_first_order_no_desc"}:
+    if sort in {
+        "order_no_desc",
+        "unfinished_first_order_no_desc",
+        "customer_deadline_time_asc",
+        "translator_return_time_asc",
+    }:
         # 兼容 TP-YYMMDD-NNN 与历史 TP-YYYYMMDD-NNN；异常订单号回退到创建时间。
         order_date_part = func.substring(
             TranslationProject.order_no,
@@ -1814,6 +1822,37 @@ def get_translation_projects(
                 else_=0,
             )
             ordering = (ended_rank.asc(), *order_no_ordering)
+        elif sort == "customer_deadline_time_asc":
+            ordering = (
+                TranslationProject.customer_deadline_time.asc().nullslast(),
+                *order_no_ordering,
+            )
+        elif sort == "translator_return_time_asc":
+            # 项目可能同时派给多位译员，以最早的有效回稿时间代表项目紧急度。
+            # 仅统计母项目自身的派稿，与列表“译员回稿时间”列的展示口径一致。
+            from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+
+            earliest_translator_return_time = (
+                select(func.min(ManuscriptArrangement.planned_delivery_at))
+                .join(
+                    ManuscriptDispatch,
+                    ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+                )
+                .where(
+                    ManuscriptArrangement.translation_project_id == TranslationProject.id,
+                    ManuscriptArrangement.sub_order_id.is_(None),
+                    ManuscriptArrangement.planned_delivery_at.is_not(None),
+                    ManuscriptArrangement.status != "cancelled",
+                    ManuscriptDispatch.status != "cancelled",
+                    ManuscriptDispatch.confirmed_at.is_not(None),
+                )
+                .correlate(TranslationProject)
+                .scalar_subquery()
+            )
+            ordering = (
+                earliest_translator_return_time.asc().nullslast(),
+                *order_no_ordering,
+            )
         else:
             ordering = order_no_ordering
     else:

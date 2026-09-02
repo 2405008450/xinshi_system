@@ -15,7 +15,7 @@ from mail_inline_image_service import (
     prepare_trusted_mail_html,
     sanitize_body_html,
 )
-from mail_service import MailInlineImagePart, SmtpSettings, send_text_email
+from mail_service import MailAttachment, MailConfigurationError, MailInlineImagePart, SmtpSettings, send_text_email
 
 
 class _FakeSmtp:
@@ -197,9 +197,80 @@ def test_send_text_email_builds_related_cid_image(monkeypatch):
     )
 
     message = _FakeSmtp.last_message
+    assert message.get_content_type() == "multipart/mixed"
+    mixed_parts = list(message.iter_parts())
+    assert [part.get_content_type() for part in mixed_parts] == ["multipart/alternative"]
+    alternative_parts = list(mixed_parts[0].iter_parts())
+    assert [part.get_content_type() for part in alternative_parts] == [
+        "text/plain",
+        "multipart/related",
+    ]
+    related_parts = list(alternative_parts[1].iter_parts())
+    assert [part.get_content_type() for part in related_parts] == ["text/html", "image/jpeg"]
     assert message.get_body(preferencelist=("plain",)).get_content_type() == "text/plain"
     assert message.get_body(preferencelist=("html",)).get_content_type() == "text/html"
     related = [part for part in message.walk() if part.get_content_type() == "image/jpeg"]
     assert len(related) == 1
     assert related[0]["Content-ID"] == "<sample@xinshi-system.local>"
     assert related[0].get_content_disposition() == "inline"
+
+
+def test_send_text_email_keeps_plain_and_html_only_structures(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+    send_text_email(
+        to_emails=["employee@example.com"], subject="纯文本邮件", body="纯文本正文",
+        message_id="<plain-test@xinshi-system.local>", settings=_settings(),
+    )
+    assert _FakeSmtp.last_message.get_content_type() == "text/plain"
+
+    send_text_email(
+        to_emails=["employee@example.com"], subject="HTML 邮件", body="纯文本正文",
+        html_body="<p>HTML 正文</p>",
+        message_id="<html-test@xinshi-system.local>", settings=_settings(),
+    )
+    assert _FakeSmtp.last_message.get_content_type() == "multipart/alternative"
+    assert [part.get_content_type() for part in _FakeSmtp.last_message.iter_parts()] == [
+        "text/plain",
+        "text/html",
+    ]
+
+
+def test_send_text_email_keeps_inline_images_related_with_regular_attachment(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+    send_text_email(
+        to_emails=["employee@example.com"], subject="带附件的图片邮件", body="纯文本正文",
+        html_body='<p>HTML 正文</p><img src="cid:sample@xinshi-system.local">',
+        inline_images=[MailInlineImagePart(
+            cid="sample@xinshi-system.local", filename="截图.jpg",
+            content=b"jpeg-content", content_type="image/jpeg",
+        )],
+        attachments=[MailAttachment(
+            filename="资料.pdf", content=b"pdf-content", content_type="application/pdf",
+        )],
+        message_id="<inline-attachment-test@xinshi-system.local>", settings=_settings(),
+    )
+
+    message = _FakeSmtp.last_message
+    assert message.get_content_type() == "multipart/mixed"
+    mixed_parts = list(message.iter_parts())
+    assert [part.get_content_type() for part in mixed_parts] == [
+        "multipart/alternative",
+        "application/pdf",
+    ]
+    related_parts = list(list(mixed_parts[0].iter_parts())[1].iter_parts())
+    assert [part.get_content_type() for part in related_parts] == ["text/html", "image/jpeg"]
+    assert related_parts[1].get_content_disposition() == "inline"
+    assert mixed_parts[1].get_content_disposition() == "attachment"
+
+
+def test_send_text_email_rejects_inline_image_without_html_body(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+    with pytest.raises(MailConfigurationError, match="HTML 正文"):
+        send_text_email(
+            to_emails=["employee@example.com"], subject="缺少 HTML 正文", body="纯文本正文",
+            inline_images=[MailInlineImagePart(
+                cid="sample@xinshi-system.local", filename="截图.jpg",
+                content=b"jpeg-content", content_type="image/jpeg",
+            )],
+            message_id="<missing-html-test@xinshi-system.local>", settings=_settings(),
+        )

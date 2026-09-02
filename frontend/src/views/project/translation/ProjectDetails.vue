@@ -33,11 +33,16 @@
 
     <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
-        <el-input v-model="searchForm.keyword" placeholder="订单号、项目名称、客户名称或客户单号" clearable style="width: 320px" @input="handleTextSearch" @keyup.enter="handleSearch" />
+        <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、客户名称或客户单号" clearable style="width: 340px" @input="handleTextSearch" @keyup.enter="handleSearch" />
       </el-form-item>
       <el-form-item label="状态">
         <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable style="width: 180px" @change="handleSearch">
           <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="排序">
+        <el-select v-model="sortMode" style="width: 230px" @change="handleSortChange">
+          <el-option v-for="item in sortModeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -214,6 +219,8 @@
         :width="column.width"
         :min-width="column.minWidth"
         :show-overflow-tooltip="column.key !== 'projectName' && column.showOverflowTooltip !== false"
+        :class-name="getSortColumnClass(column.key)"
+        :label-class-name="getSortColumnClass(column.key)"
       >
         <template #header>
           <ConfiguredColumnHeaderFilter
@@ -1273,6 +1280,13 @@ const projectRoleOptionsLoading = ref(false)
 const projectRoleOptionsLoaded = ref(false)
 const projectNameManuallyEdited = ref(false)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
+const DEFAULT_SORT_MODE = 'unfinished_first_order_no_desc'
+const sortMode = ref(DEFAULT_SORT_MODE)
+const sortModeOptions = [
+  { label: '默认：订单号倒序', value: DEFAULT_SORT_MODE },
+  { label: '译员回稿：最早优先', value: 'translator_return_time_asc' },
+  { label: '客户交稿：最早优先', value: 'customer_deadline_time_asc' },
+]
 const {
   deleteMode,
   deleting,
@@ -1767,7 +1781,7 @@ const fetchData = async () => {
   try {
     const params = {
       ...buildFilterParams(),
-      sort: 'unfinished_first_order_no_desc',
+      sort: sortMode.value,
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
     }
@@ -1924,9 +1938,15 @@ const handleTextSearch = (value) => {
   searchTimer = setTimeout(handleSearch, 400)
 }
 const handleSearch = () => { exitDeleteMode(); clearProjectExpansion(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const handleSortChange = () => { exitDeleteMode(); clearProjectExpansion(); pagination.page = 1; fetchData() }
+const getSortColumnClass = (columnKey) => {
+  if (sortMode.value === 'translator_return_time_asc' && columnKey === 'translatorReturnTime') return 'is-active-sort-column'
+  if (sortMode.value === 'customer_deadline_time_asc' && columnKey === 'customerDeadlineTime') return 'is-active-sort-column'
+  return ''
+}
 const updateConfiguredFilter = (key, value) => { searchForm[key] = value }
 const handleConfiguredTextInput = (value) => handleTextSearch(value)
-const resetSearch = () => { searchForm.keyword = ''; resetFilterModel(searchForm, translationFilterFields); handleSearch() }
+const resetSearch = () => { searchForm.keyword = ''; sortMode.value = DEFAULT_SORT_MODE; resetFilterModel(searchForm, translationFilterFields); handleSearch() }
 const clearAdvancedFilters = () => { resetFilterModel(searchForm, translationAdvancedFilterFields); handleSearch() }
 const clearSearch = () => {
   searchForm.keyword = ''
@@ -2431,6 +2451,11 @@ onBeforeUnmount(() => {
 .el-alert { margin-top: 16px; }
 .project-table :deep(.project-expand-column) { padding: 0 !important; border-right: 0 !important; }
 .project-table :deep(.project-expand-column .cell) { display: none; padding: 0; }
+.project-table :deep(th.is-active-sort-column) {
+  background: var(--el-color-primary-light-9) !important;
+  color: var(--el-color-primary);
+}
+.project-table :deep(td.is-active-sort-column) { background: rgb(64 158 255 / 4%); }
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {

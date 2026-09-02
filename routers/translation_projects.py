@@ -201,7 +201,12 @@ def read_projects(
     customer_deadline_date_end: Optional[date] = None,
     created_date_start: Optional[date] = None,
     created_date_end: Optional[date] = None,
-    sort: Optional[Literal["order_no_desc", "unfinished_first_order_no_desc"]] = None,
+    sort: Optional[Literal[
+        "order_no_desc",
+        "unfinished_first_order_no_desc",
+        "customer_deadline_time_asc",
+        "translator_return_time_asc",
+    ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
