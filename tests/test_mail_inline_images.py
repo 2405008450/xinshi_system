@@ -184,7 +184,7 @@ def test_prepare_trusted_html_reads_file_and_replaces_cid(tmp_path, monkeypatch)
     assert parts[0].content == b"jpeg-content"
 
 
-def test_send_text_email_builds_related_cid_image(monkeypatch):
+def test_send_text_email_embeds_inline_image_as_data_uri(monkeypatch):
     monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
     send_text_email(
         to_emails=["employee@example.com"], subject="含图片邮件", body="纯文本正文",
@@ -197,29 +197,17 @@ def test_send_text_email_builds_related_cid_image(monkeypatch):
     )
 
     message = _FakeSmtp.last_message
-    assert message.get_content_type() == "multipart/mixed"
-    mixed_parts = list(message.iter_parts())
-    assert [part.get_content_type() for part in mixed_parts] == ["multipart/related"]
-    related_parts = list(mixed_parts[0].iter_parts())
-    assert [part.get_content_type() for part in related_parts] == [
-        "multipart/alternative",
-        "image/jpeg",
-    ]
-    alternative_parts = list(related_parts[0].iter_parts())
+    assert message.get_content_type() == "multipart/alternative"
+    alternative_parts = list(message.iter_parts())
     assert [part.get_content_type() for part in alternative_parts] == [
         "text/plain",
         "text/html",
     ]
-    assert mixed_parts[0].get_param("type") == "multipart/alternative"
-    assert mixed_parts[0].get_param("start") == related_parts[0]["Content-ID"]
-    assert related_parts[0]["Content-ID"].startswith("<")
-    assert related_parts[0]["Content-ID"].endswith("@xinshi-system.local>")
     assert message.get_body(preferencelist=("plain",)).get_content_type() == "text/plain"
-    assert message.get_body(preferencelist=("html",)).get_content_type() == "text/html"
-    images = [part for part in message.walk() if part.get_content_type() == "image/jpeg"]
-    assert len(images) == 1
-    assert images[0]["Content-ID"] == "<sample@xinshi-system.local>"
-    assert images[0].get_content_disposition() == "inline"
+    html_content = message.get_body(preferencelist=("html",)).get_content()
+    assert 'src="data:image/jpeg;base64,anBlZy1jb250ZW50"' in html_content
+    assert "cid:sample@xinshi-system.local" not in html_content
+    assert not [part for part in message.walk() if part.get_content_maintype() == "image"]
 
 
 def test_send_text_email_keeps_plain_and_html_only_structures(monkeypatch):
@@ -242,7 +230,7 @@ def test_send_text_email_keeps_plain_and_html_only_structures(monkeypatch):
     ]
 
 
-def test_send_text_email_keeps_inline_images_related_with_regular_attachment(monkeypatch):
+def test_send_text_email_keeps_data_uri_image_in_html_with_regular_attachment(monkeypatch):
     monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
     send_text_email(
         to_emails=["employee@example.com"], subject="带附件的图片邮件", body="纯文本正文",
@@ -261,17 +249,12 @@ def test_send_text_email_keeps_inline_images_related_with_regular_attachment(mon
     assert message.get_content_type() == "multipart/mixed"
     mixed_parts = list(message.iter_parts())
     assert [part.get_content_type() for part in mixed_parts] == [
-        "multipart/related",
+        "multipart/alternative",
         "application/pdf",
     ]
-    related_parts = list(mixed_parts[0].iter_parts())
-    assert [part.get_content_type() for part in related_parts] == [
-        "multipart/alternative",
-        "image/jpeg",
-    ]
-    assert mixed_parts[0].get_param("type") == "multipart/alternative"
-    assert mixed_parts[0].get_param("start") == related_parts[0]["Content-ID"]
-    assert related_parts[1].get_content_disposition() == "inline"
+    html_content = mixed_parts[0].get_body(preferencelist=("html",)).get_content()
+    assert 'src="data:image/jpeg;base64,anBlZy1jb250ZW50"' in html_content
+    assert not [part for part in message.walk() if part.get_content_maintype() == "image"]
     assert mixed_parts[1].get_content_disposition() == "attachment"
 
 
@@ -285,4 +268,18 @@ def test_send_text_email_rejects_inline_image_without_html_body(monkeypatch):
                 content=b"jpeg-content", content_type="image/jpeg",
             )],
             message_id="<missing-html-test@xinshi-system.local>", settings=_settings(),
+        )
+
+
+def test_send_text_email_rejects_unreferenced_inline_image(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+    with pytest.raises(MailConfigurationError, match="未引用内嵌图片"):
+        send_text_email(
+            to_emails=["employee@example.com"], subject="缺少图片引用", body="纯文本正文",
+            html_body="<p>HTML 正文</p>",
+            inline_images=[MailInlineImagePart(
+                cid="sample@xinshi-system.local", filename="截图.jpg",
+                content=b"jpeg-content", content_type="image/jpeg",
+            )],
+            message_id="<unreferenced-image-test@xinshi-system.local>", settings=_settings(),
         )

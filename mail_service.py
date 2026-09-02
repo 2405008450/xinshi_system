@@ -1,13 +1,15 @@
 """项目邮件与稿件安排共用的 SMTP 邮件发送服务。"""
 from __future__ import annotations
 
+import base64
 import os
+import re
 import smtplib
 import socket
 import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import formataddr, make_msgid
+from email.utils import formataddr
 from typing import Iterable, Optional
 
 from email_validator import EmailNotValidError, validate_email
@@ -121,7 +123,7 @@ class MailAttachment:
 
 @dataclass(frozen=True)
 class MailInlineImagePart:
-    """作为 HTML 正文相关资源发送的 CID 图片。"""
+    """发送前将 CID 引用转换为 HTML Data URI 的正文图片。"""
 
     cid: str
     filename: str
@@ -173,6 +175,29 @@ def _normalized_recipients(values: Iterable[str], field_name: str) -> list[str]:
             seen.add(key)
             result.append(normalized)
     return result
+
+
+def _embed_inline_images_as_data_uris(
+    html_body: str,
+    inline_images: Iterable[MailInlineImagePart],
+) -> str:
+    rendered_html = html_body
+    for image in inline_images:
+        content_type = (image.content_type or "").partition(";")[0].strip().lower()
+        maintype, _, subtype = content_type.partition("/")
+        if maintype != "image" or not subtype:
+            raise MailConfigurationError("正文内嵌资源必须是有效图片")
+        cid = image.cid.strip("<>")
+        data_uri = f"data:{content_type};base64,{base64.b64encode(image.content).decode('ascii')}"
+        rendered_html, replacement_count = re.subn(
+            rf"cid:{re.escape(cid)}",
+            data_uri,
+            rendered_html,
+            flags=re.IGNORECASE,
+        )
+        if replacement_count == 0:
+            raise MailConfigurationError(f"HTML 正文未引用内嵌图片：{image.filename}")
+    return rendered_html
 
 
 def send_text_email(
@@ -232,39 +257,14 @@ def send_text_email(
     message["Message-ID"] = message_id
     if normalized_reply_to:
         message["Reply-To"] = normalized_reply_to
-    if normalized_inline_images:
-        # Foxmail 等桌面客户端更兼容 related 包含 alternative 的结构：
-        # mixed -> related -> alternative(text/plain + text/html) + inline images。
-        body_root_cid = make_msgid(domain="xinshi-system.local")
-        alternative_part = EmailMessage()
-        alternative_part.set_content(body or "", subtype="plain", charset="utf-8")
-        alternative_part.add_alternative(html_body, subtype="html", charset="utf-8")
-        alternative_part["Content-ID"] = body_root_cid
-
-        related_part = EmailMessage()
-        related_part.make_related()
-        related_part.set_param("type", "multipart/alternative", header="Content-Type")
-        related_part.set_param("start", body_root_cid, header="Content-Type")
-        related_part.attach(alternative_part)
-        for image in normalized_inline_images:
-            content_type = (image.content_type or "").partition(";")[0].strip().lower()
-            maintype, _, subtype = content_type.partition("/")
-            if maintype != "image" or not subtype:
-                raise MailConfigurationError("正文内嵌资源必须是有效图片")
-            related_part.add_related(
-                image.content,
-                maintype="image",
-                subtype=subtype,
-                cid=f"<{image.cid.strip('<>')}>",
-                filename=image.filename,
-                disposition="inline",
-            )
-        message.make_mixed()
-        message.attach(related_part)
-    else:
-        message.set_content(body or "", subtype="plain", charset="utf-8")
-        if html_body:
-            message.add_alternative(html_body, subtype="html", charset="utf-8")
+    rendered_html = (
+        _embed_inline_images_as_data_uris(html_body, normalized_inline_images)
+        if normalized_inline_images
+        else html_body
+    )
+    message.set_content(body or "", subtype="plain", charset="utf-8")
+    if rendered_html:
+        message.add_alternative(rendered_html, subtype="html", charset="utf-8")
     for attachment in normalized_attachments:
         content_type = (attachment.content_type or "").partition(";")[0].strip().lower()
         if "/" in content_type:

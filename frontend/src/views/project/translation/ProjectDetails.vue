@@ -721,6 +721,19 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
+                  <el-col :xs="24">
+                    <el-form-item label="任务完成情况" data-field-key="translatorCompletionRemarks">
+                      <div v-if="form.assignedTranslators.length" class="translator-completion-editors">
+                        <div v-for="item in form.assignedTranslators" :key="item.arrangementId" class="translator-completion-editor">
+                          <span class="translator-completion-editor__name">{{ item.translatorName || '译员' }}</span>
+                          <el-input v-model="item.completionRemarks" maxlength="255" show-word-limit clearable placeholder="请输入该译员的任务完成情况" />
+                        </div>
+                      </div>
+                      <ReadonlyField v-else model-value="" source="locked" placeholder="暂无已分配译员" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
@@ -907,6 +920,19 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="译员回稿时间"><ReadonlyField :model-value="formatTranslatorReturnTimes(subOrderForm.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" /></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :xs="24">
+                    <el-form-item label="任务完成情况">
+                      <div v-if="subOrderForm.assignedTranslators.length" class="translator-completion-editors">
+                        <div v-for="item in subOrderForm.assignedTranslators" :key="item.arrangementId" class="translator-completion-editor">
+                          <span class="translator-completion-editor__name">{{ item.translatorName || '译员' }}</span>
+                          <el-input v-model="item.completionRemarks" maxlength="255" show-word-limit clearable placeholder="请输入该译员的任务完成情况" />
+                        </div>
+                      </div>
+                      <ReadonlyField v-else model-value="" source="locked" placeholder="暂无已分配译员" />
+                    </el-form-item>
+                  </el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
@@ -1121,6 +1147,7 @@ const basicProjectFieldSearchItems = [
   { key: 'customerDeadlineTime', label: '客户交稿时间', aliases: ['交稿时间', '截止时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'sentToClientTime', label: '发客户时间', aliases: ['发送客户时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'translatorReturnTime', label: '译员回稿时间', aliases: ['全稿预定时间', '译员交稿全稿预定时间'], section: 'execution', sectionLabel: '项目执行信息' },
+  { key: 'translatorCompletionRemarks', label: '任务完成情况', aliases: ['译员任务完成情况'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'pmConfirmedBy', label: 'PM确认人 ID', aliases: ['PM确认人', '确认人'], section: 'execution', sectionLabel: '项目执行信息' },
 ].map((item) => ({ ...item, tab: 'basic', tabLabel: '基础信息', location: `基础信息 · ${item.sectionLabel}` }))
 const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
@@ -1729,6 +1756,12 @@ const cleanPayload = (payload) => {
     }
   })
   delete result.translatorName
+  if (Array.isArray(result.assignedTranslators) && result.assignedTranslators.length) {
+    result.assignedTranslatorCompletions = result.assignedTranslators.map((item) => ({
+      arrangementId: item.arrangementId,
+      completionRemarks: item.completionRemarks?.trim() || null,
+    }))
+  }
   delete result.assignedTranslators
   delete result.clientManager
   result.managerContact = result.managerContact?.trim() || null
@@ -1752,7 +1785,9 @@ const assignReactive = (target, defaultsFactory, values = {}) => {
     } else if (key === 'projectStatus' || key === 'status') {
       target[key] = normalizeStatus(values[key] ?? defaults[key])
     } else {
-      target[key] = values[key] ?? defaults[key]
+      target[key] = key === 'assignedTranslators' && Array.isArray(values[key])
+        ? values[key].map((item) => ({ ...item }))
+        : (values[key] ?? defaults[key])
     }
   })
   if (Object.prototype.hasOwnProperty.call(defaults, 'projectSpecialistId')) {
@@ -2219,7 +2254,7 @@ const openSubOrderEditorFromList = (projectRow, subOrderRow) => {
   handleEditSubOrder(subOrderRow)
 }
 const buildSubOrderPayload = (source) => {
-  return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
+  return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', assignedTranslators: source.assignedTranslators || [], translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 }
 const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '子订单保存失败')) } }
 const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '子订单删除失败')) } }
@@ -2383,6 +2418,9 @@ onBeforeUnmount(() => {
 .translator-return-deadlines { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
 .translator-return-deadline { display: grid; grid-template-columns: minmax(64px, auto) minmax(0, 1fr); align-items: start; gap: 8px; }
 .translator-return-deadline__name { overflow: hidden; padding-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.translator-completion-editors { display: flex; width: 100%; flex-direction: column; gap: 10px; }
+.translator-completion-editor { display: grid; grid-template-columns: minmax(88px, 140px) minmax(0, 1fr); align-items: center; gap: 10px; }
+.translator-completion-editor__name { overflow: hidden; color: var(--el-text-color-secondary); text-overflow: ellipsis; white-space: nowrap; }
 :global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog .el-dialog__header),
@@ -2459,6 +2497,7 @@ onBeforeUnmount(() => {
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {
+  .translator-completion-editor { grid-template-columns: 1fr; gap: 4px; }
   .service-content-field { flex-direction: column; }
   .service-content-field > .el-select { flex-basis: auto; width: 100%; }
 

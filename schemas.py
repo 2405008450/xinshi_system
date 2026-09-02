@@ -708,6 +708,13 @@ class TranslationProjectCreate(TranslationProjectBase):
     def validate_network_paths(cls, value):
         return validate_managed_path(value)
 
+class AssignedTranslatorCompletionUpdate(BaseModel):
+    """笔译项目编辑页回写稿件安排中的单个译员任务完成情况。"""
+
+    arrangement_id: UUID
+    completion_remarks: Optional[str] = Field(default=None, max_length=255)
+
+
 class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     task_type: Optional[str] = None
@@ -751,6 +758,7 @@ class TranslationProjectUpdate(BaseModel):
     network_file_path: Optional[str] = None
     reference_file_path_one: Optional[str] = None
     role_assignments: Optional[list[ProjectRoleAssignmentInput]] = None
+    assigned_translator_completions: Optional[list[AssignedTranslatorCompletionUpdate]] = None
     expected_updated_at: Optional[datetime] = None
 
     @field_validator('quotation_path', 'network_file_path', 'reference_file_path_one')
@@ -922,6 +930,7 @@ class TranslationSubOrderUpdate(BaseModel):
     consolidation_progress: Optional[str] = None
     network_file_path: Optional[str] = None
     remarks: Optional[str] = None
+    assigned_translator_completions: Optional[list[AssignedTranslatorCompletionUpdate]] = None
 
     @field_validator('language_pair')
     @classmethod

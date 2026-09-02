@@ -121,7 +121,11 @@ def update_sub_order_endpoint(
     sub_order_update: TranslationSubOrderUpdate,
     db: Session = Depends(get_db)
 ):
-    db_sub = update_sub_order(db, sub_order_id=sub_order_id, sub_order_update=sub_order_update)
+    try:
+        db_sub = update_sub_order(db, sub_order_id=sub_order_id, sub_order_update=sub_order_update)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if db_sub is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子订单不存在")
     return db_sub

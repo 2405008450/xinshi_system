@@ -1054,6 +1054,48 @@ def _attach_manuscript_assignees(
     _attach_word_count_matrices(db, projects=projects, sub_orders=sub_orders)
 
 
+def _sync_assigned_translator_completions(
+    db: Session,
+    updates,
+    *,
+    project_id: UUID,
+    sub_order_id: Optional[UUID],
+) -> None:
+    """把项目编辑页填写的完成情况原位写回稿件安排明细。"""
+    if updates is None:
+        return
+
+    from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+
+    update_by_id = {item.arrangement_id: item for item in updates}
+    if len(update_by_id) != len(updates):
+        raise ValueError("译员任务完成情况中存在重复的稿件安排明细")
+    if not update_by_id:
+        return
+
+    rows = (
+        db.query(ManuscriptArrangement)
+        .join(ManuscriptDispatch, ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id)
+        .filter(
+            ManuscriptArrangement.id.in_(update_by_id),
+            ManuscriptArrangement.translation_project_id == project_id,
+            ManuscriptArrangement.sub_order_id == sub_order_id,
+            ManuscriptArrangement.status != "cancelled",
+            ManuscriptDispatch.status != "cancelled",
+            ManuscriptDispatch.confirmed_at.is_not(None),
+        )
+        .all()
+    )
+    if len(rows) != len(update_by_id):
+        raise ValueError("当前项目不存在对应的有效译员安排，请刷新后重试")
+
+    now = datetime.now()
+    for row in rows:
+        value = update_by_id[row.id].completion_remarks
+        row.completion_remarks = value.strip() if value and value.strip() else None
+        row.updated_at = now
+
+
 def _attach_word_count_matrices(
     db: Session,
     *,
@@ -2062,9 +2104,10 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         and project_update.role_assignments is not None
     )
     role_assignments = project_update.role_assignments if role_assignments_provided else None
+    completion_updates = project_update.assigned_translator_completions
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'language_pair' in update_data:
@@ -2123,6 +2166,12 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         setattr(db_project, field, value)
     if role_assignments_provided:
         _sync_project_role_assignments(db, db_project, role_assignments)
+    _sync_assigned_translator_completions(
+        db,
+        completion_updates,
+        project_id=db_project.id,
+        sub_order_id=None,
+    )
     db_project.updated_at = datetime.now()
     
     db.commit()
@@ -3141,7 +3190,11 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return None
-    update_data = sub_order_update.model_dump(exclude_unset=True, exclude={'word_count_matrix'})
+    completion_updates = sub_order_update.assigned_translator_completions
+    update_data = sub_order_update.model_dump(
+        exclude_unset=True,
+        exclude={'word_count_matrix', 'assigned_translator_completions'},
+    )
     if 'language_pair' in update_data:
         update_data['language_pair'] = _normalize_catalog_language_pairs(
             db, update_data.get('language_pair')
@@ -3150,6 +3203,12 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
         _validate_written_translator(db, update_data.get('translator_id'))
     for field, value in update_data.items():
         setattr(db_sub, field, value)
+    _sync_assigned_translator_completions(
+        db,
+        completion_updates,
+        project_id=db_sub.parent_project_id,
+        sub_order_id=db_sub.id,
+    )
     db_sub.updated_at = datetime.now()
     db.commit()
     return get_sub_order(db, db_sub.id)

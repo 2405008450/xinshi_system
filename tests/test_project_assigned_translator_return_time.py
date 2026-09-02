@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import crud
+import pytest
+from schemas import AssignedTranslatorCompletionUpdate
 
 
 class QueryStub:
@@ -53,3 +55,42 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
 
     assert project.assigned_translators[0]["translator_return_time"] == return_time
     assert project.assigned_translators[0]["completion_remarks"] == "实际耗时 3 小时，质量良好"
+
+
+def test_project_editor_syncs_completion_back_to_arrangement():
+    project_id = uuid4()
+    arrangement = SimpleNamespace(
+        id=uuid4(),
+        completion_remarks="旧内容",
+        updated_at=None,
+    )
+
+    crud._sync_assigned_translator_completions(
+        DbStub([arrangement]),
+        [
+            AssignedTranslatorCompletionUpdate(
+                arrangement_id=arrangement.id,
+                completion_remarks="  已完成并通过检查  ",
+            )
+        ],
+        project_id=project_id,
+        sub_order_id=None,
+    )
+
+    assert arrangement.completion_remarks == "已完成并通过检查"
+    assert arrangement.updated_at is not None
+
+
+def test_project_editor_rejects_completion_for_unmatched_arrangement():
+    update = AssignedTranslatorCompletionUpdate(
+        arrangement_id=uuid4(),
+        completion_remarks="已完成",
+    )
+
+    with pytest.raises(ValueError, match="不存在对应的有效译员安排"):
+        crud._sync_assigned_translator_completions(
+            DbStub([]),
+            [update],
+            project_id=uuid4(),
+            sub_order_id=None,
+        )
