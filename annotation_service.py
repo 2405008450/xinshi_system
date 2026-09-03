@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, text
 from sqlalchemy.orm import Session, selectinload
 from utils import normalize_email_subject_order_no
+from project_audit_service import record_project_operation
 
 from concurrency import VERSION_FIELD, assert_fresh
 
@@ -408,6 +409,7 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
 def create_annotation_project(
     db: Session, payload: AnnotationProjectCreate, created_by: Optional[UUID],
     idempotency_key: Optional[str] = None,
+    operation_source: str = "project_form",
 ) -> AnnotationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     from annotation_custom_field_service import validate_custom_values
@@ -441,6 +443,10 @@ def create_annotation_project(
     ensure_project_responsibilities(db, 'annotation', project.id, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
+    record_project_operation(
+        db, project_type="annotation", operation_type="create", project=project,
+        actor_user_id=created_by, operation_source=operation_source,
+    )
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -522,12 +528,19 @@ def update_annotation_project_status(
     return get_annotation_project(db, project.id)
 
 
-def delete_annotation_project(db: Session, project_id: UUID) -> bool:
+def delete_annotation_project(
+    db: Session, project_id: UUID, *, actor_user_id: Optional[UUID] = None,
+    operation_source: str = "project_delete",
+) -> bool:
     project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).first()
     if not project:
         return False
     from project_workbench_service import cancel_pending_project_handovers
     cancel_pending_project_handovers(db, 'annotation', project_id)
+    record_project_operation(
+        db, project_type="annotation", operation_type="delete", project=project,
+        actor_user_id=actor_user_id, operation_source=operation_source,
+    )
     db.delete(project)
     db.commit()
     return True
@@ -625,6 +638,10 @@ def ensure_annotation_project_for_consultation(
     )
     db.add(project)
     db.flush()
+    record_project_operation(
+        db, project_type="annotation", operation_type="create", project=project,
+        actor_user_id=created_by, operation_source="consultation_confirmation",
+    )
     return project, True
 
 

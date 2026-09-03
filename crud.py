@@ -28,6 +28,7 @@ from passlib.context import CryptContext
 import hashlib
 import re
 from utils import generate_order_no, normalize_email_subject_order_no
+from project_audit_service import record_project_operation
 from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
@@ -1623,7 +1624,12 @@ def _apply_translation_project_filters(
     if order_no:
         query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
     if project_status:
-        query = query.filter(TranslationProject.project_status == project_status)
+        query = query.filter(or_(
+            TranslationProject.project_status == project_status,
+            TranslationProject.sub_orders.any(
+                TranslationSubOrder.status == project_status
+            ),
+        ))
     if client_short_name:
         pattern = f"%{client_short_name}%"
         query = query.filter(or_(
@@ -1654,7 +1660,6 @@ def _apply_translation_project_filters(
         "task_type": (TranslationProject.task_type, "string"),
         "customer_order_no": (TranslationProject.customer_order_no, "string"),
         "project_manager_id": (TranslationProject.project_manager_id, "uuid"),
-        "project_status": (TranslationProject.project_status, "string"),
         "file_type_secondary": (TranslationProject.file_type_secondary, "string"),
         "project_contract_type": (TranslationProject.project_contract_type, "string"),
         "project_contract_status": (TranslationProject.project_contract_status, "string"),
@@ -1675,6 +1680,17 @@ def _apply_translation_project_filters(
         "updated_at": (TranslationProject.updated_at, "datetime"),
         "pm_confirmed_by": (TranslationProject.pm_confirmed_by, "uuid"),
     })
+    project_status_descriptor = field_filters.get("project_status")
+    if project_status_descriptor:
+        project_status_values = [
+            str(value) for value in (project_status_descriptor.get("value") or [])
+        ]
+        query = query.filter(or_(
+            TranslationProject.project_status.in_(project_status_values),
+            TranslationProject.sub_orders.any(
+                TranslationSubOrder.status.in_(project_status_values)
+            ),
+        ))
     word_count_descriptor = field_filters.get("word_count", {})
     word_count_dimension = field_filters.get("word_count_dimension", {})
     word_count_metric_type = field_filters.get("word_count_metric_type", {})
@@ -2026,6 +2042,7 @@ def create_translation_project(
     commit: bool = True,
     order_no: Optional[str] = None,
     idempotency_key: Optional[str] = None,
+    operation_source: str = "project_form",
 ) -> TranslationProject:
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
@@ -2090,6 +2107,14 @@ def create_translation_project(
 
     # 项目与初始工作流必须处于同一个事务中，避免接口失败但项目已单独落库。
     init_workflow(db, db_project.id, commit=False)
+    record_project_operation(
+        db,
+        project_type="translation",
+        operation_type="create",
+        project=db_project,
+        actor_user_id=project.created_by,
+        operation_source=operation_source,
+    )
     if commit:
         db.commit()
     else:
@@ -2193,12 +2218,19 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     return get_translation_project(db, project_id)
 
 
-def delete_translation_project(db: Session, project_id: UUID) -> bool:
+def delete_translation_project(
+    db: Session, project_id: UUID, *, actor_user_id: Optional[UUID] = None,
+    operation_source: str = "project_delete",
+) -> bool:
     db_project = get_translation_project(db, project_id)
     if not db_project:
         return False
     from project_workbench_service import cancel_pending_project_handovers
     cancel_pending_project_handovers(db, 'translation', project_id)
+    record_project_operation(
+        db, project_type="translation", operation_type="delete", project=db_project,
+        actor_user_id=actor_user_id, operation_source=operation_source,
+    )
     db.delete(db_project)
     db.commit()
     return True

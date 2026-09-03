@@ -287,9 +287,14 @@ def update_project_text_field(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project_endpoint(project_id: UUID, db: Session = Depends(get_db)):
+def delete_project_endpoint(
+    project_id: UUID, db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
     try:
-        success = delete_translation_project(db, project_id=project_id)
+        success = delete_translation_project(
+            db, project_id=project_id, actor_user_id=current_user.id,
+        )
     except IntegrityError:
         db.rollback()
         raise HTTPException(

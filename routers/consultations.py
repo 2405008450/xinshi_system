@@ -621,6 +621,7 @@ def _confirm_consultation_project(
                 project_data,
                 commit=False,
                 order_no=preview["order_no"],
+                operation_source="consultation_confirmation",
             )
     elif preview["project_type"] == "annotation":
         project, _created = ensure_annotation_project_for_consultation(
@@ -1149,7 +1150,9 @@ def create_project_from_consultation(
         created_by=current_user.id,
     )
 
-    new_project = create_translation_project(db, project_data)
+    new_project = create_translation_project(
+        db, project_data, operation_source="consultation_confirmation",
+    )
     return new_project
 
 

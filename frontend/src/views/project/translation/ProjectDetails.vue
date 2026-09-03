@@ -162,7 +162,7 @@
               <el-table-column v-if="isSubOrderColumnVisible('assignedTranslators')" label="译员安排" min-width="180" show-overflow-tooltip>
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="220">
+              <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="190">
                 <template #header><ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况" /></template>
                 <template #default="{ row: subRow }">
                   <TranslatorCompletionPopover
@@ -1011,6 +1011,7 @@ import { useResourceRequestStatuses } from '@/composables/useResourceRequestStat
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { COMMON_SUBJECT_PREFIX_OPTIONS, notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
@@ -1395,7 +1396,7 @@ const tableColumnOverrides = {
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
   assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
-  translatorReturnTime: { minWidth: 220 },
+  translatorReturnTime: { minWidth: 190 },
   translatorAssignmentTime: { minWidth: 150 },
   translatorDeliveryProgress: { minWidth: 110 },
   preReviewQcProgress: { minWidth: 96 },
@@ -1422,6 +1423,8 @@ const subOrderTableColumns = [
   { key: 'translatorReturnTime', label: '译员回稿时间' },
   { key: 'status', label: '状态' },
 ]
+const legacySubOrderDefaultColumnKeys = subOrderTableColumns.map((column) => column.key)
+const subOrderDefaultColumnKeys = legacySubOrderDefaultColumnKeys.filter((key) => key !== 'assignedTranslators')
 const legacyTranslationDefaultColumnKeys = ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
 const legacyTranslationDefaultColumnKeysWithReturnTime = [...legacyTranslationDefaultColumnKeys]
 legacyTranslationDefaultColumnKeysWithReturnTime.splice(5, 0, 'translatorReturnTime')
@@ -1439,7 +1442,8 @@ const {
 } = useTableColumns(
   'translation-details-sub-orders-v1',
   subOrderTableColumns,
-  subOrderTableColumns.map((column) => column.key),
+  subOrderDefaultColumnKeys,
+  { legacyDefaultKeys: [legacySubOrderDefaultColumnKeys] },
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
 const form = reactive(createEmptyProjectForm())
@@ -1955,7 +1959,11 @@ const copyOriginalPath = async (row) => {
       ElMessage.warning('该订单暂无可用文件路径')
       return
     }
-    await navigator.clipboard.writeText(resolvedPath.path)
+    const copied = await copyTextToClipboard(resolvedPath.path)
+    if (!copied) {
+      ElMessage.error('复制失败，请手工复制')
+      return
+    }
     ElMessage.success(`${resolvedPath.source}已复制`)
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '复制失败，请稍后重试'))

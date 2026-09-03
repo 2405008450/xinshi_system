@@ -15,6 +15,7 @@ from annotation_service import (
 )
 from interpretation_models import InterpretationProject
 from models import TranslationProject
+from project_audit_models import ProjectOperationAudit
 
 
 class OrderQuery:
@@ -259,4 +260,7 @@ def test_confirmed_annotation_consultation_creation_is_idempotent(monkeypatch):
     assert created_again is False
     assert project is same_project
     assert project.project_status == "initial_consultation"
-    assert len(db.added) == 1
+    assert len(db.added) == 2
+    audit = next(item for item in db.added if isinstance(item, ProjectOperationAudit))
+    assert audit.operation_type == "create"
+    assert audit.order_no == "AP-260811-001"

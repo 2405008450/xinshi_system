@@ -1,0 +1,1211 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "mode": "dry-run",
+  "host": "WIN-LOLJ8UHT2G5",
+  "total_source_rows": 149,
+  "selected_source_rows": 149,
+  "created": [],
+  "skipped": [
+    {
+      "row": 2,
+      "project_name": "【0703 思达个人代理-短音频验收-菲律宾语+希腊语+保加利亚语】",
+      "reason": "same_import_key",
+      "existing_id": "22a923a4-3e9b-4b96-bae7-d49c34c084f8",
+      "existing_order_no": "AP-260903-005",
+      "existing_name": "【0703 思达个人代理-短音频验收-菲律宾语+希腊语+保加利亚语】"
+    },
+    {
+      "row": 3,
+      "project_name": "【20260421-评估&报价&试标-2w 多语种同传测试集翻译文本质检】",
+      "reason": "same_import_key",
+      "existing_id": "468e8b8a-ca7f-486e-bd9c-d3288ef6ee29",
+      "existing_order_no": "AP-260903-006",
+      "existing_name": "【20260421-评估&报价&试标-2w 多语种同传测试集翻译文本质检】"
+    },
+    {
+      "row": 4,
+      "project_name": "【20260429-评估&报价&试标-4000条 俄语文本归一化标注】",
+      "reason": "same_import_key",
+      "existing_id": "00570e32-eccf-4cd9-87af-3f8f9ace6031",
+      "existing_order_no": "AP-260903-007",
+      "existing_name": "【20260429-评估&报价&试标-4000条 俄语文本归一化标注】"
+    },
+    {
+      "row": 5,
+      "project_name": "【20260722-评估&报价&试标-多语种测评】",
+      "reason": "same_import_key",
+      "existing_id": "44faf3e2-ca77-41d8-ba89-3dc3728e8ad5",
+      "existing_order_no": "AP-260903-008",
+      "existing_name": "【20260722-评估&报价&试标-多语种测评】"
+    },
+    {
+      "row": 6,
+      "project_name": "【20260402-北京数据堂-3500H-7语种语音采集】",
+      "reason": "same_import_key",
+      "existing_id": "3e68feed-8548-4324-9b05-af2adfdfc958",
+      "existing_order_no": "AP-260903-009",
+      "existing_name": "【20260402-北京数据堂-3500H-7语种语音采集】"
+    },
+    {
+      "row": 7,
+      "project_name": "【20260417-评估&报价-梦动科技-客家话/闽南语采集标注 】",
+      "reason": "same_import_key",
+      "existing_id": "047a0d63-3999-446b-a7ce-26492adbb9e9",
+      "existing_order_no": "AP-260903-010",
+      "existing_name": "【20260417-评估&报价-梦动科技-客家话/闽南语采集标注 】"
+    },
+    {
+      "row": 8,
+      "project_name": "【20260420-评估&试标&报价-合焱科技-2500H藏语采集标注 】",
+      "reason": "same_import_key",
+      "existing_id": "38521698-997d-43e4-b8e5-d9ca8578c226",
+      "existing_order_no": "AP-260903-011",
+      "existing_name": "【20260420-评估&试标&报价-合焱科技-2500H藏语采集标注 】"
+    },
+    {
+      "row": 9,
+      "project_name": "【20260425-评估&试标&-600H东南亚口音英语、西班牙语、葡萄牙语采集标注 】",
+      "reason": "same_import_key",
+      "existing_id": "eb3d3e34-5ddf-40b9-a359-1479af610d9e",
+      "existing_order_no": "AP-260903-012",
+      "existing_name": "【20260425-评估&试标&-600H东南亚口音英语、西班牙语、葡萄牙语采集标注 】"
+    },
+    {
+      "row": 10,
+      "project_name": "【20260427-评估&报价&试标-马上消费-多语种TN文字标注 】",
+      "reason": "same_import_key",
+      "existing_id": "315d95a3-e2fe-4d6a-b0c0-5b6db8b9d8c9",
+      "existing_order_no": "AP-260903-013",
+      "existing_name": "【20260427-评估&报价&试标-马上消费-多语种TN文字标注 】"
+    },
+    {
+      "row": 11,
+      "project_name": "【20260430-评估&试标&报价-澳鹏-同传中、英、日6000小时采集需求 】",
+      "reason": "same_import_key",
+      "existing_id": "1ac37f0c-871a-4134-ac7c-357e6e748ca4",
+      "existing_order_no": "AP-260903-014",
+      "existing_name": "【20260430-评估&试标&报价-澳鹏-同传中、英、日6000小时采集需求 】"
+    },
+    {
+      "row": 12,
+      "project_name": "【20260430-2 -资源咨询-澳鹏-中文、英语、法语、日语牙科语料把控 】",
+      "reason": "same_import_key",
+      "existing_id": "4e146d8f-d572-4cda-9e5c-8859b87b1b1d",
+      "existing_order_no": "AP-260903-015",
+      "existing_name": "【20260430-2 -资源咨询-澳鹏-中文、英语、法语、日语牙科语料把控 】"
+    },
+    {
+      "row": 13,
+      "project_name": "【20260506-慧澜国际 -资源咨询-英语ASR自动语音识别转写 】",
+      "reason": "same_import_key",
+      "existing_id": "ab38cf84-b459-4c98-9d64-46a6fcd043e7",
+      "existing_order_no": "AP-260903-016",
+      "existing_name": "【20260506-慧澜国际 -资源咨询-英语ASR自动语音识别转写 】"
+    },
+    {
+      "row": 14,
+      "project_name": "【20260506-2-评估-四川沐之欣-客家话/闽南语采集标注 】",
+      "reason": "same_import_key",
+      "existing_id": "2cd1b61f-a3f7-40b8-86d4-e477377caa3e",
+      "existing_order_no": "AP-260903-017",
+      "existing_name": "【20260506-2-评估-四川沐之欣-客家话/闽南语采集标注 】"
+    },
+    {
+      "row": 15,
+      "project_name": "【20260507-评估-全知启航-越南语STF断句标注 】",
+      "reason": "same_import_key",
+      "existing_id": "741b2e2b-6a8b-4a51-8526-96658a47ebb6",
+      "existing_order_no": "AP-260903-018",
+      "existing_name": "【20260507-评估-全知启航-越南语STF断句标注 】"
+    },
+    {
+      "row": 16,
+      "project_name": "【20260507-2-评估&试标&报价-澳鹏-英语/土耳其语STF标注 】",
+      "reason": "same_import_key",
+      "existing_id": "aec20f10-e428-43d6-9574-d2159652f0e8",
+      "existing_order_no": "AP-260903-019",
+      "existing_name": "【20260507-2-评估&试标&报价-澳鹏-英语/土耳其语STF标注 】"
+    },
+    {
+      "row": 17,
+      "project_name": "【20260508-资源咨询-澳鹏-菲律宾语/荷兰语标注 】",
+      "reason": "same_import_key",
+      "existing_id": "e9618725-22a2-49aa-89b9-7c7b61cddd3d",
+      "existing_order_no": "AP-260903-020",
+      "existing_name": "【20260508-资源咨询-澳鹏-菲律宾语/荷兰语标注 】"
+    },
+    {
+      "row": 18,
+      "project_name": "【20260509-评估-谷特语言-罗马尼亚、波兰、捷克语、菲律宾语、荷兰语转写标注】",
+      "reason": "same_import_key",
+      "existing_id": "a403f1f9-67f5-4eec-9ff2-54d1c8f3e919",
+      "existing_order_no": "AP-260903-021",
+      "existing_name": "【20260509-评估-谷特语言-罗马尼亚、波兰、捷克语、菲律宾语、荷兰语转写标注】"
+    },
+    {
+      "row": 19,
+      "project_name": "【20260511-评估-梦动科技-客家话/闽南语/南昌话转写质检 】",
+      "reason": "same_import_key",
+      "existing_id": "718f87ef-d7ab-4fc0-8001-71e374495a79",
+      "existing_order_no": "AP-260903-022",
+      "existing_name": "【20260511-评估-梦动科技-客家话/闽南语/南昌话转写质检 】"
+    },
+    {
+      "row": 20,
+      "project_name": "【20260511-2-评估-国信中健-44个小语种采集 】",
+      "reason": "same_import_key",
+      "existing_id": "40211aee-1532-497f-8a71-cb02eec15f69",
+      "existing_order_no": "AP-260903-023",
+      "existing_name": "【20260511-2-评估-国信中健-44个小语种采集 】"
+    },
+    {
+      "row": 21,
+      "project_name": "【20260511-3-评估&标注-安多藏语标注 】",
+      "reason": "same_import_key",
+      "existing_id": "30e40a47-fc3d-4c06-93d4-3eb04fb16f49",
+      "existing_order_no": "AP-260903-024",
+      "existing_name": "【20260511-3-评估&标注-安多藏语标注 】"
+    },
+    {
+      "row": 22,
+      "project_name": "【20260512-评估-澳鹏-INT英语采集】",
+      "reason": "same_import_key",
+      "existing_id": "ef7ab1ed-3695-4133-a8d3-ec98f121e6b9",
+      "existing_order_no": "AP-260903-025",
+      "existing_name": "【20260512-评估-澳鹏-INT英语采集】"
+    },
+    {
+      "row": 23,
+      "project_name": "【20260513-评估&试标&报价-北京海天瑞声科技-同传中、英、日6000小时采集需求 】",
+      "reason": "same_import_key",
+      "existing_id": "c29cb6db-be92-42d7-8564-02ffaeb7f028",
+      "existing_order_no": "AP-260903-026",
+      "existing_name": "【20260513-评估&试标&报价-北京海天瑞声科技-同传中、英、日6000小时采集需求 】"
+    },
+    {
+      "row": 24,
+      "project_name": "【20260513-评估&试标&报价-山东三农共建数据-同传中、英、日6000小时采集需求 】",
+      "reason": "same_import_key",
+      "existing_id": "df43730e-142e-4f15-a1c5-87bd6c2dd7ae",
+      "existing_order_no": "AP-260903-027",
+      "existing_name": "【20260513-评估&试标&报价-山东三农共建数据-同传中、英、日6000小时采集需求 】"
+    },
+    {
+      "row": 25,
+      "project_name": "【20260514-评估-澳鹏-多语种音频转写】",
+      "reason": "same_import_key",
+      "existing_id": "8deb8edc-a141-4f60-8dd0-7767ca7a5b4c",
+      "existing_order_no": "AP-260903-028",
+      "existing_name": "【20260514-评估-澳鹏-多语种音频转写】"
+    },
+    {
+      "row": 26,
+      "project_name": "【20260515-国信中健-客家话/闽南语标注采集 】",
+      "reason": "same_import_key",
+      "existing_id": "06d1c107-823d-4cf3-862f-f5345f9d9a83",
+      "existing_order_no": "AP-260903-029",
+      "existing_name": "【20260515-国信中健-客家话/闽南语标注采集 】"
+    },
+    {
+      "row": 27,
+      "project_name": "【20260519-澳鹏-小语种歌词测评】",
+      "reason": "same_import_key",
+      "existing_id": "799f129f-e6fb-4d7a-ae4e-8d0024760a11",
+      "existing_order_no": "AP-260903-030",
+      "existing_name": "【20260519-澳鹏-小语种歌词测评】"
+    },
+    {
+      "row": 28,
+      "project_name": "【20260520-杭州众智为马-杭州，闽南，客家话标注】",
+      "reason": "same_import_key",
+      "existing_id": "ab02d48a-5002-4f1f-94b9-65c1b66b8c0a",
+      "existing_order_no": "AP-260903-031",
+      "existing_name": "【20260520-杭州众智为马-杭州，闽南，客家话标注】"
+    },
+    {
+      "row": 29,
+      "project_name": "【20260520-中国东盟信息港-东南亚小语种数据标注质检】                                          越南，印尼，泰，马来，老挝，缅甸，柬埔寨",
+      "reason": "same_import_key",
+      "existing_id": "8aeddc6a-a5e4-4fc8-896e-41e7a486d88c",
+      "existing_order_no": "AP-260903-032",
+      "existing_name": "【20260520-中国东盟信息港-东南亚小语种数据标注质检】                                          越南，印尼，泰，马来，老挝，缅甸，柬埔寨"
+    },
+    {
+      "row": 30,
+      "project_name": "【2060520-澳鹏-ASR评测采录项目】",
+      "reason": "same_import_key",
+      "existing_id": "8ca5d03d-5e73-4e6a-a1c3-06e06cc63df4",
+      "existing_order_no": "AP-260903-033",
+      "existing_name": "【2060520-澳鹏-ASR评测采录项目】"
+    },
+    {
+      "row": 31,
+      "project_name": "【2060520-青岛浩之然教育科技有限公司-陕西话，山西话，河南话，湖南话，杭州话，客家话,青岛话标注项目】",
+      "reason": "same_import_key",
+      "existing_id": "310b622b-0399-4a65-a233-543afca9d258",
+      "existing_order_no": "AP-260903-034",
+      "existing_name": "【2060520-青岛浩之然教育科技有限公司-陕西话，山西话，河南话，湖南话，杭州话，客家话,青岛话标注项目】"
+    },
+    {
+      "row": 32,
+      "project_name": "【2060521-澳鹏-蒙古语短音频转写】",
+      "reason": "same_import_key",
+      "existing_id": "8848ab0b-6a5b-4d72-b92a-5504d66fc1a2",
+      "existing_order_no": "AP-260903-035",
+      "existing_name": "【2060521-澳鹏-蒙古语短音频转写】"
+    },
+    {
+      "row": 33,
+      "project_name": "【2060521-澳鹏-长期多语种项目】",
+      "reason": "same_import_key",
+      "existing_id": "7695293a-b3ff-4a28-aa17-ee63af46b188",
+      "existing_order_no": "AP-260903-036",
+      "existing_name": "【2060521-澳鹏-长期多语种项目】"
+    },
+    {
+      "row": 34,
+      "project_name": "【20260522-广州中致信息-同传中、英、日6000小时采集需求 】",
+      "reason": "same_import_key",
+      "existing_id": "e3e244bd-9039-4ee8-b5eb-39ec2d2ef4f7",
+      "existing_order_no": "AP-260903-037",
+      "existing_name": "【20260522-广州中致信息-同传中、英、日6000小时采集需求 】"
+    },
+    {
+      "row": 35,
+      "project_name": "【20260528-马上消费-日语采集项目】",
+      "reason": "same_import_key",
+      "existing_id": "cb2ba9ee-0ede-431e-ae9c-187e01a95820",
+      "existing_order_no": "AP-260903-038",
+      "existing_name": "【20260528-马上消费-日语采集项目】"
+    },
+    {
+      "row": 36,
+      "project_name": "【20260528-马上消费-小语种专有名词文本项目】",
+      "reason": "same_import_key",
+      "existing_id": "c69b1fa5-c1ec-4d13-87b3-952389bd16a1",
+      "existing_order_no": "AP-260903-039",
+      "existing_name": "【20260528-马上消费-小语种专有名词文本项目】"
+    },
+    {
+      "row": 37,
+      "project_name": "【20260528-国信中健-TTS项目：普通话棚录采集（素人版）】",
+      "reason": "same_import_key",
+      "existing_id": "b9bc14fa-b60d-4674-a6ca-3c8f09a16acd",
+      "existing_order_no": "AP-260903-040",
+      "existing_name": "【20260528-国信中健-TTS项目：普通话棚录采集（素人版）】"
+    },
+    {
+      "row": 38,
+      "project_name": "【20260528-青岛浩之然教育科技有限公司-酒旅app图片标注】",
+      "reason": "same_import_key",
+      "existing_id": "06c7aa7e-e239-410b-a4fb-b8a86d82a9f1",
+      "existing_order_no": "AP-260903-041",
+      "existing_name": "【20260528-青岛浩之然教育科技有限公司-酒旅app图片标注】"
+    },
+    {
+      "row": 39,
+      "project_name": "【20260528-青岛浩之然教育科技有限公司-俄语音频转写标注（资料是海天瑞声的）】",
+      "reason": "same_import_key",
+      "existing_id": "f4638f8f-449f-4c96-9b67-924e37cde85b",
+      "existing_order_no": "AP-260903-042",
+      "existing_name": "【20260528-青岛浩之然教育科技有限公司-俄语音频转写标注（资料是海天瑞声的）】"
+    },
+    {
+      "row": 40,
+      "project_name": "【20260528-数据堂-同传中、英、日6000小时采集需求 】",
+      "reason": "same_import_key",
+      "existing_id": "1f724272-5a80-4c25-8954-d5ec3a85191c",
+      "existing_order_no": "AP-260903-043",
+      "existing_name": "【20260528-数据堂-同传中、英、日6000小时采集需求 】"
+    },
+    {
+      "row": 41,
+      "project_name": "【20260528-国信中健-同传中、英、日6000小时采集需求】",
+      "reason": "same_import_key",
+      "existing_id": "eb24988a-c212-4f29-b220-0577f273a8cc",
+      "existing_order_no": "AP-260903-044",
+      "existing_name": "【20260528-国信中健-同传中、英、日6000小时采集需求】"
+    },
+    {
+      "row": 42,
+      "project_name": "【20260528-杭州众智为马-温州话标注】",
+      "reason": "same_import_key",
+      "existing_id": "4007c9a7-7506-4ae6-89e5-b206fb3011e2",
+      "existing_order_no": "AP-260903-045",
+      "existing_name": "【20260528-杭州众智为马-温州话标注】"
+    },
+    {
+      "row": 43,
+      "project_name": "【20260603-国信中健-东盟10国的方言英语采集加标注】",
+      "reason": "same_import_key",
+      "existing_id": "27f11522-935f-4eab-afed-7943c3f58901",
+      "existing_order_no": "AP-260903-046",
+      "existing_name": "【20260603-国信中健-东盟10国的方言英语采集加标注】"
+    },
+    {
+      "row": 44,
+      "project_name": "【20260603-国信中健-中文-菲律宾切分转写】",
+      "reason": "same_import_key",
+      "existing_id": "a259200c-12a9-4751-b6d8-3e090c9562cf",
+      "existing_order_no": "AP-260903-047",
+      "existing_name": "【20260603-国信中健-中文-菲律宾切分转写】"
+    },
+    {
+      "row": 45,
+      "project_name": "【20260603-国信中健-印尼语和泰语 标注+质检】",
+      "reason": "same_import_key",
+      "existing_id": "0fc53007-a58f-4b3d-ae41-22bd7cae73c8",
+      "existing_order_no": "AP-260903-048",
+      "existing_name": "【20260603-国信中健-印尼语和泰语 标注+质检】"
+    },
+    {
+      "row": 46,
+      "project_name": "【20260603-澳鹏-泰语 标注+质检】",
+      "reason": "same_import_key",
+      "existing_id": "5cbc085c-8a10-435a-a951-3a8c30b3cf49",
+      "existing_order_no": "AP-260903-049",
+      "existing_name": "【20260603-澳鹏-泰语 标注+质检】"
+    },
+    {
+      "row": 47,
+      "project_name": "【20260604-数据堂-香港粤语标注】",
+      "reason": "same_import_key",
+      "existing_id": "1af1ce48-ee31-4a52-a7bb-b009c39510ad",
+      "existing_order_no": "AP-260903-050",
+      "existing_name": "【20260604-数据堂-香港粤语标注】"
+    },
+    {
+      "row": 48,
+      "project_name": "【20260605-全知启航-荷兰语视频Sft转写】",
+      "reason": "same_import_key",
+      "existing_id": "51cc9a07-f9ab-4219-9065-0c9d73a40ed5",
+      "existing_order_no": "AP-260903-051",
+      "existing_name": "【20260605-全知启航-荷兰语视频Sft转写】"
+    },
+    {
+      "row": 49,
+      "project_name": "【20260610-核数聚-4国语言转写】",
+      "reason": "same_import_key",
+      "existing_id": "85443e36-899c-4dc4-9c27-39e40d57a8a1",
+      "existing_order_no": "AP-260903-052",
+      "existing_name": "【20260610-核数聚-4国语言转写】"
+    },
+    {
+      "row": 50,
+      "project_name": "【20260610-谷特语言-德语母语采集】",
+      "reason": "same_import_key",
+      "existing_id": "a0bb0e61-945f-453d-91f5-c7600a37d71a",
+      "existing_order_no": "AP-260903-053",
+      "existing_name": "【20260610-谷特语言-德语母语采集】"
+    },
+    {
+      "row": 51,
+      "project_name": "【20260612-澳鹏-小语种文本测评】",
+      "reason": "same_import_key",
+      "existing_id": "09f45a23-4aaf-4f28-b7b2-2683da77f6f8",
+      "existing_order_no": "AP-260903-054",
+      "existing_name": "【20260612-澳鹏-小语种文本测评】"
+    },
+    {
+      "row": 52,
+      "project_name": "【20260614-杭州众智为马-日语口语化语音数据标注】",
+      "reason": "same_import_key",
+      "existing_id": "acb0d227-796f-4bb2-8076-fd4f72b039c2",
+      "existing_order_no": "AP-260903-055",
+      "existing_name": "【20260614-杭州众智为马-日语口语化语音数据标注】"
+    },
+    {
+      "row": 53,
+      "project_name": "【20260615-澳鹏-印度尼西亚音频转录】",
+      "reason": "same_import_key",
+      "existing_id": "f5f4b19a-5dc6-47fa-a86b-049425f4d55b",
+      "existing_order_no": "AP-260903-056",
+      "existing_name": "【20260615-澳鹏-印度尼西亚音频转录】"
+    },
+    {
+      "row": 54,
+      "project_name": "【20260616-数据堂-日语口语化语音标注】",
+      "reason": "same_import_key",
+      "existing_id": "c5eb5e80-2a95-43b6-b66f-d005cd4e45e4",
+      "existing_order_no": "AP-260903-057",
+      "existing_name": "【20260616-数据堂-日语口语化语音标注】"
+    },
+    {
+      "row": 55,
+      "project_name": "【20260616-澳鹏-英语盲评对战模型评测】",
+      "reason": "same_import_key",
+      "existing_id": "0c9ddc28-3cf1-4cda-ab18-e482144633d2",
+      "existing_order_no": "AP-260903-058",
+      "existing_name": "【20260616-澳鹏-英语盲评对战模型评测】"
+    },
+    {
+      "row": 56,
+      "project_name": "【20260616-深圳人工智能行业协会-日语口语化语音标注】",
+      "reason": "same_import_key",
+      "existing_id": "f2381f0d-32af-4f7c-98ae-e25e7d8de6b1",
+      "existing_order_no": "AP-260903-059",
+      "existing_name": "【20260616-深圳人工智能行业协会-日语口语化语音标注】"
+    },
+    {
+      "row": 57,
+      "project_name": "【20260616-全知启航-菲律宾语Sft】",
+      "reason": "same_import_key",
+      "existing_id": "c763fff0-d842-42b1-aab8-a1ed20e361ec",
+      "existing_order_no": "AP-260903-060",
+      "existing_name": "【20260616-全知启航-菲律宾语Sft】"
+    },
+    {
+      "row": 58,
+      "project_name": "【20260617-刘先生-英语母语采集】",
+      "reason": "same_import_key",
+      "existing_id": "b749a5ad-75ca-488e-ad12-5f69e3c4a3e7",
+      "existing_order_no": "AP-260903-061",
+      "existing_name": "【20260617-刘先生-英语母语采集】"
+    },
+    {
+      "row": 59,
+      "project_name": "【20260620-国信中健-多语种500h双工采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "3703687a-6972-44b2-9490-da71dd9619a5",
+      "existing_order_no": "AP-260903-062",
+      "existing_name": "【20260620-国信中健-多语种500h双工采集标注】"
+    },
+    {
+      "row": 60,
+      "project_name": "【20260622-谷特语言-俄语日语ASR标注】",
+      "reason": "same_import_key",
+      "existing_id": "cb734c46-da45-428b-930a-1196365bbfe3",
+      "existing_order_no": "AP-260903-063",
+      "existing_name": "【20260622-谷特语言-俄语日语ASR标注】"
+    },
+    {
+      "row": 61,
+      "project_name": "【20260622-澳鹏-泰语分轨自然对话语音数据（采集+标注）】",
+      "reason": "same_import_key",
+      "existing_id": "2156b176-3488-4c7c-bbc7-42df19eb0600",
+      "existing_order_no": "AP-260903-064",
+      "existing_name": "【20260622-澳鹏-泰语分轨自然对话语音数据（采集+标注）】"
+    },
+    {
+      "row": 62,
+      "project_name": "【20260623-字节互娱（安吉）数字科技有限公司-多语种采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "e914eb7d-f38a-492e-a4a8-59088cd378e2",
+      "existing_order_no": "AP-260903-065",
+      "existing_name": "【20260623-字节互娱（安吉）数字科技有限公司-多语种采集标注】"
+    },
+    {
+      "row": 63,
+      "project_name": "【20260624-澳鹏-小语种AST】",
+      "reason": "same_import_key",
+      "existing_id": "8140c300-be6f-480c-a4c2-bb83a2b00c9c",
+      "existing_order_no": "AP-260903-066",
+      "existing_name": "【20260624-澳鹏-小语种AST】"
+    },
+    {
+      "row": 64,
+      "project_name": "【20260624-全知启航-加泰罗语标注】",
+      "reason": "same_import_key",
+      "existing_id": "4ab7dea3-ff2b-4c72-a16f-e0d7d723080c",
+      "existing_order_no": "AP-260903-067",
+      "existing_name": "【20260624-全知启航-加泰罗语标注】"
+    },
+    {
+      "row": 65,
+      "project_name": "【20260629-杭州众智为马-粤语重口音采标】",
+      "reason": "same_import_key",
+      "existing_id": "ebc524b7-b439-49da-945e-33f0d88e6db5",
+      "existing_order_no": "AP-260903-068",
+      "existing_name": "【20260629-杭州众智为马-粤语重口音采标】"
+    },
+    {
+      "row": 66,
+      "project_name": "【20260701-马上消费-方言ASR 】",
+      "reason": "same_import_key",
+      "existing_id": "910820ef-0543-4f4a-afc4-01eabe16cef4",
+      "existing_order_no": "AP-260903-069",
+      "existing_name": "【20260701-马上消费-方言ASR 】"
+    },
+    {
+      "row": 67,
+      "project_name": "【20260701-全知启航-粤语方言标注】",
+      "reason": "same_import_key",
+      "existing_id": "0d042b67-d1df-48be-88e0-778c50b5d212",
+      "existing_order_no": "AP-260903-070",
+      "existing_name": "【20260701-全知启航-粤语方言标注】"
+    },
+    {
+      "row": 68,
+      "project_name": "【20260702-澳鹏-挪威瑞典采集】",
+      "reason": "same_import_key",
+      "existing_id": "bdf117c2-3c02-4758-9131-c790dc319080",
+      "existing_order_no": "AP-260903-071",
+      "existing_name": "【20260702-澳鹏-挪威瑞典采集】"
+    },
+    {
+      "row": 69,
+      "project_name": "【20260706-星辰智采-粤语采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "9821b31b-f211-478e-9470-93afe1b92777",
+      "existing_order_no": "AP-260903-072",
+      "existing_name": "【20260706-星辰智采-粤语采集标注】"
+    },
+    {
+      "row": 70,
+      "project_name": "【20260707-澳鹏-机器人普通话采集】",
+      "reason": "same_import_key",
+      "existing_id": "a07145cf-21af-4807-b6e4-4038e9699701",
+      "existing_order_no": "AP-260903-073",
+      "existing_name": "【20260707-澳鹏-机器人普通话采集】"
+    },
+    {
+      "row": 71,
+      "project_name": "【20260708-澳鹏-小语种ASR】",
+      "reason": "same_import_key",
+      "existing_id": "5393a917-1334-42a1-b0c6-bfdd7b483c70",
+      "existing_order_no": "AP-260903-074",
+      "existing_name": "【20260708-澳鹏-小语种ASR】"
+    },
+    {
+      "row": 72,
+      "project_name": "【20260708-全知启航-粤语转写普通话】",
+      "reason": "same_import_key",
+      "existing_id": "95036eff-0092-4d01-83ec-f8e5c31c1257",
+      "existing_order_no": "AP-260903-075",
+      "existing_name": "【20260708-全知启航-粤语转写普通话】"
+    },
+    {
+      "row": 73,
+      "project_name": "【20260710-澳鹏-小语种搜索相关性标注】",
+      "reason": "same_import_key",
+      "existing_id": "2b1d7038-1453-411d-9b70-2d608856d8aa",
+      "existing_order_no": "AP-260903-076",
+      "existing_name": "【20260710-澳鹏-小语种搜索相关性标注】"
+    },
+    {
+      "row": 74,
+      "project_name": "【20260713-杭州众智为马-温州话采集】",
+      "reason": "same_import_key",
+      "existing_id": "bb5196e3-f4a9-4d72-b3b2-ec9d501cb097",
+      "existing_order_no": "AP-260903-077",
+      "existing_name": "【20260713-杭州众智为马-温州话采集】"
+    },
+    {
+      "row": 75,
+      "project_name": "【20260713-九四智能-菲律宾语音频转写】",
+      "reason": "same_import_key",
+      "existing_id": "7381d66c-041f-452a-a1e5-1cee89ec311f",
+      "existing_order_no": "AP-260903-078",
+      "existing_name": "【20260713-九四智能-菲律宾语音频转写】"
+    },
+    {
+      "row": 76,
+      "project_name": "【20260714-澳鹏-英文语音识别数据采集】",
+      "reason": "same_import_key",
+      "existing_id": "7edd08d5-3cac-4989-bdc1-c13e23e3d90c",
+      "existing_order_no": "AP-260903-079",
+      "existing_name": "【20260714-澳鹏-英文语音识别数据采集】"
+    },
+    {
+      "row": 77,
+      "project_name": "【20260717-南京启宁新数-日语口语化语音数据标注】",
+      "reason": "same_import_key",
+      "existing_id": "2d2b695c-0ed4-42f4-8327-bf0d28d6123c",
+      "existing_order_no": "AP-260903-080",
+      "existing_name": "【20260717-南京启宁新数-日语口语化语音数据标注】"
+    },
+    {
+      "row": 78,
+      "project_name": "【20260715-上海星域探索-多语种文本标注】",
+      "reason": "same_import_key",
+      "existing_id": "82470f89-660c-4df2-a293-a1c8d2ab2188",
+      "existing_order_no": "AP-260903-081",
+      "existing_name": "【20260715-上海星域探索-多语种文本标注】"
+    },
+    {
+      "row": 79,
+      "project_name": "【20260722-澳鹏-多语种ASR标注】",
+      "reason": "same_import_key",
+      "existing_id": "fe455402-22a6-4225-8396-438a384393a5",
+      "existing_order_no": "AP-260903-082",
+      "existing_name": "【20260722-澳鹏-多语种ASR标注】"
+    },
+    {
+      "row": 80,
+      "project_name": "【20260723-勤为科技-翻配数据集】",
+      "reason": "same_import_key",
+      "existing_id": "4bb635cf-7264-4ef9-9cd3-bf12809faafe",
+      "existing_order_no": "AP-260903-083",
+      "existing_name": "【20260723-勤为科技-翻配数据集】"
+    },
+    {
+      "row": 81,
+      "project_name": "【20260724-语联网-多语种测评】",
+      "reason": "same_import_key",
+      "existing_id": "ac8f6baf-c4a3-44e3-a908-24d22195d554",
+      "existing_order_no": "AP-260903-084",
+      "existing_name": "【20260724-语联网-多语种测评】"
+    },
+    {
+      "row": 82,
+      "project_name": "【20260724-澳鹏-小语种本地化站点采集】",
+      "reason": "same_import_key",
+      "existing_id": "8742e350-3d30-41c0-860a-55643f91c63e",
+      "existing_order_no": "AP-260903-085",
+      "existing_name": "【20260724-澳鹏-小语种本地化站点采集】"
+    },
+    {
+      "row": 83,
+      "project_name": "【20260726-杭州众智为马-粤语标注】",
+      "reason": "same_import_key",
+      "existing_id": "aeb8f5be-24e7-43ae-892c-9b6432b3e99f",
+      "existing_order_no": "AP-260903-086",
+      "existing_name": "【20260726-杭州众智为马-粤语标注】"
+    },
+    {
+      "row": 84,
+      "project_name": "【20260727-中鑫盛凯-小语种数据标注】",
+      "reason": "same_import_key",
+      "existing_id": "a9dedb40-5f35-4dfb-a7f2-b0ce8bc86e1d",
+      "existing_order_no": "AP-260903-087",
+      "existing_name": "【20260727-中鑫盛凯-小语种数据标注】"
+    },
+    {
+      "row": 85,
+      "project_name": "【20260727-澳鹏-英德互译搜索】",
+      "reason": "same_import_key",
+      "existing_id": "42ec63a6-ea5b-4f29-a2dc-2e2e579f12ae",
+      "existing_order_no": "AP-260903-088",
+      "existing_name": "【20260727-澳鹏-英德互译搜索】"
+    },
+    {
+      "row": 86,
+      "project_name": "【20260728-澳鹏-中译小语种评估训练】",
+      "reason": "same_import_key",
+      "existing_id": "df17266b-b461-46f1-b303-b56ca66b2219",
+      "existing_order_no": "AP-260903-089",
+      "existing_name": "【20260728-澳鹏-中译小语种评估训练】"
+    },
+    {
+      "row": 87,
+      "project_name": "【20260728-米哇达-印尼语标注】",
+      "reason": "same_import_key",
+      "existing_id": "aab69fa8-4705-44b9-b751-7ee8687de830",
+      "existing_order_no": "AP-260903-090",
+      "existing_name": "【20260728-米哇达-印尼语标注】"
+    },
+    {
+      "row": 88,
+      "project_name": "【260728024-北京思必锐-歌词校对需求项目-歌词校对】",
+      "reason": "same_import_key",
+      "existing_id": "34c9aebe-8a4c-4346-a23b-2a6f5494f47b",
+      "existing_order_no": "AP-260903-091",
+      "existing_name": "【260728024-北京思必锐-歌词校对需求项目-歌词校对】"
+    },
+    {
+      "row": 89,
+      "project_name": "【20260730-甲骨易-ASR小语种评测】",
+      "reason": "same_import_key",
+      "existing_id": "f4bdb1ec-ab4a-4115-8d18-0230d8f8136e",
+      "existing_order_no": "AP-260903-092",
+      "existing_name": "【20260730-甲骨易-ASR小语种评测】"
+    },
+    {
+      "row": 90,
+      "project_name": "【20260730-杭州众智为马-粤语双人对话】",
+      "reason": "same_import_key",
+      "existing_id": "90f28614-95ed-4e4a-a5a3-9466ec2537c2",
+      "existing_order_no": "AP-260903-093",
+      "existing_name": "【20260730-杭州众智为马-粤语双人对话】"
+    },
+    {
+      "row": 91,
+      "project_name": "【20260731-广州鸿图科技有限公司-小语种标注转写】",
+      "reason": "same_import_key",
+      "existing_id": "c6ff1bc4-06e8-449a-86a8-0a66ec73f617",
+      "existing_order_no": "AP-260903-094",
+      "existing_name": "【20260731-广州鸿图科技有限公司-小语种标注转写】"
+    },
+    {
+      "row": 92,
+      "project_name": "【20260801-北京极算数联科技有限公司-西班牙葡萄牙采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "480c2f90-c738-4566-af0d-bbcaaaad2efe",
+      "existing_order_no": "AP-260903-095",
+      "existing_name": "【20260801-北京极算数联科技有限公司-西班牙葡萄牙采集标注】"
+    },
+    {
+      "row": 93,
+      "project_name": "【20260803-澳鹏-agent评测】",
+      "reason": "same_import_key",
+      "existing_id": "c4038d9e-cbb7-444a-96d8-10092b0006a9",
+      "existing_order_no": "AP-260903-096",
+      "existing_name": "【20260803-澳鹏-agent评测】"
+    },
+    {
+      "row": 94,
+      "project_name": "【20260803-杭州众智为马-粤语ASR】",
+      "reason": "same_import_key",
+      "existing_id": "d3b12f32-23ba-4149-bdc5-298795088e8d",
+      "existing_order_no": "AP-260903-097",
+      "existing_name": "【20260803-杭州众智为马-粤语ASR】"
+    },
+    {
+      "row": 95,
+      "project_name": "【20260804-创教通-多语种标注采集】",
+      "reason": "same_import_key",
+      "existing_id": "ea073ea1-59c7-4d29-9585-3998cc7aa16d",
+      "existing_order_no": "AP-260903-098",
+      "existing_name": "【20260804-创教通-多语种标注采集】"
+    },
+    {
+      "row": 96,
+      "project_name": "【20260805-数据堂-方言采标】",
+      "reason": "same_import_key",
+      "existing_id": "ecad8ddb-e677-4dbb-838d-277894d9186e",
+      "existing_order_no": "AP-260903-099",
+      "existing_name": "【20260805-数据堂-方言采标】"
+    },
+    {
+      "row": 97,
+      "project_name": "【20260805-澳鹏-方言录音棚采集】",
+      "reason": "same_import_key",
+      "existing_id": "2fc796f4-ca17-4420-8ada-2072802e3ed7",
+      "existing_order_no": "AP-260903-100",
+      "existing_name": "【20260805-澳鹏-方言录音棚采集】"
+    },
+    {
+      "row": 98,
+      "project_name": "【20260805-广州鸿图-德语采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "ec0194dd-6d22-4290-8cad-8da898df38c7",
+      "existing_order_no": "AP-260903-101",
+      "existing_name": "【20260805-广州鸿图-德语采集标注】"
+    },
+    {
+      "row": 99,
+      "project_name": "【20260805-广州鸿图-日语口语化语音数据标注】",
+      "reason": "same_import_key",
+      "existing_id": "7978d93c-33cf-4e69-8bae-46c1592b2d75",
+      "existing_order_no": "AP-260903-143",
+      "existing_name": "【20260805-广州鸿图-日语口语化语音数据标注】"
+    },
+    {
+      "row": 100,
+      "project_name": "【20260807-杭州众智为马-粤语ASR】",
+      "reason": "same_import_key",
+      "existing_id": "e82874c1-81e9-4abf-94fd-ff1951dcb857",
+      "existing_order_no": "AP-260903-102",
+      "existing_name": "【20260807-杭州众智为马-粤语ASR】"
+    },
+    {
+      "row": 101,
+      "project_name": "【20260807-广州鸿图-乌尔都语标注】",
+      "reason": "same_import_key",
+      "existing_id": "fae3d148-1bc7-4b05-b106-fad10d645a5a",
+      "existing_order_no": "AP-260903-103",
+      "existing_name": "【20260807-广州鸿图-乌尔都语标注】"
+    },
+    {
+      "row": 102,
+      "project_name": "【20260807-泰盈科技-5类方言ASR标注】",
+      "reason": "same_import_key",
+      "existing_id": "d49b2ca9-871c-4184-8ded-4f8a2815076b",
+      "existing_order_no": "AP-260903-104",
+      "existing_name": "【20260807-泰盈科技-5类方言ASR标注】"
+    },
+    {
+      "row": 103,
+      "project_name": "【20260809-云展科技-方言标注】",
+      "reason": "same_import_key",
+      "existing_id": "ee5ff741-7b54-4997-898f-9faef6e14158",
+      "existing_order_no": "AP-260903-105",
+      "existing_name": "【20260809-云展科技-方言标注】"
+    },
+    {
+      "row": 104,
+      "project_name": "【20260809-云展科技-方言采集】",
+      "reason": "same_import_key",
+      "existing_id": "82eff82b-b7a0-44e5-99f9-356c5a5caf14",
+      "existing_order_no": "AP-260903-144",
+      "existing_name": "【20260809-云展科技-方言采集】"
+    },
+    {
+      "row": 105,
+      "project_name": "【20260809-云展科技-印尼阿语采标】",
+      "reason": "same_import_key",
+      "existing_id": "efec84b2-16a0-452a-86e8-5e604969f3aa",
+      "existing_order_no": "AP-260903-106",
+      "existing_name": "【20260809-云展科技-印尼阿语采标】"
+    },
+    {
+      "row": 106,
+      "project_name": "【20260809-云展科技-多语种文本质检】",
+      "reason": "same_import_key",
+      "existing_id": "4c451539-e47c-46f9-991d-19ea20513fb7",
+      "existing_order_no": "AP-260903-107",
+      "existing_name": "【20260809-云展科技-多语种文本质检】"
+    },
+    {
+      "row": 107,
+      "project_name": "【20260811-澳鹏-港粤多人对话】",
+      "reason": "same_import_key",
+      "existing_id": "39ae5069-3b4a-4eea-8f74-74b5a5bb803c",
+      "existing_order_no": "AP-260903-108",
+      "existing_name": "【20260811-澳鹏-港粤多人对话】"
+    },
+    {
+      "row": 108,
+      "project_name": "【20260811-云展科技-甜美女声方言线下采集】",
+      "reason": "same_import_key",
+      "existing_id": "348cd63e-4af4-4d34-8fc7-a812c18213ca",
+      "existing_order_no": "AP-260903-109",
+      "existing_name": "【20260811-云展科技-甜美女声方言线下采集】"
+    },
+    {
+      "row": 109,
+      "project_name": "【20260812-澳鹏-英语双人对话采集】",
+      "reason": "same_import_key",
+      "existing_id": "e184ed25-f036-4010-978b-7bfe2fb0ba28",
+      "existing_order_no": "AP-260903-110",
+      "existing_name": "【20260812-澳鹏-英语双人对话采集】"
+    },
+    {
+      "row": 110,
+      "project_name": "【20260812-澳鹏-西班牙语和日语方言采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "2aff654b-a01a-44ed-b79e-c58c5cfd79ab",
+      "existing_order_no": "AP-260903-111",
+      "existing_name": "【20260812-澳鹏-西班牙语和日语方言采集标注】"
+    },
+    {
+      "row": 111,
+      "project_name": "【20260812-全知启航-菲律宾语字幕对齐】",
+      "reason": "same_import_key",
+      "existing_id": "1813a6c8-592c-4450-956a-18c96637dfb0",
+      "existing_order_no": "AP-260903-112",
+      "existing_name": "【20260812-全知启航-菲律宾语字幕对齐】"
+    },
+    {
+      "row": 112,
+      "project_name": "【20260812-深圳丘谷文化-粤语视频采集】",
+      "reason": "same_import_key",
+      "existing_id": "7faf85a1-6f21-4730-abc4-f64ac2ff1386",
+      "existing_order_no": "AP-260903-113",
+      "existing_name": "【20260812-深圳丘谷文化-粤语视频采集】"
+    },
+    {
+      "row": 113,
+      "project_name": "【20260812-澳鹏-AI模型英文标注】",
+      "reason": "same_import_key",
+      "existing_id": "14c8d3f4-2494-4c0e-8fe3-42e636a3e925",
+      "existing_order_no": "AP-260903-114",
+      "existing_name": "【20260812-澳鹏-AI模型英文标注】"
+    },
+    {
+      "row": 114,
+      "project_name": "【20260813-广州鸿图-捷克语口语化语音数据标注】",
+      "reason": "same_import_key",
+      "existing_id": "d033a0be-f79d-4c7c-9242-13842dc367da",
+      "existing_order_no": "AP-260903-115",
+      "existing_name": "【20260813-广州鸿图-捷克语口语化语音数据标注】"
+    },
+    {
+      "row": 115,
+      "project_name": "【20260814-全知启航-中英采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "4298299c-b47d-4c4a-aff9-17ac94477617",
+      "existing_order_no": "AP-260903-116",
+      "existing_name": "【20260814-全知启航-中英采集标注】"
+    },
+    {
+      "row": 116,
+      "project_name": "【20260814-澳鹏-中英采集标注】",
+      "reason": "same_import_key",
+      "existing_id": "67e9114d-a7a1-4687-a12f-d6c2344d9170",
+      "existing_order_no": "AP-260903-117",
+      "existing_name": "【20260814-澳鹏-中英采集标注】"
+    },
+    {
+      "row": 117,
+      "project_name": "【20260818-澳鹏-菲律宾语马来语字幕对齐】",
+      "reason": "same_import_key",
+      "existing_id": "309e5409-c3b6-4b2d-9aff-4a662eb96850",
+      "existing_order_no": "AP-260903-118",
+      "existing_name": "【20260818-澳鹏-菲律宾语马来语字幕对齐】"
+    },
+    {
+      "row": 118,
+      "project_name": "【20260818-杭州众智为马-粤语重口音采集】",
+      "reason": "same_import_key",
+      "existing_id": "02c484bd-e185-4821-8de1-6cf8af40e286",
+      "existing_order_no": "AP-260903-119",
+      "existing_name": "【20260818-杭州众智为马-粤语重口音采集】"
+    },
+    {
+      "row": 119,
+      "project_name": "【20260819-米哇达-温州话标注录音】",
+      "reason": "same_import_key",
+      "existing_id": "4620e5d8-be22-4fdf-ba87-b174b0c221ed",
+      "existing_order_no": "AP-260903-120",
+      "existing_name": "【20260819-米哇达-温州话标注录音】"
+    },
+    {
+      "row": 120,
+      "project_name": "【20260820-澳鹏-海外agent粗评】",
+      "reason": "same_import_key",
+      "existing_id": "37cb9726-73ec-484b-ba7a-be3f6c072348",
+      "existing_order_no": "AP-260903-121",
+      "existing_name": "【20260820-澳鹏-海外agent粗评】"
+    },
+    {
+      "row": 121,
+      "project_name": "【20260820-数据堂-吴语方言采标】",
+      "reason": "same_import_key",
+      "existing_id": "27b6e701-3ff7-41bd-bba7-22c41e38259c",
+      "existing_order_no": "AP-260903-122",
+      "existing_name": "【20260820-数据堂-吴语方言采标】"
+    },
+    {
+      "row": 122,
+      "project_name": "【20260821-澳鹏-中英文双语混说采集】",
+      "reason": "same_import_key",
+      "existing_id": "444733a5-60bc-4d67-9839-9089a2add389",
+      "existing_order_no": "AP-260903-123",
+      "existing_name": "【20260821-澳鹏-中英文双语混说采集】"
+    },
+    {
+      "row": 123,
+      "project_name": "【20260821-徐嘉言-日语方言录音】",
+      "reason": "same_import_key",
+      "existing_id": "63e10930-d28b-4ee4-9063-22d68c5e76b2",
+      "existing_order_no": "AP-260903-124",
+      "existing_name": "【20260821-徐嘉言-日语方言录音】"
+    },
+    {
+      "row": 124,
+      "project_name": "【20260821-广州鸿图-泰语文本标注】",
+      "reason": "same_import_key",
+      "existing_id": "3267995d-0482-4d0a-bdaf-9fdf98498408",
+      "existing_order_no": "AP-260903-125",
+      "existing_name": "【20260821-广州鸿图-泰语文本标注】"
+    },
+    {
+      "row": 125,
+      "project_name": "【20260824-澳鹏-闽南语重口音普通话采集】",
+      "reason": "same_import_key",
+      "existing_id": "4b18aa1b-e4f3-466c-b002-da21df55021f",
+      "existing_order_no": "AP-260903-126",
+      "existing_name": "【20260824-澳鹏-闽南语重口音普通话采集】"
+    },
+    {
+      "row": 126,
+      "project_name": "【20260824-澳鹏-AST普通话文本转译】",
+      "reason": "same_import_key",
+      "existing_id": "87c5deb2-aff8-4428-a44c-f430d1fc3a33",
+      "existing_order_no": "AP-260903-127",
+      "existing_name": "【20260824-澳鹏-AST普通话文本转译】"
+    },
+    {
+      "row": 127,
+      "project_name": "【20260824-沐峤国际文化传媒（北京）有限公司-泰米尔语标注】",
+      "reason": "same_import_key",
+      "existing_id": "c5556f87-b0b5-4712-b1bb-c75a5ba20600",
+      "existing_order_no": "AP-260903-128",
+      "existing_name": "【20260824-沐峤国际文化传媒（北京）有限公司-泰米尔语标注】"
+    },
+    {
+      "row": 128,
+      "project_name": "【20260825-北京国际大数据交易所-闽南语录音标注】",
+      "reason": "same_import_key",
+      "existing_id": "d9765d40-397c-4368-91ea-6b9fcb2fc0de",
+      "existing_order_no": "AP-260903-129",
+      "existing_name": "【20260825-北京国际大数据交易所-闽南语录音标注】"
+    },
+    {
+      "row": 129,
+      "project_name": "【20260825-全知启航-温州AST】",
+      "reason": "same_import_key",
+      "existing_id": "668d388f-f4ae-499b-9856-b74a69a3b555",
+      "existing_order_no": "AP-260903-130",
+      "existing_name": "【20260825-全知启航-温州AST】"
+    },
+    {
+      "row": 130,
+      "project_name": "【20260825-澳鹏-西班牙语法语标注】",
+      "reason": "same_import_key",
+      "existing_id": "1b61ad95-3ae6-40b4-9425-6db166707cfd",
+      "existing_order_no": "AP-260903-131",
+      "existing_name": "【20260825-澳鹏-西班牙语法语标注】"
+    },
+    {
+      "row": 131,
+      "project_name": "【20260826-广州鸿图-潮汕话ASR】",
+      "reason": "same_import_key",
+      "existing_id": "1ad7c23a-96d5-468d-b992-45113f3eac4f",
+      "existing_order_no": "AP-260903-132",
+      "existing_name": "【20260826-广州鸿图-潮汕话ASR】"
+    },
+    {
+      "row": 132,
+      "project_name": "【20260826-云展科技-温州标注】",
+      "reason": "same_import_key",
+      "existing_id": "e67d3c05-7cd0-4b3a-a8dd-317b1f0a464b",
+      "existing_order_no": "AP-260903-133",
+      "existing_name": "【20260826-云展科技-温州标注】"
+    },
+    {
+      "row": 133,
+      "project_name": "【20260826-澳鹏-美国实景采集】",
+      "reason": "same_import_key",
+      "existing_id": "f08fec53-bc9c-472a-808a-e32d7d2e1058",
+      "existing_order_no": "AP-260903-134",
+      "existing_name": "【20260826-澳鹏-美国实景采集】"
+    },
+    {
+      "row": 134,
+      "project_name": "【20260826-澳鹏-9国小语种转写】",
+      "reason": "same_import_key",
+      "existing_id": "a6b3a278-4959-4b64-a71b-0928ffb31f4b",
+      "existing_order_no": "AP-260903-135",
+      "existing_name": "【20260826-澳鹏-9国小语种转写】"
+    },
+    {
+      "row": 135,
+      "project_name": "【20260826-杭州众智为马-温州线上采集】",
+      "reason": "similar_name:0.878",
+      "existing_id": "74de2049-a614-4613-9836-8e90ced8ca5c",
+      "existing_order_no": "AP-260826-001",
+      "existing_name": "【20260826-杭州众智为马-温州话-音频采集】"
+    },
+    {
+      "row": 136,
+      "project_name": "【2026827-澳鹏-小语种字幕对齐】",
+      "reason": "same_import_key",
+      "existing_id": "e4871aa3-6658-424a-a264-5a09978a1da8",
+      "existing_order_no": "AP-260903-136",
+      "existing_name": "【2026827-澳鹏-小语种字幕对齐】"
+    },
+    {
+      "row": 137,
+      "project_name": "【20260827-广州鸿图-ASR泰语录音质检】",
+      "reason": "same_import_key",
+      "existing_id": "ab7e2492-827f-4547-9c8a-fccc4aeed7be",
+      "existing_order_no": "AP-260903-137",
+      "existing_name": "【20260827-广州鸿图-ASR泰语录音质检】"
+    },
+    {
+      "row": 138,
+      "project_name": "【20260827-标贝科技-ASR泰语录音质检】",
+      "reason": "same_import_key",
+      "existing_id": "4c47e0ac-af30-496d-bb2f-0ea707b36e7b",
+      "existing_order_no": "AP-260903-138",
+      "existing_name": "【20260827-标贝科技-ASR泰语录音质检】"
+    },
+    {
+      "row": 139,
+      "project_name": "【20260827-标贝科技-泰语文本标注】",
+      "reason": "same_import_key",
+      "existing_id": "540ec19f-73b4-4214-8b9c-d7ea25c3dff1",
+      "existing_order_no": "AP-260903-139",
+      "existing_name": "【20260827-标贝科技-泰语文本标注】"
+    },
+    {
+      "row": 140,
+      "project_name": "【20260827-数据堂-温州台州方言采集】",
+      "reason": "same_import_key",
+      "existing_id": "0cecac67-8a6d-4f4d-8ab0-7b1e6abb0919",
+      "existing_order_no": "AP-260903-140",
+      "existing_name": "【20260827-数据堂-温州台州方言采集】"
+    },
+    {
+      "row": 141,
+      "project_name": "【澳鹏-印尼阿语ASR标注-20260828】",
+      "reason": "same_import_key",
+      "existing_id": "b60dbb07-f468-4ceb-92f9-eb3d6790f18e",
+      "existing_order_no": "AP-260903-141",
+      "existing_name": "【澳鹏-印尼阿语ASR标注-20260828】"
+    },
+    {
+      "row": 142,
+      "project_name": "【标贝科技-海外多语种录音-20260831】",
+      "reason": "same_import_key",
+      "existing_id": "c6ce3a13-ec51-417c-99d4-07228259c643",
+      "existing_order_no": "AP-260903-142",
+      "existing_name": "【标贝科技-海外多语种录音-20260831】"
+    },
+    {
+      "row": 143,
+      "project_name": "【澳鹏-中英AI对话训练采集-20260901】",
+      "reason": "same_name",
+      "existing_id": "bcf51895-f742-4e5b-9e77-ec324f138793",
+      "existing_order_no": "AP-260901-001",
+      "existing_name": "【澳鹏-中英AI对话训练采集-20260901】"
+    },
+    {
+      "row": 144,
+      "project_name": "【澳鹏-ai测评-20260901】",
+      "reason": "same_name",
+      "existing_id": "dec6f60c-4e67-4ca8-aacd-c6fbca3be02d",
+      "existing_order_no": "AP-260902-004",
+      "existing_name": "【澳鹏-ai测评-20260901】"
+    },
+    {
+      "row": 145,
+      "project_name": "【数据堂-希伯来语口语化标注-20260901】",
+      "reason": "same_name",
+      "existing_id": "e0dbdeaa-a3b7-41f7-9a8b-d9ec9d18d8df",
+      "existing_order_no": "AP-260902-003",
+      "existing_name": "【数据堂-希伯来语口语化标注-20260901】"
+    },
+    {
+      "row": 146,
+      "project_name": "【澳鹏-双轨对话数据采标-20260902】",
+      "reason": "same_name",
+      "existing_id": "516b3c90-b143-4b0b-bba7-128e2ea43f1d",
+      "existing_order_no": "AP-260902-001",
+      "existing_name": "【澳鹏-双轨对话数据采标-20260902】"
+    },
+    {
+      "row": 147,
+      "project_name": "【全知启航-方言质检-20260902】",
+      "reason": "same_name",
+      "existing_id": "15f24a6c-2bc0-4e9e-9032-cb8f95783bb1",
+      "existing_order_no": "AP-260902-002",
+      "existing_name": "【全知启航-方言质检-20260902】"
+    },
+    {
+      "row": 148,
+      "project_name": "【合肥思达智数信息科技-20260903-阿拉伯语（方言）-音频标注】",
+      "reason": "similar_name:0.897",
+      "existing_id": "e72d3c6e-08f7-4cbe-81f6-5fe0698faae6",
+      "existing_order_no": "AP-260903-001",
+      "existing_name": "【合肥思达智数信息科技-20260903-阿拉伯语（现代标准）-音频标注】"
+    },
+    {
+      "row": 149,
+      "project_name": "【合肥思达智数信息科技-20260903-南非zulu语、afrikaans-音频标注】",
+      "reason": "same_name",
+      "existing_id": "2dd26c50-a28b-41c4-8f85-a3bbecbd5723",
+      "existing_order_no": "AP-260903-002",
+      "existing_name": "【合肥思达智数信息科技-20260903-南非zulu语、afrikaans-音频标注】"
+    },
+    {
+      "row": 150,
+      "project_name": "【广东鸿图科技-260903-西语客服数据标注】",
+      "reason": "same_name",
+      "existing_id": "4dcb152a-7906-4fa2-bd8a-00e990afe009",
+      "existing_order_no": "AP-260903-003",
+      "existing_name": "【广东鸿图科技-260903-西语客服数据标注】"
+    }
+  ],
+  "failed": [],
+  "prepared": [],
+  "summary": {
+    "created": 0,
+    "prepared": 0,
+    "skipped": 149,
+    "failed": 0
+  }
+}

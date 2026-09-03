@@ -491,9 +491,12 @@ def update_project_status(
     "/{project_id}", status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_any_permission("projects:write"))],
 )
-def delete_project(project_id: UUID, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: UUID, db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
     try:
-        if not delete_recruitment_project(db, project_id):
+        if not delete_recruitment_project(db, project_id, actor_user_id=current_user.id):
             raise HTTPException(status_code=404, detail="招聘项目不存在")
     except IntegrityError:
         db.rollback()

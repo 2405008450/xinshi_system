@@ -82,6 +82,12 @@ const routes = [
         meta: { title: '项目邮件设置', permissions: ['system:mail_settings:read'] }
       },
       {
+        path: 'project-operation-audits',
+        name: 'ProjectOperationAudits',
+        component: () => import('../views/system/ProjectOperationAudits.vue'),
+        meta: { title: '项目操作审计', permissions: ['system:audit:read'] }
+      },
+      {
         path: 'interpretation-details',
         name: 'InterpretationProjectDetails',
         component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),

@@ -127,7 +127,8 @@ from resource_request_models import (
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
 )
-from routers import business_mails, mail_inline_images
+from project_audit_models import ProjectOperationAudit
+from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,7 @@ app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)
 app.include_router(business_mails.mail_router)
 app.include_router(mail_inline_images.router)
+app.include_router(project_audits.router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
@@ -1161,6 +1163,7 @@ def run_runtime_migrations():
     cleanup_orphan_chat_attachments()
     TranslatorSchedule.__table__.create(bind=engine, checkfirst=True)
     ensure_role_permission_table()
+    ProjectOperationAudit.__table__.create(bind=engine, checkfirst=True)
     ensure_personal_task_permissions()
     ensure_talent_permission_compatibility()
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)

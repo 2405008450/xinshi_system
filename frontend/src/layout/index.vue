@@ -92,6 +92,7 @@
           <el-menu-item v-if="canViewUsers" index="/users">用户管理</el-menu-item>
           <el-menu-item v-if="canViewRoles" index="/roles">角色管理</el-menu-item>
           <el-menu-item v-if="canViewMailSettings" index="/mail-settings">项目邮件设置</el-menu-item>
+          <el-menu-item v-if="canViewProjectAudits" index="/project-operation-audits">项目操作审计</el-menu-item>
         </el-sub-menu>
       </el-menu>
       <transition name="logo-text">
@@ -211,7 +212,8 @@ onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
-const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value || canViewMailSettings.value)
+const canViewProjectAudits = computed(() => hasPermission('system:audit:read'))
+const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))

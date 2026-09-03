@@ -504,12 +504,19 @@
           </el-row>
           <el-row :gutter="20">
             <el-col :xs="24" :md="12">
-              <el-form-item label="客户经理联系方式" prop="manager_contact">
+              <el-form-item label="联系方式" prop="manager_contact">
+                <ReadonlyField
+                  v-if="form.manager_contact_protected"
+                  model-value="••••••••"
+                  source="locked"
+                  tooltip="已有联系方式，已隐藏；如需修改请前往客户管理"
+                />
                 <el-input
+                  v-else
                   v-model="form.manager_contact"
                   maxlength="100"
                   clearable
-                  placeholder="填写后同步到客户资料"
+                  placeholder="请输入联系方式，保存后同步到客户资料"
                 />
               </el-form-item>
             </el-col>
@@ -870,13 +877,20 @@
                 </el-autocomplete>
               </el-form-item>
             </el-col>
-            <el-col v-if="showManagerContactInput" :xs="24" :md="12">
-              <el-form-item label="客户经理联系方式" prop="manager_contact">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="联系方式" prop="manager_contact">
+                <ReadonlyField
+                  v-if="form.manager_contact_protected"
+                  model-value="••••••••"
+                  source="locked"
+                  tooltip="已有联系方式，已隐藏；如需修改请前往客户管理"
+                />
                 <el-input
+                  v-else
                   v-model="form.manager_contact"
                   maxlength="100"
                   clearable
-                  placeholder="填写后同步到客户资料，并用于邮件预览"
+                  placeholder="请输入联系方式，保存后同步到客户资料"
                 />
               </el-form-item>
             </el-col>
@@ -1684,6 +1698,7 @@ const defaultForm = () => ({
   client_name: '',
   client_short_name: '',
   manager_contact: '',
+  manager_contact_protected: false,
   contact_name: '',
   customer_order_no: '',
   project_name: '',
@@ -1710,7 +1725,6 @@ const defaultForm = () => ({
 })
 
 const form = reactive(defaultForm())
-const showManagerContactInput = computed(() => !form.client_id)
 const interpretationLocationText = computed({
   get: () => (Array.isArray(form.project_intake.locations) ? form.project_intake.locations : [])
     .filter((item) => String(item || '').trim())
@@ -1734,6 +1748,9 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   legacyStorageKeys: [`consultation_form_drafts:${currentUserId || 'anonymous'}`],
   applyDraft: (draft) => {
     Object.assign(form, defaultForm(), draft)
+    if (!Object.prototype.hasOwnProperty.call(draft, 'manager_contact_protected')) {
+      form.manager_contact_protected = Boolean(form.client_id && form.manager_contact?.trim())
+    }
     if (form.consultation_method && !consultationMethodLabels[form.consultation_method]) {
       form.consultation_method_custom = form.consultation_method
       form.consultation_method = 'other'
@@ -2212,6 +2229,7 @@ const handleExistingClientSelect = (item) => {
   form.client_code = item.client_code || ''
   form.client_short_name = item.client_short_name || ''
   form.manager_contact = item.manager_contact || ''
+  form.manager_contact_protected = Boolean(item.manager_contact?.trim())
   availableSubClients.value = item.sub_clients || []
   if (!availableSubClients.value.length) loadSubClients(item.id)
 }
@@ -2239,6 +2257,7 @@ const handleClientNameInput = () => {
   form.sub_client_id = null
   form.client_code = ''
   availableSubClients.value = []
+  form.manager_contact_protected = false
   if (hadSelectedClient) {
     form.client_short_name = ''
     form.manager_contact = ''
@@ -2252,6 +2271,7 @@ const handleClientShortNameInput = (value) => {
   form.sub_client_id = null
   form.client_code = ''
   availableSubClients.value = []
+  form.manager_contact_protected = false
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
@@ -2265,6 +2285,7 @@ const handleClientShortNameClear = () => {
   form.client_code = ''
   availableSubClients.value = []
   form.client_short_name = ''
+  form.manager_contact_protected = false
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
@@ -2277,6 +2298,7 @@ const handleClientNameClear = () => {
   form.client_id = null
   form.client_name = ''
   form.client_code = ''
+  form.manager_contact_protected = false
   if (hadSelectedClient) {
     form.client_short_name = ''
     form.manager_contact = ''
@@ -2377,47 +2399,52 @@ const fetchData = async () => {
 
 const toNullable = (v) => (v === '' || v === undefined ? null : v)
 
-const buildPayload = () => ({
-  client_id: form.client_id,
-  sub_client_id: toNullable(form.sub_client_id),
-  client_code: form.client_code?.trim() || null,
-  client_name: form.client_name?.trim() || null,
-  client_short_name: form.client_short_name?.trim() || null,
-  manager_contact: form.manager_contact?.trim() || null,
-  contact_name: form.contact_name?.trim() || null,
-  customer_order_no: form.customer_order_no?.trim() || null,
-  project_name: form.project_name?.trim() || null,
-  project_intake: {
-    ...form.project_intake,
-    word_count_matrix: serializeWordCountMatrix(form.project_intake.word_count_matrix),
-    required_interpreter_count: isInterpretationConsultationType(form.consultation_type)
-      ? (interpretationRequiredTotal.value || null)
-      : form.project_intake.required_interpreter_count,
-    employment_start: form.project_intake.employment_range?.[0] || null,
-    employment_end: form.project_intake.employment_range?.[1] || null,
-    employment_range: undefined,
-  },
-  project_intake_version: 2,
-  consultation_time: toNullable(form.consultation_time),
-  consultation_method: toNullable(form.consultation_method),
-  consultation_method_detail: toNullable(form.consultation_method_custom?.trim()),
-  client_source: toNullable(form.client_source),
-  source_keyword: toNullable(form.source_keyword),
-  consultation_description: toNullable(form.consultation_description),
-  remarks: toNullable(form.remarks),
-  customer_service_id: toNullable(form.customer_service_id),
-  sales_person_id: toNullable(form.sales_person_id),
-  status: toNullable(form.status),
-  consultation_type: toNullable(form.consultation_type),
-  handling_method: toNullable(form.handling_method),
-  editor_id: toNullable(form.editor_id),
-  follow_up_count: form.follow_up_count ?? 0,
-  follow_up_time: toNullable(form.follow_up_time),
-  follow_up_status: toNullable(form.follow_up_status),
-  follow_up_remarks: toNullable(form.follow_up_remarks),
-  follow_up_person_id: toNullable(form.follow_up_person_id),
-  expected_updated_at: form.updated_at || null,
-})
+const buildPayload = () => {
+  const payload = {
+    client_id: form.client_id,
+    sub_client_id: toNullable(form.sub_client_id),
+    client_code: form.client_code?.trim() || null,
+    client_name: form.client_name?.trim() || null,
+    client_short_name: form.client_short_name?.trim() || null,
+    contact_name: form.contact_name?.trim() || null,
+    customer_order_no: form.customer_order_no?.trim() || null,
+    project_name: form.project_name?.trim() || null,
+    project_intake: {
+      ...form.project_intake,
+      word_count_matrix: serializeWordCountMatrix(form.project_intake.word_count_matrix),
+      required_interpreter_count: isInterpretationConsultationType(form.consultation_type)
+        ? (interpretationRequiredTotal.value || null)
+        : form.project_intake.required_interpreter_count,
+      employment_start: form.project_intake.employment_range?.[0] || null,
+      employment_end: form.project_intake.employment_range?.[1] || null,
+      employment_range: undefined,
+    },
+    project_intake_version: 2,
+    consultation_time: toNullable(form.consultation_time),
+    consultation_method: toNullable(form.consultation_method),
+    consultation_method_detail: toNullable(form.consultation_method_custom?.trim()),
+    client_source: toNullable(form.client_source),
+    source_keyword: toNullable(form.source_keyword),
+    consultation_description: toNullable(form.consultation_description),
+    remarks: toNullable(form.remarks),
+    customer_service_id: toNullable(form.customer_service_id),
+    sales_person_id: toNullable(form.sales_person_id),
+    status: toNullable(form.status),
+    consultation_type: toNullable(form.consultation_type),
+    handling_method: toNullable(form.handling_method),
+    editor_id: toNullable(form.editor_id),
+    follow_up_count: form.follow_up_count ?? 0,
+    follow_up_time: toNullable(form.follow_up_time),
+    follow_up_status: toNullable(form.follow_up_status),
+    follow_up_remarks: toNullable(form.follow_up_remarks),
+    follow_up_person_id: toNullable(form.follow_up_person_id),
+    expected_updated_at: form.updated_at || null,
+  }
+  if (!form.manager_contact_protected) {
+    payload.manager_contact = form.manager_contact?.trim() || null
+  }
+  return payload
+}
 
 const loadConsultationDetail = async (id, force = false) => {
   if (!id || (!force && detailCache[id])) return
@@ -2485,6 +2512,7 @@ const fillFormByRow = (row) => {
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
     manager_contact: row.manager_contact || '',
+    manager_contact_protected: Boolean(row.manager_contact?.trim()),
     contact_name: row.contact_name || '',
     customer_order_no: row.customer_order_no || '',
     project_name: row.project_name || '',
@@ -2631,7 +2659,9 @@ const handleSubmit = async (continueCreate = false) => {
           consultationId,
           consultationPayload: payload,
           row: null,
-          previewSource: payload,
+          previewSource: form.manager_contact_protected
+            ? { ...payload, manager_contact: form.manager_contact }
+            : payload,
           continueCreate: shouldContinueCreate,
         })
         return

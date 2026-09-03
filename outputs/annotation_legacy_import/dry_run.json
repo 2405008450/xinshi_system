@@ -1,0 +1,1784 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "mode": "dry-run",
+  "host": "WIN-LOLJ8UHT2G5",
+  "total_source_rows": 149,
+  "created": [],
+  "skipped": [
+    {
+      "row": 135,
+      "project_name": "【20260826-杭州众智为马-温州线上采集】",
+      "reason": "similar_name:0.878",
+      "existing_id": "74de2049-a614-4613-9836-8e90ced8ca5c",
+      "existing_order_no": "AP-260826-001",
+      "existing_name": "【20260826-杭州众智为马-温州话-音频采集】"
+    },
+    {
+      "row": 143,
+      "project_name": "【澳鹏-中英AI对话训练采集-20260901】",
+      "reason": "same_name",
+      "existing_id": "bcf51895-f742-4e5b-9e77-ec324f138793",
+      "existing_order_no": "AP-260901-001",
+      "existing_name": "【澳鹏-中英AI对话训练采集-20260901】"
+    },
+    {
+      "row": 144,
+      "project_name": "【澳鹏-ai测评-20260901】",
+      "reason": "same_name",
+      "existing_id": "dec6f60c-4e67-4ca8-aacd-c6fbca3be02d",
+      "existing_order_no": "AP-260902-004",
+      "existing_name": "【澳鹏-ai测评-20260901】"
+    },
+    {
+      "row": 145,
+      "project_name": "【数据堂-希伯来语口语化标注-20260901】",
+      "reason": "same_name",
+      "existing_id": "e0dbdeaa-a3b7-41f7-9a8b-d9ec9d18d8df",
+      "existing_order_no": "AP-260902-003",
+      "existing_name": "【数据堂-希伯来语口语化标注-20260901】"
+    },
+    {
+      "row": 146,
+      "project_name": "【澳鹏-双轨对话数据采标-20260902】",
+      "reason": "same_name",
+      "existing_id": "516b3c90-b143-4b0b-bba7-128e2ea43f1d",
+      "existing_order_no": "AP-260902-001",
+      "existing_name": "【澳鹏-双轨对话数据采标-20260902】"
+    },
+    {
+      "row": 147,
+      "project_name": "【全知启航-方言质检-20260902】",
+      "reason": "same_name",
+      "existing_id": "15f24a6c-2bc0-4e9e-9032-cb8f95783bb1",
+      "existing_order_no": "AP-260902-002",
+      "existing_name": "【全知启航-方言质检-20260902】"
+    },
+    {
+      "row": 148,
+      "project_name": "【合肥思达智数信息科技-20260903-阿拉伯语（方言）-音频标注】",
+      "reason": "similar_name:0.897",
+      "existing_id": "e72d3c6e-08f7-4cbe-81f6-5fe0698faae6",
+      "existing_order_no": "AP-260903-001",
+      "existing_name": "【合肥思达智数信息科技-20260903-阿拉伯语（现代标准）-音频标注】"
+    },
+    {
+      "row": 149,
+      "project_name": "【合肥思达智数信息科技-20260903-南非zulu语、afrikaans-音频标注】",
+      "reason": "same_name",
+      "existing_id": "2dd26c50-a28b-41c4-8f85-a3bbecbd5723",
+      "existing_order_no": "AP-260903-002",
+      "existing_name": "【合肥思达智数信息科技-20260903-南非zulu语、afrikaans-音频标注】"
+    },
+    {
+      "row": 150,
+      "project_name": "【广东鸿图科技-260903-西语客服数据标注】",
+      "reason": "same_name",
+      "existing_id": "4dcb152a-7906-4fa2-bd8a-00e990afe009",
+      "existing_order_no": "AP-260903-003",
+      "existing_name": "【广东鸿图科技-260903-西语客服数据标注】"
+    }
+  ],
+  "failed": [],
+  "prepared": [
+    {
+      "row": 2,
+      "project_name": "【0703 思达个人代理-短音频验收-菲律宾语+希腊语+保加利亚语】",
+      "source_client": "合肥思达智数信息科技（对私）",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 3,
+      "project_name": "【20260421-评估&报价&试标-2w 多语种同传测试集翻译文本质检】",
+      "source_client": "合肥思达智数信息科技",
+      "client_match": "exact",
+      "resolved_client": "合肥思达智数信息科技",
+      "project_types": [
+        "quality_inspection",
+        "translation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 4,
+      "project_name": "【20260429-评估&报价&试标-4000条 俄语文本归一化标注】",
+      "source_client": "合肥思达智数信息科技",
+      "client_match": "exact",
+      "resolved_client": "合肥思达智数信息科技",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 5,
+      "project_name": "【20260722-评估&报价&试标-多语种测评】",
+      "source_client": "合肥思达智数信息科技",
+      "client_match": "exact",
+      "resolved_client": "合肥思达智数信息科技",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 6,
+      "project_name": "【20260402-北京数据堂-3500H-7语种语音采集】",
+      "source_client": "北京数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 7,
+      "project_name": "【20260417-评估&报价-梦动科技-客家话/闽南语采集标注 】",
+      "source_client": "梦动科技",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 8,
+      "project_name": "【20260420-评估&试标&报价-合焱科技-2500H藏语采集标注 】",
+      "source_client": "合焱科技",
+      "client_match": "exact",
+      "resolved_client": "合焱科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 9,
+      "project_name": "【20260425-评估&试标&-600H东南亚口音英语、西班牙语、葡萄牙语采集标注 】",
+      "source_client": "安信种苗",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 10,
+      "project_name": "【20260427-评估&报价&试标-马上消费-多语种TN文字标注 】",
+      "source_client": "马上消费",
+      "client_match": "exact",
+      "resolved_client": "马上消费",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 11,
+      "project_name": "【20260430-评估&试标&报价-澳鹏-同传中、英、日6000小时采集需求 】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 12,
+      "project_name": "【20260430-2 -资源咨询-澳鹏-中文、英语、法语、日语牙科语料把控 】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection",
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 13,
+      "project_name": "【20260506-慧澜国际 -资源咨询-英语ASR自动语音识别转写 】",
+      "source_client": "慧澜国际",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 14,
+      "project_name": "【20260506-2-评估-四川沐之欣-客家话/闽南语采集标注 】",
+      "source_client": "四川沐之欣",
+      "client_match": "exact",
+      "resolved_client": "四川沐之欣",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 15,
+      "project_name": "【20260507-评估-全知启航-越南语STF断句标注 】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 16,
+      "project_name": "【20260507-2-评估&试标&报价-澳鹏-英语/土耳其语STF标注 】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 17,
+      "project_name": "【20260508-资源咨询-澳鹏-菲律宾语/荷兰语标注 】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 18,
+      "project_name": "【20260509-评估-谷特语言-罗马尼亚、波兰、捷克语、菲律宾语、荷兰语转写标注】",
+      "source_client": "谷特语言",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 19,
+      "project_name": "【20260511-评估-梦动科技-客家话/闽南语/南昌话转写质检 】",
+      "source_client": "梦动科技",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 20,
+      "project_name": "【20260511-2-评估-国信中健-44个小语种采集 】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 21,
+      "project_name": "【20260511-3-评估&标注-安多藏语标注 】",
+      "source_client": "手握风云（个人）",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 22,
+      "project_name": "【20260512-评估-澳鹏-INT英语采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 1
+    },
+    {
+      "row": 23,
+      "project_name": "【20260513-评估&试标&报价-北京海天瑞声科技-同传中、英、日6000小时采集需求 】",
+      "source_client": "北京海天瑞声科技",
+      "client_match": "exact",
+      "resolved_client": "海天瑞声",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 24,
+      "project_name": "【20260513-评估&试标&报价-山东三农共建数据-同传中、英、日6000小时采集需求 】",
+      "source_client": "山东三农共建数据",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 25,
+      "project_name": "【20260514-评估-澳鹏-多语种音频转写】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 26,
+      "project_name": "【20260515-国信中健-客家话/闽南语标注采集 】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 27,
+      "project_name": "【20260519-澳鹏-小语种歌词测评】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 28,
+      "project_name": "【20260520-杭州众智为马-杭州，闽南，客家话标注】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 29,
+      "project_name": "【20260520-中国东盟信息港-东南亚小语种数据标注质检】                                          越南，印尼，泰，马来，老挝，缅甸，柬埔寨",
+      "source_client": "中国东盟信息港-黄先生（个人）",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 30,
+      "project_name": "【2060520-澳鹏-ASR评测采录项目】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection",
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 31,
+      "project_name": "【2060520-青岛浩之然教育科技有限公司-陕西话，山西话，河南话，湖南话，杭州话，客家话,青岛话标注项目】",
+      "source_client": "青岛浩之然教育科技有限公司",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 32,
+      "project_name": "【2060521-澳鹏-蒙古语短音频转写】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 33,
+      "project_name": "【2060521-澳鹏-长期多语种项目】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 34,
+      "project_name": "【20260522-广州中致信息-同传中、英、日6000小时采集需求 】",
+      "source_client": "广州中致信息",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 35,
+      "project_name": "【20260528-马上消费-日语采集项目】",
+      "source_client": "马上消费",
+      "client_match": "exact",
+      "resolved_client": "马上消费",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 36,
+      "project_name": "【20260528-马上消费-小语种专有名词文本项目】",
+      "source_client": "马上消费",
+      "client_match": "exact",
+      "resolved_client": "马上消费",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 37,
+      "project_name": "【20260528-国信中健-TTS项目：普通话棚录采集（素人版）】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 38,
+      "project_name": "【20260528-青岛浩之然教育科技有限公司-酒旅app图片标注】",
+      "source_client": "青岛浩之然教育科技有限公司",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 39,
+      "project_name": "【20260528-青岛浩之然教育科技有限公司-俄语音频转写标注（资料是海天瑞声的）】",
+      "source_client": "青岛浩之然教育科技有限公司",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 40,
+      "project_name": "【20260528-数据堂-同传中、英、日6000小时采集需求 】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 41,
+      "project_name": "【20260528-国信中健-同传中、英、日6000小时采集需求】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 42,
+      "project_name": "【20260528-杭州众智为马-温州话标注】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "partially_cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 43,
+      "project_name": "【20260603-国信中健-东盟10国的方言英语采集加标注】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 44,
+      "project_name": "【20260603-国信中健-中文-菲律宾切分转写】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 45,
+      "project_name": "【20260603-国信中健-印尼语和泰语 标注+质检】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 46,
+      "project_name": "【20260603-澳鹏-泰语 标注+质检】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 47,
+      "project_name": "【20260604-数据堂-香港粤语标注】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 48,
+      "project_name": "【20260605-全知启航-荷兰语视频Sft转写】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 49,
+      "project_name": "【20260610-核数聚-4国语言转写】",
+      "source_client": "核数聚",
+      "client_match": "exact",
+      "resolved_client": "苏州核数聚信息科技",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 50,
+      "project_name": "【20260610-谷特语言-德语母语采集】",
+      "source_client": "谷特语言",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 51,
+      "project_name": "【20260612-澳鹏-小语种文本测评】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 52,
+      "project_name": "【20260614-杭州众智为马-日语口语化语音数据标注】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 53,
+      "project_name": "【20260615-澳鹏-印度尼西亚音频转录】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 54,
+      "project_name": "【20260616-数据堂-日语口语化语音标注】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 55,
+      "project_name": "【20260616-澳鹏-英语盲评对战模型评测】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 56,
+      "project_name": "【20260616-深圳人工智能行业协会-日语口语化语音标注】",
+      "source_client": "深圳人工智能行业协会",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 57,
+      "project_name": "【20260616-全知启航-菲律宾语Sft】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 58,
+      "project_name": "【20260617-刘先生-英语母语采集】",
+      "source_client": "刘先生（个人）",
+      "client_match": "exact",
+      "resolved_client": "刘先生",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 59,
+      "project_name": "【20260620-国信中健-多语种500h双工采集标注】",
+      "source_client": "国信中健",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 60,
+      "project_name": "【20260622-谷特语言-俄语日语ASR标注】",
+      "source_client": "谷特语言",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 61,
+      "project_name": "【20260622-澳鹏-泰语分轨自然对话语音数据（采集+标注）】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 62,
+      "project_name": "【20260623-字节互娱（安吉）数字科技有限公司-多语种采集标注】",
+      "source_client": "字节互娱（安吉）数字科技有限公司",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 63,
+      "project_name": "【20260624-澳鹏-小语种AST】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 64,
+      "project_name": "【20260624-全知启航-加泰罗语标注】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 65,
+      "project_name": "【20260629-杭州众智为马-粤语重口音采标】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 66,
+      "project_name": "【20260701-马上消费-方言ASR 】",
+      "source_client": "马上消费",
+      "client_match": "exact",
+      "resolved_client": "马上消费",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 67,
+      "project_name": "【20260701-全知启航-粤语方言标注】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 68,
+      "project_name": "【20260702-澳鹏-挪威瑞典采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 69,
+      "project_name": "【20260706-星辰智采-粤语采集标注】",
+      "source_client": "星辰智采",
+      "client_match": "exact",
+      "resolved_client": "星辰智采",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 70,
+      "project_name": "【20260707-澳鹏-机器人普通话采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 71,
+      "project_name": "【20260708-澳鹏-小语种ASR】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 72,
+      "project_name": "【20260708-全知启航-粤语转写普通话】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 73,
+      "project_name": "【20260710-澳鹏-小语种搜索相关性标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 74,
+      "project_name": "【20260713-杭州众智为马-温州话采集】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 75,
+      "project_name": "【20260713-九四智能-菲律宾语音频转写】",
+      "source_client": "九四智能",
+      "client_match": "exact",
+      "resolved_client": "九四智能",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 76,
+      "project_name": "【20260714-澳鹏-英文语音识别数据采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 77,
+      "project_name": "【20260717-南京启宁新数-日语口语化语音数据标注】",
+      "source_client": "南京启宁新数",
+      "client_match": "exact",
+      "resolved_client": "南京启宁新数",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 78,
+      "project_name": "【20260715-上海星域探索-多语种文本标注】",
+      "source_client": "上海星域探索",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 79,
+      "project_name": "【20260722-澳鹏-多语种ASR标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 80,
+      "project_name": "【20260723-勤为科技-翻配数据集】",
+      "source_client": "勤为科技",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "translation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 81,
+      "project_name": "【20260724-语联网-多语种测评】",
+      "source_client": "语联网",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 82,
+      "project_name": "【20260724-澳鹏-小语种本地化站点采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 83,
+      "project_name": "【20260726-杭州众智为马-粤语标注】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 84,
+      "project_name": "【20260727-中鑫盛凯-小语种数据标注】",
+      "source_client": "中鑫盛凯",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 85,
+      "project_name": "【20260727-澳鹏-英德互译搜索】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection",
+        "translation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 86,
+      "project_name": "【20260728-澳鹏-中译小语种评估训练】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 87,
+      "project_name": "【20260728-米哇达-印尼语标注】",
+      "source_client": "米哇达",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 88,
+      "project_name": "【260728024-北京思必锐-歌词校对需求项目-歌词校对】",
+      "source_client": "北京思必锐",
+      "client_match": "exact",
+      "resolved_client": "北京思必锐",
+      "project_types": [
+        "quality_inspection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 89,
+      "project_name": "【20260730-甲骨易-ASR小语种评测】",
+      "source_client": "甲骨易",
+      "client_match": "exact",
+      "resolved_client": "甲骨易",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 90,
+      "project_name": "【20260730-杭州众智为马-粤语双人对话】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 91,
+      "project_name": "【20260731-广州鸿图科技有限公司-小语种标注转写】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 92,
+      "project_name": "【20260801-北京极算数联科技有限公司-西班牙葡萄牙采集标注】",
+      "source_client": "北京极算数联科技有限公司",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 93,
+      "project_name": "【20260803-澳鹏-agent评测】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 94,
+      "project_name": "【20260803-杭州众智为马-粤语ASR】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 95,
+      "project_name": "【20260804-创教通-多语种标注采集】",
+      "source_client": "创教通",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 96,
+      "project_name": "【20260805-数据堂-方言采标】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 97,
+      "project_name": "【20260805-澳鹏-方言录音棚采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 98,
+      "project_name": "【20260805-广州鸿图-德语采集标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 1
+    },
+    {
+      "row": 99,
+      "project_name": "【20260805-广州鸿图-日语口语化语音数据标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 1
+    },
+    {
+      "row": 100,
+      "project_name": "【20260807-杭州众智为马-粤语ASR】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 101,
+      "project_name": "【20260807-广州鸿图-乌尔都语标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 102,
+      "project_name": "【20260807-泰盈科技-5类方言ASR标注】",
+      "source_client": "泰盈科技",
+      "client_match": "exact",
+      "resolved_client": "泰盈科技",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 103,
+      "project_name": "【20260809-云展科技-方言标注】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 104,
+      "project_name": "【20260809-云展科技-方言采集】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 105,
+      "project_name": "【20260809-云展科技-印尼阿语采标】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 106,
+      "project_name": "【20260809-云展科技-多语种文本质检】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 107,
+      "project_name": "【20260811-澳鹏-港粤多人对话】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 108,
+      "project_name": "【20260811-云展科技-甜美女声方言线下采集】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 109,
+      "project_name": "【20260812-澳鹏-英语双人对话采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 110,
+      "project_name": "【20260812-澳鹏-西班牙语和日语方言采集标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 111,
+      "project_name": "【20260812-全知启航-菲律宾语字幕对齐】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 112,
+      "project_name": "【20260812-深圳丘谷文化-粤语视频采集】",
+      "source_client": "深圳丘谷文化",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 113,
+      "project_name": "【20260812-澳鹏-AI模型英文标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 114,
+      "project_name": "【20260813-广州鸿图-捷克语口语化语音数据标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 115,
+      "project_name": "【20260814-全知启航-中英采集标注】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 116,
+      "project_name": "【20260814-澳鹏-中英采集标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 117,
+      "project_name": "【20260818-澳鹏-菲律宾语马来语字幕对齐】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 118,
+      "project_name": "【20260818-杭州众智为马-粤语重口音采集】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 119,
+      "project_name": "【20260819-米哇达-温州话标注录音】",
+      "source_client": "米哇达",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 120,
+      "project_name": "【20260820-澳鹏-海外agent粗评】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_evaluation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 121,
+      "project_name": "【20260820-数据堂-吴语方言采标】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 122,
+      "project_name": "【20260821-澳鹏-中英文双语混说采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "trial_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 123,
+      "project_name": "【20260821-徐嘉言-日语方言录音】",
+      "source_client": "徐嘉言",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 124,
+      "project_name": "【20260821-广州鸿图-泰语文本标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "text_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 125,
+      "project_name": "【20260824-澳鹏-闽南语重口音普通话采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "partially_cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 126,
+      "project_name": "【20260824-澳鹏-AST普通话文本转译】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation",
+        "translation"
+      ],
+      "project_status": "trial_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 127,
+      "project_name": "【20260824-沐峤国际文化传媒（北京）有限公司-泰米尔语标注】",
+      "source_client": "沐峤国际文化传媒（北京）有限公司",
+      "client_match": "exact",
+      "resolved_client": "沐峤国际文化传媒（北京）有限公司",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 128,
+      "project_name": "【20260825-北京国际大数据交易所-闽南语录音标注】",
+      "source_client": "北数所",
+      "client_match": "new",
+      "resolved_client": null,
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 129,
+      "project_name": "【20260825-全知启航-温州AST】",
+      "source_client": "全知启航",
+      "client_match": "exact",
+      "resolved_client": "全知启航",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "trial_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 130,
+      "project_name": "【20260825-澳鹏-西班牙语法语标注】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 131,
+      "project_name": "【20260826-广州鸿图-潮汕话ASR】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "trial_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 132,
+      "project_name": "【20260826-云展科技-温州标注】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 133,
+      "project_name": "【20260826-澳鹏-美国实景采集】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    },
+    {
+      "row": 134,
+      "project_name": "【20260826-澳鹏-9国小语种转写】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "project_in_progress",
+      "price_items": 1
+    },
+    {
+      "row": 136,
+      "project_name": "【2026827-澳鹏-小语种字幕对齐】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "trial_in_progress",
+      "price_items": 0
+    },
+    {
+      "row": 137,
+      "project_name": "【20260827-广州鸿图-ASR泰语录音质检】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "audio_collection",
+        "audio_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 138,
+      "project_name": "【20260827-标贝科技-ASR泰语录音质检】",
+      "source_client": "标贝科技",
+      "client_match": "exact",
+      "resolved_client": "标贝科技",
+      "project_types": [
+        "audio_collection",
+        "audio_annotation",
+        "quality_inspection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 1
+    },
+    {
+      "row": 139,
+      "project_name": "【20260827-标贝科技-泰语文本标注】",
+      "source_client": "标贝科技",
+      "client_match": "exact",
+      "resolved_client": "标贝科技",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 1
+    },
+    {
+      "row": 140,
+      "project_name": "【20260827-数据堂-温州台州方言采集】",
+      "source_client": "数据堂",
+      "client_match": "exact",
+      "resolved_client": "数据堂",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "cancelled",
+      "price_items": 0
+    },
+    {
+      "row": 141,
+      "project_name": "【澳鹏-印尼阿语ASR标注-20260828】",
+      "source_client": "澳鹏appen",
+      "client_match": "exact",
+      "resolved_client": "澳鹏（appen）",
+      "project_types": [
+        "audio_annotation"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    },
+    {
+      "row": 142,
+      "project_name": "【标贝科技-海外多语种录音-20260831】",
+      "source_client": "标贝科技",
+      "client_match": "exact",
+      "resolved_client": "标贝科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0
+    }
+  ],
+  "summary": {
+    "created": 0,
+    "prepared": 140,
+    "skipped": 9,
+    "failed": 0
+  }
+}

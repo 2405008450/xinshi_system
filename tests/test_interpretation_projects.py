@@ -33,6 +33,7 @@ from consultation_intake import normalize_legacy_interpretation_intake
 from resource_request_service import _interpretation_request_items
 from resource_request_schemas import ResourceRequestItemWrite
 from models import TranslationProject
+from project_audit_models import ProjectOperationAudit
 from schemas import TranslatorCreate
 
 
@@ -445,4 +446,7 @@ def test_confirmed_consultation_creation_is_idempotent(monkeypatch):
     assert created_again is False
     assert project is same_project
     assert project.project_status == "initial_follow_up"
-    assert len(db.added) == 1
+    assert len(db.added) == 2
+    audit = next(item for item in db.added if isinstance(item, ProjectOperationAudit))
+    assert audit.operation_type == "create"
+    assert audit.order_no == "IP-260811-001"

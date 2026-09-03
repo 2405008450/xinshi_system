@@ -110,6 +110,7 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
         },
     ))
     assert "translation_project.project_status in" in translation_sql
+    assert "translation_sub_order.status in" in translation_sql
     assert "translator.translator_name" in translation_sql
     assert "manuscript_arrangement.translator_name_snapshot" in translation_sql
     assert "word_count_metric" in translation_sql

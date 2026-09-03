@@ -38,6 +38,7 @@ from recruitment_service import (
 from annotation_service import _resolve_client as resolve_annotation_client
 from crud import _resolve_or_create_project_client
 from interpretation_service import _resolve_client as resolve_interpretation_client
+from project_audit_models import ProjectOperationAudit
 
 
 class OrderQuery:
@@ -450,3 +451,6 @@ def test_confirmed_recruitment_consultation_creation_is_idempotent(monkeypatch):
     assert project.project_status == "pending_setup"
     assert len([item for item in db.added if isinstance(item, RecruitmentProject)]) == 1
     assert len([item for item in db.added if isinstance(item, RecruitmentProjectProgress)]) == 1
+    audit = next(item for item in db.added if isinstance(item, ProjectOperationAudit))
+    assert audit.operation_type == "create"
+    assert audit.order_no == "HP-260811-001"

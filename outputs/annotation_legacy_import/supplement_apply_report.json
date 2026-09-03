@@ -1,0 +1,51 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "mode": "apply",
+  "host": "WIN-LOLJ8UHT2G5",
+  "total_source_rows": 149,
+  "selected_source_rows": 2,
+  "created": [
+    {
+      "row": 99,
+      "project_name": "【20260805-广州鸿图-日语口语化语音数据标注】",
+      "source_client": "广州鸿图科技有限公司",
+      "client_match": "exact",
+      "resolved_client": "广州鸿图科技有限公司",
+      "project_types": [
+        "text_annotation"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 1,
+      "id": "7978d93c-33cf-4e69-8bae-46c1592b2d75",
+      "order_no": "AP-260903-143",
+      "client_id": "c73e5339-5871-4dac-af62-ebd682726a1e",
+      "client_created_by_import": false
+    },
+    {
+      "row": 104,
+      "project_name": "【20260809-云展科技-方言采集】",
+      "source_client": "云展科技",
+      "client_match": "exact",
+      "resolved_client": "云展科技",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "initial_consultation",
+      "price_items": 0,
+      "id": "82eff82b-b7a0-44e5-99f9-356c5a5caf14",
+      "order_no": "AP-260903-144",
+      "client_id": "d2cb91f9-c6ae-4bb0-82e5-bf88500b3965",
+      "client_created_by_import": false
+    }
+  ],
+  "skipped": [],
+  "failed": [],
+  "prepared": [],
+  "summary": {
+    "created": 2,
+    "prepared": 0,
+    "skipped": 0,
+    "failed": 0
+  }
+}

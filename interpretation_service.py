@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import String, cast, func, or_, text
 from sqlalchemy.orm import Session, selectinload
 from utils import normalize_email_subject_order_no
+from project_audit_service import record_project_operation
 
 from concurrency import VERSION_FIELD, assert_fresh
 
@@ -470,6 +471,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
 def create_interpretation_project(
     db: Session, payload: InterpretationProjectCreate, created_by: Optional[UUID],
     idempotency_key: Optional[str] = None,
+    operation_source: str = "project_form",
 ) -> InterpretationProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     data["required_interpreter_count"] = _direction_required_total(payload)
@@ -494,6 +496,10 @@ def create_interpretation_project(
     ensure_project_responsibilities(db, 'interpretation', project.id, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
+    record_project_operation(
+        db, project_type="interpretation", operation_type="create", project=project,
+        actor_user_id=created_by, operation_source=operation_source,
+    )
     db.commit()
     return get_interpretation_project(db, project.id)
 
@@ -538,12 +544,19 @@ def update_interpretation_project_status(
     return get_interpretation_project(db, project.id)
 
 
-def delete_interpretation_project(db: Session, project_id: UUID) -> bool:
+def delete_interpretation_project(
+    db: Session, project_id: UUID, *, actor_user_id: Optional[UUID] = None,
+    operation_source: str = "project_delete",
+) -> bool:
     project = db.query(InterpretationProject).filter(InterpretationProject.id == project_id).first()
     if not project:
         return False
     from project_workbench_service import cancel_pending_project_handovers
     cancel_pending_project_handovers(db, 'interpretation', project_id)
+    record_project_operation(
+        db, project_type="interpretation", operation_type="delete", project=project,
+        actor_user_id=actor_user_id, operation_source=operation_source,
+    )
     db.delete(project)
     db.commit()
     return True
@@ -590,6 +603,10 @@ def ensure_interpretation_project_for_consultation(
     )
     db.add(project)
     db.flush()
+    record_project_operation(
+        db, project_type="interpretation", operation_type="create", project=project,
+        actor_user_id=created_by, operation_source="consultation_confirmation",
+    )
     return project, True
 
 
