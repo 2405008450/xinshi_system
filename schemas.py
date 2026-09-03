@@ -118,6 +118,9 @@ class AppUserPasswordReset(BaseModel):
 
 class AppUserResponse(AppUserBase):
     id: UUID
+    mail_profile_configured: bool = False
+    mail_display_name: Optional[str] = None
+    mail_signature_enabled: bool = False
     mail_account_bound: bool = False
     mail_account_verified: bool = False
     mail_account_verified_at: Optional[datetime] = None

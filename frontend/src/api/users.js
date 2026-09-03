@@ -18,4 +18,6 @@ export const saveUserMailAccount = (id, authorizationCode) =>
   api.put(`/users/${id}/mail-account`, { authorization_code: authorizationCode })
 export const verifyUserMailAccount = (id) => api.post(`/users/${id}/mail-account/verify`)
 export const deleteUserMailAccount = (id) => api.delete(`/users/${id}/mail-account`)
+export const getUserMailProfile = (id) => api.get(`/users/${id}/mail-profile`)
+export const saveUserMailProfile = (id, data) => api.put(`/users/${id}/mail-profile`, data)
 export const deleteUser = (id) => api.delete(`/users/${id}`)

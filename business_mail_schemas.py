@@ -67,6 +67,8 @@ class BusinessMailPreviewResponse(BaseModel):
     subject: str
     body: str
     body_html: Optional[str] = None
+    signature_html: Optional[str] = None
+    signature_text: Optional[str] = None
     inline_images: list[dict] = Field(default_factory=list)
     missing_fields: list[str]
     sender_mode: Literal["system", "personal"]

@@ -235,7 +235,7 @@ const allFilteredSelected = computed(() => filteredUsers.value.length > 0
   && filteredUsers.value.every((user) => selectedIdSet.value.has(user.id)))
 const hasFilteredSelection = computed(() => filteredUsers.value.some((user) => selectedIdSet.value.has(user.id)))
 
-const displayName = (user) => user.full_name || user.username || '未命名成员'
+const displayName = (user) => user.mail_display_name || user.full_name || user.username || '未命名成员'
 const departmentLabel = (user) => String(user.department || '').trim() || '未设置部门'
 const userLabel = (user) => `${displayName(user)} · ${user.email}`
 const userInitial = (user) => Array.from(displayName(user))[0] || '员'

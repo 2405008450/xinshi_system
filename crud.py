@@ -27,7 +27,7 @@ from schemas import (
 from passlib.context import CryptContext
 import hashlib
 import re
-from utils import generate_order_no
+from utils import generate_order_no, normalize_email_subject_order_no
 from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
@@ -2032,6 +2032,9 @@ def create_translation_project(
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments'
     })
+    project_data['email_subject_preview'] = normalize_email_subject_order_no(
+        project_data.get('email_subject_preview'), order_no
+    )
     project_data['language_pair'] = _normalize_catalog_language_pairs(
         db, project_data.get('language_pair')
     )

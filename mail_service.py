@@ -10,7 +10,7 @@ import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from email_validator import EmailNotValidError, validate_email
 
@@ -177,6 +177,25 @@ def _normalized_recipients(values: Iterable[str], field_name: str) -> list[str]:
     return result
 
 
+def _recipient_header(
+    emails: Iterable[str],
+    display_names: Optional[Mapping[str, str]],
+) -> str:
+    """生成包含显示名的标准收件人邮件头，投递地址仍保持为纯邮箱。"""
+    names_by_email = {
+        str(email).strip().casefold(): str(name).strip()
+        for email, name in (display_names or {}).items()
+        if str(email).strip() and str(name).strip()
+    }
+    formatted = []
+    for email in emails:
+        display_name = names_by_email.get(email.casefold(), "")
+        if "\r" in display_name or "\n" in display_name:
+            raise MailConfigurationError("收件人显示名称不能包含换行")
+        formatted.append(formataddr((display_name, email)) if display_name else email)
+    return ", ".join(formatted)
+
+
 def _embed_inline_images_as_data_uris(
     html_body: str,
     inline_images: Iterable[MailInlineImagePart],
@@ -204,6 +223,8 @@ def send_text_email(
     *,
     to_emails: Iterable[str],
     cc_emails: Iterable[str] = (),
+    to_display_names: Optional[Mapping[str, str]] = None,
+    cc_display_names: Optional[Mapping[str, str]] = None,
     subject: Optional[str],
     body: Optional[str],
     html_body: Optional[str] = None,
@@ -246,9 +267,9 @@ def send_text_email(
 
     message = EmailMessage()
     message["From"] = formataddr((config.sender_name, sender_email))
-    message["To"] = ", ".join(delivery_to)
+    message["To"] = _recipient_header(delivery_to, to_display_names)
     if delivery_cc:
-        message["Cc"] = ", ".join(delivery_cc)
+        message["Cc"] = _recipient_header(delivery_cc, cc_display_names)
     message["Subject"] = (
         f"[测试发送] {subject or '稿件安排'}"
         if config.mode == "test"

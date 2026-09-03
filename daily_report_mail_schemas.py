@@ -61,6 +61,8 @@ class DailyReportMailPreviewResponse(BaseModel):
     supplemental_note: Optional[str] = None
     inline_image_html: Optional[str] = None
     inline_images: list[dict] = Field(default_factory=list)
+    signature_html: Optional[str] = None
+    signature_text: Optional[str] = None
     to_users: list[DailyReportMailRecipientView]
     cc_users: list[DailyReportMailRecipientView]
     can_send: bool

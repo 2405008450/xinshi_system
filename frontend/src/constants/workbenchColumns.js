@@ -11,5 +11,7 @@ export const WORKBENCH_COLUMN_WIDTHS = Object.freeze({
   currentRole: 100,
   currentAssignee: 100,
   languagePair: 100,
+  translatorReturn: 190,
+  taskCompletion: 210,
   assignmentMethod: 110,
 })

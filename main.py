@@ -102,6 +102,7 @@ from daily_report_mail_models import (
     DailyReportMailPolicyGroup,
     DailyReportMailRecipient,
     UserMailAccount,
+    UserMailProfile,
 )
 from annotation_ops_models import (
     AnnotationAccountAssignment,
@@ -1149,6 +1150,7 @@ def run_runtime_migrations():
     NonProjectTaskEvent.__table__.create(bind=engine, checkfirst=True)
     DailyReport.__table__.create(bind=engine, checkfirst=True)
     DailyReportItem.__table__.create(bind=engine, checkfirst=True)
+    UserMailProfile.__table__.create(bind=engine, checkfirst=True)
     ManuscriptDispatch.__table__.create(bind=engine, checkfirst=True)
     ManuscriptArrangement.__table__.create(bind=engine, checkfirst=True)
     ensure_manuscript_arrangement_columns()

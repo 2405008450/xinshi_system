@@ -44,6 +44,13 @@ from user_mail_account_service import (
     valid_email,
     verify_mail_account,
 )
+from user_mail_profile_service import (
+    active_signature,
+    append_signature,
+    get_user_mail_profile,
+    recipient_display_name,
+    recipient_display_names,
+)
 
 
 SOURCE_LABELS = {"project": "项目任务", "non_project": "非项目任务", "manual": "手工补充"}
@@ -146,10 +153,10 @@ def save_daily_report_policy(db: Session, user_id: UUID, payload, actor_id: UUID
     return _serialize_policy(db, user)
 
 
-def _recipient_view(user: AppUser, recipient_type: str) -> dict:
+def _recipient_view(user: AppUser, recipient_type: str, display_name: Optional[str] = None) -> dict:
     return {
         "user_id": user.id,
-        "display_name": _display_user(user),
+        "display_name": display_name or recipient_display_name(user),
         "email": _valid_email(user.email),
         "recipient_type": recipient_type,
     }
@@ -227,6 +234,8 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
     status = get_mail_status()
     if not status.get("configured"):
         reasons.append(status.get("detail") or "SMTP 服务尚未配置")
+    recipient_names = recipient_display_names(db, [*to_users, *cc_users])
+    signature_html, signature_text = active_signature(get_user_mail_profile(db, user.id))
     return {
         "report_id": report.id,
         "report_date": report.report_date.isoformat(),
@@ -237,8 +246,10 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
         "supplemental_note": report.supplemental_note,
         "inline_image_html": None,
         "inline_images": [],
-        "to_users": [_recipient_view(item, "to") for item in to_users],
-        "cc_users": [_recipient_view(item, "cc") for item in cc_users],
+        "to_users": [_recipient_view(item, "to", recipient_names.get(item.id)) for item in to_users],
+        "cc_users": [_recipient_view(item, "cc", recipient_names.get(item.id)) for item in cc_users],
+        "signature_html": signature_html,
+        "signature_text": signature_text,
         "can_send": not reasons,
         "blocking_reasons": reasons,
         "delivery_mode": status.get("mode") or "disabled",
@@ -346,6 +357,8 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
     inline_images = load_owned_images(db, payload.inline_image_ids, user.id)
     inline_fragment = sanitize_body_html(payload.inline_image_html, "", inline_images) if inline_images else ""
     body_html, body_text = render_daily_report_mail(rows, payload.supplemental_note, inline_fragment)
+    body_html, body_text = append_signature(body_html, body_text, get_user_mail_profile(db, user.id))
+    recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     message_id = f"<daily-report-{payload.idempotency_key}@xinshi-system.local>"
     delivery = DailyReportMailDelivery(
         report_id=report.id,
@@ -369,7 +382,7 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
             delivery.recipients.append(DailyReportMailRecipient(
                 user_id=recipient.id,
                 recipient_type=kind,
-                display_name_snapshot=_display_user(recipient),
+                display_name_snapshot=recipient_names[recipient.id],
                 email_snapshot=_valid_email(recipient.email),
             ))
     delivery.status = "sending"
@@ -382,6 +395,8 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
         result = send_text_email(
             to_emails=[_valid_email(item.email) for item in to_users],
             cc_emails=[_valid_email(item.email) for item in cc_users],
+            to_display_names={_valid_email(item.email): recipient_names[item.id] for item in to_users},
+            cc_display_names={_valid_email(item.email): recipient_names[item.id] for item in cc_users},
             subject=payload.subject,
             body=body_text,
             html_body=rendered_html,

@@ -14,6 +14,7 @@
         @visible-count-change="projectVisibleCount = $event"
         @open-chat="$emit('open-chat', $event)"
         @open-project="$emit('open-project', $event)"
+        @open-manuscript="$emit('open-manuscript', $event)"
         @record-work="openWorkEntry"
         @refresh="$emit('refresh')"
       />
@@ -251,7 +252,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   referenceDate: { type: String, default: '' }
 })
-const emit = defineEmits(['open-chat', 'open-project', 'refresh'])
+const emit = defineEmits(['open-chat', 'open-project', 'open-manuscript', 'refresh'])
 
 const TASK_TYPES = ['非项目工作', '自定义']
 const FREQUENCY_LABEL = { daily: '每日', workday: '工作日', weekly: '每周', monthly: '每月' }

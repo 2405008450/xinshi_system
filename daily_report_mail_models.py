@@ -27,6 +27,26 @@ from business_mail_models import MailRecipientGroup
 from models import AppUser, Base
 
 
+class UserMailProfile(Base):
+    """用户可维护的邮件展示资料；与 SMTP 敏感凭据分开保存。"""
+
+    __tablename__ = "user_mail_profile"
+    __table_args__ = (
+        PrimaryKeyConstraint("user_id", name="user_mail_profile_pkey"),
+        ForeignKeyConstraint(["user_id"], ["app_user.id"], ondelete="CASCADE", name="fk_user_mail_profile_user"),
+        ForeignKeyConstraint(["updated_by"], ["app_user.id"], ondelete="SET NULL", name="fk_user_mail_profile_updater"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    recipient_display_name: Mapped[Optional[str]] = mapped_column(String(255))
+    signature_html: Mapped[Optional[str]] = mapped_column(Text)
+    signature_text: Mapped[Optional[str]] = mapped_column(Text)
+    signature_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class UserMailAccount(Base):
     __tablename__ = "user_mail_account"
     __table_args__ = (

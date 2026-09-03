@@ -7,21 +7,33 @@ from sqlalchemy.orm import Session
 
 from crypto_utils import CredentialCryptoConfigurationError
 from database import get_db
-from daily_report_mail_models import UserMailAccount
+from daily_report_mail_models import UserMailAccount, UserMailProfile
 from crud import (
     get_user, get_user_by_email, get_user_by_username, get_users, count_users,
     create_user, update_user, reset_user_password, delete_user
 )
 from schemas import AppUserCreate, AppUserUpdate, AppUserPasswordReset, AppUserResponse
-from mail_account_schemas import MailAccountStatus, MailAccountWrite
+from mail_account_schemas import (
+    MailAccountStatus,
+    MailAccountWrite,
+    UserMailProfileResponse,
+    UserMailProfileWrite,
+)
 from mail_service import MailConfigurationError, MailDeliveryError
-from routers.auth import require_any_permission, require_permission, require_super_admin
+from routers.auth import get_current_user, require_any_permission, require_permission, require_super_admin
 from leave_service import assignment_disabled_reason, get_active_leave_map
 from user_mail_account_service import (
     delete_mail_account,
     save_mail_account,
     serialize_mail_account,
     verify_mail_account,
+)
+from user_mail_profile_service import (
+    get_user_mail_profile,
+    get_user_mail_profiles,
+    recipient_display_name,
+    save_user_mail_profile,
+    serialize_user_mail_profile,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -41,7 +53,12 @@ def _mail_account_exception(exc: Exception) -> HTTPException:
     )
 
 
-def _serialize_user(user, account: Optional[UserMailAccount] = None, leave=None) -> dict:
+def _serialize_user(
+    user,
+    account: Optional[UserMailAccount] = None,
+    leave=None,
+    mail_profile: Optional[UserMailProfile] = None,
+) -> dict:
     email_matches = bool(
         account
         and user.email
@@ -55,6 +72,9 @@ def _serialize_user(user, account: Optional[UserMailAccount] = None, leave=None)
         "email": user.email,
         "is_active": user.is_active,
         "department": user.department,
+        "mail_profile_configured": mail_profile is not None,
+        "mail_display_name": recipient_display_name(user, mail_profile),
+        "mail_signature_enabled": bool(mail_profile and mail_profile.signature_enabled),
         "created_at": user.created_at,
         "updated_at": user.updated_at,
         "mail_account_bound": account is not None,
@@ -120,9 +140,15 @@ def read_users(
         account.user_id: account
         for account in db.query(UserMailAccount).filter(UserMailAccount.user_id.in_(user_ids)).all()
     } if user_ids else {}
+    profile_map = get_user_mail_profiles(db, user_ids)
     leave_map = get_active_leave_map(db, user_ids) if include_leave_status else {}
     return [
-        _serialize_user(user, account_map.get(user.id), leave_map.get(user.id))
+        _serialize_user(
+            user,
+            account_map.get(user.id),
+            leave_map.get(user.id),
+            profile_map.get(user.id),
+        )
         for user in users
     ]
 
@@ -168,7 +194,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
             detail="用户不存在"
         )
     account = db.query(UserMailAccount).filter(UserMailAccount.user_id == user_id).first()
-    return _serialize_user(db_user, account)
+    return _serialize_user(db_user, account, mail_profile=get_user_mail_profile(db, user_id))
 
 
 @router.get(
@@ -230,6 +256,39 @@ def delete_user_mail_account(user_id: UUID, db: Session = Depends(get_db)):
     if db_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     delete_mail_account(db, db_user)
+
+
+@router.get(
+    "/{user_id}/mail-profile",
+    response_model=UserMailProfileResponse,
+    dependencies=[Depends(require_permission("system:users:write"))],
+)
+def read_user_mail_profile(user_id: UUID, db: Session = Depends(get_db)):
+    db_user = get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    return serialize_user_mail_profile(db_user, get_user_mail_profile(db, user_id))
+
+
+@router.put(
+    "/{user_id}/mail-profile",
+    response_model=UserMailProfileResponse,
+    dependencies=[Depends(require_permission("system:users:write"))],
+)
+def update_user_mail_profile(
+    user_id: UUID,
+    payload: UserMailProfileWrite,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    db_user = get_user(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    try:
+        return save_user_mail_profile(db, db_user, payload, current_user.id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.put("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_permission("system:users:write"))])

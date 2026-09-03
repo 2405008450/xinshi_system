@@ -44,6 +44,13 @@ from user_mail_account_service import (
     resolve_project_sender,
     valid_email,
 )
+from user_mail_profile_service import (
+    active_signature,
+    append_signature,
+    get_user_mail_profile,
+    recipient_display_name,
+    recipient_display_names,
+)
 
 
 PROJECT_MODELS = {
@@ -251,10 +258,14 @@ def validate_internal_users(db: Session, user_ids: Iterable[UUID]) -> list[AppUs
     return result
 
 
-def serialize_user(user: AppUser, recipient_type: str = "to") -> dict:
+def serialize_user(
+    user: AppUser,
+    recipient_type: str = "to",
+    display_name: Optional[str] = None,
+) -> dict:
     return {
         "user_id": user.id,
-        "display_name": user.full_name or user.username,
+        "display_name": display_name or recipient_display_name(user),
         "email": _valid_email(user.email) or "",
         "department": user.department,
         "recipient_type": recipient_type,
@@ -564,6 +575,10 @@ def build_preview(
     if _clean(values.get("remarks")):
         lines.append(f"备注：{_clean(values.get('remarks'))}")
     body = "\n".join(lines)
+    recipient_names = recipient_display_names(db, [*to_users, *cc_users])
+    signature_html, signature_text = active_signature(
+        get_user_mail_profile(db, current_user.id) if current_user is not None else None
+    )
     if missing:
         blocking.append(f"请先填写核心字段：{'、'.join(missing)}")
     if not subject:
@@ -572,9 +587,10 @@ def build_preview(
         blocking.append("邮件正文不能为空")
     return {
         "project_type": project_type, "order_no": order_no or None, "project_name": project_name or None,
-        "to_users": [serialize_user(item, "to") for item in to_users],
-        "cc_users": [serialize_user(item, "cc") for item in cc_users],
+        "to_users": [serialize_user(item, "to", recipient_names.get(item.id)) for item in to_users],
+        "cc_users": [serialize_user(item, "cc", recipient_names.get(item.id)) for item in cc_users],
         "subject": subject, "body": body, "body_html": plain_text_to_html(body),
+        "signature_html": signature_html, "signature_text": signature_text,
         "inline_images": [], "missing_fields": missing,
         **sender_view,
         "can_send": not blocking, "blocking_reasons": blocking,
@@ -583,6 +599,12 @@ def build_preview(
 
 def _project_id(mail: BusinessMail) -> Optional[UUID]:
     return getattr(mail, PROJECT_FK_FIELDS[mail.project_type])
+
+
+def _require_subject_order_no(project, subject: str) -> None:
+    order_no = _clean(getattr(project, "order_no", None))
+    if order_no and order_no not in _clean(subject):
+        raise ValueError(f"邮件主题必须包含当前项目订单号 {order_no}")
 
 
 def _object_session_or_none(value):
@@ -626,8 +648,12 @@ def serialize_mail(mail: BusinessMail) -> dict:
 
 
 def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
-    to_emails = [item.email_snapshot for item in mail.recipients if item.recipient_type == "to"]
-    cc_emails = [item.email_snapshot for item in mail.recipients if item.recipient_type == "cc"]
+    to_recipients = [item for item in mail.recipients if item.recipient_type == "to"]
+    cc_recipients = [item for item in mail.recipients if item.recipient_type == "cc"]
+    to_emails = [item.email_snapshot for item in to_recipients]
+    cc_emails = [item.email_snapshot for item in cc_recipients]
+    to_display_names = {item.email_snapshot: item.display_name_snapshot for item in to_recipients}
+    cc_display_names = {item.email_snapshot: item.display_name_snapshot for item in cc_recipients}
     now = datetime.now()
     mail.status = "sending"
     mail.send_attempted_at = now
@@ -650,7 +676,9 @@ def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
         inline_images = bound_images(db, "business_mail", mail.id) if isinstance(mail, BusinessMail) else []
         html_body, inline_parts = prepare_inline_mail(getattr(mail, "body_html", None), mail.body, inline_images)
         result = send_text_email(
-            to_emails=to_emails, cc_emails=cc_emails, subject=mail.subject,
+            to_emails=to_emails, cc_emails=cc_emails,
+            to_display_names=to_display_names, cc_display_names=cc_display_names,
+            subject=mail.subject,
             body=mail.body, html_body=html_body, inline_images=inline_parts,
             message_id=mail.smtp_message_id, settings=settings,
         )
@@ -683,14 +711,20 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     project = db.query(PROJECT_MODELS[payload.project_type]).filter(PROJECT_MODELS[payload.project_type].id == payload.project_id).first()
     if not project:
         raise LookupError("项目不存在")
+    _require_subject_order_no(project, payload.subject)
     project_consultation_id = getattr(project, "consultation_id", None)
     if payload.consultation_id and project_consultation_id != payload.consultation_id:
         raise ValueError("咨询记录与项目不匹配")
     inline_images = load_owned_images(db, payload.inline_image_ids, actor.id)
     safe_body_html = sanitize_body_html(payload.body_html, payload.body, inline_images)
+    safe_body_html, signed_body = append_signature(
+        safe_body_html,
+        payload.body.strip(),
+        get_user_mail_profile(db, actor.id),
+    )
     mail = BusinessMail(
         source_kind=payload.source_kind, project_type=payload.project_type,
-        consultation_id=payload.consultation_id, subject=payload.subject.strip(), body=payload.body.strip(),
+        consultation_id=payload.consultation_id, subject=payload.subject.strip(), body=signed_body,
         body_html=safe_body_html,
         idempotency_key=payload.idempotency_key, smtp_message_id=f"<project-mail-{payload.idempotency_key}@xinshi-system.local>",
         created_by=actor.id,
@@ -699,8 +733,9 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     db.add(mail)
     db.flush()
     bind_images(db, inline_images, "business_mail", mail.id)
+    recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     mail.recipients = [
-        BusinessMailRecipient(user_id=user.id, recipient_type=kind, display_name_snapshot=user.full_name or user.username, email_snapshot=_valid_email(user.email) or "")
+        BusinessMailRecipient(user_id=user.id, recipient_type=kind, display_name_snapshot=recipient_names[user.id], email_snapshot=_valid_email(user.email) or "")
         for kind, users in (("to", to_users), ("cc", cc_users)) for user in users
     ]
     if hasattr(project, "email_subject_preview"):
@@ -728,6 +763,13 @@ def retry_mail(db: Session, mail_id: UUID, actor: AppUser) -> BusinessMail:
         raise LookupError("邮件记录不存在")
     if mail.status != "failed":
         raise ValueError("只有发送失败的邮件可以直接重试")
+    project_id = _project_id(mail)
+    project = db.query(PROJECT_MODELS[mail.project_type]).filter(
+        PROJECT_MODELS[mail.project_type].id == project_id
+    ).first()
+    if not project:
+        raise LookupError("项目不存在")
+    _require_subject_order_no(project, mail.subject)
     if any(item.user_id is None for item in mail.recipients):
         raise ValueError("原收件用户已删除，请重新创建邮件")
     users = validate_internal_users(db, [item.user_id for item in mail.recipients])

@@ -92,6 +92,22 @@ def test_sanitize_body_html_only_keeps_bound_images_and_safe_tags():
     assert f'data-mail-image-id="{image_id}"' in result
 
 
+def test_sanitize_body_html_preserves_safe_signature_formatting():
+    result = sanitize_body_html(
+        '<p><strong>李娴 Tokito</strong></p>'
+        '<div data-mail-signature="true"><span style="color:#2563eb;font-size:30px">'
+        'Project Manager</span><a href="https://www.xinshify.com.cn">官网</a></div>',
+        "签名",
+        [],
+    )
+
+    assert '<strong>李娴 Tokito</strong>' in result
+    assert '<span style="color:#2563eb;">Project Manager</span>' in result
+    assert 'font-size' not in result
+    assert 'data-mail-signature="true"' in result
+    assert 'href="https://www.xinshify.com.cn"' in result
+
+
 def test_sanitize_body_html_rejects_unbound_image():
     with pytest.raises(ValueError, match="未授权图片"):
         sanitize_body_html(

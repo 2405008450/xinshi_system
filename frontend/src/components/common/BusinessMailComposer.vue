@@ -23,6 +23,9 @@
         show-icon
       />
       <el-descriptions :column="1" border size="small" class="sender-summary">
+        <el-descriptions-item label="系统订单号">
+          <ReadonlyField :model-value="preview.order_no" source="auto" />
+        </el-descriptions-item>
         <el-descriptions-item label="发件人">
           {{ preview.sender_name || '未识别' }}
           <span v-if="preview.sender_email"> · {{ preview.sender_email }}</span>
@@ -75,6 +78,13 @@
             </div>
           </div>
         </el-form-item>
+        <el-alert
+          v-if="subjectOrderMismatch"
+          :title="`邮件主题必须包含系统订单号 ${preview.order_no}`"
+          type="error"
+          :closable="false"
+          show-icon
+        />
         <el-form-item label="邮件正文" required>
           <MailBodyEditor
             ref="bodyEditorRef"
@@ -84,6 +94,9 @@
             @update:images="form.inlineImages = $event"
             @uploading-change="imageUploading = $event"
           />
+        </el-form-item>
+        <el-form-item v-if="preview.signature_html" label="邮件签名">
+          <div class="mail-signature-preview" v-html="preview.signature_html" />
         </el-form-item>
       </AppForm>
       <div v-if="history.length" class="mail-history-hint">
@@ -116,6 +129,7 @@ import * as userApi from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -132,6 +146,7 @@ const sending = ref(false)
 const preview = reactive({
   missing_fields: [], blocking_reasons: [], can_send: false,
   sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
+  signature_html: '', signature_text: '',
 })
 const form = reactive({ toUserIds: [], ccUserIds: [], subject: '', body: '', bodyHtml: '', inlineImages: [] })
 const bodyEditorRef = ref(null)
@@ -142,7 +157,10 @@ const history = ref([])
 const SUBJECT_MAX_LENGTH = 120
 const SUBJECT_WARNING_LENGTH = 100
 
-const canSubmit = computed(() => !imageUploading.value && preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
+const subjectOrderMismatch = computed(() => Boolean(
+  preview.order_no && !form.subject.includes(preview.order_no)
+))
+const canSubmit = computed(() => !imageUploading.value && !subjectOrderMismatch.value && preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
 const subjectCharacterCount = computed(() => Array.from(form.subject || '').length)
 const selectedRecipientCount = computed(() => new Set([...form.toUserIds, ...form.ccUserIds]).size)
 const isAllMembersSelected = computed(() => availableUsers.value.length > 1 && selectedRecipientCount.value >= availableUsers.value.length)
@@ -253,6 +271,8 @@ const retryFailedMail = async () => {
 .subject-field { width: 100%; min-width: 0; }
 .subject-character-count { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; text-align: right; white-space: nowrap; }
 .subject-character-count.near-limit { color: var(--el-color-warning); font-weight: 600; }
+.mail-signature-preview { width: 100%; padding: 12px; border: 1px solid var(--el-border-color); border-radius: 6px; color: var(--el-text-color-primary); background: #f8fafc; line-height: 1.65; word-break: break-word; }
+.mail-signature-preview :deep(p) { margin: 0 0 6px; }
 :global(.business-mail-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.business-mail-dialog .el-dialog__header), :global(.business-mail-dialog .el-dialog__footer) { flex-shrink: 0; }
 :global(.business-mail-dialog .el-dialog__body) { flex: 1; min-height: 0; overflow-y: auto; }

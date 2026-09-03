@@ -2,6 +2,14 @@
   <div class="section-block" :class="{ 'is-multi-page': filteredTasks.length > PAGE_SIZE }">
     <div class="task-toolbar">
       <div class="task-toolbar__actions">
+        <TableColumnSettings
+          v-model="visibleColumnKeys"
+          title="执行层字段"
+          hint="勾选结果仅对当前用户生效；序号、跟进明细和操作列固定保留。"
+          :columns="taskTableColumns"
+          :column-count="2"
+          @reset="resetColumns"
+        />
         <el-button
           v-if="canOperateWorkflow"
           type="primary"
@@ -31,13 +39,96 @@
       border
       size="small"
       class="data-table workbench-data-table row-click-select-table"
+      :row-key="taskKey"
+      :expand-row-keys="expandedTaskKeys"
       :row-class-name="rowClassName"
+      @expand-change="handleTaskExpandChange"
       @selection-change="selectedTasks = $event"
       @row-click="toggleTaskRowSelection"
     >
       <template #empty>
         <span class="table-filter-empty">没有符合当前筛选条件的任务，可调整列头筛选条件</span>
       </template>
+      <el-table-column type="expand" width="1" class-name="task-expand-column" label-class-name="task-expand-column">
+        <template #default="{ row }">
+          <div v-if="hasExecutionItems(row)" class="translator-execution-panel">
+            <div class="translator-execution-panel__header">
+              <div class="translator-execution-panel__summary">
+                <strong>译员执行明细</strong>
+                <el-tag v-if="row.translator_execution.attention_count" type="warning" size="small">
+                  待回稿 {{ row.translator_execution.attention_count }} 项
+                </el-tag>
+                <el-tag v-if="row.translator_execution.overdue_count" type="danger" size="small">
+                  已逾期 {{ row.translator_execution.overdue_count }} 项
+                </el-tag>
+              </div>
+              <el-button
+                v-if="hasHiddenExecutionItems(row)"
+                type="primary"
+                link
+                size="small"
+                @click.stop="toggleAllExecutionItems(row)"
+              >
+                {{ isShowingAllExecutionItems(row) ? '只看待回稿' : `查看全部执行明细（${row.translator_execution.items.length}）` }}
+              </el-button>
+            </div>
+            <el-table :data="getVisibleExecutionItems(row)" border size="small" class="translator-execution-table">
+              <el-table-column label="订单" min-width="210">
+                <template #default="{ row: item }">
+                  <div class="execution-order-cell">
+                    <div>
+                      <el-tag :type="item.entity_type === 'suborder' ? 'warning' : 'info'" size="small" effect="plain">
+                        {{ item.entity_type === 'suborder' ? '子订单' : '母订单' }}
+                      </el-tag>
+                      <span>{{ item.order_no }}</span>
+                    </div>
+                    <span v-if="item.sub_project_name" class="execution-order-cell__name">{{ item.sub_project_name }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="译员回稿时间" min-width="250">
+                <template #default="{ row: item }">
+                  <div v-if="item.assigned_translators.length" class="execution-translator-list">
+                    <div v-for="translator in item.assigned_translators" :key="translator.arrangement_id" class="execution-translator-item">
+                      <span class="execution-translator-item__name">{{ translator.translator_name }}</span>
+                      <DeadlineHintCell
+                        v-if="translator.translator_return_time"
+                        :deadline="translator.translator_return_time"
+                        :status="item.status"
+                        mode="translator"
+                      />
+                      <el-tag v-else type="warning" size="small" effect="plain">未设置回稿时间</el-tag>
+                    </div>
+                  </div>
+                  <span v-else class="muted-text">未安排译员</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="任务完成情况" min-width="240">
+                <template #default="{ row: item }">
+                  <div class="execution-completion-list">
+                    <div v-for="translator in item.assigned_translators" :key="translator.arrangement_id">
+                      <span v-if="translator.completion_remarks">{{ translator.translator_name }}：{{ translator.completion_remarks }}</span>
+                    </div>
+                    <span v-if="!hasEntityCompletion(item)" class="muted-text">-</span>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="{ row: item }">
+                  <el-tag :type="executionStatusType(item.status)" size="small">{{ executionStatusLabel(item.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="110" fixed="right" align="center">
+                <template #default="{ row: item }">
+                  <el-button v-if="canOpenManuscript" type="primary" link size="small" @click.stop="openManuscript(row, item)">
+                    进入稿件安排
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column type="selection" :width="WORKBENCH_COLUMN_WIDTHS.selection" :selectable="isTaskSelectable" />
       <el-table-column
         type="index"
@@ -45,8 +136,21 @@
         :width="WORKBENCH_COLUMN_WIDTHS.index"
         :index="getTaskIndex"
       />
-      <el-table-column prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
-      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
+      <el-table-column label="跟进" width="58" align="center">
+        <template #default="{ row }">
+          <el-badge v-if="hasExecutionItems(row)" :value="row.translator_execution.attention_count" :hidden="!row.translator_execution.attention_count" type="danger">
+            <TableExpandButton
+              :expanded="isTaskExpanded(row)"
+              expand-label="展开译员执行明细"
+              collapse-label="收起译员执行明细"
+              @click="toggleTaskExpansion(row)"
+            />
+          </el-badge>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="isColumnVisible('orderNo')" prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column v-if="isColumnVisible('projectType')" :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.projectType"
@@ -67,7 +171,7 @@
         </template>
         <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
       </el-table-column>
-      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+      <el-table-column v-if="isColumnVisible('projectTask')" :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.projectTask"
@@ -88,7 +192,7 @@
           <WorkbenchProjectTaskCell :row="row" />
         </template>
       </el-table-column>
-      <el-table-column :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
+      <el-table-column v-if="isColumnVisible('client')" :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.client"
@@ -106,12 +210,12 @@
         </template>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
+      <el-table-column v-if="isColumnVisible('projectNode')" :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <DeadlineHintCell :deadline="getTaskDeadline(row)" :status="row.project_status" />
         </template>
       </el-table-column>
-      <el-table-column prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
+      <el-table-column v-if="isColumnVisible('projectStatus')" prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.projectStatus"
@@ -141,7 +245,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+      <el-table-column v-if="isColumnVisible('languageDirection')" prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.languageDirection"
@@ -161,7 +265,41 @@
           <LanguagePairText :value="row.language_pair" />
         </template>
       </el-table-column>
-      <el-table-column prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+      <el-table-column v-if="isColumnVisible('translatorReturn')" :label="WORKBENCH_FIELD_LABELS.translatorReturn" :width="WORKBENCH_COLUMN_WIDTHS.translatorReturn">
+        <template #default="{ row }">
+          <div v-if="getTranslatorReturnSummary(row)" class="translator-return-summary">
+            <span class="translator-return-summary__name">{{ getTranslatorReturnSummary(row).translatorName }}</span>
+            <DeadlineHintCell
+              v-if="getTranslatorReturnSummary(row).time"
+              :deadline="getTranslatorReturnSummary(row).time"
+              status="sent_to_translator"
+              mode="translator"
+            />
+            <el-tag v-else type="warning" size="small" effect="plain">未设置回稿时间</el-tag>
+            <span v-if="getAttentionTranslatorEntries(row).length > 1" class="translator-return-summary__extra">
+              另 {{ getAttentionTranslatorEntries(row).length - 1 }} 位译员待回稿
+            </span>
+          </div>
+          <span v-else>{{ row.translator_execution ? '暂无待回稿' : '-' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="isColumnVisible('taskCompletion')" :label="WORKBENCH_FIELD_LABELS.taskCompletion" :width="WORKBENCH_COLUMN_WIDTHS.taskCompletion">
+        <template #default="{ row }">
+          <el-tooltip v-if="getCompletionSummaries(row).length" placement="top" effect="dark">
+            <template #content>
+              <div class="completion-summary-tooltip">
+                <div v-for="(summary, index) in getCompletionSummaries(row)" :key="`${index}:${summary}`">{{ summary }}</div>
+              </div>
+            </template>
+            <div class="completion-summary">
+              <span class="completion-summary__text">{{ getCompletionSummaries(row)[0] }}</span>
+              <span v-if="getCompletionSummaries(row).length > 1" class="completion-summary__count">+{{ getCompletionSummaries(row).length - 1 }}</span>
+            </div>
+          </el-tooltip>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="isColumnVisible('currentAssignee')" prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.currentAssignee"
@@ -202,10 +340,10 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="current_stage_role_name" :label="WORKBENCH_FIELD_LABELS.currentRole" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
+      <el-table-column v-if="isColumnVisible('currentRole')" prop="current_stage_role_name" :label="WORKBENCH_FIELD_LABELS.currentRole" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
         <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
       </el-table-column>
-      <el-table-column :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
+      <el-table-column v-if="isColumnVisible('assignmentMethod')" :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
         <template #header>
           <ColumnHeaderFilter
             :label="WORKBENCH_FIELD_LABELS.assignmentMethod"
@@ -413,6 +551,9 @@ import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
 import ColumnHeaderFilter from '@/components/common/ColumnHeaderFilter.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import TableExpandButton from '@/components/common/TableExpandButton.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
 import { WORKBENCH_COLUMN_WIDTHS } from '@/constants/workbenchColumns'
 import {
   WORKBENCH_FIELD_LABELS,
@@ -420,10 +561,22 @@ import {
   WORKBENCH_PROJECT_TYPE_OPTIONS,
   WORKBENCH_PROJECT_TYPE_VALUES
 } from '@/constants/workbenchFields'
-import { hasPermission } from '@/utils/permission'
+import { canViewManuscriptArrangements, hasPermission, hasRole } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import { parseBusinessDateTime } from '@/utils/deadlineDisplay'
+import {
+  filterTranslatorExecutionItems,
+  getAttentionTranslatorEntries,
+  getTranslatorCompletionSummaries,
+  getTranslatorExecutionRiskRank,
+  getWorkbenchExecutionDefaultColumnKeys,
+  getWorkbenchTaskKey,
+  hasTranslatorExecutionItems,
+  reconcileTranslatorExpandedKeys
+} from '@/utils/workbenchTranslatorExecution'
 import {
   getProjectStatusLabel,
+  getProjectStatusType,
   normalizeProjectStatus,
   resolveProjectId,
   resolveProjectType
@@ -468,9 +621,35 @@ const props = defineProps({
   tasksList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['open-chat', 'open-project', 'record-work', 'refresh', 'visible-count-change'])
+const emit = defineEmits(['open-chat', 'open-project', 'open-manuscript', 'record-work', 'refresh', 'visible-count-change'])
 const canWriteProjects = hasPermission('projects:write')
 const canOperateWorkflow = hasPermission(['projects:read', 'workflow:operate'])
+const canOpenManuscript = canViewManuscriptArrangements()
+
+const taskTableColumns = [
+  { key: 'orderNo', label: WORKBENCH_FIELD_LABELS.orderNo },
+  { key: 'projectType', label: WORKBENCH_FIELD_LABELS.projectType },
+  { key: 'projectTask', label: WORKBENCH_FIELD_LABELS.projectTask },
+  { key: 'client', label: WORKBENCH_FIELD_LABELS.client },
+  { key: 'projectNode', label: WORKBENCH_FIELD_LABELS.projectNode },
+  { key: 'projectStatus', label: WORKBENCH_FIELD_LABELS.projectStatus },
+  { key: 'languageDirection', label: WORKBENCH_FIELD_LABELS.languageDirection },
+  { key: 'translatorReturn', label: WORKBENCH_FIELD_LABELS.translatorReturn },
+  { key: 'taskCompletion', label: WORKBENCH_FIELD_LABELS.taskCompletion },
+  { key: 'currentAssignee', label: WORKBENCH_FIELD_LABELS.currentAssignee },
+  { key: 'currentRole', label: WORKBENCH_FIELD_LABELS.currentRole },
+  { key: 'assignmentMethod', label: WORKBENCH_FIELD_LABELS.assignmentMethod }
+]
+const taskDefaultColumnKeys = getWorkbenchExecutionDefaultColumnKeys(taskTableColumns, hasRole('项目助理'))
+const {
+  selectedKeys: visibleColumnKeys,
+  isVisible: isColumnVisible,
+  reset: resetColumns
+} = useTableColumns(
+  'workbench-execution-v1',
+  taskTableColumns,
+  taskDefaultColumnKeys
+)
 
 function handleProjectStatusUpdated(row, payload) {
   const projectId = String(payload?.projectId || resolveProjectId(row) || '')
@@ -495,6 +674,9 @@ const currentPage = ref(1)
 const PAGE_SIZE = 10
 const claimingRolePool = ref(false)
 const taskTableRef = ref(null)
+const expandedTaskKeys = ref([])
+const manuallyCollapsedTaskKeys = ref(new Set())
+const showAllExecutionTaskKeys = ref(new Set())
 const eligibleUsers = ref([])
 const handoverVisible = ref(false)
 const handoverTargetUserId = ref('')
@@ -515,6 +697,86 @@ const currentUserId = (() => {
     return ''
   }
 })()
+
+const taskKey = getWorkbenchTaskKey
+const hasExecutionItems = hasTranslatorExecutionItems
+
+function isTaskExpanded(row) {
+  return expandedTaskKeys.value.includes(taskKey(row))
+}
+
+function toggleTaskExpansion(row) {
+  if (!hasExecutionItems(row)) return
+  const key = taskKey(row)
+  const targetExpanded = !isTaskExpanded(row)
+  if (targetExpanded) {
+    manuallyCollapsedTaskKeys.value.delete(key)
+    expandedTaskKeys.value = [...new Set([...expandedTaskKeys.value, key])]
+  } else {
+    manuallyCollapsedTaskKeys.value.add(key)
+    expandedTaskKeys.value = expandedTaskKeys.value.filter(item => item !== key)
+  }
+}
+
+function handleTaskExpandChange(row, expandedRows) {
+  const key = taskKey(row)
+  const expanded = expandedRows.some(item => taskKey(item) === key)
+  if (expanded) {
+    manuallyCollapsedTaskKeys.value.delete(key)
+    expandedTaskKeys.value = [...new Set([...expandedTaskKeys.value, key])]
+  } else {
+    manuallyCollapsedTaskKeys.value.add(key)
+    expandedTaskKeys.value = expandedTaskKeys.value.filter(item => item !== key)
+  }
+}
+
+function isShowingAllExecutionItems(row) {
+  return showAllExecutionTaskKeys.value.has(taskKey(row))
+}
+
+function toggleAllExecutionItems(row) {
+  const key = taskKey(row)
+  const next = new Set(showAllExecutionTaskKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  showAllExecutionTaskKeys.value = next
+}
+
+function getVisibleExecutionItems(row) {
+  return filterTranslatorExecutionItems(row, isShowingAllExecutionItems(row))
+}
+
+function hasHiddenExecutionItems(row) {
+  const items = row?.translator_execution?.items || []
+  return Boolean(row?.translator_execution?.attention_count) && items.some(item => !item.needs_attention)
+}
+
+function getTranslatorReturnSummary(row) {
+  return getAttentionTranslatorEntries(row)[0] || null
+}
+
+const getCompletionSummaries = getTranslatorCompletionSummaries
+
+function hasEntityCompletion(item) {
+  return (item?.assigned_translators || []).some(translator => String(translator.completion_remarks || '').trim())
+}
+
+function executionStatusLabel(status) {
+  return getProjectStatusLabel('translation', status)
+}
+
+function executionStatusType(status) {
+  return getProjectStatusType('translation', status)
+}
+
+function openManuscript(task, item) {
+  emit('open-manuscript', {
+    projectId: task.translation_project_id || task.project_id,
+    entityType: item.entity_type,
+    subOrderId: item.entity_type === 'suborder' ? item.entity_id : undefined,
+    orderNo: item.order_no
+  })
+}
 
 const emptyNote = () => ({
   content: '',
@@ -626,6 +888,15 @@ function isCurrentUserResponsible(row) {
 function compareProjectTasks(left, right, now) {
   const responsibilityDifference = Number(isCurrentUserResponsible(right)) - Number(isCurrentUserResponsible(left))
   if (responsibilityDifference) return responsibilityDifference
+  const riskDifference = getTranslatorExecutionRiskRank(left, now) - getTranslatorExecutionRiskRank(right, now)
+  if (riskDifference) return riskDifference
+  const leftReturnTime = parseBusinessDateTime(left?.translator_execution?.next_return_time)?.getTime()
+  const rightReturnTime = parseBusinessDateTime(right?.translator_execution?.next_return_time)?.getTime()
+  if (Number.isFinite(leftReturnTime) || Number.isFinite(rightReturnTime)) {
+    if (!Number.isFinite(leftReturnTime)) return 1
+    if (!Number.isFinite(rightReturnTime)) return -1
+    if (leftReturnTime !== rightReturnTime) return leftReturnTime - rightReturnTime
+  }
   return compareWorkItemsByDeadline(left, right, now)
 }
 
@@ -732,6 +1003,14 @@ const pagedTasks = computed(() => {
   return filteredTasks.value.slice(start, start + PAGE_SIZE)
 })
 
+watch(pagedTasks, (rows) => {
+  expandedTaskKeys.value = reconcileTranslatorExpandedKeys(
+    rows,
+    expandedTaskKeys.value,
+    manuallyCollapsedTaskKeys.value
+  )
+}, { immediate: true, deep: true })
+
 function getTaskIndex(index) {
   return (currentPage.value - 1) * PAGE_SIZE + index + 1
 }
@@ -768,6 +1047,9 @@ watch(() => filteredTasks.value.length, (total) => {
 }, { immediate: true })
 
 function rowClassName({ row }) {
+  const translatorRisk = getTranslatorExecutionRiskRank(row)
+  if (translatorRisk === 0) return 'overdue-row'
+  if (translatorRisk === 1) return 'urgent-row'
   const state = deadlineState(row)
   if (state === DEADLINE_STATE.OVERDUE) return 'overdue-row'
   if (state === DEADLINE_STATE.URGENT) return 'urgent-row'
@@ -1012,6 +1294,106 @@ onBeforeUnmount(() => {
 <style scoped>
 .section-block { margin-bottom: 10px; }
 .data-table { margin-bottom: 12px; }
+.data-table :deep(.task-expand-column) { padding: 0 !important; border-right: 0 !important; }
+.data-table :deep(.task-expand-column .cell) { display: none; padding: 0; }
+
+.translator-execution-panel {
+  padding: 12px 16px 16px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.translator-execution-panel__header,
+.translator-execution-panel__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.translator-execution-panel__header {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.execution-order-cell,
+.execution-translator-list,
+.execution-completion-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.execution-order-cell > div,
+.execution-translator-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.execution-order-cell__name,
+.muted-text,
+.translator-return-summary__extra {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.execution-translator-item__name {
+  width: 76px;
+  overflow: hidden;
+  padding-top: 2px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.translator-return-summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.translator-return-summary__name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.completion-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.completion-summary__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.completion-summary__count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-size: 12px;
+}
+
+.completion-summary-tooltip {
+  max-width: min(520px, calc(100vw - 48px));
+  white-space: normal;
+}
+
+.completion-summary-tooltip > div + div {
+  margin-top: 4px;
+}
 
 /* 多页切换时预留一页表格的展示空间，避免末页行数较少导致下方区域明显跳动。 */
 .section-block.is-multi-page {

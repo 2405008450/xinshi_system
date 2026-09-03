@@ -1594,6 +1594,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
 import {
   cancelManuscriptDispatch,
   confirmManuscriptDispatch,
@@ -1625,6 +1626,7 @@ import {
   sumWordCountValues
 } from '@/utils/wordCountMatrix'
 
+const route = useRoute()
 const loading = ref(false)
 const contextLoading = ref(false)
 const recordsLoading = ref(false)
@@ -3367,7 +3369,41 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll)
+async function selectRouteProject() {
+  const projectId = String(route.query.projectId || '')
+  if (!projectId) return
+  const entityType = route.query.entityType === 'suborder' ? 'suborder' : 'project'
+  const subOrderId = String(route.query.subOrderId || '')
+  const target = activeProjects.value.find((item) => (
+    String(item.translation_project_id || '') === projectId
+    && (
+      entityType === 'suborder'
+        ? item.entity_type === 'suborder' && String(item.sub_order_id || '') === subOrderId
+        : item.entity_type === 'project'
+    )
+  ))
+  if (!target) {
+    ElMessage.warning('未在当前可操作的稿件安排中找到目标订单')
+    return
+  }
+  selectProject(target)
+  await loadActiveMailPreview()
+}
+
+async function loadRouteTarget() {
+  const orderNo = String(route.query.orderNo || '').trim()
+  if (route.query.projectId) projectKeyword.value = orderNo
+  await loadAll()
+  await selectRouteProject()
+}
+
+onMounted(loadRouteTarget)
+watch(
+  () => [route.query.projectId, route.query.entityType, route.query.subOrderId, route.query.orderNo],
+  (current, previous) => {
+    if (current.some((value, index) => value !== previous[index])) void loadRouteTarget()
+  }
+)
 onBeforeUnmount(() => {
   clearTimeout(projectSearchTimer)
   clearTimeout(dispatchSearchTimer)

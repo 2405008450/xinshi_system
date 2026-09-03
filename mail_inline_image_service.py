@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from mail_inline_image_models import MailInlineImage, MailInlineImageBinding
 from mail_service import MailInlineImagePart
+from mail_html_security import safe_css_color, safe_mail_href
 
 
 MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
@@ -254,7 +255,7 @@ def cleanup_orphan_inline_images(
 
 
 class _SafeMailHtmlParser(HTMLParser):
-    allowed = {"p", "br", "div", "strong", "b", "em", "i", "ul", "ol", "li", "blockquote"}
+    allowed = {"p", "br", "div", "strong", "b", "em", "i", "u", "span", "a", "ul", "ol", "li", "blockquote"}
 
     def __init__(self, allowed_image_ids: set[UUID]):
         super().__init__(convert_charrefs=True)
@@ -264,8 +265,8 @@ class _SafeMailHtmlParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs):
         tag = tag.lower()
+        values = dict(attrs)
         if tag == "img":
-            values = dict(attrs)
             try:
                 image_id = UUID(values.get("data-mail-image-id", ""))
             except ValueError:
@@ -278,7 +279,29 @@ class _SafeMailHtmlParser(HTMLParser):
             alt = html.escape((values.get("alt") or "正文图片")[:255], quote=True)
             self.output.append(f'<img data-mail-image-id="{image_id}" alt="{alt}" style="max-width:100%;height:auto;display:block;margin:8px 0;">')
         elif tag in self.allowed:
-            self.output.append("<br>" if tag == "br" else f"<{tag}>")
+            if tag == "br":
+                self.output.append("<br>")
+                return
+            attributes = ""
+            if tag == "a":
+                href = safe_mail_href(values.get("href", ""))
+                if href:
+                    attributes = f' href="{html.escape(href, quote=True)}" rel="noopener noreferrer"'
+            elif tag in {"span", "p", "div"}:
+                style_values = {}
+                for item in (values.get("style") or "").split(";"):
+                    key, separator, value = item.partition(":")
+                    if separator:
+                        style_values[key.strip().lower()] = value.strip()
+                color = safe_css_color(style_values.get("color", "") or values.get("color", ""))
+                if color:
+                    attributes = f' style="color:{color};"'
+                if tag == "div" and values.get("data-mail-signature") == "true":
+                    attributes = (
+                        ' data-mail-signature="true" '
+                        'style="margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb;"'
+                    )
+            self.output.append(f"<{tag}{attributes}>")
 
     def handle_endtag(self, tag: str):
         tag = tag.lower()

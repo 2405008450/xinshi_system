@@ -7,10 +7,11 @@ from pydantic import ValidationError
 
 import mail_service
 import business_mail_service
-from business_mail_service import build_preview
+from business_mail_service import _require_subject_order_no, build_preview
 from business_mail_schemas import BusinessMailSendRequest, MailRecipientGroupWrite
 from interpretation_models import InterpretationLanguage
 from mail_service import MailAttachment, SmtpSettings, send_text_email
+from utils import normalize_email_subject_order_no
 
 
 class _FakeSmtp:
@@ -110,6 +111,41 @@ def test_live_mode_keeps_sender_self_copy(monkeypatch):
     assert _FakeSmtp.last_message["Cc"] == "system@example.com"
 
 
+def test_live_mode_adds_internal_recipient_display_names(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+
+    result = send_text_email(
+        to_emails=["hr7@xinshifanyi.com.cn"],
+        cc_emails=["service3@xinshifanyi.com.cn"],
+        to_display_names={"HR7@XINSHIFANYI.COM.CN": "信实翻译-HR专员彭舒婷"},
+        cc_display_names={"service3@xinshifanyi.com.cn": "信实翻译-客户专员刘家铭"},
+        subject="新项目",
+        body="项目内容",
+        message_id="<named-recipient-test@xinshi-system.local>",
+        settings=_settings(mode="live"),
+    )
+
+    assert str(_FakeSmtp.last_message["To"]) == "信实翻译-HR专员彭舒婷 <hr7@xinshifanyi.com.cn>"
+    assert str(_FakeSmtp.last_message["Cc"]) == "信实翻译-客户专员刘家铭 <service3@xinshifanyi.com.cn>"
+    assert result.delivery_recipient == (
+        "hr7@xinshifanyi.com.cn, service3@xinshifanyi.com.cn"
+    )
+
+
+def test_recipient_display_name_rejects_header_injection(monkeypatch):
+    monkeypatch.setattr(mail_service.smtplib, "SMTP", _FakeSmtp)
+
+    with pytest.raises(mail_service.MailConfigurationError, match="显示名称不能包含换行"):
+        send_text_email(
+            to_emails=["employee@example.com"],
+            to_display_names={"employee@example.com": "正常姓名\nBcc: outsider@example.com"},
+            subject="新项目",
+            body="项目内容",
+            message_id="<display-name-injection-test@xinshi-system.local>",
+            settings=_settings(mode="live"),
+        )
+
+
 def test_business_mail_payload_rejects_header_injection():
     with pytest.raises(ValidationError):
         BusinessMailSendRequest(
@@ -121,6 +157,22 @@ def test_business_mail_payload_rejects_header_injection():
             body="项目内容",
             idempotency_key="mail-test-001",
         )
+
+
+def test_new_project_subject_replaces_preview_order_with_final_order():
+    subject = "***急***，TP-260902-005，梁伟，英译中，9月2日16点回稿"
+
+    normalized = normalize_email_subject_order_no(subject, "TP-260902-007")
+
+    assert normalized == "***急***，TP-260902-007，梁伟，英译中，9月2日16点回稿"
+
+
+def test_business_mail_subject_must_include_authoritative_order_no():
+    project = SimpleNamespace(order_no="TP-260902-007")
+
+    _require_subject_order_no(project, "***急***，TP-260902-007，梁伟")
+    with pytest.raises(ValueError, match="TP-260902-007"):
+        _require_subject_order_no(project, "***急***，TP-260902-005，梁伟")
 
 
 def test_translation_preview_allows_missing_customer_deadline(monkeypatch):

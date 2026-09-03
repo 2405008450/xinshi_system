@@ -1,7 +1,18 @@
 import datetime
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from models import TranslationProject
+
+
+INTERNAL_ORDER_NO_PATTERN = re.compile(r"\b(?:TP|IP|AP|HP)-(?:\d{6}|\d{8})-\d{3,}\b")
+
+
+def normalize_email_subject_order_no(subject: str | None, order_no: str) -> str | None:
+    """将新建表单预览中的临时订单号替换为后端最终订单号。"""
+    if not subject:
+        return subject
+    return INTERNAL_ORDER_NO_PATTERN.sub(order_no, subject, count=1)
 
 def generate_order_no(db: Session) -> str:
     """

@@ -5,11 +5,28 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from schemas import ProjectRoleAssignmentResponse
+from schemas import ProjectAssignedTranslatorResponse, ProjectRoleAssignmentResponse
 
 
 TaskStatus = Literal["pending", "in_progress", "completed", "cancelled"]
 SourceType = Literal["project", "non_project"]
+
+
+class TranslatorExecutionEntityResponse(BaseModel):
+    entity_type: Literal["project", "suborder"]
+    entity_id: UUID
+    order_no: str
+    sub_project_name: Optional[str] = None
+    status: Optional[str] = None
+    needs_attention: bool = False
+    assigned_translators: list[ProjectAssignedTranslatorResponse] = Field(default_factory=list)
+
+
+class TranslatorExecutionResponse(BaseModel):
+    attention_count: int = 0
+    overdue_count: int = 0
+    next_return_time: Optional[datetime] = None
+    items: list[TranslatorExecutionEntityResponse] = Field(default_factory=list)
 
 
 class NonProjectTaskCreate(BaseModel):
@@ -96,6 +113,7 @@ class WorkItemResponse(BaseModel):
     original_assignee_name: Optional[str] = None
     delegation_end_at: Optional[datetime] = None
     delegation_overdue: bool = False
+    translator_execution: Optional[TranslatorExecutionResponse] = None
 
 
 class TaskStatusChange(BaseModel):

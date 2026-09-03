@@ -7,6 +7,8 @@ export const WORKBENCH_FIELD_LABELS = Object.freeze({
   projectNode: '项目节点',
   projectStatus: '项目状态',
   languageDirection: '语言方向',
+  translatorReturn: '译员回稿',
+  taskCompletion: '任务完成情况',
   currentAssignee: '当前负责人',
   managementOwnership: '管理归属',
   currentRole: '所属角色',

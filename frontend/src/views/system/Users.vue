@@ -57,6 +57,19 @@
         <template #default="{ row }">{{ normalizeDepartment(row.department) || '未分部门' }}</template>
       </el-table-column>
       <el-table-column prop="email" label="邮箱" width="200" />
+      <el-table-column label="邮件资料" min-width="240">
+        <template #default="{ row }">
+          <div class="mail-profile-cell">
+            <span class="mail-profile-name" :title="row.mail_display_name || ''">
+              {{ row.mail_display_name || row.full_name || row.username }}
+            </span>
+            <el-tag size="small" :type="row.mail_signature_enabled ? 'success' : 'info'">
+              {{ row.mail_signature_enabled ? '签名已启用' : '无签名' }}
+            </el-tag>
+            <el-button v-if="canManageMailProfile" type="primary" link size="small" @click="openMailProfileDialog(row)">管理</el-button>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="发件邮箱" width="170" align="center">
         <template #default="{ row }">
           <div class="mail-account-cell">
@@ -169,6 +182,49 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="mailProfileDialogVisible"
+      title="用户邮件资料"
+      width="min(860px, calc(100vw - 32px))"
+      top="5vh"
+      class="user-mail-profile-dialog"
+      :close-on-click-modal="false"
+      @closed="resetMailProfileDialog"
+    >
+      <div v-loading="mailProfileLoading" class="mail-profile-dialog-body">
+        <el-alert
+          :title="`当前用户：${mailProfileTargetUser?.full_name || mailProfileTargetUser?.username || ''}`"
+          description="邮件显示名用于收件人和抄送栏；启用签名后，系统会在邮件发送时自动追加并保存快照。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <AppForm :model="mailProfileForm" label-position="top" @submit.prevent>
+          <el-form-item label="邮件显示名">
+            <el-input
+              v-model="mailProfileForm.recipient_display_name"
+              maxlength="255"
+              show-word-limit
+              :placeholder="mailProfileTargetUser?.full_name || mailProfileTargetUser?.username || '请输入邮件显示名'"
+            />
+          </el-form-item>
+          <el-form-item label="启用邮件签名">
+            <el-switch v-model="mailProfileForm.signature_enabled" />
+          </el-form-item>
+          <el-form-item label="富文本签名">
+            <MailSignatureEditor
+              v-model="mailProfileForm.signature_html"
+              v-model:text-value="mailProfileForm.signature_text"
+            />
+          </el-form-item>
+        </AppForm>
+      </div>
+      <template #footer>
+        <el-button :disabled="mailProfileSaving" @click="mailProfileDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="mailProfileSaving" @click="saveMailProfile">保存邮件资料</el-button>
       </template>
     </el-dialog>
 
@@ -347,6 +403,7 @@ import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShiftTemplateDialog.vue'
+import MailSignatureEditor from '@/components/common/MailSignatureEditor.vue'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -362,6 +419,7 @@ const canAssignRoles = computed(() => hasPermission('system:user_roles:write'))
 const canResetPassword = computed(() => isSuperAdmin())
 const canManageSchedule = computed(() => hasPermission('schedule:write'))
 const canManageMailAccount = computed(() => hasPermission('system:users:write'))
+const canManageMailProfile = computed(() => hasPermission('system:users:write'))
 const departments = DEPARTMENT_NAMES
 const shiftDialogVisible = ref(false)
 const shiftEmployee = ref(null)
@@ -383,6 +441,16 @@ const mailAccount = reactive({
   is_verified: false,
   verified_at: null,
   updated_at: null
+})
+const mailProfileDialogVisible = ref(false)
+const mailProfileLoading = ref(false)
+const mailProfileSaving = ref(false)
+const mailProfileTargetUser = ref(null)
+const mailProfileForm = reactive({
+  recipient_display_name: '',
+  signature_html: '',
+  signature_text: '',
+  signature_enabled: false
 })
 const validateConfirmPassword = (_rule, value, callback) => {
   if (!value) {
@@ -733,6 +801,58 @@ const resetMailAccountDialog = () => {
   })
 }
 
+const openMailProfileDialog = async (row) => {
+  mailProfileTargetUser.value = row
+  mailProfileDialogVisible.value = true
+  mailProfileLoading.value = true
+  try {
+    const profile = await userApi.getUserMailProfile(row.id)
+    Object.assign(mailProfileForm, {
+      recipient_display_name: profile.recipient_display_name || '',
+      signature_html: profile.signature_html || '',
+      signature_text: profile.signature_text || '',
+      signature_enabled: Boolean(profile.signature_enabled)
+    })
+  } catch (error) {
+    ElMessage.error(error.detail || '加载用户邮件资料失败')
+  } finally {
+    mailProfileLoading.value = false
+  }
+}
+
+const saveMailProfile = async () => {
+  if (!mailProfileTargetUser.value) return
+  if (mailProfileForm.signature_enabled && !mailProfileForm.signature_text.trim()) {
+    ElMessage.warning('启用签名前请先填写签名内容')
+    return
+  }
+  mailProfileSaving.value = true
+  try {
+    await userApi.saveUserMailProfile(mailProfileTargetUser.value.id, {
+      recipient_display_name: mailProfileForm.recipient_display_name.trim() || null,
+      signature_html: mailProfileForm.signature_html || null,
+      signature_enabled: mailProfileForm.signature_enabled
+    })
+    ElMessage.success('用户邮件资料已保存')
+    mailProfileDialogVisible.value = false
+    await fetchData()
+  } catch (error) {
+    ElMessage.error(error.detail || '保存用户邮件资料失败')
+  } finally {
+    mailProfileSaving.value = false
+  }
+}
+
+const resetMailProfileDialog = () => {
+  mailProfileTargetUser.value = null
+  Object.assign(mailProfileForm, {
+    recipient_display_name: '',
+    signature_html: '',
+    signature_text: '',
+    signature_enabled: false
+  })
+}
+
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm('确定要删除该用户吗？', '提示', {
@@ -840,6 +960,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 6px;
 }
+.mail-profile-cell{display:flex;align-items:center;gap:6px;min-width:0}.mail-profile-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mail-profile-cell .el-tag,.mail-profile-cell .el-button{flex-shrink:0}.mail-profile-dialog-body{display:flex;flex-direction:column;gap:14px}.mail-profile-dialog-body :deep(.el-form-item__content){display:block}:global(.user-mail-profile-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.user-mail-profile-dialog .el-dialog__header),:global(.user-mail-profile-dialog .el-dialog__footer){flex:none}:global(.user-mail-profile-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.user-mail-profile-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
 
 .mail-account-summary {
   margin-top: 18px;

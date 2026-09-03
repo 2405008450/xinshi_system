@@ -22,7 +22,7 @@ from workflow_models import (
     WorkflowTaskDelegation,
 )
 from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave, ProjectRoleAssignment
-from leave_service import ensure_user_assignable
+from leave_service import business_now, ensure_user_assignable
 from project_roles import (
     PROJECT_ROLE_NAME_BY_CODE,
     ROLE_NAME_BY_CODE,
@@ -216,6 +216,159 @@ def _workflow_task_assignment_type(instance: WorkflowInstance, user_id: UUID) ->
     return 'overview'
 
 
+def _translator_execution_assignee(row) -> dict:
+    return {
+        'arrangement_id': row.id,
+        'dispatch_id': row.dispatch_id,
+        'translator_id': row.translator_id,
+        'translator_name': row.translator_name_snapshot,
+        'cooperation_type': row.cooperation_type_snapshot,
+        'status': row.status,
+        'planned': {},
+        'actual': {},
+        'translation_scope': row.translation_scope,
+        'translator_return_time': row.planned_delivery_at,
+        'completion_remarks': row.completion_remarks,
+    }
+
+
+def _apply_translator_execution(
+    tasks: list[dict],
+    projects,
+    sub_orders,
+    arrangements,
+    *,
+    now: Optional[datetime.datetime] = None,
+) -> None:
+    """将批量读取的稿件执行信息装配到工作台任务，保持函数可独立测试。"""
+    moment = now or business_now()
+    project_by_id = {project.id: project for project in projects}
+    sub_orders_by_project: dict[UUID, list] = {}
+    sub_order_by_id = {}
+    for sub_order in sub_orders:
+        sub_order_by_id[sub_order.id] = sub_order
+        sub_orders_by_project.setdefault(sub_order.parent_project_id, []).append(sub_order)
+
+    assignees_by_entity: dict[tuple[str, UUID], dict[UUID, dict]] = {}
+    for row in arrangements:
+        if row.status == 'cancelled':
+            continue
+        entity_type = 'suborder' if row.sub_order_id else 'project'
+        entity_id = row.sub_order_id or row.translation_project_id
+        # 与项目详情接口保持一致：同一订单同一译员存在多次已确认派稿时，以最新记录为准。
+        assignees_by_entity.setdefault((entity_type, entity_id), {})[row.translator_id] = (
+            _translator_execution_assignee(row)
+        )
+
+    def serialize_entity(entity_type: str, entity) -> dict:
+        if entity_type == 'suborder':
+            entity_id = entity.id
+            order_no = entity.sub_order_no
+            sub_project_name = entity.sub_project_name
+            status = entity.status
+        else:
+            entity_id = entity.id
+            order_no = entity.order_no
+            sub_project_name = None
+            status = entity.project_status
+        return {
+            'entity_type': entity_type,
+            'entity_id': entity_id,
+            'order_no': order_no,
+            'sub_project_name': sub_project_name,
+            'status': status,
+            'needs_attention': status == 'sent_to_translator',
+            'assigned_translators': list(
+                assignees_by_entity.get((entity_type, entity_id), {}).values()
+            ),
+        }
+
+    for task in tasks:
+        if task.get('project_type') not in {None, 'translation'}:
+            continue
+        project_id = task.get('translation_project_id') or task.get('project_id')
+        if not project_id or project_id not in project_by_id:
+            continue
+
+        if task.get('entity_type') == 'suborder' and task.get('sub_order_id'):
+            sub_order = sub_order_by_id.get(task['sub_order_id'])
+            entities = [serialize_entity('suborder', sub_order)] if sub_order else []
+        elif (
+            task.get('current_stage_role_code') == 'project_assistant'
+            or task.get('task_kind') == 'manuscript_responsibility'
+        ):
+            project = project_by_id[project_id]
+            children = sorted(
+                sub_orders_by_project.get(project_id, []),
+                key=lambda item: item.sub_order_no or '',
+            )
+            entities = [serialize_entity('project', project)] + [
+                serialize_entity('suborder', child) for child in children
+            ]
+        else:
+            entities = [serialize_entity('project', project_by_id[project_id])]
+
+        attention_items = [item for item in entities if item['needs_attention']]
+        # 没有待回稿状态且从未形成有效稿件安排时不返回执行明细，避免把普通笔译任务
+        # 扩展成空台账；若订单已经是“已发译员”，即使安排数据缺失也要暴露风险提示。
+        if not attention_items and not any(item['assigned_translators'] for item in entities):
+            continue
+        attention_times = [
+            translator['translator_return_time']
+            for item in attention_items
+            for translator in item['assigned_translators']
+            if translator.get('translator_return_time') is not None
+        ]
+        overdue_count = sum(
+            1 for item in attention_items
+            if any(
+                translator.get('translator_return_time') is not None
+                and translator['translator_return_time'] < moment
+                for translator in item['assigned_translators']
+            )
+        )
+        task['translator_execution'] = {
+            'attention_count': len(attention_items),
+            'overdue_count': overdue_count,
+            'next_return_time': min(attention_times) if attention_times else None,
+            'items': entities,
+        }
+
+
+def _attach_translator_execution(db: Session, tasks: list[dict]) -> None:
+    """批量读取当前工作台任务关联的笔译稿件执行信息。"""
+    project_ids = {
+        task.get('translation_project_id') or task.get('project_id')
+        for task in tasks
+        if task.get('project_type') in {None, 'translation'}
+        and (task.get('translation_project_id') or task.get('project_id'))
+    }
+    if not project_ids:
+        return
+
+    from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+
+    projects = db.query(TranslationProject).filter(TranslationProject.id.in_(project_ids)).all()
+    sub_orders = (
+        db.query(TranslationSubOrder)
+        .filter(TranslationSubOrder.parent_project_id.in_(project_ids))
+        .all()
+    )
+    arrangements = (
+        db.query(ManuscriptArrangement)
+        .join(ManuscriptDispatch, ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id)
+        .filter(
+            ManuscriptArrangement.translation_project_id.in_(project_ids),
+            ManuscriptArrangement.status != 'cancelled',
+            ManuscriptDispatch.status != 'cancelled',
+            ManuscriptDispatch.confirmed_at.is_not(None),
+        )
+        .order_by(ManuscriptArrangement.created_at.asc())
+        .all()
+    )
+    _apply_translator_execution(tasks, projects, sub_orders, arrangements)
+
+
 def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> list:
     """查询未完成的工作流实例；超级管理员可按需查看全部执行任务。"""
     roles = set(get_user_roles_with_role_names(db, user_id))
@@ -339,6 +492,8 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
         task.setdefault('project_id', task.get('translation_project_id'))
         task.setdefault('detail_route_name', 'TranslationProjectDetails')
         task.setdefault('project_responsibility_id', None)
+
+    _attach_translator_execution(db, tasks)
 
     from project_workbench_service import get_responsibility_tasks
     tasks.extend(get_responsibility_tasks(

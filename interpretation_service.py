@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, cast, func, or_, text
 from sqlalchemy.orm import Session, selectinload
+from utils import normalize_email_subject_order_no
 
 from concurrency import VERSION_FIELD, assert_fresh
 
@@ -475,8 +476,12 @@ def create_interpretation_project(
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
+    order_no = generate_interpretation_order_no(db)
+    data["email_subject_preview"] = normalize_email_subject_order_no(
+        data.get("email_subject_preview"), order_no
+    )
     project = InterpretationProject(
-        order_no=generate_interpretation_order_no(db),
+        order_no=order_no,
         created_by=created_by,
         idempotency_key=idempotency_key,
         **data,

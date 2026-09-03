@@ -117,6 +117,7 @@
                   :reference-date="scheduleDate"
                   @open-chat="handleOpenProjectChat"
                   @open-project="handleOpenProject"
+                  @open-manuscript="handleOpenManuscript"
                   @refresh="loadMyWorkItems"
                 />
               </div>
@@ -263,6 +264,19 @@ function handleOpenProject(item) {
   const projectId = item?.project_id || item?.translation_project_id
   if (!routeName || !projectId) return
   router.push({ name: routeName, query: { projectId } })
+}
+
+function handleOpenManuscript(target) {
+  if (!target?.projectId) return
+  router.push({
+    name: 'ManuscriptArrangements',
+    query: {
+      projectId: target.projectId,
+      entityType: target.entityType || 'project',
+      ...(target.subOrderId ? { subOrderId: target.subOrderId } : {}),
+      ...(target.orderNo ? { orderNo: target.orderNo } : {})
+    }
+  })
 }
 
 function getReferenceDate() {

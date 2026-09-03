@@ -1051,6 +1051,7 @@ import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixLi
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { COMMON_SUBJECT_PREFIX_OPTIONS, notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { launchOpenPath } from '@/utils/openPath'
+import { resolvePreferredProjectPath } from '@/utils/projectPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
@@ -1936,32 +1937,35 @@ const clearSelectedClient = () => {
   projectNameManuallyEdited.value = false
 }
 
-const getOriginalPath = async (row) => {
-  if (!row?.id) return ''
+const getPreferredProjectPath = async (row) => {
+  if (!row?.id) return null
   const files = await getProjectFilesByProject(row.id, { skip: 0, limit: 1 })
-  return Array.isArray(files) ? String(files[0]?.storage_path || '').trim() : ''
+  const projectFile = Array.isArray(files) && files.length ? files[0] : {}
+  return resolvePreferredProjectPath(projectFile, row)
 }
 const openOriginalPath = async (row) => {
   try {
-    const path = await getOriginalPath(row)
-    if (!path) {
-      ElMessage.warning('该订单暂无原文路径')
+    const resolvedPath = await getPreferredProjectPath(row)
+    if (!resolvedPath) {
+      ElMessage.warning('该订单暂无可用文件路径')
       return
     }
-    launchOpenPath(path)
+    if (!launchOpenPath(resolvedPath.path)) {
+      ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')
+    }
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, '获取原文路径失败'))
+    ElMessage.error(getLocalizedErrorMessage(error, '获取文件路径失败'))
   }
 }
 const copyOriginalPath = async (row) => {
   try {
-    const path = await getOriginalPath(row)
-    if (!path) {
-      ElMessage.warning('该订单暂无原文路径')
+    const resolvedPath = await getPreferredProjectPath(row)
+    if (!resolvedPath) {
+      ElMessage.warning('该订单暂无可用文件路径')
       return
     }
-    await navigator.clipboard.writeText(path)
-    ElMessage.success('路径已复制')
+    await navigator.clipboard.writeText(resolvedPath.path)
+    ElMessage.success(`${resolvedPath.source}已复制`)
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '复制失败，请稍后重试'))
   }

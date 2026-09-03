@@ -116,6 +116,7 @@ def test_project_sender_mode_keeps_system_account_compatible(monkeypatch):
 
 def test_personal_preview_blocks_unavailable_current_sender(monkeypatch):
     monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_args: ([], []))
+    monkeypatch.setattr(business_mail_service, "get_user_mail_profile", lambda *_args: None)
     monkeypatch.setattr(business_mail_service, "project_mail_sender_mode", lambda: "personal")
     monkeypatch.setattr(
         business_mail_service,
@@ -227,8 +228,10 @@ def test_retry_attempt_uses_retrying_actor_and_preserves_each_sender(monkeypatch
 
     monkeypatch.setattr(business_mail_service, "resolve_project_sender", sender_settings)
     outcomes = iter([MailDeliveryError("第一次失败"), None])
+    send_calls = []
 
     def send_email(**kwargs):
+        send_calls.append(kwargs)
         outcome = next(outcomes)
         if outcome:
             raise outcome
@@ -250,6 +253,9 @@ def test_retry_attempt_uses_retrying_actor_and_preserves_each_sender(monkeypatch
         "first@example.com",
         "retry@example.com",
     ]
+    assert [item["to_display_names"] for item in send_calls] == [
+        {"recipient@example.com": "收件人"},
+        {"recipient@example.com": "收件人"},
+    ]
     assert serialized["sender_name"] == "重试操作人"
     assert serialized["sender_email"] == "retry@example.com"
-
