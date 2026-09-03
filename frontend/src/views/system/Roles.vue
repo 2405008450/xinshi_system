@@ -4,7 +4,7 @@
       <div class="card-header">
         <div>
           <span class="title">角色与权限</span>
-          <div class="subtitle">角色决定用户可访问的菜单和可执行的后端操作</div>
+          <div class="subtitle">“查看”权限控制菜单和路由，“管理”权限控制新增、编辑、删除等操作</div>
         </div>
         <el-button v-if="canWrite" type="primary" @click="handleAdd">新增角色</el-button>
       </div>

@@ -3,30 +3,92 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from project_workbench_service import (
     PROJECT_DETAIL_ROUTES,
+    TRANSLATION_INACTIVE_STATUSES,
     _deadline,
     assignment_map_from_payload,
     is_active_project,
 )
+from workflow_crud import _active_translation_project_clause, _ensure_active_workflow_instances
 from task_schemas import WorkEntryCreate
+from task_service import create_work_entry
 from workflow_models import ProjectWorkbenchResponsibility
 
 
 @pytest.mark.parametrize(
     ("project_type", "status", "expected"),
     [
+        ("translation", "translator_returned", True),
+        ("translation", "sent_to_client", False),
+        ("translation", "client_feedback", False),
+        ("translation", "feedback_sent_to_client", False),
         ("interpretation", "initial_follow_up", True),
         ("interpretation", "ended", False),
-        ("annotation", "sent_to_client", True),
-        ("annotation", "client_feedback", True),
+        ("annotation", "sent_to_client", False),
+        ("annotation", "client_feedback", False),
         ("recruitment", "probation", True),
         ("recruitment", "closed", False),
     ],
 )
 def test_multitype_workbench_active_status_scope(project_type, status, expected):
     assert is_active_project(project_type, status) is expected
+
+
+def test_translation_workbench_query_excludes_every_delivered_status():
+    sql = str(_active_translation_project_clause().compile(dialect=postgresql.dialect()))
+    params = _active_translation_project_clause().compile(dialect=postgresql.dialect()).params
+
+    assert "translation_project.project_status" in sql
+    status_values = next(
+        value
+        for value in params.values()
+        if isinstance(value, (list, tuple, set, frozenset))
+    )
+    assert set(status_values) == set(TRANSLATION_INACTIVE_STATUSES)
+
+
+def test_workflow_actions_reject_delivered_projects():
+    active = SimpleNamespace(
+        translation_project=SimpleNamespace(project_status="translator_returned"),
+        sub_order=None,
+    )
+    delivered = SimpleNamespace(
+        translation_project=SimpleNamespace(project_status="sent_to_client"),
+        sub_order=None,
+    )
+
+    _ensure_active_workflow_instances([active])
+    with pytest.raises(LookupError, match="工作台活跃范围"):
+        _ensure_active_workflow_instances([delivered])
+
+
+def test_work_entry_rejects_inactive_project_responsibility():
+    operator = SimpleNamespace(id=uuid4())
+    responsibility = SimpleNamespace(
+        assignee_id=operator.id,
+        project_type="translation",
+        project=SimpleNamespace(project_status="sent_to_client"),
+    )
+
+    class Query:
+        def filter(self, *_conditions):
+            return self
+
+        def first(self):
+            return responsibility
+
+    db = SimpleNamespace(query=lambda _model: Query())
+    payload = WorkEntryCreate(
+        work_date=date(2026, 9, 3),
+        project_responsibility_id=uuid4(),
+        progress_content="补充项目进展",
+    )
+
+    with pytest.raises(ValueError, match="工作台活跃范围"):
+        create_work_entry(db, operator, payload)
 
 
 def test_multitype_deadline_adapters():

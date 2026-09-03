@@ -2,8 +2,8 @@
   <div class="unified-tasks-panel">
     <el-radio-group v-model="sourceFilter" size="small" class="source-filter">
       <el-radio-button value="all">全部（{{ visibleTaskCount }}）</el-radio-button>
-      <el-radio-button value="project">项目任务（{{ projectVisibleCount }}）</el-radio-button>
-      <el-radio-button value="non_project">非项目任务（{{ filteredNonProjectItems.length }}）</el-radio-button>
+      <el-radio-button value="project">项目任务（{{ projectTotalCount }}）</el-radio-button>
+      <el-radio-button value="non_project">非项目任务（{{ openNonProjectItems.length }}）</el-radio-button>
     </el-radio-group>
 
     <section v-show="sourceFilter !== 'non_project'">
@@ -12,6 +12,7 @@
         :current-user-name="currentUserName"
         :tasks-list="projectItems"
         @visible-count-change="projectVisibleCount = $event"
+        @total-count-change="projectTotalCount = $event"
         @open-chat="$emit('open-chat', $event)"
         @open-project="$emit('open-project', $event)"
         @open-manuscript="$emit('open-manuscript', $event)"
@@ -24,28 +25,47 @@
       <div class="non-project-toolbar">
         <div v-if="sourceFilter === 'all'" class="subsection-title">非项目任务</div>
         <div class="toolbar-actions">
-          <el-select v-model="nonProjectStatusFilter" size="small" style="width: 120px">
+          <span class="non-project-result">筛选结果 {{ filteredNonProjectItems.length }} 条</span>
+          <el-select v-model="nonProjectStatusFilter" size="small" style="width: 120px" @change="runNonProjectSearch">
             <el-option label="进行中" value="open" />
             <el-option label="已完成" value="completed" />
             <el-option label="已取消" value="cancelled" />
             <el-option label="全部状态" value="all" />
           </el-select>
           <el-input
-            v-model="keyword"
+            v-model="keywordDraft"
             size="small"
             clearable
             placeholder="搜索任务名称、类型或安排人"
             style="width: 220px"
+            @input="onNonProjectKeywordInput"
+            @keyup.enter="runNonProjectSearch"
+            @clear="runNonProjectSearch"
           />
+          <el-button size="small" type="primary" @click="runNonProjectSearch">查询</el-button>
+          <el-button size="small" @click="resetNonProjectSearch">重置</el-button>
           <el-button size="small" plain @click="openRecurrenceDialog">周期任务</el-button>
           <el-button size="small" type="primary" @click="openCreateTask(false)">添加个人任务</el-button>
           <el-button v-if="canAssign" size="small" type="success" plain @click="openCreateTask(true)">分配非项目任务</el-button>
         </div>
       </div>
 
+      <div v-if="filteredNonProjectItems.length" class="non-project-pagination non-project-pagination--top">
+        <el-pagination
+          v-model:current-page="nonProjectPage"
+          v-model:page-size="nonProjectPageSize"
+          :page-sizes="PAGE_SIZE_OPTIONS"
+          :total="filteredNonProjectItems.length"
+          layout="total, sizes, prev, pager, next"
+          size="small"
+          background
+          @size-change="handleNonProjectPageSizeChange"
+        />
+      </div>
+
       <el-table
         v-if="filteredNonProjectItems.length"
-        :data="filteredNonProjectItems"
+        :data="pagedNonProjectItems"
         border
         size="small"
         class="workbench-data-table non-project-table"
@@ -87,6 +107,18 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-if="filteredNonProjectItems.length" class="non-project-pagination">
+        <el-pagination
+          v-model:current-page="nonProjectPage"
+          v-model:page-size="nonProjectPageSize"
+          :page-sizes="PAGE_SIZE_OPTIONS"
+          :total="filteredNonProjectItems.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          size="small"
+          background
+          @size-change="handleNonProjectPageSizeChange"
+        />
+      </div>
       <el-empty v-else class="compact-empty" description="暂无非项目任务" :image-size="56" />
     </section>
 
@@ -228,7 +260,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import MyTasksPanel from './MyTasksPanel.vue'
@@ -245,6 +277,7 @@ import {
 import { hasRole, isSuperAdmin } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { DEADLINE_STATE, compareWorkItemsByDeadline, getWorkItemDeadlineState } from '@/utils/workItemDeadline'
+import { WORKBENCH_PAGE_SIZE_OPTIONS, getWorkbenchLastPage, paginateWorkbenchRows } from '@/utils/workbenchList'
 
 const props = defineProps({
   currentUserName: { type: String, default: '' },
@@ -261,14 +294,21 @@ const STATUS_TYPE = { pending: 'info', in_progress: 'primary', completed: 'succe
 
 const sourceFilter = ref('all')
 const projectVisibleCount = ref(0)
+const projectTotalCount = ref(0)
 const keyword = ref('')
+const keywordDraft = ref('')
 const nonProjectStatusFilter = ref('open')
+const nonProjectPage = ref(1)
+const nonProjectPageSize = ref(10)
+const PAGE_SIZE_OPTIONS = WORKBENCH_PAGE_SIZE_OPTIONS
+let nonProjectSearchTimer = null
 const canAssign = computed(() => isSuperAdmin() || hasRole('项目经理'))
 const projectItems = computed(() => props.items.filter(item => item.source_type === 'project'))
 const nonProjectItems = computed(() => props.items.filter(item => item.source_type === 'non_project'))
 const personalNonProjectItems = computed(() => nonProjectItems.value.filter(item => (
   !props.currentUserId || String(item.assignee_id || '') === props.currentUserId
 )))
+const openNonProjectItems = computed(() => personalNonProjectItems.value.filter(item => ['pending', 'in_progress'].includes(item.status)))
 const filteredNonProjectItems = computed(() => {
   const statusFilter = nonProjectStatusFilter.value
   const value = keyword.value.trim().toLowerCase()
@@ -284,7 +324,44 @@ const filteredNonProjectItems = computed(() => {
   const now = new Date()
   return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
 })
-const visibleTaskCount = computed(() => projectVisibleCount.value + filteredNonProjectItems.value.length)
+const pagedNonProjectItems = computed(() => {
+  return paginateWorkbenchRows(filteredNonProjectItems.value, nonProjectPage.value, nonProjectPageSize.value)
+})
+const visibleTaskCount = computed(() => projectTotalCount.value + openNonProjectItems.value.length)
+
+function runNonProjectSearch() {
+  clearTimeout(nonProjectSearchTimer)
+  nonProjectSearchTimer = null
+  keyword.value = keywordDraft.value.trim()
+  nonProjectPage.value = 1
+}
+
+function onNonProjectKeywordInput(value) {
+  clearTimeout(nonProjectSearchTimer)
+  nonProjectSearchTimer = null
+  if (!String(value || '').trim()) {
+    runNonProjectSearch()
+    return
+  }
+  nonProjectSearchTimer = setTimeout(runNonProjectSearch, 400)
+}
+
+function resetNonProjectSearch() {
+  keywordDraft.value = ''
+  nonProjectStatusFilter.value = 'open'
+  runNonProjectSearch()
+}
+
+function handleNonProjectPageSizeChange() {
+  nonProjectPage.value = 1
+}
+
+watch(() => filteredNonProjectItems.value.length, (total) => {
+  const lastPage = getWorkbenchLastPage(total, nonProjectPageSize.value)
+  if (nonProjectPage.value > lastPage) nonProjectPage.value = lastPage
+})
+
+onBeforeUnmount(() => clearTimeout(nonProjectSearchTimer))
 
 const deadlineState = getWorkItemDeadlineState
 
@@ -561,14 +638,6 @@ function formatDateTime(value) {
 .source-filter { margin-bottom: 8px; }
 .subsection-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); margin-bottom: 8px; }
 
-@media (min-width: 1280px) {
-  .unified-tasks-panel :deep(.task-toolbar) {
-    position: absolute;
-    top: 0;
-    right: 0;
-    margin-bottom: 0;
-  }
-}
 .non-project-section { margin-top: 4px; }
 .non-project-toolbar {
   display: flex;
@@ -578,16 +647,19 @@ function formatDateTime(value) {
   margin-bottom: 8px;
 }
 .toolbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.non-project-result { color: var(--el-text-color-secondary); font-size: 12px; }
+.non-project-pagination { display: flex; justify-content: flex-end; margin: 8px 0 12px; }
+.non-project-pagination--top { margin-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .compact-empty { padding: 12px 0 8px; }
 .compact-empty :deep(.el-empty__description) { margin-top: 6px; }
 .non-project-table :deep(.overdue-row),
-.non-project-table :deep(.overdue-row td) { background-color: var(--el-color-danger-light-9) !important; }
+.non-project-table :deep(.overdue-row td) { background-color: #fffafa !important; }
 .non-project-table :deep(.overdue-row:hover),
-.non-project-table :deep(.overdue-row:hover td) { background-color: var(--el-color-danger-light-8) !important; }
+.non-project-table :deep(.overdue-row:hover td) { background-color: #fff5f5 !important; }
 .non-project-table :deep(.urgent-row),
-.non-project-table :deep(.urgent-row td) { background-color: var(--el-color-warning-light-9) !important; }
+.non-project-table :deep(.urgent-row td) { background-color: #fffdf7 !important; }
 .non-project-table :deep(.urgent-row:hover),
-.non-project-table :deep(.urgent-row:hover td) { background-color: var(--el-color-warning-light-8) !important; }
+.non-project-table :deep(.urgent-row:hover td) { background-color: #fff9e8 !important; }
 
 @media (max-width: 900px) {
   .non-project-toolbar {
@@ -599,6 +671,11 @@ function formatDateTime(value) {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .non-project-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 }
 </style>

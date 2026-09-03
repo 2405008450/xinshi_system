@@ -3,10 +3,9 @@ import Login from '../views/auth/Login.vue'
 import Layout from '../layout/index.vue'
 import {
   canAccessRoute,
-  CLIENT_VIEW_ROLES,
-  CONSULTATION_VIEW_ROLES,
   getDefaultRoute,
-  MANUSCRIPT_VIEW_ROLES
+  MANUSCRIPT_VIEW_ROLES,
+  setStoredAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
 
@@ -49,13 +48,17 @@ const routes = [
         path: 'translation-details',
         name: 'TranslationProjectDetails',
         component: () => import('../views/project/translation/ProjectDetails.vue'),
-        meta: { title: '笔译项目管理', roles: ['*'] }
+        meta: { title: '笔译项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'manuscript-arrangements',
         name: 'ManuscriptArrangements',
         component: () => import('../views/manuscript/ManuscriptArrangements.vue'),
-        meta: { title: '稿件安排', roles: MANUSCRIPT_VIEW_ROLES }
+        meta: {
+          title: '稿件安排',
+          permissions: ['projects:read'],
+          roles: MANUSCRIPT_VIEW_ROLES
+        }
       },
       {
         path: 'translation-files',
@@ -82,7 +85,7 @@ const routes = [
         path: 'interpretation-details',
         name: 'InterpretationProjectDetails',
         component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),
-        meta: { title: '口译项目管理', roles: ['*'] }
+        meta: { title: '口译项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'annotation',
@@ -92,7 +95,10 @@ const routes = [
         path: 'annotation-details',
         name: 'AnnotationProjectDetails',
         component: () => import('../views/project/AnnotationWorkspace.vue'),
-        meta: { title: '标注项目管理', roles: ['*'] }
+        meta: {
+          title: '标注项目管理',
+          permissions: ['projects:read', 'annotation_accounts:read', 'annotation_accounts:write']
+        }
       },
       {
         path: 'annotation-accounts',
@@ -121,7 +127,7 @@ const routes = [
         path: 'recruitment-details',
         name: 'RecruitmentProjectDetails',
         component: () => import('../views/project/RecruitmentProjects.vue'),
-        meta: { title: '招聘项目管理', roles: ['*'] }
+        meta: { title: '招聘项目管理', permissions: ['projects:read'] }
       },
       {
         path: 'other',
@@ -158,7 +164,10 @@ const routes = [
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
         redirect: '/resource-management/talents',
-        meta: { title: '资源管理', permissions: ['talents:read', 'translators:read'] },
+        meta: {
+          title: '资源管理',
+          permissions: ['talents:read', 'translators:read', 'recruitment_talents:read']
+        },
         children: [
           {
             path: 'talents',
@@ -203,7 +212,7 @@ const routes = [
         path: 'clients',
         name: 'Clients',
         component: () => import('../views/client/Clients.vue'),
-        meta: { title: '客户信息', roles: CLIENT_VIEW_ROLES }
+        meta: { title: '客户信息', permissions: ['clients:read'] }
       },
       {
         path: 'subsidiary-clients',
@@ -219,7 +228,7 @@ const routes = [
         path: 'consultations',
         name: 'Consultations',
         component: () => import('../views/client/Consultations.vue'),
-        meta: { title: '新咨询管理', roles: CONSULTATION_VIEW_ROLES }
+        meta: { title: '新咨询管理', permissions: ['consultations:read'] }
       },
       // 财务管理
       {
@@ -333,8 +342,7 @@ const syncSessionPermissions = async (force = false) => {
     localStorage.setItem('user_id', session.user_id || '')
     localStorage.setItem('user_name', session.username || '')
     localStorage.setItem('user_full_name', session.full_name || session.username || '')
-    localStorage.setItem('user_roles', JSON.stringify(Array.isArray(session.roles) ? session.roles : []))
-    localStorage.setItem('user_permissions', JSON.stringify(Array.isArray(session.permissions) ? session.permissions : []))
+    setStoredAccess(session.roles, session.permissions)
     sessionPermissionSyncAt = Date.now()
     return true
   } catch {

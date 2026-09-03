@@ -28,6 +28,7 @@ from project_roles import (
     ROLE_NAME_BY_CODE,
     get_stage_role,
 )
+from project_workbench_service import TRANSLATION_INACTIVE_STATUSES, is_active_project
 
 
 # ========== 阶段定义（与前端 ALL_STAGES 保持一致） ==========
@@ -53,7 +54,33 @@ MANUSCRIPT_EXCLUDED_PROJECT_STATUSES = {
     'terminated',
     'cancelled',
     'partially_cancelled',
+    'sent_to_client',
+    'client_feedback',
+    'feedback_sent_to_client',
 }
+
+
+def _active_translation_project_clause():
+    return func.coalesce(TranslationProject.project_status, '').notin_(
+        tuple(sorted(TRANSLATION_INACTIVE_STATUSES))
+    )
+
+
+def _workflow_project(instance: WorkflowInstance) -> Optional[TranslationProject]:
+    if instance.translation_project is not None:
+        return instance.translation_project
+    if instance.sub_order is not None:
+        return instance.sub_order.parent_project
+    return None
+
+
+def _ensure_active_workflow_instances(instances: list[WorkflowInstance]) -> None:
+    if any(
+        not (project := _workflow_project(instance))
+        or not is_active_project('translation', project.project_status)
+        for instance in instances
+    ):
+        raise LookupError('部分项目已不在工作台活跃范围')
 
 
 def get_effective_stages(difficulty: Optional[str], file_editable: Optional[bool] = True) -> list:
@@ -403,7 +430,8 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
         .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\
         .filter(*scope_conditions, WorkflowInstance.current_stage_key != 'completed',
-                WorkflowInstance.translation_project_id != None)
+                WorkflowInstance.translation_project_id != None,
+                _active_translation_project_clause())
     proj_results = proj_query.all()
 
     # 查询子订单工作流
@@ -412,7 +440,8 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
         .join(TranslationProject, TranslationSubOrder.parent_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\
         .filter(*scope_conditions, WorkflowInstance.current_stage_key != 'completed',
-                WorkflowInstance.sub_order_id != None)
+                WorkflowInstance.sub_order_id != None,
+                _active_translation_project_clause())
     sub_results = sub_query.all()
 
     tasks = []
@@ -663,6 +692,8 @@ def get_transferable_tasks(
         if not _user_can_take_stage(user_roles, instance.current_stage_key):
             continue
         item = _serialize_transfer_task(instance)
+        if not is_active_project('translation', item.get('project_status')):
+            continue
         if normalized_keyword:
             haystack = ' '.join(str(item.get(key) or '') for key in (
                 'order_no', 'project_name', 'sub_project_name', 'client_name',
@@ -695,6 +726,7 @@ def get_eligible_transfer_users(db: Session, workflow_instance_ids: list[UUID]) 
     )
     if len(instances) != len(unique_ids):
         raise ValueError('部分任务不存在、已完成或不是直接分配任务')
+    _ensure_active_workflow_instances(instances)
     _ensure_same_stage_role(instances)
 
     eligible = []
@@ -727,6 +759,7 @@ def get_eligible_transfer_users_unified(
         ).all()
         if len(instances) != len(set(workflow_instance_ids)):
             raise ValueError('部分任务不存在、已完成或不是直接分配任务')
+        _ensure_active_workflow_instances(instances)
         stage_role = _ensure_same_stage_role(instances)
         if stage_role['role_code'] != role_code:
             raise ValueError('一次只能交接同一角色类型的任务，请按角色分别操作')
@@ -907,6 +940,7 @@ def create_handover_request(
     if len(instances) != len(unique_ids):
         raise LookupError('部分任务不存在')
     _ensure_same_stage_role(instances)
+    _ensure_active_workflow_instances(instances)
     if any(
         instance.current_assignee_id != requester.id or instance.current_stage_key == 'completed'
         for instance in instances
@@ -1013,7 +1047,7 @@ def list_incoming_handover_requests(
     target_user_id: UUID,
     status_filter: str = 'pending',
 ) -> list[WorkflowHandoverRequest]:
-    return (
+    requests = (
         db.query(WorkflowHandoverRequest)
         .options(
             joinedload(WorkflowHandoverRequest.requester),
@@ -1033,6 +1067,27 @@ def list_incoming_handover_requests(
         .order_by(WorkflowHandoverRequest.created_at.desc())
         .all()
     )
+    return [
+        request for request in requests
+        if request.items and all(
+            (
+                item.workflow_instance is not None
+                and is_active_project(
+                    'translation',
+                    (_workflow_project(item.workflow_instance).project_status if _workflow_project(item.workflow_instance) else None),
+                )
+            )
+            or (
+                item.project_responsibility is not None
+                and item.project_responsibility.project is not None
+                and is_active_project(
+                    item.project_responsibility.project_type,
+                    item.project_responsibility.project.project_status,
+                )
+            )
+            for item in request.items
+        )
+    ]
 
 
 def serialize_handover_request(request: WorkflowHandoverRequest) -> dict:
@@ -1140,11 +1195,7 @@ def get_management_projects(db: Session, current_user: AppUser) -> list[dict]:
             selectinload(TranslationProject.workflow_instance)
             .selectinload(WorkflowInstance.current_assignee),
         )
-        .filter(
-            func.coalesce(TranslationProject.project_status, '').notin_(
-                ['completed', 'terminated', 'cancelled', 'partially_cancelled']
-            )
-        )
+        .filter(_active_translation_project_clause())
     )
     if not is_super:
         query = query.filter(
@@ -1226,9 +1277,7 @@ def claim_management_projects(
         )
         .filter(
             TranslationProject.id.in_(unique_ids),
-            func.coalesce(TranslationProject.project_status, '').notin_(
-                ['completed', 'terminated', 'cancelled', 'partially_cancelled']
-            ),
+            _active_translation_project_clause(),
         )
         .with_for_update()
         .all()
@@ -1448,6 +1497,8 @@ def create_project_manager_handover_unified(
     ).with_for_update().all() if translation_ids else []
     if len(projects) != len(set(translation_ids)):
         raise LookupError('部分管理项目不存在')
+    if any(not is_active_project('translation', project.project_status) for project in projects):
+        raise LookupError('部分管理项目已不再允许交接')
     if not is_super and any(project.project_manager_id != requester.id for project in projects):
         raise PermissionError('只能交接当前用户作为管理主负责人的项目')
     pending = db.query(ProjectManagerHandoverItem.id).join(
@@ -1507,7 +1558,7 @@ def list_incoming_project_manager_handovers(
     target_manager_id: UUID,
     status_filter: str = 'pending',
 ) -> list[ProjectManagerHandoverRequest]:
-    return (
+    requests = (
         db.query(ProjectManagerHandoverRequest)
         .options(
             joinedload(ProjectManagerHandoverRequest.requester),
@@ -1524,6 +1575,24 @@ def list_incoming_project_manager_handovers(
         .order_by(ProjectManagerHandoverRequest.created_at.desc())
         .all()
     )
+    return [
+        request for request in requests
+        if request.items and all(
+            (
+                item.project is not None
+                and is_active_project('translation', item.project.project_status)
+            )
+            or (
+                item.project_responsibility is not None
+                and item.project_responsibility.project is not None
+                and is_active_project(
+                    item.project_responsibility.project_type,
+                    item.project_responsibility.project.project_status,
+                )
+            )
+            for item in request.items
+        )
+    ]
 
 
 def serialize_project_manager_handover(request: ProjectManagerHandoverRequest) -> dict:
@@ -1642,6 +1711,8 @@ def decide_project_manager_handover(
             project = locked_projects.get(item.translation_project_id)
             if not project:
                 raise LookupError('交接申请中的项目已不存在')
+            if not is_active_project('translation', project.project_status):
+                raise LookupError('交接申请中的项目已结束')
             if project.project_manager_id != item.expected_manager_id:
                 raise LookupError('部分项目的管理主负责人已变化，请拒绝后重新发起')
         for item in request.items or []:
@@ -1712,6 +1783,7 @@ def transfer_workflow_tasks(
     )
     if len(instances) != len(unique_ids):
         raise LookupError('部分任务不存在或已发生变化')
+    _ensure_active_workflow_instances(instances)
 
     if action == 'handover':
         _ensure_same_stage_role(instances)

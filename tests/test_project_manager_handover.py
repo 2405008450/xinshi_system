@@ -5,7 +5,10 @@ import pytest
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+# 单独运行本文件时也要先注册标注项目关联的计费模型。
+import annotation_ops_models  # noqa: F401
 import workflow_crud
+from project_workbench_service import TRANSLATION_INACTIVE_STATUSES
 from workflow_models import ProjectManagerHandoverItem, ProjectManagerHandoverRequest
 
 
@@ -88,6 +91,15 @@ def test_project_manager_can_see_unassigned_management_projects(monkeypatch):
     visibility_filter = db.queries[0].filters[-1]
     sql = str(visibility_filter.compile(dialect=postgresql.dialect()))
     assert "translation_project.project_manager_id IS NULL" in sql
+
+    active_filter = db.queries[0].filters[0]
+    compiled_active = active_filter.compile(dialect=postgresql.dialect())
+    status_values = next(
+        value
+        for value in compiled_active.params.values()
+        if isinstance(value, (list, tuple, set, frozenset))
+    )
+    assert set(status_values) == set(TRANSLATION_INACTIVE_STATUSES)
 
 
 def test_project_manager_claims_unassigned_projects_with_row_lock(monkeypatch):

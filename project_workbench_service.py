@@ -35,13 +35,27 @@ ACTIVE_STATUSES = {
     'annotation': {
         'initial_consultation', 'resource_sourcing', 'trial_preparation',
         'trial_in_progress', 'trial_passed', 'trial_partially_passed',
-        'project_in_progress', 'sent_to_client', 'client_feedback',
+        'project_in_progress',
     },
 }
+
+# 工作台只承载仍需处理的项目。笔译状态较多且会继续扩展，因此使用终态黑名单；
+# 其他项目类型已有收敛的状态机，继续使用上面的活跃状态白名单。
+TRANSLATION_INACTIVE_STATUSES = frozenset({
+    'sent_to_client',
+    'client_feedback',
+    'feedback_sent_to_client',
+    'completed',
+    'terminated',
+    'cancelled',
+    'partially_cancelled',
+})
 
 
 def is_active_project(project_type: str, status: Optional[str]) -> bool:
     value = (status or '').strip()
+    if project_type == 'translation':
+        return value not in TRANSLATION_INACTIVE_STATUSES
     if project_type == 'recruitment':
         return value != 'closed'
     return value in ACTIVE_STATUSES.get(project_type, set())

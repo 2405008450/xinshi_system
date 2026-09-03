@@ -64,7 +64,7 @@
     <el-table
       ref="projectTableRef"
       class="project-table project-detail-list-table"
-      :data="visibleProjectRows"
+      :data="tableData"
       v-loading="loading"
       row-key="id"
       :row-class-name="projectRowClass"
@@ -117,10 +117,10 @@
                       size="small"
                       :icon="Check"
                       :loading="expandedInlineSaving"
-                      :disabled="expandedInlinePendingCount === 0"
+                      :disabled="getExpandedInlinePendingCount(row.id) === 0"
                       title="保存全部子项目名称"
-                      @click="saveAllInlineNames('expanded')"
-                    >保存全部{{ expandedInlinePendingCount ? `（${expandedInlinePendingCount}）` : '' }}</el-button>
+                      @click="saveAllInlineNames('expanded', row.id)"
+                    >保存全部{{ getExpandedInlinePendingCount(row.id) ? `（${getExpandedInlinePendingCount(row.id)}）` : '' }}</el-button>
                   </div>
                 </template>
                 <template #default="{ row: subRow }">
@@ -163,24 +163,14 @@
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="220">
+                <template #header><ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况" /></template>
                 <template #default="{ row: subRow }">
-                  <div class="translator-return-deadlines">
-                    <div v-for="item in getTranslatorReturnDeadlineItems(subRow.assignedTranslators)" :key="item.key" class="translator-return-deadline">
-                      <span class="translator-return-deadline__name">{{ item.name }}</span>
-                      <DeadlineHintCell :deadline="item.time" :status="subRow.status" mode="translator" />
-                    </div>
-                    <span v-if="!getTranslatorReturnDeadlineItems(subRow.assignedTranslators).length">-</span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column
-                v-if="isSubOrderColumnVisible('translatorCompletionRemarks')"
-                label="译员任务完成情况"
-                min-width="240"
-                show-overflow-tooltip
-              >
-                <template #default="{ row: subRow }">
-                  {{ formatTranslatorCompletionRemarks(subRow.assignedTranslators) }}
+                  <TranslatorCompletionPopover
+                    :translators="subRow.assignedTranslators"
+                    :status="subRow.status"
+                    :editable="canWriteProjects"
+                    :save="(completions) => saveSubOrderTranslatorCompletions(subRow, completions)"
+                  />
                 </template>
               </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
@@ -312,17 +302,13 @@
             :deadline="row.customerDeadlineTime"
             :status="row.projectStatus"
           />
-          <div v-else-if="column.key === 'translatorReturnTime'" class="translator-return-deadlines">
-            <div
-              v-for="item in getTranslatorReturnDeadlineItems(row.assignedTranslators)"
-              :key="item.key"
-              class="translator-return-deadline"
-            >
-              <span class="translator-return-deadline__name">{{ item.name }}</span>
-              <DeadlineHintCell :deadline="item.time" :status="row.projectStatus" mode="translator" />
-            </div>
-            <span v-if="!getTranslatorReturnDeadlineItems(row.assignedTranslators).length">-</span>
-          </div>
+          <TranslatorCompletionPopover
+            v-else-if="column.key === 'translatorReturnTime'"
+            :translators="row.assignedTranslators"
+            :status="row.projectStatus"
+            :editable="canWriteProjects && !deleteMode"
+            :save="(completions) => saveProjectTranslatorCompletions(row, completions)"
+          />
           <div
             v-else-if="column.key === 'languagePair'"
             class="compact-cell-value"
@@ -721,19 +707,6 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24">
-                    <el-form-item label="任务完成情况" data-field-key="translatorCompletionRemarks">
-                      <div v-if="form.assignedTranslators.length" class="translator-completion-editors">
-                        <div v-for="item in form.assignedTranslators" :key="item.arrangementId" class="translator-completion-editor">
-                          <span class="translator-completion-editor__name">{{ item.translatorName || '译员' }}</span>
-                          <el-input v-model="item.completionRemarks" maxlength="255" show-word-limit clearable placeholder="请输入该译员的任务完成情况" />
-                        </div>
-                      </div>
-                      <ReadonlyField v-else model-value="" source="locked" placeholder="暂无已分配译员" />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="发客户时间" data-field-key="sentToClientTime"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="PM确认人" data-field-key="pmConfirmedBy"><el-select v-model="form.pmConfirmedBy" filterable clearable placeholder="请选择PM确认人" style="width: 100%"><el-option v-for="manager in projectManagerOptions" :key="manager.id" :label="manager.full_name || manager.username" :value="manager.id" /></el-select></el-form-item></el-col>
                 </el-row>
@@ -786,7 +759,7 @@
                   class="sub-order-alert"
                 />
 
-                <el-table :data="getVisibleSubOrders({ subOrders: currentProjectSubOrders })" border>
+                <el-table class="sub-order-table" :data="getVisibleSubOrders({ subOrders: currentProjectSubOrders })" border>
                   <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
                   <el-table-column min-width="220">
                     <template #header>
@@ -922,19 +895,6 @@
                   <el-col :xs="24"><el-form-item label="译员回稿时间"><ReadonlyField :model-value="formatTranslatorReturnTimes(subOrderForm.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24">
-                    <el-form-item label="任务完成情况">
-                      <div v-if="subOrderForm.assignedTranslators.length" class="translator-completion-editors">
-                        <div v-for="item in subOrderForm.assignedTranslators" :key="item.arrangementId" class="translator-completion-editor">
-                          <span class="translator-completion-editor__name">{{ item.translatorName || '译员' }}</span>
-                          <el-input v-model="item.completionRemarks" maxlength="255" show-word-limit clearable placeholder="请输入该译员的任务完成情况" />
-                        </div>
-                      </div>
-                      <ReadonlyField v-else model-value="" source="locked" placeholder="暂无已分配译员" />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="16">
                   <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
                 </el-row>
                 <el-row :gutter="16">
@@ -1043,6 +1003,7 @@ import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import TranslatorCompletionPopover from './components/TranslatorCompletionPopover.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -1053,7 +1014,11 @@ import { COMMON_SUBJECT_PREFIX_OPTIONS, notifyEmailSubjectGenerated, extractSubj
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
-import { formatBusinessDateTime as formatDateTime } from '@/utils/deadlineDisplay'
+import {
+  formatBusinessDateTime as formatDateTime,
+  isTranslatorReturnTerminalStatus,
+  parseBusinessDateTime,
+} from '@/utils/deadlineDisplay'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
@@ -1148,7 +1113,6 @@ const basicProjectFieldSearchItems = [
   { key: 'customerDeadlineTime', label: '客户交稿时间', aliases: ['交稿时间', '截止时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'sentToClientTime', label: '发客户时间', aliases: ['发送客户时间'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'translatorReturnTime', label: '译员回稿时间', aliases: ['全稿预定时间', '译员交稿全稿预定时间'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'translatorCompletionRemarks', label: '任务完成情况', aliases: ['译员任务完成情况'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'pmConfirmedBy', label: 'PM确认人 ID', aliases: ['PM确认人', '确认人'], section: 'execution', sectionLabel: '项目执行信息' },
 ].map((item) => ({ ...item, tab: 'basic', tabLabel: '基础信息', location: `基础信息 · ${item.sectionLabel}` }))
 const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
@@ -1223,7 +1187,7 @@ const projectDetailItems = [
   { label: '客户反馈', key: 'clientFeedback', span: 2, editable: true, multiline: true },
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
-  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
+  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators), clickHint: '点击回稿时间编辑译员任务完成情况' },
   { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },
@@ -1291,16 +1255,14 @@ const projectTableRef = ref(null)
 const projectFilesTabRef = ref(null)
 const tableData = ref([])
 const projectStatusSavingIds = ref(new Set())
-const expandedProjectId = ref(null)
-const expandedProjectRowKeys = computed(() => expandedProjectId.value == null ? [] : [expandedProjectId.value])
-const visibleProjectRows = computed(() => {
-  if (expandedProjectId.value == null) return tableData.value
-  const focusedProject = tableData.value.find((item) => String(item.id) === String(expandedProjectId.value))
-  return focusedProject ? [focusedProject] : tableData.value
-})
+const expandedProjectIds = ref([])
+const shouldInitializeProjectExpansion = ref(true)
+const expandedProjectRowKeys = computed(() => expandedProjectIds.value)
 const currentProjectSubOrders = ref([])
 const batchExistingNames = computed(() => batchTargetSubOrders.value.map((item) => item.subProjectName).filter(Boolean))
-const expandedInlinePendingCount = computed(() => expandedInlineChanges.value.size)
+const getExpandedInlinePendingCount = (projectId) => [...expandedInlineChanges.value.values()]
+  .filter((change) => String(change.row?.parentProjectId) === String(projectId))
+  .length
 const editorInlinePendingCount = computed(() => editorInlineChanges.value.size)
 const projectManagerOptions = ref([])
 const projectRoleCandidateOptions = reactive(Object.fromEntries(projectRoleFieldConfigs.map((role) => [role.roleCode, []])))
@@ -1434,7 +1396,6 @@ const tableColumnOverrides = {
   majorProjectManagerConfirmation: { minWidth: 160 },
   assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
   translatorReturnTime: { minWidth: 220 },
-  translatorCompletionRemarks: { minWidth: 240 },
   translatorAssignmentTime: { minWidth: 150 },
   translatorDeliveryProgress: { minWidth: 110 },
   preReviewQcProgress: { minWidth: 96 },
@@ -1447,7 +1408,7 @@ const tableColumnOverrides = {
   createdAt: { minWidth: 150 },
   updatedAt: { minWidth: 150 },
 }
-const tableColumns = projectDetailItems.map((item) => ({
+const tableColumns = projectDetailItems.filter((item) => item.key !== 'translatorCompletionRemarks').map((item) => ({
   ...item,
   minWidth: 140,
   showOverflowTooltip: true,
@@ -1459,17 +1420,17 @@ const subOrderTableColumns = [
   { key: 'wordCountMatrix', label: '字数统计' },
   { key: 'assignedTranslators', label: '译员安排' },
   { key: 'translatorReturnTime', label: '译员回稿时间' },
-  { key: 'translatorCompletionRemarks', label: '译员任务完成情况' },
   { key: 'status', label: '状态' },
 ]
 const legacyTranslationDefaultColumnKeys = ['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime']
-const translationDefaultColumnKeys = [...legacyTranslationDefaultColumnKeys]
-translationDefaultColumnKeys.splice(5, 0, 'translatorReturnTime')
+const legacyTranslationDefaultColumnKeysWithReturnTime = [...legacyTranslationDefaultColumnKeys]
+legacyTranslationDefaultColumnKeysWithReturnTime.splice(5, 0, 'translatorReturnTime')
+const translationDefaultColumnKeys = legacyTranslationDefaultColumnKeysWithReturnTime.filter((key) => key !== 'assignedTranslators')
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
   'translation-details-v4',
   tableColumns,
   translationDefaultColumnKeys,
-  { legacyDefaultKeys: [legacyTranslationDefaultColumnKeys] }
+  { legacyDefaultKeys: [legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime] }
 )
 const {
   selectedKeys: visibleSubOrderColumnKeys,
@@ -1478,9 +1439,7 @@ const {
 } = useTableColumns(
   'translation-details-sub-orders-v1',
   subOrderTableColumns,
-  subOrderTableColumns
-    .filter((column) => column.key !== 'translatorCompletionRemarks')
-    .map((column) => column.key),
+  subOrderTableColumns.map((column) => column.key),
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
 const form = reactive(createEmptyProjectForm())
@@ -1727,19 +1686,50 @@ const normalizeProject = (project) => ({
   subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
 })
 const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
-const clearProjectExpansion = () => { expandedProjectId.value = null; expandedInlineChanges.value = new Map() }
-const isProjectExpanded = (row) => expandedProjectId.value != null && String(expandedProjectId.value) === String(row.id)
+const clearProjectExpansion = () => {
+  expandedProjectIds.value = []
+  shouldInitializeProjectExpansion.value = true
+  expandedInlineChanges.value = new Map()
+}
+const isProjectExpanded = (row) => expandedProjectIds.value.some((id) => String(id) === String(row.id))
 const handleProjectExpandChange = (row, expandedRows) => {
   const isExpanded = expandedRows.some((item) => String(item.id) === String(row.id))
-  expandedProjectId.value = isExpanded ? row.id : null
-  if (!isExpanded) expandedInlineChanges.value = new Map()
+  expandedProjectIds.value = expandedRows
+    .filter((item) => getSubOrderCount(item))
+    .map((item) => item.id)
+  if (!isExpanded) {
+    expandedInlineChanges.value = new Map(
+      [...expandedInlineChanges.value].filter(([, change]) => (
+        String(change.row?.parentProjectId) !== String(row.id)
+      ))
+    )
+  }
 }
 const toggleProjectExpansion = (row) => {
   if (!getSubOrderCount(row)) return
   projectTableRef.value?.toggleRowExpansion(row, !isProjectExpanded(row))
 }
 const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
-const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders) ? row.subOrders.slice(0, SUB_ORDER_PREVIEW_LIMIT) : [])
+const getEarliestTranslatorReturnTime = (row) => {
+  const timestamps = getTranslatorReturnDeadlineItems(row?.assignedTranslators)
+    .map((item) => parseBusinessDateTime(item.time)?.getTime())
+    .filter(Number.isFinite)
+  return timestamps.length ? Math.min(...timestamps) : Number.POSITIVE_INFINITY
+}
+const getSubOrderReturnSortRank = (row) => {
+  if (isTranslatorReturnTerminalStatus(row?.status)) return 2
+  return Number.isFinite(getEarliestTranslatorReturnTime(row)) ? 0 : 1
+}
+const compareSubOrdersByTranslatorReturn = (left, right) => {
+  const rankDifference = getSubOrderReturnSortRank(left) - getSubOrderReturnSortRank(right)
+  if (rankDifference) return rankDifference
+  const deadlineDifference = getEarliestTranslatorReturnTime(left) - getEarliestTranslatorReturnTime(right)
+  if (Number.isFinite(deadlineDifference) && deadlineDifference) return deadlineDifference
+  return String(left?.subOrderNo || '').localeCompare(String(right?.subOrderNo || ''))
+}
+const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders)
+  ? [...row.subOrders].sort(compareSubOrdersByTranslatorReturn).slice(0, SUB_ORDER_PREVIEW_LIMIT)
+  : [])
 const applyPagination = () => { clearProjectExpansion(); fetchData() }
 const cleanPayload = (payload) => {
   const result = { ...payload }
@@ -1757,12 +1747,6 @@ const cleanPayload = (payload) => {
     }
   })
   delete result.translatorName
-  if (Array.isArray(result.assignedTranslators) && result.assignedTranslators.length) {
-    result.assignedTranslatorCompletions = result.assignedTranslators.map((item) => ({
-      arrangementId: item.arrangementId,
-      completionRemarks: item.completionRemarks?.trim() || null,
-    }))
-  }
   delete result.assignedTranslators
   delete result.clientManager
   result.managerContact = result.managerContact?.trim() || null
@@ -1827,8 +1811,15 @@ const fetchData = async () => {
     ])
     if (sequence !== requestSequence) return
     tableData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
-    if (expandedProjectId.value != null && !tableData.value.some((item) => String(item.id) === String(expandedProjectId.value))) {
-      clearProjectExpansion()
+    const expandableProjectIds = tableData.value
+      .filter((item) => getSubOrderCount(item))
+      .map((item) => item.id)
+    if (shouldInitializeProjectExpansion.value) {
+      expandedProjectIds.value = expandableProjectIds
+      shouldInitializeProjectExpansion.value = false
+    } else {
+      const validProjectIds = new Set(expandableProjectIds.map(String))
+      expandedProjectIds.value = expandedProjectIds.value.filter((id) => validProjectIds.has(String(id)))
     }
     pagination.total = countResponse?.total || tableData.value.length
   } catch (error) {
@@ -2257,6 +2248,21 @@ const openSubOrderEditorFromList = (projectRow, subOrderRow) => {
   assignReactive(form, createEmptyProjectForm, projectRow)
   handleEditSubOrder(subOrderRow)
 }
+const saveProjectTranslatorCompletions = async (row, completions) => {
+  const updated = normalizeProject(await updateProject(row.id, {
+    assignedTranslatorCompletions: completions,
+    expectedUpdatedAt: row.updatedAt || null,
+  }))
+  Object.assign(row, updated)
+  if (String(form.id) === String(row.id)) assignReactive(form, createEmptyProjectForm, updated)
+  return updated
+}
+const saveSubOrderTranslatorCompletions = async (row, completions) => {
+  const updated = await updateSubOrder(row.id, { assignedTranslatorCompletions: completions })
+  handleInlineSubOrderSaved(row, updated)
+  if (String(subOrderForm.id) === String(row.id)) assignReactive(subOrderForm, createEmptySubOrderForm, updated)
+  return updated
+}
 const buildSubOrderPayload = (source) => {
   return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', assignedTranslators: source.assignedTranslators || [], translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 }
@@ -2303,9 +2309,11 @@ const handleInlineSubOrderSaved = (row, updated, scope) => {
       : project.subOrders,
   }))
 }
-const saveAllInlineNames = async (scope) => {
+const saveAllInlineNames = async (scope, projectId = null) => {
   const { changes, saving } = getInlineChangeRefs(scope)
-  const pending = [...changes.value.values()]
+  const pending = [...changes.value.values()].filter((change) => (
+    scope !== 'expanded' || String(change.row?.parentProjectId) === String(projectId)
+  ))
   if (!pending.length || saving.value) return
   if (pending.some((item) => !item.valid)) {
     ElMessage.warning('请先补全所有子项目名称，再保存全部')
@@ -2419,12 +2427,6 @@ onBeforeUnmount(() => {
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }
-.translator-return-deadlines { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
-.translator-return-deadline { display: grid; grid-template-columns: minmax(64px, auto) minmax(0, 1fr); align-items: start; gap: 8px; }
-.translator-return-deadline__name { overflow: hidden; padding-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.translator-completion-editors { display: flex; width: 100%; flex-direction: column; gap: 10px; }
-.translator-completion-editor { display: grid; grid-template-columns: minmax(88px, 140px) minmax(0, 1fr); align-items: center; gap: 10px; }
-.translator-completion-editor__name { overflow: hidden; color: var(--el-text-color-secondary); text-overflow: ellipsis; white-space: nowrap; }
 :global(.project-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog) { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 :global(.suborder-editor-dialog .el-dialog__header),
@@ -2479,16 +2481,16 @@ onBeforeUnmount(() => {
 .section-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .sub-order-panel {
   padding: 12px 24px 20px;
-  border-top: 1px solid #e2e8f0;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-top: 1px solid #dce5e2;
+  border-bottom: 1px solid #dce5e2;
+  background: #f6f8f7;
 }
 .sub-order-panel__header { margin-bottom: 12px; }
-.sub-order-table { --el-table-border-color: #e2e8f0; --el-table-row-hover-bg-color: #eef3f8; }
-.sub-order-table :deep(.el-table__header-wrapper th.el-table__cell) { background: #f1f5f9; }
-.sub-order-table :deep(.el-table__body tr > td.el-table__cell) { background: #f8fafc; }
-.sub-order-table :deep(.el-table__body tr:nth-child(even) > td.el-table__cell) { background: #f6f8fb; }
-.sub-order-table :deep(.el-table__body tr:hover > td.el-table__cell) { background: #eef3f8 !important; }
+.sub-order-table { --el-table-border-color: #dce5e2; --el-table-row-hover-bg-color: #edf3f1; }
+.sub-order-table :deep(.el-table__header-wrapper th.el-table__cell) { background: #eef3f1; }
+.sub-order-table :deep(.el-table__body tr > td.el-table__cell) { background: #f8faf9; }
+.sub-order-table :deep(.el-table__body tr:nth-child(even) > td.el-table__cell) { background: #f5f8f7; }
+.sub-order-table :deep(.el-table__body tr:hover > td.el-table__cell) { background: #edf3f1 !important; }
 .sub-order-alert { margin-bottom: 12px; }
 .el-alert { margin-top: 16px; }
 .project-table :deep(.project-expand-column) { padding: 0 !important; border-right: 0 !important; }
@@ -2501,7 +2503,6 @@ onBeforeUnmount(() => {
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {
-  .translator-completion-editor { grid-template-columns: 1fr; gap: 4px; }
   .service-content-field { flex-direction: column; }
   .service-content-field > .el-select { flex-basis: auto; width: 100%; }
 

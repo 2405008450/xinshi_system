@@ -22,8 +22,8 @@ PERMISSION_GROUPS = [
     {
         "group": "项目管理",
         "permissions": [
-            {"code": "projects:read", "name": "查看翻译项目"},
-            {"code": "projects:write", "name": "管理翻译项目"},
+            {"code": "projects:read", "name": "查看项目（笔译/口译/标注/招聘）"},
+            {"code": "projects:write", "name": "管理项目（笔译/口译/标注/招聘）"},
             {"code": "workflow:operate", "name": "执行项目工作流"},
             {"code": "project_files:read", "name": "查看项目文件"},
             {"code": "project_files:write", "name": "管理项目文件"},

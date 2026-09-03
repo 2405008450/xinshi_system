@@ -222,9 +222,7 @@ const personalOpenWorkItems = computed(() => workItems.value.filter(item => {
 }))
 const projectPendingCount = computed(() => personalOpenWorkItems.value.filter(item => item.source_type === 'project').length)
 const pendingWorkItemCount = computed(() => personalOpenWorkItems.value.length)
-const taskTabCount = computed(() => (
-  canManageProjectOwnership.value ? managementProjectCount.value : pendingWorkItemCount.value
-))
+const taskTabCount = computed(() => pendingWorkItemCount.value)
 
 const dailyReportStatusTag = computed(() => {
   const status = dailyReportStatus.value

@@ -103,7 +103,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, OfficeBuilding, Picture } from '@element-plus/icons-vue'
 import { checkCaptchaRequired, fetchCaptcha, login } from '@/api/auth'
-import { getDefaultRoute } from '@/utils/permission'
+import { getDefaultRoute, setStoredAccess } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const router = useRouter()
@@ -227,11 +227,7 @@ const handleLogin = async () => {
     localStorage.setItem('user_id', res.user_id)
     const raw = Array.isArray(res.roles) ? res.roles : []
     const roles = raw.map((r) => (typeof r === 'string' ? r : (r && (r.role_name ?? r.name ?? r)) || '')).filter(Boolean)
-    localStorage.setItem('user_roles', JSON.stringify(roles))
-    localStorage.setItem(
-      'user_permissions',
-      JSON.stringify(Array.isArray(res.permissions) ? res.permissions : [])
-    )
+    setStoredAccess(roles, res.permissions)
     localStorage.setItem('user_name', loginForm.username || '')
     localStorage.setItem('user_full_name', res.full_name || res.username || loginForm.username || '')
 

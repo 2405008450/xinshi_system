@@ -18,6 +18,16 @@ const DELIVERED_PROJECT_STATUSES = new Set([
 ])
 
 const ENDED_PROJECT_STATUSES = new Set(['cancelled', 'partially_cancelled', 'terminated'])
+const TRANSLATOR_RETURNED_PROJECT_STATUSES = new Set([
+  'translator_returned',
+  'special_checked',
+  'typeset',
+  'special_checked_typeset',
+  'reviewed',
+  'sent_to_client',
+  'client_feedback',
+  'feedback_sent_to_client',
+])
 
 export function parseBusinessDateTime(value) {
   if (!value) return null
@@ -81,6 +91,11 @@ function normalizeProjectStatus(status) {
   return PROJECT_STATUS_ALIASES[status] || status
 }
 
+export function isTranslatorReturnTerminalStatus(status) {
+  const normalized = normalizeProjectStatus(status)
+  return TRANSLATOR_RETURNED_PROJECT_STATUSES.has(normalized) || ENDED_PROJECT_STATUSES.has(normalized)
+}
+
 function getTerminalHint(status, mode) {
   if (!status) return null
   if (mode === 'task') {
@@ -90,7 +105,7 @@ function getTerminalHint(status, mode) {
   }
   const normalized = normalizeProjectStatus(status)
   if (mode === 'translator') {
-    if (['translator_returned', 'special_checked', 'special_checked_typeset', 'reviewed', 'sent_to_client', 'client_feedback', 'feedback_sent_to_client'].includes(normalized)) {
+    if (TRANSLATOR_RETURNED_PROJECT_STATUSES.has(normalized)) {
       return { label: '已回稿', type: 'success' }
     }
     if (ENDED_PROJECT_STATUSES.has(normalized)) return { label: '已结束', type: 'info' }

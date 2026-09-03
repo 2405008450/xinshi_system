@@ -57,14 +57,13 @@ export function getTranslatorExecutionRiskRank(row, now = new Date()) {
   return nextReturn.getTime() <= now.getTime() + 24 * 60 * 60 * 1000 ? 1 : 2
 }
 
-export function reconcileTranslatorExpandedKeys(rows, expandedKeys, manuallyCollapsedKeys) {
-  const visibleKeys = new Set(rows.map(getWorkbenchTaskKey))
-  const next = new Set(expandedKeys.filter(key => visibleKeys.has(key)))
-  rows.forEach((row) => {
-    const key = getWorkbenchTaskKey(row)
-    if (row?.translator_execution?.attention_count && !manuallyCollapsedKeys.has(key)) next.add(key)
-  })
-  return [...next]
+export function toggleSingleTaskExpansion(row, expandedKeys = []) {
+  const key = getWorkbenchTaskKey(row)
+  return expandedKeys.includes(key) ? [] : [key]
+}
+
+export function collapseTaskExpansions() {
+  return []
 }
 
 export function getWorkbenchExecutionDefaultColumnKeys(columns, isProjectAssistant) {

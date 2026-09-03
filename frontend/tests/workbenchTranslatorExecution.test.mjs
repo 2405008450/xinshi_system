@@ -4,12 +4,13 @@ import { nextTick } from 'vue'
 
 import { useTableColumns } from '../src/composables/useTableColumns.js'
 import {
+  collapseTaskExpansions,
   filterTranslatorExecutionItems,
   getAttentionTranslatorEntries,
   getTranslatorExecutionRiskRank,
   getWorkbenchExecutionDefaultColumnKeys,
   getWorkbenchTaskKey,
-  reconcileTranslatorExpandedKeys,
+  toggleSingleTaskExpansion,
 } from '../src/utils/workbenchTranslatorExecution.js'
 
 function task(overrides = {}) {
@@ -94,18 +95,18 @@ test('风险顺序为已逾期、24 小时内、其他待回稿、无需跟进',
   assert.deepEqual(rows.map(row => row.source_id), [1, 2, 3, 4])
 })
 
-test('待跟进任务自动展开，手动收起后刷新不强制展开，新任务仍会展开', () => {
+test('译员执行明细默认折叠，且任意时刻只展开一条', () => {
   const first = task({ source_id: 1 })
   const second = task({ source_id: 2 })
   const firstKey = getWorkbenchTaskKey(first)
   const secondKey = getWorkbenchTaskKey(second)
+  const defaultExpandedKeys = []
 
-  assert.deepEqual(reconcileTranslatorExpandedKeys([first], [], new Set()), [firstKey])
-  assert.deepEqual(reconcileTranslatorExpandedKeys([first], [], new Set([firstKey])), [])
-  assert.deepEqual(
-    reconcileTranslatorExpandedKeys([first, second], [], new Set([firstKey])),
-    [secondKey],
-  )
+  assert.deepEqual(defaultExpandedKeys, [])
+  assert.deepEqual(toggleSingleTaskExpansion(first, defaultExpandedKeys), [firstKey])
+  assert.deepEqual(toggleSingleTaskExpansion(second, [firstKey]), [secondKey])
+  assert.deepEqual(toggleSingleTaskExpansion(second, [secondKey]), [])
+  assert.deepEqual(collapseTaskExpansions(), [])
 })
 
 test('最早有效回稿时间优先，未设置时间排在最后', () => {

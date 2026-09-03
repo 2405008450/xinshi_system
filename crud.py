@@ -2167,6 +2167,15 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
 
     for field, value in update_data.items():
         setattr(db_project, field, value)
+    if 'project_status' in update_data:
+        from project_workbench_service import cancel_pending_project_handovers, is_active_project
+        if not is_active_project('translation', db_project.project_status):
+            cancel_pending_project_handovers(
+                db,
+                'translation',
+                db_project.id,
+                reason='项目已交付或离开工作台活跃范围',
+            )
     if role_assignments_provided:
         _sync_project_role_assignments(db, db_project, role_assignments)
     _sync_assigned_translator_completions(
@@ -2532,6 +2541,14 @@ def _sync_project_status_from_file_paths(
     if target_rank > current_rank or feedback_cycle_transition:
         project.project_status = target_status
         project.updated_at = dt.datetime.now()
+        from project_workbench_service import cancel_pending_project_handovers, is_active_project
+        if not is_active_project('translation', project.project_status):
+            cancel_pending_project_handovers(
+                db,
+                'translation',
+                project.id,
+                reason='项目已交付或离开工作台活跃范围',
+            )
     return project.project_status
 
 

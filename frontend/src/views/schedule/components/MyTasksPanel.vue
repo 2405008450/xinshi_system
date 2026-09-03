@@ -1,6 +1,97 @@
 <template>
-  <div class="section-block" :class="{ 'is-multi-page': filteredTasks.length > PAGE_SIZE }">
+  <div class="section-block">
+    <AppForm :inline="true" :model="filterDraft" class="workbench-search-form">
+      <el-form-item label="关键词">
+        <el-input
+          v-model="filterDraft.project"
+          clearable
+          placeholder="项目、子项目或订单号"
+          class="workbench-search-input"
+          @input="onTextFilterInput"
+          @keyup.enter="applyFilters"
+          @clear="applyFilters"
+        />
+      </el-form-item>
+      <el-form-item label="客户">
+        <el-input
+          v-model="filterDraft.client"
+          clearable
+          placeholder="客户全称或简称"
+          class="workbench-client-input"
+          @input="onTextFilterInput"
+          @keyup.enter="applyFilters"
+          @clear="applyFilters"
+        />
+      </el-form-item>
+      <el-form-item label="项目状态">
+        <el-select
+          v-model="filterDraft.project_statuses"
+          multiple
+          collapse-tags
+          :max-collapse-tags="1"
+          clearable
+          placeholder="全部状态"
+          class="workbench-status-select"
+          @change="applyFilters"
+        >
+          <el-option v-for="option in projectStatusFilterOptions" :key="option.value" :label="`${option.label}（${option.count}）`" :value="option.value" />
+        </el-select>
+      </el-form-item>
+      <el-form-item class="workbench-search-actions">
+        <el-button type="primary" @click="applyFilters">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+        <AdvancedFilterPopover
+          v-model:visible="advancedFilterVisible"
+          :count="advancedFilterCount"
+          popper-class="workbench-task-advanced-filter"
+          @clear="clearAdvancedFilters"
+          @reset="resetFilters"
+        >
+          <AppForm :model="filterDraft" label-width="100px" class="workbench-advanced-form">
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="项目类型">
+                  <el-select v-model="filterDraft.project_types" multiple clearable placeholder="全部类型" style="width: 100%" @change="applyFilters">
+                    <el-option v-for="option in WORKBENCH_PROJECT_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="当前负责人">
+                  <el-select v-model="filterDraft.assignees" multiple clearable collapse-tags filterable placeholder="全部负责人" style="width: 100%" @change="applyFilters">
+                    <el-option v-for="option in assigneeFilterOptions" :key="option.value" :label="`${option.label}（${option.count}）`" :value="option.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="任务来源">
+                  <el-select v-model="filterDraft.assignment_scopes" multiple clearable collapse-tags placeholder="全部来源" style="width: 100%" @change="applyFilters">
+                    <el-option v-for="option in assignmentScopeFilterOptions" :key="option.value" :label="`${option.label}（${option.count}）`" :value="option.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="语言方向">
+                  <el-input v-model="filterDraft.language_pair" clearable placeholder="按语言方向筛选" @input="onTextFilterInput" @keyup.enter="applyFilters" @clear="applyFilters" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="风险状态">
+                  <el-select v-model="filterDraft.risk_states" multiple clearable placeholder="全部风险" style="width: 100%" @change="applyFilters">
+                    <el-option label="已逾期" value="overdue" />
+                    <el-option label="24 小时内到期" value="urgent" />
+                    <el-option label="正常" value="normal" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </AppForm>
+        </AdvancedFilterPopover>
+      </el-form-item>
+    </AppForm>
+
     <div class="task-toolbar">
+      <span class="filter-result-summary">筛选结果 {{ filteredTasks.length }} 条</span>
       <div class="task-toolbar__actions">
         <TableColumnSettings
           v-model="visibleColumnKeys"
@@ -32,6 +123,20 @@
       </div>
     </div>
 
+    <div v-if="filteredTasks.length" class="task-pagination task-pagination--top">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="PAGE_SIZE_OPTIONS"
+        :total="filteredTasks.length"
+        layout="total, sizes, prev, pager, next"
+        size="small"
+        background
+        @current-change="handlePageChange"
+        @size-change="handlePageSizeChange"
+      />
+    </div>
+
     <el-table
       ref="taskTableRef"
       v-if="tasksList.length"
@@ -47,7 +152,7 @@
       @row-click="toggleTaskRowSelection"
     >
       <template #empty>
-        <span class="table-filter-empty">没有符合当前筛选条件的任务，可调整列头筛选条件</span>
+        <span class="table-filter-empty">没有符合当前查询条件的任务，请调整查询或高级筛选条件</span>
       </template>
       <el-table-column type="expand" width="1" class-name="task-expand-column" label-class-name="task-expand-column">
         <template #default="{ row }">
@@ -151,63 +256,14 @@
       </el-table-column>
       <el-table-column v-if="isColumnVisible('orderNo')" prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
       <el-table-column v-if="isColumnVisible('projectType')" :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.projectType"
-            :active="!!searchForm.project_types.length"
-            :width="220"
-            @clear="searchForm.project_types = []"
-          >
-            <el-checkbox-group v-model="searchForm.project_types" class="project-type-filter-group">
-              <el-checkbox
-                v-for="option in WORKBENCH_PROJECT_TYPE_OPTIONS"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </el-checkbox>
-            </el-checkbox-group>
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('projectTask')" :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.projectTask"
-            :active="!!projectSearchKeyword"
-            :width="240"
-            @clear="searchForm.project = ''"
-          >
-            <el-input
-              v-model="searchForm.project"
-              placeholder="项目、子项目或订单号"
-              clearable
-              size="small"
-              @change="normalizeProjectSearch"
-            />
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">
           <WorkbenchProjectTaskCell :row="row" />
         </template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('client')" :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.client"
-            :active="!!searchForm.client"
-            :width="220"
-            @clear="searchForm.client = ''"
-          >
-            <el-input
-              v-model="searchForm.client"
-              placeholder="客户全称或简称"
-              clearable
-              size="small"
-            />
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('projectNode')" :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
@@ -216,25 +272,6 @@
         </template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('projectStatus')" prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.projectStatus"
-            :active="!!searchForm.project_statuses.length"
-            :width="260"
-            @clear="searchForm.project_statuses = []"
-          >
-            <el-checkbox-group v-model="searchForm.project_statuses" class="project-status-filter-group">
-              <el-checkbox
-                v-for="option in projectStatusFilterOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}（{{ option.count }}）
-              </el-checkbox>
-            </el-checkbox-group>
-            <div v-if="!projectStatusFilterOptions.length" class="column-filter-empty">暂无可筛选状态</div>
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">
           <ProjectStatusSwitch
             :project-type="resolveProjectType(row)"
@@ -246,21 +283,6 @@
         </template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('languageDirection')" prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.languageDirection"
-            :active="!!searchForm.language_pair"
-            :width="220"
-            @clear="searchForm.language_pair = ''"
-          >
-            <el-input
-              v-model="searchForm.language_pair"
-              placeholder="按语言方向筛选"
-              clearable
-              size="small"
-            />
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">
           <LanguagePairText :value="row.language_pair" />
         </template>
@@ -300,24 +322,6 @@
         </template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('currentAssignee')" prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.currentAssignee"
-            :active="!!searchForm.assignees.length"
-            :width="240"
-            @clear="searchForm.assignees = []"
-          >
-            <el-checkbox-group v-model="searchForm.assignees" class="assignee-filter-group">
-              <el-checkbox
-                v-for="option in assigneeFilterOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}（{{ option.count }}）
-              </el-checkbox>
-            </el-checkbox-group>
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">
           <div class="assignee-cell">
             <ProjectRoleAssigneesPopover
@@ -344,24 +348,6 @@
         <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('assignmentMethod')" :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
-        <template #header>
-          <ColumnHeaderFilter
-            :label="WORKBENCH_FIELD_LABELS.assignmentMethod"
-            :active="!!searchForm.assignment_scopes.length"
-            :width="220"
-            @clear="searchForm.assignment_scopes = []"
-          >
-            <el-checkbox-group v-model="searchForm.assignment_scopes" class="assignment-scope-filter-group">
-              <el-checkbox
-                v-for="option in assignmentScopeFilterOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}（{{ option.count }}）
-              </el-checkbox>
-            </el-checkbox-group>
-          </ColumnHeaderFilter>
-        </template>
         <template #default="{ row }">
           <el-tag :type="assignmentTagType(row)" size="small" effect="plain">
             {{ assignmentLabel(row) }}
@@ -393,12 +379,14 @@
     <div v-if="filteredTasks.length" class="task-pagination">
       <el-pagination
         v-model:current-page="currentPage"
-        :page-size="PAGE_SIZE"
+        v-model:page-size="pageSize"
+        :page-sizes="PAGE_SIZE_OPTIONS"
         :total="filteredTasks.length"
-        layout="total, prev, pager, next"
+        layout="total, sizes, prev, pager, next, jumper"
         size="small"
         background
         @current-change="handlePageChange"
+        @size-change="handlePageSizeChange"
       />
     </div>
     <template v-if="!tasksList.length">
@@ -550,7 +538,7 @@ import TransferNoteEditor from '@/components/TransferNoteEditor.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import ProjectStatusSwitch from '@/components/common/ProjectStatusSwitch.vue'
 import LanguagePairText from '@/components/common/LanguagePairText.vue'
-import ColumnHeaderFilter from '@/components/common/ColumnHeaderFilter.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
@@ -565,6 +553,16 @@ import { canViewManuscriptArrangements, hasPermission, hasRole } from '@/utils/p
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { parseBusinessDateTime } from '@/utils/deadlineDisplay'
 import {
+  WORKBENCH_PAGE_SIZE_OPTIONS,
+  clearWorkbenchFilterKeys,
+  countActiveWorkbenchFilterGroups,
+  getWorkbenchFilterStorageKey,
+  getWorkbenchLastPage,
+  matchesWorkbenchFilterGroups,
+  paginateWorkbenchRows,
+} from '@/utils/workbenchList'
+import {
+  collapseTaskExpansions,
   filterTranslatorExecutionItems,
   getAttentionTranslatorEntries,
   getTranslatorCompletionSummaries,
@@ -572,7 +570,7 @@ import {
   getWorkbenchExecutionDefaultColumnKeys,
   getWorkbenchTaskKey,
   hasTranslatorExecutionItems,
-  reconcileTranslatorExpandedKeys
+  toggleSingleTaskExpansion
 } from '@/utils/workbenchTranslatorExecution'
 import {
   getProjectStatusLabel,
@@ -621,7 +619,7 @@ const props = defineProps({
   tasksList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['open-chat', 'open-project', 'open-manuscript', 'record-work', 'refresh', 'visible-count-change'])
+const emit = defineEmits(['open-chat', 'open-project', 'open-manuscript', 'record-work', 'refresh', 'visible-count-change', 'total-count-change'])
 const canWriteProjects = hasPermission('projects:write')
 const canOperateWorkflow = hasPermission(['projects:read', 'workflow:operate'])
 const canOpenManuscript = canViewManuscriptArrangements()
@@ -671,12 +669,13 @@ const stageColumnEnabled = false
 
 const selectedTasks = ref([])
 const currentPage = ref(1)
-const PAGE_SIZE = 10
+const pageSize = ref(10)
+const PAGE_SIZE_OPTIONS = WORKBENCH_PAGE_SIZE_OPTIONS
 const claimingRolePool = ref(false)
 const taskTableRef = ref(null)
 const expandedTaskKeys = ref([])
-const manuallyCollapsedTaskKeys = ref(new Set())
 const showAllExecutionTaskKeys = ref(new Set())
+const advancedFilterVisible = ref(false)
 const eligibleUsers = ref([])
 const handoverVisible = ref(false)
 const handoverTargetUserId = ref('')
@@ -707,27 +706,13 @@ function isTaskExpanded(row) {
 
 function toggleTaskExpansion(row) {
   if (!hasExecutionItems(row)) return
-  const key = taskKey(row)
-  const targetExpanded = !isTaskExpanded(row)
-  if (targetExpanded) {
-    manuallyCollapsedTaskKeys.value.delete(key)
-    expandedTaskKeys.value = [...new Set([...expandedTaskKeys.value, key])]
-  } else {
-    manuallyCollapsedTaskKeys.value.add(key)
-    expandedTaskKeys.value = expandedTaskKeys.value.filter(item => item !== key)
-  }
+  expandedTaskKeys.value = toggleSingleTaskExpansion(row, expandedTaskKeys.value)
 }
 
 function handleTaskExpandChange(row, expandedRows) {
   const key = taskKey(row)
   const expanded = expandedRows.some(item => taskKey(item) === key)
-  if (expanded) {
-    manuallyCollapsedTaskKeys.value.delete(key)
-    expandedTaskKeys.value = [...new Set([...expandedTaskKeys.value, key])]
-  } else {
-    manuallyCollapsedTaskKeys.value.add(key)
-    expandedTaskKeys.value = expandedTaskKeys.value.filter(item => item !== key)
-  }
+  expandedTaskKeys.value = expanded ? [key] : []
 }
 
 function isShowingAllExecutionItems(row) {
@@ -826,12 +811,14 @@ function isValidStoredAssignmentScope(value) {
 }
 
 // 筛选条件按“页面 + 当前用户”持久化，不同登录用户互不影响（例如只负责口译项目的用户）
-const FILTER_STORAGE_KEY = `workbench-filters:my-tasks:${
-  localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
-}`
+const FILTER_STORAGE_KEY = getWorkbenchFilterStorageKey(
+  'my-tasks',
+  localStorage.getItem('user_id'),
+  localStorage.getItem('user_name'),
+)
 
 function readStoredFilters() {
-  const fallback = { project_types: [], project_statuses: [], assignees: [], assignment_scopes: [], client: '', project: '', language_pair: '' }
+  const fallback = { project_types: [], project_statuses: [], assignees: [], assignment_scopes: [], risk_states: [], client: '', project: '', language_pair: '' }
   try {
     const raw = localStorage.getItem(FILTER_STORAGE_KEY)
     if (!raw) return fallback
@@ -849,6 +836,9 @@ function readStoredFilters() {
       assignment_scopes: Array.isArray(parsed.assignment_scopes)
         ? parsed.assignment_scopes.filter(isValidStoredAssignmentScope)
         : [],
+      risk_states: Array.isArray(parsed.risk_states)
+        ? parsed.risk_states.filter(value => ['overdue', 'urgent', 'normal'].includes(value))
+        : [],
       client: typeof parsed.client === 'string' ? parsed.client : '',
       project: typeof parsed.project === 'string' ? parsed.project : '',
       language_pair: typeof parsed.language_pair === 'string' ? parsed.language_pair : ''
@@ -860,10 +850,64 @@ function readStoredFilters() {
 }
 
 const searchForm = reactive(readStoredFilters())
-const projectSearchKeyword = computed(() => searchForm.project.trim())
+const filterDraft = reactive({
+  ...searchForm,
+  project_types: [...searchForm.project_types],
+  project_statuses: [...searchForm.project_statuses],
+  assignees: [...searchForm.assignees],
+  assignment_scopes: [...searchForm.assignment_scopes],
+  risk_states: [...searchForm.risk_states],
+})
+const advancedFilterCount = computed(() => countActiveWorkbenchFilterGroups(
+  filterDraft,
+  ['project_types', 'assignees', 'assignment_scopes', 'language_pair', 'risk_states'],
+))
+let filterDebounceTimer = null
 
-function normalizeProjectSearch() {
-  searchForm.project = projectSearchKeyword.value
+function copyDraftToAppliedFilters() {
+  searchForm.project_types = [...filterDraft.project_types]
+  searchForm.project_statuses = [...filterDraft.project_statuses]
+  searchForm.assignees = [...filterDraft.assignees]
+  searchForm.assignment_scopes = [...filterDraft.assignment_scopes]
+  searchForm.risk_states = [...filterDraft.risk_states]
+  searchForm.client = filterDraft.client.trim()
+  searchForm.project = filterDraft.project.trim()
+  searchForm.language_pair = filterDraft.language_pair.trim()
+}
+
+function applyFilters() {
+  clearTimeout(filterDebounceTimer)
+  filterDebounceTimer = null
+  copyDraftToAppliedFilters()
+  currentPage.value = 1
+  expandedTaskKeys.value = collapseTaskExpansions()
+  clearTaskSelection()
+}
+
+function onTextFilterInput(value) {
+  clearTimeout(filterDebounceTimer)
+  filterDebounceTimer = null
+  if (!String(value || '').trim()) {
+    applyFilters()
+    return
+  }
+  filterDebounceTimer = setTimeout(applyFilters, 400)
+}
+
+function resetFilters() {
+  clearWorkbenchFilterKeys(filterDraft, [
+    'project_types', 'project_statuses', 'assignees', 'assignment_scopes', 'risk_states',
+    'client', 'project', 'language_pair',
+  ])
+  advancedFilterVisible.value = false
+  applyFilters()
+}
+
+function clearAdvancedFilters() {
+  clearWorkbenchFilterKeys(filterDraft, [
+    'project_types', 'assignees', 'assignment_scopes', 'risk_states', 'language_pair',
+  ])
+  applyFilters()
 }
 
 const getTaskDeadline = getWorkItemDeadline
@@ -901,6 +945,7 @@ function compareProjectTasks(left, right, now) {
 }
 
 const openTasks = computed(() => props.tasksList.filter(isWorkItemOpen))
+const defaultOpenTasks = computed(() => openTasks.value.filter(isDefaultVisibleTask))
 
 function assignmentScopeKey(row) {
   if (row?.assignment_type === 'delegated_out') return 'delegated_out'
@@ -973,46 +1018,31 @@ const assigneeFilterOptions = computed(() => {
 const filteredTasks = computed(() => {
   let list = searchForm.assignment_scopes.length
     ? openTasks.value.filter(row => searchForm.assignment_scopes.includes(assignmentScopeKey(row)))
-    : openTasks.value.filter(isDefaultVisibleTask)
+    : [...defaultOpenTasks.value]
 
-  if (searchForm.project_types.length) {
-    list = list.filter(t => searchForm.project_types.includes(t.project_type || 'translation'))
-  }
-  if (searchForm.project_statuses.length) {
-    list = list.filter(t => searchForm.project_statuses.includes(projectStatusFilterKey(t)))
-  }
-  if (searchForm.assignees.length) {
-    list = list.filter(t => searchForm.assignees.includes(assigneeFilterKey(t)))
-  }
-
-  if (searchForm.client) {
-    list = list.filter(t => [t.client_name, t.client_short_name].some(value => value && value.includes(searchForm.client)))
-  }
-  if (projectSearchKeyword.value) {
-    list = list.filter(t => [t.project_name, t.sub_project_name, t.order_no].some(value => value && value.includes(projectSearchKeyword.value)))
-  }
-  if (searchForm.language_pair) {
-    list = list.filter(t => t.language_pair && t.language_pair.includes(searchForm.language_pair))
-  }
+  list = list.filter(t => matchesWorkbenchFilterGroups(t, searchForm, {
+    textFields: {
+      client: ['client_name', 'client_short_name'],
+      project: ['project_name', 'sub_project_name', 'order_no', 'task_type'],
+      language_pair: ['language_pair'],
+    },
+    multiValueGetters: {
+      project_types: row => row.project_type || 'translation',
+      project_statuses: projectStatusFilterKey,
+      assignees: assigneeFilterKey,
+      risk_states: taskRiskState,
+    },
+  }))
   const now = new Date()
   return list.sort((a, b) => compareProjectTasks(a, b, now))
 })
 
 const pagedTasks = computed(() => {
-  const start = (currentPage.value - 1) * PAGE_SIZE
-  return filteredTasks.value.slice(start, start + PAGE_SIZE)
+  return paginateWorkbenchRows(filteredTasks.value, currentPage.value, pageSize.value)
 })
 
-watch(pagedTasks, (rows) => {
-  expandedTaskKeys.value = reconcileTranslatorExpandedKeys(
-    rows,
-    expandedTaskKeys.value,
-    manuallyCollapsedTaskKeys.value
-  )
-}, { immediate: true, deep: true })
-
 function getTaskIndex(index) {
-  return (currentPage.value - 1) * PAGE_SIZE + index + 1
+  return (currentPage.value - 1) * pageSize.value + index + 1
 }
 
 function clearTaskSelection() {
@@ -1021,7 +1051,13 @@ function clearTaskSelection() {
 }
 
 function handlePageChange() {
+  expandedTaskKeys.value = collapseTaskExpansions()
   clearTaskSelection()
+}
+
+function handlePageSizeChange() {
+  currentPage.value = 1
+  handlePageChange()
 }
 
 watch(searchForm, (value) => {
@@ -1033,6 +1069,7 @@ watch(searchForm, (value) => {
       project_statuses: value.project_statuses.filter(isValidStoredStatusKey),
       assignees: value.assignees.filter(isValidStoredAssigneeKey),
       assignment_scopes: value.assignment_scopes.filter(isValidStoredAssignmentScope),
+      risk_states: value.risk_states.filter(item => ['overdue', 'urgent', 'normal'].includes(item)),
       client: value.client,
       project: value.project,
       language_pair: value.language_pair
@@ -1041,9 +1078,13 @@ watch(searchForm, (value) => {
 })
 
 watch(() => filteredTasks.value.length, (total) => {
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const lastPage = getWorkbenchLastPage(total, pageSize.value)
   if (currentPage.value > lastPage) currentPage.value = lastPage
   emit('visible-count-change', total)
+}, { immediate: true })
+
+watch(() => defaultOpenTasks.value.length, (total) => {
+  emit('total-count-change', total)
 }, { immediate: true })
 
 function rowClassName({ row }) {
@@ -1055,6 +1096,13 @@ function rowClassName({ row }) {
   if (state === DEADLINE_STATE.URGENT) return 'urgent-row'
   if (row.delegation_overdue) return 'delegation-overdue-row'
   return ''
+}
+
+function taskRiskState(row) {
+  const translatorRisk = getTranslatorExecutionRiskRank(row)
+  if (translatorRisk === 0) return 'overdue'
+  if (translatorRisk === 1) return 'urgent'
+  return deadlineState(row)
 }
 
 function hasAction(row, action) {
@@ -1286,6 +1334,7 @@ const submitClaim = async () => {
 }
 
 onBeforeUnmount(() => {
+  clearTimeout(filterDebounceTimer)
   clearTimeout(claimSearchTimer)
   claimController?.abort()
 })
@@ -1298,7 +1347,7 @@ onBeforeUnmount(() => {
 .data-table :deep(.task-expand-column .cell) { display: none; padding: 0; }
 
 .translator-execution-panel {
-  padding: 12px 16px 16px;
+  padding: 8px 12px 12px;
   background: var(--el-fill-color-extra-light);
 }
 
@@ -1311,7 +1360,7 @@ onBeforeUnmount(() => {
 
 .translator-execution-panel__header {
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .execution-order-cell,
@@ -1395,9 +1444,38 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-/* 多页切换时预留一页表格的展示空间，避免末页行数较少导致下方区域明显跳动。 */
-.section-block.is-multi-page {
-  min-height: 590px;
+.workbench-search-form {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  padding: 10px 12px 2px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.workbench-search-form :deep(.el-form-item) {
+  margin-right: 0;
+  margin-bottom: 8px;
+}
+
+.workbench-search-input { width: 240px; }
+.workbench-client-input { width: 190px; }
+.workbench-status-select { width: 210px; }
+
+.workbench-search-actions {
+  margin-left: auto;
+}
+
+.workbench-advanced-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.filter-result-summary {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .task-toolbar {
@@ -1451,6 +1529,12 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   margin: 0 0 12px;
+}
+
+.task-pagination--top {
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .empty-tip {
@@ -1518,21 +1602,21 @@ onBeforeUnmount(() => {
 
 :deep(.overdue-row),
 :deep(.overdue-row td) {
-  background-color: var(--el-color-danger-light-9) !important;
+  background-color: #fffafa !important;
 }
 :deep(.overdue-row:hover),
 :deep(.overdue-row:hover td) {
-  background-color: var(--el-color-danger-light-8) !important;
+  background-color: #fff5f5 !important;
 }
 
 :deep(.urgent-row),
 :deep(.urgent-row td) {
-  background-color: var(--el-color-warning-light-9) !important;
+  background-color: #fffdf7 !important;
 }
 
 :deep(.urgent-row:hover),
 :deep(.urgent-row:hover td) {
-  background-color: var(--el-color-warning-light-8) !important;
+  background-color: #fff9e8 !important;
 }
 
 :deep(.delegation-overdue-row),
@@ -1541,8 +1625,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
-  .section-block.is-multi-page {
-    min-height: 0;
+  .workbench-search-form {
+    display: grid;
+    padding: 10px 10px 2px;
+  }
+
+  .workbench-search-input,
+  .workbench-client-input,
+  .workbench-status-select {
+    width: 100%;
+  }
+
+  .workbench-search-actions {
+    margin-left: 0;
   }
 
   .task-toolbar {
@@ -1553,6 +1648,11 @@ onBeforeUnmount(() => {
   .task-toolbar__actions {
     margin-left: 0;
     flex-wrap: wrap;
+  }
+
+  .task-pagination {
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 }
 </style>

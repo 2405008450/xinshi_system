@@ -15,7 +15,7 @@
 4. 打印每列实际宽度与留白占比，并对进度列断言 <140px；
 5. 验证新增项目弹窗可以跨 Tab、跨折叠分组搜索定位字段；
 6. 验证条件字段不会被搜索自动启用，并检查窄屏弹窗不溢出；
-7. 验证展开子订单后仅保留当前母订单，并检查子订单低饱和背景；
+7. 验证子订单默认展开、进行中优先、最多展示 10 条、母订单列表持续可见，并检查低饱和背景；
 8. 验证粘贴/TXT 预览、重复跳过、事务批量创建与行内改名，并清理测试数据；
 9. 全页截图归档到 test-results/translation-details.png。
 
@@ -175,32 +175,43 @@ def check_field_search(page, can_write: bool) -> list[str]:
     return failures
 
 
-def check_suborder_focus_mode(page) -> list[str]:
-    """验证子订单展开后的单母订单聚焦、恢复及低饱和配色。"""
+def check_suborder_default_expansion(page) -> list[str]:
+    """验证子订单默认展开、独立收起及低饱和配色。"""
     failures = []
     project_rows = page.locator(
         ".project-table > .el-table__inner-wrapper > .el-table__body-wrapper "
         "> .el-scrollbar > .el-scrollbar__wrap > .el-scrollbar__view "
         "> table.el-table__body > tbody > tr.el-table__row"
     )
-    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
     initial_row_count = project_rows.count()
-    if initial_row_count < 2 or not expand_buttons.count():
-        print("[跳过] 当前页缺少可展开子订单或不足两个母订单，未执行聚焦模式验收")
+    panels = page.locator(".sub-order-panel")
+    collapse_buttons = page.get_by_role("button", name="收起子订单", exact=True)
+    initial_panel_count = panels.count()
+    if not initial_panel_count or not collapse_buttons.count():
+        print("[跳过] 当前页没有包含子订单的母订单，未执行默认展开验收")
         return failures
 
-    expand_buttons.first.click()
-    panel = page.locator(".sub-order-panel")
+    panel = panels.first
     panel.wait_for(state="visible", timeout=5000)
-
-    if project_rows.count() != 1:
-        failures.append("展开子订单后仍显示其他母订单")
-    if page.get_by_role("button", name="收起子订单", exact=True).count() != 1:
-        failures.append("展开后未提供唯一的收起子订单按钮")
+    if initial_row_count < initial_panel_count:
+        failures.append("默认展开后母订单行数量异常")
 
     suborder_rows = panel.locator(".sub-order-table .el-table__body-wrapper tr.el-table__row")
     if not suborder_rows.count():
         failures.append("展开后未显示子订单数据行")
+    if suborder_rows.count() > 10:
+        failures.append(f"子订单默认展示超过 10 条：实际 {suborder_rows.count()} 条")
+
+    completed_return_seen = False
+    for index in range(suborder_rows.count()):
+        deadline_labels = suborder_rows.nth(index).locator(".deadline-cell__tag").all_inner_texts()
+        is_completed_return = any(label in {"已回稿", "已结束"} for label in deadline_labels)
+        is_active_return = any(label not in {"已回稿", "已结束"} for label in deadline_labels)
+        if is_completed_return:
+            completed_return_seen = True
+        elif completed_return_seen and is_active_return:
+            failures.append("已回稿子订单之前未完整排列所有进行中的子订单")
+            break
 
     panel_background = panel.evaluate("element => getComputedStyle(element).backgroundColor")
     header_background = panel.locator(
@@ -209,23 +220,36 @@ def check_suborder_focus_mode(page) -> list[str]:
     row_background = panel.locator(
         ".sub-order-table .el-table__body-wrapper td.el-table__cell"
     ).first.evaluate("element => getComputedStyle(element).backgroundColor")
-    if panel_background != "rgb(248, 250, 252)":
+    if panel_background != "rgb(246, 248, 247)":
         failures.append(f"子订单面板背景色不符合预期：{panel_background}")
-    if header_background != "rgb(241, 245, 249)":
+    if header_background != "rgb(238, 243, 241)":
         failures.append(f"子订单表头背景色不符合预期：{header_background}")
-    if row_background != "rgb(248, 250, 252)":
+    if row_background != "rgb(248, 250, 249)":
         failures.append(f"子订单数据行背景色不符合预期：{row_background}")
 
-    page.get_by_role("button", name="收起子订单", exact=True).click()
-    panel.wait_for(state="hidden", timeout=5000)
+    collapse_buttons.first.click()
+    page.wait_for_timeout(100)
     if project_rows.count() != initial_row_count:
-        failures.append("收起子订单后未恢复原母订单列表")
+        failures.append("收起子订单时母订单列表发生变化")
+    if panels.count() != initial_panel_count - 1:
+        failures.append("子订单面板未能独立收起")
+
+    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
+    if not expand_buttons.count():
+        failures.append("收起后未提供重新展开子订单的按钮")
+    else:
+        expand_buttons.first.click()
+        page.wait_for_timeout(100)
+        if panels.count() != initial_panel_count:
+            failures.append("子订单面板重新展开失败")
+        if project_rows.count() != initial_row_count:
+            failures.append("重新展开子订单时母订单列表发生变化")
 
     if failures:
         for failure in failures:
-            print(f"[✗] 子订单聚焦：{failure}", file=sys.stderr)
+            print(f"[✗] 子订单默认展开：{failure}", file=sys.stderr)
     else:
-        print("[✓] 子订单展开后单母订单聚焦，收起恢复列表，低饱和配色正确")
+        print("[✓] 子订单默认展开、进行中优先且最多展示 10 条，母订单列表持续可见，低饱和配色正确")
     return failures
 
 
@@ -236,9 +260,9 @@ def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: 
         print("[跳过] 当前账号无 projects:write 权限，未执行批量导入与行内改名验收")
         return failures
 
-    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
-    if not expand_buttons.count():
-        print("[跳过] 当前页没有可展开的子订单，未执行批量导入与行内改名验收")
+    panels = page.locator(".sub-order-panel")
+    if not panels.count():
+        print("[跳过] 当前页没有已展开的子订单，未执行批量导入与行内改名验收")
         return failures
 
     created_ids = []
@@ -254,8 +278,7 @@ def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: 
     original_name = None
 
     try:
-        expand_buttons.first.click()
-        panel = page.locator(".sub-order-panel")
+        panel = panels.first
         panel.wait_for(state="visible", timeout=5000)
         panel.get_by_role("button", name="导入文件名", exact=True).click()
         dialog = page.locator(".suborder-batch-create-dialog")
@@ -436,7 +459,7 @@ def main() -> int:
         field_search_failures = check_field_search(
             page, "projects:write" in permissions or "*" in permissions
         )
-        suborder_focus_failures = check_suborder_focus_mode(page)
+        suborder_expansion_failures = check_suborder_default_expansion(page)
         suborder_bulk_failures = check_suborder_bulk_and_inline(
             page,
             "projects:write" in permissions or "*" in permissions,
@@ -491,7 +514,7 @@ def main() -> int:
         browser.close()
 
         return 1 if (
-            truncated or progress_wide or field_search_failures or suborder_focus_failures
+            truncated or progress_wide or field_search_failures or suborder_expansion_failures
             or suborder_bulk_failures
         ) else 0
 

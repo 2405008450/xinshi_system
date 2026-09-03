@@ -1,8 +1,10 @@
 /**
  * 角色权限配置
  * - admin / 超级管理员：可访问所有菜单与路由
- * - 客户专员、项目专员、项目经理：仅可访问「项目管理」下的「笔译项目管理」
+ * - 普通角色：按角色管理中配置的权限访问菜单、路由和操作
  */
+
+import { ref } from 'vue'
 
 export const ROLE_ADMIN = 'admin'
 export const ROLE_SUPER_ADMIN = '超级管理员'
@@ -17,18 +19,18 @@ export const ROLE_SALES = '销售'
 /** 拥有全部权限的角色（任一即可） */
 export const SUPER_ROLES = [ROLE_ADMIN, ROLE_SUPER_ADMIN]
 
+// localStorage 本身不是响应式数据；会话同步后递增版本，使侧栏 computed 立即重算。
+const storedAccessRevision = ref(0)
+
 /** 可查看“稿件安排”的普通角色；超级管理员由 canAccessRoute 单独放行。 */
 export const MANUSCRIPT_VIEW_ROLES = [ROLE_PROJECT_MANAGER, ROLE_PROJECT_ASSISTANT]
-/** 可查看“客户信息”列表页的普通角色；超级管理员始终放行。 */
-export const CLIENT_VIEW_ROLES = [ROLE_PROJECT_MANAGER]
-/** 可查看“新咨询管理”列表页的普通角色；超级管理员始终放行。 */
-export const CONSULTATION_VIEW_ROLES = [ROLE_CUSTOMER_SPECIALIST]
 
 /**
  * 从 localStorage 读取当前用户角色列表
  * @returns {string[]}
  */
 export function getStoredRoles() {
+  storedAccessRevision.value
   try {
     const raw = localStorage.getItem('user_roles')
     if (!raw) return []
@@ -40,6 +42,7 @@ export function getStoredRoles() {
 }
 
 export function getStoredPermissions() {
+  storedAccessRevision.value
   try {
     const raw = localStorage.getItem('user_permissions')
     if (!raw) return []
@@ -48,6 +51,13 @@ export function getStoredPermissions() {
   } catch {
     return []
   }
+}
+
+/** 写入登录用户的角色与权限，并通知依赖它们的导航和操作控件刷新。 */
+export function setStoredAccess(roles, permissions) {
+  localStorage.setItem('user_roles', JSON.stringify(Array.isArray(roles) ? roles : []))
+  localStorage.setItem('user_permissions', JSON.stringify(Array.isArray(permissions) ? permissions : []))
+  storedAccessRevision.value += 1
 }
 
 /**
@@ -71,22 +81,13 @@ export function hasRole(roleOrRoles, userRoles) {
   return list.some((r) => target.includes(r))
 }
 
-/** 是否允许查看“稿件安排”模块。 */
-export function canViewManuscriptArrangements(userRoles) {
+/** 是否允许查看“稿件安排”模块；与后端保持“项目读取权限 + 指定角色”的双重限制。 */
+export function canViewManuscriptArrangements(userRoles, userPermissions) {
   const roles = userRoles ?? getStoredRoles()
-  return isSuperAdmin(roles) || hasRole(MANUSCRIPT_VIEW_ROLES, roles)
-}
-
-/** 是否允许查看“客户信息”列表页。 */
-export function canViewClients(userRoles) {
-  const roles = userRoles ?? getStoredRoles()
-  return isSuperAdmin(roles) || hasRole(CLIENT_VIEW_ROLES, roles)
-}
-
-/** 是否允许查看“新咨询管理”列表页。 */
-export function canViewConsultations(userRoles) {
-  const roles = userRoles ?? getStoredRoles()
-  return isSuperAdmin(roles) || hasRole(CONSULTATION_VIEW_ROLES, roles)
+  return isSuperAdmin(roles) || (
+    hasRole(MANUSCRIPT_VIEW_ROLES, roles) &&
+    hasPermission('projects:read', userPermissions)
+  )
 }
 
 /**
@@ -113,16 +114,21 @@ export function getDefaultRoute() {
   if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
   if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
   if (hasPermission('system:users:read')) return '/users'
+  if (hasPermission('system:roles:read')) return '/roles'
+  if (hasPermission('system:mail_settings:read')) return '/mail-settings'
+  if (hasPermission('consultations:read')) return '/consultations'
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'
   if (hasPermission(['talents:read', 'translators:read'])) return '/resource-management/talents'
+  if (hasPermission('recruitment_talents:read')) return '/resource-management/recruitment-talents'
   if (hasPermission('finance:read')) return '/finance'
   return '/pending-modules'
 }
 
 /**
- * 路由 meta.roles：未配置或空数组表示仅超级管理员可访问
- * 配置了角色列表表示：超级管理员 或 拥有列表中任一角色的用户 可访问
+ * permissions 数组内部、roles 数组内部均为“满足任一项”；
+ * 同一路由同时配置 permissions 与 roles 时，两类条件必须同时满足。
+ * 两者均未配置时仅超级管理员可访问。
  * @param {import('vue-router').RouteLocationNormalized} route
  * @returns {boolean}
  */
@@ -131,20 +137,20 @@ export function canAccessRoute(route) {
   if (isSuperAdmin(userRoles)) return true
 
   const metaPermissions = route.meta?.permissions
-  if (metaPermissions?.length) {
-    return hasPermission(metaPermissions)
-  }
-
   const metaRoles = route.meta?.roles
-  if (!metaRoles || metaRoles.length === 0) return false
-  if (metaRoles.includes('*')) return true
+  const hasPermissionRule = Array.isArray(metaPermissions) && metaPermissions.length > 0
+  const hasRoleRule = Array.isArray(metaRoles) && metaRoles.length > 0
 
-  return metaRoles.some((r) => userRoles.includes(r))
+  if (!hasPermissionRule && !hasRoleRule) return false
+
+  const permissionAllowed = !hasPermissionRule || hasPermission(metaPermissions)
+  const roleAllowed = !hasRoleRule || metaRoles.includes('*') || metaRoles.some((role) => userRoles.includes(role))
+  return permissionAllowed && roleAllowed
 }
 
 /**
  * 笔译项目管理相关路由/路径（扁平，用于菜单与守卫）
- * 所有普通员工（非超级管理员）均可访问这些基本功能
+ * 拥有 projects:read 的用户可访问这些基本功能
  */
 export const TRANSLATION_PROJECT_PATHS = [
   '/translation',

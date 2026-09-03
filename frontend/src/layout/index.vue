@@ -37,19 +37,19 @@
           <template #title>新咨询管理</template>
         </el-menu-item>
 
-        <el-menu-item index="/translation-details">
+        <el-menu-item v-if="canViewProjects" index="/translation-details">
           <el-icon><Document /></el-icon>
           <template #title>笔译项目</template>
         </el-menu-item>
-        <el-menu-item index="/interpretation-details">
+        <el-menu-item v-if="canViewProjects" index="/interpretation-details">
           <el-icon><Headset /></el-icon>
           <template #title>口译项目</template>
         </el-menu-item>
-        <el-menu-item index="/annotation-details">
+        <el-menu-item v-if="canViewAnnotation" index="/annotation-details">
           <el-icon><EditPen /></el-icon>
           <template #title>标注项目</template>
         </el-menu-item>
-        <el-menu-item index="/recruitment-details">
+        <el-menu-item v-if="canViewProjects" index="/recruitment-details">
           <el-icon><UserFilled /></el-icon>
           <template #title>招聘项目</template>
         </el-menu-item>
@@ -68,7 +68,7 @@
           <el-icon><Tickets /></el-icon>
           <template #title>资源需求管理</template>
         </el-menu-item>
-        <el-menu-item v-if="showResourceManagement" index="/resource-management/talents">
+        <el-menu-item v-if="showResourceManagement" :index="resourceManagementPath">
           <el-icon><Avatar /></el-icon>
           <template #title>人才资源库</template>
         </el-menu-item>
@@ -156,8 +156,6 @@ import { ElMessageBox } from 'element-plus'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import {
-  canViewClients,
-  canViewConsultations,
   canViewManuscriptArrangements,
   hasPermission
 } from '../utils/permission'
@@ -217,14 +215,30 @@ const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value |
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
-/** 项目相关扩展模块仍按具体权限显示；四个基础业务表对所有登录用户开放。 */
+/** 菜单入口与路由守卫、后端读取权限保持同一口径。 */
 const canViewProjects = computed(() => hasPermission('projects:read'))
+const canViewAnnotation = computed(() => hasPermission([
+  'projects:read',
+  'annotation_accounts:read',
+  'annotation_accounts:write'
+]))
 const canViewManuscript = computed(() => canViewManuscriptArrangements())
-const showClients = computed(() => canViewClients())
-const showConsultations = computed(() => canViewConsultations())
-const showResourceManagement = computed(() => hasPermission(['talents:read', 'translators:read']))
+const showClients = computed(() => hasPermission('clients:read'))
+const showConsultations = computed(() => hasPermission('consultations:read'))
+const showResourceManagement = computed(() => hasPermission([
+  'talents:read',
+  'translators:read',
+  'recruitment_talents:read'
+]))
+const resourceManagementPath = computed(() => (
+  hasPermission(['talents:read', 'translators:read'])
+    ? '/resource-management/talents'
+    : '/resource-management/recruitment-talents'
+))
 const showResourceRequests = computed(() => canViewProjects.value)
-const showBusinessGroup = computed(() => true)
+const showBusinessGroup = computed(() => (
+  showConsultations.value || canViewProjects.value || canViewAnnotation.value
+))
 const showResourceGroup = computed(() => (
   showClients.value || showResourceManagement.value || showResourceRequests.value
 ))
@@ -274,7 +288,7 @@ const resolveActiveMenu = (path) => {
   if (path === '/annotation' || path.startsWith('/annotation-')) return '/annotation-details'
   if (path === '/recruitment' || path.startsWith('/recruitment-details')) return '/recruitment-details'
   if (path === '/resource-management' || path.startsWith('/resource-management/')) {
-    return '/resource-management/talents'
+    return resourceManagementPath.value
   }
   return path
 }
