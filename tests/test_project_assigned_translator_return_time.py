@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -47,6 +48,8 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
         translation_scope="全文",
         planned_delivery_at=return_time,
         completion_remarks="实际耗时 3 小时，质量良好",
+        translator_unit_price=Decimal("0.1234"),
+        translator_total_price=Decimal("123.45"),
     )
     project = SimpleNamespace(id=project_id, sub_orders=[])
     monkeypatch.setattr(crud, "_attach_word_count_matrices", lambda *args, **kwargs: None)
@@ -55,6 +58,8 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
 
     assert project.assigned_translators[0]["translator_return_time"] == return_time
     assert project.assigned_translators[0]["completion_remarks"] == "实际耗时 3 小时，质量良好"
+    assert project.assigned_translators[0]["translator_unit_price"] == Decimal("0.1234")
+    assert project.assigned_translators[0]["translator_total_price"] == Decimal("123.45")
 
 
 def test_project_editor_syncs_completion_back_to_arrangement():
@@ -62,6 +67,8 @@ def test_project_editor_syncs_completion_back_to_arrangement():
     arrangement = SimpleNamespace(
         id=uuid4(),
         completion_remarks="旧内容",
+        translator_unit_price=Decimal("0.1000"),
+        translator_total_price=Decimal("100.00"),
         updated_at=None,
     )
 
@@ -78,7 +85,55 @@ def test_project_editor_syncs_completion_back_to_arrangement():
     )
 
     assert arrangement.completion_remarks == "已完成并通过检查"
+    assert arrangement.translator_unit_price == Decimal("0.1000")
+    assert arrangement.translator_total_price == Decimal("100.00")
     assert arrangement.updated_at is not None
+
+
+def test_sub_order_editor_syncs_prices_and_allows_zero_or_clear():
+    arrangement = SimpleNamespace(
+        id=uuid4(),
+        completion_remarks="旧内容",
+        translator_unit_price=Decimal("0.5000"),
+        translator_total_price=Decimal("88.00"),
+        updated_at=None,
+    )
+
+    crud._sync_assigned_translator_completions(
+        DbStub([arrangement]),
+        [
+            AssignedTranslatorCompletionUpdate(
+                arrangement_id=arrangement.id,
+                completion_remarks=None,
+                translator_unit_price=0,
+                translator_total_price=None,
+            )
+        ],
+        project_id=uuid4(),
+        sub_order_id=uuid4(),
+    )
+
+    assert arrangement.completion_remarks is None
+    assert arrangement.translator_unit_price == 0
+    assert arrangement.translator_total_price is None
+    assert arrangement.updated_at is not None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("translator_unit_price", "-0.0001"),
+        ("translator_unit_price", "1.23456"),
+        ("translator_total_price", "-0.01"),
+        ("translator_total_price", "1.234"),
+    ],
+)
+def test_assigned_translator_price_validation(field, value):
+    with pytest.raises(ValueError):
+        AssignedTranslatorCompletionUpdate(
+            arrangement_id=uuid4(),
+            **{field: value},
+        )
 
 
 def test_project_editor_rejects_completion_for_unmatched_arrangement():

@@ -3,7 +3,7 @@
     v-model:visible="visible"
     trigger="click"
     placement="left"
-    :width="560"
+    :width="680"
     popper-class="translator-completion-popover"
     :disabled="!normalizedTranslators.length"
     @show="resetDraft"
@@ -14,7 +14,7 @@
         type="button"
         class="translator-return-trigger business-clickable-cell"
         :class="{ 'is-disabled': !normalizedTranslators.length }"
-        :title="normalizedTranslators.length ? '点击编辑译员任务完成情况' : '暂无已指派译员'"
+        :title="normalizedTranslators.length ? '点击编辑译员任务完成情况及价格' : '暂无已指派译员'"
         @click.stop
       >
         <div v-if="deadlineItems.length" class="translator-return-deadlines">
@@ -29,8 +29,8 @@
 
     <div class="translator-completion-panel">
       <div class="translator-completion-panel__header">
-        <strong>译员任务完成情况</strong>
-        <span>完成情况与当前项目及对应译员的派稿任务绑定</span>
+        <strong>译员任务完成情况及价格</strong>
+        <span>完成情况、单价和总价与当前项目对应的派稿任务绑定</span>
       </div>
 
       <div class="translator-completion-panel__body">
@@ -39,18 +39,53 @@
             <strong>{{ item.translatorName }}</strong>
             <span>回稿时间：{{ formatDateTime(item.returnTime) }}</span>
           </div>
-          <el-input
-            v-if="editable"
-            v-model="item.completionRemarks"
-            type="textarea"
-            :autosize="{ minRows: 2, maxRows: 4 }"
-            maxlength="255"
-            show-word-limit
-            clearable
-            placeholder="请输入该译员的任务完成情况"
-          />
-          <div v-else class="translator-completion-row__readonly">
-            {{ item.completionRemarks || '-' }}
+          <div class="translator-completion-row__fields">
+            <div class="translator-completion-row__prices">
+              <label class="translator-completion-field">
+                <span>译员单价</span>
+                <el-input-number
+                  v-if="editable"
+                  v-model="item.translatorUnitPrice"
+                  :min="0"
+                  :precision="4"
+                  :controls="false"
+                  placeholder="请输入单价"
+                />
+                <div v-else class="translator-completion-row__readonly">
+                  {{ formatTranslatorPrice(item.translatorUnitPrice, 4) }}
+                </div>
+              </label>
+              <label class="translator-completion-field">
+                <span>译员总价</span>
+                <el-input-number
+                  v-if="editable"
+                  v-model="item.translatorTotalPrice"
+                  :min="0"
+                  :precision="2"
+                  :controls="false"
+                  placeholder="请输入总价"
+                />
+                <div v-else class="translator-completion-row__readonly">
+                  {{ formatTranslatorPrice(item.translatorTotalPrice, 2) }}
+                </div>
+              </label>
+            </div>
+            <label class="translator-completion-field">
+              <span>任务完成情况</span>
+              <el-input
+                v-if="editable"
+                v-model="item.completionRemarks"
+                type="textarea"
+                :autosize="{ minRows: 2, maxRows: 4 }"
+                maxlength="255"
+                show-word-limit
+                clearable
+                placeholder="请输入该译员的任务完成情况"
+              />
+              <div v-else class="translator-completion-row__readonly">
+                {{ item.completionRemarks || '-' }}
+              </div>
+            </label>
           </div>
         </div>
       </div>
@@ -68,6 +103,11 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
+import {
+  buildTranslatorAssignmentDetailUpdates,
+  formatTranslatorPrice,
+  normalizeTranslatorAssignmentDetails,
+} from '@/utils/translatorAssignmentDetails'
 
 const props = defineProps({
   translators: { type: Array, default: () => [] },
@@ -81,15 +121,7 @@ const visible = ref(false)
 const saving = ref(false)
 const draft = ref([])
 
-const normalizedTranslators = computed(() => props.translators
-  .map((item, index) => ({
-    arrangementId: item.arrangementId || item.arrangement_id || '',
-    translatorName: item.translatorName || item.translator_name || '译员',
-    returnTime: item.translatorReturnTime || item.translator_return_time || '',
-    completionRemarks: item.completionRemarks || item.completion_remarks || '',
-    index,
-  }))
-  .filter((item) => item.arrangementId))
+const normalizedTranslators = computed(() => normalizeTranslatorAssignmentDetails(props.translators))
 
 const deadlineItems = computed(() => normalizedTranslators.value.filter((item) => item.returnTime))
 const formatDateTime = (value) => value ? formatBusinessDateTime(value) : '-'
@@ -102,16 +134,13 @@ const handleSave = async () => {
   if (!props.save || saving.value) return
   saving.value = true
   try {
-    const completions = draft.value.map((item) => ({
-      arrangementId: item.arrangementId,
-      completionRemarks: item.completionRemarks?.trim() || null,
-    }))
-    const updated = await props.save(completions)
+    const details = buildTranslatorAssignmentDetailUpdates(draft.value)
+    const updated = await props.save(details)
     emit('saved', updated)
-    ElMessage.success('译员任务完成情况已保存')
+    ElMessage.success('译员任务完成情况及价格已保存')
     visible.value = false
   } catch (error) {
-    ElMessage.error(error?.detail || '译员任务完成情况保存失败')
+    ElMessage.error(error?.detail || '译员任务完成情况及价格保存失败')
   } finally {
     saving.value = false
   }
@@ -134,9 +163,15 @@ const handleSave = async () => {
 .translator-completion-row__meta { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .translator-completion-row__meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .translator-completion-row__meta span { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
+.translator-completion-row__fields { display: flex; min-width: 0; flex-direction: column; gap: 10px; }
+.translator-completion-row__prices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.translator-completion-field { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.translator-completion-field > span { color: var(--el-text-color-regular); font-size: 12px; line-height: 18px; }
+.translator-completion-field .el-input-number { width: 100%; }
 .translator-completion-row__readonly { min-height: 32px; padding: 6px 10px; border-radius: 4px; background: var(--el-fill-color-light); line-height: 20px; white-space: pre-wrap; word-break: break-word; }
 .translator-completion-panel__footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--el-border-color-lighter); }
 @media (max-width: 640px) {
   .translator-completion-row { grid-template-columns: 1fr; gap: 6px; }
+  .translator-completion-row__prices { grid-template-columns: 1fr; }
 }
 </style>

@@ -19,6 +19,7 @@ from recruitment_service import _apply_filters as apply_recruitment_filters
 from resource_service import _talent_query
 from resource_request_service import _view_filter_sql
 from routers.clients import _field_filters as client_field_filters
+from routers.annotation_projects import _field_filters as annotation_field_filters
 from routers.interpretation_projects import _field_filters as interpretation_field_filters
 from routers.recruitment_projects import _field_filters as recruitment_field_filters
 from routers.resource_requests import _field_filters as request_field_filters
@@ -86,6 +87,17 @@ def test_parse_field_filters_rejects_malformed_json_and_empty_in_values():
     assert empty_values.value.status_code == 422
 
 
+def test_annotation_project_manager_filter_contract_accepts_multi_select():
+    payload = {
+        "project_manager_id": {
+            "op": "in",
+            "value": ["00000000-0000-0000-0000-000000000001"],
+        },
+    }
+
+    assert annotation_field_filters(encoded(payload), Session()) == payload
+
+
 def test_resource_request_sql_uses_and_between_fields_and_or_inside_multi_select():
     sql, params = _view_filter_sql(field_filters={
         "project_status": {"op": "in", "value": ["in_progress", "closed"]},
@@ -131,10 +143,17 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
         field_filters={
             "has_customer_price": {"op": "eq", "value": True},
             "customer_price": {"op": "between", "min": 0.1, "max": 2.5},
+            "project_manager_id": {
+                "op": "in",
+                "value": ["00000000-0000-0000-0000-000000000001"],
+            },
         },
     ))
     assert "annotation_project_price_item" in annotation_sql
     assert "annotation_project_price_item.amount >=" in annotation_sql
+    assert "project_workbench_responsibility" in annotation_sql
+    assert "project_workbench_responsibility.role_code = 'project_manager'" in annotation_sql
+    assert "project_workbench_responsibility.assignee_id in" in annotation_sql
 
     recruitment_sql = compiled_sql(apply_recruitment_filters(
         project_query(RecruitmentProject),

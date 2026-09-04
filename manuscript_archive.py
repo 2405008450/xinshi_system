@@ -15,7 +15,7 @@ from path_security import DANGEROUS_FILE_EXTENSIONS
 
 
 MAX_MANUSCRIPT_ARCHIVE_SOURCE_BYTES = 50 * 1024 * 1024
-MAX_MANUSCRIPT_ARCHIVE_BYTES = 15 * 1024 * 1024
+MAX_MANUSCRIPT_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 75 * 1024 * 1024
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 
@@ -132,7 +132,7 @@ def build_manuscript_path_archive(
 
     content = buffer.getvalue()
     if len(content) > MAX_MANUSCRIPT_ARCHIVE_BYTES:
-        raise ValueError("共享文件压缩包不能超过 15MB")
+        raise ValueError("共享文件压缩包不能超过 50MB")
     return MailAttachment(
         filename=_safe_archive_filename(filename_stem),
         content=content,

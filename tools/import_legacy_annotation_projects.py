@@ -31,8 +31,10 @@ import annotation_service
 from annotation_models import AnnotationProject
 from annotation_ops_models import AnnotationCustomFieldDefinition
 from annotation_schemas import AnnotationPriceItemInput, AnnotationProjectCreate
+from crud import get_users_by_role_names
 from database import SessionLocal
 from models import AppUser, Client, SubClient
+from schemas import ProjectRoleAssignmentInput
 
 
 EXPECTED_HEADERS = [
@@ -230,8 +232,7 @@ def load_source(path: Path) -> list[SourceRow]:
     return result
 
 
-def active_user_map(db) -> dict[str, AppUser]:
-    users = db.query(AppUser).filter(AppUser.is_active.is_(True)).all()
+def user_name_map(users: list[AppUser]) -> dict[str, AppUser]:
     result = {}
     for user in users:
         for value in (user.full_name, user.username):
@@ -239,6 +240,10 @@ def active_user_map(db) -> dict[str, AppUser]:
             if key:
                 result.setdefault(key, user)
     return result
+
+
+def active_user_map(db) -> dict[str, AppUser]:
+    return user_name_map(db.query(AppUser).filter(AppUser.is_active.is_(True)).all())
 
 
 def resolve_single_user(raw_value: Any, users: dict[str, AppUser]) -> Optional[AppUser]:
@@ -351,6 +356,7 @@ def prepare_payload(
     row: SourceRow,
     db,
     users: dict[str, AppUser],
+    project_manager_users: dict[str, AppUser],
     custom_fields: dict[str, AnnotationCustomFieldDefinition],
     clients_exact,
     client_candidates,
@@ -360,6 +366,7 @@ def prepare_payload(
     raw_client_name = infer_client_name(row)
     client, sub_client, client_match = resolve_client(raw_client_name, clients_exact, client_candidates)
     customer_manager = resolve_single_user(values.get("客户部"), users)
+    project_manager = resolve_single_user(values.get("项目部"), project_manager_users)
     project_types = map_project_types(row)
     prices = parse_simple_price(values.get("价格（单价）"), project_types)
     extra_reserved: dict[str, Any] = {}
@@ -371,14 +378,14 @@ def prepare_payload(
         extra_reserved["开始合作时间（未识别）"] = values.get("开始合作时间")
     if clean_text(values.get("客户部")) and not customer_manager:
         extra_reserved["客户部（未匹配唯一用户）"] = values.get("客户部")
+    if clean_text(values.get("项目部")) and not project_manager:
+        extra_reserved["项目部（未匹配唯一项目经理用户）"] = values.get("项目部")
     if raw_client_name and not client:
         extra_reserved["客户名称（系统无精确匹配，将创建待完善客户）"] = raw_client_name
     project_path = safe_project_path(values.get("路径"), extra_reserved)
     custom_values = {}
     if clean_text(values.get("跟进状态")) and "跟进状态" in custom_fields:
         custom_values[str(custom_fields["跟进状态"].id)] = clean_text(values.get("跟进状态"))
-    if clean_text(values.get("项目部")) and "项目经理" in custom_fields:
-        custom_values[str(custom_fields["项目经理"].id)] = clean_text(values.get("项目部"))
     payload = AnnotationProjectCreate(
         project_name=project_name,
         project_types=project_types,
@@ -396,6 +403,12 @@ def prepare_payload(
         customer_consultation_time=consultation_time,
         customer_confirmation_time=confirmation_time,
         client_manager_id=customer_manager.id if customer_manager else None,
+        role_assignments=[
+            ProjectRoleAssignmentInput(
+                role_code="project_manager",
+                assignee_id=project_manager.id,
+            )
+        ] if project_manager else [],
         price_items=prices,
     )
     meta = {
@@ -435,6 +448,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if args.apply and socket.gethostname().casefold() != args.expected_host.casefold():
             raise RuntimeError(f"主机校验失败：当前为 {socket.gethostname()}，预期为 {args.expected_host}")
         users = active_user_map(db)
+        project_manager_users = user_name_map(get_users_by_role_names(db, ["项目经理"]))
         clients_exact, client_candidates = client_index(db)
         custom_fields = {
             item.field_label: item
@@ -474,7 +488,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             try:
                 payload, meta = prepare_payload(
-                    row, db, users, custom_fields, clients_exact, client_candidates,
+                    row, db, users, project_manager_users, custom_fields, clients_exact, client_candidates,
                 )
                 if not args.apply:
                     report["prepared"].append(meta)

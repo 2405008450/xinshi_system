@@ -29,22 +29,24 @@
 </template>
 
 <script setup>
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjectRoleCandidatesAPI } from '@/api/workflow'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
+  roleCodes: { type: Array, default: () => ['project_manager', 'project_specialist', 'project_assistant'] },
 })
 const emit = defineEmits(['update:modelValue'])
 
-const roles = [
+const allRoles = [
   { code: 'project_manager', label: '项目经理' },
   { code: 'project_specialist', label: '项目专员' },
   { code: 'project_assistant', label: '项目助理' },
 ]
-const candidates = reactive(Object.fromEntries(roles.map((role) => [role.code, []])))
-const loading = reactive(Object.fromEntries(roles.map((role) => [role.code, false])))
+const roles = computed(() => allRoles.filter((role) => props.roleCodes.includes(role.code)))
+const candidates = reactive(Object.fromEntries(allRoles.map((role) => [role.code, []])))
+const loading = reactive(Object.fromEntries(allRoles.map((role) => [role.code, false])))
 
 const assignmentValue = (roleCode) => (
   props.modelValue.find((item) => (item.roleCode || item.role_code) === roleCode)?.assigneeId
@@ -56,7 +58,7 @@ const candidateLabel = (candidate) => {
   return (candidate.isOnLeave || candidate.is_on_leave) ? `${name}（请假中）` : name
 }
 const updateAssignment = (roleCode, assigneeId) => {
-  const next = roles.map((role) => ({
+  const next = allRoles.map((role) => ({
     roleCode: role.code,
     assigneeId: role.code === roleCode ? (assigneeId || null) : (assignmentValue(role.code) || null),
   }))
@@ -67,13 +69,13 @@ const loadCandidates = async (roleCode) => {
   try {
     candidates[roleCode] = await getProjectRoleCandidatesAPI(roleCode) || []
   } catch (error) {
-    ElMessage.error(error.detail || `加载${roles.find((item) => item.code === roleCode)?.label}候选人失败`)
+    ElMessage.error(error.detail || `加载${allRoles.find((item) => item.code === roleCode)?.label}候选人失败`)
   } finally {
     loading[roleCode] = false
   }
 }
 
-onMounted(() => Promise.all(roles.map((role) => loadCandidates(role.code))))
+onMounted(() => Promise.all(roles.value.map((role) => loadCandidates(role.code))))
 </script>
 
 <style scoped>

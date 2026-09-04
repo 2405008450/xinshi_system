@@ -1038,6 +1038,8 @@ def _attach_manuscript_assignees(
             "translation_scope": row.translation_scope,
             "translator_return_time": row.planned_delivery_at,
             "completion_remarks": row.completion_remarks,
+            "translator_unit_price": row.translator_unit_price,
+            "translator_total_price": row.translator_total_price,
         }
 
     for project in projects:
@@ -1062,7 +1064,7 @@ def _sync_assigned_translator_completions(
     project_id: UUID,
     sub_order_id: Optional[UUID],
 ) -> None:
-    """把项目编辑页填写的完成情况原位写回稿件安排明细。"""
+    """把项目列表填写的译员完成及价格信息原位写回稿件安排明细。"""
     if updates is None:
         return
 
@@ -1092,8 +1094,13 @@ def _sync_assigned_translator_completions(
 
     now = datetime.now()
     for row in rows:
-        value = update_by_id[row.id].completion_remarks
-        row.completion_remarks = value.strip() if value and value.strip() else None
+        update = update_by_id[row.id]
+        if "completion_remarks" in update.model_fields_set:
+            value = update.completion_remarks
+            row.completion_remarks = value.strip() if value and value.strip() else None
+        for field in ("translator_unit_price", "translator_total_price"):
+            if field in update.model_fields_set:
+                setattr(row, field, getattr(update, field))
         row.updated_at = now
 
 

@@ -14,6 +14,8 @@ from annotation_schemas import (
     AnnotationProjectCreate,
     AnnotationProjectDetailResponse,
     AnnotationProjectListResponse,
+    AnnotationProjectManagersUpdate,
+    AnnotationProjectPriorityUpdate,
     AnnotationProjectStatusUpdate,
     AnnotationProjectUpdate,
 )
@@ -25,6 +27,8 @@ from annotation_service import (
     get_annotation_projects,
     preview_annotation_project_name,
     update_annotation_project,
+    update_annotation_project_managers,
+    update_annotation_project_priority,
     update_annotation_project_status,
 )
 from database import get_db
@@ -64,10 +68,11 @@ ANNOTATION_TEXT_FIELDS = {
 }
 
 ANNOTATION_FILTER_FIELDS = {
-    "order_no", "project_name", "project_types", "task_description", "project_status",
+    "order_no", "project_name", "project_types", "task_description", "project_status", "priority",
     "client_short_name", "client_code", "client_full_name", "contact_name", "customer_order_no",
     "language_id", "language_region", "potential_demand", "has_customer_price", "customer_price",
     "assignee_person_id", "task_dispatched_at", "task_submitted_at", "client_manager_id",
+    "project_manager_id",
     "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at",
 }
 
@@ -76,7 +81,10 @@ def _field_filters(raw: Optional[str], db: Session):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, ANNOTATION_FILTER_FIELDS, allow_custom=True)
     ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
-    enums = {"project_types", "project_status", "language_id", "assignee_person_id", "client_manager_id"}
+    enums = {
+        "project_types", "project_status", "priority", "language_id", "assignee_person_id",
+        "client_manager_id", "project_manager_id",
+    }
     booleans = {"has_customer_price"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in ANNOTATION_FILTER_FIELDS}, allow_custom=True)
     for key, descriptor in value.items():
@@ -388,6 +396,45 @@ def update_project_custom_text_field(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
     return get_annotation_project(db, project_id)
+
+
+@router.patch(
+    "/{project_id}/priority", response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_priority(
+    project_id: UUID,
+    payload: AnnotationProjectPriorityUpdate,
+    db: Session = Depends(get_db),
+):
+    project = update_annotation_project_priority(db, project_id, payload.priority)
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    return project
+
+
+@router.patch(
+    "/{project_id}/managers", response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_project_managers(
+    project_id: UUID,
+    payload: AnnotationProjectManagersUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        project = update_annotation_project_managers(
+            db,
+            project_id,
+            payload.client_manager_id,
+            payload.project_manager_id,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    return project
 
 
 @router.patch(

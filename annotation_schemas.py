@@ -38,6 +38,7 @@ ANNOTATION_PROJECT_STATUSES = {
     "cancelled",
     "partially_cancelled",
 }
+ANNOTATION_PROJECT_PRIORITIES = {"low", "medium", "high"}
 CURRENCY_SYMBOLS = {
     "CNY": "￥",
     "USD": "$",
@@ -215,6 +216,7 @@ class AnnotationProjectWrite(BaseModel):
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = Field(default=None, max_length=1000)
     project_status: str = "initial_consultation"
+    priority: str = "medium"
     language_region: Optional[str] = None
     status_effective_on: date = Field(default_factory=date.today)
     custom_values: dict = Field(default_factory=dict)
@@ -263,6 +265,13 @@ class AnnotationProjectWrite(BaseModel):
     def validate_status(cls, value):
         if value not in ANNOTATION_PROJECT_STATUSES:
             raise ValueError("不支持的标注项目状态")
+        return value
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value):
+        if value not in ANNOTATION_PROJECT_PRIORITIES:
+            raise ValueError("不支持的标注项目优先次序")
         return value
 
     @model_validator(mode="after")
@@ -319,6 +328,22 @@ class AnnotationProjectStatusUpdate(BaseModel):
         return _nullable_text(value)
 
 
+class AnnotationProjectPriorityUpdate(BaseModel):
+    priority: str
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value):
+        if value not in ANNOTATION_PROJECT_PRIORITIES:
+            raise ValueError("不支持的标注项目优先次序")
+        return value
+
+
+class AnnotationProjectManagersUpdate(BaseModel):
+    client_manager_id: Optional[UUID] = None
+    project_manager_id: Optional[UUID] = None
+
+
 class AnnotationProjectListResponse(BaseModel):
     id: UUID
     order_no: str
@@ -331,6 +356,7 @@ class AnnotationProjectListResponse(BaseModel):
     customer_order_no: Optional[str] = None
     email_subject_preview: Optional[str] = None
     project_status: str
+    priority: str
     language_region: Optional[str] = None
     status_effective_on: date
     custom_values: dict = Field(default_factory=dict)

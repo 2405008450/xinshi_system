@@ -78,6 +78,10 @@ class AnnotationProject(Base):
             "'partially_cancelled')",
             name="ck_annotation_project_status",
         ),
+        CheckConstraint(
+            "priority IN ('low','medium','high')",
+            name="ck_annotation_project_priority",
+        ),
         Index("ix_annotation_project_status", "project_status"),
         Index("ix_annotation_project_client", "client_id"),
         Index("ix_annotation_project_client_manager", "client_manager_id"),
@@ -102,6 +106,9 @@ class AnnotationProject(Base):
     email_subject_preview: Mapped[Optional[str]] = mapped_column(String(1000))
     project_status: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default=text("'initial_consultation'")
+    )
+    priority: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default=text("'medium'")
     )
     language_region: Mapped[Optional[str]] = mapped_column(String(255))
     status_effective_on: Mapped[datetime.date] = mapped_column(

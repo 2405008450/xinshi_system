@@ -193,6 +193,7 @@ def _apply_filters(
         "project_name": (AnnotationProject.project_name, "string"),
         "task_description": (AnnotationProject.task_description, "string"),
         "project_status": (AnnotationProject.project_status, "string"),
+        "priority": (AnnotationProject.priority, "string"),
         "contact_name": (AnnotationProject.contact_name, "string"),
         "customer_order_no": (AnnotationProject.customer_order_no, "string"),
         "language_region": (AnnotationProject.language_region, "string"),
@@ -223,6 +224,14 @@ def _apply_filters(
         elif field == "assignee_person_id":
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(AnnotationProjectAssignee, AnnotationProjectAssignee.project_id == AnnotationProject.id).filter(AnnotationProjectAssignee.person_id.in_(values))
+        elif field == "project_manager_id":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            responsibility = workflow_models.ProjectWorkbenchResponsibility
+            query = query.filter(db_exists().where(
+                responsibility.annotation_project_id == AnnotationProject.id,
+                responsibility.role_code == "project_manager",
+                responsibility.assignee_id.in_(values),
+            ))
         elif field == "has_customer_price":
             condition = AnnotationProject.price_items.any()
             query = query.filter(condition if descriptor.get("value") else ~condition)
@@ -524,6 +533,61 @@ def update_annotation_project_status(
     ))
     from project_workbench_service import ensure_active_project_responsibilities
     ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
+    db.commit()
+    return get_annotation_project(db, project.id)
+
+
+def update_annotation_project_priority(
+    db: Session,
+    project_id: UUID,
+    priority: str,
+) -> Optional[AnnotationProject]:
+    project = get_annotation_project(db, project_id)
+    if not project:
+        return None
+    if project.priority == priority:
+        return project
+    project.priority = priority
+    project.updated_at = datetime.now()
+    db.commit()
+    return get_annotation_project(db, project.id)
+
+
+def update_annotation_project_managers(
+    db: Session,
+    project_id: UUID,
+    client_manager_id: Optional[UUID],
+    project_manager_id: Optional[UUID],
+) -> Optional[AnnotationProject]:
+    """更新标注项目的客户经理和项目经理用户关联。"""
+    project = get_annotation_project(db, project_id)
+    if not project:
+        return None
+
+    if client_manager_id and client_manager_id != project.client_manager_id:
+        client_manager = db.query(AppUser).filter(
+            AppUser.id == client_manager_id,
+            AppUser.is_active.is_(True),
+        ).first()
+        if not client_manager:
+            raise ValueError("所选客户经理不存在或已停用")
+
+    from project_workbench_service import (
+        ensure_project_responsibilities,
+        validate_assignment_map,
+    )
+
+    current_project_manager_id = next((
+        item.assignee_id
+        for item in project.workbench_responsibilities
+        if item.role_code == "project_manager"
+    ), None)
+    assignments = {"project_manager": project_manager_id}
+    if project_manager_id != current_project_manager_id:
+        validate_assignment_map(db, assignments)
+    project.client_manager_id = client_manager_id
+    ensure_project_responsibilities(db, "annotation", project.id, assignments)
+    project.updated_at = datetime.now()
     db.commit()
     return get_annotation_project(db, project.id)
 

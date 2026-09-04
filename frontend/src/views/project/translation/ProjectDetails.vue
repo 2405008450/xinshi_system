@@ -163,7 +163,7 @@
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="190">
-                <template #header><ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况" /></template>
+                <template #header><ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况及价格" /></template>
                 <template #default="{ row: subRow }">
                   <TranslatorCompletionPopover
                     :translators="subRow.assignedTranslators"
@@ -1188,7 +1188,7 @@ const projectDetailItems = [
   { label: '客户反馈', key: 'clientFeedback', span: 2, editable: true, multiline: true },
   { label: '大项目经理确认', key: 'majorProjectManagerConfirmation' },
   { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
-  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators), clickHint: '点击回稿时间编辑译员任务完成情况' },
+  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators), clickHint: '点击回稿时间编辑译员任务完成情况及价格' },
   { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' },

@@ -1,5 +1,6 @@
 from typing import Optional
 from datetime import datetime, date, time
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -712,10 +713,22 @@ class TranslationProjectCreate(TranslationProjectBase):
         return validate_managed_path(value)
 
 class AssignedTranslatorCompletionUpdate(BaseModel):
-    """笔译项目编辑页回写稿件安排中的单个译员任务完成情况。"""
+    """笔译项目列表回写稿件安排中的单个译员完成及价格信息。"""
 
     arrangement_id: UUID
     completion_remarks: Optional[str] = Field(default=None, max_length=255)
+    translator_unit_price: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=4,
+    )
+    translator_total_price: Optional[Decimal] = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=2,
+    )
 
 
 class TranslationProjectUpdate(BaseModel):
@@ -796,6 +809,9 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     translator_return_time: Optional[datetime] = None
     # 译员回稿后的本次任务完成情况，由稿件安排模块维护。
     completion_remarks: Optional[str] = None
+    # 与稿件安排中的译员结算价格共用同一数据源。
+    translator_unit_price: Optional[Decimal] = None
+    translator_total_price: Optional[Decimal] = None
 
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級

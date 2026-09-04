@@ -332,15 +332,24 @@ INTERPRETATION_REQUIREMENT_COLUMN_STATEMENTS = (
 )
 ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS email_subject_preview VARCHAR(1000)",
+    "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS priority VARCHAR(10) NOT NULL DEFAULT 'medium'",
     "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS language_region VARCHAR(255)",
     "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS status_effective_on DATE NOT NULL DEFAULT CURRENT_DATE",
     "ALTER TABLE annotation_project ADD COLUMN IF NOT EXISTS custom_values JSONB NOT NULL DEFAULT '{}'::jsonb",
     "UPDATE annotation_project SET project_status=CASE project_status WHEN 'pending_confirmation' THEN 'initial_consultation' WHEN 'trial' THEN 'trial_in_progress' WHEN 'in_progress' THEN 'project_in_progress' ELSE project_status END WHERE project_status IN ('pending_confirmation','trial','in_progress')",
     "ALTER TABLE annotation_project ALTER COLUMN project_status SET DEFAULT 'initial_consultation'",
+    "ALTER TABLE annotation_project ALTER COLUMN priority SET DEFAULT 'medium'",
     """
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_project_status') THEN
         ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled'));
+      END IF;
+    END $$
+    """,
+    """
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_project_priority') THEN
+        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_priority CHECK(priority IN ('low','medium','high'));
       END IF;
     END $$
     """,

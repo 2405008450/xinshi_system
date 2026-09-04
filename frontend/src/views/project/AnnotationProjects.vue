@@ -70,6 +70,9 @@
                 <el-descriptions-item label="项目状态">
                   <el-tag :type="statusType(detailRow(row).projectStatus)">{{ statusLabel(detailRow(row).projectStatus) }}</el-tag>
                 </el-descriptions-item>
+                <el-descriptions-item label="优先次序">
+                  <el-tag :type="priorityType(detailRow(row).priority)">{{ priorityLabel(detailRow(row).priority) }}</el-tag>
+                </el-descriptions-item>
                 <el-descriptions-item label="状态生效日期">{{ textValue(detailRow(row).statusEffectiveOn) }}</el-descriptions-item>
                 <el-descriptions-item label="语言地区"><InlineTextField :model-value="detailRow(row).languageRegion" :editable="canWrite && !deleteMode" label="语言地区" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'languageRegion', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="项目名称" :span="2"><InlineTextField :model-value="detailRow(row).projectName" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'projectName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
@@ -125,7 +128,7 @@
                 <el-descriptions-item v-if="detailRow(row).legacyOrderNo" label="原笔译订单号">{{ detailRow(row).legacyOrderNo }}</el-descriptions-item>
                 <el-descriptions-item v-if="detailRow(row).legacyStatus" label="迁移前状态">{{ detailRow(row).legacyStatus }}</el-descriptions-item>
                 <el-descriptions-item
-                  v-for="field in projectCustomFields"
+                  v-for="field in visibleProjectCustomFields"
                   :key="field.id"
                   :label="field.fieldLabel"
                   :span="field.dataType === 'textarea' ? 2 : 1"
@@ -197,6 +200,51 @@
             </template>
           </el-dropdown>
           <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)" size="small">{{ statusLabel(row.projectStatus) }}</el-tag>
+          <el-dropdown
+            v-else-if="column.key === 'priority' && canWrite"
+            trigger="click"
+            :disabled="prioritySavingIds.has(row.id)"
+            @command="(command) => updatePriority(row, command)"
+          >
+            <el-tag
+              :type="priorityType(row.priority)"
+              size="small"
+              class="status-switch-tag"
+              :class="{ 'is-updating': prioritySavingIds.has(row.id) }"
+            >
+              <span class="status-switch-text">{{ priorityLabel(row.priority) }}</span>
+              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="item in priorityOptions"
+                  :key="item.value"
+                  :command="item.value"
+                  :disabled="item.value === row.priority || prioritySavingIds.has(row.id)"
+                >
+                  <span class="status-option-row">
+                    <el-tag :type="priorityType(item.value)" size="small" effect="plain">{{ item.label }}</el-tag>
+                    <el-icon v-if="item.value === row.priority" class="status-current-icon"><Check /></el-icon>
+                  </span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-tag v-else-if="column.key === 'priority'" :type="priorityType(row.priority)" size="small">{{ priorityLabel(row.priority) }}</el-tag>
+          <el-select
+            v-else-if="['clientManagerName', 'projectManagerName'].includes(column.key) && canWrite"
+            :model-value="managerValue(row, column.key)"
+            :loading="managerSavingIds.has(row.id)"
+            filterable
+            clearable
+            size="small"
+            class="inline-manager-select"
+            @click.stop
+            @change="(value) => updateManager(row, column.key, value)"
+          >
+            <el-option v-for="item in managerOptions(column.key)" :key="item.id" :label="userLabel(item)" :value="item.id" :disabled="column.key === 'projectManagerName' && (item.isOnLeave || item.is_on_leave)" />
+          </el-select>
           <InlineTextField
             v-else-if="column.key === 'projectName'"
             :model-value="row.projectName"
@@ -207,6 +255,7 @@
             @conflict="fetchData"
           />
           <span v-else-if="column.key === 'projectTypes'">{{ projectTypesText(row.projectTypes) }}</span>
+          <span v-else-if="column.key === 'projectManagerName'">{{ roleAssignmentName(row, 'project_manager') }}</span>
           <el-popover
             v-else-if="column.key === 'clientShortName'"
             trigger="click"
@@ -275,8 +324,11 @@
               <el-col :xs="24"><el-form-item label="项目名称" prop="projectName"><GeneratedProjectNameInput v-model="form.projectName" placeholder="可手工填写，或根据客户、方向和类型生成" @manual-input="nameManuallyEdited=true" @regenerate="generateProjectName" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="项目类型" prop="projectTypes"><el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+              <el-col :xs="24"><el-form-item label="项目类型" prop="projectTypes"><el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户经理" prop="clientManagerId"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="item in activeUsers" :key="item.id" :label="userLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="项目经理"><el-select v-model="projectManagerId" filterable clearable style="width:100%"><el-option v-for="item in projectManagerOptions" :key="item.id" :label="userLabel(item)" :value="item.id" :disabled="item.isOnLeave || item.is_on_leave" /></el-select></el-form-item></el-col>
             </el-row>
             <el-form-item label="具体任务" prop="taskDescription"><el-input v-model="form.taskDescription" type="textarea" :rows="3" placeholder="请输入具体任务" /></el-form-item>
             <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
@@ -309,6 +361,7 @@
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="优先次序"><el-select v-model="form.priority" style="width:100%"><el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="状态生效日期"><el-date-picker v-model="form.statusEffectiveOn" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="语言地区"><el-input v-model="form.languageRegion" placeholder="例如：肇庆" /></el-form-item></el-col>
             </el-row>
@@ -341,9 +394,9 @@
             </el-row>
           </section>
 
-          <section v-if="projectCustomFields.length" class="form-section">
+          <section v-if="visibleProjectCustomFields.length" class="form-section">
             <h3>自定义业务字段</h3>
-            <el-row :gutter="16"><el-col v-for="field in projectCustomFields" :key="field.id" :xs="24" :md="12"><el-form-item :label="field.fieldLabel" :required="field.isRequired">
+            <el-row :gutter="16"><el-col v-for="field in visibleProjectCustomFields" :key="field.id" :xs="24" :md="12"><el-form-item :label="field.fieldLabel" :required="field.isRequired">
               <el-switch v-if="field.dataType==='boolean'" v-model="form.customValues[field.id]" />
               <el-input-number v-else-if="field.dataType==='number'" v-model="form.customValues[field.id]" style="width:100%" />
               <el-date-picker v-else-if="field.dataType==='date'" v-model="form.customValues[field.id]" value-format="YYYY-MM-DD" style="width:100%" />
@@ -391,7 +444,7 @@
               </div>
             </el-form-item>
           </section>
-          <InternalProjectRolesForm v-model="form.roleAssignments" />
+          <InternalProjectRolesForm v-model="form.roleAssignments" :role-codes="['project_specialist', 'project_assistant']" />
         </AppForm>
       </div>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
@@ -424,6 +477,7 @@ import * as clientApi from '@/api/clients'
 import * as talentApi from '@/api/talents'
 import * as userApi from '@/api/users'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
+import { getProjectRoleCandidatesAPI } from '@/api/workflow'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
@@ -479,6 +533,12 @@ const statusOptions = [
   ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],
 ].map(([value,label]) => ({ value,label }))
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value,item.label]))
+const priorityOptions = [
+  { value:'low', label:'低' },
+  { value:'medium', label:'中' },
+  { value:'high', label:'高' },
+]
+const priorityMap = Object.fromEntries(priorityOptions.map((item) => [item.value,item.label]))
 const assignmentStatusMap = { assigned:'已安排',in_progress:'进行中',completed:'已完成',cancelled:'已取消' }
 const currencyOptions = [
   { value:'CNY', symbol:'￥', name:'人民币' },
@@ -489,12 +549,14 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText },{ key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'clientManagerName',label:'客户经理',width:82 },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText },{ key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
-const { fields:projectCustomFields, tableColumns:customTableColumns, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
+const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
+const visibleProjectCustomFields = computed(()=>projectCustomFields.value.filter((field)=>field.fieldLabel?.trim()!=='项目经理'))
+const customTableColumns = computed(()=>visibleProjectCustomFields.value.map((field)=>({key:`custom:${field.id}`,label:field.fieldLabel,minWidth:field.dataType==='text'||field.dataType==='url'?160:110,customField:field})))
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
-const defaultColumns = ['orderNo','projectName','projectTypes','taskDescription','projectStatus','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt','clientManagerName']
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v4',tableColumns,defaultColumns)
+const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns)
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
@@ -503,8 +565,10 @@ const statusDialogVisible=ref(false), statusSubmitting=ref(false), statusTargetR
 const statusForm=reactive({projectStatus:'',effectiveOn:'',changeNote:''})
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
-const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([])
+const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([]), projectManagerOptions=ref([])
 const projectStatusSavingIds=ref(new Set())
+const prioritySavingIds=ref(new Set())
+const managerSavingIds=ref(new Set())
 const detailCache=reactive({}), statusHistoryCache=reactive({}), assignmentCustomFields=ref([]), pagination=reactive({page:1,limit:10,total:0})
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
@@ -517,8 +581,12 @@ const localDateValue=(value=new Date())=>`${value.getFullYear()}-${padDatePart(v
 const today=()=>localDateValue()
 const projectNameDate=()=>{const matched=String(form.orderNo||'').match(/^AP-(\d{2})(\d{2})(\d{2})-\d+$/);return matched?`20${matched[1]}-${matched[2]}-${matched[3]}`:today()}
 const emptyLanguageItem=()=>({mode:'single',sourceLanguageId:'',targetLanguageId:''})
-const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',statusEffectiveOn:today(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
+const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:today(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
 const form=reactive(emptyForm())
+const projectManagerId=computed({
+  get:()=>{const assignment=form.roleAssignments.find((item)=>(item.roleCode||item.role_code)==='project_manager');return assignment?.assigneeId||assignment?.assignee_id||''},
+  set:(value)=>{const current=form.roleAssignments.filter((item)=>(item.roleCode||item.role_code)!=='project_manager');form.roleAssignments=[...current,{roleCode:'project_manager',assigneeId:value||null}]},
+})
 const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'annotation-project',form,createDefault:emptyForm,formRef,applyDraft:(draft)=>{Object.assign(form,emptyForm(),draft);nameManuallyEdited.value=Boolean(draft.projectName)}})
 const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clientShortName?.trim() || form.clientFullName?.trim()))
 const requiredTextValidator=(message)=>(_rule,value,callback)=>String(value||'').trim()?callback():callback(new Error(message))
@@ -541,7 +609,7 @@ const currentLanguageOptions=computed(()=>form.languageItems.filter((item)=>item
 const baseAnnotationFilterFields=[
   {key:'orderNo',label:'订单号',type:'text'},{key:'projectName',label:'项目名称',type:'text'},
   {key:'projectTypes',label:'项目类型',type:'select',options:projectTypeOptions},{key:'taskDescription',label:'具体任务',type:'text'},
-  {key:'projectStatus',label:'项目状态',type:'select',options:statusOptions},{key:'clientShortName',label:'客户简称',type:'text'},
+  {key:'projectStatus',label:'项目状态',type:'select',options:statusOptions},{key:'priority',label:'优先次序',type:'select',options:priorityOptions},{key:'clientShortName',label:'客户简称',type:'text'},
   {key:'clientCode',label:'客户编号',type:'text'},{key:'clientFullName',label:'客户全称',type:'text'},
   {key:'contactName',label:'子客户/联系人',type:'text'},{key:'customerOrderNo',label:'客户单号/项目标识',type:'text'},
   {key:'languageItemsDisplay',apiKey:'language_id',label:'语言方向',type:'select',options:()=>languages.value.map((item)=>({label:item.label,value:item.id}))},
@@ -551,6 +619,7 @@ const baseAnnotationFilterFields=[
   {key:'assigneeSummary',apiKey:'assignee_person_id',label:'标注人员安排',type:'select',options:()=>annotationTalents.value.map((item)=>({label:`${item.fullName}${item.resourceCode?`（${item.resourceCode}）`:''}`,value:item.id}))},
   {key:'taskDispatchedAt',label:'任务派发时间',type:'date-range',wide:true},{key:'taskSubmittedAt',label:'任务提交时间',type:'date-range',wide:true},
   {key:'clientManagerName',apiKey:'client_manager_id',label:'客户经理',type:'select',options:()=>activeUsers.value.map((item)=>({label:userLabel(item),value:item.id}))},
+  {key:'projectManagerName',apiKey:'project_manager_id',label:'项目经理',type:'select',options:()=>projectManagerOptions.value.map((item)=>({label:userLabel(item),value:item.id}))},
   {key:'customerConsultationTime',label:'客户咨询时间',type:'date-range',wide:true},{key:'customerConfirmationTime',label:'客户确认时间',type:'date-range',wide:true},
   {key:'createdAt',label:'创建时间',type:'date-range',wide:true},{key:'updatedAt',label:'更新时间',type:'date-range',wide:true},
 ]
@@ -564,7 +633,7 @@ const customFilterDefinition=(field)=>{
 }
 const annotationFilterFields=computed(()=>[
   ...baseAnnotationFilterFields,
-  ...projectCustomFields.value.filter((field)=>field.isActive!==false&&!['image','url'].includes(field.dataType)).map(customFilterDefinition),
+  ...visibleProjectCustomFields.value.filter((field)=>field.isActive!==false&&!['image','url'].includes(field.dataType)).map(customFilterDefinition),
 ])
 const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>item.key!=='projectStatus'))
 Object.assign(searchForm,createFilterModel(baseAnnotationFilterFields),{keyword:''})
@@ -579,10 +648,16 @@ const userLabel=(item)=>item.full_name||item.fullName||item.username
 const textValue=(value)=>value===null||value===undefined||value===''?'-':String(value)
 const customFieldText=(value)=>Array.isArray(value)?value.join('、'):value===true?'是':value===false?'否':textValue(value)
 const internalRolesText=(row)=>{const labels={project_manager:'项目经理',project_specialist:'项目专员',project_assistant:'项目助理'};return (row.roleAssignments||[]).map((item)=>`${labels[item.roleCode]||item.roleName}：${item.assigneeName||'未分配'}`).join('；')||'-'}
+const roleAssignmentId=(row,roleCode)=>{const assignment=row.roleAssignments?.find((item)=>(item.roleCode||item.role_code)===roleCode);return assignment?.assigneeId||assignment?.assignee_id||null}
+const roleAssignmentName=(row,roleCode)=>{const assignment=row.roleAssignments?.find((item)=>(item.roleCode||item.role_code)===roleCode);return assignment?.assigneeName||assignment?.assignee_name||'-'}
+const managerValue=(row,columnKey)=>columnKey==='clientManagerName'?(row.clientManagerId||null):roleAssignmentId(row,'project_manager')
+const managerOptions=(columnKey)=>columnKey==='clientManagerName'?activeUsers.value:projectManagerOptions.value
 const compactDateTime=(value)=>{if(!value)return '-';const date=new Date(String(value).replace(' ','T'));if(Number.isNaN(date.getTime()))return String(value);const monthDay=`${date.getMonth()+1}/${date.getDate()}`;return date.getFullYear()===new Date().getFullYear()?monthDay:`${date.getFullYear()}/${monthDay}`}
 const projectTypesText=(values)=>Array.isArray(values)&&values.length?values.map((value)=>projectTypeMap[value]||value).join('；'):'-'
 const statusLabel=(value)=>statusMap[value]||value||'-'
 const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning'}[value]||'info')
+const priorityLabel=(value)=>priorityMap[value]||'-'
+const priorityType=(value)=>({high:'danger',medium:'warning',low:'info'}[value]||'info')
 const assignmentStatusLabel=(value)=>assignmentStatusMap[value]||value||'-'
 const assignmentStatusType=(value)=>({assigned:'info',in_progress:'primary',completed:'success',cancelled:'danger'}[value]||'info')
 const languageName=(id)=>languages.value.find((item)=>item.id===id)?.label||''
@@ -601,7 +676,7 @@ const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
 const handleConfiguredTextInput=(value)=>handleTextSearch(value)
 const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFields.value);handleSearch()}
 const resetSearch=()=>{searchForm.keyword='';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
-const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[]}
+const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),getProjectRoleCandidatesAPI('project_manager')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];projectManagerOptions.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 const loadDetailWithHistory=async(id)=>{await Promise.all([loadDetail(id),annotationOpsApi.getStatusHistory(id).then(rows=>{statusHistoryCache[id]=rows}).catch(()=>{statusHistoryCache[id]=[]})])}
 const loadAssignmentCustomFields=async()=>{assignmentCustomFields.value=form.id?await annotationOpsApi.getCustomFields('assignment',form.id):[]}
@@ -620,7 +695,7 @@ const normalizedLanguageItems=()=>form.languageItems.filter((item)=>item.sourceL
 const splitLanguageKey=(key)=>{if(!key)return {sourceLanguageId:null,targetLanguageId:null};const [source,target]=key.split(':');return {sourceLanguageId:source||null,targetLanguageId:target||null}}
 const validateLanguageItems=()=>{if(!form.languageItems.length)throw new Error('请至少添加一个语种方向');for(const item of form.languageItems){if(!item.sourceLanguageId)throw new Error('每个语言项都必须选择语种');if(item.mode==='direction'&&!item.targetLanguageId)throw new Error('翻译方向必须选择目标语种');if(item.targetLanguageId===item.sourceLanguageId)throw new Error('语言方向的两个语种不能相同')}const keys=normalizedLanguageItems().map((item)=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)throw new Error('同一语言或语言方向不能重复')}
 const validateFormData=()=>{validateLanguageItems();if(form.taskDispatchedAt&&form.taskSubmittedAt&&new Date(form.taskSubmittedAt)<new Date(form.taskDispatchedAt))throw new Error('任务提交时间不能早于任务派发时间');const languageKeys=new Set(currentLanguageOptions.value.map((item)=>item.key));for(const item of form.priceItems){if(item.projectType&&!form.projectTypes.includes(item.projectType))throw new Error('报价引用了当前项目未选择的项目类型');if(item.languageKey&&!languageKeys.has(item.languageKey))throw new Error('报价引用了当前项目未选择的语言项');if(!item.amount||item.amount<=0)throw new Error('报价金额必须大于零');if(!item.unit?.trim())throw new Error('报价必须填写计价单位')}for(const item of form.assignees){if(!item.personId)throw new Error('每条标注人员安排都必须选择人员')}const keys=form.assignees.map((item)=>`${item.personId}:${item.languageItemId||''}:${item.assignmentRole}`);if(new Set(keys).size!==keys.length)throw new Error('同一人员、语种与角色不能重复安排')}
-const buildPayload=()=>{validateFormData();return {projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAt||null,clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null}))}}
+const buildPayload=()=>{validateFormData();return {projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,priority:form.priority,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAt||null,clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null}))}}
 const generateProjectName=async()=>{try{validateLanguageItems();const result=await annotationApi.previewAnnotationProjectName({clientShortName:form.clientShortName?.trim()||null,projectTypes:form.projectTypes,languageItems:normalizedLanguageItems(),nameDate:projectNameDate()});form.projectName=result.projectName;nameManuallyEdited.value=false;ElMessage.success('项目名称已生成，仍可手工修改')}catch(error){ElMessage.warning(getLocalizedErrorMessage(error,'无法生成项目名称'))}}
 const generateEmailSubject=()=>notifyEmailSubjectGenerated(form,ElMessage)
 const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:detail.statusEffectiveOn||today(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:detail.taskDispatchedAt||'',taskSubmittedAt:detail.taskSubmittedAt||'',clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||''})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
@@ -632,6 +707,10 @@ const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLoc
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const openStatusDialog=(row,value)=>{if(!value||value===row.projectStatus)return;statusTargetRow.value=row;Object.assign(statusForm,{projectStatus:value,effectiveOn:today(),changeNote:''});statusDialogVisible.value=true}
 const confirmStatusChange=async()=>{const row=statusTargetRow.value;if(!row||!statusForm.projectStatus||!statusForm.effectiveOn)return;statusSubmitting.value=true;setProjectStatusSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(row.id,statusForm);Object.assign(row,updated);detailCache[row.id]=updated;delete statusHistoryCache[row.id];statusDialogVisible.value=false;ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.detail||'项目状态更新失败')}finally{statusSubmitting.value=false;setProjectStatusSaving(row.id,false)}}
+const setPrioritySaving=(id,saving)=>{const next=new Set(prioritySavingIds.value);if(saving)next.add(id);else next.delete(id);prioritySavingIds.value=next}
+const updatePriority=async(row,priority)=>{if(!priority||priority===row.priority)return;setPrioritySaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectPriority(row.id,priority);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('优先次序已更新');if(searchForm.priority?.length&&!searchForm.priority.includes(updated.priority))await fetchData()}catch(error){ElMessage.error(error?.detail||'优先次序更新失败')}finally{setPrioritySaving(row.id,false)}}
+const setManagerSaving=(id,saving)=>{const next=new Set(managerSavingIds.value);if(saving)next.add(id);else next.delete(id);managerSavingIds.value=next}
+const updateManager=async(row,columnKey,value)=>{const isClientManager=columnKey==='clientManagerName';const payload={clientManagerId:isClientManager?(value||null):(row.clientManagerId||null),projectManagerId:isClientManager?roleAssignmentId(row,'project_manager'):(value||null)};setManagerSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectManagers(row.id,payload);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success(`${isClientManager?'客户经理':'项目经理'}已更新`);if(searchForm.clientManagerName?.length||searchForm.projectManagerName?.length)await fetchData()}catch(error){ElMessage.error(error?.detail||'负责人更新失败')}finally{setManagerSaving(row.id,false)}}
 const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.value=[];nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 const onEditorClosed=()=>{pauseDraft();resetForm()}
 
@@ -652,6 +731,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
+.inline-manager-select{width:100%}
 .card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 .annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}
 .annotation-key-fields__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.annotation-key-fields__header h3{margin-bottom:0}.annotation-key-fields__header p{margin:3px 0 0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}

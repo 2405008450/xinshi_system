@@ -59,6 +59,14 @@ export const updateAnnotationProjectStatus = (id, payload) => (
   api.patch(`/projects/annotation/${id}/status`, convertKeys(payload, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const updateAnnotationProjectPriority = (id, priority) => (
+  api.patch(`/projects/annotation/${id}/priority`, { priority }).then((res) => convertKeys(res, toCamelCase))
+)
+
+export const updateAnnotationProjectManagers = (id, data) => (
+  api.patch(`/projects/annotation/${id}/managers`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const deleteAnnotationProject = (id) => api.delete(`/projects/annotation/${id}`)
 
 export const previewAnnotationProjectName = (data) => (

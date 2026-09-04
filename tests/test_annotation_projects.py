@@ -5,9 +5,15 @@ from uuid import uuid4
 
 import pytest
 
+import annotation_service
 import workflow_models  # noqa: F401
 from annotation_models import AnnotationProject, AnnotationProjectPriceItem
-from annotation_schemas import AnnotationProjectCreate, AnnotationProjectListResponse
+from annotation_schemas import (
+    AnnotationProjectCreate,
+    AnnotationProjectListResponse,
+    AnnotationProjectManagersUpdate,
+    AnnotationProjectPriorityUpdate,
+)
 from annotation_service import (
     build_annotation_project_name,
     ensure_annotation_project_for_consultation,
@@ -72,6 +78,7 @@ def test_annotation_project_list_response_keeps_language_items():
             id=uuid4(),
             order_no="AP-260826-001",
             project_status="initial_consultation",
+            priority="medium",
             status_effective_on=date(2026, 8, 26),
             language_items=[
                 SimpleNamespace(
@@ -91,6 +98,65 @@ def test_annotation_project_list_response_keeps_language_items():
 
     assert response.language_items[0].source_language_id == language_id
     assert response.language_items[0].display == "温州话"
+
+
+def test_annotation_project_priority_defaults_to_medium_and_rejects_invalid_value():
+    assert AnnotationProjectCreate().priority == "medium"
+    assert AnnotationProjectPriorityUpdate(priority="high").priority == "high"
+
+    with pytest.raises(ValueError, match="不支持的标注项目优先次序"):
+        AnnotationProjectPriorityUpdate(priority="urgent")
+
+
+def test_annotation_project_manager_update_accepts_user_relations_and_clearing():
+    client_manager_id = uuid4()
+    project_manager_id = uuid4()
+
+    payload = AnnotationProjectManagersUpdate(
+        client_manager_id=client_manager_id,
+        project_manager_id=project_manager_id,
+    )
+    assert payload.client_manager_id == client_manager_id
+    assert payload.project_manager_id == project_manager_id
+    assert AnnotationProjectManagersUpdate().project_manager_id is None
+
+
+def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
+    project_id = uuid4()
+    project_manager_id = uuid4()
+    project = SimpleNamespace(
+        id=project_id,
+        client_manager_id=None,
+        workbench_responsibilities=[],
+        updated_at=None,
+    )
+    assignments_seen = []
+
+    class ManagerDb:
+        def commit(self):
+            pass
+
+    monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
+    monkeypatch.setattr(
+        "project_workbench_service.validate_assignment_map",
+        lambda _db, assignments: assignments_seen.append(("validate", assignments)),
+    )
+    monkeypatch.setattr(
+        "project_workbench_service.ensure_project_responsibilities",
+        lambda _db, project_type, saved_project_id, assignments: assignments_seen.append(
+            (project_type, saved_project_id, assignments)
+        ),
+    )
+
+    result = annotation_service.update_annotation_project_managers(
+        ManagerDb(), project_id, None, project_manager_id,
+    )
+
+    assert result is project
+    assert assignments_seen == [
+        ("validate", {"project_manager": project_manager_id}),
+        ("annotation", project_id, {"project_manager": project_manager_id}),
+    ]
 
 
 def test_customer_price_summary_shows_amount_only():

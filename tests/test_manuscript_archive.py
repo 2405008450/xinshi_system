@@ -59,6 +59,16 @@ def test_build_archive_rejects_dangerous_files(tmp_path):
         build_manuscript_path_archive(str(tmp_path), None)
 
 
+def test_build_archive_uses_50mb_memory_attachment_limit(tmp_path, monkeypatch):
+    assert manuscript_archive.MAX_MANUSCRIPT_ARCHIVE_BYTES == 50 * 1024 * 1024
+
+    (tmp_path / "稿件.txt").write_bytes(b"content")
+    monkeypatch.setattr(manuscript_archive, "MAX_MANUSCRIPT_ARCHIVE_BYTES", 1)
+
+    with pytest.raises(ValueError, match="共享文件压缩包不能超过 50MB"):
+        build_manuscript_path_archive(str(tmp_path), None)
+
+
 def test_validate_mail_size_includes_manual_and_automatic_attachments(monkeypatch):
     monkeypatch.setattr(manuscript_archive, "MAX_MANUSCRIPT_MAIL_CONTENT_BYTES", 5)
     attachments = [
