@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>笔译项目管理</span>
         <div class="header-actions">
+          <el-button v-if="!deleteMode" :icon="Download" @click="openExportDialog">导出 Excel</el-button>
           <TableColumnSettings
             v-model="visibleColumnKeys"
             v-model:secondary-model-value="visibleSubOrderColumnKeys"
@@ -38,11 +39,6 @@
       <el-form-item label="状态">
         <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable style="width: 180px" @change="handleSearch">
           <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="排序">
-        <el-select v-model="sortMode" style="width: 230px" @change="handleSortChange">
-          <el-option v-for="item in sortModeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -213,25 +209,39 @@
         :label-class-name="getSortColumnClass(column.key)"
       >
         <template #header>
-          <ConfiguredColumnHeaderFilter
-            v-if="headerFilterDefinition(column.key)"
-            :definition="headerFilterDefinition(column.key)"
-            :model-value="searchForm[headerFilterDefinition(column.key).key]"
-            @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event"
-            @text-input="handleConfiguredTextInput"
-            @change="handleSearch"
-            @enter="handleSearch"
-            @clear="handleSearch"
-          >
-            <template #label>
+          <div class="project-column-header">
+            <ConfiguredColumnHeaderFilter
+              v-if="headerFilterDefinition(column.key)"
+              :definition="headerFilterDefinition(column.key)"
+              :model-value="searchForm[headerFilterDefinition(column.key).key]"
+              @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event"
+              @text-input="handleConfiguredTextInput"
+              @change="handleSearch"
+              @enter="handleSearch"
+              @clear="handleSearch"
+            >
+              <template #label>
+                <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
+                <span v-else>{{ column.label }}</span>
+              </template>
+            </ConfiguredColumnHeaderFilter>
+            <template v-else>
               <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
               <span v-else>{{ column.label }}</span>
             </template>
-          </ConfiguredColumnHeaderFilter>
-          <template v-else>
-            <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-            <span v-else>{{ column.label }}</span>
-          </template>
+            <button
+              v-if="getTimeSortMode(column.key)"
+              type="button"
+              class="time-column-sort-trigger"
+              :class="{ 'is-active': isTimeSortActive(column.key) }"
+              :aria-label="getTimeSortTitle(column)"
+              :aria-pressed="isTimeSortActive(column.key)"
+              :title="getTimeSortTitle(column)"
+              @click.stop="toggleTimeSort(column.key)"
+            >
+              <el-icon><SortUp /></el-icon>
+            </button>
+          </div>
         </template>
         <template #default="{ row }">
           <div v-if="column.key === 'orderNo'" class="order-no-actions">
@@ -368,6 +378,59 @@
       @size-change="applyPagination"
       @current-change="applyPagination"
     />
+
+    <el-dialog
+      v-model="exportDialogVisible"
+      title="导出笔译项目"
+      width="min(520px, calc(100vw - 32px))"
+      top="12vh"
+      :close-on-click-modal="!exporting"
+      :close-on-press-escape="!exporting"
+      :show-close="!exporting"
+      @closed="resetExportForm"
+    >
+      <AppForm
+        ref="exportFormRef"
+        :model="exportForm"
+        :rules="exportRules"
+        label-width="110px"
+        @submit.prevent
+      >
+        <el-form-item label="时间口径" prop="timeField">
+          <el-select v-model="exportForm.timeField" style="width: 100%">
+            <el-option
+              v-for="item in TRANSLATION_EXPORT_TIME_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="时间范围" prop="dateRange">
+          <el-date-picker
+            v-model="exportForm.dateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            unlink-panels
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-alert
+          title="将继承当前关键词和高级筛选，并导出命中母订单下的全部子订单。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+      </AppForm>
+      <template #footer>
+        <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="exporting" @click="handleExport">导出</el-button>
+      </template>
+    </el-dialog>
 
     <DraggableFormDialog
       v-model="dialogVisible"
@@ -970,8 +1033,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretBottom, Check, MagicStick } from '@element-plus/icons-vue'
-import { getProjects, getProjectCount, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo } from '@/api/projects'
+import { CaretBottom, Check, Download, MagicStick, SortUp } from '@element-plus/icons-vue'
+import { getProjects, getProjectCount, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
@@ -1021,6 +1084,20 @@ import {
   parseBusinessDateTime,
 } from '@/utils/deadlineDisplay'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import {
+  DEFAULT_TRANSLATION_PROJECT_SORT,
+  TRANSLATION_PROJECT_TIME_SORT_MODES,
+  getTranslationProjectTimeSortMode,
+  getTranslationProjectTimeSortTitle,
+  isTranslationProjectTimeSortActive,
+  nextTranslationProjectTimeSortMode,
+} from '@/utils/translationProjectTimeSort'
+import {
+  DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
+  TRANSLATION_EXPORT_TIME_OPTIONS,
+  buildTranslationExportFilename,
+  buildTranslationExportParams,
+} from '@/utils/translationProjectExport'
 
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
@@ -1233,6 +1310,17 @@ const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', su
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
+const exporting = ref(false)
+const exportDialogVisible = ref(false)
+const exportFormRef = ref(null)
+const exportForm = reactive({
+  timeField: DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
+  dateRange: [],
+})
+const exportRules = {
+  timeField: [{ required: true, message: '请选择时间口径', trigger: 'change' }],
+  dateRange: [{ type: 'array', required: true, len: 2, message: '请选择完整的时间范围', trigger: 'change' }],
+}
 let submitLocked = false
 const projectCreateIdempotencyKey = ref('')
 const dialogVisible = ref(false)
@@ -1271,13 +1359,9 @@ const projectRoleOptionsLoading = ref(false)
 const projectRoleOptionsLoaded = ref(false)
 const projectNameManuallyEdited = ref(false)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
-const DEFAULT_SORT_MODE = 'unfinished_first_order_no_desc'
+const DEFAULT_SORT_MODE = DEFAULT_TRANSLATION_PROJECT_SORT
 const sortMode = ref(DEFAULT_SORT_MODE)
-const sortModeOptions = [
-  { label: '默认：订单号倒序', value: DEFAULT_SORT_MODE },
-  { label: '译员回稿：待回稿紧急优先', value: 'translator_return_time_asc' },
-  { label: '客户交稿：待交稿紧急优先', value: 'customer_deadline_time_asc' },
-]
+const TIME_SORT_MODES = TRANSLATION_PROJECT_TIME_SORT_MODES
 const {
   deleteMode,
   deleting,
@@ -1338,6 +1422,7 @@ const translationFilterFields = [
   { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
   { key: 'customerReceptionTime', label: '客户接单时间', type: 'date-range', wide: true },
   { key: 'customerDeadlineTime', label: '客户交稿时间', type: 'date-range', wide: true },
+  { key: 'translatorReturnTime', label: '译员回稿时间', type: 'date-range', wide: true },
   { key: 'sentToClientTime', label: '发客户时间', type: 'date-range', wide: true },
   { key: 'pmConfirmedBy', label: 'PM确认人', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
   { key: 'majorProjectManagerConfirmation', label: '大项目经理确认', type: 'text' },
@@ -1351,7 +1436,7 @@ const translationFilterFields = [
 Object.assign(searchForm, createFilterModel(translationFilterFields), { keyword: '' })
 const translationAdvancedFilterFields = translationFilterFields.filter((item) => item.key !== 'projectStatus')
 const advancedFilterCount = computed(() => countActiveFilters(searchForm, translationAdvancedFilterFields))
-const translationDefaultFilterKeys = new Set(['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime'])
+const translationDefaultFilterKeys = new Set(['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime', 'translatorReturnTime'])
 const translationHeaderFieldMap = { projectManagerName: 'projectManagerId' }
 const headerFilterDefinition = (columnKey) => {
   if (!translationDefaultFilterKeys.has(columnKey)) return null
@@ -1391,7 +1476,7 @@ const tableColumnOverrides = {
   priority: { minWidth: 80 },
   wordCountMatrix: { label: '字数统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目字数统计' },
   customerReceptionTime: { minWidth: 150 },
-  customerDeadlineTime: { width: 148, minWidth: 140, showOverflowTooltip: false },
+  customerDeadlineTime: { width: 170, minWidth: 160, showOverflowTooltip: false },
   sentToClientTime: { minWidth: 150 },
   clientFeedback: { minWidth: 240 },
   majorProjectManagerConfirmation: { minWidth: 160 },
@@ -1446,6 +1531,14 @@ const {
   { legacyDefaultKeys: [legacySubOrderDefaultColumnKeys] },
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
+watch(visibleColumnKeys, (keys) => {
+  const activeColumnKey = Object.keys(TIME_SORT_MODES)
+    .find((key) => TIME_SORT_MODES[key] === sortMode.value)
+  if (activeColumnKey && !keys.includes(activeColumnKey)) {
+    sortMode.value = DEFAULT_SORT_MODE
+    handleSortChange()
+  }
+})
 const form = reactive(createEmptyProjectForm())
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'translation-project',
@@ -1794,6 +1887,39 @@ const buildFilterParams = () => ({
   keyword: searchForm.keyword.trim() || undefined,
   field_filters: serializeFieldFilters(searchForm, translationFilterFields),
 })
+const resetExportForm = () => {
+  exportForm.timeField = DEFAULT_TRANSLATION_EXPORT_TIME_FIELD
+  exportForm.dateRange = []
+  exportFormRef.value?.clearValidate()
+}
+const openExportDialog = () => {
+  resetExportForm()
+  exportDialogVisible.value = true
+}
+const handleExport = async () => {
+  if (!exportFormRef.value || exporting.value) return
+  const valid = await exportFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  exporting.value = true
+  try {
+    const params = buildTranslationExportParams(buildFilterParams(), exportForm, sortMode.value)
+    const blob = await exportTranslationProjects(params)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = buildTranslationExportFilename(exportForm.timeField, exportForm.dateRange)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    exportDialogVisible.value = false
+    ElMessage.success('导出成功')
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, '导出笔译项目失败'))
+  } finally {
+    exporting.value = false
+  }
+}
 let searchTimer = null
 let requestController = null
 let requestSequence = 0
@@ -1977,6 +2103,14 @@ const handleTextSearch = (value) => {
 }
 const handleSearch = () => { exitDeleteMode(); clearProjectExpansion(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
 const handleSortChange = () => { exitDeleteMode(); clearProjectExpansion(); pagination.page = 1; fetchData() }
+const getTimeSortMode = getTranslationProjectTimeSortMode
+const isTimeSortActive = (columnKey) => isTranslationProjectTimeSortActive(sortMode.value, columnKey)
+const getTimeSortTitle = (column) => getTranslationProjectTimeSortTitle(sortMode.value, column.key, column.label)
+const toggleTimeSort = (columnKey) => {
+  if (!getTimeSortMode(columnKey)) return
+  sortMode.value = nextTranslationProjectTimeSortMode(sortMode.value, columnKey)
+  handleSortChange()
+}
 const getSortColumnClass = (columnKey) => {
   if (sortMode.value === 'translator_return_time_asc' && columnKey === 'translatorReturnTime') return 'is-active-sort-column'
   if (sortMode.value === 'customer_deadline_time_asc' && columnKey === 'customerDeadlineTime') return 'is-active-sort-column'
@@ -2508,6 +2642,29 @@ onBeforeUnmount(() => {
   color: var(--el-color-primary);
 }
 .project-table :deep(td.is-active-sort-column) { background: rgb(64 158 255 / 4%); }
+.project-column-header { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; }
+.time-column-sort-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  font-size: 13px;
+}
+.time-column-sort-trigger:hover { background: var(--el-fill-color); color: var(--el-color-primary); }
+.time-column-sort-trigger.is-active {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+.time-column-sort-trigger.is-active:hover { background: #1d4ed8; color: #fff; }
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {
