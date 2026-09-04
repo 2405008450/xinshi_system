@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from annotation_models import AnnotationProject
 from annotation_service import _apply_filters as apply_annotation_filters
-from crud import _apply_client_filters, _apply_translation_project_filters
+from crud import _apply_client_filters, _apply_translation_project_filters, get_translation_projects
 from field_filtering import parse_field_filters
 from interpretation_models import InterpretationProject
 from interpretation_service import _apply_filters as apply_interpretation_filters
@@ -44,11 +44,47 @@ def project_query(model):
     return select(model.id).outerjoin(Client, model.client_id == Client.id).outerjoin(SubClient, model.sub_client_id == SubClient.id)
 
 
+class RecordingTranslationQuery:
+    def __init__(self):
+        self.ordering = ()
+
+    def options(self, *_args):
+        return self
+
+    def outerjoin(self, *_args):
+        return self
+
+    def filter(self, *_args):
+        return self
+
+    def order_by(self, *ordering):
+        self.ordering = ordering
+        return self
+
+    def offset(self, _value):
+        return self
+
+    def limit(self, _value):
+        return self
+
+    def all(self):
+        return []
+
+
+class RecordingTranslationDb:
+    def __init__(self):
+        self.query_instance = RecordingTranslationQuery()
+
+    def query(self, _model):
+        return self.query_instance
+
+
 @pytest.mark.parametrize(
     ("parser", "payload"),
     [
         (client_field_filters, {"client_name": {"op": "contains", "value": "信实"}}),
         (translation_field_filters, {"project_status": {"op": "in", "value": ["confirmed", "paused"]}}),
+        (translation_field_filters, {"translator_return_time": {"op": "between", "from": "2026-09-01", "to": "2026-09-30"}}),
         (interpretation_field_filters, {"scheduled_date": {"op": "between", "from": "2026-08-01", "to": "2026-08-31"}}),
         (recruitment_field_filters, {"candidate_count": {"op": "between", "min": 1, "max": 5}}),
         (talent_field_filters, {"duplicate_review_required": {"op": "eq", "value": True}}),
@@ -65,6 +101,7 @@ def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):
     [
         (client_field_filters, {"unknown": {"op": "contains", "value": "x"}}),
         (translation_field_filters, {"word_count": {"op": "contains", "value": "10"}}),
+        (translation_field_filters, {"translator_return_time": {"op": "contains", "value": "2026-09"}}),
         (interpretation_field_filters, {"translator_id": {"op": "contains", "value": "x"}}),
         (recruitment_field_filters, {"candidate_count": {"op": "eq", "value": 2}}),
         (talent_field_filters, {"status": {"op": "contains", "value": "active"}}),
@@ -127,6 +164,7 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
     assert "manuscript_arrangement.translator_name_snapshot" in translation_sql
     assert "word_count_metric" in translation_sql
 
+
     interpretation_sql = compiled_sql(apply_interpretation_filters(
         project_query(InterpretationProject),
         field_filters={
@@ -164,6 +202,66 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
     ))
     assert "headcount_max >=" in recruitment_sql and "headcount_min <=" in recruitment_sql
     assert "count(recruitment_candidate.id)" in recruitment_sql
+
+
+def test_translation_return_time_filter_uses_any_confirmed_parent_arrangement_and_full_days():
+    sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={
+            "translator_return_time": {
+                "op": "between",
+                "from": "2026-09-01",
+                "to": "2026-09-30",
+            },
+        },
+    ))
+
+    assert "exists (select" in sql
+    assert "manuscript_arrangement.translation_project_id = translation_project.id" in sql
+    assert "manuscript_arrangement.sub_order_id is null" in sql
+    assert "manuscript_arrangement.planned_delivery_at is not null" in sql
+    assert "manuscript_arrangement.status != 'cancelled'" in sql
+    assert "manuscript_dispatch.status != 'cancelled'" in sql
+    assert "manuscript_dispatch.confirmed_at is not null" in sql
+    assert "manuscript_arrangement.planned_delivery_at >= '2026-09-01 00:00:00'" in sql
+    assert "manuscript_arrangement.planned_delivery_at < '2026-10-01 00:00:00'" in sql
+
+
+def test_translation_return_time_filter_rejects_invalid_dates():
+    with pytest.raises(HTTPException) as exc_info:
+        _apply_translation_project_filters(
+            project_query(TranslationProject),
+            field_filters={
+                "translator_return_time": {
+                    "op": "between",
+                    "from": "不是日期",
+                    "to": "2026-09-30",
+                },
+            },
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("sort_mode", "expected_sql"),
+    [
+        ("unfinished_first_order_no_desc", "translation_project.project_status in"),
+        ("customer_deadline_time_asc", "translation_project.customer_deadline_time asc"),
+        ("translator_return_time_asc", "min(manuscript_arrangement.planned_delivery_at)"),
+    ],
+)
+def test_translation_time_sort_modes_keep_business_priority_ordering(sort_mode, expected_sql):
+    db = RecordingTranslationDb()
+
+    assert get_translation_projects(db, sort=sort_mode) == []
+
+    ordering_sql = " ".join(compiled_sql(item) for item in db.query_instance.ordering)
+    assert expected_sql in ordering_sql
+    assert "translation_project.order_no" in ordering_sql
+    if sort_mode == "translator_return_time_asc":
+        assert "manuscript_arrangement.sub_order_id is null" in ordering_sql
+        assert "manuscript_dispatch.confirmed_at is not null" in ordering_sql
 
 
 def test_client_and_talent_field_filters_compile_to_related_record_predicates():

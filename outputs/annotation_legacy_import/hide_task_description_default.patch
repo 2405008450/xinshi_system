@@ -1,0 +1,11 @@
+diff --git a/frontend/src/views/project/AnnotationProjects.vue b/frontend/src/views/project/AnnotationProjects.vue
+--- a/frontend/src/views/project/AnnotationProjects.vue
++++ b/frontend/src/views/project/AnnotationProjects.vue
+@@ -557,4 +557,5 @@
+ const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
+-const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns)
++const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
++const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
++const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
+ const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))

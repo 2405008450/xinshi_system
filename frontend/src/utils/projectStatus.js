@@ -56,6 +56,8 @@ export const PROJECT_STATUS_OPTIONS = {
     { value: 'offer_negotiation', label: 'Offer谈判阶段' },
     { value: 'pending_onboard', label: '候选人待入职' },
     { value: 'probation', label: '已入职保用期' },
+    { value: 'full_time_dispatch', label: '全职外派' },
+    { value: 'cancelled', label: '项目取消' },
     { value: 'closed', label: '项目结案' },
   ],
 }
@@ -98,6 +100,7 @@ const PROJECT_STATUS_TYPES = {
   offer_negotiation: 'warning',
   pending_onboard: 'primary',
   probation: 'success',
+  full_time_dispatch: 'success',
   closed: 'success',
 }
 

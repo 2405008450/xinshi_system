@@ -4,7 +4,7 @@
       <div class="page-header">
         <div>
           <h2>项目操作审计</h2>
-          <p>永久保留四类项目的新增和删除记录，用于追溯订单号及操作人。</p>
+          <p>永久保留四类项目的新增、删除和订单号修改记录，用于追溯订单号及操作人。</p>
         </div>
       </div>
     </template>
@@ -24,6 +24,7 @@
       <el-select v-model="filters.operationType" clearable placeholder="操作类型" class="short-filter" @change="search">
         <el-option label="新增" value="create" />
         <el-option label="删除" value="delete" />
+        <el-option label="修改订单号" value="order_no_change" />
       </el-select>
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
@@ -70,11 +71,9 @@
       <el-table-column prop="project_type" label="项目类型" width="105">
         <template #default="{ row }">{{ projectTypeLabel(row.project_type) }}</template>
       </el-table-column>
-      <el-table-column prop="operation_type" label="操作" width="90">
+      <el-table-column prop="operation_type" label="操作" width="120">
         <template #default="{ row }">
-          <el-tag :type="row.operation_type === 'delete' ? 'danger' : 'success'">
-            {{ row.operation_type === 'delete' ? '删除' : '新增' }}
-          </el-tag>
+          <el-tag :type="operationTagType(row.operation_type)">{{ operationLabel(row.operation_type) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="project_name" label="项目名称" min-width="220" show-overflow-tooltip>
@@ -95,12 +94,15 @@
               <el-descriptions :column="2" border size="small">
                 <el-descriptions-item label="订单号">{{ row.order_no }}</el-descriptions-item>
                 <el-descriptions-item label="项目类型">{{ projectTypeLabel(row.project_type) }}</el-descriptions-item>
-                <el-descriptions-item label="操作类型">{{ row.operation_type === 'delete' ? '删除' : '新增' }}</el-descriptions-item>
+                <el-descriptions-item label="操作类型">{{ operationLabel(row.operation_type) }}</el-descriptions-item>
                 <el-descriptions-item label="操作时间">{{ formatDateTime(row.occurred_at) }}</el-descriptions-item>
                 <el-descriptions-item label="操作人">{{ actorLabel(row) }}</el-descriptions-item>
                 <el-descriptions-item label="操作来源">{{ sourceLabel(row.operation_source) }}</el-descriptions-item>
                 <el-descriptions-item label="项目名称" :span="2">{{ row.project_name || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="项目原始 ID" :span="2">{{ row.project_id }}</el-descriptions-item>
+                <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="原订单号">{{ row.previous_order_no || '-' }}</el-descriptions-item>
+                <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="新订单号">{{ row.order_no }}</el-descriptions-item>
+                <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="修改原因" :span="2">{{ row.change_reason || '-' }}</el-descriptions-item>
               </el-descriptions>
               <h4>项目数据快照</h4>
               <el-descriptions :column="2" border size="small">
@@ -149,6 +151,7 @@ const sourceLabels = {
   project_delete: '删除管理',
   consultation_confirmation: '咨询确认建项',
   legacy_import: '历史导入',
+  project_order_no_change: '订单号修改',
 }
 const fieldLabels = {
   id: '项目 ID', order_no: '订单号', project_name: '项目名称', project_status: '项目状态',
@@ -168,6 +171,8 @@ let requestController
 let requestSequence = 0
 
 const projectTypeLabel = value => projectTypeOptions.find(item => item.value === value)?.label || value || '-'
+const operationLabel = value => ({create:'新增',delete:'删除',order_no_change:'修改订单号'}[value] || value || '-')
+const operationTagType = value => ({create:'success',delete:'danger',order_no_change:'warning'}[value] || 'info')
 const sourceLabel = value => sourceLabels[value] || value || '-'
 const actorLabel = row => row.actor_name_snapshot || row.actor_username_snapshot || '未知用户'
 const indexMethod = index => (pagination.page - 1) * pagination.pageSize + index + 1

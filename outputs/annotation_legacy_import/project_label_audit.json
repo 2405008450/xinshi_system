@@ -1,0 +1,66 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source_current.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "source_nonempty_labels": 149,
+  "current_projects": 149,
+  "exact_matches": 147,
+  "exact_missing": 2,
+  "missing": [
+    {
+      "row": 135,
+      "project_name": "【20260826-杭州众智为马-温州线上采集】",
+      "same_import_key": null,
+      "closest_matches": [
+        {
+          "similarity": 0.7907,
+          "id": "bb5196e3-f4a9-4d72-b3b2-ec9d501cb097",
+          "order_no": "AP-260903-077",
+          "project_name": "【20260713-杭州众智为马-温州话采集】",
+          "idempotency_key": "legacy-annotation-a885a52c8125d418-row-74"
+        },
+        {
+          "similarity": 0.7442,
+          "id": "4007c9a7-7506-4ae6-89e5-b206fb3011e2",
+          "order_no": "AP-260903-045",
+          "project_name": "【20260528-杭州众智为马-温州话标注】",
+          "idempotency_key": "legacy-annotation-a885a52c8125d418-row-42"
+        },
+        {
+          "similarity": 0.7143,
+          "id": "aeb8f5be-24e7-43ae-892c-9b6432b3e99f",
+          "order_no": "AP-260903-086",
+          "project_name": "【20260726-杭州众智为马-粤语标注】",
+          "idempotency_key": "legacy-annotation-a885a52c8125d418-row-83"
+        }
+      ]
+    },
+    {
+      "row": 148,
+      "project_name": "【合肥思达智数信息科技-20260903-阿拉伯语（方言）-音频标注】",
+      "same_import_key": null,
+      "closest_matches": [
+        {
+          "similarity": 0.9062,
+          "id": "e72d3c6e-08f7-4cbe-81f6-5fe0698faae6",
+          "order_no": "AP-260903-001",
+          "project_name": "【合肥思达智数信息科技-20260903-阿拉伯语（现代标准）-音频标注】",
+          "idempotency_key": "1788414560865-794af41c0923c"
+        },
+        {
+          "similarity": 0.7123,
+          "id": "2dd26c50-a28b-41c4-8f85-a3bbecbd5723",
+          "order_no": "AP-260903-002",
+          "project_name": "【合肥思达智数信息科技-20260903-南非zulu语、afrikaans-音频标注】",
+          "idempotency_key": "1788414968591-200accb350c218"
+        },
+        {
+          "similarity": 0.6545,
+          "id": "a2ffca13-ab1d-4fd3-9d34-012d4e732451",
+          "order_no": "AP-260903-004",
+          "project_name": "【青岛熙诚科技-20260903-希腊语-音频标注】",
+          "idempotency_key": "1788429984262-4f67a222c0467"
+        }
+      ]
+    }
+  ]
+}

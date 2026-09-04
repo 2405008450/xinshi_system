@@ -1,0 +1,578 @@
+{
+  "mode": "dry-run",
+  "changed": [],
+  "unchanged": [
+    {
+      "id": "22a923a4-3e9b-4b96-bae7-d49c34c084f8",
+      "order_no": "AP-260903-005"
+    },
+    {
+      "id": "468e8b8a-ca7f-486e-bd9c-d3288ef6ee29",
+      "order_no": "AP-260903-006"
+    },
+    {
+      "id": "00570e32-eccf-4cd9-87af-3f8f9ace6031",
+      "order_no": "AP-260903-007"
+    },
+    {
+      "id": "44faf3e2-ca77-41d8-ba89-3dc3728e8ad5",
+      "order_no": "AP-260903-008"
+    },
+    {
+      "id": "3e68feed-8548-4324-9b05-af2adfdfc958",
+      "order_no": "AP-260903-009"
+    },
+    {
+      "id": "047a0d63-3999-446b-a7ce-26492adbb9e9",
+      "order_no": "AP-260903-010"
+    },
+    {
+      "id": "38521698-997d-43e4-b8e5-d9ca8578c226",
+      "order_no": "AP-260903-011"
+    },
+    {
+      "id": "eb3d3e34-5ddf-40b9-a359-1479af610d9e",
+      "order_no": "AP-260903-012"
+    },
+    {
+      "id": "315d95a3-e2fe-4d6a-b0c0-5b6db8b9d8c9",
+      "order_no": "AP-260903-013"
+    },
+    {
+      "id": "1ac37f0c-871a-4134-ac7c-357e6e748ca4",
+      "order_no": "AP-260903-014"
+    },
+    {
+      "id": "4e146d8f-d572-4cda-9e5c-8859b87b1b1d",
+      "order_no": "AP-260903-015"
+    },
+    {
+      "id": "ab38cf84-b459-4c98-9d64-46a6fcd043e7",
+      "order_no": "AP-260903-016"
+    },
+    {
+      "id": "2cd1b61f-a3f7-40b8-86d4-e477377caa3e",
+      "order_no": "AP-260903-017"
+    },
+    {
+      "id": "741b2e2b-6a8b-4a51-8526-96658a47ebb6",
+      "order_no": "AP-260903-018"
+    },
+    {
+      "id": "aec20f10-e428-43d6-9574-d2159652f0e8",
+      "order_no": "AP-260903-019"
+    },
+    {
+      "id": "e9618725-22a2-49aa-89b9-7c7b61cddd3d",
+      "order_no": "AP-260903-020"
+    },
+    {
+      "id": "a403f1f9-67f5-4eec-9ff2-54d1c8f3e919",
+      "order_no": "AP-260903-021"
+    },
+    {
+      "id": "718f87ef-d7ab-4fc0-8001-71e374495a79",
+      "order_no": "AP-260903-022"
+    },
+    {
+      "id": "40211aee-1532-497f-8a71-cb02eec15f69",
+      "order_no": "AP-260903-023"
+    },
+    {
+      "id": "30e40a47-fc3d-4c06-93d4-3eb04fb16f49",
+      "order_no": "AP-260903-024"
+    },
+    {
+      "id": "ef7ab1ed-3695-4133-a8d3-ec98f121e6b9",
+      "order_no": "AP-260903-025"
+    },
+    {
+      "id": "c29cb6db-be92-42d7-8564-02ffaeb7f028",
+      "order_no": "AP-260903-026"
+    },
+    {
+      "id": "df43730e-142e-4f15-a1c5-87bd6c2dd7ae",
+      "order_no": "AP-260903-027"
+    },
+    {
+      "id": "8deb8edc-a141-4f60-8dd0-7767ca7a5b4c",
+      "order_no": "AP-260903-028"
+    },
+    {
+      "id": "06d1c107-823d-4cf3-862f-f5345f9d9a83",
+      "order_no": "AP-260903-029"
+    },
+    {
+      "id": "799f129f-e6fb-4d7a-ae4e-8d0024760a11",
+      "order_no": "AP-260903-030"
+    },
+    {
+      "id": "ab02d48a-5002-4f1f-94b9-65c1b66b8c0a",
+      "order_no": "AP-260903-031"
+    },
+    {
+      "id": "8aeddc6a-a5e4-4fc8-896e-41e7a486d88c",
+      "order_no": "AP-260903-032"
+    },
+    {
+      "id": "8ca5d03d-5e73-4e6a-a1c3-06e06cc63df4",
+      "order_no": "AP-260903-033"
+    },
+    {
+      "id": "310b622b-0399-4a65-a233-543afca9d258",
+      "order_no": "AP-260903-034"
+    },
+    {
+      "id": "8848ab0b-6a5b-4d72-b92a-5504d66fc1a2",
+      "order_no": "AP-260903-035"
+    },
+    {
+      "id": "7695293a-b3ff-4a28-aa17-ee63af46b188",
+      "order_no": "AP-260903-036"
+    },
+    {
+      "id": "e3e244bd-9039-4ee8-b5eb-39ec2d2ef4f7",
+      "order_no": "AP-260903-037"
+    },
+    {
+      "id": "cb2ba9ee-0ede-431e-ae9c-187e01a95820",
+      "order_no": "AP-260903-038"
+    },
+    {
+      "id": "c69b1fa5-c1ec-4d13-87b3-952389bd16a1",
+      "order_no": "AP-260903-039"
+    },
+    {
+      "id": "b9bc14fa-b60d-4674-a6ca-3c8f09a16acd",
+      "order_no": "AP-260903-040"
+    },
+    {
+      "id": "06c7aa7e-e239-410b-a4fb-b8a86d82a9f1",
+      "order_no": "AP-260903-041"
+    },
+    {
+      "id": "f4638f8f-449f-4c96-9b67-924e37cde85b",
+      "order_no": "AP-260903-042"
+    },
+    {
+      "id": "1f724272-5a80-4c25-8954-d5ec3a85191c",
+      "order_no": "AP-260903-043"
+    },
+    {
+      "id": "eb24988a-c212-4f29-b220-0577f273a8cc",
+      "order_no": "AP-260903-044"
+    },
+    {
+      "id": "4007c9a7-7506-4ae6-89e5-b206fb3011e2",
+      "order_no": "AP-260903-045"
+    },
+    {
+      "id": "27f11522-935f-4eab-afed-7943c3f58901",
+      "order_no": "AP-260903-046"
+    },
+    {
+      "id": "a259200c-12a9-4751-b6d8-3e090c9562cf",
+      "order_no": "AP-260903-047"
+    },
+    {
+      "id": "0fc53007-a58f-4b3d-ae41-22bd7cae73c8",
+      "order_no": "AP-260903-048"
+    },
+    {
+      "id": "5cbc085c-8a10-435a-a951-3a8c30b3cf49",
+      "order_no": "AP-260903-049"
+    },
+    {
+      "id": "1af1ce48-ee31-4a52-a7bb-b009c39510ad",
+      "order_no": "AP-260903-050"
+    },
+    {
+      "id": "51cc9a07-f9ab-4219-9065-0c9d73a40ed5",
+      "order_no": "AP-260903-051"
+    },
+    {
+      "id": "85443e36-899c-4dc4-9c27-39e40d57a8a1",
+      "order_no": "AP-260903-052"
+    },
+    {
+      "id": "a0bb0e61-945f-453d-91f5-c7600a37d71a",
+      "order_no": "AP-260903-053"
+    },
+    {
+      "id": "09f45a23-4aaf-4f28-b7b2-2683da77f6f8",
+      "order_no": "AP-260903-054"
+    },
+    {
+      "id": "acb0d227-796f-4bb2-8076-fd4f72b039c2",
+      "order_no": "AP-260903-055"
+    },
+    {
+      "id": "f5f4b19a-5dc6-47fa-a86b-049425f4d55b",
+      "order_no": "AP-260903-056"
+    },
+    {
+      "id": "c5eb5e80-2a95-43b6-b66f-d005cd4e45e4",
+      "order_no": "AP-260903-057"
+    },
+    {
+      "id": "0c9ddc28-3cf1-4cda-ab18-e482144633d2",
+      "order_no": "AP-260903-058"
+    },
+    {
+      "id": "f2381f0d-32af-4f7c-98ae-e25e7d8de6b1",
+      "order_no": "AP-260903-059"
+    },
+    {
+      "id": "c763fff0-d842-42b1-aab8-a1ed20e361ec",
+      "order_no": "AP-260903-060"
+    },
+    {
+      "id": "b749a5ad-75ca-488e-ad12-5f69e3c4a3e7",
+      "order_no": "AP-260903-061"
+    },
+    {
+      "id": "3703687a-6972-44b2-9490-da71dd9619a5",
+      "order_no": "AP-260903-062"
+    },
+    {
+      "id": "cb734c46-da45-428b-930a-1196365bbfe3",
+      "order_no": "AP-260903-063"
+    },
+    {
+      "id": "2156b176-3488-4c7c-bbc7-42df19eb0600",
+      "order_no": "AP-260903-064"
+    },
+    {
+      "id": "e914eb7d-f38a-492e-a4a8-59088cd378e2",
+      "order_no": "AP-260903-065"
+    },
+    {
+      "id": "8140c300-be6f-480c-a4c2-bb83a2b00c9c",
+      "order_no": "AP-260903-066"
+    },
+    {
+      "id": "4ab7dea3-ff2b-4c72-a16f-e0d7d723080c",
+      "order_no": "AP-260903-067"
+    },
+    {
+      "id": "ebc524b7-b439-49da-945e-33f0d88e6db5",
+      "order_no": "AP-260903-068"
+    },
+    {
+      "id": "910820ef-0543-4f4a-afc4-01eabe16cef4",
+      "order_no": "AP-260903-069"
+    },
+    {
+      "id": "0d042b67-d1df-48be-88e0-778c50b5d212",
+      "order_no": "AP-260903-070"
+    },
+    {
+      "id": "bdf117c2-3c02-4758-9131-c790dc319080",
+      "order_no": "AP-260903-071"
+    },
+    {
+      "id": "9821b31b-f211-478e-9470-93afe1b92777",
+      "order_no": "AP-260903-072"
+    },
+    {
+      "id": "a07145cf-21af-4807-b6e4-4038e9699701",
+      "order_no": "AP-260903-073"
+    },
+    {
+      "id": "5393a917-1334-42a1-b0c6-bfdd7b483c70",
+      "order_no": "AP-260903-074"
+    },
+    {
+      "id": "95036eff-0092-4d01-83ec-f8e5c31c1257",
+      "order_no": "AP-260903-075"
+    },
+    {
+      "id": "2b1d7038-1453-411d-9b70-2d608856d8aa",
+      "order_no": "AP-260903-076"
+    },
+    {
+      "id": "bb5196e3-f4a9-4d72-b3b2-ec9d501cb097",
+      "order_no": "AP-260903-077"
+    },
+    {
+      "id": "7381d66c-041f-452a-a1e5-1cee89ec311f",
+      "order_no": "AP-260903-078"
+    },
+    {
+      "id": "7edd08d5-3cac-4989-bdc1-c13e23e3d90c",
+      "order_no": "AP-260903-079"
+    },
+    {
+      "id": "2d2b695c-0ed4-42f4-8327-bf0d28d6123c",
+      "order_no": "AP-260903-080"
+    },
+    {
+      "id": "82470f89-660c-4df2-a293-a1c8d2ab2188",
+      "order_no": "AP-260903-081"
+    },
+    {
+      "id": "fe455402-22a6-4225-8396-438a384393a5",
+      "order_no": "AP-260903-082"
+    },
+    {
+      "id": "4bb635cf-7264-4ef9-9cd3-bf12809faafe",
+      "order_no": "AP-260903-083"
+    },
+    {
+      "id": "ac8f6baf-c4a3-44e3-a908-24d22195d554",
+      "order_no": "AP-260903-084"
+    },
+    {
+      "id": "8742e350-3d30-41c0-860a-55643f91c63e",
+      "order_no": "AP-260903-085"
+    },
+    {
+      "id": "aeb8f5be-24e7-43ae-892c-9b6432b3e99f",
+      "order_no": "AP-260903-086"
+    },
+    {
+      "id": "a9dedb40-5f35-4dfb-a7f2-b0ce8bc86e1d",
+      "order_no": "AP-260903-087"
+    },
+    {
+      "id": "42ec63a6-ea5b-4f29-a2dc-2e2e579f12ae",
+      "order_no": "AP-260903-088"
+    },
+    {
+      "id": "df17266b-b461-46f1-b303-b56ca66b2219",
+      "order_no": "AP-260903-089"
+    },
+    {
+      "id": "aab69fa8-4705-44b9-b751-7ee8687de830",
+      "order_no": "AP-260903-090"
+    },
+    {
+      "id": "34c9aebe-8a4c-4346-a23b-2a6f5494f47b",
+      "order_no": "AP-260903-091"
+    },
+    {
+      "id": "f4bdb1ec-ab4a-4115-8d18-0230d8f8136e",
+      "order_no": "AP-260903-092"
+    },
+    {
+      "id": "90f28614-95ed-4e4a-a5a3-9466ec2537c2",
+      "order_no": "AP-260903-093"
+    },
+    {
+      "id": "c6ff1bc4-06e8-449a-86a8-0a66ec73f617",
+      "order_no": "AP-260903-094"
+    },
+    {
+      "id": "480c2f90-c738-4566-af0d-bbcaaaad2efe",
+      "order_no": "AP-260903-095"
+    },
+    {
+      "id": "c4038d9e-cbb7-444a-96d8-10092b0006a9",
+      "order_no": "AP-260903-096"
+    },
+    {
+      "id": "d3b12f32-23ba-4149-bdc5-298795088e8d",
+      "order_no": "AP-260903-097"
+    },
+    {
+      "id": "ea073ea1-59c7-4d29-9585-3998cc7aa16d",
+      "order_no": "AP-260903-098"
+    },
+    {
+      "id": "ecad8ddb-e677-4dbb-838d-277894d9186e",
+      "order_no": "AP-260903-099"
+    },
+    {
+      "id": "2fc796f4-ca17-4420-8ada-2072802e3ed7",
+      "order_no": "AP-260903-100"
+    },
+    {
+      "id": "ec0194dd-6d22-4290-8cad-8da898df38c7",
+      "order_no": "AP-260903-101"
+    },
+    {
+      "id": "e82874c1-81e9-4abf-94fd-ff1951dcb857",
+      "order_no": "AP-260903-102"
+    },
+    {
+      "id": "fae3d148-1bc7-4b05-b106-fad10d645a5a",
+      "order_no": "AP-260903-103"
+    },
+    {
+      "id": "d49b2ca9-871c-4184-8ded-4f8a2815076b",
+      "order_no": "AP-260903-104"
+    },
+    {
+      "id": "ee5ff741-7b54-4997-898f-9faef6e14158",
+      "order_no": "AP-260903-105"
+    },
+    {
+      "id": "efec84b2-16a0-452a-86e8-5e604969f3aa",
+      "order_no": "AP-260903-106"
+    },
+    {
+      "id": "4c451539-e47c-46f9-991d-19ea20513fb7",
+      "order_no": "AP-260903-107"
+    },
+    {
+      "id": "39ae5069-3b4a-4eea-8f74-74b5a5bb803c",
+      "order_no": "AP-260903-108"
+    },
+    {
+      "id": "348cd63e-4af4-4d34-8fc7-a812c18213ca",
+      "order_no": "AP-260903-109"
+    },
+    {
+      "id": "e184ed25-f036-4010-978b-7bfe2fb0ba28",
+      "order_no": "AP-260903-110"
+    },
+    {
+      "id": "2aff654b-a01a-44ed-b79e-c58c5cfd79ab",
+      "order_no": "AP-260903-111"
+    },
+    {
+      "id": "1813a6c8-592c-4450-956a-18c96637dfb0",
+      "order_no": "AP-260903-112"
+    },
+    {
+      "id": "7faf85a1-6f21-4730-abc4-f64ac2ff1386",
+      "order_no": "AP-260903-113"
+    },
+    {
+      "id": "14c8d3f4-2494-4c0e-8fe3-42e636a3e925",
+      "order_no": "AP-260903-114"
+    },
+    {
+      "id": "d033a0be-f79d-4c7c-9242-13842dc367da",
+      "order_no": "AP-260903-115"
+    },
+    {
+      "id": "4298299c-b47d-4c4a-aff9-17ac94477617",
+      "order_no": "AP-260903-116"
+    },
+    {
+      "id": "67e9114d-a7a1-4687-a12f-d6c2344d9170",
+      "order_no": "AP-260903-117"
+    },
+    {
+      "id": "309e5409-c3b6-4b2d-9aff-4a662eb96850",
+      "order_no": "AP-260903-118"
+    },
+    {
+      "id": "02c484bd-e185-4821-8de1-6cf8af40e286",
+      "order_no": "AP-260903-119"
+    },
+    {
+      "id": "4620e5d8-be22-4fdf-ba87-b174b0c221ed",
+      "order_no": "AP-260903-120"
+    },
+    {
+      "id": "37cb9726-73ec-484b-ba7a-be3f6c072348",
+      "order_no": "AP-260903-121"
+    },
+    {
+      "id": "27b6e701-3ff7-41bd-bba7-22c41e38259c",
+      "order_no": "AP-260903-122"
+    },
+    {
+      "id": "444733a5-60bc-4d67-9839-9089a2add389",
+      "order_no": "AP-260903-123"
+    },
+    {
+      "id": "63e10930-d28b-4ee4-9063-22d68c5e76b2",
+      "order_no": "AP-260903-124"
+    },
+    {
+      "id": "3267995d-0482-4d0a-bdaf-9fdf98498408",
+      "order_no": "AP-260903-125"
+    },
+    {
+      "id": "4b18aa1b-e4f3-466c-b002-da21df55021f",
+      "order_no": "AP-260903-126"
+    },
+    {
+      "id": "87c5deb2-aff8-4428-a44c-f430d1fc3a33",
+      "order_no": "AP-260903-127"
+    },
+    {
+      "id": "c5556f87-b0b5-4712-b1bb-c75a5ba20600",
+      "order_no": "AP-260903-128"
+    },
+    {
+      "id": "d9765d40-397c-4368-91ea-6b9fcb2fc0de",
+      "order_no": "AP-260903-129"
+    },
+    {
+      "id": "668d388f-f4ae-499b-9856-b74a69a3b555",
+      "order_no": "AP-260903-130"
+    },
+    {
+      "id": "1b61ad95-3ae6-40b4-9425-6db166707cfd",
+      "order_no": "AP-260903-131"
+    },
+    {
+      "id": "1ad7c23a-96d5-468d-b992-45113f3eac4f",
+      "order_no": "AP-260903-132"
+    },
+    {
+      "id": "e67d3c05-7cd0-4b3a-a8dd-317b1f0a464b",
+      "order_no": "AP-260903-133"
+    },
+    {
+      "id": "f08fec53-bc9c-472a-808a-e32d7d2e1058",
+      "order_no": "AP-260903-134"
+    },
+    {
+      "id": "a6b3a278-4959-4b64-a71b-0928ffb31f4b",
+      "order_no": "AP-260903-135"
+    },
+    {
+      "id": "e4871aa3-6658-424a-a264-5a09978a1da8",
+      "order_no": "AP-260903-136"
+    },
+    {
+      "id": "ab7e2492-827f-4547-9c8a-fccc4aeed7be",
+      "order_no": "AP-260903-137"
+    },
+    {
+      "id": "4c47e0ac-af30-496d-bb2f-0ea707b36e7b",
+      "order_no": "AP-260903-138"
+    },
+    {
+      "id": "540ec19f-73b4-4214-8b9c-d7ea25c3dff1",
+      "order_no": "AP-260903-139"
+    },
+    {
+      "id": "0cecac67-8a6d-4f4d-8ab0-7b1e6abb0919",
+      "order_no": "AP-260903-140"
+    },
+    {
+      "id": "b60dbb07-f468-4ceb-92f9-eb3d6790f18e",
+      "order_no": "AP-260903-141"
+    },
+    {
+      "id": "c6ce3a13-ec51-417c-99d4-07228259c643",
+      "order_no": "AP-260903-142"
+    },
+    {
+      "id": "7978d93c-33cf-4e69-8bae-46c1592b2d75",
+      "order_no": "AP-260903-143"
+    },
+    {
+      "id": "82eff82b-b7a0-44e5-99f9-356c5a5caf14",
+      "order_no": "AP-260903-144"
+    }
+  ],
+  "failed": [],
+  "summary": {
+    "changed": 0,
+    "unchanged": 140,
+    "failed": 0
+  },
+  "marker_counts": {
+    "旧台账来源行：": 0,
+    "【待人工处理（原表预留）】": 0,
+    "（已同时整理为价格明细）": 0
+  },
+  "nonempty_task_descriptions": 140
+}

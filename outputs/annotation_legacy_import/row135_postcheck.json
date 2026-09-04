@@ -1,0 +1,27 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "mode": "dry-run",
+  "host": "WIN-LOLJ8UHT2G5",
+  "total_source_rows": 149,
+  "selected_source_rows": 1,
+  "created": [],
+  "skipped": [
+    {
+      "row": 135,
+      "project_name": "【20260826-杭州众智为马-温州线上采集】",
+      "reason": "same_import_key",
+      "existing_id": "3a09d601-785c-4da9-abf8-449a1cdff225",
+      "existing_order_no": "AP-260904-002",
+      "existing_name": "【20260826-杭州众智为马-温州线上采集】"
+    }
+  ],
+  "failed": [],
+  "prepared": [],
+  "summary": {
+    "created": 0,
+    "prepared": 0,
+    "skipped": 1,
+    "failed": 0
+  }
+}

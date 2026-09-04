@@ -45,6 +45,7 @@ class RecruitmentProject(Base):
         CheckConstraint("headcount_max IS NULL OR headcount_max >= headcount_min", name="ck_recruitment_headcount_range"),
         CheckConstraint("employment_end IS NULL OR employment_start IS NULL OR employment_end >= employment_start", name="ck_recruitment_employment_range"),
         CheckConstraint("service_fee_rate IS NULL OR (service_fee_rate >= 0 AND service_fee_rate <= 100)", name="ck_recruitment_service_fee_rate"),
+        CheckConstraint("service_fee_multiplier IS NULL OR service_fee_multiplier >= 0", name="ck_recruitment_service_fee_multiplier"),
         Index("ix_recruitment_project_status", "project_status"),
         Index("ix_recruitment_project_client", "client_id"),
         Index("ix_recruitment_project_created_at", "created_at"),
@@ -78,6 +79,7 @@ class RecruitmentProject(Base):
     service_fee_currency: Mapped[Optional[str]] = mapped_column(String(10), server_default=text("'CNY'"))
     service_fee_amount: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
     service_fee_rate: Mapped[Optional[float]] = mapped_column(Numeric(7, 4))
+    service_fee_multiplier: Mapped[Optional[float]] = mapped_column(Numeric(7, 4))
     service_fee_note: Mapped[Optional[str]] = mapped_column(Text)
 
     customer_consultation_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)

@@ -23,7 +23,7 @@ router = APIRouter(
 def read_project_operation_audits(
     keyword: Optional[str] = None,
     project_type: Optional[Literal["translation", "interpretation", "annotation", "recruitment"]] = None,
-    operation_type: Optional[Literal["create", "delete"]] = None,
+    operation_type: Optional[Literal["create", "delete", "order_no_change"]] = None,
     operator_keyword: Optional[str] = None,
     occurred_from: Optional[datetime] = None,
     occurred_to: Optional[datetime] = None,

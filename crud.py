@@ -33,6 +33,7 @@ from department_utils import department_filter_values
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
 from language_catalog import compact_translation_direction, validate_language_pairs_against_catalog
+from fastapi import HTTPException
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -1591,6 +1592,30 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
     return project
 
 
+def _valid_project_translator_return_time_conditions():
+    """返回母项目有效译员回稿时间的统一关联条件。"""
+    from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+
+    return ManuscriptArrangement, ManuscriptDispatch, (
+        ManuscriptArrangement.translation_project_id == TranslationProject.id,
+        ManuscriptArrangement.sub_order_id.is_(None),
+        ManuscriptArrangement.planned_delivery_at.is_not(None),
+        ManuscriptArrangement.status != "cancelled",
+        ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+        ManuscriptDispatch.status != "cancelled",
+        ManuscriptDispatch.confirmed_at.is_not(None),
+    )
+
+
+def _translation_filter_date(value) -> Optional[date]:
+    if value in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="筛选值格式不正确") from exc
+
+
 def _apply_translation_project_filters(
     query,
     *,
@@ -1714,6 +1739,25 @@ def _apply_translation_project_filters(
             conditions.append(WordCountMetric.count_value <= int(word_count_descriptor["max"]))
         query = query.filter(db_exists().where(and_(*conditions)))
 
+    translator_return_time_descriptor = field_filters.get("translator_return_time")
+    if translator_return_time_descriptor:
+        ManuscriptArrangement, _ManuscriptDispatch, conditions = (
+            _valid_project_translator_return_time_conditions()
+        )
+        return_time_conditions = list(conditions)
+        lower = _translation_filter_date(translator_return_time_descriptor.get("from"))
+        upper = _translation_filter_date(translator_return_time_descriptor.get("to"))
+        if lower is not None:
+            return_time_conditions.append(
+                ManuscriptArrangement.planned_delivery_at >= datetime.combine(lower, time.min)
+            )
+        if upper is not None:
+            return_time_conditions.append(
+                ManuscriptArrangement.planned_delivery_at
+                < datetime.combine(upper + timedelta(days=1), time.min)
+            )
+        query = query.filter(db_exists().where(and_(*return_time_conditions)))
+
     for field, descriptor in field_filters.items():
         if field in {"client_short_name", "client_code", "client_manager", "manager_contact"}:
             parent_column, sub_column = {
@@ -1724,7 +1768,7 @@ def _apply_translation_project_filters(
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
-        elif field in {"word_count", "word_count_dimension", "word_count_metric_type"}:
+        elif field in {"word_count", "word_count_dimension", "word_count_metric_type", "translator_return_time"}:
             continue
         elif field == "translator_name":
             if descriptor.get("op") != "contains":
@@ -1913,7 +1957,9 @@ def get_translation_projects(
         elif sort == "translator_return_time_asc":
             # 项目可能同时派给多位译员，以最早的有效回稿时间代表项目紧急度。
             # 仅统计母项目自身的派稿，与列表“译员回稿时间”列的展示口径一致。
-            from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+            ManuscriptArrangement, ManuscriptDispatch, conditions = (
+                _valid_project_translator_return_time_conditions()
+            )
 
             earliest_translator_return_time = (
                 select(func.min(ManuscriptArrangement.planned_delivery_at))
@@ -1921,14 +1967,7 @@ def get_translation_projects(
                     ManuscriptDispatch,
                     ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
                 )
-                .where(
-                    ManuscriptArrangement.translation_project_id == TranslationProject.id,
-                    ManuscriptArrangement.sub_order_id.is_(None),
-                    ManuscriptArrangement.planned_delivery_at.is_not(None),
-                    ManuscriptArrangement.status != "cancelled",
-                    ManuscriptDispatch.status != "cancelled",
-                    ManuscriptDispatch.confirmed_at.is_not(None),
-                )
+                .where(*conditions)
                 .correlate(TranslationProject)
                 .scalar_subquery()
             )

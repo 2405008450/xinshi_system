@@ -473,6 +473,11 @@ def test_annotation_account_permissions_are_independent():
     assert "annotation_accounts:reveal" != "projects:write"
 
 
+def test_project_order_number_change_has_independent_permission():
+    assert "projects:order_no:write" in PERMISSION_CODES
+    assert "projects:order_no:write" != "projects:write"
+
+
 @pytest.mark.parametrize(
     ("role", "can_reveal"),
     (("read_only", False), ("credential_reviewer", True), ("super_admin", True)),

@@ -1,4 +1,4 @@
-"""项目新增、删除操作的持久审计模型。"""
+"""项目关键操作的持久审计模型。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from models import Base
 
 
 PROJECT_AUDIT_TYPES = ("translation", "interpretation", "annotation", "recruitment")
-PROJECT_AUDIT_OPERATIONS = ("create", "delete")
+PROJECT_AUDIT_OPERATIONS = ("create", "delete", "order_no_change")
 
 
 class ProjectOperationAudit(Base):
@@ -30,7 +30,7 @@ class ProjectOperationAudit(Base):
             name="ck_project_operation_audit_type",
         ),
         CheckConstraint(
-            "operation_type IN ('create','delete')",
+            "operation_type IN ('create','delete','order_no_change')",
             name="ck_project_operation_audit_operation",
         ),
         Index("ix_project_operation_audit_order_time", "order_no", "occurred_at"),
@@ -48,6 +48,8 @@ class ProjectOperationAudit(Base):
     actor_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     actor_username_snapshot: Mapped[Optional[str]] = mapped_column(String(100))
     actor_name_snapshot: Mapped[Optional[str]] = mapped_column(String(255))
+    previous_order_no: Mapped[Optional[str]] = mapped_column(String(80))
+    change_reason: Mapped[Optional[str]] = mapped_column(String(500))
     project_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     occurred_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")

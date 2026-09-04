@@ -105,6 +105,17 @@ def test_payload_normalizes_headcount_and_anytime_date_rules():
         RecruitmentProjectCreate(headcount_min=5, headcount_max=4)
 
 
+def test_recruitment_payload_accepts_monthly_salary_multiple():
+    payload = RecruitmentProjectCreate(
+        service_fee_type="monthly_salary_multiple",
+        service_fee_multiplier="2.5",
+    )
+
+    assert str(payload.service_fee_multiplier) == "2.5"
+    with pytest.raises(ValueError, match="月薪倍数服务费必须填写倍数"):
+        RecruitmentProjectCreate(service_fee_type="monthly_salary_multiple")
+
+
 def test_recruitment_payload_accepts_manual_client_fields():
     payload = RecruitmentProjectCreate(
         client_short_name="  新客户  ",
@@ -189,6 +200,8 @@ def test_three_project_resolvers_reuse_translation_client_logic(monkeypatch, res
 
 def test_project_status_patch_validates_supported_status():
     assert RecruitmentProjectStatusUpdate(project_status="interviewing").project_status == "interviewing"
+    assert RecruitmentProjectStatusUpdate(project_status="full_time_dispatch").project_status == "full_time_dispatch"
+    assert RecruitmentProjectStatusUpdate(project_status="cancelled").project_status == "cancelled"
     with pytest.raises(ValueError, match="不支持"):
         RecruitmentProjectStatusUpdate(project_status="unknown")
 

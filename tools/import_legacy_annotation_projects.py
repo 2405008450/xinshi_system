@@ -295,22 +295,21 @@ def resolve_client(
 
 
 def build_description(row: SourceRow, parsed_price: bool, extra_reserved: dict[str, Any]) -> Optional[str]:
-    lines = [f"旧台账来源行：{row.row_number}"]
+    lines = []
     raw_type = clean_text(row.values.get("项目类型"))
     if raw_type:
-        lines.append(f"原项目类型：{raw_type}")
+        lines.append(f"项目类型：{raw_type}")
     reserved = []
     for column in RESERVED_COLUMNS:
         value = clean_text(row.values.get(column))
         if value:
-            suffix = "（已同时整理为价格明细）" if column == "价格（单价）" and parsed_price else ""
-            reserved.append(f"{column}：{value}{suffix}")
+            reserved.append(f"{column}：{value}")
     for label, value in extra_reserved.items():
         value = clean_text(value)
         if value:
             reserved.append(f"{label}：{value}")
     if reserved:
-        lines.extend(["", "【待人工处理（原表预留）】", *reserved])
+        lines.extend(reserved)
     return "\n".join(lines) or None
 
 
@@ -348,7 +347,7 @@ def safe_project_path(value: Any, extra_reserved: dict[str, Any]) -> Optional[st
         from path_security import validate_managed_path
         return validate_managed_path(text_value)
     except ValueError:
-        extra_reserved["原项目路径（未通过路径规则）"] = text_value
+        extra_reserved["项目路径"] = text_value
         return None
 
 
@@ -373,15 +372,15 @@ def prepare_payload(
     consultation_time = parse_datetime(values.get("咨询时间"))
     confirmation_time = parse_datetime(values.get("开始合作时间"))
     if clean_text(values.get("咨询时间")) and not consultation_time:
-        extra_reserved["咨询时间（未识别）"] = values.get("咨询时间")
+        extra_reserved["咨询时间"] = values.get("咨询时间")
     if clean_text(values.get("开始合作时间")) and not confirmation_time:
-        extra_reserved["开始合作时间（未识别）"] = values.get("开始合作时间")
+        extra_reserved["开始合作时间"] = values.get("开始合作时间")
     if clean_text(values.get("客户部")) and not customer_manager:
-        extra_reserved["客户部（未匹配唯一用户）"] = values.get("客户部")
+        extra_reserved["客户部"] = values.get("客户部")
     if clean_text(values.get("项目部")) and not project_manager:
-        extra_reserved["项目部（未匹配唯一项目经理用户）"] = values.get("项目部")
+        extra_reserved["项目部"] = values.get("项目部")
     if raw_client_name and not client:
-        extra_reserved["客户名称（系统无精确匹配，将创建待完善客户）"] = raw_client_name
+        extra_reserved["客户名称"] = raw_client_name
     project_path = safe_project_path(values.get("路径"), extra_reserved)
     custom_values = {}
     if clean_text(values.get("跟进状态")) and "跟进状态" in custom_fields:

@@ -67,3 +67,11 @@ test('会话权限同步后依赖权限的导航状态立即更新', () => {
   setStoredAccess(['测试'], ['projects:read'])
   assert.equal(canViewProjects.value, true)
 })
+
+test('修改订单号权限独立于普通项目编辑权限', () => {
+  setAccess(['测试'], ['projects:write'])
+  assert.equal(hasPermission('projects:order_no:write'), false)
+
+  setAccess(['测试'], ['projects:write', 'projects:order_no:write'])
+  assert.equal(hasPermission('projects:order_no:write'), true)
+})

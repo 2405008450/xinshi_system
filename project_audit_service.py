@@ -33,6 +33,8 @@ def record_project_operation(
     project,
     actor_user_id: Optional[UUID],
     operation_source: str,
+    previous_order_no: Optional[str] = None,
+    change_reason: Optional[str] = None,
 ) -> ProjectOperationAudit:
     if project_type not in PROJECT_AUDIT_TYPES:
         raise ValueError("不支持的项目审计类型")
@@ -50,6 +52,8 @@ def record_project_operation(
         actor_user_id=actor_user_id,
         actor_username_snapshot=getattr(actor, "username", None),
         actor_name_snapshot=getattr(actor, "full_name", None),
+        previous_order_no=previous_order_no,
+        change_reason=change_reason,
         project_snapshot=_project_snapshot(project),
     )
     db.add(row)
@@ -73,6 +77,7 @@ def list_project_operation_audits(
         pattern = f"%{keyword.strip()}%"
         query = query.filter(or_(
             ProjectOperationAudit.order_no.ilike(pattern),
+            ProjectOperationAudit.previous_order_no.ilike(pattern),
             ProjectOperationAudit.project_name.ilike(pattern),
         ))
     if project_type:

@@ -12,12 +12,14 @@ from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String
 from sqlalchemy.orm import Session, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
+from annotation_custom_field_image_service import delete_custom_field_image_files
 
 from concurrency import VERSION_FIELD, assert_fresh
 
 import workflow_models  # noqa: F401  注册笔译项目既有关系
 import recruitment_models  # noqa: F401  注册统一工作台招聘项目关系
 import annotation_ops_models  # noqa: F401  注册标注运营关系
+from annotation_ops_models import AnnotationAccountAssignment, AnnotationCustomFieldImage
 from annotation_models import (
     AnnotationProject,
     AnnotationProjectAssignee,
@@ -29,12 +31,15 @@ from annotation_schemas import (
     AnnotationNamePreviewRequest,
     AnnotationProjectCreate,
     AnnotationProjectUpdate,
+    normalize_annotation_order_no,
 )
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from models import (
     AppUser, Client, Consultation, SubClient, TranslationProject,
     TranslationSubOrder,
 )
+from resource_request_models import ResourceRequest
+from project_order_no_models import ProjectOrderNoReservation
 from field_filtering import apply_scalar_filter, apply_scalar_specs
 
 
@@ -47,6 +52,61 @@ TRANSLATION_TYPE_VALUES = {
     "认证项目", "certification",
     "其他项目", "equipment_rental", "other", "其他",
 }
+
+
+class AnnotationProjectDeleteConflict(ValueError):
+    """标注项目仍有必须由用户先处理的业务引用。"""
+
+
+class AnnotationOrderNoConflict(ValueError):
+    """标注订单号已经被当前或历史项目占用。"""
+
+
+def _lock_annotation_order_numbers(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+            {"lock_key": "project-order:annotation"},
+        )
+
+
+def reserve_annotation_order_no(
+    db: Session,
+    *,
+    project_id: UUID,
+    order_no: str,
+    assignment_source: str,
+    assigned_by: Optional[UUID],
+) -> ProjectOrderNoReservation:
+    """永久占用订单号；同一号码即使历史上使用过也不能再次分配。"""
+    normalized = normalize_annotation_order_no(order_no)
+    _lock_annotation_order_numbers(db)
+    existing = db.query(ProjectOrderNoReservation.id).filter(
+        ProjectOrderNoReservation.project_type == "annotation",
+        ProjectOrderNoReservation.order_no_key == normalized,
+    ).first()
+    if existing:
+        raise AnnotationOrderNoConflict(f"订单号 {normalized} 已被当前或历史标注项目使用")
+    reservation = ProjectOrderNoReservation(
+        project_type="annotation",
+        project_id=project_id,
+        order_no=normalized,
+        order_no_key=normalized,
+        assignment_source=assignment_source,
+        assigned_by=assigned_by,
+    )
+    db.add(reservation)
+    return reservation
+
+
+def _active_account_assignment_label(assignment: AnnotationAccountAssignment) -> str:
+    account = getattr(assignment, "account", None)
+    platform = getattr(account, "platform", None)
+    platform_name = getattr(platform, "platform_name", None)
+    account_name = getattr(account, "nickname", None)
+    values = [value for value in (platform_name, account_name) if value]
+    return " / ".join(values) or str(assignment.id)
 
 
 def is_annotation_type(value: Optional[str]) -> bool:
@@ -63,25 +123,23 @@ def generate_annotation_order_no(
     now = current_time or datetime.now(ZoneInfo("Asia/Hong_Kong"))
     date_text = now.strftime("%y%m%d")
     prefix = f"AP-{date_text}-"
-    bind = db.get_bind()
-    if bind is not None and bind.dialect.name == "postgresql":
-        db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
-            {"lock_key": f"annotation-order:{date_text}"},
+    _lock_annotation_order_numbers(db)
+    reserved_rows = (
+        db.query(ProjectOrderNoReservation.order_no)
+        .filter(
+            ProjectOrderNoReservation.project_type == "annotation",
+            ProjectOrderNoReservation.order_no.like(f"{prefix}%"),
         )
-    last_order_no = (
-        db.query(AnnotationProject.order_no)
-        .filter(AnnotationProject.order_no.like(f"{prefix}%"))
-        .order_by(AnnotationProject.order_no.desc())
-        .limit(1)
-        .scalar()
+        .all()
     )
-    sequence = 1
-    if last_order_no:
-        try:
-            sequence = int(last_order_no.rsplit("-", 1)[-1]) + 1
-        except ValueError:
-            sequence = 1
+    sequence_pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+    used_sequences = []
+    for row in reserved_rows:
+        order_no = row[0] if isinstance(row, (tuple, list)) else getattr(row, "order_no", row)
+        match = sequence_pattern.fullmatch(str(order_no or ""))
+        if match:
+            used_sequences.append(int(match.group(1)))
+    sequence = max(used_sequences, default=0) + 1
     return f"{prefix}{sequence:03d}"
 
 
@@ -438,6 +496,13 @@ def create_annotation_project(
     )
     db.add(project)
     db.flush()
+    reserve_annotation_order_no(
+        db,
+        project_id=project.id,
+        order_no=order_no,
+        assignment_source=operation_source,
+        assigned_by=created_by,
+    )
     from annotation_ops_models import AnnotationProjectStatusHistory
     db.add(AnnotationProjectStatusHistory(
         project_id=project.id,
@@ -498,6 +563,54 @@ def update_annotation_project(
     ensure_active_project_responsibilities(db, 'annotation', project.id, project.project_status, assignments)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
+    db.commit()
+    return get_annotation_project(db, project.id)
+
+
+def update_annotation_project_order_no(
+    db: Session,
+    project_id: UUID,
+    new_order_no: str,
+    reason: str,
+    expected_updated_at: Optional[datetime],
+    changed_by: Optional[UUID],
+) -> Optional[AnnotationProject]:
+    project = (
+        db.query(AnnotationProject)
+        .filter(AnnotationProject.id == project_id)
+        .with_for_update()
+        .first()
+    )
+    if not project:
+        return None
+    assert_fresh(project, expected_updated_at)
+    normalized = normalize_annotation_order_no(new_order_no)
+    previous_order_no = project.order_no
+    if normalized == previous_order_no:
+        raise ValueError("新订单号不能与当前订单号相同")
+    reserve_annotation_order_no(
+        db,
+        project_id=project.id,
+        order_no=normalized,
+        assignment_source="manual_change",
+        assigned_by=changed_by,
+    )
+    project.order_no = normalized
+    if project.email_subject_preview and previous_order_no in project.email_subject_preview:
+        project.email_subject_preview = project.email_subject_preview.replace(
+            previous_order_no, normalized, 1,
+        )
+    project.updated_at = datetime.now()
+    record_project_operation(
+        db,
+        project_type="annotation",
+        operation_type="order_no_change",
+        project=project,
+        actor_user_id=changed_by,
+        operation_source="project_order_no_change",
+        previous_order_no=previous_order_no,
+        change_reason=reason.strip(),
+    )
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -599,6 +712,45 @@ def delete_annotation_project(
     project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).first()
     if not project:
         return False
+
+    resource_requests = db.query(ResourceRequest).filter(
+        ResourceRequest.annotation_project_id == project_id,
+    ).all()
+    account_assignments = db.query(AnnotationAccountAssignment).filter(
+        AnnotationAccountAssignment.project_id == project_id,
+    ).all()
+    active_assignments = [item for item in account_assignments if item.released_on is None]
+
+    blockers = []
+    if resource_requests:
+        request_labels = "、".join(
+            item.request_no for item in resource_requests[:3] if item.request_no
+        )
+        suffix = f"（{request_labels}{'等' if len(resource_requests) > 3 else ''}）" if request_labels else ""
+        blockers.append(f"关联资源需求 {len(resource_requests)} 条{suffix}")
+    if active_assignments:
+        assignment_labels = "、".join(
+            _active_account_assignment_label(item) for item in active_assignments[:3]
+        )
+        suffix = f"（{assignment_labels}{'等' if len(active_assignments) > 3 else ''}）" if assignment_labels else ""
+        blockers.append(f"未释放的标注账号分配 {len(active_assignments)} 条{suffix}")
+    if blockers:
+        raise AnnotationProjectDeleteConflict(
+            f"无法删除标注项目 {project.order_no}：{'；'.join(blockers)}。请先处理这些关联记录"
+        )
+
+    # 已释放的账号分配属于被删除项目的历史明细。硬删除项目时一并删除，
+    # 否则其语种关联会以 RESTRICT 方式阻止项目语种级联删除。
+    for assignment in account_assignments:
+        db.delete(assignment)
+    if account_assignments:
+        db.flush()
+
+    image_storage_names = [
+        value for (value,) in db.query(AnnotationCustomFieldImage.storage_name).filter(
+            AnnotationCustomFieldImage.project_id == project_id,
+        ).all()
+    ]
     from project_workbench_service import cancel_pending_project_handovers
     cancel_pending_project_handovers(db, 'annotation', project_id)
     record_project_operation(
@@ -607,6 +759,7 @@ def delete_annotation_project(
     )
     db.delete(project)
     db.commit()
+    delete_custom_field_image_files(image_storage_names)
     return True
 
 
@@ -702,6 +855,13 @@ def ensure_annotation_project_for_consultation(
     )
     db.add(project)
     db.flush()
+    reserve_annotation_order_no(
+        db,
+        project_id=project.id,
+        order_no=project.order_no,
+        assignment_source="consultation_confirmation",
+        assigned_by=created_by,
+    )
     record_project_operation(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source="consultation_confirmation",
@@ -877,6 +1037,13 @@ def migrate_legacy_annotation_projects(db: Session) -> dict[str, int]:
                 project.language_items = _legacy_language_items(db, legacy.language_pair)
                 db.add(project)
                 db.flush()
+                reserve_annotation_order_no(
+                    db,
+                    project_id=project.id,
+                    order_no=project.order_no,
+                    assignment_source="legacy_migration",
+                    assigned_by=legacy.created_by,
+                )
                 legacy.annotation_project_id = project.id
                 legacy.annotation_migrated_at = datetime.now()
                 result["migrated"] += 1

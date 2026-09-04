@@ -16,8 +16,9 @@
 5. 验证新增项目弹窗可以跨 Tab、跨折叠分组搜索定位字段；
 6. 验证条件字段不会被搜索自动启用，并检查窄屏弹窗不溢出；
 7. 验证子订单默认展开、进行中优先、最多展示 10 条、母订单列表持续可见，并检查低饱和背景；
-8. 验证粘贴/TXT 预览、重复跳过、事务批量创建与行内改名，并清理测试数据；
-9. 全页截图归档到 test-results/translation-details.png。
+8. 验证时间列表头筛选入口、紧急优先排序切换及隐藏活动排序列后的回退；
+9. 验证粘贴/TXT 预览、重复跳过、事务批量创建与行内改名，并清理测试数据；
+10. 全页截图归档到 test-results/translation-details.png。
 
 依赖：playwright(Python)、浏览器内核(已装)。
 """
@@ -45,7 +46,7 @@ ALL_COLUMN_KEYS = [
     "customerRequirementProfessional", "customerRequirementSpecial", "languagePair",
     "priority", "customerWordCount", "customerWordCountType", "internalWordCount",
     "internalWordCountType", "wordCount", "customerReceptionTime", "customerDeadlineTime",
-    "sentToClientTime", "clientFeedback", "pmConfirmedBy", "majorProjectManagerConfirmation",
+    "translatorReturnTime", "sentToClientTime", "clientFeedback", "pmConfirmedBy", "majorProjectManagerConfirmation",
     "assignedTranslators", "translatorCompletionRemarks", "translatorAssignmentTime", "expectedTranslatorStatsMethod",
     "expectedTranslatorWordCount", "translatorDeliveryProgress", "preReviewQcProgress",
     "review1Progress", "review2Progress", "postReviewQcProgress", "layoutProgress",
@@ -68,6 +69,97 @@ def login_via_api(base_url: str, username: str, password: str) -> dict:
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"登录失败 {exc.code}: {body}") from None
+
+
+def check_time_header_filters_and_sort(page) -> list[str]:
+    """验证时间列入口和两态互斥排序；只产生列表查询，不修改业务数据。"""
+    failures = []
+    if page.locator(".search-form .el-form-item__label", has_text="排序").count():
+        failures.append("查询栏仍显示旧的全局排序控件")
+
+    return_filter = page.get_by_role("button", name="译员回稿时间筛选", exact=True)
+    if return_filter.count() != 1:
+        failures.append("译员回稿时间表头筛选入口数量不正确")
+
+    def click_sort(button_name: str, expected_sort: str):
+        button = page.get_by_role("button", name=button_name, exact=True)
+        if button.count() != 1:
+            failures.append(f"未找到排序按钮：{button_name}")
+            return False
+        with page.expect_request(
+            lambda request: (
+                request.method == "GET"
+                and "/api/projects/translation/" in request.url
+                and f"sort={expected_sort}" in request.url
+            ),
+            timeout=10000,
+        ):
+            button.click()
+        return True
+
+    customer_clicked = click_sort(
+        "客户交稿时间：待交稿紧急优先",
+        "customer_deadline_time_asc",
+    )
+    customer_active = page.get_by_role(
+        "button", name="客户交稿时间：恢复默认排序", exact=True
+    )
+    if customer_clicked and (
+        customer_active.count() != 1 or customer_active.get_attribute("aria-pressed") != "true"
+    ):
+        failures.append("客户交稿时间排序启用后未显示活动状态")
+
+    return_clicked = click_sort(
+        "译员回稿时间：待回稿紧急优先",
+        "translator_return_time_asc",
+    )
+    return_active = page.get_by_role(
+        "button", name="译员回稿时间：恢复默认排序", exact=True
+    )
+    if return_clicked and (
+        return_active.count() != 1 or return_active.get_attribute("aria-pressed") != "true"
+    ):
+        failures.append("译员回稿时间排序启用后未显示活动状态")
+    customer_inactive = page.get_by_role(
+        "button", name="客户交稿时间：待交稿紧急优先", exact=True
+    )
+    if customer_inactive.count() != 1 or customer_inactive.get_attribute("aria-pressed") != "false":
+        failures.append("切换译员回稿排序后，客户交稿排序未退出活动状态")
+
+    click_sort(
+        "译员回稿时间：恢复默认排序",
+        "unfinished_first_order_no_desc",
+    )
+
+    click_sort(
+        "客户交稿时间：待交稿紧急优先",
+        "customer_deadline_time_asc",
+    )
+    settings_button = page.get_by_role("button", name="字段设置", exact=True)
+    settings_button.click()
+    settings = page.locator(".table-column-settings-popover:visible")
+    settings.wait_for(state="visible", timeout=5000)
+    deadline_option = settings.locator(".el-checkbox", has_text="客户交稿时间").first
+    with page.expect_request(
+        lambda request: (
+            request.method == "GET"
+            and "/api/projects/translation/" in request.url
+            and "sort=unfinished_first_order_no_desc" in request.url
+        ),
+        timeout=10000,
+    ):
+        deadline_option.click()
+    if page.get_by_role("button", name="客户交稿时间：待交稿紧急优先", exact=True).count():
+        failures.append("隐藏客户交稿时间列后排序入口仍然存在")
+    settings.get_by_role("button", name="恢复默认", exact=True).first.click()
+    page.keyboard.press("Escape")
+
+    if failures:
+        for failure in failures:
+            print(f"[✗] 时间列表头：{failure}", file=sys.stderr)
+    else:
+        print("[✓] 时间列表头筛选、互斥紧急排序及隐藏列回退正确")
+    return failures
 
 
 def check_field_search(page, can_write: bool) -> list[str]:
@@ -432,7 +524,7 @@ def main() -> int:
       localStorage.setItem('user_full_name', userName);
       localStorage.setItem('user_roles', JSON.stringify(roles));
       localStorage.setItem('user_permissions', JSON.stringify(permissions));
-      localStorage.setItem(`table-columns:translation-details-v2:${{userId}}`, JSON.stringify(allKeys));
+      localStorage.setItem(`table-columns:translation-details-v4:${{userId}}`, JSON.stringify(allKeys));
     }}
     """.format(
         token=json.dumps(auth.get("access_token", "")),
@@ -456,6 +548,7 @@ def main() -> int:
         page.wait_for_selector(".project-table .el-table__header", timeout=20000)
         page.wait_for_timeout(500)
 
+        time_header_failures = check_time_header_filters_and_sort(page)
         field_search_failures = check_field_search(
             page, "projects:write" in permissions or "*" in permissions
         )
@@ -515,7 +608,7 @@ def main() -> int:
 
         return 1 if (
             truncated or progress_wide or field_search_failures or suborder_expansion_failures
-            or suborder_bulk_failures
+            or suborder_bulk_failures or time_header_failures
         ) else 0
 
 

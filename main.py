@@ -128,6 +128,7 @@ from resource_request_models import (
     ResourceRequestProgressLog,
 )
 from project_audit_models import ProjectOperationAudit
+from project_order_no_models import ProjectOrderNoReservation
 from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
@@ -449,6 +450,7 @@ RECRUITMENT_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_currency VARCHAR(10) DEFAULT 'CNY'",
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_amount NUMERIC(14, 2)",
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_rate NUMERIC(7, 4)",
+    "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_multiplier NUMERIC(7, 4)",
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS service_fee_note TEXT",
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS project_path TEXT",
 )
@@ -1128,6 +1130,64 @@ def ensure_project_idempotency_columns() -> None:
             """))
 
 
+def ensure_project_order_no_schema() -> None:
+    """建立永久占号表、回填标注订单号并扩展改号审计。"""
+    ProjectOrderNoReservation.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        duplicate_key = conn.execute(text("""
+            SELECT upper(btrim(order_no)) AS order_no_key
+            FROM annotation_project
+            GROUP BY upper(btrim(order_no))
+            HAVING count(*) > 1
+            LIMIT 1
+        """)).scalar()
+        if duplicate_key:
+            raise RuntimeError(
+                f"标注项目存在忽略大小写后的重复订单号 {duplicate_key}，无法建立永久占用记录"
+            )
+        conn.execute(text("""
+            INSERT INTO project_order_no_reservation (
+                project_type, project_id, order_no, order_no_key,
+                assignment_source, assigned_by, assigned_at
+            )
+            SELECT
+                'annotation', id, btrim(order_no), upper(btrim(order_no)),
+                'backfill', created_by, created_at
+            FROM annotation_project
+            ON CONFLICT (project_type, order_no_key) DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO project_order_no_reservation (
+                project_type, project_id, order_no, order_no_key,
+                assignment_source, assigned_by, assigned_at
+            )
+            SELECT DISTINCT ON (upper(btrim(order_no)))
+                'annotation', project_id, btrim(order_no), upper(btrim(order_no)),
+                'audit_backfill', actor_user_id, occurred_at
+            FROM project_operation_audit
+            WHERE project_type = 'annotation' AND btrim(order_no) <> ''
+            ORDER BY upper(btrim(order_no)), occurred_at ASC
+            ON CONFLICT (project_type, order_no_key) DO NOTHING
+        """))
+        conn.execute(text(
+            "ALTER TABLE project_operation_audit "
+            "ADD COLUMN IF NOT EXISTS previous_order_no VARCHAR(80)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE project_operation_audit "
+            "ADD COLUMN IF NOT EXISTS change_reason VARCHAR(500)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE project_operation_audit "
+            "DROP CONSTRAINT IF EXISTS ck_project_operation_audit_operation"
+        ))
+        conn.execute(text("""
+            ALTER TABLE project_operation_audit
+            ADD CONSTRAINT ck_project_operation_audit_operation
+            CHECK (operation_type IN ('create','delete','order_no_change'))
+        """))
+
+
 def run_runtime_migrations():
     """执行历史运行时迁移。
 
@@ -1196,6 +1256,7 @@ def run_runtime_migrations():
     ensure_interpretation_requirement_columns()
     AnnotationProject.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_project_columns()
+    ensure_project_order_no_schema()
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectPriceItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectAssignee.__table__.create(bind=engine, checkfirst=True)

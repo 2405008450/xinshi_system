@@ -1,0 +1,31 @@
+{
+  "source": "E:\\xinshi_system\\outputs\\annotation_legacy_import\\source.xlsx",
+  "source_sha256": "a885a52c8125d418d3022a2fa72ffbc0f605a75840aeea6082fb8e9ca4d0162a",
+  "mode": "dry-run",
+  "host": "WIN-LOLJ8UHT2G5",
+  "total_source_rows": 149,
+  "selected_source_rows": 1,
+  "created": [],
+  "skipped": [],
+  "failed": [],
+  "prepared": [
+    {
+      "row": 135,
+      "project_name": "【20260826-杭州众智为马-温州线上采集】",
+      "source_client": "杭州众智为马",
+      "client_match": "exact",
+      "resolved_client": "杭州众智为马",
+      "project_types": [
+        "audio_collection"
+      ],
+      "project_status": "client_feedback",
+      "price_items": 0
+    }
+  ],
+  "summary": {
+    "created": 0,
+    "prepared": 1,
+    "skipped": 0,
+    "failed": 0
+  }
+}

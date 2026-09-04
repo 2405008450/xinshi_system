@@ -18,6 +18,8 @@ PROJECT_STATUSES = {
     "offer_negotiation": "Offer谈判阶段",
     "pending_onboard": "候选人待入职",
     "probation": "已入职保用期",
+    "full_time_dispatch": "全职外派",
+    "cancelled": "项目取消",
     "closed": "项目结案",
 }
 
@@ -76,10 +78,11 @@ class RecruitmentProjectBase(BaseModel):
     employment_start: Optional[date] = None
     employment_end: Optional[date] = None
     work_location: Optional[str] = Field(default=None, max_length=500)
-    service_fee_type: Optional[Literal["fixed", "annual_salary_rate", "other"]] = None
+    service_fee_type: Optional[Literal["fixed", "annual_salary_rate", "monthly_salary_multiple", "other"]] = None
     service_fee_currency: Optional[str] = Field(default="CNY", max_length=10)
     service_fee_amount: Optional[Decimal] = Field(default=None, ge=0)
     service_fee_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    service_fee_multiplier: Optional[Decimal] = Field(default=None, ge=0)
     service_fee_note: Optional[str] = None
     customer_consultation_time: Optional[datetime] = None
     customer_confirmation_time: Optional[datetime] = None
@@ -128,6 +131,8 @@ class RecruitmentProjectBase(BaseModel):
             raise ValueError("固定金额服务费必须填写金额")
         if self.service_fee_type == "annual_salary_rate" and self.service_fee_rate is None:
             raise ValueError("年薪比例服务费必须填写比例")
+        if self.service_fee_type == "monthly_salary_multiple" and self.service_fee_multiplier is None:
+            raise ValueError("月薪倍数服务费必须填写倍数")
         return self
 
 

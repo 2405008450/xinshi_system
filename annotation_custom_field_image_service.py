@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -31,6 +32,9 @@ IMAGE_EXTENSIONS = {
     "image/gif": ".gif",
     "image/webp": ".webp",
 }
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_custom_field_image_dir() -> Path:
@@ -120,6 +124,24 @@ def delete_pending_custom_field_image(db: Session, image_id: UUID, user_id: UUID
     db.commit()
     path.unlink(missing_ok=True)
     return True
+
+
+def delete_custom_field_image_files(storage_names) -> None:
+    """数据库事务提交后，清理已经随业务记录删除的项目图片文件。"""
+    upload_dir = get_custom_field_image_dir()
+    for storage_name in set(storage_names or []):
+        if not storage_name:
+            continue
+        path = (upload_dir / storage_name).resolve()
+        if path.parent != upload_dir:
+            logger.warning("跳过异常的标注动态字段图片路径：%s", storage_name)
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            # 数据库删除已经成功，文件清理失败不能把接口伪装成业务删除失败；
+            # 启动清理任务仍会再次处理未被数据库追踪的旧文件。
+            logger.exception("清理标注动态字段图片文件失败：%s", path)
 
 
 def normalize_image_value(

@@ -51,3 +51,26 @@ def test_project_audit_project_id_has_no_business_foreign_key():
     }
 
     assert foreign_key_columns == {"actor_user_id"}
+
+
+def test_project_audit_keeps_order_number_change_details():
+    actor = SimpleNamespace(id=uuid4(), username="admin", full_name="管理员")
+    project = TranslationProject(
+        id=uuid4(), order_no="TP-NEW-001", project_name="历史项目",
+    )
+    db = AuditDb(actor)
+
+    row = record_project_operation(
+        db,
+        project_type="translation",
+        operation_type="order_no_change",
+        project=project,
+        actor_user_id=actor.id,
+        operation_source="project_order_no_change",
+        previous_order_no="TP-OLD-001",
+        change_reason="对齐历史台账",
+    )
+
+    assert row.previous_order_no == "TP-OLD-001"
+    assert row.order_no == "TP-NEW-001"
+    assert row.change_reason == "对齐历史台账"

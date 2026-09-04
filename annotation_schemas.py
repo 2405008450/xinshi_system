@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+import re
 from typing import Optional
 from uuid import UUID
 
@@ -21,6 +22,7 @@ ANNOTATION_PROJECT_TYPE_LABELS = {
     "slot_deduction": "扣槽",
     "generalization": "泛化",
     "translation": "翻译",
+    "ai_evaluation": "ai评测",
 }
 ANNOTATION_PROJECT_STATUSES = {
     "initial_consultation",
@@ -39,6 +41,7 @@ ANNOTATION_PROJECT_STATUSES = {
     "partially_cancelled",
 }
 ANNOTATION_PROJECT_PRIORITIES = {"low", "medium", "high"}
+ANNOTATION_ORDER_NO_PATTERN = re.compile(r"^AP-[A-Z0-9][A-Z0-9._-]*$")
 CURRENCY_SYMBOLS = {
     "CNY": "￥",
     "USD": "$",
@@ -204,7 +207,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
 
 class AnnotationProjectWrite(BaseModel):
     project_name: Optional[str] = None
-    project_types: list[str] = Field(default_factory=list, max_length=10)
+    project_types: list[str] = Field(default_factory=list, max_length=11)
     task_description: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
@@ -308,6 +311,36 @@ class AnnotationProjectCreate(AnnotationProjectWrite):
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
     expected_updated_at: Optional[datetime] = None
+
+
+def normalize_annotation_order_no(value: str) -> str:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        raise ValueError("请输入新订单号")
+    if len(normalized) > 50:
+        raise ValueError("订单号不能超过 50 个字符")
+    if not ANNOTATION_ORDER_NO_PATTERN.fullmatch(normalized):
+        raise ValueError("标注订单号必须以 AP- 开头，且只能包含字母、数字、点、横线和下划线")
+    return normalized
+
+
+class AnnotationProjectOrderNoUpdate(BaseModel):
+    new_order_no: str
+    reason: str = Field(max_length=500)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("new_order_no", mode="before")
+    @classmethod
+    def validate_order_no(cls, value):
+        return normalize_annotation_order_no(value)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def validate_reason(cls, value):
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("请填写修改原因")
+        return normalized
 
 
 class AnnotationProjectStatusUpdate(BaseModel):

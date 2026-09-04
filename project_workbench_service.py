@@ -57,7 +57,7 @@ def is_active_project(project_type: str, status: Optional[str]) -> bool:
     if project_type == 'translation':
         return value not in TRANSLATION_INACTIVE_STATUSES
     if project_type == 'recruitment':
-        return value != 'closed'
+        return value not in {'closed', 'cancelled'}
     return value in ACTIVE_STATUSES.get(project_type, set())
 
 

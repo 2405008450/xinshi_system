@@ -18,6 +18,8 @@ class ProjectOperationAuditResponse(BaseModel):
     actor_user_id: Optional[UUID] = None
     actor_username_snapshot: Optional[str] = None
     actor_name_snapshot: Optional[str] = None
+    previous_order_no: Optional[str] = None
+    change_reason: Optional[str] = None
     project_snapshot: dict[str, Any]
     occurred_at: datetime
 

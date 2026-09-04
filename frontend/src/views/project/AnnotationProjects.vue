@@ -359,7 +359,7 @@
           <section class="form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="订单号"><div class="order-no-field"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /><el-button v-if="canChangeOrderNo && form.id" type="primary" plain @click="openOrderNoDialog">修改订单号</el-button></div></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="优先次序"><el-select v-model="form.priority" style="width:100%"><el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="状态生效日期"><el-date-picker v-model="form.statusEffectiveOn" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
@@ -457,6 +457,15 @@
       </AppForm>
       <template #footer><el-button @click="statusDialogVisible=false">取消</el-button><el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">确认修改</el-button></template>
     </el-dialog>
+    <el-dialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
+      <el-alert title="订单号修改后，原号码仍会永久保留，不能再次分配给其他项目。" type="warning" :closable="false" show-icon />
+      <AppForm ref="orderNoFormRef" :model="orderNoForm" :rules="orderNoRules" label-width="100px" class="order-no-change-form">
+        <el-form-item label="当前订单号"><ReadonlyField :model-value="form.orderNo" source="auto" /></el-form-item>
+        <el-form-item label="新订单号" prop="newOrderNo"><el-input v-model="orderNoForm.newOrderNo" maxlength="50" show-word-limit placeholder="例如：AP-OLD-2024-001" @blur="normalizeOrderNoInput" /></el-form-item>
+        <el-form-item label="修改原因" prop="reason"><el-input v-model="orderNoForm.reason" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="请说明修改订单号的业务原因" /></el-form-item>
+      </AppForm>
+      <template #footer><el-button @click="orderNoDialogVisible=false">取消</el-button><el-button type="primary" :loading="orderNoSubmitting" @click="confirmOrderNoChange">确认修改</el-button></template>
+    </el-dialog>
     <BusinessMailComposer
       v-model="mailComposerVisible"
       project-type="annotation"
@@ -509,8 +518,10 @@ import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete
 import { launchOpenPath } from '@/utils/openPath'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
 const canWrite = hasPermission('projects:write')
+const canChangeOrderNo = canWrite && hasPermission('projects:order_no:write')
 const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
 const route = useRoute()
 const router = useRouter()
@@ -526,7 +537,7 @@ const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const projectTypeOptions = [
-  ['audio_collection','音频采集'],['audio_annotation','音频标注'],['audio_evaluation','音频评测'],['text_evaluation','文本评测'],['text_annotation','文本标注'],['quality_inspection','质检'],['listening_test','测听'],['slot_deduction','扣槽'],['generalization','泛化'],['translation','翻译'],
+  ['audio_collection','音频采集'],['audio_annotation','音频标注'],['audio_evaluation','音频评测'],['text_evaluation','文本评测'],['text_annotation','文本标注'],['quality_inspection','质检'],['listening_test','测听'],['slot_deduction','扣槽'],['generalization','泛化'],['translation','翻译'],['ai_evaluation','ai评测'],
 ].map(([value,label]) => ({ value,label }))
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value,item.label]))
 const statusOptions = [
@@ -555,14 +566,24 @@ const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotati
 const visibleProjectCustomFields = computed(()=>projectCustomFields.value.filter((field)=>field.fieldLabel?.trim()!=='项目经理'))
 const customTableColumns = computed(()=>visibleProjectCustomFields.value.map((field)=>({key:`custom:${field.id}`,label:field.fieldLabel,minWidth:field.dataType==='text'||field.dataType==='url'?160:110,customField:field})))
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
-const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns)
+const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
 let submitLocked=false
 const statusDialogVisible=ref(false), statusSubmitting=ref(false), statusTargetRow=ref(null)
 const statusForm=reactive({projectStatus:'',effectiveOn:'',changeNote:''})
+const orderNoDialogVisible=ref(false), orderNoSubmitting=ref(false), orderNoFormRef=ref()
+const orderNoForm=reactive({newOrderNo:'',reason:''})
+const orderNoRules={
+  newOrderNo:[
+    {required:true,message:'请输入新订单号',trigger:['blur','change']},
+    {validator:(_rule,value,callback)=>isValidAnnotationOrderNo(value)?callback():callback(new Error('必须以 AP- 开头，且只能包含字母、数字、点、横线和下划线，最多 50 个字符')),trigger:['blur','change']},
+  ],
+  reason:[{validator:(_rule,value,callback)=>String(value||'').trim()?callback():callback(new Error('请填写修改原因')),trigger:['blur','change']}],
+}
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([]), projectManagerOptions=ref([])
@@ -702,6 +723,10 @@ const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===de
 const resetEditorScroll=async()=>{await nextTick();dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'auto'})}
 const handleAdd=async()=>{dialogTitle.value='新增标注项目';resetForm();annotationApi.resetAnnotationProjectIdempotency();nameManuallyEdited.value=false;dialogVisible.value=true;await resetEditorScroll();await beginDraft('create')}
 const handleEdit=async(row,useProvidedDetail=false)=>{const detail=useProvidedDetail?row:await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`编辑标注项目 · ${detail.orderNo}`;assignForm(detail);await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll();await beginDraft(`edit:${detail.id}`)}
+const resetOrderNoForm=()=>{Object.assign(orderNoForm,{newOrderNo:'',reason:''});orderNoFormRef.value?.clearValidate()}
+const normalizeOrderNoInput=()=>{orderNoForm.newOrderNo=normalizeAnnotationOrderNo(orderNoForm.newOrderNo)}
+const openOrderNoDialog=()=>{resetOrderNoForm();orderNoDialogVisible.value=true}
+const confirmOrderNoChange=async()=>{normalizeOrderNoInput();const valid=await orderNoFormRef.value?.validate().catch(()=>false);if(!valid)return;if(orderNoForm.newOrderNo===form.orderNo)return ElMessage.warning('新订单号不能与当前订单号相同');orderNoSubmitting.value=true;try{const updated=await annotationApi.updateAnnotationProjectOrderNo(form.id,{newOrderNo:orderNoForm.newOrderNo,reason:orderNoForm.reason.trim(),expectedUpdatedAt:form.updatedAt||null});form.orderNo=updated.orderNo;form.emailSubjectPreview=updated.emailSubjectPreview||'';form.updatedAt=updated.updatedAt;dialogTitle.value=`编辑标注项目 · ${updated.orderNo}`;const row=tableData.value.find((item)=>item.id===updated.id);if(row)Object.assign(row,updated);detailCache[updated.id]=updated;orderNoDialogVisible.value=false;ElMessage.success('订单号已修改并记录审计')}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'订单号修改失败'))}finally{orderNoSubmitting.value=false}}
 const scrollEditorToTop=async()=>{await nextTick();const errorField=dialogBodyRef.value?.querySelector('.is-error');if(errorField)return errorField.scrollIntoView({behavior:'smooth',block:'center'});dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})}
 const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;scrollEditorToTop();return}submitLoading.value=true;try{const payload=buildPayload();let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');clearDraft();dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存失败'));scrollEditorToTop()}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
@@ -731,7 +756,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
-.inline-manager-select{width:100%}
+.inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}
 .card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 .annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}
 .annotation-key-fields__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.annotation-key-fields__header h3{margin-bottom:0}.annotation-key-fields__header p{margin:3px 0 0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}

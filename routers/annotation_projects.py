@@ -15,11 +15,14 @@ from annotation_schemas import (
     AnnotationProjectDetailResponse,
     AnnotationProjectListResponse,
     AnnotationProjectManagersUpdate,
+    AnnotationProjectOrderNoUpdate,
     AnnotationProjectPriorityUpdate,
     AnnotationProjectStatusUpdate,
     AnnotationProjectUpdate,
 )
 from annotation_service import (
+    AnnotationProjectDeleteConflict,
+    AnnotationOrderNoConflict,
     count_annotation_projects,
     create_annotation_project,
     delete_annotation_project,
@@ -28,6 +31,7 @@ from annotation_service import (
     preview_annotation_project_name,
     update_annotation_project,
     update_annotation_project_managers,
+    update_annotation_project_order_no,
     update_annotation_project_priority,
     update_annotation_project_status,
 )
@@ -43,7 +47,7 @@ from inline_text_update import (
     normalize_text_value,
 )
 from models import AppUser
-from routers.auth import get_current_user, require_any_permission, require_module_access
+from routers.auth import get_current_user, require_any_permission, require_module_access, require_permission
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
@@ -438,6 +442,43 @@ def update_project_managers(
 
 
 @router.patch(
+    "/{project_id}/order-no",
+    response_model=AnnotationProjectDetailResponse,
+    dependencies=[Depends(require_permission("projects:order_no:write"))],
+)
+def update_project_order_no(
+    project_id: UUID,
+    payload: AnnotationProjectOrderNoUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        project = update_annotation_project_order_no(
+            db,
+            project_id,
+            payload.new_order_no,
+            payload.reason,
+            payload.expected_updated_at,
+            current_user.id,
+        )
+    except AnnotationOrderNoConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"订单号 {payload.new_order_no} 已被当前或历史标注项目使用",
+        ) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not project:
+        raise HTTPException(status_code=404, detail="标注项目不存在")
+    return project
+
+
+@router.patch(
     "/{project_id}/status", response_model=AnnotationProjectDetailResponse,
     dependencies=[Depends(require_any_permission("projects:write"))],
 )
@@ -471,7 +512,10 @@ def delete_project(
     try:
         if not delete_annotation_project(db, project_id, actor_user_id=current_user.id):
             raise HTTPException(status_code=404, detail="标注项目不存在")
+    except AnnotationProjectDeleteConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="无法删除该标注项目：仍被资源需求等业务数据引用，请先处理关联记录")
+        raise HTTPException(status_code=409, detail="无法删除该标注项目：仍有未识别的业务数据引用，请联系管理员检查关联记录")
     return None

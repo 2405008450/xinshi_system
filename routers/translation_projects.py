@@ -2,7 +2,10 @@ import logging
 from typing import List, Literal, Optional
 from uuid import UUID
 from datetime import date
+from io import BytesIO
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, DatabaseError
 
@@ -18,6 +21,12 @@ from routers.auth import get_current_user, require_module_access
 from models import AppUser, TranslationProject
 from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from translation_project_export_service import (
+    TIME_FIELD_LABELS,
+    TranslationExportEmptyError,
+    TranslationExportLimitError,
+    create_translation_project_export,
+)
 
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
@@ -45,6 +54,7 @@ TRANSLATION_FILTER_FIELDS = {
     "project_contract_status", "quotation_required", "quotation_status",
     "customer_requirement_professional", "customer_requirement_special", "language_pair",
     "priority", "word_count", "word_count_dimension", "word_count_metric_type", "customer_reception_time", "customer_deadline_time",
+    "translator_return_time",
     "sent_to_client_time", "major_project_manager_confirmation", "translator_id", "translator_name",
     "translator_assignment_time", "translator_delivery_progress", "pre_review_qc_progress",
     "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress",
@@ -60,11 +70,29 @@ TRANSLATION_FILTER_FIELDS = {
 def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TRANSLATION_FILTER_FIELDS)
-    ranges = {"word_count", "customer_reception_time", "customer_deadline_time", "sent_to_client_time", "translator_assignment_time", "created_at", "updated_at", "translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}
+    ranges = {"word_count", "customer_reception_time", "customer_deadline_time", "translator_return_time", "sent_to_client_time", "translator_assignment_time", "created_at", "updated_at", "translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}
     enums = {"service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type"}
     booleans = {"quotation_required"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TRANSLATION_FILTER_FIELDS})
     return value
+
+
+def _export_field_filters(
+    raw: Optional[str],
+    *,
+    time_field: str,
+    date_start: date,
+    date_end: date,
+) -> dict:
+    if date_start > date_end:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    filters = dict(_field_filters(raw))
+    filters[time_field] = {
+        "op": "between",
+        "from": date_start.isoformat(),
+        "to": date_end.isoformat(),
+    }
+    return filters
 
 
 @router.get("/next-order-no")
@@ -232,6 +260,58 @@ def read_projects(
         sort=sort,
     )
     return projects
+
+
+@router.get("/export")
+def export_projects(
+    time_field: Literal[
+        "customer_reception_time",
+        "customer_deadline_time",
+        "created_at",
+    ],
+    date_start: date,
+    date_end: date,
+    keyword: Optional[str] = None,
+    sort: Optional[Literal[
+        "order_no_desc",
+        "unfinished_first_order_no_desc",
+        "customer_deadline_time_asc",
+        "translator_return_time_asc",
+    ]] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """按项目时间范围导出当前筛选命中的母订单和全部子订单。"""
+    filters = _export_field_filters(
+        field_filters,
+        time_field=time_field,
+        date_start=date_start,
+        date_end=date_end,
+    )
+    try:
+        content = create_translation_project_export(
+            db,
+            keyword=keyword,
+            field_filters=filters,
+            sort=sort,
+        )
+    except TranslationExportEmptyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TranslationExportLimitError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    time_label = TIME_FIELD_LABELS[time_field]
+    filename = f"笔译项目导出_{time_label}_{date_start.isoformat()}_至_{date_end.isoformat()}.xlsx"
+    ascii_filename = f"translation-projects-{date_start.isoformat()}-{date_end.isoformat()}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{quote(filename)}'
+            )
+        },
+    )
 
 
 @router.get("/{project_id}", response_model=TranslationProjectResponse)

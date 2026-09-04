@@ -1873,6 +1873,7 @@ const annotationTypeOptions = [
   { value: 'slot_deduction', label: '扣槽' },
   { value: 'generalization', label: '泛化' },
   { value: 'translation', label: '翻译' },
+  { value: 'ai_evaluation', label: 'ai评测' },
 ]
 const serviceContentOptions = ['翻译', '排版']
 const priorityOptions = ['低', '中', '高', '紧急']

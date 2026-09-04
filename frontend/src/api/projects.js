@@ -34,6 +34,31 @@ export const getProjectCount = (params, config = {}) => {
     return api.get('/projects/translation/count', { ...config, params })
 }
 
+export const exportTranslationProjects = async (params) => {
+    try {
+        return await api.get('/projects/translation/export', {
+            params,
+            responseType: 'blob',
+            timeout: 120000,
+        })
+    } catch (error) {
+        const blob = error?.response?.data
+        if (typeof Blob !== 'undefined' && blob instanceof Blob && blob.type?.includes('json')) {
+            try {
+                const payload = JSON.parse(await blob.text())
+                if (payload?.detail) {
+                    error.rawDetail = payload.detail
+                    error.detail = payload.detail
+                    error.message = payload.detail
+                }
+            } catch {
+                // 保留统一错误处理给出的回退文案。
+            }
+        }
+        throw error
+    }
+}
+
 export const getProject = (id) => {
     return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))
 }

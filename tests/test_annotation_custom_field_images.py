@@ -11,6 +11,7 @@ import annotation_account_import_service as import_service
 import annotation_custom_field_image_service as image_service
 from annotation_custom_field_image_service import (
     MAX_IMAGE_BYTES,
+    delete_custom_field_image_files,
     normalize_image_value,
     sync_assignment_image_links,
     validate_image_content,
@@ -285,3 +286,16 @@ def test_startup_cleanup_removes_expired_database_and_untracked_files(monkeypatc
     assert not old_untracked.exists()
     assert tracked.exists()
     assert recent_untracked.exists()
+
+
+def test_delete_custom_field_image_files_removes_committed_project_files(monkeypatch, tmp_path):
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    monkeypatch.setattr(image_service, "get_custom_field_image_dir", lambda: tmp_path)
+
+    delete_custom_field_image_files(["first.png", "second.png", "first.png", None])
+
+    assert not first.exists()
+    assert not second.exists()
