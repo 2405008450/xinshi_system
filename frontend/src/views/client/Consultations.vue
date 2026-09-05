@@ -152,8 +152,8 @@
 
     <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column type="index" label="序号" width="60" />
-      <el-table-column prop="consultation_code" label="咨询编号" width="160" show-overflow-tooltip>
+      <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
+      <el-table-column prop="consultation_code" label="咨询编号" width="160">
         <template #header>
           <ClickableColumnHeader label="咨询编号" hint="点击咨询编号查看咨询详情" />
         </template>
@@ -1379,6 +1379,7 @@ import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.v
 import { hasPermission } from '@/utils/permission'
 import { COMMON_SUBJECT_PREFIX_OPTIONS } from '@/utils/emailSubject'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 
 const router = useRouter()
 const loading = ref(false)
@@ -3505,10 +3506,14 @@ onBeforeUnmount(() => {
   max-width: 100%;
   height: auto;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .today-consultation-time {

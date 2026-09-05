@@ -26,21 +26,22 @@
     </template>
 
     <AppForm :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="关键词">
-        <el-input
-          v-model="searchForm.keyword"
-          placeholder="订单号、项目名称、客户名称或客户单号"
-          clearable
-          style="width: 300px"
-          @input="handleTextSearch"
-          @keyup.enter="handleSearch"
-        />
-      </el-form-item>
-      <el-form-item label="项目状态">
-        <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch">
-          <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
+      <div class="project-list-primary-filters">
+        <el-form-item label="关键词" class="project-list-keyword-filter">
+          <el-input
+            v-model="searchForm.keyword"
+            placeholder="订单号、项目名称、客户名称或客户单号"
+            clearable
+            @input="handleTextSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="项目状态" class="project-list-status-filter">
+          <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch">
+            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+      </div>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
@@ -1506,7 +1507,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .language-manager-dialog .el-dialog__footer { flex: 0 0 auto; }
 .language-manager-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
 @media (max-width: 768px) {
-  .interpretation-card .search-form .el-form-item { display: flex; width: 100%; margin-right: 0; }
+  .interpretation-card .search-form > .el-form-item { display: flex; width: 100%; margin-right: 0; }
   .interpretation-card .search-form .el-input, .interpretation-card .search-form .el-select { width: 100% !important; }
   .location-panel__header { align-items: flex-start; flex-direction: column; }
   .location-panel__header .el-button { width: 100%; }

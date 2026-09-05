@@ -102,7 +102,7 @@ Start-ScheduledTask -TaskName 'XinshiDebugBackendInteractive'
 
 SSH 自身属于另一个登录会话。在 SSH 终端中直接执行 `Test-Path \\Win-server\...` 得到成功或失败，都不能证明后端进程拥有相同的共享目录权限。如果交互式会话不存在、任务配置不符或共享目录验收失败，应保持服务停止或恢复原交互式任务状态并向用户报告，不得回退到 Session 0 启动。
 
-前端使用：
+前端开发入口使用：
 
 ```powershell
 Set-Location -LiteralPath 'E:\xinshi_system\frontend'
@@ -110,3 +110,28 @@ npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
 调试访问地址为 `http://192.168.31.144:3000/`，后端为 `http://192.168.31.144:8000/`。
+
+局域网日常使用入口为 `http://192.168.31.144:3100/`。该入口由 Windows Nginx 提供
+`frontend/dist` 生产构建，并通过 `/api` 反向代理到本机 8000 端口；计划任务
+`XinshiLanProductionFrontend` 使用 `SYSTEM` 账号在开机时启动，不依赖交互式桌面会话。
+更新代码后的部署步骤为：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system\frontend'
+npm ci
+npm run build
+
+& 'E:\xinshi_runtime\nginx-1.30.4\nginx.exe' `
+    -t `
+    -p 'E:\xinshi_runtime\nginx-1.30.4\' `
+    -c 'E:\xinshi_system\deploy\nginx-lan.conf'
+& 'E:\xinshi_runtime\nginx-1.30.4\nginx.exe' `
+    -p 'E:\xinshi_runtime\nginx-1.30.4\' `
+    -c 'E:\xinshi_system\deploy\nginx-lan.conf' `
+    -s reload
+```
+
+`XinshiDebugBackendInteractive` 调用 `deploy/start_backend_interactive.ps1`。脚本会在启动
+Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Get-Item` 和一次只读枚举；
+只有验证成功才会启动后端。服务器重启后仍必须先建立 `Administrator` 交互式控制台会话，
+当前机器未配置自动登录；无人登录时交互式后端任务不会启动，也不得改用 Session 0 绕过此限制。

@@ -82,6 +82,59 @@
   font-size: 13px;
 }
 
+/* 项目列表的两个常用条件保持同行，避免“项目状态”单独换行压缩表格高度。 */
+.project-list-primary-filters {
+  display: inline-flex;
+  width: min(640px, 100%);
+  max-width: 100%;
+  align-items: flex-start;
+  gap: 24px;
+  vertical-align: middle;
+}
+
+.el-form--inline .project-list-primary-filters .el-form-item {
+  margin-right: 0;
+}
+
+.project-list-primary-filters .project-list-keyword-filter {
+  flex: 1 1 384px;
+  min-width: 0;
+}
+
+.project-list-primary-filters .project-list-status-filter {
+  flex: 0 1 232px;
+  min-width: 0;
+}
+
+.project-list-primary-filters .el-form-item__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-list-primary-filters .el-input,
+.project-list-primary-filters .el-select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .project-list-primary-filters {
+    display: flex;
+    width: 100%;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .project-list-primary-filters {
+    gap: 8px;
+  }
+
+  .project-list-primary-filters .project-list-status-filter {
+    flex-basis: 160px;
+  }
+}
+
 .compact-list-card .el-pagination {
   margin-top: 12px;
 }
@@ -122,13 +175,24 @@
 }
 
 .project-detail-list-table .el-table__cell .cell .path-action-buttons {
-  width: 40px;
-  min-width: 40px;
+  width: 36px;
+  min-width: 36px;
 }
 
 .project-detail-list-table .el-table__cell .cell .path-action-buttons .el-button {
-  width: 19px;
+  width: 17px;
   height: 22px;
+}
+
+/* 常规订单号保持单行；遇到异常长编号时允许换行，关键信息不再被省略。 */
+.project-detail-list-table .el-table__cell .order-no-link {
+  overflow: visible;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* 表单只读字段：白底表示待填写，灰底表示系统给值。

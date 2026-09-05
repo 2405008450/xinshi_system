@@ -12,8 +12,10 @@
     </template>
 
     <AppForm :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="关键词"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" style="width:320px" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
-      <el-form-item label="项目状态"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" style="width: 180px" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+      <div class="project-list-primary-filters">
+        <el-form-item label="关键词" class="project-list-keyword-filter"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
+        <el-form-item label="项目状态" class="project-list-status-filter"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+      </div>
       <el-form-item>
         <el-button type="primary" @click="handleSearch">查询</el-button><el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="recruitment-advanced-filter-popover" @clear="clearAdvanced" @reset="resetSearch">
