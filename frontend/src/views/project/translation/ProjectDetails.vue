@@ -710,6 +710,7 @@
                         v-model="form.projectManagerId"
                         filterable
                         clearable
+                        :loading="projectRoleOptionsLoading"
                         placeholder="绑定管理层主负责人"
                         style="width: 100%"
                       >
@@ -782,7 +783,7 @@
               </div>
             </el-tab-pane>
 
-            <el-tab-pane label="进度跟踪" name="progress">
+            <el-tab-pane label="进度跟踪" name="progress" lazy>
               <div class="progress-grid">
                 <div v-for="item in progressFieldConfigs" :key="item.key" class="progress-card" :data-field-key="item.key">
                   <div class="progress-card__header">
@@ -801,7 +802,7 @@
               </div>
             </el-tab-pane>
 
-            <el-tab-pane label="子订单" name="suborders">
+            <el-tab-pane label="子订单" name="suborders" lazy>
               <template v-if="form.id">
                 <div class="section-header">
                   <div class="section-title">子订单管理</div>
@@ -892,7 +893,7 @@
               <el-alert v-else title="请先保存母订单，再在此 Tab 中新增或批量新增子订单。" type="info" :closable="false" show-icon />
             </el-tab-pane>
 
-            <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files">
+            <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files" lazy>
               <ProjectFilesTab
                 ref="projectFilesTabRef"
                 :project-id="form.id"
@@ -1030,17 +1031,16 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, Download, MagicStick, SortUp } from '@element-plus/icons-vue'
 import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
-import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
+import { getProjectEditorOptionsAPI } from '@/api/workflow'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
-import ProjectFilesTab from './components/ProjectFilesTab.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
 import { hasPermission } from '@/utils/permission'
@@ -1083,6 +1083,7 @@ import {
   isTranslatorReturnTerminalStatus,
   parseBusinessDateTime,
 } from '@/utils/deadlineDisplay'
+
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import {
   DEFAULT_TRANSLATION_PROJECT_SORT,
@@ -1099,6 +1100,7 @@ import {
   buildTranslationExportParams,
 } from '@/utils/translationProjectExport'
 
+const ProjectFilesTab = defineAsyncComponent(() => import('./components/ProjectFilesTab.vue'))
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')
@@ -1345,7 +1347,6 @@ const projectFilesTabRef = ref(null)
 const tableData = ref([])
 const projectStatusSavingIds = ref(new Set())
 const expandedProjectIds = ref([])
-const shouldInitializeProjectExpansion = ref(true)
 const expandedProjectRowKeys = computed(() => expandedProjectIds.value)
 const currentProjectSubOrders = ref([])
 const batchExistingNames = computed(() => batchTargetSubOrders.value.map((item) => item.subProjectName).filter(Boolean))
@@ -1785,7 +1786,6 @@ const normalizeProject = (project) => ({
 const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
 const clearProjectExpansion = () => {
   expandedProjectIds.value = []
-  shouldInitializeProjectExpansion.value = true
   expandedInlineChanges.value = new Map()
 }
 const isProjectExpanded = (row) => expandedProjectIds.value.some((id) => String(id) === String(row.id))
@@ -1923,7 +1923,8 @@ const handleExport = async () => {
 let searchTimer = null
 let requestController = null
 let requestSequence = 0
-const fetchData = async () => {
+const fetchData = async (options = {}) => {
+  const expandSubOrders = options?.expandSubOrders === true
   requestController?.abort()
   requestController = new AbortController()
   const sequence = ++requestSequence
@@ -1941,9 +1942,8 @@ const fetchData = async () => {
     const expandableProjectIds = tableData.value
       .filter((item) => getSubOrderCount(item))
       .map((item) => item.id)
-    if (shouldInitializeProjectExpansion.value) {
+    if (expandSubOrders) {
       expandedProjectIds.value = expandableProjectIds
-      shouldInitializeProjectExpansion.value = false
     } else {
       const validProjectIds = new Set(expandableProjectIds.map(String))
       expandedProjectIds.value = expandedProjectIds.value.filter((id) => validProjectIds.has(String(id)))
@@ -1966,7 +1966,7 @@ const saveProjectTextField = async (row, field, value) => {
   return updated
 }
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
-const focusRouteProject = async (editorReady = Promise.resolve()) => {
+const focusRouteProject = async () => {
   const projectId = String(route.query.projectId || '')
   if (!projectId) return
   try {
@@ -1976,13 +1976,12 @@ const focusRouteProject = async (editorReady = Promise.resolve()) => {
     pagination.page = 1
     const listPromise = fetchData()
     if (route.query.openEditor === '1') {
-      await editorReady
-      await handleEdit(detail, true)
+      await handleEdit(detail)
       const query = { ...route.query }
       delete query.openEditor
       await router.replace({ query })
     }
-    await Promise.all([listPromise, editorReady])
+    await listPromise
   } catch (error) {
     ElMessage.error(error.detail || '定位笔译项目失败')
   }
@@ -1996,32 +1995,34 @@ const refreshProjectSubOrders = async (projectId) => {
   if (String(form.id) === String(projectId)) syncProjectName()
 }
 
-const loadProjectManagerOptions = async () => {
-  if (projectManagerOptions.value.length) return
-  try {
-    projectManagerOptions.value = await getProjectManagerCandidatesAPI({ include_current: true })
-  } catch {
-    projectManagerOptions.value = []
-  }
-}
+let projectEditorOptionsRequest = null
+const loadProjectEditorOptions = () => {
+  if (projectRoleOptionsLoaded.value) return Promise.resolve()
+  if (projectEditorOptionsRequest) return projectEditorOptionsRequest
 
-const loadProjectRoleOptions = async () => {
-  if (projectRoleOptionsLoaded.value || projectRoleOptionsLoading.value) return
   projectRoleOptionsLoading.value = true
-  try {
-    const results = await Promise.all(
-      projectRoleFieldConfigs.map((role) => getProjectRoleCandidatesAPI(role.roleCode))
-    )
-    projectRoleFieldConfigs.forEach((role, index) => {
-      projectRoleCandidateOptions[role.roleCode] = Array.isArray(results[index]) ? results[index] : []
+  projectEditorOptionsRequest = getProjectEditorOptionsAPI()
+    .then((response) => {
+      projectManagerOptions.value = Array.isArray(response?.project_managers)
+        ? response.project_managers
+        : []
+      const groupedCandidates = response?.role_candidates || {}
+      projectRoleFieldConfigs.forEach((role) => {
+        const candidates = groupedCandidates[role.roleCode]
+        projectRoleCandidateOptions[role.roleCode] = Array.isArray(candidates) ? candidates : []
+      })
+      projectRoleOptionsLoaded.value = true
     })
-    projectRoleOptionsLoaded.value = true
-  } catch (error) {
-    projectRoleOptionsLoaded.value = false
-    ElMessage.error(getLocalizedErrorMessage(error, '加载项目角色候选人失败'))
-  } finally {
-    projectRoleOptionsLoading.value = false
-  }
+    .catch((error) => {
+      projectManagerOptions.value = []
+      projectRoleOptionsLoaded.value = false
+      ElMessage.error(getLocalizedErrorMessage(error, '加载项目角色候选人失败'))
+    })
+    .finally(() => {
+      projectRoleOptionsLoading.value = false
+      projectEditorOptionsRequest = null
+    })
+  return projectEditorOptionsRequest
 }
 
 const fetchClientSuggestions = fetchProjectClientSuggestions
@@ -2099,14 +2100,19 @@ const handleTextSearch = (value) => {
   searchTimer = setTimeout(handleSearch, 400)
 }
 const handleSearch = () => { exitDeleteMode(); clearProjectExpansion(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
-const handleSortChange = () => { exitDeleteMode(); clearProjectExpansion(); pagination.page = 1; fetchData() }
+const handleSortChange = ({ expandSubOrders = false } = {}) => {
+  exitDeleteMode()
+  clearProjectExpansion()
+  pagination.page = 1
+  fetchData({ expandSubOrders })
+}
 const getTimeSortMode = getTranslationProjectTimeSortMode
 const isTimeSortActive = (columnKey) => isTranslationProjectTimeSortActive(sortMode.value, columnKey)
 const getTimeSortTitle = (column) => getTranslationProjectTimeSortTitle(sortMode.value, column.key, column.label)
 const toggleTimeSort = (columnKey) => {
   if (!getTimeSortMode(columnKey)) return
   sortMode.value = nextTranslationProjectTimeSortMode(sortMode.value, columnKey)
-  handleSortChange()
+  handleSortChange({ expandSubOrders: true })
 }
 const getSortColumnClass = (columnKey) => {
   if (sortMode.value === 'translator_return_time_asc' && columnKey === 'translatorReturnTime') return 'is-active-sort-column'
@@ -2237,18 +2243,18 @@ const handleAdd = async () => {
   resetProjectForm()
   projectCreateIdempotencyKey.value = createIdempotencyKey()
   currentProjectSubOrders.value = []
-  await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
-  form.orderNo = await generateOrderNo()
+  void loadProjectEditorOptions()
   dialogVisible.value = true
   await nextTick()
   editorBodyRef.value?.scrollTo({ top: 0, behavior: 'auto' })
   projectFilesTabRef.value?.resetPathGroup()
+  form.orderNo = await generateOrderNo()
   await beginDraft('create')
 }
-const handleEdit = async (row, editorOptionsReady = false) => {
+const handleEdit = async (row) => {
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
-  if (!editorOptionsReady) await Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
+  void loadProjectEditorOptions()
   assignReactive(form, createEmptyProjectForm, row)
   if (!String(form.taskType || '').trim()) form.taskType = '笔译项目'
   form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
@@ -2303,6 +2309,9 @@ const changeProjectStatus = async (row, value) => {
 const handleSubmit = async (sendAfterSave = false) => {
   if (!formRef.value || submitLocked) return
   submitLocked = true
+  submitLoading.value = true
+  // 先让按钮呈现忙碌状态，再执行整表与路径校验，避免点击后长时间没有反馈。
+  await nextTick()
   syncProjectName()
   const valid = await formRef.value.validate().catch((invalidFields) => {
     if (invalidFields?.projectStatus) {
@@ -2316,6 +2325,7 @@ const handleSubmit = async (sendAfterSave = false) => {
   if (!valid) {
     await nextTick()
     editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    submitLoading.value = false
     submitLocked = false
     return
   }
@@ -2323,11 +2333,10 @@ const handleSubmit = async (sendAfterSave = false) => {
   const pathGroupValid = await projectFilesTabRef.value?.validatePathGroup()
   if (pathGroupValid === false) {
     projectDialogTab.value = 'files'
+    submitLoading.value = false
     submitLocked = false
     return
   }
-
-  submitLoading.value = true
   let projectSaved = false
   try {
     const payload = cleanPayload({ ...form })
@@ -2481,22 +2490,16 @@ const saveAllInlineNames = async (scope, projectId = null) => {
 }
 onMounted(async () => {
   if (route.query.projectId) {
-    const editorReady = route.query.openEditor === '1'
-      ? Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
-      : Promise.resolve()
-    await Promise.all([focusRouteProject(editorReady), loadResourceRequestStatuses()])
+    await Promise.all([focusRouteProject(), loadResourceRequestStatuses()])
     return
   }
-  await Promise.all([fetchData(), loadProjectManagerOptions(), loadResourceRequestStatuses()])
+  await Promise.all([fetchData(), loadResourceRequestStatuses()])
 })
 watch(
   () => [route.query.projectId, route.query.openEditor],
   ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {
     if (projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
-      const editorReady = openEditor === '1'
-        ? Promise.all([loadProjectManagerOptions(), loadProjectRoleOptions()])
-        : Promise.resolve()
-      void focusRouteProject(editorReady)
+      void focusRouteProject()
     }
   }
 )

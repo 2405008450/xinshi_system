@@ -21,7 +21,17 @@ from workflow_models import (
     WorkflowLog,
     WorkflowTaskDelegation,
 )
-from models import ChatProjectAttachment, TranslationProject, TranslationSubOrder, AppUser, Client, EmployeeLeave, ProjectRoleAssignment
+from models import (
+    AppUser,
+    ChatProjectAttachment,
+    Client,
+    EmployeeLeave,
+    ProjectRoleAssignment,
+    Role,
+    TranslationProject,
+    TranslationSubOrder,
+    UserRole,
+)
 from leave_service import business_now, ensure_user_assignable
 from project_roles import (
     PROJECT_ROLE_NAME_BY_CODE,
@@ -1251,6 +1261,59 @@ def get_project_role_candidates(db: Session, role_code: str) -> list[AppUser]:
         get_users_by_role_names(db, [role_name]),
         key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()),
     )
+
+
+def get_project_editor_candidates(
+    db: Session,
+    current_user_id: UUID,
+    include_current_manager: bool = True,
+) -> dict[str, list[AppUser]]:
+    """一次查询返回笔译编辑器需要的全部内部角色候选人。"""
+    role_codes = (
+        'project_manager',
+        'project_specialist',
+        'project_assistant',
+        'layout_specialist',
+    )
+    role_name_by_code = {
+        code: ROLE_NAME_BY_CODE[code]
+        for code in role_codes
+    }
+    code_by_role_name = {
+        role_name: code
+        for code, role_name in role_name_by_code.items()
+    }
+    rows = (
+        db.query(Role.role_name, AppUser)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .join(AppUser, AppUser.id == UserRole.user_id)
+        .filter(
+            Role.role_name.in_(tuple(code_by_role_name)),
+            AppUser.is_active == True,
+        )
+        .all()
+    )
+
+    candidates: dict[str, list[AppUser]] = {code: [] for code in role_codes}
+    seen: dict[str, set[UUID]] = {code: set() for code in role_codes}
+    for role_name, user in rows:
+        role_code = code_by_role_name.get(role_name)
+        if not role_code:
+            continue
+        if (
+            role_code == 'project_manager'
+            and not include_current_manager
+            and user.id == current_user_id
+        ):
+            continue
+        if user.id in seen[role_code]:
+            continue
+        seen[role_code].add(user.id)
+        candidates[role_code].append(user)
+
+    for users in candidates.values():
+        users.sort(key=lambda user: ((user.full_name or '').casefold(), user.username.casefold()))
+    return candidates
 
 
 def claim_management_projects(

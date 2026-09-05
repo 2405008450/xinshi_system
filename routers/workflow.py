@@ -16,6 +16,7 @@ from workflow_crud import (
     get_management_projects,
     get_my_tasks,
     get_project_manager_candidates,
+    get_project_editor_candidates,
     get_project_role_candidates,
     claim_management_projects,
     claim_management_project_refs,
@@ -68,6 +69,7 @@ from workflow_schemas import (
     WorkflowEligibleUsersRequest,
     WorkflowTransferResult,
     WorkflowTransferUser,
+    ProjectEditorOptionsResponse,
     WorkflowDelegationReturnRequest,
 )
 from models import AppUser
@@ -200,6 +202,38 @@ def get_project_manager_candidates_endpoint(
     return _serialize_transfer_users(
         db,
         get_project_manager_candidates(db, current_user.id, include_current=include_current),
+    )
+
+
+@router.get("/project-editor-options", response_model=ProjectEditorOptionsResponse)
+def get_project_editor_options_endpoint(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    grouped_users = get_project_editor_candidates(
+        db,
+        current_user.id,
+        include_current_manager=True,
+    )
+    unique_users = {
+        user.id: user
+        for users in grouped_users.values()
+        for user in users
+    }
+    serialized_by_id = {
+        user.id: user
+        for user in _serialize_transfer_users(db, list(unique_users.values()))
+    }
+    return ProjectEditorOptionsResponse(
+        project_managers=[
+            serialized_by_id[user.id]
+            for user in grouped_users['project_manager']
+        ],
+        role_candidates={
+            role_code: [serialized_by_id[user.id] for user in users]
+            for role_code, users in grouped_users.items()
+            if role_code != 'project_manager'
+        },
     )
 
 

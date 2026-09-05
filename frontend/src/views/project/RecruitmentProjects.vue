@@ -358,6 +358,7 @@ import { useResourceRequestStatuses } from '@/composables/useResourceRequestStat
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { getClients } from '@/api/clients'
 import { getUsers } from '@/api/users'
@@ -690,7 +691,7 @@ const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate
 const periodText=(row)=>fullPeriodText(row)
 const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='monthly_salary_multiple'?`月薪 ${row.serviceFeeMultiplier??'-'}倍`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
 const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');if(!launchOpenPath(path.trim()))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}
-const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{await navigator.clipboard.writeText(path.trim());ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
+const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{const copied=await copyTextToClipboard(path.trim());if(!copied)return ElMessage.error('复制失败，请手工复制');ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 
 onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
 watch(()=>[route.query.projectId,route.query.openEditor],([projectId,openEditor],[previousProjectId,previousOpenEditor])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')))void focusRouteProject()})

@@ -231,6 +231,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import TableActionButton from '@/components/common/TableActionButton.vue'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import {
   createRecruitmentCandidateCommunication,
@@ -398,7 +399,13 @@ const openResumeFolder = (path) => { const value = requirePath(path); if (value 
 const copyResumePath = async (path) => {
   const value = requirePath(path)
   if (!value) return
-  try { await navigator.clipboard.writeText(value); ElMessage.success('简历路径已复制') } catch { ElMessage.error('复制失败，请手工复制') }
+  try {
+    const copied = await copyTextToClipboard(value)
+    if (!copied) return ElMessage.error('复制失败，请手工复制')
+    ElMessage.success('简历路径已复制')
+  } catch {
+    ElMessage.error('复制失败，请手工复制')
+  }
 }
 </script>
 

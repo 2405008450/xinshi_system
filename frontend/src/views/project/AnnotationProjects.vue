@@ -515,6 +515,7 @@ import { useResourceRequestStatuses } from '@/composables/useResourceRequestStat
 import { hasPermission } from '@/utils/permission'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
@@ -740,7 +741,7 @@ const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.valu
 const onEditorClosed=()=>{pauseDraft();resetForm()}
 
 const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');if(!launchOpenPath(value))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}
-const copyPathValue=async(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可复制的路径');try{await navigator.clipboard.writeText(value);ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
+const copyPathValue=async(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可复制的路径');try{const copied=await copyTextToClipboard(value);if(!copied)return ElMessage.error('复制失败，请手工复制');ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 const projectPath=async(row)=>(await loadDetail(row.id))?.projectPath||''
 const openProjectPath=async(row)=>openPathValue(await projectPath(row))
 const copyProjectPath=async(row)=>copyPathValue(await projectPath(row))

@@ -631,6 +631,7 @@ import { useResourceRequestStatuses } from '@/composables/useResourceRequestStat
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
@@ -1385,7 +1386,13 @@ const openPathValue = (path) => {
 }
 const copyPathValue = async (path) => {
   if (!path?.trim()) return ElMessage.warning('暂无可复制的路径')
-  try { await navigator.clipboard.writeText(path.trim()); ElMessage.success('路径已复制') } catch { ElMessage.error('复制失败，请手工复制') }
+  try {
+    const copied = await copyTextToClipboard(path.trim())
+    if (!copied) return ElMessage.error('复制失败，请手工复制')
+    ElMessage.success('路径已复制')
+  } catch {
+    ElMessage.error('复制失败，请手工复制')
+  }
 }
 const projectPath = async (row) => (await loadDetail(row.id))?.filePath || ''
 const openProjectPath = async (row) => openPathValue(await projectPath(row))

@@ -266,6 +266,11 @@ class WorkflowTransferUser(BaseModel):
     assignment_disabled_reason: Optional[str] = None
 
 
+class ProjectEditorOptionsResponse(BaseModel):
+    project_managers: list[WorkflowTransferUser] = Field(default_factory=list)
+    role_candidates: dict[str, list[WorkflowTransferUser]] = Field(default_factory=dict)
+
+
 class WorkflowEligibleUsersRequest(BaseModel):
     workflow_instance_ids: list[UUID] = Field(default_factory=list, max_length=100)
     work_item_refs: list[WorkItemReference] = Field(default_factory=list, max_length=100)

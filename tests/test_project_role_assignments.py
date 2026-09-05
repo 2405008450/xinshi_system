@@ -34,6 +34,23 @@ class SingleUserDb:
         return self.user
 
 
+class EditorCandidatesDb:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def query(self, *_models):
+        return self
+
+    def join(self, *_args):
+        return self
+
+    def filter(self, *_args):
+        return self
+
+    def all(self):
+        return self.rows
+
+
 def test_project_role_assignments_include_manager_and_empty_pools():
     manager = AppUser(id=uuid4(), full_name='经理甲', username='manager', password_hash='x')
     specialist = AppUser(id=uuid4(), full_name='专员乙', username='specialist', password_hash='x')
@@ -145,6 +162,29 @@ def test_role_candidate_endpoint_uses_server_side_role_mapping(monkeypatch):
 
     assert workflow_crud.get_project_role_candidates(object(), 'layout_specialist') == expected
     assert calls == [['排版专员']]
+
+
+def test_project_editor_candidates_are_grouped_in_one_query():
+    current_manager = AppUser(id=uuid4(), full_name='当前经理', username='manager-a', password_hash='x')
+    specialist_b = AppUser(id=uuid4(), full_name='B专员', username='specialist-b', password_hash='x')
+    specialist_a = AppUser(id=uuid4(), full_name='A专员', username='specialist-a', password_hash='x')
+    rows = [
+        (workflow_crud.ROLE_NAME_BY_CODE['project_specialist'], specialist_b),
+        (workflow_crud.ROLE_NAME_BY_CODE['project_manager'], current_manager),
+        (workflow_crud.ROLE_NAME_BY_CODE['project_specialist'], specialist_a),
+        (workflow_crud.ROLE_NAME_BY_CODE['project_specialist'], specialist_a),
+    ]
+
+    grouped = workflow_crud.get_project_editor_candidates(
+        EditorCandidatesDb(rows),
+        current_manager.id,
+        include_current_manager=False,
+    )
+
+    assert grouped['project_manager'] == []
+    assert grouped['project_specialist'] == [specialist_a, specialist_b]
+    assert grouped['project_assistant'] == []
+    assert grouped['layout_specialist'] == []
 
 
 def test_cross_role_batch_handover_is_rejected():

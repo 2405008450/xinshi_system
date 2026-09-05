@@ -23,6 +23,7 @@ const workItemRefs = (items) => items.map(item => ({
 export const claimManagementProjectsAPI = (projects) =>
   api.post('/workflow/project-manager-claim', { project_refs: projectRefs(projects) })
 export const getProjectManagerCandidatesAPI = (params = {}) => api.get('/workflow/project-manager-candidates', { params })
+export const getProjectEditorOptionsAPI = () => api.get('/workflow/project-editor-options')
 export const getProjectRoleCandidatesAPI = (roleCode) =>
   api.get(`/workflow/role-candidates/${encodeURIComponent(roleCode)}`)
 export const createProjectManagerHandoverAPI = (data) => api.post('/workflow/project-manager-handover', data)

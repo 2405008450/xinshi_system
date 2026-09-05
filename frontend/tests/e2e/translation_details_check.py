@@ -15,7 +15,7 @@
 4. 打印每列实际宽度与留白占比，并对进度列断言 <140px；
 5. 验证新增项目弹窗可以跨 Tab、跨折叠分组搜索定位字段；
 6. 验证条件字段不会被搜索自动启用，并检查窄屏弹窗不溢出；
-7. 验证子订单默认展开、进行中优先、最多展示 10 条、母订单列表持续可见，并检查低饱和背景；
+7. 验证子订单默认折叠、点击时间排序后展开、进行中优先、最多展示 10 条，并检查低饱和背景；
 8. 验证时间列表头筛选入口、紧急优先排序切换及隐藏活动排序列后的回退；
 9. 验证粘贴/TXT 预览、重复跳过、事务批量创建与行内改名，并清理测试数据；
 10. 全页截图归档到 test-results/translation-details.png。
@@ -267,8 +267,8 @@ def check_field_search(page, can_write: bool) -> list[str]:
     return failures
 
 
-def check_suborder_default_expansion(page) -> list[str]:
-    """验证子订单默认展开、独立收起及低饱和配色。"""
+def check_suborder_sort_expansion(page) -> list[str]:
+    """验证子订单默认折叠、点击时间排序后展开、独立收起及低饱和配色。"""
     failures = []
     project_rows = page.locator(
         ".project-table > .el-table__inner-wrapper > .el-table__body-wrapper "
@@ -277,22 +277,55 @@ def check_suborder_default_expansion(page) -> list[str]:
     )
     initial_row_count = project_rows.count()
     panels = page.locator(".sub-order-panel")
-    collapse_buttons = page.get_by_role("button", name="收起子订单", exact=True)
-    initial_panel_count = panels.count()
-    if not initial_panel_count or not collapse_buttons.count():
-        print("[跳过] 当前页没有包含子订单的母订单，未执行默认展开验收")
+    expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
+    expandable_project_count = expand_buttons.count()
+    if not expandable_project_count:
+        print("[跳过] 当前页没有包含子订单的母订单，未执行折叠与排序展开验收")
         return failures
 
+    if panels.count():
+        failures.append("页面初始加载时子订单未保持折叠")
+
+    sort_button = page.get_by_role(
+        "button", name="译员回稿时间：待回稿紧急优先", exact=True
+    )
+    expected_sort = "translator_return_time_asc"
+    if not sort_button.count():
+        sort_button = page.get_by_role(
+            "button", name="客户交稿时间：待交稿紧急优先", exact=True
+        )
+        expected_sort = "customer_deadline_time_asc"
+    if not sort_button.count():
+        failures.append("未找到可触发展开子订单的时间排序按钮")
+        return failures
+
+    with page.expect_request(
+        lambda request: (
+            request.method == "GET"
+            and "/api/projects/translation/" in request.url
+            and f"sort={expected_sort}" in request.url
+        ),
+        timeout=10000,
+    ):
+        sort_button.click()
+
+    panels.first.wait_for(state="visible", timeout=10000)
+    expanded_panel_count = panels.count()
+    if expanded_panel_count != expandable_project_count:
+        failures.append(
+            f"点击时间排序后未展开全部含子订单的母订单：预期 {expandable_project_count}，实际 {expanded_panel_count}"
+        )
+
+    collapse_buttons = page.get_by_role("button", name="收起子订单", exact=True)
     panel = panels.first
-    panel.wait_for(state="visible", timeout=5000)
-    if initial_row_count < initial_panel_count:
-        failures.append("默认展开后母订单行数量异常")
+    if initial_row_count < expanded_panel_count:
+        failures.append("排序展开后母订单行数量异常")
 
     suborder_rows = panel.locator(".sub-order-table .el-table__body-wrapper tr.el-table__row")
     if not suborder_rows.count():
         failures.append("展开后未显示子订单数据行")
     if suborder_rows.count() > 10:
-        failures.append(f"子订单默认展示超过 10 条：实际 {suborder_rows.count()} 条")
+        failures.append(f"子订单展开后展示超过 10 条：实际 {suborder_rows.count()} 条")
 
     completed_return_seen = False
     for index in range(suborder_rows.count()):
@@ -323,7 +356,7 @@ def check_suborder_default_expansion(page) -> list[str]:
     page.wait_for_timeout(100)
     if project_rows.count() != initial_row_count:
         failures.append("收起子订单时母订单列表发生变化")
-    if panels.count() != initial_panel_count - 1:
+    if panels.count() != expanded_panel_count - 1:
         failures.append("子订单面板未能独立收起")
 
     expand_buttons = page.get_by_role("button", name="展开子订单", exact=True)
@@ -332,16 +365,16 @@ def check_suborder_default_expansion(page) -> list[str]:
     else:
         expand_buttons.first.click()
         page.wait_for_timeout(100)
-        if panels.count() != initial_panel_count:
+        if panels.count() != expanded_panel_count:
             failures.append("子订单面板重新展开失败")
         if project_rows.count() != initial_row_count:
             failures.append("重新展开子订单时母订单列表发生变化")
 
     if failures:
         for failure in failures:
-            print(f"[✗] 子订单默认展开：{failure}", file=sys.stderr)
+            print(f"[✗] 子订单折叠与排序展开：{failure}", file=sys.stderr)
     else:
-        print("[✓] 子订单默认展开、进行中优先且最多展示 10 条，母订单列表持续可见，低饱和配色正确")
+        print("[✓] 子订单默认折叠，点击时间排序后展开且最多展示 10 条，母订单列表持续可见，低饱和配色正确")
     return failures
 
 
@@ -548,17 +581,17 @@ def main() -> int:
         page.wait_for_selector(".project-table .el-table__header", timeout=20000)
         page.wait_for_timeout(500)
 
-        time_header_failures = check_time_header_filters_and_sort(page)
-        field_search_failures = check_field_search(
-            page, "projects:write" in permissions or "*" in permissions
-        )
-        suborder_expansion_failures = check_suborder_default_expansion(page)
+        suborder_expansion_failures = check_suborder_sort_expansion(page)
         suborder_bulk_failures = check_suborder_bulk_and_inline(
             page,
             "projects:write" in permissions or "*" in permissions,
             base_url,
             auth.get("access_token", ""),
             out_dir,
+        )
+        time_header_failures = check_time_header_filters_and_sort(page)
+        field_search_failures = check_field_search(
+            page, "projects:write" in permissions or "*" in permissions
         )
 
         columns = page.eval_on_selector_all(
