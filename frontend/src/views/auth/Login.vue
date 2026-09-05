@@ -98,7 +98,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, OfficeBuilding, Picture } from '@element-plus/icons-vue'
@@ -115,16 +115,6 @@ const captchaRequired = ref(false)
 const captchaLoading = ref(false)
 const captchaId = ref('')
 const captchaImage = ref('')
-let preloadHandle = null
-
-const preloadLandingViews = () => {
-  preloadHandle = null
-  Promise.allSettled([
-    import('@/views/schedule/WorkDashboard.vue'),
-    import('@/views/dashboard/Dashboard.vue')
-  ])
-}
-
 const refreshCaptcha = async () => {
   if (captchaLoading.value) return
   captchaLoading.value = true
@@ -151,24 +141,10 @@ const enableCaptcha = async ({ focus = false } = {}) => {
 }
 
 onMounted(() => {
-  if ('requestIdleCallback' in window) {
-    preloadHandle = window.requestIdleCallback(preloadLandingViews, { timeout: 1000 })
-  } else {
-    preloadHandle = window.setTimeout(preloadLandingViews, 150)
-  }
   // 探测失败不阻塞登录：真正需要验证码时后端会在登录响应头中告知。
   checkCaptchaRequired()
     .then((res) => (res?.required ? enableCaptcha() : null))
     .catch(() => {})
-})
-
-onBeforeUnmount(() => {
-  if (preloadHandle === null) return
-  if ('cancelIdleCallback' in window) {
-    window.cancelIdleCallback(preloadHandle)
-  } else {
-    window.clearTimeout(preloadHandle)
-  }
 })
 
 const loginForm = reactive({

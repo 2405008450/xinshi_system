@@ -538,21 +538,14 @@ const fetchData = async () => {
     if (searchForm.full_name) userParams.full_name = searchForm.full_name
     if (searchForm.department) userParams.department = searchForm.department
 
-    const requests = [
-      userApi.getUsers(userParams, requestController.signal),
-      userApi.getUserCount({
-        username: userParams.username,
-        full_name: userParams.full_name,
-        department: userParams.department
-      }, requestController.signal)
-    ]
+    const requests = [userApi.getUserPage(userParams, requestController.signal)]
     if (canAssignRoles.value) {
       requests.push(userRoleApi.getUserRoles({ skip: 0, limit: 5000 }))
     }
-    const [res, countRes, roleRows = []] = await Promise.all(requests)
+    const [page, roleRows = []] = await Promise.all(requests)
     if (sequence !== requestSequence) return
     userRoleRows.value = roleRows
-    tableData.value = res.map((user) => ({
+    tableData.value = (page?.items || []).map((user) => ({
       ...user,
       roles: roleRows
         .filter((item) => item.user_id === user.id)
@@ -562,7 +555,7 @@ const fetchData = async () => {
           user_role_id: item.id
         }))
     }))
-    pagination.total = countRes?.total || 0
+    pagination.total = page?.total || 0
 
     const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.limit))
     if (pagination.page > lastPage) {

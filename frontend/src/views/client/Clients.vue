@@ -831,20 +831,16 @@ const fetchData = async () => {
   const requestId = ++clientsRequestId
   loading.value = true
   try {
-    const filterParams = buildFilterParams()
     const params = {
-      ...filterParams,
+      ...buildFilterParams(),
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
     }
-    const [res, countRes] = await Promise.all([
-      clientApi.getClients(params, { signal: clientsRequestController.signal }),
-      clientApi.getClientCount(filterParams, { signal: clientsRequestController.signal })
-    ])
+    const page = await clientApi.getClientPage(params, { signal: clientsRequestController.signal })
     if (requestId !== clientsRequestId) return
-    tableData.value = res || []
+    tableData.value = page?.items || []
     expandedClientIds.value = new Set()
-    pagination.total = countRes?.total || 0
+    pagination.total = page?.total || 0
 
     const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.limit))
     if (pagination.page > lastPage) {

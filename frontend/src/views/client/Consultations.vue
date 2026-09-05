@@ -2380,15 +2380,10 @@ const fetchData = async () => {
       limit: pagination.limit,
       ...buildSearchFilters(),
     }
-    const countParams = buildSearchFilters()
-
-    const [res, countRes] = await Promise.all([
-      consultationApi.getConsultations(params, { signal: consultationSearchController.signal }),
-      consultationApi.getConsultationCount(countParams, { signal: consultationSearchController.signal })
-    ])
+    const page = await consultationApi.getConsultationPage(params, { signal: consultationSearchController.signal })
     if (requestId !== consultationRequestId) return
-    tableData.value = Array.isArray(res) ? res : []
-    pagination.total = countRes?.total || tableData.value.length
+    tableData.value = Array.isArray(page?.items) ? page.items : []
+    pagination.total = page?.total || 0
   } catch (error) {
     if (requestId !== consultationRequestId) return
     if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError') return

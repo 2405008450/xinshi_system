@@ -49,6 +49,7 @@ from recruitment_service import (
     update_recruitment_project,
     update_recruitment_project_status,
 )
+from pagination_schemas import PageResponse, resolve_page_total
 from resource_service import TalentDuplicateError
 from routers.auth import get_current_user, require_any_permission, require_module_access
 from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
@@ -129,7 +130,7 @@ def _filters(
     )
 
 
-@router.get("/", response_model=List[RecruitmentProjectResponse])
+@router.get("/", response_model=List[RecruitmentProjectResponse], deprecated=True)
 def read_projects(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -168,7 +169,7 @@ def read_projects(
     )
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_project_count(
     keyword: Optional[str] = None,
     project_status: Optional[str] = None,
@@ -202,6 +203,46 @@ def read_project_count(
             field_filters=_field_filters(field_filters),
         )
     )}
+
+
+@router.get("/page", response_model=PageResponse[RecruitmentProjectResponse])
+def read_project_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
+    client_manager_id: Optional[UUID] = None,
+    employment_date_start: Optional[date] = None,
+    employment_date_end: Optional[date] = None,
+    target_onboard_date_start: Optional[date] = None,
+    target_onboard_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = _filters(
+        keyword=keyword, project_status=project_status,
+        client_id=client_id, sub_client_id=sub_client_id,
+        language_id=language_id, client_manager_id=client_manager_id,
+        employment_date_start=employment_date_start,
+        employment_date_end=employment_date_end,
+        target_onboard_date_start=target_onboard_date_start,
+        target_onboard_date_end=target_onboard_date_end,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        field_filters=_field_filters(field_filters),
+    )
+    items = get_recruitment_projects(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_recruitment_projects(db, **filters),
+        ),
+    }
 
 
 @router.post("/name-preview", response_model=RecruitmentNamePreviewResponse)

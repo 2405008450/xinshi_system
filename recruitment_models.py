@@ -160,6 +160,8 @@ class RecruitmentProject(Base):
 
     @property
     def candidate_count(self):
+        if "_candidate_count" in self.__dict__:
+            return self.__dict__["_candidate_count"]
         return len(self.candidates or [])
 
 

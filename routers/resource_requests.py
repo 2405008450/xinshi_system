@@ -16,6 +16,7 @@ from resource_request_service import (
     cancel_resource_request, count_resource_requests, create_resource_request, delete_resource_request,
     get_resource_request, get_resource_request_by_source, get_resource_request_source_prefill,
     list_progress_logs, list_resource_request_source_statuses, list_resource_requests,
+    list_source_project_options,
     send_resource_request, update_resource_progress, update_resource_request,
 )
 from routers.auth import get_current_user, require_any_permission, require_module_access
@@ -27,6 +28,7 @@ from inline_text_update import (
     normalize_text_value,
 )
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from pagination_schemas import PageResponse, ProjectSourceOptionResponse, resolve_page_total
 
 
 router = APIRouter(
@@ -60,14 +62,55 @@ def _filters(keyword=None, source_type=None, request_category=None, request_stat
     return dict(keyword=keyword, source_type=source_type, request_category=request_category, request_status=request_status, priority=priority, owner_id=owner_id, field_filters=field_filters)
 
 
-@router.get("/", response_model=List[ResourceRequestResponse])
+@router.get("/", response_model=List[ResourceRequestResponse], deprecated=True)
 def read_requests(skip: int = 0, limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None, source_type: Optional[str] = None, request_category: Optional[str] = None, request_status: Optional[str] = None, priority: Optional[str] = None, owner_id: Optional[UUID] = None, field_filters: Optional[str] = Query(None), db: Session = Depends(get_db)):
     return list_resource_requests(db, skip=skip, limit=limit, **_filters(keyword, source_type, request_category, request_status, priority, owner_id, _field_filters(field_filters)))
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_count(keyword: Optional[str] = None, source_type: Optional[str] = None, request_category: Optional[str] = None, request_status: Optional[str] = None, priority: Optional[str] = None, owner_id: Optional[UUID] = None, field_filters: Optional[str] = Query(None), db: Session = Depends(get_db)):
     return {"total": count_resource_requests(db, **_filters(keyword, source_type, request_category, request_status, priority, owner_id, _field_filters(field_filters)))}
+
+
+@router.get("/page", response_model=PageResponse[ResourceRequestResponse])
+def read_request_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    source_type: Optional[str] = None,
+    request_category: Optional[str] = None,
+    request_status: Optional[str] = None,
+    priority: Optional[str] = None,
+    owner_id: Optional[UUID] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = _filters(
+        keyword, source_type, request_category, request_status, priority,
+        owner_id, _field_filters(field_filters),
+    )
+    items = list_resource_requests(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_resource_requests(db, **filters),
+        ),
+    }
+
+
+@router.get("/source-options", response_model=List[ProjectSourceOptionResponse])
+def read_source_options(
+    source_type: str,
+    keyword: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    try:
+        return list_source_project_options(
+            db, source_type, keyword=keyword, limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @router.get("/source-prefill", response_model=ResourceRequestSourcePrefillResponse)

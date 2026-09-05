@@ -1,5 +1,6 @@
 import api from './index'
 import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+import { invalidateOptionCache } from '@/utils/optionCache'
 
 const projectCreateState = { key: '', signature: '' }
 
@@ -24,6 +25,10 @@ export const getInterpretationProjectCount = (params, config = {}) => (
   api.get('/projects/interpretation/count', { ...config, params })
 )
 
+export const getInterpretationProjectPage = (params, config = {}) => (
+  api.get('/projects/interpretation/page', { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const getInterpretationProject = (id) => (
   api.get(`/projects/interpretation/${id}`).then((res) => convertKeys(res, toCamelCase))
 )
@@ -35,11 +40,15 @@ export const createInterpretationProject = async (data, idempotencyKey) => {
     headers: { 'X-Idempotency-Key': key },
   })
   clearIdempotencyKey(projectCreateState, key)
+  invalidateOptionCache('source-projects:interpretation:')
   return convertKeys(response, toCamelCase)
 }
 
 export const updateInterpretationProject = (id, data) => (
-  api.put(`/projects/interpretation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
+  api.put(`/projects/interpretation/${id}`, convertKeys(data, toSnakeCase)).then((res) => {
+    invalidateOptionCache('source-projects:interpretation:')
+    return convertKeys(res, toCamelCase)
+  })
 )
 
 export const updateInterpretationProjectTextField = (id, field, value, expectedUpdatedAt) => (
@@ -53,7 +62,10 @@ export const updateInterpretationProjectStatus = (id, projectStatus) => (
     .then((res) => convertKeys(res, toCamelCase))
 )
 
-export const deleteInterpretationProject = (id) => api.delete(`/projects/interpretation/${id}`)
+export const deleteInterpretationProject = (id) => api.delete(`/projects/interpretation/${id}`).then((res) => {
+  invalidateOptionCache('source-projects:interpretation:')
+  return res
+})
 
 export const getInterpretationLanguages = (params = {}) => (
   api.get('/projects/interpretation/languages', { params }).then((res) => convertKeys(res, toCamelCase))

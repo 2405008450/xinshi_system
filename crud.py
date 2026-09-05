@@ -96,13 +96,18 @@ def get_users(
         query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
     if department:
         query = query.filter(AppUser.department.in_(department_filter_values(department)))
-    return (
-        query
+    rows = (
+        query.add_columns(func.count(AppUser.id).over().label("_page_total"))
         .order_by(AppUser.created_at.desc(), AppUser.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    users = []
+    for user, page_total in rows:
+        user.__dict__["_page_total"] = int(page_total or 0)
+        users.append(user)
+    return users
 
 
 def count_users(
@@ -445,7 +450,12 @@ def get_clients(
     else:
         # 客户列表默认按创建时间倒序，确保新建客户出现在第一页顶部。
         query = query.order_by(Client.created_at.desc(), Client.id.desc())
-    return query.offset(skip).limit(limit).all()
+    rows = query.add_columns(func.count(Client.id).over().label("_page_total")).offset(skip).limit(limit).all()
+    clients = []
+    for client, page_total in rows:
+        client.__dict__["_page_total"] = int(page_total or 0)
+        clients.append(client)
+    return clients
 
 
 def count_clients(
@@ -1542,14 +1552,14 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
     project = (
         db.query(TranslationProject)
         .options(
-            selectinload(TranslationProject.client),
-            selectinload(TranslationProject.sub_client),
-            selectinload(TranslationProject.translator),
-            selectinload(TranslationProject.project_manager),
+            joinedload(TranslationProject.client),
+            joinedload(TranslationProject.sub_client),
+            joinedload(TranslationProject.translator),
+            joinedload(TranslationProject.project_manager),
             selectinload(TranslationProject.project_role_assignments)
-            .selectinload(ProjectRoleAssignment.assignee),
-            selectinload(TranslationProject.project_file),
-            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
+            .joinedload(ProjectRoleAssignment.assignee),
+            joinedload(TranslationProject.project_file),
+            selectinload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
         )
         .filter(
             TranslationProject.id == project_id,
@@ -1851,14 +1861,14 @@ def get_translation_projects(
     query = (
         db.query(TranslationProject)
         .options(
-            selectinload(TranslationProject.client),
-            selectinload(TranslationProject.sub_client),
-            selectinload(TranslationProject.translator),
-            selectinload(TranslationProject.project_manager),
+            joinedload(TranslationProject.client),
+            joinedload(TranslationProject.sub_client),
+            joinedload(TranslationProject.translator),
+            joinedload(TranslationProject.project_manager),
             selectinload(TranslationProject.project_role_assignments)
-            .selectinload(ProjectRoleAssignment.assignee),
-            selectinload(TranslationProject.project_file),
-            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
+            .joinedload(ProjectRoleAssignment.assignee),
+            joinedload(TranslationProject.project_file),
+            joinedload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
         )
         .outerjoin(Client, TranslationProject.client_id == Client.id)
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
@@ -2005,13 +2015,17 @@ def get_translation_projects(
             TranslationProject.created_at.desc(),
             TranslationProject.id.desc(),
         )
-    projects = (
-        query
+    rows = (
+        query.add_columns(func.count(TranslationProject.id).over().label("_page_total"))
         .order_by(*ordering)
         .offset(skip)
         .limit(limit)
         .all()
     )
+    projects = []
+    for project, page_total in rows:
+        project.__dict__["_page_total"] = int(page_total or 0)
+        projects.append(project)
     for project in projects:
         _attach_project_client_fields(project)
         _attach_project_file_detail_fields(project)
@@ -2943,10 +2957,14 @@ def get_consultations(
         follow_up_status=follow_up_status,
     )
 
-    results = query.order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
+    results = (
+        query.add_columns(func.count(Consultation.id).over().label("_page_total"))
+        .order_by(Consultation.created_at.desc()).offset(skip).limit(limit).all()
+    )
     
     consultations = []
-    for consultation, client_code, db_client_name, client_short_name, manager_contact, sub_client in results:
+    for consultation, client_code, db_client_name, client_short_name, manager_contact, sub_client, page_total in results:
+        consultation.__dict__["_page_total"] = int(page_total or 0)
         consultations.append(_attach_consultation_client_fields(
             consultation, client_code, db_client_name, client_short_name, manager_contact, sub_client,
         ))

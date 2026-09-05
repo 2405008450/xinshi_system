@@ -27,6 +27,7 @@ from translation_project_export_service import (
     TranslationExportLimitError,
     create_translation_project_export,
 )
+from pagination_schemas import PageResponse, resolve_page_total
 
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ def create_project_endpoint(
         )
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_project_count(
     keyword: Optional[str] = None,
     created_by: Optional[UUID] = None,
@@ -211,7 +212,52 @@ def read_project_count(
     }
 
 
-@router.get("/", response_model=List[TranslationProjectResponse])
+@router.get("/page", response_model=PageResponse[TranslationProjectResponse])
+def read_project_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    created_by: Optional[UUID] = None,
+    project_name: Optional[str] = None,
+    order_no: Optional[str] = None,
+    project_status: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    task_type: Optional[str] = None,
+    service_content: Optional[str] = None,
+    priority: Optional[str] = None,
+    project_manager_id: Optional[UUID] = None,
+    customer_deadline_date_start: Optional[date] = None,
+    customer_deadline_date_end: Optional[date] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    sort: Optional[Literal[
+        "order_no_desc", "unfinished_first_order_no_desc",
+        "customer_deadline_time_asc", "translator_return_time_asc",
+    ]] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = dict(
+        keyword=keyword, created_by=created_by, project_name=project_name,
+        order_no=order_no, project_status=project_status,
+        client_short_name=client_short_name, task_type=task_type,
+        service_content=service_content, priority=priority,
+        project_manager_id=project_manager_id,
+        customer_deadline_date_start=customer_deadline_date_start,
+        customer_deadline_date_end=customer_deadline_date_end,
+        created_date_start=created_date_start, created_date_end=created_date_end,
+        field_filters=_field_filters(field_filters),
+    )
+    items = get_translation_projects(db, skip=skip, limit=limit, sort=sort, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_translation_projects(db, **filters),
+        ),
+    }
+
+
+@router.get("/", response_model=List[TranslationProjectResponse], deprecated=True)
 def read_projects(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),

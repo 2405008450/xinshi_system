@@ -35,6 +35,7 @@ from models import AppUser
 from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
 from routers.auth import get_current_user, require_any_permission, require_module_access
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from pagination_schemas import PageResponse, resolve_page_total
 
 
 router = APIRouter(
@@ -112,7 +113,7 @@ def _filters(
     )
 
 
-@router.get("/", response_model=List[InterpretationProjectListResponse])
+@router.get("/", response_model=List[InterpretationProjectListResponse], deprecated=True)
 def read_projects(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -134,7 +135,7 @@ def read_projects(
     )
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_project_count(
     keyword: Optional[str] = None,
     project_status: Optional[str] = None,
@@ -151,6 +152,36 @@ def read_project_count(
     return {"total": count_interpretation_projects(
         db, **_filters(keyword, project_status, project_type, scheduled_date_start, scheduled_date_end, translator_id, client_id, sub_client_id, language_id, _field_filters(field_filters))
     )}
+
+
+@router.get("/page", response_model=PageResponse[InterpretationProjectListResponse])
+def read_project_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    project_status: Optional[str] = None,
+    project_type: Optional[str] = None,
+    scheduled_date_start: Optional[date] = None,
+    scheduled_date_end: Optional[date] = None,
+    translator_id: Optional[UUID] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    language_id: Optional[UUID] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = _filters(
+        keyword, project_status, project_type, scheduled_date_start,
+        scheduled_date_end, translator_id, client_id, sub_client_id,
+        language_id, _field_filters(field_filters),
+    )
+    items = get_interpretation_projects(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_interpretation_projects(db, **filters),
+        ),
+    }
 
 
 @router.get("/languages", response_model=List[InterpretationLanguageResponse])

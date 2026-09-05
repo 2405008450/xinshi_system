@@ -8,7 +8,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, cast, func, or_, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 
@@ -161,20 +161,20 @@ def preview_interpretation_project_name(
 
 def _project_options():
     return (
-        selectinload(InterpretationProject.client),
-        selectinload(InterpretationProject.sub_client),
+        joinedload(InterpretationProject.client),
+        joinedload(InterpretationProject.sub_client),
         selectinload(InterpretationProject.time_ranges),
         selectinload(InterpretationProject.language_directions)
-        .selectinload(InterpretationProjectLanguageDirection.source_language),
+        .joinedload(InterpretationProjectLanguageDirection.source_language),
         selectinload(InterpretationProject.language_directions)
-        .selectinload(InterpretationProjectLanguageDirection.target_language),
+        .joinedload(InterpretationProjectLanguageDirection.target_language),
         selectinload(InterpretationProject.language_directions)
-        .selectinload(InterpretationProjectLanguageDirection.extra_languages)
-        .selectinload(InterpretationProjectDirectionExtraLanguage.language),
+        .joinedload(InterpretationProjectLanguageDirection.extra_languages)
+        .joinedload(InterpretationProjectDirectionExtraLanguage.language),
         selectinload(InterpretationProject.interpreter_assignments)
-        .selectinload(InterpretationProjectInterpreter.translator),
+        .joinedload(InterpretationProjectInterpreter.translator),
         selectinload(InterpretationProject.workbench_responsibilities)
-        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
+        .joinedload(workflow_models.ProjectWorkbenchResponsibility.assignee),
     )
 
 
@@ -222,11 +222,16 @@ def get_interpretation_projects(
         language_id=language_id,
         field_filters=field_filters,
     )
-    return (
-        query.distinct()
+    rows = (
+        query.add_columns(func.count(InterpretationProject.id).over().label("_page_total")).distinct()
         .order_by(InterpretationProject.created_at.desc(), InterpretationProject.id.desc())
         .offset(skip).limit(limit).all()
     )
+    projects = []
+    for project, page_total in rows:
+        project.__dict__["_page_total"] = int(page_total or 0)
+        projects.append(project)
+    return projects
 
 
 def count_interpretation_projects(db: Session, **filters) -> int:

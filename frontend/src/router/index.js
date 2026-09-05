@@ -1,6 +1,4 @@
 ﻿import { createRouter, createWebHistory } from 'vue-router'
-import Login from '../views/auth/Login.vue'
-import Layout from '../layout/index.vue'
 import {
   canAccessRoute,
   getDefaultRoute,
@@ -13,11 +11,11 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: Login
+    component: () => import('../views/auth/Login.vue')
   },
   {
     path: '/',
-    component: Layout,
+    component: () => import('../layout/index.vue'),
     children: [
       {
         path: 'profile',

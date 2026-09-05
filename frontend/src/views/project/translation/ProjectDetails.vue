@@ -1034,7 +1034,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, Download, MagicStick, SortUp } from '@element-plus/icons-vue'
-import { getProjects, getProjectCount, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects } from '@/api/projects'
+import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectManagerCandidatesAPI, getProjectRoleCandidatesAPI } from '@/api/workflow'
@@ -1935,12 +1935,9 @@ const fetchData = async () => {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
     }
-    const [response, countResponse] = await Promise.all([
-      getProjects(params, { signal: requestController.signal }),
-      getProjectCount(buildFilterParams(), { signal: requestController.signal })
-    ])
+    const response = await getProjectPage(params, { signal: requestController.signal })
     if (sequence !== requestSequence) return
-    tableData.value = (Array.isArray(response) ? response : []).map(normalizeProject)
+    tableData.value = (Array.isArray(response?.items) ? response.items : []).map(normalizeProject)
     const expandableProjectIds = tableData.value
       .filter((item) => getSubOrderCount(item))
       .map((item) => item.id)
@@ -1951,7 +1948,7 @@ const fetchData = async () => {
       const validProjectIds = new Set(expandableProjectIds.map(String))
       expandedProjectIds.value = expandedProjectIds.value.filter((id) => validProjectIds.has(String(id)))
     }
-    pagination.total = countResponse?.total || tableData.value.length
+    pagination.total = response?.total || 0
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || sequence !== requestSequence) return
     ElMessage.error(getLocalizedErrorMessage(error, '网络异常，项目列表未刷新，请检查网络后重试'))

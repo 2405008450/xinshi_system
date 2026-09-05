@@ -151,8 +151,8 @@
           <el-col :xs="24" :md="12"><el-form-item label="请求类别" prop="requestCategory"><el-select v-model="form.requestCategory" style="width: 100%"><el-option v-for="item in availableCategories" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
         </el-row>
         <el-form-item v-if="form.sourceType !== 'other'" label="来源项目" prop="sourceProjectId">
-          <el-select v-model="form.sourceProjectId" filterable style="width: 100%" :loading="prefillLoading" @change="sourceProjectChanged">
-            <el-option v-for="item in availableProjects" :key="item.id" :label="item.projectName || '未命名'" :value="item.id" />
+          <el-select v-model="form.sourceProjectId" filterable remote :remote-method="searchSourceProjects" style="width: 100%" :loading="sourceOptionsLoading || prefillLoading" @change="sourceProjectChanged">
+            <el-option v-for="item in availableProjects" :key="item.id" :label="`${item.orderNo || ''} ${item.projectName || '未命名'}`.trim()" :value="item.id" />
           </el-select>
         </el-form-item>
         <el-form-item v-else label="其他类型" prop="otherProjectTypes">
@@ -232,12 +232,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
 import { CircleClose, Plus } from '@element-plus/icons-vue'
 import * as api from '@/api/resourceRequests'
-import { getAnnotationProjects } from '@/api/annotationProjects'
-import { getRecruitmentProjects } from '@/api/recruitmentProjects'
-import { getInterpretationProjects } from '@/api/interpretationProjects'
-import { getProjects as getTranslationProjects } from '@/api/projects'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
-import { getUsers } from '@/api/users'
+import { getUserOptions } from '@/api/users'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -253,6 +249,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDate, formatTimeMinute } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { getCachedOptions } from '@/utils/optionCache'
 
 const languageText = (items, languages) => {
   const label = (id) => languages.find((item) => item.id === id)?.label || '-'
@@ -300,6 +297,7 @@ const rows = ref([])
 const users = ref([])
 const languages = ref([])
 const projects = reactive({ annotation: [], recruitment: [], interpretation: [], translation: [] })
+const sourceOptionsLoading = ref(false)
 const loading = ref(false)
 const listError = ref('')
 const prefillLoading = ref(false)
@@ -408,6 +406,8 @@ const formRules = computed(() => ({
 let timer
 let controller
 let requestId = 0
+let sourceOptionController = null
+let sourceOptionTimer = null
 const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', items: [] })
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'resource-request', form, createDefault: emptyForm, formRef })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
@@ -420,13 +420,13 @@ const fetchData = async () => {
   listError.value = ''
   try {
     const filters = params()
-    const [list, count] = await Promise.all([
-      api.getResourceRequests({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: controller.signal }),
-      api.getResourceRequestCount(filters, { signal: controller.signal }),
-    ])
+    const page = await api.getResourceRequestPage(
+      { skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters },
+      { signal: controller.signal },
+    )
     if (current !== requestId) return
-    rows.value = list
-    pagination.total = count.total || 0
+    rows.value = page?.items || []
+    pagination.total = page?.total || 0
   } catch (error) {
     if (error.code !== 'ERR_CANCELED' && current === requestId) {
       listError.value = error.detail || '网络异常，资源需求列表未刷新，请检查网络后重试'
@@ -445,6 +445,7 @@ const clearAdvanced = () => { resetFilterModel(filterModel, advancedFilterFields
 const rowIndex = (index) => (pagination.page - 1) * pagination.limit + index + 1
 const userName = (user) => user.full_name || user.fullName || user.username
 const ownerName = (row) => {
+  if (row.ownerName || row.owner_name) return row.ownerName || row.owner_name
   const ownerId = row.ownerId || row.owner_id
   if (!ownerId) return '-'
   const user = users.value.find((item) => item.id === ownerId)
@@ -495,7 +496,36 @@ const loadDetail = async (row, force = false) => {
   }
 }
 
-const sourceChanged = () => { form.sourceProjectId = ''; form.otherProjectTypes = []; form.requestCategory = form.sourceType === 'annotation' ? 'annotation_trial' : form.sourceType; form.requestDetail = ''; form.items = []; showRequestDetail.value = false; resetSourceInfo(); nextTick(() => formRef.value?.clearValidate()) }
+const loadSourceOptions = async (keyword = '') => {
+  if (form.sourceType === 'other') return
+  sourceOptionController?.abort()
+  sourceOptionController = new AbortController()
+  const currentController = sourceOptionController
+  const sourceType = form.sourceType
+  sourceOptionsLoading.value = true
+  try {
+    const normalizedKeyword = String(keyword || '').trim()
+    projects[sourceType] = await getCachedOptions(
+      `source-projects:${sourceType}:${normalizedKeyword.toLowerCase()}`,
+      () => api.getResourceRequestSourceOptions(
+        sourceType,
+        { keyword: normalizedKeyword || undefined, limit: 50 },
+        { signal: currentController.signal },
+      ),
+      { ttlMs: 30_000 },
+    )
+  } catch (error) {
+    if (error?.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '来源项目加载失败')
+  } finally {
+    if (sourceOptionController === currentController) sourceOptionsLoading.value = false
+  }
+}
+const searchSourceProjects = (keyword) => {
+  clearTimeout(sourceOptionTimer)
+  if (!String(keyword || '').trim()) return loadSourceOptions('')
+  sourceOptionTimer = setTimeout(() => loadSourceOptions(keyword), 400)
+}
+const sourceChanged = () => { form.sourceProjectId = ''; form.otherProjectTypes = []; form.requestCategory = form.sourceType === 'annotation' ? 'annotation_trial' : form.sourceType; form.requestDetail = ''; form.items = []; showRequestDetail.value = false; resetSourceInfo(); void loadSourceOptions(); nextTick(() => formRef.value?.clearValidate()) }
 const sourceProjectChanged = async (projectId) => {
   if (!projectId) return resetSourceInfo()
   prefillLoading.value = true
@@ -525,6 +555,10 @@ const openEditor = async (row = null, source = null) => {
     form.sourceType = source.sourceType
     form.requestCategory = source.requestCategory || (source.sourceType === 'annotation' ? 'annotation_trial' : source.sourceType)
     form.sourceProjectId = source.sourceProjectId
+  }
+  await loadSourceOptions()
+  if (form.sourceProjectId && !availableProjects.value.some((item) => item.id === form.sourceProjectId)) {
+    projects[form.sourceType].unshift({ id: form.sourceProjectId, orderNo: sourceInfo.orderNo, projectName: sourceInfo.projectName, projectStatus: sourceInfo.projectStatus, clientShortName: sourceInfo.clientShortName })
   }
   showRequestDetail.value = Boolean(form.requestDetail)
   dialogVisible.value = true
@@ -728,15 +762,12 @@ const openProgress = (row) => { Object.assign(progressForm, { id: row.id, progre
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }
 
 onMounted(async () => {
-  const results = await Promise.allSettled([getAnnotationProjects({ skip: 0, limit: 500 }), getRecruitmentProjects({ skip: 0, limit: 500 }), getInterpretationProjects({ skip: 0, limit: 500 }), getTranslationProjects({ skip: 0, limit: 500 }), getProjectLanguages(), getUsers({ skip: 0, limit: 500 })])
-  projects.annotation = results[0].value || []
-  projects.recruitment = results[1].value || []
-  projects.interpretation = results[2].value || []
-  projects.translation = results[3].value || []
-  languages.value = results[4].value || []
-  users.value = results[5].value || []
+  const listPromise = fetchData()
+  const results = await Promise.allSettled([getProjectLanguages(), getUserOptions({ limit: 50 })])
+  languages.value = results[0].value || []
+  users.value = (results[1].value || []).map((item) => ({ ...item, fullName: item.display_name }))
   Object.assign(form, emptyForm())
-  await fetchData()
+  await listPromise
   const sourceType = String(route.query.sourceType || '')
   const sourceProjectId = String(route.query.sourceProjectId || '')
   if (sourceProjectId && Object.hasOwn(sourceLabels, sourceType) && sourceType !== 'other') {
@@ -750,7 +781,7 @@ onMounted(async () => {
     await router.replace({ query })
   }
 })
-onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); controller?.abort() })
+onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearTimeout(sourceOptionTimer); controller?.abort(); sourceOptionController?.abort() })
 </script>
 
 <style scoped>

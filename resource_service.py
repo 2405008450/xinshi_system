@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import String, and_, cast, func, inspect, or_, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from interpretation_models import InterpretationLanguage
 from resource_models import (
@@ -84,16 +84,16 @@ def extract_contact_identifiers(value: Optional[str]) -> tuple[Optional[str], Op
 def _person_options():
     return (
         selectinload(ResourcePerson.capabilities),
-        selectinload(ResourcePerson.written_profile),
-        selectinload(ResourcePerson.interpretation_profile),
-        selectinload(ResourcePerson.annotation_profile),
+        joinedload(ResourcePerson.written_profile),
+        joinedload(ResourcePerson.interpretation_profile),
+        joinedload(ResourcePerson.annotation_profile),
         selectinload(ResourcePerson.annotation_language_skills).joinedload(
             ResourceAnnotationLanguageSkill.source_language
         ),
         selectinload(ResourcePerson.annotation_language_skills).joinedload(
             ResourceAnnotationLanguageSkill.target_language
         ),
-        selectinload(ResourcePerson.career_profile),
+        joinedload(ResourcePerson.career_profile),
     )
 
 
@@ -265,14 +265,20 @@ def _talent_query(
 
 
 def get_talents(db: Session, *, skip: int = 0, limit: int = 100, **filters) -> list[ResourcePerson]:
-    return (
+    rows = (
         _talent_query(db, **filters)
+        .add_columns(func.count(ResourcePerson.id).over().label("_page_total"))
         .options(*_person_options())
         .order_by(ResourcePerson.updated_at.desc(), ResourcePerson.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
+    people = []
+    for person, page_total in rows:
+        person.__dict__["_page_total"] = int(page_total or 0)
+        people.append(person)
+    return people
 
 
 def count_talents(db: Session, **filters) -> int:

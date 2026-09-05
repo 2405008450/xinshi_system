@@ -1,5 +1,6 @@
 import api from './index'
 import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+import { invalidateOptionCache } from '@/utils/optionCache'
 
 const projectCreateState = { key: '', signature: '' }
 
@@ -32,6 +33,10 @@ export const getProjects = (params, config = {}) => {
 
 export const getProjectCount = (params, config = {}) => {
     return api.get('/projects/translation/count', { ...config, params })
+}
+
+export const getProjectPage = (params, config = {}) => {
+    return api.get('/projects/translation/page', { ...config, params }).then(res => convertKeys(res, toCamelCase))
 }
 
 export const exportTranslationProjects = async (params) => {
@@ -70,15 +75,22 @@ export const createProject = async (data, idempotencyKey) => {
         headers: { 'X-Idempotency-Key': key },
     })
     clearIdempotencyKey(projectCreateState, key)
+    invalidateOptionCache('source-projects:translation:')
     return convertKeys(response, toCamelCase)
 }
 
 export const updateProject = (id, data) => {
-    return api.put(`/projects/translation/${id}`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+    return api.put(`/projects/translation/${id}`, convertKeys(data, toSnakeCase)).then(res => {
+        invalidateOptionCache('source-projects:translation:')
+        return convertKeys(res, toCamelCase)
+    })
 }
 
 export const deleteProject = (id) => {
-    return api.delete(`/projects/translation/${id}`)
+    return api.delete(`/projects/translation/${id}`).then((res) => {
+        invalidateOptionCache('source-projects:translation:')
+        return res
+    })
 }
 
 export const getNextOrderNo = () => {

@@ -960,13 +960,13 @@ const fetchData = async () => {
   loading.value = true
   const filters = buildFilters()
   try {
-    const [rows, count] = await Promise.all([
-      projectApi.getInterpretationProjects({ skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters }, { signal: requestController.signal }),
-      projectApi.getInterpretationProjectCount(filters, { signal: requestController.signal }),
-    ])
+    const page = await projectApi.getInterpretationProjectPage(
+      { skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters },
+      { signal: requestController.signal },
+    )
     if (currentId !== requestId) return
-    tableData.value = Array.isArray(rows) ? rows : []
-    pagination.total = count?.total || 0
+    tableData.value = Array.isArray(page?.items) ? page.items : []
+    pagination.total = page?.total || 0
   } catch (error) {
     if (currentId !== requestId || error?.code === 'ERR_CANCELED') return
     ElMessage.error(error.detail || '网络异常，口译项目列表未刷新，请检查网络后重试')

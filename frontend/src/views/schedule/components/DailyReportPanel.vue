@@ -147,11 +147,9 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import DailyReportSpreadsheet from './DailyReportSpreadsheet.vue'
-import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
@@ -163,6 +161,9 @@ import {
   sendDailyReportMail,
   withdrawDailyReport
 } from '@/api/tasks'
+
+const DailyReportSpreadsheet = defineAsyncComponent(() => import('./DailyReportSpreadsheet.vue'))
+const MailBodyEditor = defineAsyncComponent(() => import('@/components/common/MailBodyEditor.vue'))
 
 const props = defineProps({ reportDate: { type: String, required: true } })
 const emit = defineEmits(['status-change'])

@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 
@@ -80,24 +80,30 @@ def generate_recruitment_order_no(db: Session, current_time: Optional[datetime] 
     return f"{prefix}{sequence:03d}"
 
 
-def _project_options():
+def _project_list_options():
     return (
-        selectinload(RecruitmentProject.client),
-        selectinload(RecruitmentProject.sub_client),
-        selectinload(RecruitmentProject.client_manager),
-        selectinload(RecruitmentProject.language_directions).selectinload(RecruitmentProjectLanguageDirection.source_language),
-        selectinload(RecruitmentProject.language_directions).selectinload(RecruitmentProjectLanguageDirection.target_language),
-        selectinload(RecruitmentProject.progress_records).selectinload(RecruitmentProjectProgress.operator),
-        selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.owner),
-        selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.resume_source),
-        selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.communications),
+        joinedload(RecruitmentProject.client),
+        joinedload(RecruitmentProject.sub_client),
+        joinedload(RecruitmentProject.client_manager),
+        selectinload(RecruitmentProject.language_directions).joinedload(RecruitmentProjectLanguageDirection.source_language),
+        selectinload(RecruitmentProject.language_directions).joinedload(RecruitmentProjectLanguageDirection.target_language),
         selectinload(RecruitmentProject.workbench_responsibilities)
-        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
+        .joinedload(workflow_models.ProjectWorkbenchResponsibility.assignee),
+    )
+
+
+def _project_detail_options():
+    return (
+        *_project_list_options(),
+        selectinload(RecruitmentProject.progress_records).joinedload(RecruitmentProjectProgress.operator),
+        selectinload(RecruitmentProject.candidates).joinedload(RecruitmentCandidate.owner),
+        selectinload(RecruitmentProject.candidates).joinedload(RecruitmentCandidate.resume_source),
+        selectinload(RecruitmentProject.candidates).selectinload(RecruitmentCandidate.communications),
     )
 
 
 def get_recruitment_project(db: Session, project_id: UUID) -> Optional[RecruitmentProject]:
-    return db.query(RecruitmentProject).options(*_project_options()).filter(RecruitmentProject.id == project_id).first()
+    return db.query(RecruitmentProject).options(*_project_detail_options()).filter(RecruitmentProject.id == project_id).first()
 
 
 def _apply_filters(
@@ -214,18 +220,34 @@ def _apply_filters(
 
 
 def get_recruitment_projects(db: Session, *, skip=0, limit=100, **filters) -> list[RecruitmentProject]:
+    candidate_count = (
+        select(func.count(RecruitmentCandidate.id))
+        .where(RecruitmentCandidate.project_id == RecruitmentProject.id)
+        .correlate(RecruitmentProject)
+        .scalar_subquery()
+    )
     query = (
-        db.query(RecruitmentProject)
-        .options(*_project_options())
+        db.query(
+            RecruitmentProject,
+            candidate_count.label("candidate_count"),
+            func.count(RecruitmentProject.id).over().label("_page_total"),
+        )
+        .options(*_project_list_options())
         .outerjoin(Client, RecruitmentProject.client_id == Client.id)
         .outerjoin(SubClient, RecruitmentProject.sub_client_id == SubClient.id)
     )
-    return (
+    rows = (
         _apply_filters(query, **filters)
         .distinct()
         .order_by(RecruitmentProject.created_at.desc(), RecruitmentProject.id.desc())
         .offset(skip).limit(limit).all()
     )
+    projects = []
+    for project, count, page_total in rows:
+        project.__dict__["_candidate_count"] = int(count or 0)
+        project.__dict__["_page_total"] = int(page_total or 0)
+        projects.append(project)
+    return projects
 
 
 def count_recruitment_projects(db: Session, **filters) -> int:

@@ -1,5 +1,6 @@
 import api from './index'
 import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+import { invalidateOptionCache } from '@/utils/optionCache'
 
 const projectCreateState = { key: '', signature: '' }
 export const resetRecruitmentProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
@@ -24,6 +25,9 @@ export const getRecruitmentProjects = (params, config = {}) => (
 export const getRecruitmentProjectCount = (params, config = {}) => (
   api.get('/projects/recruitment/count', { ...config, params })
 )
+export const getRecruitmentProjectPage = (params, config = {}) => (
+  api.get('/projects/recruitment/page', { ...config, params }).then(fromApi)
+)
 export const getRecruitmentProject = (id) => api.get(`/projects/recruitment/${id}`).then(fromApi)
 export const createRecruitmentProject = async (data, idempotencyKey) => {
   const payload = toApi(data)
@@ -32,14 +36,21 @@ export const createRecruitmentProject = async (data, idempotencyKey) => {
     headers: { 'X-Idempotency-Key': key },
   })
   clearIdempotencyKey(projectCreateState, key)
+  invalidateOptionCache('source-projects:recruitment:')
   return fromApi(response)
 }
-export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruitment/${id}`, toApi(data)).then(fromApi)
+export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruitment/${id}`, toApi(data)).then((res) => {
+  invalidateOptionCache('source-projects:recruitment:')
+  return fromApi(res)
+})
 export const updateRecruitmentProjectTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/projects/recruitment/${id}/text-field`, {
   field: toSnakeCase(field), value, expected_updated_at: expectedUpdatedAt,
 }).then(fromApi)
 export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, { project_status: projectStatus }).then(fromApi)
-export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`)
+export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`).then((res) => {
+  invalidateOptionCache('source-projects:recruitment:')
+  return res
+})
 export const previewRecruitmentProjectName = (data) => api.post('/projects/recruitment/name-preview', toApi(data)).then(fromApi)
 
 export const getRecruitmentProgress = (projectId) => api.get(`/projects/recruitment/${projectId}/progress`).then(fromApi)

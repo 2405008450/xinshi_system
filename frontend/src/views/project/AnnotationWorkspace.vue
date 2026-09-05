@@ -16,12 +16,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AnnotationProjects from './AnnotationProjects.vue'
-import AnnotationAccounts from './AnnotationAccounts.vue'
-import AnnotationTrials from './AnnotationTrials.vue'
-import AnnotationWorkflow from './AnnotationWorkflow.vue'
 import { hasPermission } from '../../utils/permission'
 
 const route = useRoute()
@@ -37,10 +33,10 @@ const availableSections = computed(() => new Set([
 const defaultSection = () => canViewProjects.value ? 'projects' : 'accounts'
 
 const componentMap = {
-  projects: AnnotationProjects,
-  accounts: AnnotationAccounts,
-  trials: AnnotationTrials,
-  workflow: AnnotationWorkflow,
+  projects: defineAsyncComponent(() => import('./AnnotationProjects.vue')),
+  accounts: defineAsyncComponent(() => import('./AnnotationAccounts.vue')),
+  trials: defineAsyncComponent(() => import('./AnnotationTrials.vue')),
+  workflow: defineAsyncComponent(() => import('./AnnotationWorkflow.vue')),
 }
 
 const activeComponent = computed(() => componentMap[activeSection.value])

@@ -2,6 +2,8 @@ import api from './index'
 
 export const getUsers = (params, signal) => api.get('/users/', { params, signal })
 export const getUserCount = (params, signal) => api.get('/users/count', { params, signal })
+export const getUserPage = (params, signal) => api.get('/users/page', { params, signal })
+export const getUserOptions = (params = {}, signal) => api.get('/users/options', { params, signal })
 export const checkEmailAvailability = (email, excludeUserId) => api.get('/users/email-availability', {
   params: {
     email,

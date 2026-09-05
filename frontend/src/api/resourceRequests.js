@@ -10,6 +10,8 @@ const convert = (value, keyFn) => Array.isArray(value) ? value.map((item) => con
 
 export const getResourceRequests = (params, config = {}) => api.get('/resource-requests/', { ...config, params }).then((res) => convert(res, camel))
 export const getResourceRequestCount = (params, config = {}) => api.get('/resource-requests/count', { ...config, params })
+export const getResourceRequestPage = (params, config = {}) => api.get('/resource-requests/page', { ...config, params }).then((res) => convert(res, camel))
+export const getResourceRequestSourceOptions = (sourceType, params = {}, config = {}) => api.get('/resource-requests/source-options', { ...config, params: { ...params, source_type: sourceType } }).then((res) => convert(res, camel))
 export const getResourceRequestSourcePrefill = (sourceType, sourceProjectId) => api.get('/resource-requests/source-prefill', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
 export const getResourceRequestBySource = (sourceType, sourceProjectId) => api.get('/resource-requests/source-request', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
 export const getResourceRequestSourceStatuses = (sourceType) => api.get('/resource-requests/source-statuses', { params: { source_type: sourceType } })

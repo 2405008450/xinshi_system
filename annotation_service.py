@@ -9,7 +9,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 from annotation_custom_field_image_service import delete_custom_field_image_files
@@ -145,22 +145,22 @@ def generate_annotation_order_no(
 
 def _project_options():
     return (
-        selectinload(AnnotationProject.consultation),
-        selectinload(AnnotationProject.client),
-        selectinload(AnnotationProject.sub_client),
-        selectinload(AnnotationProject.client_manager),
-        selectinload(AnnotationProject.creator),
-        selectinload(AnnotationProject.assignees).selectinload(AnnotationProjectAssignee.person),
+        joinedload(AnnotationProject.consultation),
+        joinedload(AnnotationProject.client),
+        joinedload(AnnotationProject.sub_client),
+        joinedload(AnnotationProject.client_manager),
+        joinedload(AnnotationProject.creator),
+        selectinload(AnnotationProject.assignees).joinedload(AnnotationProjectAssignee.person),
         selectinload(AnnotationProject.language_items)
-        .selectinload(AnnotationProjectLanguageItem.source_language),
+        .joinedload(AnnotationProjectLanguageItem.source_language),
         selectinload(AnnotationProject.language_items)
-        .selectinload(AnnotationProjectLanguageItem.target_language),
+        .joinedload(AnnotationProjectLanguageItem.target_language),
         selectinload(AnnotationProject.price_items)
-        .selectinload(AnnotationProjectPriceItem.source_language),
+        .joinedload(AnnotationProjectPriceItem.source_language),
         selectinload(AnnotationProject.price_items)
-        .selectinload(AnnotationProjectPriceItem.target_language),
+        .joinedload(AnnotationProjectPriceItem.target_language),
         selectinload(AnnotationProject.workbench_responsibilities)
-        .selectinload(workflow_models.ProjectWorkbenchResponsibility.assignee),
+        .joinedload(workflow_models.ProjectWorkbenchResponsibility.assignee),
     )
 
 
@@ -328,11 +328,16 @@ def get_annotation_projects(
         .outerjoin(SubClient, AnnotationProject.sub_client_id == SubClient.id)
     )
     query = _apply_filters(query, **filters)
-    return (
-        query.distinct()
+    rows = (
+        query.add_columns(func.count(AnnotationProject.id).over().label("_page_total")).distinct()
         .order_by(AnnotationProject.created_at.desc(), AnnotationProject.id.desc())
         .offset(skip).limit(limit).all()
     )
+    projects = []
+    for project, page_total in rows:
+        project.__dict__["_page_total"] = int(page_total or 0)
+        projects.append(project)
+    return projects
 
 
 def count_annotation_projects(db: Session, **filters) -> int:

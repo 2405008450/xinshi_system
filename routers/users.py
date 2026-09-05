@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from crypto_utils import CredentialCryptoConfigurationError
@@ -22,6 +23,7 @@ from mail_account_schemas import (
 from mail_service import MailConfigurationError, MailDeliveryError
 from routers.auth import get_current_user, require_any_permission, require_permission, require_super_admin
 from leave_service import assignment_disabled_reason, get_active_leave_map
+from models import AppUser
 from user_mail_account_service import (
     delete_mail_account,
     save_mail_account,
@@ -35,6 +37,7 @@ from user_mail_profile_service import (
     save_user_mail_profile,
     serialize_user_mail_profile,
 )
+from pagination_schemas import PageResponse, UserOptionResponse, resolve_page_total
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -96,6 +99,40 @@ def _raise_user_integrity_error(exc: IntegrityError) -> None:
     raise exc
 
 
+@router.get(
+    "/options",
+    response_model=List[UserOptionResponse],
+    dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))],
+)
+def read_user_options(
+    keyword: Optional[str] = Query(None),
+    include_inactive: bool = Query(False),
+    limit: int = Query(50, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    query = db.query(AppUser)
+    if not include_inactive:
+        query = query.filter(AppUser.is_active.is_(True))
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            AppUser.username.ilike(pattern),
+            AppUser.full_name.ilike(pattern),
+            AppUser.department.ilike(pattern),
+        ))
+    rows = query.order_by(AppUser.full_name.asc(), AppUser.username.asc()).limit(limit).all()
+    return [
+        {
+            "id": row.id,
+            "display_name": row.full_name or row.username,
+            "username": row.username,
+            "department": row.department,
+            "is_active": row.is_active,
+        }
+        for row in rows
+    ]
+
+
 @router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("system:users:write"))])
 def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     # 检查用户名是否已存在
@@ -117,7 +154,7 @@ def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
         _raise_user_integrity_error(exc)
 
 
-@router.get("/", response_model=List[AppUserResponse], dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
+@router.get("/", response_model=List[AppUserResponse], deprecated=True, dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_users(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -153,7 +190,7 @@ def read_users(
     ]
 
 
-@router.get("/count", dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
+@router.get("/count", deprecated=True, dependencies=[Depends(require_any_permission("system:users:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))])
 def read_user_count(
     username: Optional[str] = Query(None),
     full_name: Optional[str] = Query(None),
@@ -167,6 +204,44 @@ def read_user_count(
             full_name=full_name,
             department=department,
         )
+    }
+
+
+@router.get(
+    "/page",
+    response_model=PageResponse[AppUserResponse],
+    dependencies=[Depends(require_any_permission("system:users:read", "system:mail_settings:read", "projects:read", "workflow:operate", "consultations:read", "finance:read", "tasks:assign"))],
+)
+def read_user_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+    department: Optional[str] = None,
+    include_leave_status: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    filters = dict(username=username, full_name=full_name, department=department)
+    users = get_users(db, skip=skip, limit=limit, **filters)
+    user_ids = [user.id for user in users]
+    account_map = {
+        account.user_id: account
+        for account in db.query(UserMailAccount).filter(UserMailAccount.user_id.in_(user_ids)).all()
+    } if user_ids else {}
+    profile_map = get_user_mail_profiles(db, user_ids)
+    leave_map = get_active_leave_map(db, user_ids) if include_leave_status else {}
+    total = resolve_page_total(
+        users, skip, lambda: count_users(db, **filters),
+    )
+    return {
+        "items": [
+            _serialize_user(
+                user, account_map.get(user.id), leave_map.get(user.id),
+                profile_map.get(user.id),
+            )
+            for user in users
+        ],
+        "total": total,
     }
 
 

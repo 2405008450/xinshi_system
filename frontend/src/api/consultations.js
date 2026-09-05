@@ -8,6 +8,8 @@ export const getConsultationCount = (params, config = {}) => {
   return api.get('/consultations/count', { ...config, params })
 }
 
+export const getConsultationPage = (params, config = {}) => api.get('/consultations/page', { ...config, params })
+
 export const getConsultation = (id) => {
   return api.get(`/consultations/${id}`)
 }

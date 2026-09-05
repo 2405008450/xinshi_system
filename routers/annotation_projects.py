@@ -38,6 +38,7 @@ from annotation_service import (
 from database import get_db
 from annotation_models import AnnotationProject
 from annotation_ops_models import AnnotationCustomFieldDefinition
+from pagination_schemas import PageResponse, resolve_page_total
 from annotation_custom_field_service import validate_custom_values
 from concurrency import assert_fresh
 from inline_text_update import (
@@ -159,7 +160,7 @@ def _filters(
     )
 
 
-@router.get("/", response_model=List[AnnotationProjectListResponse])
+@router.get("/", response_model=List[AnnotationProjectListResponse], deprecated=True)
 def read_projects(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -208,7 +209,7 @@ def read_projects(
     return get_annotation_projects(db, skip=skip, limit=limit, **filters)
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_project_count(
     keyword: Optional[str] = None,
     project_status: Optional[str] = None,
@@ -253,6 +254,57 @@ def read_project_count(
         field_filters=_field_filters(field_filters, db),
     )
     return {"total": count_annotation_projects(db, **filters)}
+
+
+@router.get("/page", response_model=PageResponse[AnnotationProjectListResponse])
+def read_project_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    project_status: Optional[str] = None,
+    project_type: Optional[str] = None,
+    language_id: Optional[UUID] = None,
+    client_manager_id: Optional[UUID] = None,
+    dispatched_date_start: Optional[date] = None,
+    dispatched_date_end: Optional[date] = None,
+    submitted_date_start: Optional[date] = None,
+    submitted_date_end: Optional[date] = None,
+    client_id: Optional[UUID] = None,
+    sub_client_id: Optional[UUID] = None,
+    assignee_person_id: Optional[UUID] = None,
+    created_date_start: Optional[date] = None,
+    created_date_end: Optional[date] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    confirmation_date_start: Optional[date] = None,
+    confirmation_date_end: Optional[date] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = _filters(
+        keyword=keyword, project_status=project_status,
+        project_type=project_type, language_id=language_id,
+        client_manager_id=client_manager_id,
+        dispatched_date_start=dispatched_date_start,
+        dispatched_date_end=dispatched_date_end,
+        submitted_date_start=submitted_date_start,
+        submitted_date_end=submitted_date_end, client_id=client_id,
+        sub_client_id=sub_client_id, assignee_person_id=assignee_person_id,
+        created_date_start=created_date_start,
+        created_date_end=created_date_end,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        confirmation_date_start=confirmation_date_start,
+        confirmation_date_end=confirmation_date_end,
+        field_filters=_field_filters(field_filters, db),
+    )
+    items = get_annotation_projects(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_annotation_projects(db, **filters),
+        ),
+    }
 
 
 @router.post("/name-preview", response_model=AnnotationNamePreviewResponse)

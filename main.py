@@ -7,12 +7,14 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
+from performance_monitoring import begin_request, end_request, finish_request_log
 from auth_security import cleanup_login_security_data
 from auth_security_models import (
     LoginCaptchaChallenge,
@@ -183,23 +185,41 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault(
-        "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
-    )
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-    )
-    return response
+    incoming_request_id = (request.headers.get("X-Request-ID") or "").strip()
+    metrics, metrics_token = begin_request(incoming_request_id[:128] or None)
+    status_code = 500
+    logged = False
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        )
+        total_ms = finish_request_log(request, metrics, status_code)
+        logged = True
+        response.headers.setdefault("X-Request-ID", metrics.request_id)
+        response.headers.setdefault(
+            "Server-Timing",
+            f'app;dur={total_ms:.2f}, db;dur={metrics.db_ms:.2f};desc="{metrics.sql_count} queries"',
+        )
+        return response
+    finally:
+        if not logged:
+            finish_request_log(request, metrics, status_code)
+        end_request(metrics_token)
 
 # 注册路由
 app.include_router(auth.router)

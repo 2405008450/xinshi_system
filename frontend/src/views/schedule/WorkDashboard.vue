@@ -153,22 +153,23 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
-import UnifiedTasksPanel from './components/UnifiedTasksPanel.vue'
-import DailyReportPanel from './components/DailyReportPanel.vue'
-import ShiftMatrixDialog from './components/ShiftMatrixDialog.vue'
 import MyShiftStatus from './components/MyShiftStatus.vue'
-import PendingHandoversPanel from './components/PendingHandoversPanel.vue'
-import ProjectManagerHandoverPanel from './components/ProjectManagerHandoverPanel.vue'
 import { getMyWorkItems } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
 import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
+
+const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
+const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
+const ShiftMatrixDialog = defineAsyncComponent(() => import('./components/ShiftMatrixDialog.vue'))
+const PendingHandoversPanel = defineAsyncComponent(() => import('./components/PendingHandoversPanel.vue'))
+const ProjectManagerHandoverPanel = defineAsyncComponent(() => import('./components/ProjectManagerHandoverPanel.vue'))
 
 const router = useRouter()
 const scheduleDate = ref('')

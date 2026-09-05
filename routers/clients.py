@@ -4,6 +4,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -16,6 +17,7 @@ from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate,
 from routers.auth import require_module_access
 from models import Client, SubClient
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 logger = logging.getLogger(__name__)
@@ -32,6 +34,34 @@ def _field_filters(raw: Optional[str]):
     ensure_filter_fields(value, CLIENT_FILTER_FIELDS)
     ensure_filter_operators(value, {field: ({"between"} if field == "cooperation_start_date" else {"in"} if field == "client_status" else {"contains"}) for field in CLIENT_FILTER_FIELDS})
     return value
+
+
+@router.get("/options", response_model=List[ClientOptionResponse])
+def read_client_options(
+    keyword: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Client)
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            Client.client_code.ilike(pattern),
+            Client.client_name.ilike(pattern),
+            Client.client_short_name.ilike(pattern),
+            Client.english_name.ilike(pattern),
+            Client.english_short_name.ilike(pattern),
+        ))
+    rows = query.order_by(Client.updated_at.desc(), Client.id.desc()).limit(limit).all()
+    return [
+        {
+            "id": row.id,
+            "client_code": row.client_code or "",
+            "client_name": row.client_name or "",
+            "client_short_name": row.client_short_name or row.client_name or "",
+        }
+        for row in rows
+    ]
 
 @router.post("/", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 def create_client_endpoint(
@@ -56,7 +86,7 @@ def create_client_endpoint(
         logger.exception("创建客户时触发数据库约束")
         raise HTTPException(status_code=400, detail="客户数据不符合保存要求，请检查后重试")
 
-@router.get("/", response_model=List[ClientResponse])
+@router.get("/", response_model=List[ClientResponse], deprecated=True)
 def read_clients(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -102,7 +132,7 @@ def read_clients(
         field_filters=_field_filters(field_filters),
     )
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_client_count(
     client_code: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
@@ -142,6 +172,51 @@ def read_client_count(
             cooperation_start_date_to=cooperation_start_date_to,
             field_filters=_field_filters(field_filters),
         )
+    }
+
+
+@router.get("/page", response_model=PageResponse[ClientResponse])
+def read_client_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    client_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    client_short_name: Optional[str] = None,
+    english_name: Optional[str] = None,
+    client_manager: Optional[str] = None,
+    manager_contact: Optional[str] = None,
+    field_level1: Optional[str] = None,
+    field_level2: Optional[str] = None,
+    country: Optional[str] = None,
+    province: Optional[str] = None,
+    city: Optional[str] = None,
+    district: Optional[str] = None,
+    client_status: Optional[str] = None,
+    cooperation_start_date_from: Optional[date] = None,
+    cooperation_start_date_to: Optional[date] = None,
+    frequent_first: bool = Query(False),
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = dict(
+        client_code=client_code, client_name=client_name,
+        client_short_name=client_short_name, english_name=english_name,
+        client_manager=client_manager, manager_contact=manager_contact,
+        field_level1=field_level1, field_level2=field_level2,
+        country=country, province=province, city=city, district=district,
+        client_status=client_status,
+        cooperation_start_date_from=cooperation_start_date_from,
+        cooperation_start_date_to=cooperation_start_date_to,
+        field_filters=_field_filters(field_filters),
+    )
+    items = get_clients(
+        db, skip=skip, limit=limit, frequent_first=frequent_first, **filters,
+    )
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_clients(db, **filters),
+        ),
     }
 
 @router.get("/{client_id}", response_model=ClientResponse)

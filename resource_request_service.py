@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, selectinload
 
 from annotation_models import AnnotationProject
@@ -28,6 +28,60 @@ SOURCE_MODELS = {
     "interpretation": (InterpretationProject, "interpretation_project_id"),
     "translation": (TranslationProject, "translation_project_id"),
 }
+
+
+def list_source_project_options(
+    db: Session,
+    source_type: str,
+    *,
+    keyword: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Return only the fields required by the resource-request source selector."""
+    source = SOURCE_MODELS.get(source_type)
+    if not source:
+        raise ValueError("Unsupported source type")
+    model, _foreign_key = source
+    client_short_name = func.coalesce(
+        SubClient.client_short_name,
+        Client.client_short_name,
+    ).label("client_short_name")
+    query = (
+        db.query(
+            model.id,
+            model.order_no,
+            model.project_name,
+            model.project_status,
+            client_short_name,
+        )
+        .outerjoin(Client, model.client_id == Client.id)
+        .outerjoin(SubClient, model.sub_client_id == SubClient.id)
+    )
+    if source_type == "translation":
+        query = query.filter(model.annotation_migrated_at.is_(None))
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        query = query.filter(or_(
+            model.order_no.ilike(pattern),
+            model.project_name.ilike(pattern),
+            Client.client_short_name.ilike(pattern),
+            SubClient.client_short_name.ilike(pattern),
+        ))
+    rows = (
+        query.order_by(model.updated_at.desc(), model.id.desc())
+        .limit(min(max(limit, 1), 50))
+        .all()
+    )
+    return [
+        {
+            "id": row.id,
+            "order_no": row.order_no,
+            "project_name": row.project_name,
+            "project_status": row.project_status,
+            "client_short_name": row.client_short_name,
+        }
+        for row in rows
+    ]
 
 
 def _project_client_snapshot(db: Session, project) -> dict:
@@ -505,7 +559,7 @@ def list_resource_requests(db: Session, *, skip=0, limit=100, keyword=None, sour
         request_status=request_status, priority=priority, owner_id=owner_id, field_filters=field_filters,
     )
     params.update({"skip": skip, "limit": limit})
-    sql = text(f"SELECT * FROM v_resource_request_display WHERE {where_sql} ORDER BY requested_at DESC LIMIT :limit OFFSET :skip")
+    sql = text(f"SELECT *, COUNT(*) OVER() AS _page_total FROM v_resource_request_display WHERE {where_sql} ORDER BY requested_at DESC LIMIT :limit OFFSET :skip")
     result = [dict(row) for row in db.execute(sql, params).mappings().all()]
     request_ids = [row["id"] for row in result]
     items_by_request = {}

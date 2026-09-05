@@ -1,5 +1,6 @@
 import api from './index'
 import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
+import { invalidateOptionCache } from '@/utils/optionCache'
 
 const projectCreateState = { key: '', signature: '' }
 export const resetAnnotationProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
@@ -25,6 +26,10 @@ export const getAnnotationProjectCount = (params, config = {}) => (
   api.get('/projects/annotation/count', { ...config, params })
 )
 
+export const getAnnotationProjectPage = (params, config = {}) => (
+  api.get('/projects/annotation/page', { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const getAnnotationProject = (id, config = {}) => (
   api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
@@ -36,11 +41,15 @@ export const createAnnotationProject = async (data, idempotencyKey) => {
     headers: { 'X-Idempotency-Key': key },
   })
   clearIdempotencyKey(projectCreateState, key)
+  invalidateOptionCache('source-projects:annotation:')
   return convertKeys(response, toCamelCase)
 }
 
 export const updateAnnotationProject = (id, data) => (
-  api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
+  api.put(`/projects/annotation/${id}`, convertKeys(data, toSnakeCase)).then((res) => {
+    invalidateOptionCache('source-projects:annotation:')
+    return convertKeys(res, toCamelCase)
+  })
 )
 
 export const updateAnnotationProjectTextField = (id, field, value, expectedUpdatedAt) => (
@@ -71,7 +80,10 @@ export const updateAnnotationProjectOrderNo = (id, data) => (
   api.patch(`/projects/annotation/${id}/order-no`, convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
 
-export const deleteAnnotationProject = (id) => api.delete(`/projects/annotation/${id}`)
+export const deleteAnnotationProject = (id) => api.delete(`/projects/annotation/${id}`).then((res) => {
+  invalidateOptionCache('source-projects:annotation:')
+  return res
+})
 
 export const previewAnnotationProjectName = (data) => (
   api.post('/projects/annotation/name-preview', convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))

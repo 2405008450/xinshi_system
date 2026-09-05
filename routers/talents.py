@@ -35,6 +35,7 @@ from resource_service import (
 from routers.auth import require_module_access
 from resource_models import ResourcePerson
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from pagination_schemas import PageResponse, resolve_page_total
 
 
 router = APIRouter(
@@ -87,7 +88,7 @@ def _filters(
     )
 
 
-@router.get("/", response_model=List[ResourcePersonListResponse])
+@router.get("/", response_model=List[ResourcePersonListResponse], deprecated=True)
 def read_talents(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),
@@ -107,7 +108,7 @@ def read_talents(
     ))
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_talent_count(
     keyword: Optional[str] = None,
     status: Optional[str] = None,
@@ -123,6 +124,34 @@ def read_talent_count(
         keyword, status, capability_type, capability_status, cooperation_type,
         industry_keyword, review_required, _field_filters(field_filters),
     ))}
+
+
+@router.get("/page", response_model=PageResponse[ResourcePersonListResponse])
+def read_talent_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    status: Optional[str] = None,
+    capability_type: Optional[str] = None,
+    capability_status: Optional[str] = None,
+    cooperation_type: Optional[str] = None,
+    industry_keyword: Optional[str] = None,
+    review_required: Optional[bool] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    filters = _filters(
+        keyword, status, capability_type, capability_status,
+        cooperation_type, industry_keyword, review_required,
+        _field_filters(field_filters),
+    )
+    items = get_talents(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_talents(db, **filters),
+        ),
+    }
 
 
 @router.get("/duplicates", response_model=DuplicateCheckResponse)

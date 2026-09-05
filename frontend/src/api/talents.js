@@ -15,6 +15,7 @@ const toApi = (value) => convertKeys(value, toSnakeCase)
 
 export const getTalents = (params, config = {}) => api.get('/talents/', { ...config, params }).then(fromApi)
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
+export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalent = (id) => api.get(`/talents/${id}`).then(fromApi)
 export const createTalent = async (data) => {
   const payload = toApi(data)

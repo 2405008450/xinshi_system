@@ -241,6 +241,7 @@ const talentClient = computed(() => isRecruitmentPool.value ? {
   patchStatus: talentApi.patchRecruitmentTalentStatus,
   delete: talentApi.deleteRecruitmentTalent
 } : {
+  page: talentApi.getTalentPage,
   list: talentApi.getTalents,
   count: talentApi.getTalentCount,
   detail: talentApi.getTalent,
@@ -331,7 +332,7 @@ const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterF
 const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?talentFilterFields.find((item)=>item.key===key)||null:null
 let timer=null;let controller=null;let sequence=0
 const params=()=>({keyword:search.keyword.trim()||undefined,capability_type:capabilityType.value||undefined,field_filters:serializeFieldFilters(search,talentFilterFields)})
-async function fetchData(){controller?.abort();controller=new AbortController();const current=++sequence;loading.value=true;try{const filters=params();const client=talentClient.value;const [list,count]=await Promise.all([client.list({...filters,skip:(pagination.page-1)*pagination.limit,limit:pagination.limit},{signal:controller.signal}),client.count(filters,{signal:controller.signal})]);if(current!==sequence)return;rows.value=list||[];pagination.total=count?.total||0}catch(error){if(error.code!=='ERR_CANCELED'&&current===sequence)ElMessage.error(error.detail||'网络异常，人才列表未刷新，请检查网络后重试')}finally{if(current===sequence)loading.value=false}}
+async function fetchData(){controller?.abort();controller=new AbortController();const current=++sequence;loading.value=true;try{const filters=params();const client=talentClient.value;const listParams={...filters,skip:(pagination.page-1)*pagination.limit,limit:pagination.limit};if(client.page){const page=await client.page(listParams,{signal:controller.signal});if(current!==sequence)return;rows.value=page?.items||[];pagination.total=page?.total||0}else{const [list,count]=await Promise.all([client.list(listParams,{signal:controller.signal}),client.count(filters,{signal:controller.signal})]);if(current!==sequence)return;rows.value=list||[];pagination.total=count?.total||0}}catch(error){if(error.code!=='ERR_CANCELED'&&current===sequence)ElMessage.error(error.detail||'网络异常，人才列表未刷新，请检查网络后重试')}finally{if(current===sequence)loading.value=false}}
 function searchNow(){exitDeleteMode();clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function updateConfiguredFilter(key,value){search[key]=value}function handleConfiguredTextInput(value){handleTextInput(value)}function resetSearch(){search.keyword='';resetFilterModel(search,talentFilterFields);searchNow()}function clearAdvanced(){resetFilterModel(search,talentAdvancedFilterFields);searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
 async function loadDetail(id,force=false){if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{detailCache[id]=await talentClient.value.detail(id);return detailCache[id]}catch(error){ElMessage.error(error.detail||'加载人才详情失败')}finally{detailLoadingId.value=null}}
 const detailFor=row=>detailCache[row.id]||row

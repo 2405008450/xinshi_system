@@ -48,6 +48,7 @@ from business_mail_service import (
 )
 from consultation_intake import apply_intake, validated_intake
 from concurrency import assert_fresh
+from pagination_schemas import PageResponse, resolve_page_total
 from inline_text_update import (
     TextFieldRule,
     TextFieldUpdate,
@@ -873,7 +874,7 @@ def create_consultation_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.get("/count")
+@router.get("/count", deprecated=True)
 def read_consultation_count(
     keyword: Optional[str] = None,
     consultation_code: Optional[str] = None,
@@ -910,7 +911,46 @@ def read_consultation_count(
     }
 
 
-@router.get("/", response_model=List[ConsultationResponse])
+@router.get("/page", response_model=PageResponse[ConsultationResponse])
+def read_consultation_page(
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    keyword: Optional[str] = None,
+    consultation_code: Optional[str] = None,
+    client_name: Optional[str] = None,
+    status: Optional[str] = None,
+    consultation_date_start: Optional[date] = None,
+    consultation_date_end: Optional[date] = None,
+    consultation_method: Optional[str] = None,
+    consultation_type: Optional[str] = None,
+    client_source: Optional[str] = None,
+    customer_service_id: Optional[UUID] = None,
+    sales_person_id: Optional[UUID] = None,
+    follow_up_person_id: Optional[UUID] = None,
+    follow_up_status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    filters = dict(
+        keyword=keyword, consultation_code=consultation_code,
+        client_name=client_name, status=status,
+        consultation_date_start=consultation_date_start,
+        consultation_date_end=consultation_date_end,
+        consultation_method=consultation_method,
+        consultation_type=consultation_type, client_source=client_source,
+        customer_service_id=customer_service_id, sales_person_id=sales_person_id,
+        follow_up_person_id=follow_up_person_id,
+        follow_up_status=follow_up_status,
+    )
+    items = get_consultations(db, skip=skip, limit=limit, **filters)
+    return {
+        "items": items,
+        "total": resolve_page_total(
+            items, skip, lambda: count_consultations(db, **filters),
+        ),
+    }
+
+
+@router.get("/", response_model=List[ConsultationResponse], deprecated=True)
 def read_consultations(
     skip: int = 0, 
     limit: int = Query(100, ge=1, le=500), 

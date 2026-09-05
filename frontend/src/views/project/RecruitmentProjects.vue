@@ -366,7 +366,7 @@ import { getProjectLanguages } from '@/api/projectLanguages'
 import {
   createRecruitmentCandidate, createRecruitmentProgress, createRecruitmentProject,
   deleteRecruitmentCandidate, deleteRecruitmentProject, getRecruitmentCandidates,
-  getRecruitmentProgress, getRecruitmentProject, getRecruitmentProjectCount,
+  getRecruitmentProgress, getRecruitmentProject, getRecruitmentProjectPage,
   getRecruitmentProjects, getRecruitmentResumeSources, patchRecruitmentProjectStatus, previewRecruitmentProjectName, updateRecruitmentCandidate,
   resetRecruitmentProjectIdempotency, updateRecruitmentProject, updateRecruitmentProjectTextField,
 } from '@/api/recruitmentProjects'
@@ -533,7 +533,7 @@ const buildFilters = () => {
     field_filters:serializeFieldFilters(searchForm,recruitmentFilterFields),
   }
 }
-const fetchData = async () => { controller?.abort(); controller=new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const [list,count]=await Promise.all([getRecruitmentProjects({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}),getRecruitmentProjectCount(filters,{signal:controller.signal})]); if(current!==sequence)return; rows.value=list||[]; pagination.total=count?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.detail||'网络异常，招聘项目列表未刷新，请检查网络后重试') } finally { if(current===sequence)loading.value=false } }
+const fetchData = async () => { controller?.abort(); controller=new AbortController(); const current=++sequence; loading.value=true; try { const filters=buildFilters(); const page=await getRecruitmentProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:controller.signal}); if(current!==sequence)return; rows.value=page?.items||[]; pagination.total=page?.total||0 } catch(error){ if(error?.code!=='ERR_CANCELED'&&current===sequence) ElMessage.error(error?.detail||'网络异常，招聘项目列表未刷新，请检查网络后重试') } finally { if(current===sequence)loading.value=false } }
 const hasActiveListFilters = () => Object.values(searchForm).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim()))
 const saveDetailTextField = async (row, field, value) => {
   const updated = await updateRecruitmentProjectTextField(row.id, field, value, row.updatedAt)
@@ -692,7 +692,7 @@ const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CN
 const openPath=(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');if(!launchOpenPath(path.trim()))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}
 const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项目暂无路径');try{await navigator.clipboard.writeText(path.trim());ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
 
-onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await editorReady;await fetchData()})
+onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
 watch(()=>[route.query.projectId,route.query.openEditor],([projectId,openEditor],[previousProjectId,previousOpenEditor])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')))void focusRouteProject()})
 onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);controller?.abort()})
 </script>

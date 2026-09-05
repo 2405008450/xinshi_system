@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from performance_monitoring import install_sqlalchemy_performance_hooks
+
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
@@ -40,6 +42,7 @@ if DATABASE_URL.startswith("postgresql"):
         )
     }
 engine = create_engine(DATABASE_URL, **engine_options)
+install_sqlalchemy_performance_hooks(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
