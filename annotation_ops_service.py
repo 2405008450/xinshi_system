@@ -1089,3 +1089,82 @@ def list_status_history(db: Session, project_id: UUID):
         "changed_by": row.changed_by, "changed_by_name": getattr(users.get(row.changed_by), "full_name", None) or getattr(users.get(row.changed_by), "username", None),
         "change_note": row.change_note,
     } for row in rows]
+
+
+def _escape_like_keyword(value: str) -> str:
+    """将用户输入转义为 ILIKE 的普通文本，避免 %、_ 被当作通配符。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_status_history(
+    db: Session,
+    *,
+    keyword: str,
+    date_from: date,
+    date_to: date,
+    skip: int = 0,
+    limit: int = 20,
+):
+    start_at = datetime.combine(date_from, datetime.min.time())
+    end_at = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
+    pattern = f"%{_escape_like_keyword(keyword)}%"
+
+    query = (
+        db.query(
+            AnnotationProjectStatusHistory.id.label("id"),
+            AnnotationProjectStatusHistory.project_id.label("project_id"),
+            AnnotationProjectStatusHistory.from_status.label("from_status"),
+            AnnotationProjectStatusHistory.to_status.label("to_status"),
+            AnnotationProjectStatusHistory.effective_on.label("effective_on"),
+            AnnotationProjectStatusHistory.changed_at.label("changed_at"),
+            AnnotationProjectStatusHistory.changed_by.label("changed_by"),
+            AnnotationProjectStatusHistory.change_note.label("change_note"),
+            AnnotationProject.order_no.label("project_order_no"),
+            AnnotationProject.project_name.label("project_name"),
+            AnnotationProject.project_status.label("project_current_status"),
+            func.coalesce(
+                func.nullif(func.btrim(AppUser.full_name), ""),
+                AppUser.username,
+            ).label("changed_by_name"),
+            func.count(AnnotationProjectStatusHistory.id).over().label("page_total"),
+        )
+        .join(AnnotationProject, AnnotationProject.id == AnnotationProjectStatusHistory.project_id)
+        .outerjoin(AppUser, AppUser.id == AnnotationProjectStatusHistory.changed_by)
+        .filter(
+            AnnotationProjectStatusHistory.effective_on >= start_at,
+            AnnotationProjectStatusHistory.effective_on < end_at,
+            AnnotationProjectStatusHistory.change_note.isnot(None),
+            func.btrim(AnnotationProjectStatusHistory.change_note) != "",
+            AnnotationProjectStatusHistory.change_note.ilike(pattern, escape="\\"),
+        )
+    )
+    rows = (
+        query.order_by(
+            AnnotationProjectStatusHistory.effective_on.desc(),
+            AnnotationProjectStatusHistory.changed_at.desc(),
+            AnnotationProjectStatusHistory.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    total = int(rows[0].page_total) if rows else (
+        query.with_entities(func.count(AnnotationProjectStatusHistory.id)).order_by(None).scalar()
+        if skip > 0 else 0
+    )
+    items = [{
+        "id": row.id,
+        "project_id": row.project_id,
+        "from_status": row.from_status,
+        "to_status": row.to_status,
+        "effective_on": row.effective_on,
+        "changed_at": row.changed_at,
+        "changed_by": row.changed_by,
+        "changed_by_name": row.changed_by_name,
+        "change_note": row.change_note,
+        "project_order_no": row.project_order_no,
+        "project_name": row.project_name,
+        "project_current_status": row.project_current_status,
+        "record_type": "progress" if row.from_status == row.to_status else "status_change",
+    } for row in rows]
+    return {"items": items, "total": int(total or 0)}

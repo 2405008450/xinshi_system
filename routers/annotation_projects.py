@@ -79,13 +79,14 @@ ANNOTATION_FILTER_FIELDS = {
     "assignee_person_id", "task_dispatched_at", "task_submitted_at", "client_manager_id",
     "project_manager_id",
     "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at",
+    "latest_progress_effective_on",
 }
 
 
 def _field_filters(raw: Optional[str], db: Session):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, ANNOTATION_FILTER_FIELDS, allow_custom=True)
-    ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
+    ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at", "latest_progress_effective_on"}
     enums = {
         "project_types", "project_status", "priority", "language_id", "assignee_person_id",
         "client_manager_id", "project_manager_id",
@@ -136,6 +137,7 @@ def _filters(
     confirmation_date_start=None,
     confirmation_date_end=None,
     field_filters=None,
+    sort="order_no_desc",
 ):
     return dict(
         keyword=keyword,
@@ -157,6 +159,7 @@ def _filters(
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
         field_filters=field_filters,
+        sort=sort,
     )
 
 
@@ -183,6 +186,7 @@ def read_projects(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -205,6 +209,7 @@ def read_projects(
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
         field_filters=_field_filters(field_filters, db),
+        sort=sort,
     )
     return get_annotation_projects(db, skip=skip, limit=limit, **filters)
 
@@ -230,6 +235,7 @@ def read_project_count(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -252,6 +258,7 @@ def read_project_count(
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
         field_filters=_field_filters(field_filters, db),
+        sort=sort,
     )
     return {"total": count_annotation_projects(db, **filters)}
 
@@ -279,6 +286,7 @@ def read_project_page(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -297,6 +305,7 @@ def read_project_page(
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
         field_filters=_field_filters(field_filters, db),
+        sort=sort,
     )
     items = get_annotation_projects(db, skip=skip, limit=limit, **filters)
     return {
@@ -540,15 +549,19 @@ def update_project_status(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    project = update_annotation_project_status(
-        db,
-        project_id,
-        payload.project_status,
-        payload.effective_on,
-        payload.change_note,
-        current_user.id,
-        payload.progress_only,
-    )
+    try:
+        project = update_annotation_project_status(
+            db,
+            project_id,
+            payload.project_status,
+            payload.effective_on,
+            payload.change_note,
+            current_user.id,
+            payload.progress_only,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     return project

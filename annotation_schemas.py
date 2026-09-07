@@ -39,6 +39,8 @@ ANNOTATION_PROJECT_STATUSES = {
     "client_feedback",
     "cancelled",
     "partially_cancelled",
+    "paused",
+    "actively_abandoned",
 }
 ANNOTATION_PROJECT_PRIORITIES = {"low", "medium", "high"}
 ANNOTATION_ORDER_NO_PATTERN = re.compile(r"^AP-[A-Z0-9][A-Z0-9._-]*$")
@@ -221,7 +223,7 @@ class AnnotationProjectWrite(BaseModel):
     project_status: str = "initial_consultation"
     priority: str = "medium"
     language_region: Optional[str] = None
-    status_effective_on: date = Field(default_factory=date.today)
+    status_effective_on: datetime = Field(default_factory=datetime.now)
     custom_values: dict = Field(default_factory=dict)
     potential_demand: Optional[str] = None
     project_path: Optional[str] = None
@@ -345,7 +347,7 @@ class AnnotationProjectOrderNoUpdate(BaseModel):
 
 class AnnotationProjectStatusUpdate(BaseModel):
     project_status: str
-    effective_on: date = Field(default_factory=date.today)
+    effective_on: datetime = Field(default_factory=datetime.now)
     change_note: str = Field(min_length=1, max_length=500)
     progress_only: bool = False
 
@@ -395,7 +397,7 @@ class AnnotationProjectListResponse(BaseModel):
     project_status: str
     priority: str
     language_region: Optional[str] = None
-    status_effective_on: date
+    status_effective_on: datetime
     custom_values: dict = Field(default_factory=dict)
     role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     language_items: list[AnnotationLanguageItemResponse] = Field(default_factory=list)

@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, text
+from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, select, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
@@ -19,7 +19,11 @@ from concurrency import VERSION_FIELD, assert_fresh
 import workflow_models  # noqa: F401  注册笔译项目既有关系
 import recruitment_models  # noqa: F401  注册统一工作台招聘项目关系
 import annotation_ops_models  # noqa: F401  注册标注运营关系
-from annotation_ops_models import AnnotationAccountAssignment, AnnotationCustomFieldImage
+from annotation_ops_models import (
+    AnnotationAccountAssignment,
+    AnnotationCustomFieldImage,
+    AnnotationProjectStatusHistory,
+)
 from annotation_models import (
     AnnotationProject,
     AnnotationProjectAssignee,
@@ -175,6 +179,44 @@ def get_annotation_project(
     )
 
 
+def _latest_progress_expressions():
+    """返回项目最新进度节点日期和最后填报时间表达式。"""
+    ordering = (
+        AnnotationProjectStatusHistory.effective_on.desc(),
+        AnnotationProjectStatusHistory.changed_at.desc(),
+        AnnotationProjectStatusHistory.id.desc(),
+    )
+    latest_effective_on = (
+        select(AnnotationProjectStatusHistory.effective_on)
+        .where(AnnotationProjectStatusHistory.project_id == AnnotationProject.id)
+        .order_by(*ordering)
+        .limit(1)
+        .correlate(AnnotationProject)
+        .scalar_subquery()
+    )
+    latest_changed_at = (
+        select(func.max(AnnotationProjectStatusHistory.changed_at))
+        .where(AnnotationProjectStatusHistory.project_id == AnnotationProject.id)
+        .correlate(AnnotationProject)
+        .scalar_subquery()
+    )
+    return latest_effective_on, latest_changed_at
+
+
+def _annotation_project_ordering(sort, latest_effective_on, latest_changed_at):
+    if sort == "latest_progress_desc":
+        return (
+            latest_changed_at.desc().nullslast(),
+            latest_effective_on.desc().nullslast(),
+            AnnotationProject.order_no.desc(),
+            AnnotationProject.id.desc(),
+        )
+    return (
+        AnnotationProject.order_no.desc(),
+        AnnotationProject.id.desc(),
+    )
+
+
 def _apply_filters(
     query,
     *,
@@ -246,6 +288,7 @@ def _apply_filters(
         if end_value:
             query = query.filter(field <= datetime.combine(end_value, time.max))
     field_filters = field_filters or {}
+    latest_progress_effective_on, _ = _latest_progress_expressions()
     query = apply_scalar_specs(query, field_filters, {
         "order_no": (AnnotationProject.order_no, "string"),
         "project_name": (AnnotationProject.project_name, "string"),
@@ -300,6 +343,13 @@ def _apply_filters(
             if descriptor.get("max") not in (None, ""):
                 conditions.append(AnnotationProjectPriceItem.amount <= descriptor["max"])
             query = query.filter(db_exists().where(*conditions))
+        elif field == "latest_progress_effective_on":
+            query = apply_scalar_filter(
+                query,
+                latest_progress_effective_on,
+                descriptor,
+                value_type="datetime",
+            )
         elif field.startswith("custom:"):
             custom_id = field.split(":", 1)[1]
             expression = AnnotationProject.custom_values[custom_id].astext
@@ -319,7 +369,8 @@ def _apply_filters(
 
 
 def get_annotation_projects(
-    db: Session, *, skip: int = 0, limit: int = 100, **filters
+    db: Session, *, skip: int = 0, limit: int = 100,
+    sort: str = "order_no_desc", **filters
 ) -> list[AnnotationProject]:
     query = (
         db.query(AnnotationProject)
@@ -328,19 +379,29 @@ def get_annotation_projects(
         .outerjoin(SubClient, AnnotationProject.sub_client_id == SubClient.id)
     )
     query = _apply_filters(query, **filters)
+    latest_progress_effective_on, latest_progress_changed_at = _latest_progress_expressions()
+    ordering = _annotation_project_ordering(
+        sort, latest_progress_effective_on, latest_progress_changed_at,
+    )
     rows = (
-        query.add_columns(func.count(AnnotationProject.id).over().label("_page_total")).distinct()
-        .order_by(AnnotationProject.created_at.desc(), AnnotationProject.id.desc())
+        query.add_columns(
+            func.count(AnnotationProject.id).over().label("_page_total"),
+            latest_progress_effective_on.label("_latest_progress_effective_on"),
+            latest_progress_changed_at.label("_latest_progress_changed_at"),
+        ).distinct()
+        .order_by(*ordering)
         .offset(skip).limit(limit).all()
     )
     projects = []
-    for project, page_total in rows:
+    for project, page_total, latest_effective_on, latest_changed_at in rows:
         project.__dict__["_page_total"] = int(page_total or 0)
+        project.__dict__["latest_progress_effective_on"] = latest_effective_on
+        project.__dict__["latest_progress_changed_at"] = latest_changed_at
         projects.append(project)
     return projects
 
 
-def count_annotation_projects(db: Session, **filters) -> int:
+def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **filters) -> int:
     query = (
         db.query(AnnotationProject.id)
         .outerjoin(Client, AnnotationProject.client_id == Client.id)
@@ -624,7 +685,7 @@ def update_annotation_project_status(
     db: Session,
     project_id: UUID,
     project_status: str,
-    effective_on: date,
+    effective_on: datetime,
     change_note: Optional[str] = None,
     changed_by: Optional[UUID] = None,
     progress_only: bool = False,
@@ -632,6 +693,17 @@ def update_annotation_project_status(
     project = get_annotation_project(db, project_id)
     if not project:
         return None
+    if progress_only and project_status != project.project_status:
+        reached_status = (
+            db.query(AnnotationProjectStatusHistory.id)
+            .filter(
+                AnnotationProjectStatusHistory.project_id == project.id,
+                AnnotationProjectStatusHistory.to_status == project_status,
+            )
+            .first()
+        )
+        if reached_status is None:
+            raise ValueError("只能为项目已经流转到的状态补充具体进度")
     if not progress_only and (
         project.project_status == project_status
         and project.status_effective_on == effective_on
@@ -639,15 +711,15 @@ def update_annotation_project_status(
         return project
     previous_status = project.project_status
     if progress_only:
-        project_status = previous_status
+        history_from_status = project_status
     else:
+        history_from_status = previous_status
         project.project_status = project_status
         project.status_effective_on = effective_on
     project.updated_at = datetime.now()
-    from annotation_ops_models import AnnotationProjectStatusHistory
     db.add(AnnotationProjectStatusHistory(
         project_id=project.id,
-        from_status=previous_status,
+        from_status=history_from_status,
         to_status=project_status,
         effective_on=effective_on,
         changed_by=changed_by,

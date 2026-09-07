@@ -1,15 +1,19 @@
+from datetime import date, datetime
 from types import SimpleNamespace
 from uuid import uuid4
+from unittest.mock import MagicMock
 
 import pytest
 
 import annotation_custom_field_service as custom_field_service
+import annotation_service
 import resource_request_service as request_service
 from annotation_custom_field_service import _resequence, _validate_scope, deactivate_custom_field
 from annotation_models import AnnotationProjectAssignee
 from annotation_ops_models import (
     AnnotationCustomFieldDefinition,
     AnnotationPlatformAccount,
+    AnnotationProjectStatusHistory,
     AnnotationTrialRecord,
 )
 from annotation_ops_schemas import AccountWrite
@@ -286,16 +290,17 @@ def test_resource_request_item_reorder_moves_old_sequences_out_of_the_way():
 def test_annotation_status_update_accepts_confirmed_phase3_statuses():
     payload = AnnotationProjectStatusUpdate(
         project_status="trial_partially_passed",
-        effective_on="2026-08-25",
+        effective_on="2026-08-25 14:35:00",
         change_note="部分语种通过",
     )
     assert payload.project_status == "trial_partially_passed"
+    assert payload.effective_on == datetime(2026, 8, 25, 14, 35)
 
 
 def test_annotation_progress_update_keeps_explicit_progress_mode():
     payload = AnnotationProjectStatusUpdate(
         project_status="trial_in_progress",
-        effective_on="2026-09-07",
+        effective_on="2026-09-07 16:20:00",
         change_note="客户要求重新处理试标",
         progress_only=True,
     )
@@ -307,6 +312,63 @@ def test_annotation_status_update_requires_a_note():
     with pytest.raises(ValueError, match="请填写变更说明或进度说明"):
         AnnotationProjectStatusUpdate(
             project_status="trial_in_progress",
-            effective_on="2026-09-07",
+            effective_on="2026-09-07 16:20:00",
             change_note="   ",
         )
+
+
+def test_progress_for_historical_status_does_not_change_current_project_status(monkeypatch):
+    project = SimpleNamespace(
+        id=uuid4(),
+        project_status="project_in_progress",
+        status_effective_on=datetime(2026, 9, 7, 16, 20),
+        updated_at=None,
+    )
+    db = MagicMock()
+    monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
+
+    result = annotation_service.update_annotation_project_status(
+        db,
+        project.id,
+        "trial_in_progress",
+        datetime(2026, 8, 20, 9, 45),
+        "一个语种找不到人",
+        uuid4(),
+        True,
+    )
+
+    history = db.add.call_args.args[0]
+    assert isinstance(history, AnnotationProjectStatusHistory)
+    assert project.project_status == "project_in_progress"
+    assert project.status_effective_on == datetime(2026, 9, 7, 16, 20)
+    assert history.from_status == "trial_in_progress"
+    assert history.to_status == "trial_in_progress"
+    assert history.effective_on == datetime(2026, 8, 20, 9, 45)
+    assert history.change_note == "一个语种找不到人"
+    assert result is project
+
+
+def test_progress_for_unreached_status_is_rejected(monkeypatch):
+    project = SimpleNamespace(
+        id=uuid4(),
+        project_status="initial_consultation",
+        status_effective_on=datetime(2026, 9, 7, 16, 20),
+        updated_at=None,
+    )
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+    monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
+
+    with pytest.raises(ValueError, match="只能为项目已经流转到的状态补充具体进度"):
+        annotation_service.update_annotation_project_status(
+            db,
+            project.id,
+            "sent_to_client",
+            datetime(2026, 9, 7, 17, 30),
+            "不应保存到尚未发生的状态",
+            uuid4(),
+            True,
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()

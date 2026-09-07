@@ -43,7 +43,7 @@ from models import (
 from concurrency import StaleUpdateError
 from error_localization import localize_http_detail, localize_validation_errors
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_notices, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
@@ -129,6 +129,8 @@ from resource_request_models import (
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
 )
+from annotation_notice_models import AnnotationNoticeSection
+from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
 from project_order_no_models import ProjectOrderNoReservation
 from routers import business_mails, mail_inline_images, project_audits
@@ -228,6 +230,7 @@ app.include_router(roles.router)
 app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)
 app.include_router(annotation_projects.router)
+app.include_router(annotation_notices.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
 app.include_router(recruitment_projects.router)
@@ -362,8 +365,14 @@ ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE annotation_project ALTER COLUMN priority SET DEFAULT 'medium'",
     """
     DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_project_status') THEN
-        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled'));
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname='ck_annotation_project_status'
+          AND pg_get_constraintdef(oid) LIKE '%paused%'
+          AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+      ) THEN
+        ALTER TABLE annotation_project DROP CONSTRAINT IF EXISTS ck_annotation_project_status;
+        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled','paused','actively_abandoned'));
       END IF;
     END $$
     """,
@@ -680,6 +689,44 @@ def migrate_annotation_follow_up_to_status_history():
             WHERE table_code = 'project'
               AND btrim(field_label) = '跟进状态'
               AND is_active = TRUE
+        """))
+
+
+def ensure_annotation_status_history_constraints():
+    """扩展标注项目状态后，同步刷新既有状态履历表的检查约束。"""
+    if "annotation_project_status_history" not in inspect(engine).get_table_names():
+        return
+    status_values = (
+        "'initial_consultation','consultation_no_result','resource_sourcing',"
+        "'resource_sourcing_cancelled','trial_preparation','trial_in_progress',"
+        "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
+        "'sent_to_client','client_feedback','cancelled','partially_cancelled',"
+        "'paused','actively_abandoned'"
+    )
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            DO $$ BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname='ck_annotation_status_history_from'
+                  AND pg_get_constraintdef(oid) LIKE '%paused%'
+                  AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+              ) THEN
+                ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_from;
+                ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_from
+                  CHECK(from_status IS NULL OR from_status IN ({status_values}));
+              END IF;
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname='ck_annotation_status_history_to'
+                  AND pg_get_constraintdef(oid) LIKE '%paused%'
+                  AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+              ) THEN
+                ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_to;
+                ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_to
+                  CHECK(to_status IN ({status_values}));
+              END IF;
+            END $$
         """))
 
 
@@ -1342,7 +1389,11 @@ def run_runtime_migrations():
     AnnotationProjectAssignee.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_assignee_columns()
     AnnotationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_status_history_constraints()
     ensure_annotation_status_history_seed()
+    AnnotationNoticeSection.__table__.create(bind=engine, checkfirst=True)
+    with Session(engine) as db:
+        ensure_annotation_notice_sections(db)
     AnnotationPlatform.__table__.create(bind=engine, checkfirst=True)
     AnnotationPlatformAccount.__table__.create(bind=engine, checkfirst=True)
     AnnotationAccountAssignment.__table__.create(bind=engine, checkfirst=True)

@@ -6,6 +6,7 @@
         <el-tab-pane v-if="canViewAccounts" label="标注员账号" name="accounts" />
         <el-tab-pane v-if="canViewProjects" label="试标流程" name="trials" />
         <el-tab-pane v-if="canViewProjects" label="标注流程" name="workflow" />
+        <el-tab-pane v-if="canViewProjects" label="标注须知" name="notices" />
       </el-tabs>
     </el-card>
 
@@ -27,7 +28,7 @@ const focusMode = ref(false)
 const canViewProjects = computed(() => hasPermission('projects:read'))
 const canViewAccounts = computed(() => hasPermission(['annotation_accounts:read', 'annotation_accounts:write']))
 const availableSections = computed(() => new Set([
-  ...(canViewProjects.value ? ['projects', 'trials', 'workflow'] : []),
+  ...(canViewProjects.value ? ['projects', 'trials', 'workflow', 'notices'] : []),
   ...(canViewAccounts.value ? ['accounts'] : []),
 ]))
 const defaultSection = () => canViewProjects.value ? 'projects' : 'accounts'
@@ -37,6 +38,7 @@ const componentMap = {
   accounts: defineAsyncComponent(() => import('./AnnotationAccounts.vue')),
   trials: defineAsyncComponent(() => import('./AnnotationTrials.vue')),
   workflow: defineAsyncComponent(() => import('./AnnotationWorkflow.vue')),
+  notices: defineAsyncComponent(() => import('./AnnotationNotices.vue')),
 }
 
 const activeComponent = computed(() => componentMap[activeSection.value])

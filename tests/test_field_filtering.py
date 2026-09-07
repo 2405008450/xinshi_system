@@ -8,7 +8,11 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from annotation_models import AnnotationProject
-from annotation_service import _apply_filters as apply_annotation_filters
+from annotation_service import (
+    _annotation_project_ordering,
+    _apply_filters as apply_annotation_filters,
+    _latest_progress_expressions,
+)
 from crud import _apply_client_filters, _apply_translation_project_filters, get_translation_projects
 from field_filtering import parse_field_filters
 from interpretation_models import InterpretationProject
@@ -133,6 +137,61 @@ def test_annotation_project_manager_filter_contract_accepts_multi_select():
     }
 
     assert annotation_field_filters(encoded(payload), Session()) == payload
+
+
+def test_annotation_latest_progress_date_filter_contract_and_sql():
+    payload = {
+        "latest_progress_effective_on": {
+            "op": "between",
+            "from": "2026-09-01",
+            "to": "2026-09-07",
+        },
+    }
+
+    assert annotation_field_filters(encoded(payload), Session()) == payload
+    sql = compiled_sql(apply_annotation_filters(
+        project_query(AnnotationProject),
+        field_filters=payload,
+    ))
+    assert "annotation_project_status_history" in sql
+    assert "effective_on" in sql
+    assert ">= '2026-09-01 00:00:00'" in sql
+    assert "< '2026-09-08 00:00:00'" in sql
+
+
+def test_annotation_latest_progress_expressions_cover_node_date_and_last_filled_time():
+    effective_on, changed_at = _latest_progress_expressions()
+    effective_sql = compiled_sql(effective_on)
+    changed_sql = compiled_sql(changed_at)
+
+    assert "effective_on desc" in effective_sql
+    assert "changed_at desc" in effective_sql
+    assert "max(annotation_project_status_history.changed_at)" in changed_sql
+
+
+def test_annotation_list_sort_defaults_to_order_number():
+    route = next(
+        route for route in __import__("routers.annotation_projects", fromlist=["router"]).router.routes
+        if route.path.endswith("/page")
+    )
+    sort_param = next(param for param in route.dependant.query_params if param.name == "sort")
+
+    assert sort_param.default == "order_no_desc"
+
+
+def test_annotation_list_sort_switches_to_latest_progress_node():
+    effective_on, changed_at = _latest_progress_expressions()
+
+    default_ordering = _annotation_project_ordering(
+        "order_no_desc", effective_on, changed_at,
+    )
+    progress_ordering = _annotation_project_ordering(
+        "latest_progress_desc", effective_on, changed_at,
+    )
+
+    assert "annotation_project.order_no desc" in compiled_sql(default_ordering[0])
+    assert "max(annotation_project_status_history.changed_at)" in compiled_sql(progress_ordering[0])
+    assert "effective_on desc" in compiled_sql(progress_ordering[1])
 
 
 def test_resource_request_sql_uses_and_between_fields_and_or_inside_multi_select():

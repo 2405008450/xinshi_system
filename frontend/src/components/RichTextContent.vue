@@ -7,6 +7,7 @@
 import { onBeforeUnmount, watch } from 'vue'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
 
 const props = defineProps({
   document: { type: Object, default: null },
@@ -17,7 +18,7 @@ const editor = props.document
   ? new Editor({
       content: props.document,
       editable: false,
-      extensions: [StarterKit.configure({ link: false })]
+      extensions: [StarterKit.configure({ link: false }), TextColor, YellowHighlight]
     })
   : null
 

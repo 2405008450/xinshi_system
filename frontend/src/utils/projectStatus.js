@@ -47,6 +47,8 @@ export const PROJECT_STATUS_OPTIONS = {
     { value: 'client_feedback', label: '客户反馈' },
     { value: 'cancelled', label: '已取消' },
     { value: 'partially_cancelled', label: '已部分取消' },
+    { value: 'paused', label: '暂停' },
+    { value: 'actively_abandoned', label: '主动放弃' },
   ],
   recruitment: [
     { value: 'pending_setup', label: '新建待立项' },
@@ -79,6 +81,7 @@ const PROJECT_STATUS_TYPES = {
   cancelled: 'danger',
   partially_cancelled: 'warning',
   paused: 'warning',
+  actively_abandoned: 'danger',
   initial_follow_up: 'warning',
   in_progress: 'primary',
   ended: 'success',

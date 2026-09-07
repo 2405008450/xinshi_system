@@ -2,6 +2,7 @@
 
 import logging
 
+from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
@@ -29,17 +30,19 @@ from annotation_ops_schemas import (
     AssigneeRateResponse, AssigneeRateWrite, CredentialBatchRevealItem, CredentialBatchRevealRequest,
     CredentialRevealRequest, CredentialRevealResponse,
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
-    ReleaseAllResponse, StatusHistoryResponse, TrialResponse, TrialWrite,
+    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, TrialResponse, TrialWrite,
 )
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
     delete_account, delete_annotation_workflow, delete_assignee_rate, delete_platform, delete_trial,
     get_account_person_profile, list_account_assignments, list_accounts, list_annotator_occupancy, list_annotation_workflow, list_person_accounts,
     list_platforms, list_status_history, list_trials, release_account, release_all_person_accounts,
+    search_status_history,
     reveal_credential, reveal_credentials_batch, save_account, save_annotation_workflow, save_assignee_rate, save_platform, save_trial,
 )
 from database import get_db
 from models import AppUser
+from pagination_schemas import PageResponse
 from permission_service import user_has_permission
 from routers.auth import get_current_user, require_any_permission, require_module_access
 
@@ -354,6 +357,32 @@ def remove_workflow_row(project_id: UUID, assignee_id: UUID, db: Session = Depen
 @project_router.get("/projects/{project_id}/status-history", response_model=List[StatusHistoryResponse])
 def status_history(project_id: UUID, db: Session = Depends(get_db)):
     return list_status_history(db, project_id)
+
+
+@project_router.get("/status-history/search", response_model=PageResponse[StatusHistorySearchItemResponse])
+def status_history_search(
+    keyword: str = Query(..., min_length=1, max_length=100),
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    normalized_keyword = keyword.strip()
+    if not normalized_keyword:
+        raise HTTPException(status_code=422, detail="请输入进度关键词")
+    if date_from > date_to:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    if (date_to - date_from).days + 1 > 366:
+        raise HTTPException(status_code=422, detail="单次检索的时间范围不能超过 366 天")
+    return search_status_history(
+        db,
+        keyword=normalized_keyword,
+        date_from=date_from,
+        date_to=date_to,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @project_router.get("/custom-fields", response_model=List[CustomFieldResponse])

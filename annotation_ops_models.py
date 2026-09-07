@@ -21,7 +21,8 @@ STATUS_VALUES_SQL = (
     "'initial_consultation','consultation_no_result','resource_sourcing',"
     "'resource_sourcing_cancelled','trial_preparation','trial_in_progress',"
     "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
-    "'sent_to_client','client_feedback','cancelled','partially_cancelled'"
+    "'sent_to_client','client_feedback','cancelled','partially_cancelled',"
+    "'paused','actively_abandoned'"
 )
 
 
@@ -35,12 +36,23 @@ class AnnotationProjectStatusHistory(Base):
         CheckConstraint(f"to_status IN ({STATUS_VALUES_SQL})", name="ck_annotation_status_history_to"),
         Index("ix_annotation_status_history_timeline", "project_id", text("effective_on DESC"), text("changed_at DESC")),
         Index("ix_annotation_status_history_status_date", "to_status", "effective_on"),
+        Index(
+            "ix_annotation_status_history_effective_search",
+            text("effective_on DESC"), text("changed_at DESC"), text("id DESC"),
+        ),
+        Index(
+            "ix_annotation_status_history_change_note_trgm",
+            "change_note",
+            postgresql_using="gin",
+            postgresql_ops={"change_note": "gin_trgm_ops"},
+            postgresql_where=text("change_note IS NOT NULL"),
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     from_status: Mapped[Optional[str]] = mapped_column(String(50))
     to_status: Mapped[str] = mapped_column(String(50), nullable=False)
-    effective_on: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    effective_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
     changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     change_note: Mapped[Optional[str]] = mapped_column(Text)

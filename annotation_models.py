@@ -9,7 +9,6 @@ from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
-    Date,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -75,7 +74,7 @@ class AnnotationProject(Base):
             "'resource_sourcing','resource_sourcing_cancelled','trial_preparation',"
             "'trial_in_progress','trial_passed','trial_failed','trial_partially_passed',"
             "'project_in_progress','sent_to_client','client_feedback','cancelled',"
-            "'partially_cancelled')",
+            "'partially_cancelled','paused','actively_abandoned')",
             name="ck_annotation_project_status",
         ),
         CheckConstraint(
@@ -111,8 +110,8 @@ class AnnotationProject(Base):
         String(10), nullable=False, server_default=text("'medium'")
     )
     language_region: Mapped[Optional[str]] = mapped_column(String(255))
-    status_effective_on: Mapped[datetime.date] = mapped_column(
-        Date, nullable=False, server_default=text("CURRENT_DATE")
+    status_effective_on: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )
     custom_values: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")

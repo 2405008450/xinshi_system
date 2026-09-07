@@ -332,7 +332,7 @@ const projectTypeLabels = {
   onsite: '现场口译', booth: '展会摊位口译', exhibition_escort: '展会陪同口译', escort: '陪同口译', small_business_meeting: '小型商务会议口译', small_non_business_meeting: '小型（非商务）会议口译', consecutive: '会议交传口译', simultaneous: '会议同传口译', online_meeting: '线上会议口译', online_simultaneous: '线上同传口译',
 }
 const projectStatusLabels = {
-  initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓', resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过', project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈', partially_cancelled: '已部分取消',
+  initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓', resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过', project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈', partially_cancelled: '已部分取消', actively_abandoned: '主动放弃',
   pending_setup: '待启动', sourcing: '寻访中', recommending: '推荐中', interviewing: '面试中', offer_negotiation: 'Offer协商中', pending_onboard: '待入职', probation: '试用期', full_time_dispatch: '全职外派', cancelled: '项目取消', closed: '已关闭',
   initial_follow_up: '初步跟进中', in_progress: '进行中', ended: '已结束', settled: '已结款', active: '进行中', completed: '已完成', cancelled: '已取消',
   pending_confirmation: '待确认', confirmed: '已确认', organized: '已整理', translator_assigned: '已排译员', sent_to_translator: '已发译员', translator_returned: '译员发回', special_checked: '已专检', typeset: '已排版', special_checked_typeset: '已专检排版', reviewed: '已审核', feedback_sent_to_client: '反馈后发客户', paused: '已暂停',

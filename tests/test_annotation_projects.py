@@ -15,6 +15,7 @@ from annotation_schemas import (
     AnnotationProjectManagersUpdate,
     AnnotationProjectOrderNoUpdate,
     AnnotationProjectPriorityUpdate,
+    AnnotationProjectStatusUpdate,
 )
 from annotation_service import (
     build_annotation_project_name,
@@ -103,7 +104,7 @@ def test_annotation_project_list_response_keeps_language_items():
             order_no="AP-260826-001",
             project_status="initial_consultation",
             priority="medium",
-            status_effective_on=date(2026, 8, 26),
+            status_effective_on=datetime(2026, 8, 26),
             language_items=[
                 SimpleNamespace(
                     id=uuid4(),
@@ -130,6 +131,18 @@ def test_annotation_project_priority_defaults_to_medium_and_rejects_invalid_valu
 
     with pytest.raises(ValueError, match="不支持的标注项目优先次序"):
         AnnotationProjectPriorityUpdate(priority="urgent")
+
+
+@pytest.mark.parametrize("project_status", ["paused", "actively_abandoned"])
+def test_annotation_project_accepts_new_statuses(project_status):
+    create_payload = AnnotationProjectCreate(project_status=project_status)
+    status_payload = AnnotationProjectStatusUpdate(
+        project_status=project_status,
+        change_note="状态调整",
+    )
+
+    assert create_payload.project_status == project_status
+    assert status_payload.project_status == project_status
 
 
 def test_annotation_project_create_accepts_ai_evaluation_type():

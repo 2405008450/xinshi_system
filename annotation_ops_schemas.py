@@ -382,11 +382,18 @@ class StatusHistoryResponse(BaseModel):
     project_id: UUID
     from_status: Optional[str] = None
     to_status: str
-    effective_on: date
+    effective_on: datetime
     changed_at: datetime
     changed_by: Optional[UUID] = None
     changed_by_name: Optional[str] = None
     change_note: Optional[str] = None
+
+
+class StatusHistorySearchItemResponse(StatusHistoryResponse):
+    project_order_no: str
+    project_name: Optional[str] = None
+    project_current_status: str
+    record_type: str
 
 
 class CustomFieldWrite(BaseModel):

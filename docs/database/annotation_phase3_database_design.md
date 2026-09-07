@@ -97,7 +97,7 @@
 | `project_id` | `UUID` | FK -> `annotation_project.id`；非空；删除项目时级联删除 | 所属项目 |
 | `from_status` | `VARCHAR(50)` | 可空 | 首条状态记录可为空 |
 | `to_status` | `VARCHAR(50)` | 非空 | 变更后的状态 |
-| `effective_on` | `DATE` | 非空 | 进入该业务状态的实际日期 |
+| `effective_on` | `TIMESTAMP` | 非空 | 进度节点或进入该业务状态的实际时间 |
 | `changed_at` | `TIMESTAMP` | 非空；默认 `CURRENT_TIMESTAMP` | 系统实际操作时间 |
 | `changed_by` | `UUID` | FK -> `app_user.id`；删除用户时置空 | 操作人 |
 | `change_note` | `TEXT` | 可空 | 状态修改原因或说明 |
@@ -106,6 +106,8 @@
 
 - `INDEX (project_id, effective_on DESC, changed_at DESC)`：项目状态时间线。
 - `INDEX (to_status, effective_on)`：按状态及发生日期统计。
+- `INDEX (effective_on DESC, changed_at DESC, id DESC)`：跨项目按节点时间检索和稳定分页。
+- `GIN (change_note gin_trgm_ops) WHERE change_note IS NOT NULL`：进度正文包含检索；依赖 PostgreSQL `pg_trgm`。
 
 一致性要求：每次状态变化应在同一事务内同时更新 `annotation_project.project_status/status_effective_on` 并插入履历。
 

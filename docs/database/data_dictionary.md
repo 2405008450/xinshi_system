@@ -948,12 +948,12 @@
 | `project_id` | `uuid` | FK → annotation_project.id；非空 | — | 关联翻译主订单 |
 | `from_status` | `varchar(50)` | 可空 | — | 变更前状态 |
 | `to_status` | `varchar(50)` | 非空 | — | 变更后状态 |
-| `effective_on` | `date` | 非空 | — | effective on |
-| `changed_at` | `timestamp` | 非空 | `当前时间` | 业务时间 |
+| `effective_on` | `timestamp` | 非空 | — | 进度节点或状态实际生效时间 |
+| `changed_at` | `timestamp` | 非空 | `当前时间` | 系统实际填写时间 |
 | `changed_by` | `uuid` | FK → app_user.id；可空 | — | changed by |
 | `change_note` | `text` | 可空 | — | change note |
 
-表级规则：CHECK：`from_status IS NULL OR (from_status::text = ANY (ARRAY['initial_consultation'::character varying, 'consultation_no_result'::character varying, 'resource_sourcing'::character varying, 'resource_sourcing_cancelled'::character varying, 'trial_preparation'::character varying, 'trial_in_progress'::character varying, 'trial_passed'::character varying, 'trial_failed'::character varying, 'trial_partially_passed'::character varying, 'project_in_progress'::character varying, 'sent_to_client'::character varying, 'client_feedback'::character varying, 'cancelled'::character varying, 'partially_cancelled'::character varying]::text[]))`；CHECK：`to_status::text = ANY (ARRAY['initial_consultation'::character varying, 'consultation_no_result'::character varying, 'resource_sourcing'::character varying, 'resource_sourcing_cancelled'::character varying, 'trial_preparation'::character varying, 'trial_in_progress'::character varying, 'trial_passed'::character varying, 'trial_failed'::character varying, 'trial_partially_passed'::character varying, 'project_in_progress'::character varying, 'sent_to_client'::character varying, 'client_feedback'::character varying, 'cancelled'::character varying, 'partially_cancelled'::character varying]::text[])`；索引 `ix_annotation_status_history_status_date`：`to_status`, `effective_on`；索引 `ix_annotation_status_history_timeline`：`project_id`, `effective_on`, `changed_at`。
+表级规则：`from_status` 和 `to_status` 使用标注项目状态枚举 CHECK；索引 `ix_annotation_status_history_status_date`：`to_status`, `effective_on`；索引 `ix_annotation_status_history_timeline`：`project_id`, `effective_on DESC`, `changed_at DESC`；索引 `ix_annotation_status_history_effective_search`：`effective_on DESC`, `changed_at DESC`, `id DESC`；GIN trigram 索引 `ix_annotation_status_history_change_note_trgm`：非空 `change_note`，用于项目进度正文包含检索。
 
 ### `annotation_platform`
 

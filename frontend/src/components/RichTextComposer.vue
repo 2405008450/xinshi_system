@@ -12,6 +12,21 @@
         <el-button size="small" :type="editor.isActive('orderedList') ? 'primary' : ''" @click="editor.chain().focus().toggleOrderedList().run()">编号</el-button>
         <el-button size="small" :type="editor.isActive('blockquote') ? 'primary' : ''" @click="editor.chain().focus().toggleBlockquote().run()">引用</el-button>
       </el-button-group>
+      <template v-if="formatColors">
+        <span class="rich-editor__color-label">字体颜色</span>
+        <el-color-picker
+          v-model="selectedColor"
+          size="small"
+          :predefine="predefinedColors"
+          @change="applyTextColor"
+        />
+        <el-button
+          size="small"
+          :type="editor.isActive('highlight') ? 'warning' : ''"
+          @click="editor.chain().focus().toggleMark('highlight', { color: '#fff59d' }).run()"
+        >黄色高亮</el-button>
+        <el-button size="small" @click="clearFormatting">清除格式</el-button>
+      </template>
       <el-button size="small" @click="editor.chain().focus().undo().run()">撤销</el-button>
       <el-button size="small" @click="editor.chain().focus().redo().run()">重做</el-button>
     </div>
@@ -20,18 +35,24 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
 
 const props = defineProps({
   modelValue: { type: Object, default: null },
-  placeholder: { type: String, default: '请输入留言内容…' }
+  placeholder: { type: String, default: '请输入留言内容…' },
+  formatColors: Boolean,
+  minHeight: { type: String, default: '132px' }
 })
 
 const emit = defineEmits(['update:modelValue', 'update:plainText'])
 
 const emptyDocument = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
+const minHeight = computed(() => props.minHeight)
+const selectedColor = ref('#1f2937')
+const predefinedColors = ['#1f2937', '#475569', '#2563eb', '#0f766e', '#b45309', '#b91c1c', '#7e22ce']
 
 const editor = useEditor({
   content: props.modelValue || emptyDocument(),
@@ -39,7 +60,9 @@ const editor = useEditor({
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
       link: false
-    })
+    }),
+    TextColor,
+    YellowHighlight
   ],
   editorProps: {
     attributes: {
@@ -50,8 +73,20 @@ const editor = useEditor({
   onUpdate: ({ editor: currentEditor }) => {
     emit('update:modelValue', currentEditor.getJSON())
     emit('update:plainText', currentEditor.getText({ blockSeparator: '\n' }).trim())
+  },
+  onSelectionUpdate: ({ editor: currentEditor }) => {
+    selectedColor.value = currentEditor.getAttributes('textColor').color || '#1f2937'
   }
 })
+
+const applyTextColor = (color) => {
+  if (color) editor.value?.chain().focus().setMark('textColor', { color }).run()
+}
+
+const clearFormatting = () => {
+  editor.value?.chain().focus().unsetAllMarks().run()
+  selectedColor.value = '#1f2937'
+}
 
 watch(
   () => props.modelValue,
@@ -88,15 +123,20 @@ defineExpose({
 }
 
 .rich-editor__content {
-  min-height: 132px;
+  min-height: v-bind(minHeight);
 }
 
 :deep(.rich-editor__prose) {
-  min-height: 108px;
+  min-height: calc(v-bind(minHeight) - 24px);
   padding: 12px;
   outline: none;
   line-height: 1.7;
   color: var(--el-text-color-primary);
+}
+
+.rich-editor__color-label {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 :deep(.rich-editor__prose p:first-child:last-child:empty::before) {
