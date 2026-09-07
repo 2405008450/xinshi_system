@@ -136,7 +136,7 @@
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="订单号">{{ textValue(detailRow(row).orderNo) }}</el-descriptions-item>
                   <el-descriptions-item label="项目状态">{{ statusLabel(detailRow(row).projectStatus) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目名称" :span="2"><InlineTextField :model-value="detailRow(row).projectName" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'projectName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
+                  <el-descriptions-item label="项目名称" :span="2">{{ textValue(detailRow(row).projectName) }}</el-descriptions-item>
                   <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(detailRow(row)) }}</el-descriptions-item>
                   <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="detailRow(row).taskDescription" :editable="canWrite && !deleteMode" label="具体任务" multiline :save-field="(value) => saveDetailTextField(row, 'taskDescription', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row)) }}</el-descriptions-item>
@@ -307,15 +307,7 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
-          <InlineTextField
-            v-else-if="column.key === 'projectName'"
-            :model-value="row.projectName"
-            :editable="canWrite && !deleteMode"
-            label="项目名称"
-            :maxlength="500"
-            :save-field="(value) => saveDetailTextField(row, 'projectName', value)"
-            @conflict="fetchData"
-          />
+          <span v-else-if="column.key === 'projectName'">{{ textValue(row.projectName) }}</span>
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>

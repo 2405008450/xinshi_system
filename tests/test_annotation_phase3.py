@@ -290,3 +290,23 @@ def test_annotation_status_update_accepts_confirmed_phase3_statuses():
         change_note="部分语种通过",
     )
     assert payload.project_status == "trial_partially_passed"
+
+
+def test_annotation_progress_update_keeps_explicit_progress_mode():
+    payload = AnnotationProjectStatusUpdate(
+        project_status="trial_in_progress",
+        effective_on="2026-09-07",
+        change_note="客户要求重新处理试标",
+        progress_only=True,
+    )
+    assert payload.progress_only is True
+    assert payload.change_note == "客户要求重新处理试标"
+
+
+def test_annotation_status_update_requires_a_note():
+    with pytest.raises(ValueError, match="请填写变更说明或进度说明"):
+        AnnotationProjectStatusUpdate(
+            project_status="trial_in_progress",
+            effective_on="2026-09-07",
+            change_note="   ",
+        )

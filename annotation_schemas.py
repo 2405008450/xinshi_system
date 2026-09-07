@@ -346,7 +346,8 @@ class AnnotationProjectOrderNoUpdate(BaseModel):
 class AnnotationProjectStatusUpdate(BaseModel):
     project_status: str
     effective_on: date = Field(default_factory=date.today)
-    change_note: Optional[str] = None
+    change_note: str = Field(min_length=1, max_length=500)
+    progress_only: bool = False
 
     @field_validator("project_status")
     @classmethod
@@ -358,7 +359,10 @@ class AnnotationProjectStatusUpdate(BaseModel):
     @field_validator("change_note", mode="before")
     @classmethod
     def normalize_note(cls, value):
-        return _nullable_text(value)
+        normalized = _nullable_text(value)
+        if not normalized:
+            raise ValueError("请填写变更说明或进度说明")
+        return normalized
 
 
 class AnnotationProjectPriorityUpdate(BaseModel):

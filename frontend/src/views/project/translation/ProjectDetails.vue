@@ -263,16 +263,7 @@
             </BusinessDetailPopover>
             <PathActionButtons v-if="canReadProjectFiles" @open="openOriginalPath(row)" @copy="copyOriginalPath(row)" />
           </div>
-          <InlineTextField
-            v-else-if="column.key === 'projectName'"
-            :model-value="row.projectName"
-            :editable="canWriteProjects && !deleteMode"
-            label="项目名称"
-            required
-            :maxlength="255"
-            :save-field="(value) => saveProjectTextField(row, 'projectName', value)"
-            @conflict="fetchData"
-          />
+          <span v-else-if="column.key === 'projectName'">{{ row.projectName || '-' }}</span>
           <el-dropdown
             v-else-if="column.key === 'projectStatus' && canWriteProjects"
             trigger="click"
@@ -1047,7 +1038,6 @@ import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
-import InlineTextField from '@/components/common/InlineTextField.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
@@ -1225,7 +1215,7 @@ const progressFieldSet = new Set(subOrderProgressFieldConfigs.map((item) => item
 const progressMarks = { 0: '0%', 50: '50%', 100: '100%' }
 const projectDetailItems = [
   { label: '订单号', key: 'orderNo' },
-  { label: '项目名称', key: 'projectName', editable: true, required: true, maxlength: 255 },
+  { label: '项目名称', key: 'projectName' },
   { label: '邮件主题预览', key: 'emailSubjectPreview', span: 2, editable: true, multiline: true },
   { label: '服务内容', key: 'serviceContent', span: 2, editable: true, maxlength: 255 },
   { label: '任务类型', key: 'taskType', editable: true, maxlength: 50 },

@@ -547,6 +547,7 @@ def update_project_status(
         payload.effective_on,
         payload.change_note,
         current_user.id,
+        payload.progress_only,
     )
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")

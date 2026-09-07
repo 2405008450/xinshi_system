@@ -623,6 +623,66 @@ def ensure_annotation_status_history_seed():
         """))
 
 
+def migrate_annotation_follow_up_to_status_history():
+    """将旧“跟进状态”动态字段无损合并到项目状态履历。"""
+    required = {
+        "annotation_project",
+        "annotation_project_status_history",
+        "annotation_custom_field_definition",
+    }
+    if not required.issubset(set(inspect(engine).get_table_names())):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            WITH fields AS (
+                SELECT id
+                FROM annotation_custom_field_definition
+                WHERE table_code = 'project'
+                  AND btrim(field_label) = '跟进状态'
+            ), legacy_values AS (
+                SELECT
+                    p.id AS project_id,
+                    p.project_status,
+                    COALESCE(p.updated_at::date, p.status_effective_on, CURRENT_DATE) AS effective_on,
+                    COALESCE(p.updated_at, p.created_at, CURRENT_TIMESTAMP) AS changed_at,
+                    NULLIF(btrim(p.custom_values ->> fields.id::text), '') AS follow_up_note
+                FROM annotation_project p
+                CROSS JOIN fields
+            )
+            INSERT INTO annotation_project_status_history
+                (project_id, from_status, to_status, effective_on, changed_at, changed_by, change_note)
+            SELECT
+                project_id,
+                project_status,
+                project_status,
+                effective_on,
+                changed_at,
+                NULL,
+                '历史跟进记录：' || E'\n' || follow_up_note
+            FROM legacy_values
+            WHERE follow_up_note IS NOT NULL
+        """))
+        conn.execute(text("""
+            WITH fields AS (
+                SELECT id
+                FROM annotation_custom_field_definition
+                WHERE table_code = 'project'
+                  AND btrim(field_label) = '跟进状态'
+            )
+            UPDATE annotation_project p
+            SET custom_values = p.custom_values - fields.id::text
+            FROM fields
+            WHERE p.custom_values ? fields.id::text
+        """))
+        conn.execute(text("""
+            UPDATE annotation_custom_field_definition
+            SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE table_code = 'project'
+              AND btrim(field_label) = '跟进状态'
+              AND is_active = TRUE
+        """))
+
+
 def ensure_annotation_custom_field_scope_constraint():
     """确保动态字段作用域规则在数据库层同样生效。"""
     if "annotation_custom_field_definition" not in inspect(engine).get_table_names():
@@ -1294,6 +1354,7 @@ def run_runtime_migrations():
     AnnotationCustomFieldDefinition.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_custom_field_scope_constraint()
     ensure_annotation_custom_field_type_constraint()
+    migrate_annotation_follow_up_to_status_history()
     AnnotationCustomFieldImage.__table__.create(bind=engine, checkfirst=True)
     AnnotationAccountAssignmentImage.__table__.create(bind=engine, checkfirst=True)
     cleanup_orphan_custom_field_images()

@@ -627,18 +627,22 @@ def update_annotation_project_status(
     effective_on: date,
     change_note: Optional[str] = None,
     changed_by: Optional[UUID] = None,
+    progress_only: bool = False,
 ) -> Optional[AnnotationProject]:
     project = get_annotation_project(db, project_id)
     if not project:
         return None
-    if (
+    if not progress_only and (
         project.project_status == project_status
         and project.status_effective_on == effective_on
     ):
         return project
     previous_status = project.project_status
-    project.project_status = project_status
-    project.status_effective_on = effective_on
+    if progress_only:
+        project_status = previous_status
+    else:
+        project.project_status = project_status
+        project.status_effective_on = effective_on
     project.updated_at = datetime.now()
     from annotation_ops_models import AnnotationProjectStatusHistory
     db.add(AnnotationProjectStatusHistory(
@@ -649,8 +653,9 @@ def update_annotation_project_status(
         changed_by=changed_by,
         change_note=change_note,
     ))
-    from project_workbench_service import ensure_active_project_responsibilities
-    ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
+    if not progress_only:
+        from project_workbench_service import ensure_active_project_responsibilities
+        ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
     db.commit()
     return get_annotation_project(db, project.id)
 
