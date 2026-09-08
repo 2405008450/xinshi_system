@@ -57,6 +57,8 @@
           <div class="progress-search-item__meta">
             <el-tag size="small" effect="plain">{{ row.recordType === 'progress' ? '具体进度' : '状态变更' }}</el-tag>
             <el-tag size="small" :type="statusType(row.toStatus)">{{ statusLabel(row.toStatus) }}</el-tag>
+            <span>客户经理：{{ row.clientManagerName || '未分配' }}</span>
+            <span>项目经理：{{ row.projectManagerName || '未分配' }}</span>
             <span>节点时间：{{ formatDateTime(row.effectiveOn) }}</span>
             <span>填写时间：{{ formatDateTime(row.changedAt) }}</span>
             <span>填写人：{{ row.changedByName || '系统' }}</span>

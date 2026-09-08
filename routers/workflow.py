@@ -16,6 +16,7 @@ from workflow_crud import (
     get_management_projects,
     get_my_tasks,
     get_project_manager_candidates,
+    get_annotation_manager_transfer_sources,
     get_project_editor_candidates,
     get_project_role_candidates,
     claim_management_projects,
@@ -27,6 +28,8 @@ from workflow_crud import (
     create_handover_request_unified,
     create_project_manager_handover,
     create_project_manager_handover_unified,
+    direct_transfer_annotation_manager,
+    preview_annotation_manager_direct_transfer,
     decide_handover_request,
     decide_project_manager_handover,
     list_incoming_handover_requests,
@@ -61,6 +64,10 @@ from workflow_schemas import (
     ProjectManagerClaimRequest,
     ProjectManagerHandoverDecisionRequest,
     ProjectManagerHandoverResponse,
+    AnnotationManagerDirectTransferRequest,
+    AnnotationManagerTransferOptionsResponse,
+    AnnotationManagerTransferPreviewRequest,
+    AnnotationManagerTransferPreviewResponse,
     WorkflowHandoverRequest,
     WorkflowHandoverDecisionRequest,
     WorkflowHandoverRequestResponse,
@@ -74,7 +81,7 @@ from workflow_schemas import (
 )
 from models import AppUser
 from project_roles import get_stage_role
-from routers.auth import get_current_user, require_module_access
+from routers.auth import get_current_user, require_module_access, require_super_admin
 
 router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
 
@@ -203,6 +210,69 @@ def get_project_manager_candidates_endpoint(
         db,
         get_project_manager_candidates(db, current_user.id, include_current=include_current),
     )
+
+
+@router.get(
+    "/project-manager-handover/direct/options",
+    response_model=AnnotationManagerTransferOptionsResponse,
+)
+def get_annotation_manager_transfer_options_endpoint(
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(require_super_admin),
+):
+    """返回离职交接原负责人及可承接的新项目经理。"""
+    return AnnotationManagerTransferOptionsResponse(
+        source_managers=get_annotation_manager_transfer_sources(db),
+        target_managers=_serialize_transfer_users(
+            db,
+            get_project_manager_candidates(db, current_user.id, include_current=True),
+        ),
+    )
+
+
+@router.post(
+    "/project-manager-handover/direct/preview",
+    response_model=AnnotationManagerTransferPreviewResponse,
+)
+def preview_annotation_manager_transfer_endpoint(
+    payload: AnnotationManagerTransferPreviewRequest,
+    db: Session = Depends(get_db),
+    _current_user: AppUser = Depends(require_super_admin),
+):
+    try:
+        return preview_annotation_manager_direct_transfer(db, payload.source_manager_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/project-manager-handover/direct",
+    response_model=ProjectManagerHandoverResponse,
+)
+def direct_transfer_annotation_manager_endpoint(
+    payload: AnnotationManagerDirectTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(require_super_admin),
+):
+    try:
+        request = direct_transfer_annotation_manager(
+            db,
+            current_user,
+            payload.source_manager_id,
+            payload.target_manager_id,
+            payload.project_ids,
+            payload.reason,
+        )
+        return serialize_project_manager_handover(request)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/project-editor-options", response_model=ProjectEditorOptionsResponse)

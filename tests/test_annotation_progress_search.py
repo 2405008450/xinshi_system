@@ -70,6 +70,8 @@ def history_row(*, from_status, to_status, note, total=2):
         project_order_no="AP-260907-001",
         project_name="语音标注项目",
         project_current_status="project_in_progress",
+        client_manager_name="客户经理甲",
+        project_manager_name="项目经理乙",
         page_total=total,
     )
 
@@ -103,6 +105,8 @@ def test_progress_search_filters_body_and_node_date_and_maps_record_types():
     assert "changed_at desc" in ordering_sql
     assert result["total"] == 2
     assert [item["record_type"] for item in result["items"]] == ["progress", "status_change"]
+    assert result["items"][0]["client_manager_name"] == "客户经理甲"
+    assert result["items"][0]["project_manager_name"] == "项目经理乙"
 
 
 @pytest.mark.parametrize(

@@ -27,6 +27,12 @@ export const getProjectEditorOptionsAPI = () => api.get('/workflow/project-edito
 export const getProjectRoleCandidatesAPI = (roleCode) =>
   api.get(`/workflow/role-candidates/${encodeURIComponent(roleCode)}`)
 export const createProjectManagerHandoverAPI = (data) => api.post('/workflow/project-manager-handover', data)
+export const getAnnotationManagerTransferOptionsAPI = () =>
+  api.get('/workflow/project-manager-handover/direct/options')
+export const previewAnnotationManagerTransferAPI = (sourceManagerId) =>
+  api.post('/workflow/project-manager-handover/direct/preview', { source_manager_id: sourceManagerId })
+export const directTransferAnnotationManagerAPI = (data) =>
+  api.post('/workflow/project-manager-handover/direct', data)
 export const getIncomingProjectManagerHandoversAPI = () => api.get('/workflow/project-manager-handover/incoming')
 export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
   api.post(`/workflow/project-manager-handover/${requestId}/accept`, data)

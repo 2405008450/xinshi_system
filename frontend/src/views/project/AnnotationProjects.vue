@@ -7,6 +7,7 @@
           <el-button @click="progressSearchVisible = true">进度检索</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+          <el-button v-if="canDirectTransferManager && !deleteMode" @click="managerTransferVisible = true">项目经理交接</el-button>
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增标注项目</el-button>
         </div>
@@ -548,6 +549,10 @@
       :project-id="mailProjectId"
       :consultation-id="mailConsultationId"
     />
+    <AnnotationManagerTransferDialog
+      v-model="managerTransferVisible"
+      @transferred="fetchData"
+    />
   </el-card>
 </template>
 
@@ -583,6 +588,7 @@ import InternalProjectRolesForm from '@/components/common/InternalProjectRolesFo
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import InlineTextField from '@/components/common/InlineTextField.vue'
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
+import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -590,7 +596,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
-import { hasPermission } from '@/utils/permission'
+import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { copyTextToClipboard } from '@/utils/clipboard'
@@ -600,6 +606,7 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
 const canWrite = hasPermission('projects:write')
+const canDirectTransferManager = isSuperAdmin()
 const canChangeOrderNo = canWrite && hasPermission('projects:order_no:write')
 const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
 const route = useRoute()
@@ -612,6 +619,7 @@ const handleProjectExtraAction = (command, row) => {
   router.push({ name: 'AnnotationProjectDetails', query: { section: 'accounts', projectId: row.id, view: 'project' } })
 }
 const highlightedProjectId = ref('')
+const managerTransferVisible = ref(false)
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')

@@ -1173,6 +1173,23 @@ def ensure_multitype_workbench_schema():
                     END IF;
                 END $$;
             """))
+        if "project_manager_handover_request" in tables:
+            conn.execute(text(
+                "ALTER TABLE project_manager_handover_request "
+                "ADD COLUMN IF NOT EXISTS handover_mode VARCHAR(20) NOT NULL DEFAULT 'approval'"
+            ))
+            conn.execute(text("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_pm_handover_request_mode'
+                    ) THEN
+                        ALTER TABLE project_manager_handover_request
+                            ADD CONSTRAINT ck_pm_handover_request_mode
+                            CHECK (handover_mode IN ('approval', 'admin_direct'));
+                    END IF;
+                END $$;
+            """))
         if "work_entry" in tables:
             conn.execute(text("ALTER TABLE work_entry ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
             conn.execute(text("""

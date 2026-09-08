@@ -393,6 +393,8 @@ class StatusHistorySearchItemResponse(StatusHistoryResponse):
     project_order_no: str
     project_name: Optional[str] = None
     project_current_status: str
+    client_manager_name: Optional[str] = None
+    project_manager_name: Optional[str] = None
     record_type: str
 
 

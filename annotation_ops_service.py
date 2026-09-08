@@ -10,7 +10,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
 from annotation_custom_field_service import validate_custom_values
 from annotation_custom_field_image_service import sync_assignment_image_links, validate_image_value_ownership
@@ -23,6 +23,7 @@ from annotation_ops_models import (
 )
 from models import AppUser, Client, SubClient
 from resource_models import ResourceAnnotationLanguageSkill, ResourceCapability, ResourcePerson
+from workflow_models import ProjectWorkbenchResponsibility
 
 
 logger = logging.getLogger("credential_audit")
@@ -1108,6 +1109,10 @@ def search_status_history(
     start_at = datetime.combine(date_from, datetime.min.time())
     end_at = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
     pattern = f"%{_escape_like_keyword(keyword)}%"
+    changed_by_user = aliased(AppUser)
+    client_manager_user = aliased(AppUser)
+    project_manager_user = aliased(AppUser)
+    project_manager_assignment = aliased(ProjectWorkbenchResponsibility)
 
     query = (
         db.query(
@@ -1123,13 +1128,30 @@ def search_status_history(
             AnnotationProject.project_name.label("project_name"),
             AnnotationProject.project_status.label("project_current_status"),
             func.coalesce(
-                func.nullif(func.btrim(AppUser.full_name), ""),
-                AppUser.username,
+                func.nullif(func.btrim(changed_by_user.full_name), ""),
+                changed_by_user.username,
             ).label("changed_by_name"),
+            func.coalesce(
+                func.nullif(func.btrim(client_manager_user.full_name), ""),
+                client_manager_user.username,
+            ).label("client_manager_name"),
+            func.coalesce(
+                func.nullif(func.btrim(project_manager_user.full_name), ""),
+                project_manager_user.username,
+            ).label("project_manager_name"),
             func.count(AnnotationProjectStatusHistory.id).over().label("page_total"),
         )
         .join(AnnotationProject, AnnotationProject.id == AnnotationProjectStatusHistory.project_id)
-        .outerjoin(AppUser, AppUser.id == AnnotationProjectStatusHistory.changed_by)
+        .outerjoin(changed_by_user, changed_by_user.id == AnnotationProjectStatusHistory.changed_by)
+        .outerjoin(client_manager_user, client_manager_user.id == AnnotationProject.client_manager_id)
+        .outerjoin(
+            project_manager_assignment,
+            and_(
+                project_manager_assignment.annotation_project_id == AnnotationProject.id,
+                project_manager_assignment.role_code == "project_manager",
+            ),
+        )
+        .outerjoin(project_manager_user, project_manager_user.id == project_manager_assignment.assignee_id)
         .filter(
             AnnotationProjectStatusHistory.effective_on >= start_at,
             AnnotationProjectStatusHistory.effective_on < end_at,
@@ -1165,6 +1187,8 @@ def search_status_history(
         "project_order_no": row.project_order_no,
         "project_name": row.project_name,
         "project_current_status": row.project_current_status,
+        "client_manager_name": row.client_manager_name,
+        "project_manager_name": row.project_manager_name,
         "record_type": "progress" if row.from_status == row.to_status else "status_change",
     } for row in rows]
     return {"items": items, "total": int(total or 0)}

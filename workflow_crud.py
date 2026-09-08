@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 from workflow_models import (
     ProjectManagerHandoverItem,
     ProjectManagerHandoverRequest,
+    ProjectWorkbenchResponsibility,
     WorkflowHandoverAttachment,
     WorkflowHandoverItem,
     WorkflowHandoverRequest,
@@ -1252,6 +1253,225 @@ def get_project_manager_candidates(
     )
 
 
+def _annotation_manager_responsibility_query(
+    db: Session,
+    source_manager_id: UUID,
+    project_ids: Optional[list[UUID]] = None,
+    *,
+    lock: bool = False,
+):
+    """查询标注项目的项目经理责任记录；是否属于活跃范围由调用方统一判断。"""
+    from project_workbench_service import _load_responsibilities
+
+    query = _load_responsibilities(db).filter(
+        ProjectWorkbenchResponsibility.role_code == 'project_manager',
+        ProjectWorkbenchResponsibility.annotation_project_id.is_not(None),
+        ProjectWorkbenchResponsibility.assignee_id == source_manager_id,
+    )
+    if project_ids is not None:
+        query = query.filter(
+            ProjectWorkbenchResponsibility.annotation_project_id.in_(project_ids)
+        )
+    if lock:
+        query = query.with_for_update(of=ProjectWorkbenchResponsibility)
+    return query
+
+
+def get_annotation_manager_transfer_sources(db: Session) -> list[dict]:
+    """返回仍负责活跃标注项目的经理，保留已停用用户供离职交接选择。"""
+    from project_workbench_service import _load_responsibilities
+
+    rows = _load_responsibilities(db).filter(
+        ProjectWorkbenchResponsibility.role_code == 'project_manager',
+        ProjectWorkbenchResponsibility.annotation_project_id.is_not(None),
+        ProjectWorkbenchResponsibility.assignee_id.is_not(None),
+    ).all()
+    counts: dict[UUID, int] = {}
+    users: dict[UUID, AppUser] = {}
+    for row in rows:
+        if not row.project or not is_active_project('annotation', row.project.project_status):
+            continue
+        counts[row.assignee_id] = counts.get(row.assignee_id, 0) + 1
+        if row.assignee:
+            users[row.assignee_id] = row.assignee
+    return sorted(
+        (
+            {
+                'id': user_id,
+                'username': user.username,
+                'full_name': user.full_name,
+                'is_active': bool(user.is_active),
+                'project_count': counts[user_id],
+            }
+            for user_id, user in users.items()
+        ),
+        key=lambda item: (
+            item['is_active'],
+            (item['full_name'] or item['username']).casefold(),
+        ),
+    )
+
+
+def preview_annotation_manager_direct_transfer(
+    db: Session,
+    source_manager_id: UUID,
+) -> dict:
+    """预览原经理名下全部处于工作台活跃范围的标注项目。"""
+    source = db.query(AppUser).filter(AppUser.id == source_manager_id).first()
+    if not source:
+        raise LookupError('原项目经理不存在')
+    rows = [
+        row for row in _annotation_manager_responsibility_query(
+            db, source_manager_id
+        ).all()
+        if row.project and is_active_project('annotation', row.project.project_status)
+    ]
+    from project_workbench_service import serialize_responsibility
+
+    projects = []
+    status_counts: dict[str, int] = {}
+    for row in rows:
+        item = serialize_responsibility(db, row)
+        item['project_manager_id'] = row.assignee_id
+        item['project_manager_name'] = item['current_assignee_name']
+        projects.append(item)
+        status = row.project.project_status or ''
+        status_counts[status] = status_counts.get(status, 0) + 1
+    projects.sort(key=lambda item: (item.get('order_no') or '', str(item.get('project_id') or '')))
+    return {
+        'source_manager_id': source_manager_id,
+        'project_count': len(projects),
+        'status_counts': status_counts,
+        'projects': projects,
+    }
+
+
+def direct_transfer_annotation_manager(
+    db: Session,
+    operator: AppUser,
+    source_manager_id: UUID,
+    target_manager_id: UUID,
+    project_ids: list[UUID],
+    reason: str,
+) -> ProjectManagerHandoverRequest:
+    """超级管理员直接完成标注项目经理离职移交。"""
+    operator_roles = set(get_user_roles_with_role_names(db, operator.id))
+    if not operator_roles.intersection(SUPER_TRANSFER_ROLES):
+        raise PermissionError('仅超级管理员可以执行离职直接移交')
+    if source_manager_id == target_manager_id:
+        raise ValueError('原项目经理和新项目经理不能相同')
+
+    normalized_reason = (reason or '').strip()
+    if not normalized_reason:
+        raise ValueError('请填写交接原因')
+
+    source = db.query(AppUser).filter(AppUser.id == source_manager_id).first()
+    if not source:
+        raise LookupError('原项目经理不存在')
+    target = db.query(AppUser).filter(
+        AppUser.id == target_manager_id,
+        AppUser.is_active == True,
+    ).first()
+    if not target or '项目经理' not in get_user_roles_with_role_names(db, target_manager_id):
+        raise ValueError('新负责人必须是启用中的项目经理')
+    ensure_user_assignable(db, target_manager_id)
+
+    unique_project_ids = list(dict.fromkeys(project_ids))
+    if not unique_project_ids:
+        raise ValueError('请至少选择一个需要移交的标注项目')
+    rows = _annotation_manager_responsibility_query(
+        db,
+        source_manager_id,
+        unique_project_ids,
+        lock=True,
+    ).all()
+    if len(rows) != len(unique_project_ids):
+        raise LookupError('部分项目的项目经理归属已变化，请刷新预览后重试')
+    if any(
+        not row.project or not is_active_project('annotation', row.project.project_status)
+        for row in rows
+    ):
+        raise LookupError('部分项目已离开工作台活跃范围，请刷新预览后重试')
+
+    responsibility_ids = [row.id for row in rows]
+    pending_requests = (
+        db.query(ProjectManagerHandoverRequest)
+        .join(
+            ProjectManagerHandoverItem,
+            ProjectManagerHandoverItem.request_id == ProjectManagerHandoverRequest.id,
+        )
+        .filter(
+            ProjectManagerHandoverRequest.status == 'pending',
+            ProjectManagerHandoverItem.project_responsibility_id.in_(responsibility_ids),
+        )
+        .with_for_update(of=ProjectManagerHandoverRequest)
+        .all()
+    )
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    for pending in pending_requests:
+        pending.status = 'rejected'
+        pending.decision_note = '管理员已执行离职直接移交，原待确认交接自动失效'
+        pending.decided_by = operator.id
+        pending.decided_at = now
+
+    request = ProjectManagerHandoverRequest(
+        requester_id=operator.id,
+        target_manager_id=target_manager_id,
+        handover_mode='admin_direct',
+        reason=normalized_reason,
+        status='accepted',
+        decided_by=operator.id,
+        decided_at=now,
+    )
+    request.items = [
+        ProjectManagerHandoverItem(
+            project_responsibility_id=row.id,
+            expected_manager_id=source_manager_id,
+        )
+        for row in rows
+    ]
+    db.add(request)
+    for row in rows:
+        row.assignee_id = target_manager_id
+        row.updated_at = now
+
+    source_name = source.full_name or source.username
+    target_name = target.full_name or target.username
+    operator_name = operator.full_name or operator.username
+    first_project_id = rows[0].annotation_project_id
+    notifications = create_notifications_for_users(
+        db,
+        recipient_user_ids=[target_manager_id],
+        title='标注项目经理归属已移交',
+        content=(
+            f'{operator_name} 已将 {source_name} 负责的 {len(rows)} 个标注项目直接移交给你。'
+            f'交接原因：{normalized_reason}'
+        ),
+        notification_type='project_manager_handover_accepted',
+        related_project_type='annotation',
+        related_entity_id=first_project_id,
+        commit=False,
+    )
+    if source.is_active:
+        notifications.extend(create_notifications_for_users(
+            db,
+            recipient_user_ids=[source_manager_id],
+            title='标注项目经理归属已移交',
+            content=(
+                f'{operator_name} 已将你负责的 {len(rows)} 个标注项目直接移交给 {target_name}。'
+                f'交接原因：{normalized_reason}'
+            ),
+            notification_type='project_manager_handover_accepted',
+            related_project_type='annotation',
+            related_entity_id=first_project_id,
+            commit=False,
+        ))
+    db.commit()
+    db.refresh(request)
+    _push_notifications(notifications)
+    return request
+
+
 def get_project_role_candidates(db: Session, role_code: str) -> list[AppUser]:
     """按稳定角色编码返回启用用户，不接受前端传入任意角色名称。"""
     role_name = ROLE_NAME_BY_CODE.get(role_code)
@@ -1673,6 +1893,7 @@ def serialize_project_manager_handover(request: ProjectManagerHandoverRequest) -
         'requester_name': requester_name,
         'target_manager_id': request.target_manager_id,
         'target_manager_name': target_name,
+        'handover_mode': getattr(request, 'handover_mode', None) or 'approval',
         'reason': request.reason,
         'note': request.note,
         'status': request.status,

@@ -302,6 +302,10 @@ class ProjectManagerHandoverRequest(Base):
         ForeignKeyConstraint(['requester_id'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_requester'),
         ForeignKeyConstraint(['target_manager_id'], ['app_user.id'], ondelete='CASCADE', name='fk_pm_handover_target'),
         ForeignKeyConstraint(['decided_by'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_decider'),
+        CheckConstraint(
+            "handover_mode IN ('approval', 'admin_direct')",
+            name='ck_pm_handover_request_mode',
+        ),
         PrimaryKeyConstraint('id', name='project_manager_handover_request_pkey'),
         Index('ix_pm_handover_target_status', 'target_manager_id', 'status'),
     )
@@ -309,6 +313,9 @@ class ProjectManagerHandoverRequest(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     requester_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     target_manager_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    handover_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'approval'")
+    )
     reason: Mapped[Optional[str]] = mapped_column(String(500))
     note: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'pending'"))

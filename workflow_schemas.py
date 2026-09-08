@@ -206,12 +206,39 @@ class ProjectManagerHandoverDecisionRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
+class AnnotationManagerTransferSource(BaseModel):
+    id: UUID
+    username: str
+    full_name: Optional[str] = None
+    is_active: bool = True
+    project_count: int = 0
+
+
+class AnnotationManagerTransferPreviewRequest(BaseModel):
+    source_manager_id: UUID
+
+
+class AnnotationManagerTransferPreviewResponse(BaseModel):
+    source_manager_id: UUID
+    project_count: int
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    projects: list[ManagedProjectItem] = Field(default_factory=list)
+
+
+class AnnotationManagerDirectTransferRequest(BaseModel):
+    source_manager_id: UUID
+    target_manager_id: UUID
+    project_ids: list[UUID] = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class ProjectManagerHandoverResponse(BaseModel):
     id: UUID
     requester_id: Optional[UUID] = None
     requester_name: Optional[str] = None
     target_manager_id: UUID
     target_manager_name: Optional[str] = None
+    handover_mode: Literal['approval', 'admin_direct'] = 'approval'
     reason: Optional[str] = None
     note: Optional[str] = None
     status: str
@@ -264,6 +291,11 @@ class WorkflowTransferUser(BaseModel):
     leave_start: Optional[datetime] = None
     leave_end: Optional[datetime] = None
     assignment_disabled_reason: Optional[str] = None
+
+
+class AnnotationManagerTransferOptionsResponse(BaseModel):
+    source_managers: list[AnnotationManagerTransferSource] = Field(default_factory=list)
+    target_managers: list[WorkflowTransferUser] = Field(default_factory=list)
 
 
 class ProjectEditorOptionsResponse(BaseModel):
