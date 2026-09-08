@@ -473,7 +473,8 @@
 | 字段 | 类型 | 约束 | 默认值 | 中文说明 |
 |---|---|---|---|---|
 | `id` | `uuid` | PK；非空 | `gen_random_uuid()` | UUID 主键 |
-| `project_id` | `uuid` | FK → translation_project.id；非空 | — | 关联翻译主订单 |
+| `project_id` | `uuid` | FK → translation_project.id；可空 | — | 关联翻译主订单 |
+| `annotation_project_id` | `uuid` | FK → annotation_project.id；可空 | — | 关联标注项目 |
 | `sender_user_id` | `uuid` | FK → app_user.id；可空 | — | 消息发送用户 |
 | `sender_name` | `varchar(255)` | 非空 | — | 发送人姓名快照 |
 | `content` | `text` | 非空 | — | 正文内容 |
@@ -483,7 +484,7 @@
 | `created_at` | `timestamp` | 可空 | `当前时间` | 创建时间 |
 | `updated_at` | `timestamp` | 可空 | `当前时间` | 最后更新时间 |
 
-表级规则：索引 `ix_chat_project_message_project_created_at`：`project_id`, `created_at`；索引 `ix_chat_project_message_sender_user_id`：`sender_user_id`。
+表级规则：`project_id` 与 `annotation_project_id` 必须且只能填写一个；索引 `ix_chat_project_message_project_created_at`：`project_id`, `created_at`；索引 `ix_chat_project_message_annotation_created_at`：`annotation_project_id`, `created_at`；索引 `ix_chat_project_message_sender_user_id`：`sender_user_id`。
 
 ### `chat_project_mention`
 

@@ -33,6 +33,12 @@ export const previewAnnotationManagerTransferAPI = (sourceManagerId) =>
   api.post('/workflow/project-manager-handover/direct/preview', { source_manager_id: sourceManagerId })
 export const directTransferAnnotationManagerAPI = (data) =>
   api.post('/workflow/project-manager-handover/direct', data)
+export const getAnnotationClientManagerTransferOptionsAPI = () =>
+  api.get('/workflow/client-manager-handover/direct/options')
+export const previewAnnotationClientManagerTransferAPI = (sourceManagerId) =>
+  api.post('/workflow/client-manager-handover/direct/preview', { source_manager_id: sourceManagerId })
+export const directTransferAnnotationClientManagerAPI = (data) =>
+  api.post('/workflow/client-manager-handover/direct', data)
 export const getIncomingProjectManagerHandoversAPI = () => api.get('/workflow/project-manager-handover/incoming')
 export const acceptProjectManagerHandoverAPI = (requestId, data = {}) =>
   api.post(`/workflow/project-manager-handover/${requestId}/accept`, data)

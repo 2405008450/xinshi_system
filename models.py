@@ -790,14 +790,22 @@ class ChatProjectMessage(Base):
     __tablename__ = 'chat_project_message'
     __table_args__ = (
         ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_chat_project_message_project'),
+        ForeignKeyConstraint(['annotation_project_id'], ['annotation_project.id'], ondelete='CASCADE', name='fk_chat_project_message_annotation_project'),
         ForeignKeyConstraint(['sender_user_id'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_project_message_sender'),
         PrimaryKeyConstraint('id', name='chat_project_message_pkey'),
+        CheckConstraint(
+            '(CASE WHEN project_id IS NOT NULL THEN 1 ELSE 0 END + '
+            'CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END) = 1',
+            name='ck_chat_project_message_exactly_one_project',
+        ),
         Index('ix_chat_project_message_project_created_at', 'project_id', 'created_at'),
+        Index('ix_chat_project_message_annotation_created_at', 'annotation_project_id', 'created_at'),
         Index('ix_chat_project_message_sender_user_id', 'sender_user_id'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sender_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sender_name: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -808,6 +816,7 @@ class ChatProjectMessage(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='chat_messages')
+    annotation_project: Mapped[Optional['AnnotationProject']] = relationship('AnnotationProject', back_populates='chat_messages')
     sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
     mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')
     attachment_links: Mapped[list['ChatProjectMessageAttachment']] = relationship(

@@ -1147,20 +1147,22 @@ def ensure_multitype_workbench_schema():
             """))
         if "project_manager_handover_item" in tables:
             conn.execute(text("ALTER TABLE project_manager_handover_item ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
+            conn.execute(text("ALTER TABLE project_manager_handover_item ADD COLUMN IF NOT EXISTS annotation_project_id UUID"))
             conn.execute(text("ALTER TABLE project_manager_handover_item ALTER COLUMN translation_project_id DROP NOT NULL"))
             conn.execute(text("""
                 DO $$ BEGIN
                     IF EXISTS (
                         SELECT 1 FROM pg_constraint
                         WHERE conname = 'ck_pm_handover_item_exactly_one_source'
-                          AND position('project_responsibility_id' in pg_get_constraintdef(oid)) = 0
+                          AND position('annotation_project_id' in pg_get_constraintdef(oid)) = 0
                     ) THEN
                         ALTER TABLE project_manager_handover_item DROP CONSTRAINT ck_pm_handover_item_exactly_one_source;
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_pm_handover_item_exactly_one_source') THEN
                         ALTER TABLE project_manager_handover_item ADD CONSTRAINT ck_pm_handover_item_exactly_one_source CHECK (
-                            (translation_project_id IS NOT NULL AND project_responsibility_id IS NULL) OR
-                            (translation_project_id IS NULL AND project_responsibility_id IS NOT NULL)
+                            (CASE WHEN translation_project_id IS NOT NULL THEN 1 ELSE 0 END +
+                             CASE WHEN project_responsibility_id IS NOT NULL THEN 1 ELSE 0 END +
+                             CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END) = 1
                         );
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pm_handover_item_responsibility') THEN
@@ -1171,12 +1173,24 @@ def ensure_multitype_workbench_schema():
                         ALTER TABLE project_manager_handover_item ADD CONSTRAINT uq_pm_handover_item_responsibility
                             UNIQUE (request_id, project_responsibility_id);
                     END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pm_handover_item_annotation_project') THEN
+                        ALTER TABLE project_manager_handover_item ADD CONSTRAINT fk_pm_handover_item_annotation_project
+                            FOREIGN KEY (annotation_project_id) REFERENCES annotation_project(id) ON DELETE CASCADE;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_pm_handover_item_annotation_project') THEN
+                        ALTER TABLE project_manager_handover_item ADD CONSTRAINT uq_pm_handover_item_annotation_project
+                            UNIQUE (request_id, annotation_project_id);
+                    END IF;
                 END $$;
             """))
         if "project_manager_handover_request" in tables:
             conn.execute(text(
                 "ALTER TABLE project_manager_handover_request "
                 "ADD COLUMN IF NOT EXISTS handover_mode VARCHAR(20) NOT NULL DEFAULT 'approval'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE project_manager_handover_request "
+                "ADD COLUMN IF NOT EXISTS manager_role VARCHAR(30) NOT NULL DEFAULT 'project_manager'"
             ))
             conn.execute(text("""
                 DO $$ BEGIN
@@ -1187,6 +1201,14 @@ def ensure_multitype_workbench_schema():
                         ALTER TABLE project_manager_handover_request
                             ADD CONSTRAINT ck_pm_handover_request_mode
                             CHECK (handover_mode IN ('approval', 'admin_direct'));
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_pm_handover_request_manager_role'
+                    ) THEN
+                        ALTER TABLE project_manager_handover_request
+                            ADD CONSTRAINT ck_pm_handover_request_manager_role
+                            CHECK (manager_role IN ('project_manager', 'client_manager'));
                     END IF;
                 END $$;
             """))

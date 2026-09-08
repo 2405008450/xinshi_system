@@ -248,7 +248,9 @@ const navigateToNotification = async (item) => {
       recruitment: 'RecruitmentProjectDetails',
     }[item.related_project_type]
     if (routeName) {
-      await router.push({ name: routeName, query: { projectId: item.related_entity_id } })
+      const query = { projectId: item.related_entity_id }
+      if (String(item.notification_type || '').includes('project_chat')) query.tab = 'chat'
+      await router.push({ name: routeName, query })
       return
     }
   }

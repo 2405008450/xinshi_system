@@ -1,16 +1,16 @@
 <template>
   <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode }]">
-    <el-empty v-if="!projectId" description="请先选择母订单项目" :image-size="72" />
+    <el-empty v-if="!projectId" description="请先选择项目" :image-size="72" />
     <template v-else>
       <div class="chat-toolbar">
         <div class="chat-toolbar__title">
           <span>项目沟通</span>
-          <el-tag :type="settings.enabled ? 'success' : 'info'" effect="plain">
+          <el-tag v-if="!alwaysEnabled" :type="settings.enabled ? 'success' : 'info'" effect="plain">
             {{ settings.enabled ? '已开启' : '未开启' }}
           </el-tag>
         </div>
         <el-switch
-          v-if="settings.canManage"
+          v-if="!alwaysEnabled && settings.canManage"
           v-model="settings.enabled"
           :loading="settingsLoading || toggleLoading"
           inline-prompt
@@ -19,10 +19,10 @@
           @change="handleToggle"
         />
       </div>
-      <div class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
+      <div v-if="!alwaysEnabled" class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
 
       <el-alert
-        v-if="!settings.enabled"
+        v-if="!alwaysEnabled && !settings.enabled"
         type="info"
         :closable="false"
         show-icon
@@ -73,7 +73,8 @@
                 </div>
                 <span>{{ formatDateTime(message.createdAt) }}</span>
               </div>
-              <RichTextContent :document="message.contentJson" :fallback="message.content" />
+              <div v-if="textOnly" class="chat-message-card__content">{{ message.content }}</div>
+              <RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
                   <strong>{{ task.orderNo }}</strong>
@@ -123,12 +124,22 @@
           >
             <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
           </el-select>
+          <el-input
+            v-if="textOnly"
+            v-model="composer.content"
+            type="textarea"
+            :rows="4"
+            maxlength="10000"
+            show-word-limit
+            placeholder="输入项目沟通内容…"
+          />
           <RichTextComposer
+            v-else
             v-model="composer.contentJson"
             placeholder="输入项目沟通内容…"
             @update:plain-text="composer.content = $event"
           />
-          <div class="composer-attachments">
+          <div v-if="!textOnly" class="composer-attachments">
             <el-upload
               :show-file-list="false"
               :http-request="handleAttachmentUpload"
@@ -181,8 +192,11 @@ import RichTextContent from '@/components/RichTextContent.vue'
 
 const props = defineProps({
   projectId: { type: [String, Number], default: '' },
+  projectType: { type: String, default: 'translation' },
   active: { type: Boolean, default: false },
-  drawerMode: { type: Boolean, default: false }
+  drawerMode: { type: Boolean, default: false },
+  textOnly: { type: Boolean, default: false },
+  alwaysEnabled: { type: Boolean, default: false }
 })
 
 const settings = reactive({ enabled: false, canManage: false })
@@ -235,7 +249,7 @@ const ensureAttachmentUrls = async (items) => {
 }
 
 const resetChatState = () => {
-  settings.enabled = false
+  settings.enabled = props.alwaysEnabled
   settings.canManage = false
   messages.value = []
   pagination.page = 1
@@ -256,7 +270,9 @@ const ensureUsersLoaded = async () => {
   if (userOptions.value.length) return
   try {
     const res = await getUsers({ skip: 0, limit: 500 })
-    userOptions.value = Array.isArray(res) ? res : []
+    userOptions.value = Array.isArray(res)
+      ? res.filter(user => user.isActive !== false && user.is_active !== false)
+      : []
   } catch (error) {
     console.error('加载用户失败', error)
   }
@@ -264,6 +280,11 @@ const ensureUsersLoaded = async () => {
 
 const loadSettings = async () => {
   if (!props.projectId) return
+  if (props.alwaysEnabled) {
+    settings.enabled = true
+    settings.canManage = false
+    return
+  }
   settingsLoading.value = true
   try {
     const res = await getProjectChatSettings(props.projectId)
@@ -294,7 +315,7 @@ const loadMessages = async () => {
       date_from: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[0] : undefined,
       date_to: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[1] : undefined
     }
-    const res = await getProjectChatMessages(props.projectId, params)
+    const res = await getProjectChatMessages(props.projectId, params, props.projectType)
     settings.enabled = !!res?.enabled
     if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     messages.value = Array.isArray(res?.items) ? res.items : []
@@ -361,12 +382,18 @@ const handleSend = async () => {
   if (!props.projectId || (!composer.content.trim() && !composer.attachments.length)) return
   sending.value = true
   try {
-    await createProjectChatMessage(props.projectId, {
-      content: composer.content.trim(),
-      contentJson: composer.contentJson,
-      mentionedUserId: composer.mentionedUserId || undefined,
-      attachmentIds: composer.attachments.map(item => item.id)
-    })
+    const payload = props.textOnly
+      ? {
+          content: composer.content.trim(),
+          mentionedUserId: composer.mentionedUserId || undefined
+        }
+      : {
+          content: composer.content.trim(),
+          contentJson: composer.contentJson,
+          mentionedUserId: composer.mentionedUserId || undefined,
+          attachmentIds: composer.attachments.map(item => item.id)
+        }
+    await createProjectChatMessage(props.projectId, payload, props.projectType)
     composer.content = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserId = ''
@@ -409,7 +436,7 @@ const setupPolling = () => {
   }, 15000)
 }
 
-watch(() => props.projectId, async () => {
+watch(() => [props.projectId, props.projectType], async () => {
   resetChatState()
   if (props.projectId) {
     await refreshChat()

@@ -239,6 +239,7 @@ class ProjectManagerHandoverResponse(BaseModel):
     target_manager_id: UUID
     target_manager_name: Optional[str] = None
     handover_mode: Literal['approval', 'admin_direct'] = 'approval'
+    manager_role: Literal['project_manager', 'client_manager'] = 'project_manager'
     reason: Optional[str] = None
     note: Optional[str] = None
     status: str

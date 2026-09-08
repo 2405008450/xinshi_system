@@ -164,7 +164,10 @@ def test_handover_model_supports_admin_direct_mode():
         constraint.name for constraint in ProjectManagerHandoverRequest.__table__.constraints
     }
     assert "ck_pm_handover_request_mode" in constraint_names
+    assert "ck_pm_handover_request_manager_role" in constraint_names
     assert ProjectManagerHandoverRequest.__table__.c.handover_mode.server_default is not None
+    assert ProjectManagerHandoverRequest.__table__.c.manager_role.server_default is not None
+    assert "annotation_project_id" in ProjectManagerHandoverItem.__table__.c
 
 
 class DirectTransferQuery:
@@ -351,6 +354,139 @@ def test_direct_transfer_preview_only_returns_active_annotation_projects(monkeyp
     )
 
     preview = workflow_crud.preview_annotation_manager_direct_transfer(db, source.id)
+
+    assert preview["project_count"] == 1
+    assert preview["status_counts"] == {"project_in_progress": 1}
+    assert [item["project_id"] for item in preview["projects"]] == [active_project.id]
+
+
+def test_admin_direct_client_manager_transfer_preserves_project_manager(monkeypatch):
+    operator = SimpleNamespace(id=uuid4(), username="admin", full_name="管理员")
+    source = SimpleNamespace(id=uuid4(), username="former_sales", full_name="离职客户经理", is_active=False)
+    target = SimpleNamespace(id=uuid4(), username="sales", full_name="接收客户经理", is_active=True)
+    project_manager_id = uuid4()
+    project = SimpleNamespace(
+        id=uuid4(),
+        project_status="project_in_progress",
+        client_manager_id=source.id,
+        workbench_responsibilities=[
+            SimpleNamespace(role_code="project_manager", assignee_id=project_manager_id),
+        ],
+        updated_at=None,
+    )
+    pending = SimpleNamespace(status="pending", decision_note=None, decided_by=None, decided_at=None)
+    pending_query = DirectTransferQuery(all_values=[pending])
+    db = DirectTransferDb([
+        DirectTransferQuery(first_value=source),
+        DirectTransferQuery(first_value=target),
+        pending_query,
+    ])
+    monkeypatch.setattr(
+        workflow_crud,
+        "get_user_roles_with_role_names",
+        lambda _db, user_id: ["超级管理员"] if user_id == operator.id else ["客户专员"],
+    )
+    monkeypatch.setattr(workflow_crud, "ensure_user_assignable", lambda *_args: None)
+    project_query = DirectTransferQuery(all_values=[project])
+    project_lock_args = []
+
+    def fake_project_query(*_args, **kwargs):
+        project_lock_args.append(kwargs.get("lock"))
+        return project_query
+
+    monkeypatch.setattr(
+        workflow_crud,
+        "_annotation_client_manager_project_query",
+        fake_project_query,
+    )
+    notifications = []
+
+    def fake_notifications(_db, recipient_user_ids, **_kwargs):
+        created = [SimpleNamespace(recipient_user_id=user_id) for user_id in recipient_user_ids]
+        notifications.extend(created)
+        return created
+
+    monkeypatch.setattr(workflow_crud, "create_notifications_for_users", fake_notifications)
+    monkeypatch.setattr(workflow_crud, "_push_notifications", lambda *_args: None)
+
+    request = workflow_crud.direct_transfer_annotation_client_manager(
+        db,
+        operator,
+        source.id,
+        target.id,
+        [project.id, project.id],
+        "客户经理离职",
+    )
+
+    assert project_lock_args == [True]
+    assert pending_query.locked is True
+    assert project.client_manager_id == target.id
+    assert project.workbench_responsibilities[0].assignee_id == project_manager_id
+    assert request.handover_mode == "admin_direct"
+    assert request.manager_role == "client_manager"
+    assert request.items[0].annotation_project_id == project.id
+    assert request.items[0].project_responsibility_id is None
+    assert request.items[0].expected_manager_id == source.id
+    assert pending.status == "rejected"
+    assert notifications == [SimpleNamespace(recipient_user_id=target.id)]
+    assert db.committed is True
+
+
+def test_admin_direct_client_manager_transfer_rejects_concurrent_change(monkeypatch):
+    operator = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4(), username="former_sales", full_name=None, is_active=False)
+    target = SimpleNamespace(id=uuid4(), username="sales", full_name=None, is_active=True)
+    db = DirectTransferDb([
+        DirectTransferQuery(first_value=source),
+        DirectTransferQuery(first_value=target),
+    ])
+    monkeypatch.setattr(
+        workflow_crud,
+        "get_user_roles_with_role_names",
+        lambda _db, user_id: ["超级管理员"] if user_id == operator.id else ["客户专员"],
+    )
+    monkeypatch.setattr(workflow_crud, "ensure_user_assignable", lambda *_args: None)
+    monkeypatch.setattr(
+        workflow_crud,
+        "_annotation_client_manager_project_query",
+        lambda *_args, **_kwargs: DirectTransferQuery(all_values=[]),
+    )
+
+    with pytest.raises(LookupError, match="客户经理归属已变化"):
+        workflow_crud.direct_transfer_annotation_client_manager(
+            db,
+            operator,
+            source.id,
+            target.id,
+            [uuid4()],
+            "离职交接",
+        )
+
+    assert db.committed is False
+
+
+def test_client_manager_transfer_preview_only_returns_active_projects(monkeypatch):
+    source = SimpleNamespace(id=uuid4(), username="former_sales", full_name="离职客户经理", is_active=False)
+    active_project = SimpleNamespace(
+        id=uuid4(), order_no="AP-260908-011", project_name="活跃项目",
+        project_status="project_in_progress", client_manager_id=source.id,
+        client_manager=source, client_short_name="客户甲", language_items_display="中文",
+        task_submitted_at=None,
+    )
+    ended_project = SimpleNamespace(
+        id=uuid4(), order_no="AP-260908-012", project_name="已结束项目",
+        project_status="sent_to_client", client_manager_id=source.id,
+        client_manager=source, client_short_name="客户乙", language_items_display="英文",
+        task_submitted_at=None,
+    )
+    db = DirectTransferDb([DirectTransferQuery(first_value=source)])
+    monkeypatch.setattr(
+        workflow_crud,
+        "_annotation_client_manager_project_query",
+        lambda *_args, **_kwargs: DirectTransferQuery(all_values=[active_project, ended_project]),
+    )
+
+    preview = workflow_crud.preview_annotation_client_manager_direct_transfer(db, source.id)
 
     assert preview["project_count"] == 1
     assert preview["status_counts"] == {"project_in_progress": 1}

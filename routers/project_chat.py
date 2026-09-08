@@ -10,10 +10,19 @@ from sqlalchemy.orm import Session
 
 from crud import get_translation_project, get_user_roles_with_role_names
 from database import get_db
+from annotation_models import AnnotationProject
 from models import AppUser, ChatProjectAttachment
-from project_chat_crud import create_project_chat_message, get_project_chat_settings, list_project_chat_messages, set_project_chat_settings
+from project_chat_crud import (
+    create_annotation_project_chat_message,
+    create_project_chat_message,
+    get_project_chat_settings,
+    list_annotation_project_chat_messages,
+    list_project_chat_messages,
+    set_project_chat_settings,
+)
 from routers.auth import get_current_user, require_module_access
 from schemas import (
+    AnnotationProjectChatMessageCreate,
     ProjectChatMessageCreate,
     ProjectChatMessageQueryResponse,
     ProjectChatMessageResponse,
@@ -60,8 +69,9 @@ def _serialize_settings(project_id: UUID, settings, can_manage: bool) -> Project
 
 
 
-def _serialize_message(message) -> ProjectChatMessageResponse:
+def _serialize_message(message, project_type: str = 'translation') -> ProjectChatMessageResponse:
     mention = message.mentions[0] if getattr(message, 'mentions', None) else None
+    attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
     attachments = [
         ProjectChatAttachmentResponse(
             id=link.attachment.id,
@@ -70,12 +80,13 @@ def _serialize_message(message) -> ProjectChatMessageResponse:
             file_size=link.attachment.file_size,
             created_at=link.attachment.created_at,
         )
-        for link in (getattr(message, 'attachment_links', None) or [])
+        for link in attachment_links
         if link.attachment
     ]
     return ProjectChatMessageResponse(
         id=message.id,
-        project_id=message.project_id,
+        project_id=message.annotation_project_id if project_type == 'annotation' else message.project_id,
+        project_type=project_type,
         sender_user_id=message.sender_user_id,
         sender_name=message.sender_name,
         content=message.content,
@@ -98,10 +109,70 @@ def _require_project(db: Session, project_id: UUID):
     return project
 
 
+def _require_annotation_project(db: Session, project_id: UUID):
+    project = db.get(AnnotationProject, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='标注项目不存在')
+    return project
+
+
 
 def _can_manage_chat(db: Session, user_id: UUID) -> bool:
     roles = set(get_user_roles_with_role_names(db, user_id))
     return not MANAGE_ROLES.isdisjoint(roles)
+
+
+@router.get('/annotation/{project_id}/messages', response_model=ProjectChatMessageQueryResponse)
+def list_annotation_messages_endpoint(
+    project_id: UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    keyword: str | None = None,
+    sender_user_id: UUID | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    _require_annotation_project(db, project_id)
+    items, total = list_annotation_project_chat_messages(
+        db,
+        annotation_project_id=project_id,
+        skip=skip,
+        limit=limit,
+        keyword=keyword,
+        sender_user_id=sender_user_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return ProjectChatMessageQueryResponse(
+        items=[_serialize_message(item, 'annotation') for item in items],
+        total=total,
+        enabled=True,
+        can_manage=False,
+    )
+
+
+@router.post('/annotation/{project_id}/messages', response_model=ProjectChatMessageResponse, status_code=status.HTTP_201_CREATED)
+def create_annotation_message_endpoint(
+    project_id: UUID,
+    payload: AnnotationProjectChatMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    _require_annotation_project(db, project_id)
+    try:
+        message = create_annotation_project_chat_message(
+            db,
+            annotation_project_id=project_id,
+            sender=current_user,
+            content=payload.content,
+            mentioned_user_id=payload.mentioned_user_id,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _serialize_message(message, 'annotation')
 
 
 @router.post('/attachments', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)

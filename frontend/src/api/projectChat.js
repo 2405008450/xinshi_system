@@ -29,12 +29,18 @@ export const updateProjectChatSettings = (projectId, data) => {
   return api.post(`/project-chat/${projectId}/settings`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
 
-export const getProjectChatMessages = (projectId, params = {}) => {
-  return api.get(`/project-chat/${projectId}/messages`, { params }).then(res => convertKeys(res, toCamelCase))
+const messageBasePath = (projectId, projectType = 'translation') => (
+  projectType === 'annotation'
+    ? `/project-chat/annotation/${projectId}`
+    : `/project-chat/${projectId}`
+)
+
+export const getProjectChatMessages = (projectId, params = {}, projectType = 'translation') => {
+  return api.get(`${messageBasePath(projectId, projectType)}/messages`, { params }).then(res => convertKeys(res, toCamelCase))
 }
 
-export const createProjectChatMessage = (projectId, data) => {
-  return api.post(`/project-chat/${projectId}/messages`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+export const createProjectChatMessage = (projectId, data, projectType = 'translation') => {
+  return api.post(`${messageBasePath(projectId, projectType)}/messages`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
 
 export const uploadProjectChatAttachment = (file) => {

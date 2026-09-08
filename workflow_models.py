@@ -306,6 +306,10 @@ class ProjectManagerHandoverRequest(Base):
             "handover_mode IN ('approval', 'admin_direct')",
             name='ck_pm_handover_request_mode',
         ),
+        CheckConstraint(
+            "manager_role IN ('project_manager', 'client_manager')",
+            name='ck_pm_handover_request_manager_role',
+        ),
         PrimaryKeyConstraint('id', name='project_manager_handover_request_pkey'),
         Index('ix_pm_handover_target_status', 'target_manager_id', 'status'),
     )
@@ -315,6 +319,9 @@ class ProjectManagerHandoverRequest(Base):
     target_manager_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     handover_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'approval'")
+    )
+    manager_role: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'project_manager'")
     )
     reason: Mapped[Optional[str]] = mapped_column(String(500))
     note: Mapped[Optional[str]] = mapped_column(Text)
@@ -340,13 +347,16 @@ class ProjectManagerHandoverItem(Base):
         ForeignKeyConstraint(['request_id'], ['project_manager_handover_request.id'], ondelete='CASCADE', name='fk_pm_handover_item_request'),
         ForeignKeyConstraint(['translation_project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_pm_handover_item_project'),
         ForeignKeyConstraint(['project_responsibility_id'], ['project_workbench_responsibility.id'], ondelete='CASCADE', name='fk_pm_handover_item_responsibility'),
+        ForeignKeyConstraint(['annotation_project_id'], ['annotation_project.id'], ondelete='CASCADE', name='fk_pm_handover_item_annotation_project'),
         ForeignKeyConstraint(['expected_manager_id'], ['app_user.id'], ondelete='SET NULL', name='fk_pm_handover_item_expected'),
         PrimaryKeyConstraint('id', name='project_manager_handover_item_pkey'),
         UniqueConstraint('request_id', 'translation_project_id', name='uq_pm_handover_item'),
         UniqueConstraint('request_id', 'project_responsibility_id', name='uq_pm_handover_item_responsibility'),
+        UniqueConstraint('request_id', 'annotation_project_id', name='uq_pm_handover_item_annotation_project'),
         CheckConstraint(
-            '(translation_project_id IS NOT NULL AND project_responsibility_id IS NULL) OR '
-            '(translation_project_id IS NULL AND project_responsibility_id IS NOT NULL)',
+            '(CASE WHEN translation_project_id IS NOT NULL THEN 1 ELSE 0 END + '
+            'CASE WHEN project_responsibility_id IS NOT NULL THEN 1 ELSE 0 END + '
+            'CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END) = 1',
             name='ck_pm_handover_item_exactly_one_source',
         ),
     )
@@ -355,6 +365,7 @@ class ProjectManagerHandoverItem(Base):
     request_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     translation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     project_responsibility_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     expected_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     request: Mapped['ProjectManagerHandoverRequest'] = relationship(
@@ -363,4 +374,5 @@ class ProjectManagerHandoverItem(Base):
     )
     project = relationship('TranslationProject')
     project_responsibility: Mapped[Optional['ProjectWorkbenchResponsibility']] = relationship('ProjectWorkbenchResponsibility')
+    annotation_project = relationship('AnnotationProject')
     expected_manager = relationship('AppUser', foreign_keys=[expected_manager_id])

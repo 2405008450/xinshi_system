@@ -1363,6 +1363,14 @@ class ProjectChatMessageCreate(BaseModel):
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
 
 
+class AnnotationProjectChatMessageCreate(BaseModel):
+    """标注项目首版只接收纯文本，为以后扩展附件保留独立接口边界。"""
+
+    content: str = Field(min_length=1, max_length=10000)
+    mentioned_user_id: Optional[UUID] = None
+    model_config = ConfigDict(extra='forbid')
+
+
 class ProjectChatAttachmentResponse(BaseModel):
     id: UUID
     original_name: str
@@ -1374,6 +1382,7 @@ class ProjectChatAttachmentResponse(BaseModel):
 class ProjectChatMessageResponse(BaseModel):
     id: UUID
     project_id: UUID
+    project_type: str = 'translation'
     sender_user_id: Optional[UUID] = None
     sender_name: str
     content: str

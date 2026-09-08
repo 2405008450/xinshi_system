@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="项目经理离职交接"
+    :title="dialogTitle"
     width="min(960px, calc(100vw - 32px))"
     top="5vh"
     append-to-body
@@ -12,7 +12,7 @@
     @open="loadOptions"
   >
     <el-alert
-      title="该操作由超级管理员直接生效，无需接收人确认；只会变更项目经理，不会修改客户、客户经理及其他项目角色。"
+      :title="alertTitle"
       type="warning"
       :closable="false"
       show-icon
@@ -22,16 +22,23 @@
       ref="formRef"
       :model="form"
       :rules="rules"
+      :validate-on-rule-change="false"
       label-width="105px"
       class="manager-transfer-form"
     >
+      <el-form-item label="交接类型">
+        <el-radio-group v-model="selectedManagerType" :disabled="submitting" @change="handleManagerTypeChange">
+          <el-radio-button label="project_manager">项目经理</el-radio-button>
+          <el-radio-button label="client_manager">客户经理</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12">
-          <el-form-item label="原项目经理" prop="sourceManagerId">
+          <el-form-item :label="sourceLabel" prop="sourceManagerId">
             <el-select
               v-model="form.sourceManagerId"
               filterable
-              placeholder="请选择原项目经理"
+              :placeholder="`请选择${sourceLabel}`"
               style="width: 100%"
               :loading="optionsLoading"
               @change="handleSourceChange"
@@ -46,11 +53,11 @@
           </el-form-item>
         </el-col>
         <el-col :xs="24" :md="12">
-          <el-form-item label="新项目经理" prop="targetManagerId">
+          <el-form-item :label="targetLabel" prop="targetManagerId">
             <el-select
               v-model="form.targetManagerId"
               filterable
-              placeholder="请选择新项目经理"
+              :placeholder="`请选择${targetLabel}`"
               style="width: 100%"
               :loading="optionsLoading"
             >
@@ -111,7 +118,7 @@
         @selection-change="selectedProjects = $event"
       >
         <template #empty>
-          <span>{{ form.sourceManagerId ? '该经理暂无可交接的活跃标注项目' : '请先选择原项目经理' }}</span>
+          <span>{{ form.sourceManagerId ? `该${managerLabel}暂无可交接的活跃标注项目` : `请先选择${sourceLabel}` }}</span>
         </template>
         <el-table-column type="selection" width="48" />
         <el-table-column type="index" label="序号" width="60" align="center" />
@@ -143,8 +150,11 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  directTransferAnnotationClientManagerAPI,
   directTransferAnnotationManagerAPI,
+  getAnnotationClientManagerTransferOptionsAPI,
   getAnnotationManagerTransferOptionsAPI,
+  previewAnnotationClientManagerTransferAPI,
   previewAnnotationManagerTransferAPI,
 } from '@/api/workflow'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -165,18 +175,28 @@ const targetManagers = ref([])
 const previewProjects = ref([])
 const selectedProjects = ref([])
 const statusCounts = ref({})
+const selectedManagerType = ref('project_manager')
+let optionsRequestId = 0
 let previewRequestId = 0
 const form = reactive({ sourceManagerId: '', targetManagerId: '', reason: '' })
-const rules = {
-  sourceManagerId: [{ required: true, message: '请选择原项目经理', trigger: 'change' }],
-  targetManagerId: [{ required: true, message: '请选择新项目经理', trigger: 'change' }],
+const isClientManagerTransfer = computed(() => selectedManagerType.value === 'client_manager')
+const managerLabel = computed(() => isClientManagerTransfer.value ? '客户经理' : '项目经理')
+const sourceLabel = computed(() => `原${managerLabel.value}`)
+const targetLabel = computed(() => `新${managerLabel.value}`)
+const dialogTitle = computed(() => `${managerLabel.value}离职交接`)
+const alertTitle = computed(() => (
+  `该操作由超级管理员直接生效，无需接收人确认；只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
+))
+const rules = computed(() => ({
+  sourceManagerId: [{ required: true, message: `请选择${sourceLabel.value}`, trigger: 'change' }],
+  targetManagerId: [{ required: true, message: `请选择${targetLabel.value}`, trigger: 'change' }],
   reason: [{
     validator: (_rule, value, callback) => String(value || '').trim()
       ? callback()
       : callback(new Error('请填写交接原因')),
     trigger: ['blur', 'change'],
   }],
-}
+}))
 
 const availableTargetManagers = computed(() => (
   targetManagers.value.filter(manager => String(manager.id) !== String(form.sourceManagerId))
@@ -190,16 +210,38 @@ const targetManagerLabel = manager => manager.is_on_leave
   : managerName(manager)
 
 async function loadOptions() {
+  const currentRequestId = ++optionsRequestId
+  const managerType = selectedManagerType.value
   optionsLoading.value = true
   try {
-    const response = await getAnnotationManagerTransferOptionsAPI()
+    const response = await (
+      managerType === 'client_manager'
+        ? getAnnotationClientManagerTransferOptionsAPI()
+        : getAnnotationManagerTransferOptionsAPI()
+    )
+    if (currentRequestId !== optionsRequestId || managerType !== selectedManagerType.value) return
     sourceManagers.value = Array.isArray(response?.source_managers) ? response.source_managers : []
     targetManagers.value = Array.isArray(response?.target_managers) ? response.target_managers : []
   } catch (error) {
+    if (currentRequestId !== optionsRequestId) return
     ElMessage.error(getLocalizedErrorMessage(error, '加载交接人员失败'))
   } finally {
-    optionsLoading.value = false
+    if (currentRequestId === optionsRequestId) optionsLoading.value = false
   }
+}
+
+async function handleManagerTypeChange() {
+  previewRequestId += 1
+  Object.assign(form, { sourceManagerId: '', targetManagerId: '', reason: '' })
+  sourceManagers.value = []
+  targetManagers.value = []
+  previewProjects.value = []
+  selectedProjects.value = []
+  statusCounts.value = {}
+  previewLoading.value = false
+  await nextTick()
+  formRef.value?.clearValidate()
+  loadOptions()
 }
 
 async function handleSourceChange() {
@@ -212,7 +254,11 @@ async function handleSourceChange() {
   if (!sourceManagerId) return
   previewLoading.value = true
   try {
-    const response = await previewAnnotationManagerTransferAPI(sourceManagerId)
+    const response = await (
+      isClientManagerTransfer.value
+        ? previewAnnotationClientManagerTransferAPI(sourceManagerId)
+        : previewAnnotationManagerTransferAPI(sourceManagerId)
+    )
     if (currentRequestId !== previewRequestId || String(form.sourceManagerId) !== String(sourceManagerId)) return
     previewProjects.value = Array.isArray(response?.projects) ? response.projects : []
     statusCounts.value = response?.status_counts || {}
@@ -237,7 +283,7 @@ async function submitTransfer() {
   if (!valid) return
   try {
     const { value } = await ElMessageBox.prompt(
-      `将立即把所选 ${selectedProjects.value.length} 个项目改绑给新项目经理，且无需对方确认。请输入“交接”继续。`,
+      `将立即把所选 ${selectedProjects.value.length} 个项目改绑给${targetLabel.value}，且无需对方确认。请输入“交接”继续。`,
       '确认离职交接',
       {
         type: 'warning',
@@ -249,18 +295,21 @@ async function submitTransfer() {
     )
     if (String(value || '').trim() !== '交接') return
     submitting.value = true
-    await directTransferAnnotationManagerAPI({
+    const transferAPI = isClientManagerTransfer.value
+      ? directTransferAnnotationClientManagerAPI
+      : directTransferAnnotationManagerAPI
+    await transferAPI({
       source_manager_id: form.sourceManagerId,
       target_manager_id: form.targetManagerId,
       project_ids: selectedProjects.value.map(item => item.project_id),
       reason: form.reason.trim(),
     })
-    ElMessage.success(`已完成 ${selectedProjects.value.length} 个标注项目的项目经理移交`)
+    ElMessage.success(`已完成 ${selectedProjects.value.length} 个标注项目的${managerLabel.value}移交`)
     emit('update:modelValue', false)
     emit('transferred')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(getLocalizedErrorMessage(error, '项目经理移交失败'))
+      ElMessage.error(getLocalizedErrorMessage(error, `${managerLabel.value}移交失败`))
     }
   } finally {
     submitting.value = false
@@ -268,11 +317,17 @@ async function submitTransfer() {
 }
 
 function resetDialog() {
+  optionsRequestId += 1
   previewRequestId += 1
+  selectedManagerType.value = 'project_manager'
   Object.assign(form, { sourceManagerId: '', targetManagerId: '', reason: '' })
+  sourceManagers.value = []
+  targetManagers.value = []
   previewProjects.value = []
   selectedProjects.value = []
   statusCounts.value = {}
+  optionsLoading.value = false
+  previewLoading.value = false
   formRef.value?.clearValidate()
 }
 </script>

@@ -165,6 +165,11 @@ class AnnotationProject(Base):
         back_populates="annotation_project",
         cascade="all, delete-orphan",
     )
+    chat_messages = relationship(
+        "ChatProjectMessage",
+        back_populates="annotation_project",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def role_assignments(self) -> list[dict]:

@@ -17,6 +17,8 @@ from workflow_crud import (
     get_my_tasks,
     get_project_manager_candidates,
     get_annotation_manager_transfer_sources,
+    get_annotation_client_manager_transfer_sources,
+    get_client_manager_candidates,
     get_project_editor_candidates,
     get_project_role_candidates,
     claim_management_projects,
@@ -29,7 +31,9 @@ from workflow_crud import (
     create_project_manager_handover,
     create_project_manager_handover_unified,
     direct_transfer_annotation_manager,
+    direct_transfer_annotation_client_manager,
     preview_annotation_manager_direct_transfer,
+    preview_annotation_client_manager_direct_transfer,
     decide_handover_request,
     decide_project_manager_handover,
     list_incoming_handover_requests,
@@ -256,6 +260,66 @@ def direct_transfer_annotation_manager_endpoint(
 ):
     try:
         request = direct_transfer_annotation_manager(
+            db,
+            current_user,
+            payload.source_manager_id,
+            payload.target_manager_id,
+            payload.project_ids,
+            payload.reason,
+        )
+        return serialize_project_manager_handover(request)
+    except PermissionError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.get(
+    "/client-manager-handover/direct/options",
+    response_model=AnnotationManagerTransferOptionsResponse,
+)
+def get_annotation_client_manager_transfer_options_endpoint(
+    db: Session = Depends(get_db),
+    _current_user: AppUser = Depends(require_super_admin),
+):
+    """返回原客户经理及可承接客户经理职责的启用客户专员。"""
+    return AnnotationManagerTransferOptionsResponse(
+        source_managers=get_annotation_client_manager_transfer_sources(db),
+        target_managers=_serialize_transfer_users(db, get_client_manager_candidates(db)),
+    )
+
+
+@router.post(
+    "/client-manager-handover/direct/preview",
+    response_model=AnnotationManagerTransferPreviewResponse,
+)
+def preview_annotation_client_manager_transfer_endpoint(
+    payload: AnnotationManagerTransferPreviewRequest,
+    db: Session = Depends(get_db),
+    _current_user: AppUser = Depends(require_super_admin),
+):
+    try:
+        return preview_annotation_client_manager_direct_transfer(db, payload.source_manager_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/client-manager-handover/direct",
+    response_model=ProjectManagerHandoverResponse,
+)
+def direct_transfer_annotation_client_manager_endpoint(
+    payload: AnnotationManagerDirectTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(require_super_admin),
+):
+    try:
+        request = direct_transfer_annotation_client_manager(
             db,
             current_user,
             payload.source_manager_id,

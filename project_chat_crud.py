@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, selectinload
 
 from crud import create_notifications_for_users, get_users_by_role_names
+from annotation_models import AnnotationProject
 from models import (
     AppUser,
     ChatProjectAttachment,
@@ -86,6 +87,8 @@ def _serialize_notification(notification) -> dict:
         'notification_type': notification.notification_type,
         'is_read': notification.is_read,
         'related_project_id': str(notification.related_project_id) if notification.related_project_id else None,
+        'related_project_type': notification.related_project_type,
+        'related_entity_id': str(notification.related_entity_id) if notification.related_entity_id else None,
         'created_at': notification.created_at.isoformat() if notification.created_at else None,
     }
 
@@ -176,6 +179,63 @@ def list_project_chat_messages(
         .all()
     )
     return items, total
+
+
+def list_annotation_project_chat_messages(
+    db: Session,
+    annotation_project_id: UUID,
+    skip: int = 0,
+    limit: int = 20,
+    keyword: Optional[str] = None,
+    sender_user_id: Optional[UUID] = None,
+    date_from: Optional[dt.datetime] = None,
+    date_to: Optional[dt.datetime] = None,
+) -> tuple[list[ChatProjectMessage], int]:
+    query = (
+        db.query(ChatProjectMessage)
+        .options(selectinload(ChatProjectMessage.mentions))
+        .filter(ChatProjectMessage.annotation_project_id == annotation_project_id)
+    )
+    if keyword:
+        query = query.filter(ChatProjectMessage.content.ilike(f'%{keyword.strip()}%'))
+    if sender_user_id:
+        query = query.filter(ChatProjectMessage.sender_user_id == sender_user_id)
+    if date_from:
+        query = query.filter(ChatProjectMessage.created_at >= date_from)
+    if date_to:
+        query = query.filter(ChatProjectMessage.created_at <= date_to)
+
+    total = query.count()
+    items = (
+        query.order_by(ChatProjectMessage.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return items, total
+
+
+def _create_chat_mention(
+    db: Session,
+    message: ChatProjectMessage,
+    sender: AppUser,
+    mentioned_user_id: Optional[UUID],
+) -> Optional[AppUser]:
+    if not mentioned_user_id or mentioned_user_id == sender.id:
+        return None
+    mention_user = (
+        db.query(AppUser)
+        .filter(AppUser.id == mentioned_user_id, AppUser.is_active == True)
+        .first()
+    )
+    if mention_user is None:
+        raise ValueError('被提及的用户不存在')
+    db.add(ChatProjectMention(
+        message_id=message.id,
+        mentioned_user_id=mention_user.id,
+        mentioned_user_name=(mention_user.full_name or mention_user.username),
+    ))
+    return mention_user
 
 
 
@@ -284,20 +344,12 @@ def create_project_chat_message(
             for attachment in attachments
         )
 
-    mention_user = None
-    if message_type == 'user' and mentioned_user_id and mentioned_user_id != sender.id:
-        mention_user = (
-            db.query(AppUser)
-            .filter(AppUser.id == mentioned_user_id, AppUser.is_active == True)
-            .first()
-        )
-        if mention_user is None:
-            raise ValueError('被提及的用户不存在')
-        db.add(ChatProjectMention(
-            message_id=message.id,
-            mentioned_user_id=mention_user.id,
-            mentioned_user_name=(mention_user.full_name or mention_user.username),
-        ))
+    mention_user = _create_chat_mention(
+        db,
+        message,
+        sender,
+        mentioned_user_id if message_type == 'user' else None,
+    )
 
     if commit:
         db.commit()
@@ -353,6 +405,64 @@ def create_project_chat_message(
             commit=True,
         ))
     if notifications:
+        _push_notifications(notifications)
+
+    return created
+
+
+def create_annotation_project_chat_message(
+    db: Session,
+    annotation_project_id: UUID,
+    sender: AppUser,
+    content: str,
+    mentioned_user_id: Optional[UUID] = None,
+) -> ChatProjectMessage:
+    """保存标注项目纯文本留言；首版只有明确被提及的用户会收到提醒。"""
+    project = db.get(AnnotationProject, annotation_project_id)
+    if project is None:
+        raise ValueError('标注项目不存在')
+
+    plain_content = (content or '').strip()
+    if not plain_content:
+        raise ValueError('消息内容不能为空')
+
+    message = ChatProjectMessage(
+        annotation_project_id=annotation_project_id,
+        sender_user_id=sender.id,
+        sender_name=(sender.full_name or sender.username),
+        content=plain_content,
+        content_json=None,
+        message_type='user',
+        event_data={},
+    )
+    db.add(message)
+    db.flush()
+    mention_user = _create_chat_mention(db, message, sender, mentioned_user_id)
+    db.commit()
+
+    created = (
+        db.query(ChatProjectMessage)
+        .options(selectinload(ChatProjectMessage.mentions))
+        .filter(ChatProjectMessage.id == message.id)
+        .first()
+    )
+    if created is None:
+        raise ValueError('消息已创建，但读取消息失败')
+
+    if mention_user is not None:
+        preview = created.content.replace('\r', ' ').replace('\n', ' ').strip()
+        if len(preview) > 60:
+            preview = preview[:57] + '...'
+        notifications = create_notifications_for_users(
+            db,
+            recipient_user_ids=[mention_user.id],
+            title='标注项目沟通提醒',
+            content=f'{created.sender_name} 在标注项目 {project.order_no} / {project.project_name or "-"} 中 @了你：{preview}',
+            notification_type='annotation_project_chat_mention',
+            related_project_type='annotation',
+            related_entity_id=project.id,
+            commit=True,
+        )
         _push_notifications(notifications)
 
     return created

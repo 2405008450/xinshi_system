@@ -8,7 +8,7 @@ import re
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 ALLOWED_NODE_TYPES = {
@@ -72,11 +72,21 @@ class AnnotationNoticeSectionResponse(BaseModel):
     id: UUID
     section_key: str
     title: str
+    display_title: str
+    parent_id: Optional[UUID] = None
     sort_order: int
+    has_content: bool = True
+    is_active: bool = True
     content_json: Optional[dict] = None
     updated_by: Optional[UUID] = None
     updated_by_name: Optional[str] = None
     updated_at: Optional[datetime] = None
+    structure_updated_at: Optional[datetime] = None
+
+
+class AnnotationNoticeTreeNodeResponse(AnnotationNoticeSectionResponse):
+    content_json: None = None
+    children: list["AnnotationNoticeTreeNodeResponse"] = Field(default_factory=list)
 
 
 class AnnotationNoticeSectionUpdate(BaseModel):
@@ -87,3 +97,65 @@ class AnnotationNoticeSectionUpdate(BaseModel):
     @classmethod
     def validate_content(cls, value: dict) -> dict:
         return validate_tiptap_document(value)
+
+
+class AnnotationNoticeSectionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    parent_id: Optional[UUID] = None
+    has_content: bool = True
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("栏目名称不能为空")
+        return normalized
+
+
+class AnnotationNoticeSectionEdit(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    has_content: bool
+    expected_structure_updated_at: Optional[datetime] = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("栏目名称不能为空")
+        return normalized
+
+
+class AnnotationNoticePlacement(BaseModel):
+    id: UUID
+    parent_id: Optional[UUID] = None
+    sort_order: int = Field(ge=1)
+    expected_structure_updated_at: Optional[datetime] = None
+
+
+class AnnotationNoticeReorder(BaseModel):
+    placements: list[AnnotationNoticePlacement] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_ids(self):
+        ids = [item.id for item in self.placements]
+        if len(ids) != len(set(ids)):
+            raise ValueError("栏目排序中存在重复记录")
+        return self
+
+
+class AnnotationNoticeSearchItemResponse(BaseModel):
+    id: UUID
+    section_key: str
+    display_title: str
+    parent_title: Optional[str] = None
+    breadcrumb: str
+    snippet: str
+    matched_title: bool
+    matched_content: bool
+
+
+class AnnotationNoticeSearchResponse(BaseModel):
+    items: list[AnnotationNoticeSearchItemResponse]
+    total: int = Field(ge=0)
