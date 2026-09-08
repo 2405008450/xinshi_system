@@ -16,6 +16,7 @@ test('标注项目进度弹窗提供纯文本项目沟通页签', () => {
 })
 
 test('纯文本模式不提交富文本或附件字段', () => {
+  assert.doesNotMatch(chatPanel, /^\s{6}<template>\s*$/m)
   assert.match(chatPanel, /props\.textOnly\s*\?\s*\{\s*content:/s)
   assert.match(chatPanel, /v-if="textOnly"[\s\S]*type="textarea"/)
   assert.match(chatPanel, /v-if="!textOnly" class="composer-attachments"/)

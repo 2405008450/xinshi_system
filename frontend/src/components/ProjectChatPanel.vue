@@ -29,8 +29,7 @@
         :title="settings.canManage ? '当前项目沟通未开启，可在右上角打开。' : '当前项目沟通未开启。'"
       />
 
-      <template>
-        <AppForm :inline="true" :model="filters" size="small" class="chat-filter-bar">
+      <AppForm :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词">
             <el-input v-model="filters.keyword" clearable placeholder="搜消息内容" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -168,7 +167,6 @@
             </el-button>
           </div>
         </div>
-      </template>
     </template>
   </div>
 </template>
