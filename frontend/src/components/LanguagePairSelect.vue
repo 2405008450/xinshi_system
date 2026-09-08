@@ -1,7 +1,7 @@
 <template>
   <div class="language-pair-select">
     <div class="language-pair-select__row">
-      <el-select
+      <el-select-v2
         v-model="selectedPairs"
         multiple
         filterable
@@ -10,23 +10,22 @@
         collapse-tags-tooltip
         :max-collapse-tags="2"
         :placeholder="placeholder"
+        :options="filteredLanguagePairOptions"
         :filter-method="filterLanguagePairs"
         :loading="loading"
         :disabled="loading || loadingFailed"
+        :item-height="40"
         style="width: 100%"
         @visible-change="handleVisibleChange"
       >
-        <el-option
-          v-for="item in filteredLanguagePairOptions"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
-        >
-          <span>{{ item.label }}</span>
-          <span v-if="item.shortLabel" class="language-pair-shortcut">{{ item.shortLabel }}</span>
-          <el-tag v-if="item.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag>
-        </el-option>
-      </el-select>
+        <template #default="{ item }">
+          <div class="language-pair-option">
+            <span class="language-pair-option__label">{{ item.label }}</span>
+            <span v-if="item.shortLabel" class="language-pair-shortcut">{{ item.shortLabel }}</span>
+            <el-tag v-if="item.isCustom" size="small" type="warning" class="new-language-tag">新</el-tag>
+          </div>
+        </template>
+      </el-select-v2>
       <el-popover
         v-model:visible="createVisible"
         trigger="click"
@@ -316,8 +315,10 @@ onMounted(loadLanguages)
 .language-pair-select__row { width: 100%; }
 .language-pair-select__row { display: flex; gap: 8px; align-items: flex-start; }
 .language-pair-select__hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
-.language-pair-shortcut { float: right; margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
-.new-language-tag { float: right; margin-left: 8px; }
+.language-pair-option { display: flex; align-items: center; width: 100%; min-width: 0; }
+.language-pair-option__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.language-pair-shortcut { flex: none; margin-left: auto; padding-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
+.new-language-tag { flex: none; margin-left: 8px; }
 .create-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .direction-create-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 10px; }
 .direction-create-fields :deep(.el-form-item) { margin-bottom: 16px; }

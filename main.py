@@ -43,7 +43,7 @@ from models import (
 from concurrency import StaleUpdateError
 from error_localization import localize_http_detail, localize_validation_errors
 from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
-from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_notices, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
+from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_comparisons, annotation_notices, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
@@ -128,6 +128,10 @@ from resource_request_models import (
     ResourceRequestItem,
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
+)
+from annotation_comparison_models import (
+    AnnotationProjectComparisonGroup,
+    AnnotationProjectComparisonMember,
 )
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
@@ -230,6 +234,7 @@ app.include_router(roles.router)
 app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)
 app.include_router(annotation_projects.router)
+app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
@@ -1426,6 +1431,8 @@ def run_runtime_migrations():
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectPriceItem.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectAssignee.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectComparisonGroup.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectComparisonMember.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_assignee_columns()
     AnnotationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_status_history_constraints()
