@@ -370,7 +370,7 @@
       @current-change="applyPagination"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="exportDialogVisible"
       title="导出笔译项目"
       width="min(520px, calc(100vw - 32px))"
@@ -421,7 +421,7 @@
         <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="exporting" @click="handleExport">导出</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <DraggableFormDialog
       v-model="dialogVisible"

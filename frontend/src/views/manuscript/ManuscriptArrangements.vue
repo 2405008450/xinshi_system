@@ -1332,7 +1332,7 @@
       </template>
     </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="mailSendPreviewDialogVisible"
       :title="mailSendPreviewMode === 'batch' ? '批量发送邮件预览' : '发送邮件预览'"
       width="min(820px, calc(100vw - 32px))"
@@ -1455,7 +1455,7 @@
           {{ mailSendPreviewMode === 'batch' ? '确认批量发送' : '确认发送' }}
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
       <AppForm :model="settlementForm" label-width="155px">
@@ -1509,7 +1509,7 @@
       </template>
     </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="quickTranslatorDialogVisible"
       title="快捷添加译员"
       width="min(640px, calc(100vw - 32px))"
@@ -1586,7 +1586,7 @@
           保存并选择
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
   </div>
 </template>

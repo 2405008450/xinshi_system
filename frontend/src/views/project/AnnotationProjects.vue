@@ -26,49 +26,6 @@
               @keyup.enter="handleSearch"
             />
           </el-form-item>
-          <el-form-item label="项目进度" class="project-list-status-filter">
-            <el-popover
-              v-model:visible="statusFilterVisible"
-              trigger="click"
-              placement="bottom-start"
-              :width="300"
-              popper-class="annotation-status-filter-popover"
-              @before-enter="prepareStatusFilter"
-            >
-              <template #reference>
-                <el-button
-                  class="status-filter-trigger"
-                  :class="{ 'is-active': selectedStatusCount > 0 }"
-                  :aria-label="selectedStatusCount ? `项目进度，已选 ${selectedStatusCount} 项` : '项目进度，全部'"
-                >
-                  <span class="status-filter-trigger__text">{{ statusFilterSummary }}</span>
-                  <span v-if="selectedStatusCount" class="status-filter-trigger__count">{{ selectedStatusCount }}</span>
-                  <el-icon class="status-filter-trigger__caret"><CaretBottom /></el-icon>
-                </el-button>
-              </template>
-              <div class="status-filter-panel">
-                <div class="status-filter-panel__header">
-                  <span>选择项目进度</span>
-                  <div>
-                    <el-button link type="primary" @click="selectAllStatuses">全选</el-button>
-                    <el-button link :disabled="!statusFilterDraft.length" @click="clearStatusDraft">清空</el-button>
-                  </div>
-                </div>
-                <el-checkbox-group v-model="statusFilterDraft" class="status-filter-panel__options">
-                  <el-checkbox v-for="item in statusOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </el-checkbox>
-                </el-checkbox-group>
-                <div class="status-filter-panel__footer">
-                  <span>已选 {{ statusFilterDraft.length }} 项</span>
-                  <div>
-                    <el-button @click="cancelStatusFilter">取消</el-button>
-                    <el-button type="primary" @click="confirmStatusFilter">确定</el-button>
-                  </div>
-                </div>
-              </div>
-            </el-popover>
-          </el-form-item>
         </div>
         <el-form-item class="annotation-search-actions">
           <el-button type="primary" @click="handleSearch">查询</el-button>
@@ -668,10 +625,6 @@ const progressStatusOptions=computed(()=>{const reached=new Set(progressGroups.v
 const availableEntryStatusOptions=computed(()=>statusEntryMode.value==='progress'?progressStatusOptions.value:statusOptions)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
-const statusFilterVisible=ref(false)
-const statusFilterDraft=ref([])
-const selectedStatusCount=computed(()=>Array.isArray(searchForm.projectStatus)?searchForm.projectStatus.length:0)
-const statusFilterSummary=computed(()=>selectedStatusCount.value===0?'全部':selectedStatusCount.value===1?statusLabel(searchForm.projectStatus[0]):`已选 ${selectedStatusCount.value} 项`)
 let requestController, requestId=0, searchTimer
 let autoNameTimer
 const nameManuallyEdited=ref(false)
@@ -710,7 +663,7 @@ const currentLanguageOptions=computed(()=>form.languageItems.filter((item)=>item
 const baseAnnotationFilterFields=[
   {key:'orderNo',label:'订单号',type:'text'},{key:'projectName',label:'项目名称',type:'text'},
   {key:'projectTypes',label:'项目类型',type:'select',options:projectTypeOptions},{key:'taskDescription',label:'具体任务',type:'text'},
-  {key:'projectStatus',label:'项目进度',type:'select',options:statusOptions},{key:'priority',label:'优先次序',type:'select',options:priorityOptions},{key:'clientShortName',label:'客户简称',type:'text'},
+  {key:'projectStatus',label:'项目进度',type:'select',options:statusOptions,headerWidth:300},{key:'priority',label:'优先次序',type:'select',options:priorityOptions},{key:'clientShortName',label:'客户简称',type:'text'},
   {key:'clientCode',label:'客户编号',type:'text'},{key:'clientFullName',label:'客户全称',type:'text'},
   {key:'contactName',label:'子客户/联系人',type:'text'},{key:'customerOrderNo',label:'客户单号/项目标识',type:'text'},
   {key:'languageItemsDisplay',apiKey:'language_id',label:'语言方向',type:'select',options:()=>languages.value.map((item)=>({label:item.label,value:item.id}))},
@@ -767,17 +720,12 @@ const detailRow=(row)=>detailCache[row.id]||row
 const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value),sort:listSort.value}}
 const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];pagination.total=page?.total||0}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
-const prepareStatusFilter=()=>{statusFilterDraft.value=Array.isArray(searchForm.projectStatus)?[...searchForm.projectStatus]:[]}
-const selectAllStatuses=()=>{statusFilterDraft.value=statusOptions.map((item)=>item.value)}
-const clearStatusDraft=()=>{statusFilterDraft.value=[]}
-const cancelStatusFilter=()=>{prepareStatusFilter();statusFilterVisible.value=false}
-const confirmStatusFilter=()=>{const next=[...statusFilterDraft.value];const current=Array.isArray(searchForm.projectStatus)?searchForm.projectStatus:[];const changed=next.length!==current.length||next.some((value,index)=>value!==current[index]);searchForm.projectStatus=next;statusFilterVisible.value=false;if(changed)handleSearch()}
 const toggleProgressSort=()=>{listSort.value=progressSortActive.value?'order_no_desc':'latest_progress_desc';handleSearch()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
 const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
 const handleConfiguredTextInput=(value)=>handleTextSearch(value)
 const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFields.value);handleSearch()}
-const resetSearch=()=>{statusFilterVisible.value=false;statusFilterDraft.value=[];searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
+const resetSearch=()=>{searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),getProjectRoleCandidatesAPI('project_manager')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];projectManagerOptions.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 const resetProgressDialog=()=>{const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';selectedProgressStageKey.value='';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;statusEntryMode.value='progress';Object.assign(statusForm,{projectStatus:'',effectiveOn:'',changeNote:''});statusFormRef.value?.clearValidate();if(route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn)progressSearchVisible.value=true}
@@ -843,7 +791,6 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 <style scoped>
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .annotation-search-toolbar{display:flex;width:100%;align-items:flex-start;gap:16px;flex-wrap:nowrap}.annotation-search-toolbar .project-list-primary-filters{flex:1 1 auto;width:auto;min-width:0}.annotation-search-actions{flex:0 0 auto;margin-right:0!important;white-space:nowrap}
-.status-filter-trigger{display:flex;width:100%;min-width:0;justify-content:flex-start;padding:0 11px;color:var(--el-text-color-regular);font-weight:400}.status-filter-trigger:hover,.status-filter-trigger:focus,.status-filter-trigger.is-active{border-color:var(--el-color-primary)}.status-filter-trigger__text{min-width:0;overflow:hidden;flex:1;text-align:left;text-overflow:ellipsis;white-space:nowrap}.status-filter-trigger__count{display:inline-flex;min-width:20px;height:20px;padding:0 6px;align-items:center;justify-content:center;border-radius:10px;color:var(--el-color-primary);background:var(--el-color-primary-light-9);font-size:12px}.status-filter-trigger__caret{margin-left:8px;color:var(--el-text-color-placeholder);transition:transform .2s}.status-filter-trigger.is-active .status-filter-trigger__caret{color:var(--el-color-primary)}
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
 .project-name-link{display:block;width:100%;height:auto;padding:3px 0;white-space:normal;text-align:left;word-break:break-word;line-height:1.5}.project-progress-link{height:auto;padding:0}
@@ -858,5 +805,5 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 </style>
 
 <style>
-.annotation-status-filter-popover{max-width:calc(100vw - 32px)!important;padding:0!important;overflow:hidden}.status-filter-panel{display:flex;max-height:min(520px,calc(100vh - 120px));flex-direction:column}.status-filter-panel__header,.status-filter-panel__footer{display:flex;flex:none;align-items:center;justify-content:space-between;padding:12px 14px}.status-filter-panel__header{border-bottom:1px solid var(--el-border-color-lighter);font-weight:600}.status-filter-panel__header .el-button+.el-button{margin-left:8px}.status-filter-panel__options{display:flex;min-height:0;padding:8px 14px;overflow-y:auto;flex-direction:column}.status-filter-panel__options .el-checkbox{width:100%;height:32px;margin-right:0}.status-filter-panel__footer{border-top:1px solid var(--el-border-color-lighter);color:var(--el-text-color-secondary);background:var(--el-fill-color-extra-light);font-size:12px}.status-filter-panel__footer .el-button+.el-button{margin-left:8px}.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 </style>

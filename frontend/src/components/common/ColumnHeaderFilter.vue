@@ -4,10 +4,12 @@
       <slot name="label">{{ label }}</slot>
     </span>
     <el-popover
+      v-model:visible="visible"
       trigger="click"
       :placement="placement"
       :width="width"
       popper-class="column-header-filter-popover"
+      @before-enter="$emit('before-enter')"
     >
       <template #reference>
         <button
@@ -23,7 +25,7 @@
       </template>
       <div class="column-header-filter__content">
         <slot />
-        <div class="column-header-filter__footer">
+        <div v-if="!hideDefaultFooter" class="column-header-filter__footer">
           <el-button link type="primary" size="small" :disabled="!active" @click="$emit('clear')">
             清除筛选
           </el-button>
@@ -34,16 +36,22 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { Filter } from '@element-plus/icons-vue'
 
 defineProps({
   label: { type: String, required: true },
   active: { type: Boolean, default: false },
   placement: { type: String, default: 'bottom-start' },
-  width: { type: Number, default: 240 }
+  width: { type: Number, default: 240 },
+  hideDefaultFooter: { type: Boolean, default: false },
 })
 
-defineEmits(['clear'])
+defineEmits(['clear', 'before-enter'])
+
+const visible = ref(false)
+const close = () => { visible.value = false }
+defineExpose({ close })
 </script>
 
 <style>

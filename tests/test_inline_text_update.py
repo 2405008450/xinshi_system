@@ -91,6 +91,24 @@ def test_required_and_length_rules_reject_invalid_values():
         normalize_text_value("1234", TextFieldRule(max_length=3))
 
 
+def test_annotation_inline_edit_accepts_enterprise_unc_path(monkeypatch):
+    monkeypatch.setenv(
+        "OPENPATH_ALLOWED_ROOTS",
+        r"\\Win-server\服务器资料7;\\Win-server\服务器资料4",
+    )
+    project_path = (
+        r"\\Win-server\服务器资料7\客户\其他客户翻译任务\2026年\9月"
+        r"\连云港亚新钢铁\0908\3. 译文\沙柏霖"
+    )
+
+    normalized = normalize_text_value(
+        project_path,
+        ANNOTATION_TEXT_FIELDS["project_path"],
+    )
+
+    assert normalized == project_path
+
+
 def test_apply_text_field_update_only_changes_whitelisted_target():
     version = datetime.now()
     row = SimpleNamespace(project_name="旧名称", remarks="保留", updated_at=version)
