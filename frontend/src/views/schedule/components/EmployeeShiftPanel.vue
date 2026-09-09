@@ -80,7 +80,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="cellEditorVisible"
       :title="`${activeCell.row?.name || ''} · ${activeCell.date || ''} 班次调整`"
       width="min(420px, calc(100vw - 32px))"
@@ -113,7 +113,7 @@
         <el-button @click="cellEditorVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveActiveCell">保存调整</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <EmployeeShiftTemplateDialog
       v-model="templateVisible"

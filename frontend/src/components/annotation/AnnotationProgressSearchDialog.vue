@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     v-model="visible"
     title="项目进度检索"
     width="min(960px, calc(100vw - 32px))"
@@ -79,7 +79,7 @@
       @current-change="search(false, false)"
     />
     <template #footer><el-button @click="visible = false">关闭</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>
@@ -95,7 +95,7 @@ const visible = computed({ get: () => props.modelValue, set: (value) => emit('up
 
 const STATUS_LABELS = {
   initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓',
-  resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中',
+  resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_submitted: '试标已提交',
   trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过',
   project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈',
   cancelled: '已取消', partially_cancelled: '已部分取消', paused: '暂停', actively_abandoned: '主动放弃',
@@ -113,7 +113,7 @@ const canSearch = computed(() => Boolean(filters.keyword.trim()) && isProgressSe
 const statusLabel = (value) => STATUS_LABELS[value] || value || '-'
 const statusType = (value) => ({
   initial_consultation: 'info', consultation_no_result: 'info', resource_sourcing: 'primary',
-  resource_sourcing_cancelled: 'danger', trial_preparation: 'warning', trial_in_progress: 'warning',
+  resource_sourcing_cancelled: 'danger', trial_preparation: 'warning', trial_in_progress: 'warning', trial_submitted: 'primary',
   trial_passed: 'success', trial_failed: 'danger', trial_partially_passed: 'warning', project_in_progress: 'primary',
   sent_to_client: 'success', client_feedback: 'warning', cancelled: 'danger', partially_cancelled: 'warning',
   paused: 'warning', actively_abandoned: 'danger',

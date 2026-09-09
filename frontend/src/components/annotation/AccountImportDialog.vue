@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     :model-value="modelValue"
     title="导入项目账号表"
     width="min(1120px, calc(100vw - 32px))"
@@ -87,7 +87,7 @@
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button type="primary" :loading="importing" :disabled="!canImport" @click="submitImport">确认导入</el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     :model-value="modelValue"
     :title="dialogTitle"
     width="min(960px, calc(100vw - 32px))"
@@ -143,7 +143,7 @@
         确认直接移交（{{ selectedProjects.length }}）
       </el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

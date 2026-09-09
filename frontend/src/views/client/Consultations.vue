@@ -420,14 +420,11 @@
       @current-change="fetchData"
     />
 
-    <el-dialog
-      ref="consultationDialogRef"
+    <DraggableFormDialog
       v-model="dialogVisible"
-      class="consultation-dialog draggable-form-dialog"
+      class="consultation-dialog"
       width="min(1040px, calc(100vw - 32px))"
       top="5vh"
-      draggable
-      :overflow="false"
       @opened="handleConsultationDialogOpened"
       @close="handleDialogClose"
     >
@@ -1175,20 +1172,16 @@
         <el-button v-if="!form.id" :disabled="formSubmitting" @click="handleSubmit(true)">保存并继续新增</el-button>
         <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <!-- 四类咨询确认、建项与内部邮件发送中间层 -->
-    <el-dialog
-      ref="confirmationDialogRef"
+    <DraggableFormDialog
       v-model="confirmationDialogVisible"
-      class="consultation-confirmation-dialog draggable-form-dialog"
+      class="consultation-confirmation-dialog"
       title="确认咨询并生成项目"
       width="min(720px, calc(100vw - 32px))"
       :close-on-click-modal="false"
       top="8vh"
-      draggable
-      :overflow="false"
-      @opened="resetConfirmationDialogPosition"
       @close="resetConfirmationDraft"
     >
       <div v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
@@ -1345,7 +1338,7 @@
           @click="handleConfirmConsultation(true)"
         >确认建项并发送邮件</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 
@@ -1385,7 +1378,6 @@ const router = useRouter()
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
-const consultationDialogRef = ref(null)
 const formRef = ref(null)
 const consultationEditorRef = ref(null)
 const {
@@ -1414,7 +1406,6 @@ const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
 const confirmationBodyEditorRef = ref(null)
 const confirmationImageUploading = ref(false)
-const confirmationDialogRef = ref(null)
 const confirmationRecipientGroups = ref([])
 let confirmationMailPreviewRequestId = 0
 let confirmationMailPreviewController = null
@@ -2553,7 +2544,6 @@ const handleEdit = async (row) => {
   fillFormByRow(row)
   editorLoading.value = false
   await nextTick()
-  resetConsultationDialogPosition()
   await beginDraft(`edit:${row.id}`)
 }
 
@@ -3058,17 +3048,8 @@ const resetConsultationDialogScroll = () => {
   if (dialogBody) dialogBody.scrollTop = 0
 }
 
-const resetConsultationDialogPosition = () => {
-  nextTick(() => consultationDialogRef.value?.resetPosition?.())
-}
-
 const handleConsultationDialogOpened = () => {
-  resetConsultationDialogPosition()
   resetConsultationDialogScroll()
-}
-
-const resetConfirmationDialogPosition = () => {
-  nextTick(() => confirmationDialogRef.value?.resetPosition?.())
 }
 
 const isEditableTarget = (target) => {
@@ -3607,36 +3588,6 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
   overflow: hidden;
   border-radius: 10px;
-}
-
-:global(.consultation-dialog.is-draggable .el-dialog__header),
-:global(.consultation-confirmation-dialog.is-draggable .el-dialog__header) {
-  cursor: grab;
-}
-
-:global(.consultation-dialog.is-dragging),
-:global(.consultation-confirmation-dialog.is-dragging) {
-  box-shadow: 0 18px 48px rgb(15 23 42 / 24%);
-}
-
-:global(.consultation-dialog.is-dragging .el-dialog__header),
-:global(.consultation-confirmation-dialog.is-dragging .el-dialog__header) {
-  cursor: grabbing;
-}
-
-:global(.consultation-dialog .el-dialog__headerbtn),
-:global(.consultation-dialog .el-dialog__header button),
-:global(.consultation-dialog .el-dialog__header a),
-:global(.consultation-confirmation-dialog .el-dialog__headerbtn),
-:global(.consultation-confirmation-dialog .el-dialog__header button),
-:global(.consultation-confirmation-dialog .el-dialog__header a) {
-  cursor: pointer;
-}
-
-:global(.consultation-dialog .el-dialog__header input),
-:global(.consultation-dialog .el-dialog__header textarea) {
-  cursor: text;
-  user-select: text;
 }
 
 :global(.consultation-confirmation-dialog) {

@@ -27,9 +27,47 @@
             />
           </el-form-item>
           <el-form-item label="项目进度" class="project-list-status-filter">
-            <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch">
-              <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
+            <el-popover
+              v-model:visible="statusFilterVisible"
+              trigger="click"
+              placement="bottom-start"
+              :width="300"
+              popper-class="annotation-status-filter-popover"
+              @before-enter="prepareStatusFilter"
+            >
+              <template #reference>
+                <el-button
+                  class="status-filter-trigger"
+                  :class="{ 'is-active': selectedStatusCount > 0 }"
+                  :aria-label="selectedStatusCount ? `项目进度，已选 ${selectedStatusCount} 项` : '项目进度，全部'"
+                >
+                  <span class="status-filter-trigger__text">{{ statusFilterSummary }}</span>
+                  <span v-if="selectedStatusCount" class="status-filter-trigger__count">{{ selectedStatusCount }}</span>
+                  <el-icon class="status-filter-trigger__caret"><CaretBottom /></el-icon>
+                </el-button>
+              </template>
+              <div class="status-filter-panel">
+                <div class="status-filter-panel__header">
+                  <span>选择项目进度</span>
+                  <div>
+                    <el-button link type="primary" @click="selectAllStatuses">全选</el-button>
+                    <el-button link :disabled="!statusFilterDraft.length" @click="clearStatusDraft">清空</el-button>
+                  </div>
+                </div>
+                <el-checkbox-group v-model="statusFilterDraft" class="status-filter-panel__options">
+                  <el-checkbox v-for="item in statusOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </el-checkbox>
+                </el-checkbox-group>
+                <div class="status-filter-panel__footer">
+                  <span>已选 {{ statusFilterDraft.length }} 项</span>
+                  <div>
+                    <el-button @click="cancelStatusFilter">取消</el-button>
+                    <el-button type="primary" @click="confirmStatusFilter">确定</el-button>
+                  </div>
+                </div>
+              </div>
+            </el-popover>
           </el-form-item>
         </div>
         <el-form-item class="annotation-search-actions">
@@ -206,31 +244,40 @@
       @closed="openQueuedProgressContext"
     />
 
-    <el-dialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" @closed="resetProgressDialog">
+    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" @closed="resetProgressDialog">
       <template #header>
         <div class="progress-dialog-heading">
           <span class="progress-dialog-title">项目进度</span>
-          <span class="progress-dialog-order">{{ activeProgressProject?.orderNo || '-' }}</span>
+          <div class="progress-dialog-project">
+            <span class="progress-dialog-project__item" @mousedown.stop>
+              <span class="progress-dialog-project__label">订单号</span>
+              <span class="progress-dialog-project__order-no">{{ textValue(activeProgressProject?.orderNo) }}</span>
+            </span>
+            <span class="progress-dialog-project__separator" aria-hidden="true" />
+            <span class="progress-dialog-project__item progress-dialog-project__item--name" @mousedown.stop>
+              <span class="progress-dialog-project__label">项目名称</span>
+              <span class="progress-dialog-project__name" :title="textValue(activeProgressProject?.projectName)">{{ textValue(activeProgressProject?.projectName) }}</span>
+            </span>
+          </div>
         </div>
       </template>
-      <div class="progress-project-name">
-        <span class="progress-project-name__label">项目名称</span>
-        <span class="progress-project-name__value">{{ textValue(activeProgressProject?.projectName) }}</span>
-      </div>
       <el-tabs v-model="progressDialogTab" class="annotation-progress-tabs">
         <el-tab-pane label="进度记录" name="progress">
       <section v-if="canWrite" ref="progressEntryPanelRef" class="progress-entry-panel">
-        <div class="progress-entry-panel__title">
-          录入进度节点
-          <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
-        </div>
-        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="88px">
-          <el-form-item label="记录类型">
-            <el-radio-group v-model="statusEntryMode" @change="handleStatusEntryModeChange">
-              <el-radio-button value="progress">补充具体进度</el-radio-button>
-              <el-radio-button value="status">切换项目状态</el-radio-button>
+        <div class="progress-entry-panel__header">
+          <div class="progress-entry-panel__title">
+            录入进度节点
+            <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
+          </div>
+          <div class="progress-entry-mode">
+            <span class="progress-entry-mode__label">记录类型</span>
+            <el-radio-group v-model="statusEntryMode" size="small" @change="handleStatusEntryModeChange">
+              <el-radio-button value="progress">补充进度</el-radio-button>
+              <el-radio-button value="status">切换状态</el-radio-button>
             </el-radio-group>
-          </el-form-item>
+          </div>
+        </div>
+        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
@@ -246,12 +293,12 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote">
-            <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :rows="3" maxlength="500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
+            <div class="progress-note-control">
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+              <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
+            </div>
           </el-form-item>
-          <div class="progress-entry-actions">
-            <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
-          </div>
         </AppForm>
       </section>
       <el-divider content-position="left">项目进度记录</el-divider>
@@ -303,6 +350,7 @@
             :active="progressVisible && progressDialogTab === 'chat'"
             :text-only="true"
             :always-enabled="true"
+            compact
           />
         </el-tab-pane>
       </el-tabs>
@@ -310,7 +358,7 @@
         <el-button v-if="progressSearchReturnAvailable" @click="returnToProgressSearch">返回检索结果</el-button>
         <el-button @click="progressVisible=false">关闭</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <DraggableFormDialog v-model="dialogVisible" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" @closed="onEditorClosed">
       <template #header>
@@ -456,7 +504,7 @@
       </div>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
     </DraggableFormDialog>
-    <el-dialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
+    <DraggableFormDialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
       <el-alert title="订单号修改后，原号码仍会永久保留，不能再次分配给其他项目。" type="warning" :closable="false" show-icon />
       <AppForm ref="orderNoFormRef" :model="orderNoForm" :rules="orderNoRules" label-width="100px" class="order-no-change-form">
         <el-form-item label="当前订单号"><ReadonlyField :model-value="form.orderNo" source="auto" /></el-form-item>
@@ -464,7 +512,7 @@
         <el-form-item label="修改原因" prop="reason"><el-input v-model="orderNoForm.reason" type="textarea" :rows="4" maxlength="500" show-word-limit placeholder="请说明修改订单号的业务原因" /></el-form-item>
       </AppForm>
       <template #footer><el-button @click="orderNoDialogVisible=false">取消</el-button><el-button type="primary" :loading="orderNoSubmitting" @click="confirmOrderNoChange">确认修改</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
     <BusinessMailComposer
       v-model="mailComposerVisible"
       project-type="annotation"
@@ -551,7 +599,7 @@ const projectTypeOptions = [
 ].map(([value,label]) => ({ value,label }))
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value,item.label]))
 const statusOptions = [
-  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],
+  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_submitted','试标已提交'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],
 ].map(([value,label]) => ({ value,label }))
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value,item.label]))
 const priorityOptions = [
@@ -620,6 +668,10 @@ const progressStatusOptions=computed(()=>{const reached=new Set(progressGroups.v
 const availableEntryStatusOptions=computed(()=>statusEntryMode.value==='progress'?progressStatusOptions.value:statusOptions)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
+const statusFilterVisible=ref(false)
+const statusFilterDraft=ref([])
+const selectedStatusCount=computed(()=>Array.isArray(searchForm.projectStatus)?searchForm.projectStatus.length:0)
+const statusFilterSummary=computed(()=>selectedStatusCount.value===0?'全部':selectedStatusCount.value===1?statusLabel(searchForm.projectStatus[0]):`已选 ${selectedStatusCount.value} 项`)
 let requestController, requestId=0, searchTimer
 let autoNameTimer
 const nameManuallyEdited=ref(false)
@@ -704,7 +756,7 @@ const managerOptions=(columnKey)=>columnKey==='clientManagerName'?activeUsers.va
 const compactDateTime=(value)=>{if(!value)return '-';const date=new Date(String(value).replace(' ','T'));if(Number.isNaN(date.getTime()))return String(value);const monthDay=`${date.getMonth()+1}/${date.getDate()}`;return date.getFullYear()===new Date().getFullYear()?monthDay:`${date.getFullYear()}/${monthDay}`}
 const projectTypesText=(values)=>Array.isArray(values)&&values.length?values.map((value)=>projectTypeMap[value]||value).join('；'):'-'
 const statusLabel=(value)=>statusMap[value]||value||'-'
-const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger'}[value]||'info')
+const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_submitted:'primary',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger'}[value]||'info')
 const priorityLabel=(value)=>priorityMap[value]||'-'
 const priorityType=(value)=>({high:'danger',medium:'warning',low:'info'}[value]||'info')
 const languageName=(id)=>languages.value.find((item)=>item.id===id)?.label||''
@@ -715,12 +767,17 @@ const detailRow=(row)=>detailCache[row.id]||row
 const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value),sort:listSort.value}}
 const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];pagination.total=page?.total||0}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
+const prepareStatusFilter=()=>{statusFilterDraft.value=Array.isArray(searchForm.projectStatus)?[...searchForm.projectStatus]:[]}
+const selectAllStatuses=()=>{statusFilterDraft.value=statusOptions.map((item)=>item.value)}
+const clearStatusDraft=()=>{statusFilterDraft.value=[]}
+const cancelStatusFilter=()=>{prepareStatusFilter();statusFilterVisible.value=false}
+const confirmStatusFilter=()=>{const next=[...statusFilterDraft.value];const current=Array.isArray(searchForm.projectStatus)?searchForm.projectStatus:[];const changed=next.length!==current.length||next.some((value,index)=>value!==current[index]);searchForm.projectStatus=next;statusFilterVisible.value=false;if(changed)handleSearch()}
 const toggleProgressSort=()=>{listSort.value=progressSortActive.value?'order_no_desc':'latest_progress_desc';handleSearch()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
 const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
 const handleConfiguredTextInput=(value)=>handleTextSearch(value)
 const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFields.value);handleSearch()}
-const resetSearch=()=>{searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
+const resetSearch=()=>{statusFilterVisible.value=false;statusFilterDraft.value=[];searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),getProjectRoleCandidatesAPI('project_manager')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];projectManagerOptions.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
 const resetProgressDialog=()=>{const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';selectedProgressStageKey.value='';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;statusEntryMode.value='progress';Object.assign(statusForm,{projectStatus:'',effectiveOn:'',changeNote:''});statusFormRef.value?.clearValidate();if(route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn)progressSearchVisible.value=true}
@@ -786,19 +843,20 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 <style scoped>
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .annotation-search-toolbar{display:flex;width:100%;align-items:flex-start;gap:16px;flex-wrap:nowrap}.annotation-search-toolbar .project-list-primary-filters{flex:1 1 auto;width:auto;min-width:0}.annotation-search-actions{flex:0 0 auto;margin-right:0!important;white-space:nowrap}
+.status-filter-trigger{display:flex;width:100%;min-width:0;justify-content:flex-start;padding:0 11px;color:var(--el-text-color-regular);font-weight:400}.status-filter-trigger:hover,.status-filter-trigger:focus,.status-filter-trigger.is-active{border-color:var(--el-color-primary)}.status-filter-trigger__text{min-width:0;overflow:hidden;flex:1;text-align:left;text-overflow:ellipsis;white-space:nowrap}.status-filter-trigger__count{display:inline-flex;min-width:20px;height:20px;padding:0 6px;align-items:center;justify-content:center;border-radius:10px;color:var(--el-color-primary);background:var(--el-color-primary-light-9);font-size:12px}.status-filter-trigger__caret{margin-left:8px;color:var(--el-text-color-placeholder);transition:transform .2s}.status-filter-trigger.is-active .status-filter-trigger__caret{color:var(--el-color-primary)}
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
 .project-name-link{display:block;width:100%;height:auto;padding:3px 0;white-space:normal;text-align:left;word-break:break-word;line-height:1.5}.project-progress-link{height:auto;padding:0}
 .annotation-progress-tabs{min-height:360px}.annotation-progress-tabs :deep(.el-tab-pane){padding-top:4px}
-.progress-dialog-heading{display:flex;align-items:baseline;gap:10px;padding-right:36px}.progress-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-order{color:var(--el-text-color-secondary);font-size:12px}.progress-project-name{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.progress-project-name__label{padding-top:1px;color:var(--el-text-color-secondary);font-size:13px}.progress-project-name__value{color:var(--el-text-color-primary);font-weight:600;line-height:1.5;white-space:pre-wrap;word-break:break-word}.progress-entry-panel{padding:16px 16px 12px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__title{margin-bottom:14px;color:var(--el-text-color-primary);font-weight:600}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-status-hint{width:100%;margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.progress-entry-actions{display:flex;justify-content:flex-end}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
+.progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
 .inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}
 .card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 .annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}
 .annotation-key-fields__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.annotation-key-fields__header h3{margin-bottom:0}.annotation-key-fields__header p{margin:3px 0 0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}
 .annotation-language-form-item :deep(.el-form-item__content),.annotation-language-panel{width:100%}.annotation-language-panel .section-title-row h3{font-size:15px}
-@media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}}
+@media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
 </style>
 
 <style>
-.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.annotation-status-filter-popover{max-width:calc(100vw - 32px)!important;padding:0!important;overflow:hidden}.status-filter-panel{display:flex;max-height:min(520px,calc(100vh - 120px));flex-direction:column}.status-filter-panel__header,.status-filter-panel__footer{display:flex;flex:none;align-items:center;justify-content:space-between;padding:12px 14px}.status-filter-panel__header{border-bottom:1px solid var(--el-border-color-lighter);font-weight:600}.status-filter-panel__header .el-button+.el-button{margin-left:8px}.status-filter-panel__options{display:flex;min-height:0;padding:8px 14px;overflow-y:auto;flex-direction:column}.status-filter-panel__options .el-checkbox{width:100%;height:32px;margin-right:0}.status-filter-panel__footer{border-top:1px solid var(--el-border-color-lighter);color:var(--el-text-color-secondary);background:var(--el-fill-color-extra-light);font-size:12px}.status-filter-panel__footer .el-button+.el-button{margin-left:8px}.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 </style>

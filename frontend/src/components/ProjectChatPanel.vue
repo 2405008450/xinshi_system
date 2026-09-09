@@ -1,6 +1,6 @@
 <template>
-  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode }]">
-    <el-empty v-if="!projectId" description="请先选择项目" :image-size="72" />
+  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact }]">
+    <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
     <template v-else>
       <div class="chat-toolbar">
         <div class="chat-toolbar__title">
@@ -30,15 +30,15 @@
       />
 
       <AppForm :inline="true" :model="filters" size="small" class="chat-filter-bar">
-          <el-form-item label="关键词">
-            <el-input v-model="filters.keyword" clearable placeholder="搜消息内容" style="width: 180px" @keyup.enter="handleSearch" />
+          <el-form-item label="关键词" class="chat-filter-bar__field">
+            <el-input v-model="filters.keyword" clearable :placeholder="compact ? '搜索消息内容' : '搜消息内容'" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
-          <el-form-item label="发送人">
-            <el-select v-model="filters.senderUserId" clearable filterable placeholder="全部" style="width: 180px">
+          <el-form-item label="发送人" class="chat-filter-bar__field">
+            <el-select v-model="filters.senderUserId" clearable filterable :placeholder="compact ? '发送人' : '全部'" style="width: 180px">
               <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="时间范围">
+          <el-form-item label="时间范围" class="chat-filter-bar__range">
             <el-date-picker
               v-model="filters.dateRange"
               type="datetimerange"
@@ -53,7 +53,7 @@
               :show-footer="true"
             />
           </el-form-item>
-          <el-form-item>
+          <el-form-item class="chat-filter-bar__actions">
             <el-button type="primary" @click="handleSearch">查询</el-button>
             <el-button @click="handleResetSearch">重置</el-button>
           </el-form-item>
@@ -96,7 +96,7 @@
               </div>
             </div>
           </div>
-          <el-empty v-else description="暂无沟通记录" :image-size="72" />
+          <el-empty v-else description="暂无沟通记录" :image-size="compact ? 56 : 72" />
         </el-scrollbar>
 
         <div class="chat-pagination">
@@ -113,31 +113,46 @@
         </div>
 
         <div v-if="settings.enabled" class="chat-composer">
-          <div class="chat-composer__header">发送消息</div>
-          <el-select
-            v-model="composer.mentionedUserId"
-            clearable
-            filterable
-            placeholder="@提醒某人（可选）"
-            style="width: 280px; margin-bottom: 12px"
-          >
-            <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-          </el-select>
-          <el-input
-            v-if="textOnly"
-            v-model="composer.content"
-            type="textarea"
-            :rows="4"
-            maxlength="10000"
-            show-word-limit
-            placeholder="输入项目沟通内容…"
-          />
-          <RichTextComposer
-            v-else
-            v-model="composer.contentJson"
-            placeholder="输入项目沟通内容…"
-            @update:plain-text="composer.content = $event"
-          />
+          <div class="chat-composer__header">
+            <span>发送消息</span>
+            <el-select
+              v-model="composer.mentionedUserId"
+              clearable
+              filterable
+              placeholder="@提醒某人（可选）"
+              class="chat-composer__mention"
+            >
+              <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+            </el-select>
+          </div>
+          <div class="chat-composer__body">
+            <el-input
+              v-if="textOnly"
+              v-model="composer.content"
+              type="textarea"
+              :autosize="compact ? { minRows: 2, maxRows: 4 } : false"
+              :rows="compact ? undefined : 4"
+              maxlength="10000"
+              show-word-limit
+              placeholder="输入项目沟通内容…"
+            />
+            <RichTextComposer
+              v-else
+              v-model="composer.contentJson"
+              placeholder="输入项目沟通内容…"
+              @update:plain-text="composer.content = $event"
+            />
+            <div class="chat-composer__actions">
+              <el-button
+                type="primary"
+                :loading="sending"
+                :disabled="!composer.content.trim() && !composer.attachments.length"
+                @click="handleSend"
+              >
+                发送消息
+              </el-button>
+            </div>
+          </div>
           <div v-if="!textOnly" class="composer-attachments">
             <el-upload
               :show-file-list="false"
@@ -155,16 +170,6 @@
             >
               {{ attachment.originalName }}
             </el-tag>
-          </div>
-          <div class="chat-composer__actions">
-            <el-button
-              type="primary"
-              :loading="sending"
-              :disabled="!composer.content.trim() && !composer.attachments.length"
-              @click="handleSend"
-            >
-              发送消息
-            </el-button>
           </div>
         </div>
     </template>
@@ -194,7 +199,8 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   drawerMode: { type: Boolean, default: false },
   textOnly: { type: Boolean, default: false },
-  alwaysEnabled: { type: Boolean, default: false }
+  alwaysEnabled: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false }
 })
 
 const settings = reactive({ enabled: false, canManage: false })
@@ -496,7 +502,28 @@ onBeforeUnmount(() => {
 }
 
 .chat-filter-bar {
-  margin-bottom: -6px;
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.chat-filter-bar :deep(.el-form-item) {
+  margin-right: 0;
+  margin-bottom: 0;
+}
+
+.chat-filter-bar :deep(.el-form-item__label) {
+  padding-right: 8px;
+}
+
+.chat-filter-bar__range :deep(.el-date-editor) {
+  width: 360px;
+}
+
+.chat-filter-bar__actions {
+  flex: none;
 }
 
 .chat-list {
@@ -597,8 +624,21 @@ onBeforeUnmount(() => {
 }
 
 .chat-composer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
   font-weight: 600;
+}
+
+.chat-composer__mention {
+  width: 280px;
+  font-weight: 400;
+}
+
+.chat-composer__body {
+  min-width: 0;
 }
 
 .chat-composer__actions {
@@ -615,10 +655,145 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 
+.project-chat-panel--compact {
+  gap: 10px;
+  font-size: 14px;
+}
+
+.project-chat-panel--compact .chat-toolbar__title {
+  font-size: 14px;
+}
+
+.project-chat-panel--compact .chat-filter-bar {
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+  background: var(--el-color-primary-light-9);
+}
+
+.project-chat-panel--compact .chat-filter-bar :deep(.el-form-item__label) {
+  display: none;
+}
+
+.project-chat-panel--compact .chat-filter-bar__field :deep(.el-input) {
+  width: 150px !important;
+}
+
+.project-chat-panel--compact .chat-filter-bar__field :deep(.el-select) {
+  width: 130px !important;
+}
+
+.project-chat-panel--compact .chat-filter-bar__range :deep(.el-date-editor) {
+  width: 250px;
+}
+
+.project-chat-panel--compact .chat-filter-bar__actions {
+  margin-left: auto;
+}
+
+.project-chat-panel--compact .chat-list__items {
+  gap: 8px;
+  padding: 8px;
+}
+
+.project-chat-panel--compact .chat-message-card {
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+
+.project-chat-panel--compact .chat-message-card__meta {
+  margin-bottom: 5px;
+}
+
+.project-chat-panel--compact .chat-message-card__content {
+  line-height: 1.5;
+}
+
+.project-chat-panel--compact .chat-composer {
+  padding: 12px 14px;
+  border-color: var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-9);
+}
+
+.project-chat-panel--compact .chat-composer__header {
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.project-chat-panel--compact .chat-composer__mention {
+  width: 220px;
+}
+
+.project-chat-panel--compact .chat-composer__body {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.project-chat-panel--compact .chat-composer__body > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.project-chat-panel--compact .chat-composer__actions {
+  flex: none;
+  margin-top: 0;
+}
+
 @media (max-width: 720px) {
+  .chat-filter-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chat-filter-bar :deep(.el-form-item) {
+    display: flex;
+    width: 100%;
+  }
+
+  .chat-filter-bar :deep(.el-form-item__content) {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chat-filter-bar__field :deep(.el-input),
+  .chat-filter-bar__field :deep(.el-select),
+  .chat-filter-bar__range :deep(.el-date-editor) {
+    width: 100% !important;
+  }
+
   .handover-task-list > div {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .project-chat-panel--compact .chat-filter-bar__field :deep(.el-input),
+  .project-chat-panel--compact .chat-filter-bar__field :deep(.el-select),
+  .project-chat-panel--compact .chat-filter-bar__range :deep(.el-date-editor) {
+    width: 100% !important;
+  }
+
+  .project-chat-panel--compact .chat-filter-bar__actions {
+    margin-left: 0;
+  }
+
+  .project-chat-panel--compact .chat-composer__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-chat-panel--compact .chat-composer__mention {
+    width: 100%;
+  }
+
+  .project-chat-panel--compact .chat-composer__body {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-chat-panel--compact .chat-composer__actions {
+    justify-content: flex-end;
   }
 }
 </style>

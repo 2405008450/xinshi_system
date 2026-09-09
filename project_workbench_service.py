@@ -34,7 +34,7 @@ ACTIVE_STATUSES = {
     'interpretation': {'initial_follow_up', 'in_progress'},
     'annotation': {
         'initial_consultation', 'resource_sourcing', 'trial_preparation',
-        'trial_in_progress', 'trial_passed', 'trial_partially_passed',
+        'trial_in_progress', 'trial_submitted', 'trial_passed', 'trial_partially_passed',
         'project_in_progress',
     },
 }

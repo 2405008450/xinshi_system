@@ -60,7 +60,7 @@
         </el-table>
       </el-tab-pane>
     </el-tabs>
-    <el-dialog v-model="groupDialog" :title="groupForm.id ? '编辑邮件组' : '新增邮件组'" width="min(680px, calc(100vw - 32px))">
+    <DraggableFormDialog v-model="groupDialog" :title="groupForm.id ? '编辑邮件组' : '新增邮件组'" width="min(680px, calc(100vw - 32px))">
       <AppForm label-width="90px">
         <el-form-item label="组名" required><el-input v-model="groupForm.name" maxlength="100" /></el-form-item>
         <el-form-item label="说明"><el-input v-model="groupForm.description" maxlength="500" /></el-form-item>
@@ -74,7 +74,7 @@
         <el-form-item label="启用"><el-switch v-model="groupForm.is_active" /></el-form-item>
       </AppForm>
       <template #footer><el-button @click="groupDialog=false">取消</el-button><el-button type="primary" @click="saveGroup">保存</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 

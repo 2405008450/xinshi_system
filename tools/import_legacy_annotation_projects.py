@@ -66,6 +66,7 @@ STATUS_MAP = {
     "已部分取消": "partially_cancelled",
     "进行中": "project_in_progress",
     "试标中": "trial_in_progress",
+    "试标已提交": "trial_submitted",
     "试标完：跟进结果": "client_feedback",
     "待确认": "initial_consultation",
     "已结束": "client_feedback",

@@ -394,7 +394,7 @@
       <el-empty v-else description="请先登录，登录账号将用于匹配「我的任务」" />
     </template>
 
-    <el-dialog v-model="handoverVisible" title="交接所选任务" width="720px" destroy-on-close>
+    <DraggableFormDialog v-model="handoverVisible" title="交接所选任务" width="720px" destroy-on-close>
       <el-alert
         :title="handoverTransferMode === 'delegation'
           ? `将 ${directSelectedTasks.length} 项${handoverRoleName || ''}任务临时委托给相同角色的其他负责人，接收人确认后生效。`
@@ -466,9 +466,9 @@
           发起交接
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="claimVisible" title="继承他人任务" width="1080px" destroy-on-close>
+    <DraggableFormDialog v-model="claimVisible" title="继承他人任务" width="1080px" destroy-on-close>
       <el-alert
         title="仅展示你具备当前阶段角色、且由其他用户直接负责的未完成任务；继承无需原负责人审批。"
         type="info"
@@ -527,7 +527,7 @@
           确认继承
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

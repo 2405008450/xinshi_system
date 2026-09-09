@@ -31,6 +31,7 @@ ANNOTATION_PROJECT_STATUSES = {
     "resource_sourcing_cancelled",
     "trial_preparation",
     "trial_in_progress",
+    "trial_submitted",
     "trial_passed",
     "trial_failed",
     "trial_partially_passed",

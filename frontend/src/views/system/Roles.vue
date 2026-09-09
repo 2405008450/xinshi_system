@@ -49,7 +49,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="roleDialogVisible" :title="roleDialogTitle" width="520px" @close="resetRoleForm">
+    <DraggableFormDialog v-model="roleDialogVisible" :title="roleDialogTitle" width="520px" @close="resetRoleForm">
       <AppForm ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="角色名称" prop="role_name">
           <el-input v-model="form.role_name" />
@@ -62,9 +62,9 @@
         <el-button @click="roleDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleRoleSubmit">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="permissionDialogVisible" title="配置角色权限" width="760px">
+    <DraggableFormDialog v-model="permissionDialogVisible" title="配置角色权限" width="760px">
       <el-alert
         :title="`正在配置：${selectedRole?.role_name || ''}`"
         type="info"
@@ -101,7 +101,7 @@
           保存权限
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 

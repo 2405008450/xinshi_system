@@ -122,7 +122,7 @@
       <el-empty v-else class="compact-empty" description="暂无非项目任务" :image-size="56" />
     </section>
 
-    <el-dialog v-model="taskDialogVisible" :title="taskDialogTitle" width="640px" destroy-on-close>
+    <DraggableFormDialog v-model="taskDialogVisible" :title="taskDialogTitle" width="640px" destroy-on-close>
       <AppForm ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="110px">
         <el-form-item label="任务类型" prop="task_type">
           <el-select v-model="taskForm.task_type" style="width: 100%">
@@ -205,9 +205,9 @@
         <el-button @click="taskDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="taskSubmitting" @click="submitTask">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="recurrenceVisible" title="周期任务管理" width="900px" destroy-on-close>
+    <DraggableFormDialog v-model="recurrenceVisible" title="周期任务管理" width="900px" destroy-on-close>
       <el-table v-loading="recurrenceLoading" :data="recurrences" border size="small">
         <el-table-column prop="task_type" label="任务类型" width="120" />
         <el-table-column prop="task_name" label="任务名称" min-width="220" />
@@ -231,9 +231,9 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="workEntryVisible" title="记录今日进展" width="620px" destroy-on-close>
+    <DraggableFormDialog v-model="workEntryVisible" title="记录今日进展" width="620px" destroy-on-close>
       <AppForm ref="workEntryFormRef" :model="workEntryForm" :rules="workEntryRules" label-width="110px">
         <el-form-item label="关联任务">
           <el-input :model-value="activeWorkItem?.task_name || activeWorkItem?.project_name" disabled />
@@ -255,7 +255,7 @@
         <el-button @click="workEntryVisible = false">取消</el-button>
         <el-button type="primary" :loading="workEntrySubmitting" @click="submitWorkEntry">保存进展</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

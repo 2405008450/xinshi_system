@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     v-model="visible"
     title="内部项目邮件预览"
     width="min(820px, calc(100vw - 32px))"
@@ -117,7 +117,7 @@
         {{ history.some((item) => item.status === 'sent') ? '再次发送邮件' : '发送邮件' }}
       </el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

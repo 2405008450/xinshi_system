@@ -52,7 +52,7 @@
       style="margin-top: 20px"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       width="700px"
@@ -130,7 +130,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 

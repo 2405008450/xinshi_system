@@ -72,7 +72,7 @@ class AnnotationProject(Base):
         CheckConstraint(
             "project_status IN ('initial_consultation','consultation_no_result',"
             "'resource_sourcing','resource_sourcing_cancelled','trial_preparation',"
-            "'trial_in_progress','trial_passed','trial_failed','trial_partially_passed',"
+            "'trial_in_progress','trial_submitted','trial_passed','trial_failed','trial_partially_passed',"
             "'project_in_progress','sent_to_client','client_feedback','cancelled',"
             "'partially_cancelled','paused','actively_abandoned')",
             name="ck_annotation_project_status",

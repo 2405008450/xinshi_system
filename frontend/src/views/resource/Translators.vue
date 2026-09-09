@@ -260,7 +260,7 @@
     />
 
     <!-- ========== 编辑弹窗 ========== -->
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       class="translator-dialog"
@@ -468,9 +468,9 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="demoImportVisible" title="导入排期 Demo" width="860px" @closed="resetDemoImportState">
+    <DraggableFormDialog v-model="demoImportVisible" title="导入排期 Demo" width="860px" @closed="resetDemoImportState">
       <div class="demo-import-panel">
         <p class="demo-import-tip">
           现按这版完整导出结构固定识别 `G/H/I/J/K/L/M/N/O/P`。其中 `I=1` 表示进入按日判断，实际是否可接稿仍以 `K-O` 的 `0/1` 为准；`I=2` 表示未来一个排期周期都不可接稿。`K` 与 `H` 为同一天，`L/M/N/O` 依次表示 `n+1/n+2/n+3/n+4` 天，且 `0=不能接稿`、`1=能接稿`；`J` 作为时段原值保留，`P` 作为备注原值保留。
@@ -544,7 +544,7 @@
         <el-button @click="closeDemoImportDialog">取消</el-button>
         <el-button type="primary" :loading="demoImportLoading" :disabled="!demoImportPreview?.preview_items?.length" @click="submitDemoImport">确认导入</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 

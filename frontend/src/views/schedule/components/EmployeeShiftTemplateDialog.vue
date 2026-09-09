@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     v-model="dialogVisible"
     :title="`${employee?.name || employee?.full_name || employee?.username || '员工'} · 常规排班`"
     width="min(820px, calc(100vw - 32px))"
@@ -109,7 +109,7 @@
       <el-button @click="dialogVisible = false">取消</el-button>
       <el-button type="primary" :loading="saving" @click="saveTemplate">保存模板</el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

@@ -146,7 +146,7 @@
     />
 
     <!-- 对话框 -->
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       width="500px"
@@ -183,9 +183,9 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="mailProfileDialogVisible"
       title="用户邮件资料"
       width="min(860px, calc(100vw - 32px))"
@@ -226,9 +226,9 @@
         <el-button :disabled="mailProfileSaving" @click="mailProfileDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="mailProfileSaving" @click="saveMailProfile">保存邮件资料</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="mailAccountDialogVisible"
       title="配置用户发件邮箱"
       width="min(560px, calc(100vw - 32px))"
@@ -294,9 +294,9 @@
           >保存并验证</el-button>
         </div>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="passwordDialogVisible"
       title="修改用户密码"
       width="480px"
@@ -347,9 +347,9 @@
           确认修改
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="roleDialogVisible"
       title="分配用户角色"
       width="520px"
@@ -387,7 +387,7 @@
           保存角色
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
     <EmployeeShiftTemplateDialog v-model="shiftDialogVisible" :employee="shiftEmployee" @saved="fetchData" />
   </el-card>
 </template>

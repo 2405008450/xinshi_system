@@ -246,7 +246,7 @@
     </div>
     <el-empty v-if="!loading && !projects.length" description="暂无负责或可承接的管理项目" :image-size="72" />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       title="发起管理层项目归属交接"
       width="620px"
@@ -293,9 +293,9 @@
           发起管理层交接
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="progressVisible" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
+    <DraggableFormDialog v-model="progressVisible" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
       <AppForm label-width="90px">
         <el-form-item label="项目"><el-input :model-value="progressProject?.project_name || progressProject?.order_no" disabled /></el-form-item>
         <el-form-item label="工作日期" required><el-date-picker v-model="progressForm.work_date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
@@ -307,7 +307,7 @@
         <el-button @click="progressVisible = false">取消</el-button>
         <el-button type="primary" :loading="progressSubmitting" @click="submitProgress">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

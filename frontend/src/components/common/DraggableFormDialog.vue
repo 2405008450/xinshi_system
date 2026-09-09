@@ -31,6 +31,7 @@ const emit = defineEmits(['update:modelValue', 'open'])
 const dialogRef = ref(null)
 
 const resetPosition = () => nextTick(() => dialogRef.value?.resetPosition?.())
+const handleClose = () => dialogRef.value?.handleClose?.()
 
 const handleModelValueUpdate = (value) => {
   emit('update:modelValue', value)
@@ -41,7 +42,7 @@ const handleOpen = async () => {
   emit('open')
 }
 
-defineExpose({ resetPosition })
+defineExpose({ resetPosition, handleClose })
 </script>
 
 <style>
@@ -52,6 +53,7 @@ defineExpose({ resetPosition })
 
 .el-dialog.draggable-form-dialog.is-draggable .el-dialog__header {
   cursor: grab;
+  user-select: none;
 }
 
 .el-dialog.draggable-form-dialog.is-dragging {

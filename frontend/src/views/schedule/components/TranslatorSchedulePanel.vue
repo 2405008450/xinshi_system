@@ -37,7 +37,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="importVisible" title="导入译员排期" width="min(900px, calc(100vw - 32px))" top="5vh" class="translator-import-dialog" @closed="resetImport">
+    <DraggableFormDialog v-model="importVisible" title="导入译员排期" width="min(900px, calc(100vw - 32px))" top="5vh" class="translator-import-dialog" @closed="resetImport">
       <el-alert type="info" :closable="false" show-icon title="支持现有外部收集表（G–P）和系统标准模板；请先预览，确认匹配结果后再导入。" />
       <div class="import-actions">
         <input type="file" accept=".xlsx" @change="onFileChange" />
@@ -60,7 +60,7 @@
         <el-button @click="importVisible = false">取消</el-button>
         <el-button type="primary" :loading="importing" :disabled="!preview?.preview_items?.length || preview?.errors?.length" @click="submitImport">确认导入</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

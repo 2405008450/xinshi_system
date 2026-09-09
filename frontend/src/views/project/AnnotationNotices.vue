@@ -138,7 +138,7 @@
 
   <AnnotationNoticeManager v-model="managerVisible" :tree="noticeTree" @refresh="handleStructureRefresh" />
 
-  <el-dialog
+  <DraggableFormDialog
     v-model="editorVisible"
     :title="`编辑标注须知 · ${activeNotice?.displayTitle || ''}`"
     width="min(960px, calc(100vw - 32px))"
@@ -153,7 +153,7 @@
       <el-button :disabled="saving" @click="requestEditorClose">取消</el-button>
       <el-button type="primary" :loading="saving" @click="saveNotice">保存</el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

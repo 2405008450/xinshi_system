@@ -375,9 +375,10 @@ ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
         WHERE conname='ck_annotation_project_status'
           AND pg_get_constraintdef(oid) LIKE '%paused%'
           AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+          AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
       ) THEN
         ALTER TABLE annotation_project DROP CONSTRAINT IF EXISTS ck_annotation_project_status;
-        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled','paused','actively_abandoned'));
+        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled','paused','actively_abandoned'));
       END IF;
     END $$
     """,
@@ -703,7 +704,7 @@ def ensure_annotation_status_history_constraints():
         return
     status_values = (
         "'initial_consultation','consultation_no_result','resource_sourcing',"
-        "'resource_sourcing_cancelled','trial_preparation','trial_in_progress',"
+        "'resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted',"
         "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
         "'sent_to_client','client_feedback','cancelled','partially_cancelled',"
         "'paused','actively_abandoned'"
@@ -716,6 +717,7 @@ def ensure_annotation_status_history_constraints():
                 WHERE conname='ck_annotation_status_history_from'
                   AND pg_get_constraintdef(oid) LIKE '%paused%'
                   AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+                  AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
               ) THEN
                 ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_from;
                 ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_from
@@ -726,6 +728,7 @@ def ensure_annotation_status_history_constraints():
                 WHERE conname='ck_annotation_status_history_to'
                   AND pg_get_constraintdef(oid) LIKE '%paused%'
                   AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
+                  AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
               ) THEN
                 ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_to;
                 ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_to
@@ -1259,7 +1262,7 @@ def ensure_multitype_workbench_schema():
             INSERT INTO project_workbench_responsibility (annotation_project_id, role_code)
             SELECT p.id, r.role_code FROM annotation_project p
             CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
-            WHERE p.project_status IN ('initial_consultation', 'resource_sourcing', 'trial_preparation', 'trial_in_progress', 'trial_passed', 'trial_partially_passed', 'project_in_progress', 'sent_to_client', 'client_feedback') ON CONFLICT DO NOTHING
+            WHERE p.project_status IN ('initial_consultation', 'resource_sourcing', 'trial_preparation', 'trial_in_progress', 'trial_submitted', 'trial_passed', 'trial_partially_passed', 'project_in_progress', 'sent_to_client', 'client_feedback') ON CONFLICT DO NOTHING
         """))
         conn.execute(text("""
             INSERT INTO project_workbench_responsibility (recruitment_project_id, role_code)

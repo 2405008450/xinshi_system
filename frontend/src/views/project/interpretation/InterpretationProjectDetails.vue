@@ -543,7 +543,7 @@
       </template>
     </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="languageManagerVisible"
       title="管理口译语种"
       class="language-manager-dialog"
@@ -579,7 +579,7 @@
         </el-table-column>
       </el-table>
       <template #footer><el-button @click="languageManagerVisible = false">关闭</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
     <BusinessMailComposer
       v-model="mailComposerVisible"
       project-type="interpretation"

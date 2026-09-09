@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <DraggableFormDialog
     v-model="visible"
     title="标注须知栏目管理"
     width="min(960px, calc(100vw - 32px))"
@@ -56,9 +56,9 @@
       </div>
     </div>
     <template #footer><el-button @click="visible = false">关闭</el-button></template>
-  </el-dialog>
+  </DraggableFormDialog>
 
-  <el-dialog
+  <DraggableFormDialog
     v-model="createVisible"
     :title="createForm.parentId ? '新增二级栏目' : '新增一级栏目'"
     width="min(520px, calc(100vw - 32px))"
@@ -77,7 +77,7 @@
       <el-button @click="createVisible = false">取消</el-button>
       <el-button type="primary" :loading="creating" @click="createSection">确定</el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

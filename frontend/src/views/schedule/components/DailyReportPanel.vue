@@ -70,7 +70,7 @@
       </el-collapse-transition>
     </section>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="mailPreviewDialog"
       title="发送工作报告"
       width="min(1180px, calc(100vw - 32px))"
@@ -142,7 +142,7 @@
         <el-button @click="mailPreviewDialog = false">取消</el-button>
         <el-button type="primary" :loading="sending" :disabled="mailImageUploading || !mailPreview.can_send || !mailPreview.subject?.trim()" @click="sendMail">确认发送</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

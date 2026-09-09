@@ -54,7 +54,7 @@
 
     <div class="comparison-pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next, jumper" @current-change="fetchGroups" @size-change="handlePageSize" /></div>
 
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑项目比较组' : '新增项目比较组'" width="min(760px, calc(100vw - 32px))" top="5vh" class="comparison-dialog" append-to-body @closed="resetForm">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑项目比较组' : '新增项目比较组'" width="min(760px, calc(100vw - 32px))" top="5vh" class="comparison-dialog" append-to-body @closed="resetForm">
       <AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="比较组名称" prop="name"><el-input v-model="form.name" maxlength="150" show-word-limit placeholder="请输入有业务含义的比较组名称" /></el-form-item>
         <el-form-item label="比较说明" prop="description"><el-input v-model="form.description" type="textarea" :rows="5" maxlength="5000" show-word-limit placeholder="请说明比较目的、项目之间的联系或讨论结论" /></el-form-item>
@@ -66,7 +66,7 @@
         </el-form-item>
       </AppForm>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="submitting" @click="submit">保存</el-button></template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 
@@ -113,9 +113,9 @@ const openEdit=async(row)=>{try{const detail=await comparisonApi.getComparisonGr
 const submit=async()=>{const valid=await formRef.value?.validate().catch(()=>false);if(!valid)return;submitting.value=true;try{const base={name:form.name.trim(),description:form.description.trim()};if(form.id){const payload={...base,expectedUpdatedAt:form.updatedAt};if(membershipChanged())payload.projectIds=form.projectIds;await comparisonApi.updateComparisonGroup(form.id,payload);ElMessage.success('项目比较组已更新')}else{await comparisonApi.createComparisonGroup({...base,projectIds:form.projectIds});ElMessage.success('项目比较组已创建')}dialogVisible.value=false;pagination.page=1;await fetchGroups()}catch(error){ElMessage.error(error.detail||'项目比较组保存失败')}finally{submitting.value=false}}
 
 const projectTypeMap={audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测'}
-const statusMap={initial_consultation:'初步咨询',consultation_no_result:'初步咨询后无结果',resource_sourcing:'资源开拓',resource_sourcing_cancelled:'取消资源开拓',trial_preparation:'试标准备',trial_in_progress:'试标中',trial_passed:'试标通过',trial_failed:'试标未通过',trial_partially_passed:'部分试标通过',project_in_progress:'项目进行中',sent_to_client:'已发客户',client_feedback:'客户反馈',cancelled:'已取消',partially_cancelled:'已部分取消',paused:'暂停',actively_abandoned:'主动放弃'}
+const statusMap={initial_consultation:'初步咨询',consultation_no_result:'初步咨询后无结果',resource_sourcing:'资源开拓',resource_sourcing_cancelled:'取消资源开拓',trial_preparation:'试标准备',trial_in_progress:'试标中',trial_submitted:'试标已提交',trial_passed:'试标通过',trial_failed:'试标未通过',trial_partially_passed:'部分试标通过',project_in_progress:'项目进行中',sent_to_client:'已发客户',client_feedback:'客户反馈',cancelled:'已取消',partially_cancelled:'已部分取消',paused:'暂停',actively_abandoned:'主动放弃'}
 const statusLabel=(value)=>statusMap[value]||value||'-'
-const statusType=(value)=>({resource_sourcing:'primary',trial_preparation:'warning',trial_in_progress:'warning',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger'}[value]||'info')
+const statusType=(value)=>({resource_sourcing:'primary',trial_preparation:'warning',trial_in_progress:'warning',trial_submitted:'primary',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger'}[value]||'info')
 const comparisonFields=[{key:'orderNo',label:'订单号'},{key:'client',label:'客户'},{key:'projectTypes',label:'项目类型'},{key:'languageItemsDisplay',label:'语言方向'},{key:'customerPriceSummary',label:'客户单价'},{key:'clientManagerName',label:'客户经理'},{key:'projectManagerName',label:'项目经理'},{key:'projectStatus',label:'项目进度'},{key:'potentialDemand',label:'（潜在）需求量'}]
 const fieldValue=(project,field)=>{let value=project[field.key];if(field.key==='client')value=project.clientShortName||project.clientFullName;if(field.key==='projectTypes')value=(project.projectTypes||[]).map((item)=>projectTypeMap[item]||item).join('；');return value===null||value===undefined||value===''?'-':String(value)}
 onMounted(fetchGroups)

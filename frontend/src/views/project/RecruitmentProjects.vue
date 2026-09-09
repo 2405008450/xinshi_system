@@ -260,7 +260,7 @@
       <template #footer><el-button type="primary" @click="jobDescriptionEditorVisible=false">完成</el-button></template>
     </DraggableFormDialog>
 
-    <el-dialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="progress-dialog">
+    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="progress-dialog">
       <template #header>
         <div class="progress-dialog-heading">
           <span class="progress-dialog-title">项目进度</span>
@@ -284,9 +284,9 @@
         <el-button type="primary" :loading="progressSaving" @click="addProgress">添加记录</el-button>
       </div>
       <el-timeline v-loading="progressLoading"><el-timeline-item v-for="item in progressRows" :key="item.id" :timestamp="formatDateTime(item.occurredAt)" :type="item.isSystem ? 'primary' : 'success'" placement="top"><el-card shadow="never"><div v-if="item.fromStatus || item.toStatus"><b>{{ item.fromStatus ? statusLabel(item.fromStatus) : '创建项目' }}</b><span> → </span><b>{{ item.toStatus ? statusLabel(item.toStatus) : '补充记录' }}</b></div><div class="progress-note">{{ item.note || '-' }}</div><small>{{ item.operatorName || '系统' }} · {{ item.isSystem ? '系统记录' : '人工记录' }}</small></el-card></el-timeline-item></el-timeline>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(980px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-list-dialog">
+    <DraggableFormDialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(980px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-list-dialog">
       <div class="candidate-toolbar"><span>共 {{ candidateRows.length }} 人</span><el-button v-if="canWrite" type="primary" @click="openCandidateEditor()">新增候选人</el-button></div>
       <RecruitmentCandidateTable
         :rows="candidateRows" :loading="candidateLoading" :can-write="canWrite" :resume-sources="resumeSources"
@@ -294,7 +294,7 @@
         @edit="openCandidateEditor" @delete="removeCandidate" @refresh="loadCandidates"
         @row-updated="replaceCandidate" @source-created="addResumeSource"
       />
-    </el-dialog>
+    </DraggableFormDialog>
 
     <DraggableFormDialog v-model="candidateEditorVisible" :title="candidateForm.id ? '编辑候选人' : '新增候选人'" width="min(760px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-editor-dialog">
       <div class="candidate-editor-body"><AppForm ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">

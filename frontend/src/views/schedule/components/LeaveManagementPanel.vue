@@ -57,7 +57,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑请假记录' : '新增请假记录'" width="min(560px, calc(100vw - 32px))" top="5vh" class="leave-form-dialog" @closed="resetForm">
+    <DraggableFormDialog v-model="dialogVisible" :title="editingId ? '编辑请假记录' : '新增请假记录'" width="min(560px, calc(100vw - 32px))" top="5vh" class="leave-form-dialog" @closed="resetForm">
       <AppForm ref="formRef" :model="form" :rules="rules" label-width="88px">
         <el-form-item label="员工" prop="employee_id">
           <el-select v-model="form.employee_id" filterable placeholder="请选择员工" style="width: 100%">
@@ -73,7 +73,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="submit">保存</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </div>
 </template>
 

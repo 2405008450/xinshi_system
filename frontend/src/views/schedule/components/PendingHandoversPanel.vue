@@ -8,7 +8,7 @@
     <el-button type="warning" link size="small" @click="dialogVisible = true">立即处理</el-button>
   </div>
 
-  <el-dialog v-model="dialogVisible" title="待确认的任务交接" width="920px" destroy-on-close>
+  <DraggableFormDialog v-model="dialogVisible" title="待确认的任务交接" width="920px" destroy-on-close>
     <div class="request-list">
       <el-card v-for="request in requests" :key="request.id" shadow="never" class="request-card">
         <template #header>
@@ -98,7 +98,7 @@
     <template #footer>
       <el-button @click="dialogVisible = false">稍后处理</el-button>
     </template>
-  </el-dialog>
+  </DraggableFormDialog>
 </template>
 
 <script setup>

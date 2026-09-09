@@ -84,7 +84,7 @@
       </template>
     </el-empty>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="rollbackDialogVisible"
       :title="rollbackDialogTitle"
       width="480px"
@@ -105,9 +105,9 @@
           确认打回
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="entityPickerVisible"
       title="选择订单"
       width="1120px"
@@ -219,7 +219,7 @@
           确认选择
         </el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
 
     <el-tabs v-model="activeTab" type="border-card" class="detail-tabs">
       <el-tab-pane label="待我处理" name="my_tasks">

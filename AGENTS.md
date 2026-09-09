@@ -55,11 +55,26 @@
 - 同类详情小窗出现于两个及以上页面时，应优先抽取公共组件或公共样式，不得在多个页面中长期复制并独立维护相同实现。
 - 新增或修改详情小窗后，除构建检查外，还应在实际页面点击“查看详情”，确认生成的是 `el-popover`、弹出方向和内容滚动均符合规范。
 
+## 可拖拽弹窗交互范式
+
+系统内新增、编辑、配置、导入、导出、进度、预览等使用 Element Plus Dialog 呈现的窗口，统一支持用户拖动调整位置：
+
+- 业务代码必须使用全局公共组件 `frontend/src/components/common/DraggableFormDialog.vue`，模板中写 `<DraggableFormDialog>`；不得直接新增原生 `<el-dialog>`，也不得在页面内重复实现拖拽指令、坐标计算或拖拽样式。
+- 公共组件统一启用 Element Plus `draggable`，并设置 `overflow=false`，确保弹窗不能被拖到视口之外而导致标题栏、关闭按钮或底部操作无法找回。
+- 弹窗标题栏是拖拽手柄，鼠标悬停与拖动中分别显示 `grab`、`grabbing` 光标；关闭按钮以及标题栏内的按钮、链接、输入控件仍必须保持其原有交互和光标语义。
+- 标题栏内展示订单号、项目名称等需要复制的业务文本时，该文本区域必须设置 `user-select: text` 和文本光标，并使用 `@mousedown.stop` 阻止事件进入拖拽手柄；只隔离实际文本区域，标题栏其余空白位置仍应能够拖动。
+- 弹窗每次打开时必须自动恢复预设位置，不保留上一次拖动坐标，避免窗口在视口尺寸变化或重新进入页面后出现在不可预期位置。
+- 页面仍可通过 `class`、`width`、`top`、`append-to-body`、`destroy-on-close`、`before-close` 等属性定制业务布局；公共组件必须透传 Element Plus Dialog 的属性、事件、插槽，并向外暴露 `resetPosition` 与 `handleClose`。
+- 嵌套弹窗继续遵循 Element Plus 要求设置 `append-to-body`；拖动过程中不得改变遮罩层级、焦点锁定、ESC 关闭和点击遮罩关闭等原有行为。
+- 小屏幕下弹窗最大宽度不得超过 `calc(100vw - 32px)`；拖拽能力不能替代响应式宽高、内容区滚动和固定底部操作栏设计。
+- `el-popover`、`el-tooltip`、`el-message-box` 等非 Dialog 浮层不套用该组件，继续按各自交互范式定位。
+- 新增或修改弹窗后，除构建检查外，必须实际验证标题栏可拖动、无法拖出视口、关闭按钮可点击、重新打开位置复位；嵌套弹窗还需验证层级与焦点行为。
+
 ## 长表单弹窗交互范式
 
 新增、编辑等表单内容可能超过当前视口高度时，统一采用“固定头部与底部操作栏 + 中间内容独立滚动”的布局，参考 `/consultations` 的表单弹窗实现：
 
-- 表单使用 Element Plus `el-dialog`；弹窗宽度必须受视口限制，例如 `width="min(960px, calc(100vw - 32px))"`，并建议设置 `top="5vh"`。
+- 表单使用全局 `DraggableFormDialog`；弹窗宽度必须受视口限制，例如 `width="min(960px, calc(100vw - 32px))"`，并建议设置 `top="5vh"`。
 - 弹窗根节点采用纵向 flex 布局，最大高度为 `90vh`，设置 `overflow: hidden`；不得让整个弹窗或页面随长表单继续向下延伸。
 - `el-dialog__header` 和 `el-dialog__footer` 设置为不可压缩区域，`el-dialog__body` 使用 `flex: 1`、`min-height: 0`、`overflow-y: auto`，只允许表单内容区域纵向滚动。
 - “取消”“确定/保存”等主要操作必须放在 `#footer` 插槽中，并在弹窗打开及内容滚动到任意位置时始终可见；不得要求用户滚动到表单末尾才能提交或取消。

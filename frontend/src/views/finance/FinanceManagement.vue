@@ -159,7 +159,7 @@
       style="margin-top: 16px"
     />
 
-    <el-dialog
+    <DraggableFormDialog
       v-model="dialogVisible"
       :title="isEdit ? '编辑财务记录' : '新增财务记录'"
       width="920px"
@@ -370,7 +370,7 @@
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
       </template>
-    </el-dialog>
+    </DraggableFormDialog>
   </el-card>
 </template>
 

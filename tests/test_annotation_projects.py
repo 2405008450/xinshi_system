@@ -133,7 +133,7 @@ def test_annotation_project_priority_defaults_to_medium_and_rejects_invalid_valu
         AnnotationProjectPriorityUpdate(priority="urgent")
 
 
-@pytest.mark.parametrize("project_status", ["paused", "actively_abandoned"])
+@pytest.mark.parametrize("project_status", ["trial_submitted", "paused", "actively_abandoned"])
 def test_annotation_project_accepts_new_statuses(project_status):
     create_payload = AnnotationProjectCreate(project_status=project_status)
     status_payload = AnnotationProjectStatusUpdate(
