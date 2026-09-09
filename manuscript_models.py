@@ -160,6 +160,10 @@ class ManuscriptArrangement(Base):
             "status IN ('draft', 'ready', 'sent', 'failed', 'cancelled')",
             name="ck_manuscript_arrangement_status",
         ),
+        CheckConstraint(
+            "file_selection_mode IN ('legacy_all', 'selected')",
+            name="ck_manuscript_arrangement_file_selection_mode",
+        ),
         Index(
             "ix_manuscript_arrangement_project_status",
             "translation_project_id",
@@ -195,6 +199,9 @@ class ManuscriptArrangement(Base):
     translator_pricing_method: Mapped[Optional[str]] = mapped_column(String(100))
     translator_unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
     translator_total_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    file_selection_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'legacy_all'")
+    )
 
     # 兼容旧接口；新批次的最终交稿时间由 final 类型节点同步到这里。
     planned_delivery_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
@@ -238,6 +245,46 @@ class ManuscriptArrangement(Base):
         back_populates="arrangement",
         cascade="all, delete-orphan",
         order_by="ManuscriptDeliveryMilestone.sequence_no",
+    )
+    selected_files: Mapped[list["ManuscriptArrangementFile"]] = relationship(
+        "ManuscriptArrangementFile",
+        back_populates="arrangement",
+        cascade="all, delete-orphan",
+        order_by="ManuscriptArrangementFile.relative_path",
+    )
+
+
+class ManuscriptArrangementFile(Base):
+    """单个译员安排选中的派稿文件快照。"""
+
+    __tablename__ = "manuscript_arrangement_file"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["arrangement_id"], ["manuscript_arrangement.id"],
+            ondelete="CASCADE", name="fk_manuscript_arrangement_file_arrangement",
+        ),
+        PrimaryKeyConstraint("id", name="manuscript_arrangement_file_pkey"),
+        UniqueConstraint(
+            "arrangement_id", "relative_path",
+            name="uq_manuscript_arrangement_file_path",
+        ),
+        Index("ix_manuscript_arrangement_file_arrangement", "arrangement_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    arrangement_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    modified_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    arrangement: Mapped["ManuscriptArrangement"] = relationship(
+        "ManuscriptArrangement", back_populates="selected_files"
     )
 
 

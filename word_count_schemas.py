@@ -45,6 +45,8 @@ class WordCountMatrixResponse(BaseModel):
     customer: WordCountValues = Field(default_factory=WordCountValues)
     translator_estimate: WordCountValues = Field(default_factory=WordCountValues)
     translators: list[TranslatorWordCountRow] = Field(default_factory=list)
+    source: Literal["project", "suborder", "suborder_aggregate"] = "project"
+    sub_order_count: int = 0
 
 
 class WordCountCellChange(BaseModel):

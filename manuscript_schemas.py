@@ -1,6 +1,7 @@
 """稿件安排模块的 API 数据结构。"""
 from datetime import datetime
 from decimal import Decimal
+from pathlib import PurePosixPath
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -14,6 +15,53 @@ DispatchStatus = Literal["draft", "ready", "partially_sent", "sent", "cancelled"
 MilestoneType = Literal["phase", "final"]
 SettlementMethod = str
 DEFAULT_SETTLEMENT_METHOD = "次月结"
+
+
+def normalize_relative_file_path(value: str) -> str:
+    normalized = str(value or "").strip().replace("\\", "/")
+    path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or path.is_absolute()
+        or ":" in normalized
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ValueError("派稿文件必须使用根目录下的安全相对路径")
+    return path.as_posix()
+
+
+class ManuscriptSelectedFileInput(BaseModel):
+    relative_path: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("relative_path", mode="before")
+    @classmethod
+    def validate_relative_path(cls, value):
+        return normalize_relative_file_path(value)
+
+
+class ManuscriptSelectedFileResponse(ManuscriptSelectedFileInput):
+    id: UUID
+    file_name: str
+    file_size: int = Field(ge=0)
+    modified_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ManuscriptDispatchFileItem(BaseModel):
+    relative_path: str
+    name: str
+    is_directory: bool = False
+    file_size: Optional[int] = None
+    modified_at: Optional[datetime] = None
+    selectable: bool = True
+    unavailable_reason: Optional[str] = None
+
+
+class ManuscriptDispatchFileListResponse(BaseModel):
+    relative_directory: str = ""
+    items: list[ManuscriptDispatchFileItem] = Field(default_factory=list)
+    truncated: bool = False
 
 
 class ManuscriptTranslatorItem(BaseModel):
@@ -147,9 +195,13 @@ class ManuscriptAssignmentInput(BaseModel):
     email_body: Optional[str] = Field(default=None, max_length=20000)
     remarks: Optional[str] = Field(default=None, max_length=5000)
     milestones: list[ManuscriptMilestoneInput] = Field(default_factory=list)
+    file_selection_mode: Literal["legacy_all", "selected"] = "legacy_all"
+    selected_files: list[ManuscriptSelectedFileInput] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def validate_settlement_and_milestones(self):
+        if self.file_selection_mode == "selected" and not self.selected_files:
+            raise ValueError("请选择至少一个派稿文件")
         if not any(
             getattr(self.planned, metric_type) is not None
             for metric_type in (
@@ -214,6 +266,11 @@ class ManuscriptDispatchCreate(BaseModel):
             for item in self.arrangements:
                 if not (item.translation_scope or "").strip():
                     raise ValueError("多人派稿时，每位译员都必须填写需翻译部分")
+        if any(
+            item.file_selection_mode != "selected" or not item.selected_files
+            for item in self.arrangements
+        ):
+            raise ValueError("新建或编辑派稿时，每位译员都必须选择至少一个派稿文件")
         return self
 
 
@@ -243,6 +300,8 @@ class ManuscriptArrangementCreate(BaseModel):
     email_subject: Optional[str] = Field(default=None, max_length=500)
     email_body: Optional[str] = Field(default=None, max_length=20000)
     remarks: Optional[str] = Field(default=None, max_length=5000)
+    file_selection_mode: Literal["legacy_all", "selected"] = "legacy_all"
+    selected_files: list[ManuscriptSelectedFileInput] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def validate_entity(self):
@@ -266,6 +325,8 @@ class ManuscriptArrangementCreate(BaseModel):
             raise ValueError("必须填写全稿预定时间")
         if not (self.settlement_method or "").strip():
             raise ValueError("必须填写译员结账方式")
+        if self.file_selection_mode != "selected" or not self.selected_files:
+            raise ValueError("新建派稿时必须选择至少一个派稿文件")
         return self
 
 
@@ -316,6 +377,8 @@ class ManuscriptArrangementResponse(BaseModel):
     translator_pricing_method: Optional[str] = None
     translator_unit_price: Optional[Decimal] = None
     translator_total_price: Optional[Decimal] = None
+    file_selection_mode: Literal["legacy_all", "selected"] = "legacy_all"
+    selected_files: list[ManuscriptSelectedFileResponse] = Field(default_factory=list)
     planned_delivery_at: Optional[datetime] = None
     manuscript_source_path: Optional[str] = None
     email_subject: Optional[str] = None

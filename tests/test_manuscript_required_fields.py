@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from manuscript_schemas import (
     ManuscriptArrangementCreate,
     ManuscriptAssignmentInput,
+    ManuscriptDispatchCreate,
     ManuscriptMilestoneInput,
 )
 
@@ -117,3 +118,27 @@ def test_legacy_create_endpoint_payload_uses_the_same_required_fields():
         )
 
     assert "至少需要填写一个计量数值" in str(exc_info.value)
+
+
+def test_sub_order_dispatch_requires_selected_files_for_each_translator():
+    values = _valid_values()
+    assignment = ManuscriptAssignmentInput(**values)
+    with pytest.raises(ValidationError, match="每位译员都必须选择"):
+        ManuscriptDispatchCreate(
+            entity_type="suborder",
+            translation_project_id=uuid4(),
+            sub_order_id=uuid4(),
+            arrangements=[assignment],
+        )
+
+    values.update({
+        "file_selection_mode": "selected",
+        "selected_files": [{"relative_path": "合同/正文.docx"}],
+    })
+    payload = ManuscriptDispatchCreate(
+        entity_type="suborder",
+        translation_project_id=uuid4(),
+        sub_order_id=uuid4(),
+        arrangements=[ManuscriptAssignmentInput(**values)],
+    )
+    assert payload.arrangements[0].selected_files[0].relative_path == "合同/正文.docx"

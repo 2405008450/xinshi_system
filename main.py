@@ -24,6 +24,7 @@ from auth_security_models import (
 )
 from manuscript_models import (
     ManuscriptArrangement,
+    ManuscriptArrangementFile,
     ManuscriptDeliveryMilestone,
     ManuscriptDispatch,
 )
@@ -40,6 +41,7 @@ from models import (
     Role,
     RolePermission,
     TranslatorSchedule,
+    TranslationSubOrderChargeItem,
 )
 from concurrency import StaleUpdateError
 from error_localization import localize_http_detail, localize_validation_errors
@@ -530,6 +532,7 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS smtp_message_id VARCHAR(255)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS send_error TEXT",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS completion_remarks VARCHAR(255)",
+    "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS file_selection_mode VARCHAR(20) NOT NULL DEFAULT 'legacy_all'",
 )
 
 
@@ -1000,6 +1003,15 @@ def ensure_manuscript_constraints():
                         UNIQUE (dispatch_id, translator_id);
                 END IF;
 
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_manuscript_arrangement_file_selection_mode'
+                ) THEN
+                    ALTER TABLE manuscript_arrangement
+                        ADD CONSTRAINT ck_manuscript_arrangement_file_selection_mode
+                        CHECK (file_selection_mode IN ('legacy_all', 'selected'));
+                END IF;
+
             END $$;
         """))
         conn.execute(text("""
@@ -1401,8 +1413,10 @@ def run_runtime_migrations():
     ManuscriptDispatch.__table__.create(bind=engine, checkfirst=True)
     ManuscriptArrangement.__table__.create(bind=engine, checkfirst=True)
     ensure_manuscript_arrangement_columns()
+    ManuscriptArrangementFile.__table__.create(bind=engine, checkfirst=True)
     ManuscriptDeliveryMilestone.__table__.create(bind=engine, checkfirst=True)
     WordCountMetric.__table__.create(bind=engine, checkfirst=True)
+    TranslationSubOrderChargeItem.__table__.create(bind=engine, checkfirst=True)
     backfill_manuscript_dispatches()
     ensure_manuscript_constraints()
     cleanup_orphan_chat_attachments()

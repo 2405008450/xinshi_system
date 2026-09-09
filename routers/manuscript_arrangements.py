@@ -23,6 +23,7 @@ from manuscript_schemas import (
     ManuscriptBatchSendResponse,
     ManuscriptCompletionUpdate,
     ManuscriptDispatchCreate,
+    ManuscriptDispatchFileListResponse,
     ManuscriptDispatchResponse,
     ManuscriptDispatchUpdate,
     ManuscriptMailPreview,
@@ -45,6 +46,7 @@ from manuscript_service import (
     get_arrangement_mail_preview,
     list_arrangements,
     list_dispatches,
+    list_dispatch_files,
     send_arrangement,
     send_dispatch,
     update_arrangement,
@@ -205,6 +207,29 @@ def read_context(
 def read_mail_status():
     """返回脱敏后的邮件服务配置状态。"""
     return get_mail_status()
+
+
+@router.get(
+    "/projects/{project_id}/dispatch-files",
+    response_model=ManuscriptDispatchFileListResponse,
+)
+def read_dispatch_files(
+    project_id: UUID,
+    relative_directory: str = Query(default="", max_length=5000),
+    limit: int = Query(default=500, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        return list_dispatch_files(
+            db,
+            project_id,
+            relative_directory=relative_directory,
+            limit=limit,
+            current_user=current_user,
+        )
+    except Exception as exc:
+        _raise_business_error(exc)
 
 
 @router.get("/batches", response_model=list[ManuscriptDispatchResponse])

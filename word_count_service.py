@@ -86,9 +86,25 @@ def get_word_count_matrix(
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
     entity_values = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
-    for metric in _entity_metric_query(db, entity_type, entity_id).all():
+    source = "suborder" if entity_type == "suborder" else "project"
+    sub_order_count = 0
+    metrics = _entity_metric_query(db, entity_type, entity_id).all()
+    if entity_type == "project":
+        child_ids = [
+            row[0] for row in db.query(TranslationSubOrder.id).filter(
+                TranslationSubOrder.parent_project_id == entity_id
+            ).all()
+        ]
+        sub_order_count = len(child_ids)
+        if child_ids:
+            source = "suborder_aggregate"
+            metrics = db.query(WordCountMetric).filter(
+                WordCountMetric.sub_order_id.in_(child_ids)
+            ).all()
+    for metric in metrics:
         if metric.dimension in entity_values and metric.metric_type in METRIC_TYPES:
-            entity_values[metric.dimension][metric.metric_type] = metric.count_value
+            current = entity_values[metric.dimension][metric.metric_type]
+            entity_values[metric.dimension][metric.metric_type] = (current or 0) + metric.count_value
 
     arrangements = _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     arrangement_ids = [row.id for row in arrangements]
@@ -106,6 +122,8 @@ def get_word_count_matrix(
     return {
         "entity_type": entity_type,
         "entity_id": entity_id,
+        "source": source,
+        "sub_order_count": sub_order_count,
         **entity_values,
         "translators": [
             {
@@ -176,6 +194,13 @@ def patch_word_count_matrix(
     dispatch_id: Optional[UUID] = None,
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
+    if entity_type == "project" and db.query(TranslationSubOrder.id).filter(
+        TranslationSubOrder.parent_project_id == entity_id
+    ).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="母订单字数由子订单自动汇总，请编辑具体子订单",
+        )
     allowed_arrangements = {
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }
@@ -218,6 +243,28 @@ def save_created_entity_matrix(
         for metric_type, value in values.model_dump().items():
             if value is None:
                 continue
+            _apply_cell(
+                db,
+                owner_filters=_owner_filters(entity_type, entity_id),
+                dimension=dimension,
+                metric_type=metric_type,
+                value=value,
+                updated_by=updated_by,
+            )
+
+
+def replace_entity_matrix(
+    db: Session,
+    entity_type: str,
+    entity_id: UUID,
+    matrix: WordCountCreateMatrix,
+    *,
+    updated_by: Optional[UUID],
+) -> None:
+    """在调用方事务内用完整矩阵替换项目或子订单字数。"""
+    for dimension in ENTITY_DIMENSIONS:
+        values = getattr(matrix, dimension)
+        for metric_type, value in values.model_dump().items():
             _apply_cell(
                 db,
                 owner_filters=_owner_filters(entity_type, entity_id),

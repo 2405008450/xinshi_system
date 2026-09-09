@@ -74,6 +74,8 @@ def test_manuscript_dispatch_update_accepts_expected_updated_at():
         arrangements=[{
             "translator_id": uuid4(),
             "planned": {"words": 1000},
+            "file_selection_mode": "selected",
+            "selected_files": [{"relative_path": "稿件.docx"}],
             "milestones": [{
                 "milestone_type": "final",
                 "name": "译员交稿_全稿预定时间",

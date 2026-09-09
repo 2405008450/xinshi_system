@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 const noticePage = readFileSync(new URL('../src/views/project/AnnotationNotices.vue', import.meta.url), 'utf8')
 const noticeManager = readFileSync(new URL('../src/components/annotation/AnnotationNoticeManager.vue', import.meta.url), 'utf8')
 const noticeApi = readFileSync(new URL('../src/api/annotationNotices.js', import.meta.url), 'utf8')
+const richTextComposer = readFileSync(new URL('../src/components/RichTextComposer.vue', import.meta.url), 'utf8')
 
 test('标注须知使用后端树形栏目并按需加载正文', () => {
   assert.match(noticePage, /getAnnotationNoticeTree/)
@@ -39,4 +40,10 @@ test('前端 API 包含树、结构管理、正文和搜索接口', () => {
   ]) assert.ok(noticeApi.includes(path))
   assert.match(noticeApi, /reorderAnnotationNotices/)
   assert.match(noticeApi, /expected_structure_updated_at/)
+})
+
+test('富文本编辑器为列表恢复缩进，编号不会被左边界裁切', () => {
+  assert.match(richTextComposer, /\.rich-editor__prose ul/)
+  assert.match(richTextComposer, /\.rich-editor__prose ol/)
+  assert.match(richTextComposer, /padding-left:\s*28px/)
 })

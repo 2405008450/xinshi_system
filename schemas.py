@@ -12,6 +12,11 @@ from department_utils import normalize_department
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 import re
 
+WORD_COUNT_METRIC_TYPES = {
+    'words', 'characters_no_spaces', 'cjk_chars_korean_words',
+    'foreign_words', 'documents', 'pages',
+}
+
 _PROGRESS_PERCENT_RE = re.compile(r"^(?:100|[0-9]|[1-9][0-9])%$")
 
 
@@ -814,6 +819,56 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     translator_total_price: Optional[Decimal] = None
 
 
+class TranslationSubOrderChargeItemInput(BaseModel):
+    id: Optional[UUID] = None
+    sequence_no: int = Field(default=1, ge=1)
+    item_name: str = Field(min_length=1, max_length=100)
+    pricing_mode: Literal['metric', 'fixed'] = 'metric'
+    metric_type: Optional[str] = None
+    unit_size: Optional[Decimal] = Field(default=None, gt=0, max_digits=14, decimal_places=4)
+    unit_price: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
+    currency: str = Field(default='CNY', min_length=3, max_length=3)
+    amount_override: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    remarks: Optional[str] = Field(default=None, max_length=5000)
+
+    @field_validator('item_name', 'remarks', mode='before')
+    @classmethod
+    def normalize_charge_text(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_charge_currency(cls, value):
+        return str(value or 'CNY').strip().upper()
+
+    @model_validator(mode='after')
+    def validate_pricing_mode(self):
+        if self.pricing_mode == 'metric':
+            if self.metric_type not in WORD_COUNT_METRIC_TYPES:
+                raise ValueError('计量计价必须选择有效的客户字数口径')
+            if self.unit_size is None:
+                self.unit_size = Decimal('1') if self.metric_type in {'documents', 'pages'} else Decimal('1000')
+            if self.unit_price is None:
+                raise ValueError('计量计价必须填写单价')
+        elif self.amount_override is None:
+            raise ValueError('固定收费必须填写最终金额')
+        return self
+
+
+class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
+    id: UUID
+    sub_order_id: UUID
+    quantity: Optional[int] = None
+    calculated_amount: Optional[Decimal] = None
+    final_amount: Optional[Decimal] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
 class TranslationSubOrderResponse(BaseModel):
     id: UUID
@@ -825,6 +880,7 @@ class TranslationSubOrderResponse(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    customer_charge_items: list[TranslationSubOrderChargeItemResponse] = Field(default_factory=list)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -877,6 +933,8 @@ class TranslationProjectResponse(TranslationProjectBase):
     project_file_attribute_level2: Optional[str] = None
     project_file_attribute_level3: Optional[str] = None
     project_file_difficulty: Optional[str] = None
+    word_count_matrix_source: Literal['project', 'suborder_aggregate'] = 'project'
+    word_count_sub_order_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -891,6 +949,7 @@ class TranslationSubOrderCreate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    customer_charge_items: list[TranslationSubOrderChargeItemInput] = Field(default_factory=list)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
@@ -933,6 +992,7 @@ class TranslationSubOrderUpdate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: Optional[WordCountCreateMatrix] = None
+    customer_charge_items: Optional[list[TranslationSubOrderChargeItemInput]] = None
     customer_deadline_time: Optional[datetime] = None
     sent_to_client_time: Optional[datetime] = None
     client_feedback: Optional[str] = None

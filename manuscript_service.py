@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import re
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from concurrency import assert_fresh
 from mail_service import MailAttachment, SmtpSettings, send_plain_text_email
 from manuscript_archive import (
     build_manuscript_path_archive,
+    list_manuscript_directory,
+    resolve_selected_dispatch_file,
     validate_manuscript_mail_size,
 )
 from mail_inline_image_service import (
@@ -28,6 +31,7 @@ from mail_inline_image_service import (
 )
 from manuscript_models import (
     ManuscriptArrangement,
+    ManuscriptArrangementFile,
     ManuscriptDeliveryMilestone,
     ManuscriptDispatch,
 )
@@ -390,7 +394,10 @@ def _load_dispatch(
         .options(
             joinedload(ManuscriptDispatch.arrangements).joinedload(
                 ManuscriptArrangement.milestones
-            )
+            ),
+            joinedload(ManuscriptDispatch.arrangements).joinedload(
+                ManuscriptArrangement.selected_files
+            ),
         )
         .filter(ManuscriptDispatch.id == dispatch_id)
         .first()
@@ -430,6 +437,63 @@ def _load_entity(
         raise ValueError("母订单稿件安排不能提供子订单 ID")
     _ensure_order_can_be_arranged(project, sub_order)
     return project, sub_order
+
+
+def _ensure_dispatch_granularity(
+    db: Session,
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+) -> None:
+    if sub_order is not None:
+        return
+    has_sub_orders = db.query(TranslationSubOrder.id).filter(
+        TranslationSubOrder.parent_project_id == project.id
+    ).first()
+    if has_sub_orders:
+        raise ValueError("该母订单已有子订单，请选择具体子订单进行稿件安排")
+
+
+def list_dispatch_files(
+    db: Session,
+    project_id: UUID,
+    *,
+    relative_directory: str,
+    limit: int,
+    current_user: AppUser,
+) -> dict:
+    project = db.query(TranslationProject).filter(TranslationProject.id == project_id).first()
+    if not project:
+        raise LookupError("项目不存在")
+    _ensure_can_manage_manuscript(db, project, None, current_user)
+    dispatch_path = _get_project_dispatch_path(db, project.id)
+    if not dispatch_path:
+        raise ValueError("请先在笔译项目中填写派稿文路径")
+    return list_manuscript_directory(
+        dispatch_path, relative_directory, limit=limit,
+    )
+
+
+def _validate_selected_file_snapshots(
+    arrangement: ManuscriptArrangement,
+    dispatch_path: Optional[str],
+) -> None:
+    if arrangement.file_selection_mode != "selected":
+        return
+    if not arrangement.selected_files:
+        raise ValueError(f"{arrangement.translator_name_snapshot} 尚未选择派稿文件")
+    if not dispatch_path:
+        raise ValueError("请先填写母订单派稿文路径")
+    for selected in arrangement.selected_files:
+        file_path = resolve_selected_dispatch_file(
+            Path(dispatch_path), selected.relative_path,
+        )
+        stat = file_path.stat()
+        changed = (
+            stat.st_size != selected.file_size
+            or abs(stat.st_mtime - selected.modified_at.timestamp()) > 1
+        )
+        if changed:
+            raise ValueError(f"派稿文件已发生变化，请重新选择并确认：{selected.relative_path}")
 
 
 def _entity_values(
@@ -744,6 +808,7 @@ def _create_arrangement_line(
         ).strip() or None,
         translator_unit_price=assignment.translator_unit_price,
         translator_total_price=assignment.translator_total_price,
+        file_selection_mode=assignment.file_selection_mode,
         manuscript_source_path=entity_values["dispatch_path"],
         email_subject=email_subject,
         email_body=email_body,
@@ -753,6 +818,27 @@ def _create_arrangement_line(
         created_by_name=current_user.full_name or current_user.username,
     )
     _apply_milestones(arrangement, assignment)
+    root = entity_values.get("dispatch_path")
+    if assignment.file_selection_mode == "selected":
+        if not root:
+            raise ValueError("请先填写母订单派稿文路径并选择派稿文件")
+        seen_paths = set()
+        for selected in assignment.selected_files:
+            if selected.relative_path in seen_paths:
+                raise ValueError("同一译员不能重复选择同一个派稿文件")
+            seen_paths.add(selected.relative_path)
+            file_path = resolve_selected_dispatch_file(
+                Path(root), selected.relative_path,
+            )
+            stat = file_path.stat()
+            arrangement.selected_files.append(
+                ManuscriptArrangementFile(
+                    relative_path=selected.relative_path,
+                    file_name=file_path.name,
+                    file_size=stat.st_size,
+                    modified_at=datetime.datetime.fromtimestamp(stat.st_mtime),
+                )
+            )
     return arrangement
 
 
@@ -838,6 +924,14 @@ def _get_active_manuscript_projects(
                 _effective_order_status_expression(WorkflowInstance.sub_order_id),
                 "",
             ).notin_(PENDING_ORDER_STATUSES)
+        )
+        .filter(
+            or_(
+                WorkflowInstance.sub_order_id.is_not(None),
+                ~db.query(TranslationSubOrder.id).filter(
+                    TranslationSubOrder.parent_project_id == TranslationProject.id
+                ).exists(),
+            )
         )
     )
 
@@ -1155,7 +1249,10 @@ def list_dispatches(
         .options(
             joinedload(ManuscriptDispatch.arrangements).joinedload(
                 ManuscriptArrangement.milestones
-            )
+            ),
+            joinedload(ManuscriptDispatch.arrangements).joinedload(
+                ManuscriptArrangement.selected_files
+            ),
         )
         .join(
             TranslationProject,
@@ -1216,7 +1313,10 @@ def list_arrangements(
 ) -> list[ManuscriptArrangement]:
     query = (
         db.query(ManuscriptArrangement)
-        .options(joinedload(ManuscriptArrangement.milestones))
+        .options(
+            joinedload(ManuscriptArrangement.milestones),
+            joinedload(ManuscriptArrangement.selected_files),
+        )
         .join(
             TranslationProject,
             ManuscriptArrangement.translation_project_id == TranslationProject.id,
@@ -1260,7 +1360,10 @@ def get_arrangement(
 ) -> Optional[ManuscriptArrangement]:
     arrangement = (
         db.query(ManuscriptArrangement)
-        .options(joinedload(ManuscriptArrangement.milestones))
+        .options(
+            joinedload(ManuscriptArrangement.milestones),
+            joinedload(ManuscriptArrangement.selected_files),
+        )
         .filter(ManuscriptArrangement.id == arrangement_id)
         .first()
     )
@@ -1281,6 +1384,7 @@ def create_dispatch(
         payload.sub_order_id,
     )
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    _ensure_dispatch_granularity(db, project, sub_order)
     values = _entity_values(
         project,
         sub_order,
@@ -1350,6 +1454,7 @@ def update_dispatch(
         payload.sub_order_id,
     )
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    _ensure_dispatch_granularity(db, project, sub_order)
     values = _entity_values(
         project,
         sub_order,
@@ -1507,9 +1612,21 @@ def confirm_dispatch(
         dispatch.sub_order_id,
     )
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    _ensure_dispatch_granularity(db, project, sub_order)
+    if sub_order is not None:
+        matrix = entity_matrix_values(db, "suborder", sub_order.id)
+        if not any(
+            value is not None and value > 0
+            for values in matrix.values()
+            for value in values.values()
+        ):
+            raise ValueError("请先填写子订单独立字数统计，再确认稿件安排")
     now = datetime.datetime.now()
     for arrangement in dispatch.arrangements:
         _validate_stored_arrangement_required_fields(arrangement)
+        _validate_selected_file_snapshots(
+            arrangement, _get_project_dispatch_path(db, project.id),
+        )
         translator = (
             db.query(Translator)
             .filter(Translator.id == arrangement.translator_id)
@@ -1638,6 +1755,8 @@ def create_arrangement(
                 email_body=payload.email_body,
                 remarks=payload.remarks,
                 milestones=milestones,
+                file_selection_mode=payload.file_selection_mode,
+                selected_files=payload.selected_files,
             )
         ],
     )
@@ -1690,6 +1809,7 @@ def send_arrangement(
         raise ValueError("请先在项目详情中填写派稿文路径，再发送稿件")
     if not preview["recipient_email"]:
         raise ValueError("译员资料中缺少收件邮箱")
+    _validate_selected_file_snapshots(arrangement, preview["dispatch_path"])
 
     # 发送前按项目与派稿明细的最新数据重新生成，确保实际邮件与预览一致。
     arrangement.recipient_email = preview["recipient_email"]
@@ -1717,6 +1837,11 @@ def send_arrangement(
         preview["dispatch_path"],
         preview["reference_file_path_one"],
         filename_stem=project.order_no or project.project_name,
+        selected_dispatch_files=(
+            [item.relative_path for item in arrangement.selected_files]
+            if arrangement.file_selection_mode == "selected"
+            else None
+        ),
     )
     mail_attachments = [path_archive]
     if attachment:

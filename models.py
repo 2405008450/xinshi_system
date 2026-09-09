@@ -1,6 +1,7 @@
 from typing import Optional
 import datetime
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text, Time, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -680,11 +681,58 @@ class TranslationSubOrder(Base):
     translator: Mapped[Optional['Translator']] = relationship('Translator', foreign_keys=[translator_id])
     creator: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[created_by])
     workflow_instance: Mapped[Optional['WorkflowInstance']] = relationship('WorkflowInstance', back_populates='sub_order', uselist=False, cascade='all, delete-orphan')
+    customer_charge_items: Mapped[list['TranslationSubOrderChargeItem']] = relationship(
+        'TranslationSubOrderChargeItem',
+        back_populates='sub_order',
+        cascade='all, delete-orphan',
+        order_by='TranslationSubOrderChargeItem.sequence_no',
+    )
 
     @property
     def translator_name(self) -> Optional[str]:
         """通过译员外键返回姓名，供子订单详情接口直接展示。"""
         return self.translator.translator_name if self.translator else None
+
+
+class TranslationSubOrderChargeItem(Base):
+    """子订单客户收费明细；计量数量取自子订单客户字数矩阵。"""
+
+    __tablename__ = 'translation_sub_order_charge_item'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['sub_order_id'], ['translation_sub_order.id'], ondelete='CASCADE',
+            name='fk_sub_order_charge_item_sub_order',
+        ),
+        PrimaryKeyConstraint('id', name='translation_sub_order_charge_item_pkey'),
+        CheckConstraint("pricing_mode IN ('metric', 'fixed')", name='ck_sub_order_charge_item_mode'),
+        CheckConstraint(
+            "metric_type IS NULL OR metric_type IN ('words', 'characters_no_spaces', "
+            "'cjk_chars_korean_words', 'foreign_words', 'documents', 'pages')",
+            name='ck_sub_order_charge_item_metric',
+        ),
+        CheckConstraint('unit_size IS NULL OR unit_size > 0', name='ck_sub_order_charge_item_unit_size'),
+        CheckConstraint('unit_price IS NULL OR unit_price >= 0', name='ck_sub_order_charge_item_unit_price'),
+        CheckConstraint('amount_override IS NULL OR amount_override >= 0', name='ck_sub_order_charge_item_amount_override'),
+        Index('ix_sub_order_charge_item_sub_order', 'sub_order_id', 'sequence_no'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    sub_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    item_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    pricing_mode: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'metric'"))
+    metric_type: Mapped[Optional[str]] = mapped_column(String(50))
+    unit_size: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
+    unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default=text("'CNY'"))
+    amount_override: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    sub_order: Mapped['TranslationSubOrder'] = relationship(
+        'TranslationSubOrder', back_populates='customer_charge_items'
+    )
 
 
 class UserRole(Base):

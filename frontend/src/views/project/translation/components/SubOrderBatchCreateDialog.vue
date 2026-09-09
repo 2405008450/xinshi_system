@@ -71,11 +71,6 @@
         <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="form.languagePair" :show-hint="false" /></el-form-item></el-col>
       </el-row>
       <el-row :gutter="16">
-        <el-col :xs="24" :md="12">
-          <el-form-item label="字数统计">
-            <div class="word-count-summary"><span>{{ formatWordCountMatrix(form.wordCountMatrix) }}</span><WordCountMatrixPopover v-model="form.wordCountMatrix" title="批量子订单字数统计" /></div>
-          </el-form-item>
-        </el-col>
         <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
       </el-row>
       <el-row :gutter="16">
@@ -98,9 +93,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createSubOrdersBulk } from '@/api/subOrders'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
-import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
-import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
+import { createEmptyWordCountMatrix } from '@/utils/wordCountMatrix'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
 const props = defineProps({
@@ -123,7 +117,6 @@ const filenameText = ref('')
 const fileList = ref([])
 const submitting = ref(false)
 
-const clone = (value) => value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value
 const createForm = () => ({
   count: 1,
   startIndex: 1,
@@ -131,7 +124,7 @@ const createForm = () => ({
   fileTypeSecondary: props.project.fileTypeSecondary || '',
   languagePair: props.project.languagePair || '',
   priority: props.project.priority || '',
-  wordCountMatrix: clone(props.project.wordCountMatrix) || createEmptyWordCountMatrix(),
+  wordCountMatrix: createEmptyWordCountMatrix(),
   customerDeadlineTime: props.project.customerDeadlineTime || '',
   sentToClientTime: props.project.sentToClientTime || '',
   clientFeedback: props.project.clientFeedback || '',

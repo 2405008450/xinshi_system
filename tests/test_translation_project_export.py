@@ -31,6 +31,20 @@ def sample_project(*, project_name="示例项目", with_sub_order=True):
         assigned_translators=[assignment],
         translator_delivery_progress="25%",
         remarks="=HYPERLINK(\"https://example.com\")",
+        customer_charge_items=[
+            SimpleNamespace(
+                item_name="翻译费",
+                pricing_mode="metric",
+                metric_type="words",
+                quantity=800,
+                unit_size=1000,
+                unit_price=120,
+                currency="CNY",
+                calculated_amount=96,
+                final_amount=88,
+                remarks="折扣价",
+            )
+        ],
     )
     return SimpleNamespace(
         order_no="TP-260901-001",
@@ -64,9 +78,10 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     content = export_service.translation_projects_to_xlsx([[sample_project()]])
     workbook = load_workbook(BytesIO(content), data_only=False)
 
-    assert workbook.sheetnames == ["母订单", "子订单"]
+    assert workbook.sheetnames == ["母订单", "子订单", "子订单客户收费"]
     project_headers, project_row = row_by_headers(workbook["母订单"])
     sub_headers, sub_row = row_by_headers(workbook["子订单"])
+    charge_headers, charge_row = row_by_headers(workbook["子订单客户收费"])
 
     assert sum(header.startswith(("我司-", "客户-", "译员预估-")) for header in project_headers) == 18
     assert project_row["订单号"] == "TP-260901-001"
@@ -85,12 +100,18 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert sub_row["子订单号"] == "TP-260901-001.001"
     assert sub_row["我司-字数"] == 500
     assert sub_row["译员交付进度"] == 0.25
+    assert charge_row["子订单号"] == "TP-260901-001.001"
+    assert charge_row["客户字数口径"] == "字数"
+    assert charge_row["数量"] == 800
+    assert charge_row["计算金额"] == 96
+    assert charge_row["最终金额"] == 88
 
     remarks_cell = workbook["子订单"].cell(row=2, column=sub_headers.index("备注") + 1)
     assert remarks_cell.data_type == "s"
     assert remarks_cell.value.startswith("'=")
     assert workbook["母订单"].freeze_panes == "A2"
     assert workbook["子订单"].auto_filter.ref.endswith("2")
+    assert charge_headers[:4] == ["母订单号", "母项目名称", "子订单号", "文件/子项目名称"]
 
 
 def test_export_rejects_empty_data_and_sheet_row_limit():

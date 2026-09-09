@@ -62,6 +62,7 @@ WORD_COUNT_METRICS = (
     ("documents", "份数"),
     ("pages", "页数"),
 )
+WORD_COUNT_METRIC_LABELS = dict(WORD_COUNT_METRICS)
 
 _ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
@@ -270,6 +271,29 @@ SUB_ORDER_COLUMNS = [
     ExportColumn("更新时间", lambda pair: _read(pair[1], "updated_at"), "datetime", 20),
 ]
 
+CHARGE_COLUMNS = [
+    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
+    ExportColumn("母项目名称", lambda item: _read(item[0], "project_name"), width=32),
+    ExportColumn("子订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
+    ExportColumn("文件/子项目名称", lambda item: _read(item[1], "sub_project_name"), width=32),
+    ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
+    ExportColumn("计价模式", lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费", width=14),
+    ExportColumn(
+        "客户字数口径",
+        lambda item: WORD_COUNT_METRIC_LABELS.get(
+            _read(item[2], "metric_type"), _read(item[2], "metric_type")
+        ),
+        width=24,
+    ),
+    ExportColumn("数量", lambda item: _read(item[2], "quantity"), "integer", 16),
+    ExportColumn("每计价单位", lambda item: _read(item[2], "unit_size"), "decimal", 16),
+    ExportColumn("单价", lambda item: _read(item[2], "unit_price"), "decimal", 16),
+    ExportColumn("币种", lambda item: _read(item[2], "currency"), width=10),
+    ExportColumn("计算金额", lambda item: _read(item[2], "calculated_amount"), "money", 16),
+    ExportColumn("最终金额", lambda item: _read(item[2], "final_amount"), "money", 16),
+    ExportColumn("备注", lambda item: _read(item[2], "remarks"), width=36),
+]
+
 
 def _percent_value(value: Any) -> float | str | None:
     if value in (None, ""):
@@ -291,6 +315,11 @@ def _cell_value(value: Any, kind: str) -> Any:
     if kind == "integer":
         try:
             return int(value)
+        except (TypeError, ValueError):
+            return _safe_text(value)
+    if kind in {"decimal", "money"}:
+        try:
+            return float(value)
         except (TypeError, ValueError):
             return _safe_text(value)
     if kind == "datetime" and isinstance(value, (date, datetime)):
@@ -322,7 +351,7 @@ def _append_row(sheet, columns: Sequence[ExportColumn], item: Any) -> None:
         cell = WriteOnlyCell(sheet, value=_cell_value(column.getter(item), column.kind))
         cell.font = Font(name="微软雅黑", size=10, color="1F2937")
         cell.alignment = Alignment(
-            horizontal="right" if column.kind in {"integer", "percent"} else "left",
+            horizontal="right" if column.kind in {"integer", "percent", "decimal", "money"} else "left",
             vertical="top",
             wrap_text=column.kind not in {"integer", "percent", "datetime"},
         )
@@ -332,6 +361,10 @@ def _append_row(sheet, columns: Sequence[ExportColumn], item: Any) -> None:
             cell.number_format = "#,##0"
         elif column.kind == "percent":
             cell.number_format = "0%"
+        elif column.kind == "decimal":
+            cell.number_format = "#,##0.0000"
+        elif column.kind == "money":
+            cell.number_format = "#,##0.00"
         elif column.kind == "identifier":
             cell.number_format = "@"
         cells.append(cell)
@@ -343,12 +376,14 @@ def translation_projects_to_xlsx(
     *,
     max_rows_per_sheet: int = EXPORT_MAX_ROWS_PER_SHEET,
 ) -> bytes:
-    """把已挂载关联数据的项目批次写成双工作表 XLSX。"""
+    """把已挂载关联数据的项目批次写成母订单、子订单和收费明细工作表。"""
     workbook = Workbook(write_only=True)
     project_sheet = _make_sheet(workbook, "母订单", PROJECT_COLUMNS)
     sub_order_sheet = _make_sheet(workbook, "子订单", SUB_ORDER_COLUMNS)
+    charge_sheet = _make_sheet(workbook, "子订单客户收费", CHARGE_COLUMNS)
     project_count = 0
     sub_order_count = 0
+    charge_count = 0
 
     try:
         for batch in batches:
@@ -370,6 +405,13 @@ def translation_projects_to_xlsx(
                             f"子订单超过 {max_rows_per_sheet} 行，请缩小时间范围"
                         )
                     _append_row(sub_order_sheet, SUB_ORDER_COLUMNS, (project, sub_order))
+                    for charge in _read(sub_order, "customer_charge_items", []) or []:
+                        charge_count += 1
+                        if charge_count > max_rows_per_sheet:
+                            raise TranslationExportLimitError(
+                                f"子订单客户收费超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                            )
+                        _append_row(charge_sheet, CHARGE_COLUMNS, (project, sub_order, charge))
 
         if not project_count:
             raise TranslationExportEmptyError("所选范围内没有可导出的数据")
@@ -383,6 +425,7 @@ def translation_projects_to_xlsx(
 
     project_sheet.auto_filter.ref = f"A1:{get_column_letter(len(PROJECT_COLUMNS))}{project_count + 1}"
     sub_order_sheet.auto_filter.ref = f"A1:{get_column_letter(len(SUB_ORDER_COLUMNS))}{sub_order_count + 1}"
+    charge_sheet.auto_filter.ref = f"A1:{get_column_letter(len(CHARGE_COLUMNS))}{charge_count + 1}"
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

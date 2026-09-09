@@ -6,6 +6,9 @@ export const getManuscriptContext = (params = {}, config = {}) =>
 export const getManuscriptMailStatus = () =>
   api.get('/manuscript-arrangements/mail-status')
 
+export const getManuscriptDispatchFiles = (projectId, params = {}) =>
+  api.get(`/manuscript-arrangements/projects/${projectId}/dispatch-files`, { params })
+
 export const quickCreateManuscriptTranslator = (data) =>
   api.post('/manuscript-arrangements/translators/quick-create', data)
 

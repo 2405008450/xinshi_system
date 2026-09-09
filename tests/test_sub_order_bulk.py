@@ -105,6 +105,8 @@ def test_bulk_service_locks_parent_and_commits_once(monkeypatch):
     assert db.commit_count == 1
     assert [item.sub_project_name for item in created] == ["A.docx", "B.pdf"]
     assert [item.priority for item in received] == ["高", "高"]
+    assert all(item.word_count_matrix.company.words is None for item in received)
+    assert all(item.word_count_matrix.customer.words is None for item in received)
     assert skipped == [{"name": "已有.TXT", "reason": "当前母订单已存在同名子订单"}]
 
 

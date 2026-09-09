@@ -41,6 +41,7 @@
               <td v-for="metric in WORD_COUNT_METRICS" :key="metric.key">
                 <el-input-number
                   v-model="row.values[metric.key]"
+                  :disabled="readOnly"
                   size="small"
                   :min="0"
                   :step="1"
@@ -61,7 +62,7 @@
         <span>{{ hybridMode ? '项目级数据立即保存；新译员数据随外层表单提交' : (localMode ? '应用后仍需保存外层表单' : '保存后立即同步到项目详情与稿件安排') }}</span>
         <div>
           <el-button @click="visible = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="saveMatrix">
+          <el-button v-if="!readOnly" type="primary" :loading="saving" @click="saveMatrix">
             {{ hybridMode ? '保存并应用' : (localMode ? '应用到新建表单' : '保存') }}
           </el-button>
         </div>
@@ -89,7 +90,8 @@ const props = defineProps({
   local: { type: Boolean, default: false },
   translators: { type: Array, default: () => [] },
   modelValue: { type: Object, default: () => createEmptyWordCountMatrix() },
-  title: { type: String, default: '字数统计' }
+  title: { type: String, default: '字数统计' },
+  readOnly: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:modelValue', 'update:translators', 'saved'])

@@ -149,6 +149,16 @@ defineExpose({
   margin: 0 0 8px;
 }
 
+:deep(.rich-editor__prose ul),
+:deep(.rich-editor__prose ol) {
+  margin: 0 0 8px;
+  padding-left: 28px;
+}
+
+:deep(.rich-editor__prose li > p) {
+  margin-bottom: 0;
+}
+
 :deep(.rich-editor__prose h1),
 :deep(.rich-editor__prose h2),
 :deep(.rich-editor__prose h3) {
