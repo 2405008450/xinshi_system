@@ -34,6 +34,7 @@ from models import (
     ChatProjectMention,
     ChatProjectMessage,
     ChatProjectMessageAttachment,
+    ChatProjectMessageFavorite,
     ClientContact,
     ProjectRoleAssignment,
     Role,
@@ -1385,6 +1386,7 @@ def run_runtime_migrations():
     ChatProjectEnabled.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMessage.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMention.__table__.create(bind=engine, checkfirst=True)
+    ChatProjectMessageFavorite.__table__.create(bind=engine, checkfirst=True)
     ensure_chat_message_columns()
     ChatProjectAttachment.__table__.create(bind=engine, checkfirst=True)
     ChatProjectMessageAttachment.__table__.create(bind=engine, checkfirst=True)

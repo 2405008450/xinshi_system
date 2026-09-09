@@ -11,20 +11,25 @@ from sqlalchemy.orm import Session
 from crud import get_translation_project, get_user_roles_with_role_names
 from database import get_db
 from annotation_models import AnnotationProject
-from models import AppUser, ChatProjectAttachment
+from models import AppUser, ChatProjectAttachment, ChatProjectMessage
 from project_chat_crud import (
     create_annotation_project_chat_message,
     create_project_chat_message,
+    favorite_chat_message,
+    get_chat_message_favorite_times,
     get_project_chat_settings,
     list_annotation_project_chat_messages,
     list_project_chat_messages,
     set_project_chat_settings,
+    unfavorite_chat_message,
 )
 from routers.auth import get_current_user, require_module_access
 from schemas import (
     AnnotationProjectChatMessageCreate,
     ProjectChatMessageCreate,
+    ProjectChatFavoriteResponse,
     ProjectChatMessageQueryResponse,
+    ProjectChatMentionResponse,
     ProjectChatMessageResponse,
     ProjectChatAttachmentResponse,
     ProjectChatSettingsResponse,
@@ -69,8 +74,23 @@ def _serialize_settings(project_id: UUID, settings, can_manage: bool) -> Project
 
 
 
-def _serialize_message(message, project_type: str = 'translation') -> ProjectChatMessageResponse:
-    mention = message.mentions[0] if getattr(message, 'mentions', None) else None
+def _serialize_message(
+    message,
+    project_type: str = 'translation',
+    favorited_at: datetime | None = None,
+) -> ProjectChatMessageResponse:
+    mention_rows = sorted(
+        getattr(message, 'mentions', None) or [],
+        key=lambda item: (item.created_at is None, item.created_at or datetime.min, str(item.id)),
+    )
+    mentions = [
+        ProjectChatMentionResponse(
+            mentioned_user_id=mention.mentioned_user_id,
+            mentioned_user_name=mention.mentioned_user_name,
+        )
+        for mention in mention_rows
+    ]
+    mention = mention_rows[0] if mention_rows else None
     attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
     attachments = [
         ProjectChatAttachmentResponse(
@@ -97,6 +117,9 @@ def _serialize_message(message, project_type: str = 'translation') -> ProjectCha
         updated_at=message.updated_at,
         mentioned_user_id=mention.mentioned_user_id if mention else None,
         mentioned_user_name=mention.mentioned_user_name if mention else None,
+        mentions=mentions,
+        is_favorited=favorited_at is not None,
+        favorited_at=favorited_at,
         attachments=attachments,
     )
 
@@ -122,6 +145,25 @@ def _can_manage_chat(db: Session, user_id: UUID) -> bool:
     return not MANAGE_ROLES.isdisjoint(roles)
 
 
+def _require_visible_message(db: Session, message_id: UUID) -> ChatProjectMessage:
+    """按消息列表的可见性规则校验，避免通过消息 ID 越权收藏。"""
+    message = db.get(ChatProjectMessage, message_id)
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='消息不存在')
+
+    if message.annotation_project_id is not None:
+        _require_annotation_project(db, message.annotation_project_id)
+        return message
+
+    if message.project_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='消息不存在')
+    _require_project(db, message.project_id)
+    settings = get_project_chat_settings(db, message.project_id)
+    if message.message_type == 'user' and not bool(settings and settings.enabled):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='消息不存在')
+    return message
+
+
 @router.get('/annotation/{project_id}/messages', response_model=ProjectChatMessageQueryResponse)
 def list_annotation_messages_endpoint(
     project_id: UUID,
@@ -131,6 +173,7 @@ def list_annotation_messages_endpoint(
     sender_user_id: UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    favorites_only: bool = False,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -144,9 +187,12 @@ def list_annotation_messages_endpoint(
         sender_user_id=sender_user_id,
         date_from=date_from,
         date_to=date_to,
+        current_user_id=current_user.id,
+        favorites_only=favorites_only,
     )
+    favorite_times = get_chat_message_favorite_times(db, [item.id for item in items], current_user.id)
     return ProjectChatMessageQueryResponse(
-        items=[_serialize_message(item, 'annotation') for item in items],
+        items=[_serialize_message(item, 'annotation', favorite_times.get(item.id)) for item in items],
         total=total,
         enabled=True,
         can_manage=False,
@@ -168,11 +214,38 @@ def create_annotation_message_endpoint(
             sender=current_user,
             content=payload.content,
             mentioned_user_id=payload.mentioned_user_id,
+            mentioned_user_ids=payload.mentioned_user_ids,
         )
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _serialize_message(message, 'annotation')
+
+
+@router.put('/messages/{message_id}/favorite', response_model=ProjectChatFavoriteResponse)
+def favorite_message_endpoint(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    _require_visible_message(db, message_id)
+    favorite = favorite_chat_message(db, message_id, current_user.id)
+    return ProjectChatFavoriteResponse(
+        message_id=message_id,
+        is_favorited=True,
+        favorited_at=favorite.created_at,
+    )
+
+
+@router.delete('/messages/{message_id}/favorite', response_model=ProjectChatFavoriteResponse)
+def unfavorite_message_endpoint(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    _require_visible_message(db, message_id)
+    unfavorite_chat_message(db, message_id, current_user.id)
+    return ProjectChatFavoriteResponse(message_id=message_id, is_favorited=False)
 
 
 @router.post('/attachments', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
@@ -270,6 +343,7 @@ def list_messages_endpoint(
     sender_user_id: UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    favorites_only: bool = False,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -287,9 +361,12 @@ def list_messages_endpoint(
         date_from=date_from,
         date_to=date_to,
         include_user_messages=chat_enabled,
+        current_user_id=current_user.id,
+        favorites_only=favorites_only,
     )
+    favorite_times = get_chat_message_favorite_times(db, [item.id for item in items], current_user.id)
     return ProjectChatMessageQueryResponse(
-        items=[_serialize_message(item) for item in items],
+        items=[_serialize_message(item, favorited_at=favorite_times.get(item.id)) for item in items],
         total=total,
         enabled=chat_enabled,
         can_manage=can_manage,
@@ -312,6 +389,7 @@ def create_message_endpoint(
             content=payload.content,
             content_json=payload.content_json,
             mentioned_user_id=payload.mentioned_user_id,
+            mentioned_user_ids=payload.mentioned_user_ids,
             attachment_ids=payload.attachment_ids,
         )
     except ValueError as exc:

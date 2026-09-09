@@ -36,6 +36,11 @@ class AppUser(Base):
     chat_enabled_actions: Mapped[list['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='operator')
     chat_sent_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='sender')
     chat_mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='mentioned_user')
+    chat_message_favorites: Mapped[list['ChatProjectMessageFavorite']] = relationship(
+        'ChatProjectMessageFavorite',
+        back_populates='user',
+        cascade='all, delete-orphan',
+    )
     shift_templates: Mapped[list['EmployeeShiftTemplate']] = relationship(
         'EmployeeShiftTemplate',
         back_populates='user',
@@ -819,6 +824,11 @@ class ChatProjectMessage(Base):
     annotation_project: Mapped[Optional['AnnotationProject']] = relationship('AnnotationProject', back_populates='chat_messages')
     sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
     mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')
+    favorites: Mapped[list['ChatProjectMessageFavorite']] = relationship(
+        'ChatProjectMessageFavorite',
+        back_populates='message',
+        cascade='all, delete-orphan',
+    )
     attachment_links: Mapped[list['ChatProjectMessageAttachment']] = relationship(
         'ChatProjectMessageAttachment',
         back_populates='message',
@@ -844,6 +854,36 @@ class ChatProjectMention(Base):
 
     message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='mentions')
     mentioned_user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_mentions')
+
+
+class ChatProjectMessageFavorite(Base):
+    __tablename__ = 'chat_project_message_favorite'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['message_id'],
+            ['chat_project_message.id'],
+            ondelete='CASCADE',
+            name='fk_chat_project_message_favorite_message',
+        ),
+        ForeignKeyConstraint(
+            ['user_id'],
+            ['app_user.id'],
+            ondelete='CASCADE',
+            name='fk_chat_project_message_favorite_user',
+        ),
+        PrimaryKeyConstraint('id', name='chat_project_message_favorite_pkey'),
+        UniqueConstraint('message_id', 'user_id', name='uq_chat_project_message_favorite_message_user'),
+        Index('ix_chat_project_message_favorite_user_created_at', 'user_id', 'created_at'),
+        Index('ix_chat_project_message_favorite_message_id', 'message_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='favorites')
+    user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_message_favorites')
 
 
 class ChatProjectAttachment(Base):

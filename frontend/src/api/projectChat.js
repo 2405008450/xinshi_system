@@ -43,6 +43,14 @@ export const createProjectChatMessage = (projectId, data, projectType = 'transla
   return api.post(`${messageBasePath(projectId, projectType)}/messages`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
 
+export const favoriteProjectChatMessage = (messageId) => {
+  return api.put(`/project-chat/messages/${messageId}/favorite`).then(res => convertKeys(res, toCamelCase))
+}
+
+export const unfavoriteProjectChatMessage = (messageId) => {
+  return api.delete(`/project-chat/messages/${messageId}/favorite`).then(res => convertKeys(res, toCamelCase))
+}
+
 export const uploadProjectChatAttachment = (file) => {
   const formData = new FormData()
   formData.append('file', file)

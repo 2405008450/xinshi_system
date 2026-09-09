@@ -1360,6 +1360,7 @@ class ProjectChatMessageCreate(BaseModel):
     content: str = Field(default='', max_length=10000)
     content_json: Optional[dict] = None
     mentioned_user_id: Optional[UUID] = None
+    mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
 
 
@@ -1368,6 +1369,7 @@ class AnnotationProjectChatMessageCreate(BaseModel):
 
     content: str = Field(min_length=1, max_length=10000)
     mentioned_user_id: Optional[UUID] = None
+    mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
     model_config = ConfigDict(extra='forbid')
 
 
@@ -1377,6 +1379,17 @@ class ProjectChatAttachmentResponse(BaseModel):
     content_type: str
     file_size: int
     created_at: Optional[datetime] = None
+
+
+class ProjectChatMentionResponse(BaseModel):
+    mentioned_user_id: UUID
+    mentioned_user_name: str
+
+
+class ProjectChatFavoriteResponse(BaseModel):
+    message_id: UUID
+    is_favorited: bool
+    favorited_at: Optional[datetime] = None
 
 
 class ProjectChatMessageResponse(BaseModel):
@@ -1393,6 +1406,9 @@ class ProjectChatMessageResponse(BaseModel):
     updated_at: Optional[datetime] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_name: Optional[str] = None
+    mentions: list[ProjectChatMentionResponse] = Field(default_factory=list)
+    is_favorited: bool = False
+    favorited_at: Optional[datetime] = None
     attachments: list[ProjectChatAttachmentResponse] = Field(default_factory=list)
 
 

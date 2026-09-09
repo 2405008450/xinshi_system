@@ -43,3 +43,16 @@ test('项目沟通筛选区使用紧凑的响应式布局', () => {
   assert.match(chatPanel, /\.project-chat-panel--compact \.chat-filter-bar\s*\{[\s\S]*background:\s*var\(--el-color-primary-light-9\);/)
   assert.match(chatPanel, /\.project-chat-panel--compact \.chat-composer__body\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*flex-end;/)
 })
+
+test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
+  assert.match(chatPanel, /v-model="composer\.mentionedUserIds"/)
+  assert.match(chatPanel, /\smultiple\s/)
+  assert.match(chatPanel, /:multiple-limit="20"/)
+  assert.match(chatPanel, /collapse-tags-tooltip/)
+  assert.match(chatPanel, /messageMentions\(message\)\.slice\(0, 3\)/)
+  assert.match(chatPanel, /只看收藏/)
+  assert.match(chatPanel, /favorites_only: filters\.favoritesOnly/)
+  assert.match(chatPanel, /收藏（仅自己可见）/)
+  assert.match(chatApi, /put\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
+  assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
+})

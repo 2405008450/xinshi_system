@@ -53,6 +53,9 @@
               :show-footer="true"
             />
           </el-form-item>
+          <el-form-item class="chat-filter-bar__favorite">
+            <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+          </el-form-item>
           <el-form-item class="chat-filter-bar__actions">
             <el-button type="primary" @click="handleSearch">查询</el-button>
             <el-button @click="handleResetSearch">重置</el-button>
@@ -68,9 +71,38 @@
                   <el-tag v-if="message.messageType !== 'user'" size="small" :type="message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
                     {{ message.messageType === 'claim' ? '继承记录' : '交接记录' }}
                   </el-tag>
-                  <el-tag v-if="message.mentionedUserName" size="small" type="warning" effect="plain">@{{ message.mentionedUserName }}</el-tag>
+                  <el-tag
+                    v-for="mention in messageMentions(message).slice(0, 3)"
+                    :key="mention.mentionedUserId"
+                    size="small"
+                    type="warning"
+                    effect="plain"
+                  >
+                    @{{ mention.mentionedUserName }}
+                  </el-tag>
+                  <el-tooltip
+                    v-if="messageMentions(message).length > 3"
+                    :content="messageMentions(message).slice(3).map(item => `@${item.mentionedUserName}`).join('、')"
+                    placement="top"
+                  >
+                    <el-tag size="small" type="warning" effect="plain">+{{ messageMentions(message).length - 3 }}</el-tag>
+                  </el-tooltip>
                 </div>
-                <span>{{ formatDateTime(message.createdAt) }}</span>
+                <div class="chat-message-card__tools">
+                  <span>{{ formatDateTime(message.createdAt) }}</span>
+                  <el-tooltip :content="message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
+                    <el-button
+                      link
+                      :type="message.isFavorited ? 'warning' : 'info'"
+                      :loading="favoriteSavingIds.has(message.id)"
+                      :aria-label="message.isFavorited ? '取消收藏' : '收藏'"
+                      class="chat-message-card__favorite"
+                      @click="handleFavoriteToggle(message)"
+                    >
+                      <el-icon><StarFilled v-if="message.isFavorited" /><Star v-else /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
               </div>
               <div v-if="textOnly" class="chat-message-card__content">{{ message.content }}</div>
               <RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
@@ -115,15 +147,23 @@
         <div v-if="settings.enabled" class="chat-composer">
           <div class="chat-composer__header">
             <span>发送消息</span>
-            <el-select
-              v-model="composer.mentionedUserId"
-              clearable
-              filterable
-              placeholder="@提醒某人（可选）"
-              class="chat-composer__mention"
-            >
-              <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-            </el-select>
+            <div class="chat-composer__mention-wrap">
+              <el-select
+                v-model="composer.mentionedUserIds"
+                multiple
+                clearable
+                filterable
+                collapse-tags
+                collapse-tags-tooltip
+                :max-collapse-tags="compact ? 1 : 3"
+                :multiple-limit="20"
+                placeholder="@提醒用户（可多选）"
+                class="chat-composer__mention"
+              >
+                <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+              </el-select>
+              <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
+            </div>
           </div>
           <div class="chat-composer__body">
             <el-input
@@ -179,15 +219,18 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Star, StarFilled } from '@element-plus/icons-vue'
 import { getUsers } from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   createProjectChatMessage,
+  favoriteProjectChatMessage,
   getProjectChatAttachmentBlob,
   getProjectChatMessages,
   getProjectChatSettings,
   updateProjectChatSettings,
+  unfavoriteProjectChatMessage,
   uploadProjectChatAttachment
 } from '@/api/projectChat'
 import RichTextComposer from '@/components/RichTextComposer.vue'
@@ -211,12 +254,13 @@ const sending = ref(false)
 const uploading = ref(false)
 const userOptions = ref([])
 const messages = ref([])
+const favoriteSavingIds = ref(new Set())
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
-const filters = reactive({ keyword: '', senderUserId: '', dateRange: [] })
+const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
 const composer = reactive({
   content: '',
   contentJson: { type: 'doc', content: [{ type: 'paragraph' }] },
-  mentionedUserId: '',
+  mentionedUserIds: [],
   attachments: []
 })
 const attachmentUrls = reactive({})
@@ -262,9 +306,10 @@ const resetChatState = () => {
   filters.keyword = ''
   filters.senderUserId = ''
   filters.dateRange = []
+  filters.favoritesOnly = false
   composer.content = ''
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
-  composer.mentionedUserId = ''
+  composer.mentionedUserIds = []
   composer.attachments = []
   clearAttachmentUrls()
   clearPolling()
@@ -317,7 +362,8 @@ const loadMessages = async () => {
       keyword: filters.keyword || undefined,
       sender_user_id: filters.senderUserId || undefined,
       date_from: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[0] : undefined,
-      date_to: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[1] : undefined
+      date_to: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[1] : undefined,
+      favorites_only: filters.favoritesOnly || undefined
     }
     const res = await getProjectChatMessages(props.projectId, params, props.projectType)
     settings.enabled = !!res?.enabled
@@ -373,6 +419,7 @@ const handleResetSearch = () => {
   filters.keyword = ''
   filters.senderUserId = ''
   filters.dateRange = []
+  filters.favoritesOnly = false
   pagination.page = 1
   loadMessages()
 }
@@ -389,18 +436,18 @@ const handleSend = async () => {
     const payload = props.textOnly
       ? {
           content: composer.content.trim(),
-          mentionedUserId: composer.mentionedUserId || undefined
+          mentionedUserIds: composer.mentionedUserIds
         }
       : {
           content: composer.content.trim(),
           contentJson: composer.contentJson,
-          mentionedUserId: composer.mentionedUserId || undefined,
+          mentionedUserIds: composer.mentionedUserIds,
           attachmentIds: composer.attachments.map(item => item.id)
         }
     await createProjectChatMessage(props.projectId, payload, props.projectType)
     composer.content = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
-    composer.mentionedUserId = ''
+    composer.mentionedUserIds = []
     composer.attachments = []
     pagination.page = 1
     await loadMessages()
@@ -409,6 +456,37 @@ const handleSend = async () => {
     ElMessage.error(getLocalizedErrorMessage(error, '发送消息失败'))
   } finally {
     sending.value = false
+  }
+}
+
+const messageMentions = (message) => {
+  if (Array.isArray(message?.mentions) && message.mentions.length) return message.mentions
+  if (message?.mentionedUserId && message?.mentionedUserName) {
+    return [{ mentionedUserId: message.mentionedUserId, mentionedUserName: message.mentionedUserName }]
+  }
+  return []
+}
+
+const handleFavoriteToggle = async (message) => {
+  if (!message?.id || favoriteSavingIds.value.has(message.id)) return
+  favoriteSavingIds.value = new Set([...favoriteSavingIds.value, message.id])
+  const nextFavorited = !message.isFavorited
+  try {
+    const res = nextFavorited
+      ? await favoriteProjectChatMessage(message.id)
+      : await unfavoriteProjectChatMessage(message.id)
+    message.isFavorited = !!res?.isFavorited
+    message.favoritedAt = res?.favoritedAt || null
+    if (filters.favoritesOnly && !message.isFavorited) {
+      await loadMessages()
+    }
+    ElMessage.success(message.isFavorited ? '已收藏，仅自己可见' : '已取消收藏')
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, nextFavorited ? '收藏消息失败' : '取消收藏失败'))
+  } finally {
+    const pending = new Set(favoriteSavingIds.value)
+    pending.delete(message.id)
+    favoriteSavingIds.value = pending
   }
 }
 
@@ -561,6 +639,19 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   color: var(--el-text-color-primary);
+  flex-wrap: wrap;
+}
+
+.chat-message-card__tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.chat-message-card__favorite {
+  padding: 2px;
+  font-size: 17px;
 }
 
 .chat-message-card__content {
@@ -635,6 +726,21 @@ onBeforeUnmount(() => {
 .chat-composer__mention {
   width: 280px;
   font-weight: 400;
+}
+
+.chat-composer__mention-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chat-composer__mention-count {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .chat-composer__body {
@@ -784,6 +890,10 @@ onBeforeUnmount(() => {
   }
 
   .project-chat-panel--compact .chat-composer__mention {
+    width: 100%;
+  }
+
+  .chat-composer__mention-wrap {
     width: 100%;
   }
 
