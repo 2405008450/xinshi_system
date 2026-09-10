@@ -234,6 +234,9 @@
             </el-radio-group>
           </div>
         </div>
+        <div v-if="progressDraftSource" class="progress-chat-source">
+          已从项目沟通带入：{{ progressDraftSource.senderName }} · {{ formatDateTime(progressDraftSource.createdAt) }}，保存前可编辑
+        </div>
         <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
@@ -252,7 +255,7 @@
           </el-row>
           <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
             <div class="progress-note-control">
-              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
               <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
             </div>
           </el-form-item>
@@ -307,7 +310,9 @@
             :active="progressVisible && progressDialogTab === 'chat'"
             :text-only="true"
             :always-enabled="true"
+            :can-add-to-progress="canWrite"
             compact
+            @add-to-progress="handleChatMessageToProgress"
           />
         </el-tab-pane>
       </el-tabs>

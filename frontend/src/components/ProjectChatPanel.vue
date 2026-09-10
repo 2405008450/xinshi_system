@@ -90,6 +90,16 @@
                 </div>
                 <div class="chat-message-card__tools">
                   <span>{{ formatDateTime(message.createdAt) }}</span>
+                  <el-button
+                    v-if="canAddToProgress && String(message.content || '').trim()"
+                    type="primary"
+                    link
+                    size="small"
+                    class="chat-message-card__progress-action"
+                    @click="emit('add-to-progress', message)"
+                  >
+                    添加为进度
+                  </el-button>
                   <el-tooltip :content="message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
                     <el-button
                       link
@@ -243,8 +253,11 @@ const props = defineProps({
   drawerMode: { type: Boolean, default: false },
   textOnly: { type: Boolean, default: false },
   alwaysEnabled: { type: Boolean, default: false },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  canAddToProgress: { type: Boolean, default: false }
 })
+
+const emit = defineEmits(['add-to-progress'])
 
 const settings = reactive({ enabled: false, canManage: false })
 const settingsLoading = ref(false)
