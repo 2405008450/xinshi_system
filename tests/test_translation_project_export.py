@@ -49,6 +49,12 @@ def sample_project(*, project_name="示例项目", with_sub_order=True):
     return SimpleNamespace(
         order_no="TP-260901-001",
         project_name=project_name,
+        client_name="母客户全称",
+        client_short_name="母客户",
+        client_code="CL-001",
+        sub_client_name="子客户全称",
+        sub_client_short_name="子客户",
+        sub_client_code="CL-001.001",
         quotation_required=True,
         project_status="confirmed",
         role_assignments=[
@@ -85,6 +91,12 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
 
     assert sum(header.startswith(("我司-", "客户-", "译员预估-")) for header in project_headers) == 18
     assert project_row["订单号"] == "TP-260901-001"
+    assert project_row["母客户全称"] == "母客户全称"
+    assert project_row["母客户简称"] == "母客户"
+    assert project_row["母客户编号"] == "CL-001"
+    assert project_row["子客户全称"] == "子客户全称"
+    assert project_row["子客户简称"] == "子客户"
+    assert project_row["子客户编号"] == "CL-001.001"
     assert project_row["项目专员"] == "李四"
     assert project_row["项目助理"] == "角色池"
     assert project_row["状态"] == "已确认"

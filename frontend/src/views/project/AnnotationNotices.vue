@@ -65,9 +65,9 @@
     <template v-else>
       <el-select v-model="activeId" class="notice-page__mobile-select" placeholder="请选择主题" @change="selectSectionById">
         <template v-for="root in noticeTree" :key="root.id">
-          <el-option v-if="root.hasContent" :label="root.displayTitle" :value="root.id" />
+          <el-option v-if="root.hasContent" :label="root.title" :value="root.id" />
           <el-option-group v-if="root.children?.length" :label="root.title">
-            <el-option v-for="child in root.children" :key="child.id" :label="child.displayTitle" :value="child.id" />
+            <el-option v-for="child in root.children" :key="child.id" :label="child.title" :value="child.id" />
           </el-option-group>
         </template>
       </el-select>
@@ -82,7 +82,7 @@
                 :aria-expanded="root.children?.length ? isExpanded(root.id) : undefined"
                 @click="root.hasContent ? selectSection(root) : toggleRoot(root.id)"
               >
-                <span>{{ root.displayTitle }}</span>
+                <span>{{ root.title }}</span>
                 <el-icon v-if="!root.hasContent && root.children?.length" class="notice-nav__arrow" :class="{ 'is-expanded': isExpanded(root.id) }"><ArrowDown /></el-icon>
               </button>
               <button
@@ -104,7 +104,7 @@
                   type="button"
                   :class="['notice-nav__item', 'notice-nav__item--child', { 'is-active': child.id === activeId }]"
                   @click="selectSection(child)"
-                >{{ child.displayTitle }}</button>
+                >{{ child.title }}</button>
               </div>
             </el-collapse-transition>
           </div>
@@ -113,7 +113,7 @@
         <section class="notice-content" v-loading="detailLoading">
           <div class="notice-content__heading">
             <div>
-              <h3>{{ activeNotice.displayTitle }}</h3>
+              <h3>{{ activeNotice.title }}</h3>
               <div class="notice-content__meta">
                 <template v-if="activeDetail?.updatedAt">
                   最近由 {{ activeDetail.updatedByName || '未知用户' }} 编辑于 {{ formatDateTime(activeDetail.updatedAt) }}
@@ -140,7 +140,7 @@
 
   <DraggableFormDialog
     v-model="editorVisible"
-    :title="`编辑标注须知 · ${activeNotice?.displayTitle || ''}`"
+    :title="`编辑标注须知 · ${activeNotice?.title || ''}`"
     width="min(960px, calc(100vw - 32px))"
     top="5vh"
     append-to-body

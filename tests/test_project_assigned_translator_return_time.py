@@ -64,8 +64,17 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
 
 def test_project_editor_syncs_completion_back_to_arrangement():
     project_id = uuid4()
+    original_return_time = datetime.datetime(2026, 9, 8, 18, 0)
+    corrected_return_time = datetime.datetime(2026, 9, 8, 20, 30)
+    final_milestone = SimpleNamespace(
+        milestone_type="final",
+        planned_at=original_return_time,
+        updated_at=None,
+    )
     arrangement = SimpleNamespace(
         id=uuid4(),
+        planned_delivery_at=original_return_time,
+        milestones=[final_milestone],
         completion_remarks="旧内容",
         translator_unit_price=Decimal("0.1000"),
         translator_total_price=Decimal("100.00"),
@@ -77,6 +86,7 @@ def test_project_editor_syncs_completion_back_to_arrangement():
         [
             AssignedTranslatorCompletionUpdate(
                 arrangement_id=arrangement.id,
+                translator_return_time=corrected_return_time,
                 completion_remarks="  已完成并通过检查  ",
             )
         ],
@@ -85,6 +95,9 @@ def test_project_editor_syncs_completion_back_to_arrangement():
     )
 
     assert arrangement.completion_remarks == "已完成并通过检查"
+    assert arrangement.planned_delivery_at == corrected_return_time
+    assert final_milestone.planned_at == corrected_return_time
+    assert final_milestone.updated_at is not None
     assert arrangement.translator_unit_price == Decimal("0.1000")
     assert arrangement.translator_total_price == Decimal("100.00")
     assert arrangement.updated_at is not None

@@ -1076,7 +1076,7 @@ def _sync_assigned_translator_completions(
     project_id: UUID,
     sub_order_id: Optional[UUID],
 ) -> None:
-    """把项目列表填写的译员完成及价格信息原位写回稿件安排明细。"""
+    """把项目端填写的译员交付及价格信息原位写回稿件安排明细。"""
     if updates is None:
         return
 
@@ -1107,6 +1107,21 @@ def _sync_assigned_translator_completions(
     now = datetime.now()
     for row in rows:
         update = update_by_id[row.id]
+        if "translator_return_time" in update.model_fields_set:
+            row.planned_delivery_at = update.translator_return_time
+            # 稿件安排以 final 节点作为全稿预定时间来源；这里必须同步修改，
+            # 否则以后再次编辑稿件安排时会被旧节点时间覆盖。
+            final_milestone = next(
+                (
+                    item
+                    for item in (getattr(row, "milestones", None) or [])
+                    if item.milestone_type == "final"
+                ),
+                None,
+            )
+            if final_milestone:
+                final_milestone.planned_at = update.translator_return_time
+                final_milestone.updated_at = now
         if "completion_remarks" in update.model_fields_set:
             value = update.completion_remarks
             row.completion_remarks = value.strip() if value and value.strip() else None
@@ -1216,25 +1231,22 @@ def _attach_sub_order_charge_amounts(sub_orders: List[TranslationSubOrder]) -> N
 
 
 def _attach_project_client_fields(project: TranslationProject) -> None:
-    """返回项目实际关联客户的信息；子客户缺失的负责人信息回退到母客户。"""
+    """通用客户字段始终返回母客户，子客户通过独立字段精确表达。"""
     parent_client = project.client
     sub_client = project.sub_client
-    selected_client = sub_client or parent_client
 
-    project.client_short_name = selected_client.client_short_name if selected_client else None
-    project.client_code = (
-        sub_client.sub_client_code
+    project.client_name = parent_client.client_name if parent_client else None
+    project.client_short_name = parent_client.client_short_name if parent_client else None
+    project.client_code = parent_client.client_code if parent_client else None
+    project.client_manager = parent_client.client_manager if parent_client else None
+    project.manager_contact = parent_client.manager_contact if parent_client else None
+    project.sub_client_name = (
+        (sub_client.client_name or sub_client.client_short_name)
         if sub_client
-        else (parent_client.client_code if parent_client else None)
+        else None
     )
-    project.client_manager = (
-        (sub_client.client_manager if sub_client else None)
-        or (parent_client.client_manager if parent_client else None)
-    )
-    project.manager_contact = (
-        (sub_client.manager_contact if sub_client else None)
-        or (parent_client.manager_contact if parent_client else None)
-    )
+    project.sub_client_short_name = sub_client.client_short_name if sub_client else None
+    project.sub_client_code = sub_client.sub_client_code if sub_client else None
 
 
 def _attach_project_file_detail_fields(project: TranslationProject) -> None:
@@ -1567,8 +1579,7 @@ def _sync_project_name_with_sub_order_count(
     if not project:
         return
 
-    selected_client = project.sub_client or project.client
-    client_short_name = selected_client.client_short_name if selected_client else None
+    client_short_name = project.client.client_short_name if project.client else None
     sub_order_count = (
         db.query(func.count(TranslationSubOrder.id))
         .filter(TranslationSubOrder.parent_project_id == project_id)
@@ -1716,11 +1727,7 @@ def _apply_translation_project_filters(
             ),
         ))
     if client_short_name:
-        pattern = f"%{client_short_name}%"
-        query = query.filter(or_(
-            Client.client_short_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-        ))
+        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
     if task_type:
         query = query.filter(TranslationProject.task_type == task_type)
     if service_content:
@@ -1812,15 +1819,20 @@ def _apply_translation_project_filters(
         query = query.filter(db_exists().where(and_(*return_time_conditions)))
 
     for field, descriptor in field_filters.items():
-        if field in {"client_short_name", "client_code", "client_manager", "manager_contact"}:
-            parent_column, sub_column = {
-                "client_short_name": (Client.client_short_name, SubClient.client_short_name),
-                "client_code": (Client.client_code, SubClient.sub_client_code),
-                "client_manager": (Client.client_manager, SubClient.client_manager),
-                "manager_contact": (Client.manager_contact, SubClient.manager_contact),
+        if field in {
+            "client_short_name", "client_code", "client_manager", "manager_contact",
+            "sub_client_short_name", "sub_client_code",
+        }:
+            column = {
+                "client_short_name": Client.client_short_name,
+                "client_code": Client.client_code,
+                "client_manager": Client.client_manager,
+                "manager_contact": Client.manager_contact,
+                "sub_client_short_name": SubClient.client_short_name,
+                "sub_client_code": SubClient.sub_client_code,
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+            query = query.filter(column.ilike(pattern))
         elif field in {"word_count", "word_count_dimension", "word_count_metric_type", "translator_return_time"}:
             continue
         elif field == "translator_name":

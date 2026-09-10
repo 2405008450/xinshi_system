@@ -27,7 +27,8 @@ except AttributeError:
 # 与 ProjectDetails.vue 中 projectDetailItems 的 key 一致，用于在 localStorage 启用全部列。
 ALL_COLUMN_KEYS = [
     "id", "orderNo", "projectName", "serviceContent", "taskType", "consultationId",
-    "clientId", "subClientId", "clientShortName", "clientCode", "customerOrderNo",
+    "clientId", "subClientId", "clientName", "clientShortName", "clientCode",
+    "subClientName", "subClientShortName", "subClientCode", "customerOrderNo",
     "projectManagerName", "clientManager", "managerContact", "projectStatus",
     "fileTypeSecondary", "projectFileTranslationDomainLevel1", "projectFileTranslationDomainLevel2",
     "projectFileTypeLevel1", "projectFileTypeLevel2", "projectFileFormat",

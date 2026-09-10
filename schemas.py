@@ -718,9 +718,10 @@ class TranslationProjectCreate(TranslationProjectBase):
         return validate_managed_path(value)
 
 class AssignedTranslatorCompletionUpdate(BaseModel):
-    """笔译项目列表回写稿件安排中的单个译员完成及价格信息。"""
+    """笔译项目回写稿件安排中的单个译员交付及结算信息。"""
 
     arrangement_id: UUID
+    translator_return_time: Optional[datetime] = None
     completion_remarks: Optional[str] = Field(default=None, max_length=255)
     translator_unit_price: Optional[Decimal] = Field(
         default=None,
@@ -913,8 +914,12 @@ class TranslationSubOrderResponse(BaseModel):
 class TranslationProjectResponse(TranslationProjectBase):
     id: UUID
     order_no: str
+    client_name: Optional[str] = None
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
+    sub_client_name: Optional[str] = None
+    sub_client_short_name: Optional[str] = None
+    sub_client_code: Optional[str] = None
     project_manager_name: Optional[str] = None
     role_assignments: list[ProjectRoleAssignmentResponse] = Field(default_factory=list)
     translator_name: Optional[str] = None

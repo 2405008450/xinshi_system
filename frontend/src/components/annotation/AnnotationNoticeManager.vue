@@ -27,7 +27,7 @@
         >
           <template #default="{ data }">
             <span class="notice-manager-node">
-              <span>{{ data.displayTitle }}</span>
+              <span>{{ data.title }}</span>
               <el-tag v-if="!data.hasContent" size="small" effect="plain">仅分组</el-tag>
             </span>
           </template>
@@ -67,7 +67,7 @@
   >
     <AppForm ref="createFormRef" :model="createForm" :rules="rules" label-width="92px">
       <el-form-item label="栏目名称" prop="title">
-        <el-input v-model="createForm.title" maxlength="100" show-word-limit placeholder="请输入栏目名称，无需填写字母编号" />
+        <el-input v-model="createForm.title" maxlength="100" show-word-limit placeholder="请输入栏目名称" />
       </el-form-item>
       <el-form-item label="正文内容">
         <el-switch v-model="createForm.hasContent" active-text="允许编辑正文" />
@@ -175,7 +175,7 @@ async function saveEdit() {
 
 async function removeSelected() {
   try {
-    await ElMessageBox.confirm(`确定删除栏目“${selected.value.displayTitle}”吗？删除后将不再显示。`, '删除栏目', {
+    await ElMessageBox.confirm(`确定删除栏目“${selected.value.title}”吗？删除后将不再显示。`, '删除栏目', {
       type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
     })
   } catch {

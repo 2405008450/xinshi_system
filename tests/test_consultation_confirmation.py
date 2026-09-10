@@ -352,6 +352,7 @@ def test_order_number_conflict_stops_before_project_mutation(monkeypatch):
 
 def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     client = SimpleNamespace(id=uuid4(), manager_contact=None)
+    sub_client_id = uuid4()
     project = SimpleNamespace(
         id=uuid4(), project_name="旧项目名", email_subject_preview="旧主题",
         task_type=None, project_status="pending",
@@ -359,7 +360,7 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     consultation = SimpleNamespace(
         id=uuid4(), consultation_type="笔译项目", client_id=client.id,
         client_short_name="客户", project_name=None, customer_order_no=None,
-        project_intake={}, sub_client_id=None, contact_name=None,
+        project_intake={}, sub_client_id=sub_client_id, contact_name=None,
         consultation_description=None, remarks=None,
     )
 
@@ -402,3 +403,5 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     )
 
     assert client.manager_contact == "预览中补填的联系方式"
+    assert project.client_id == client.id
+    assert project.sub_client_id == sub_client_id

@@ -89,6 +89,19 @@ services:
       - backend
     restart: unless-stopped
 
+  https_gateway:
+    image: nginx:alpine
+    container_name: xinshi_prod_https_gateway
+    ports:
+      - "0.0.0.0:443:443"
+    volumes:
+      - ./nginx-cloud-gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/xinshi/certs/oa.xinshify.com.cn.pem:/etc/nginx/certs/oa.xinshify.com.cn.pem:ro
+      - /etc/xinshi/certs/oa.xinshify.com.cn.key:/etc/nginx/certs/oa.xinshify.com.cn.key:ro
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   chat_uploads:

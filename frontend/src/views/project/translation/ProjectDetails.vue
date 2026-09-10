@@ -470,20 +470,20 @@
                             @manual-input="handleProjectNameInput"
                             @regenerate="regenerateProjectName"
                           />
-                          <div class="auto-name-field__hint">按“客户简称，翻译方向简称，月日时回稿”自动生成，例如“广州学在华留学咨询，法译中，9月1日16点回稿”；存在子订单时追加批次，也可手动修改。</div>
+                          <div class="auto-name-field__hint">按“母客户简称，翻译方向简称，月日时回稿”自动生成，例如“广州学在华留学咨询，法译中，9月1日16点回稿”；存在子订单时追加批次，也可手动修改。</div>
                         </div>
                       </el-form-item>
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24" :md="12">
-                      <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                      <el-form-item label="母客户简称" prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
                             v-model="form.clientShortName"
-                            :fetch-suggestions="fetchClientSuggestions"
+                            :fetch-suggestions="fetchParentClientSuggestions"
                             value-key="client_short_name"
-                            placeholder="选择已有客户，或直接输入新客户简称"
+                            placeholder="选择已有母客户，或直接输入新客户简称"
                             clearable
                             :debounce="300"
                             :trigger-on-focus="true"
@@ -494,18 +494,38 @@
                           >
                             <template #default="{ item }">
                               <div class="client-suggestion">
-                                <span>
-                                  {{ item.client_short_name }}
-                                  <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag>
-                                </span>
-                                <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
+                                <span>{{ item.client_short_name }}</span>
+                                <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}</span>
                               </div>
                             </template>
                           </el-autocomplete>
-                          <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                          <div class="client-autocomplete-hint">没有匹配母客户时，保存项目会自动新增一条待完善的客户信息。</div>
                         </div>
                       </el-form-item>
                     </el-col>
+                    <el-col :xs="24" :md="12">
+                      <el-form-item label="子客户" data-field-key="subClientShortName">
+                        <el-select
+                          v-model="form.subClientId"
+                          clearable
+                          filterable
+                          :loading="subClientsLoading"
+                          :disabled="!form.clientId"
+                          :placeholder="subClientPlaceholder"
+                          style="width: 100%"
+                          @change="handleSubClientChange"
+                        >
+                          <el-option
+                            v-for="item in availableSubClients"
+                            :key="item.id"
+                            :label="`${item.client_short_name || item.client_name}${item.sub_client_code ? `（${item.sub_client_code}）` : ''}`"
+                            :value="item.id"
+                          />
+                        </el-select>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <el-row :gutter="16">
                     <el-col :xs="24" :md="12">
                       <el-form-item label="翻译方向" prop="languagePair" data-field-key="languagePair">
                         <LanguagePairSelect v-model="form.languagePair" />
@@ -571,7 +591,7 @@
                       <div class="subject-preview-field">
                         <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
                         <div class="subject-preview-toolbar">
-                          <span>按“标题前缀、订单号、客户简称、客户经理联系方式、客户单号/标识、项目名称”顺序生成</span>
+                          <span>按“标题前缀、订单号、母客户简称、母客户经理联系方式、客户单号/标识、项目名称”顺序生成</span>
                           <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
                         </div>
                       </div>
@@ -596,21 +616,27 @@
                   <el-col :xs="24" :md="12"><el-form-item label="来源咨询 ID"><ReadonlyField :model-value="form.consultationId" source="auto" placeholder="手工新增项目无来源咨询" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="母客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择母客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="子客户编号" data-field-key="subClientCode"><ReadonlyField :model-value="form.subClientCode" source="auto" placeholder="选择子客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="客户经理"><ReadonlyField :model-value="form.clientManager" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="母客户经理"><ReadonlyField :model-value="form.clientManager" source="auto" placeholder="选择母客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col v-if="showManagerContactInput" :xs="24" :md="12">
-                    <el-form-item label="客户经理联系方式" label-width="140px">
+                    <el-form-item label="母客户经理联系方式" label-width="160px">
                       <el-input
                         v-model="form.managerContact"
                         maxlength="100"
                         clearable
                         placeholder="请输入客户经理联系方式"
                       />
+                    </el-form-item>
+                  </el-col>
+                  <el-col v-else :xs="24" :md="12">
+                    <el-form-item label="母客户经理联系方式" label-width="160px">
+                      <ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择母客户后自动带出" />
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -766,7 +792,12 @@
                 <el-row :gutter="16">
                   <el-col :xs="24">
                     <el-form-item label="译员回稿时间">
-                      <ReadonlyField :model-value="formatTranslatorReturnTimes(form.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" />
+                      <TranslatorCompletionPopover
+                        :translators="form.assignedTranslators"
+                        :status="form.projectStatus"
+                        :editable="canWriteProjects"
+                        :save="(completions) => saveProjectTranslatorCompletions(form, completions)"
+                      />
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -956,7 +987,17 @@
                   <el-col :xs="24"><el-form-item label="已分配译员"><ReadonlyField :model-value="formatAssignedTranslators(subOrderForm.assignedTranslators, subOrderForm.translatorName)" source="auto" placeholder="请在“稿件安排”模块中分配译员" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="译员回稿时间"><ReadonlyField :model-value="formatTranslatorReturnTimes(subOrderForm.assignedTranslators)" source="auto" placeholder="由“稿件安排”的全稿预定时间自动带出" /></el-form-item></el-col>
+                  <el-col :xs="24">
+                    <el-form-item label="译员回稿时间">
+                      <TranslatorCompletionPopover
+                        :translators="subOrderForm.assignedTranslators"
+                        :status="subOrderForm.status"
+                        :editable="canWriteProjects"
+                        placement="bottom-start"
+                        :save="(completions) => saveSubOrderTranslatorCompletions(subOrderForm, completions)"
+                      />
+                    </el-form-item>
+                  </el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-alert title="新的译员分配统一由“稿件安排”维护；历史单译员字段仅用于兼容旧数据。" type="info" :closable="false" show-icon /></el-col>
@@ -1047,7 +1088,7 @@ import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vu
 import SubOrderChargeEditor from './components/SubOrderChargeEditor.vue'
 import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
-import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
+import { getClient, getClients } from '@/api/clients'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
@@ -1169,8 +1210,10 @@ const basicProjectFieldSearchItems = [
   { key: 'projectName', label: '项目名称', aliases: ['项目名'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'emailSubjectPreview', label: '邮件主题预览', aliases: ['邮件标题'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'taskType', label: '任务类型', aliases: ['项目类型', '咨询类型'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'clientShortName', label: '客户简称', aliases: ['客户名称', '客户'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'clientCode', label: '客户编号', aliases: ['客户编码'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'clientShortName', label: '母客户简称', aliases: ['客户名称', '客户', '母客户'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'subClientShortName', label: '子客户简称', aliases: ['子客户'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'clientCode', label: '母客户编号', aliases: ['客户编码'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'subClientCode', label: '子客户编号', aliases: ['子客户编码'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'customerOrderNo', label: '客户单号', aliases: ['客户订单号'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'serviceContent', label: '服务内容', aliases: ['服务'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'fileTypeSecondary', label: '文本类型', aliases: ['文件类型'], section: 'project', sectionLabel: '项目与客户' },
@@ -1231,15 +1274,19 @@ const projectDetailItems = [
   { label: '服务内容', key: 'serviceContent', span: 2, editable: true, maxlength: 255 },
   { label: '任务类型', key: 'taskType', editable: true, maxlength: 50 },
   { label: '来源咨询 ID', key: 'consultationId' },
-  { label: '客户简称', key: 'clientShortName' },
-  { label: '客户编号', key: 'clientCode' },
+  { label: '母客户全称', key: 'clientName' },
+  { label: '母客户简称', key: 'clientShortName' },
+  { label: '母客户编号', key: 'clientCode' },
+  { label: '子客户全称', key: 'subClientName' },
+  { label: '子客户简称', key: 'subClientShortName' },
+  { label: '子客户编号', key: 'subClientCode' },
   { label: '客户单号', key: 'customerOrderNo', editable: true, maxlength: 100 },
   { label: '项目经理', key: 'projectManagerName' },
   { label: '项目专员', key: 'projectSpecialistName' },
   { label: '项目助理', key: 'projectAssistantName' },
   { label: '排版专员', key: 'layoutSpecialistName' },
-  { label: '客户经理', key: 'clientManager' },
-  { label: '客户经理联系方式', key: 'managerContact' },
+  { label: '母客户经理', key: 'clientManager' },
+  { label: '母客户经理联系方式', key: 'managerContact' },
   { label: '状态', key: 'projectStatus', type: 'status' },
   { label: '文本类型', key: 'fileTypeSecondary', editable: true, maxlength: 100 },
   { label: '翻译文本领域一级', key: 'projectFileTranslationDomainLevel1' },
@@ -1309,7 +1356,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientShortName: '', clientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1391,15 +1438,17 @@ const translationFilterFields = [
   { key: 'projectName', label: '项目名称', type: 'text' },
   { key: 'serviceContent', label: '服务内容', type: 'select', options: serviceContentOptions },
   { key: 'taskType', label: '任务类型', type: 'select', options: taskTypeOptions },
-  { key: 'clientShortName', label: '客户简称', type: 'text' },
-  { key: 'clientCode', label: '客户编号', type: 'text' },
+  { key: 'clientShortName', label: '母客户简称', type: 'text' },
+  { key: 'subClientShortName', label: '子客户简称', type: 'text' },
+  { key: 'clientCode', label: '母客户编号', type: 'text' },
+  { key: 'subClientCode', label: '子客户编号', type: 'text' },
   { key: 'customerOrderNo', label: '客户单号', type: 'text' },
   { key: 'projectManagerId', label: '项目经理', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
   { key: 'projectSpecialistName', label: '项目专员', type: 'text' },
   { key: 'projectAssistantName', label: '项目助理', type: 'text' },
   { key: 'layoutSpecialistName', label: '排版专员', type: 'text' },
-  { key: 'clientManager', label: '客户经理', type: 'text' },
-  { key: 'managerContact', label: '客户经理联系方式', type: 'text' },
+  { key: 'clientManager', label: '母客户经理', type: 'text' },
+  { key: 'managerContact', label: '母客户经理联系方式', type: 'text' },
   { key: 'projectStatus', label: '状态', type: 'select', options: projectStatusOptions },
   { key: 'fileTypeSecondary', label: '文本类型', type: 'text' },
   { key: 'projectFileTranslationDomainLevel1', label: '翻译文本领域一级', type: 'text' },
@@ -1451,7 +1500,9 @@ const tableColumnOverrides = {
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
   clientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
+  subClientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
   clientCode: { minWidth: 100 },
+  subClientCode: { minWidth: 120 },
   customerOrderNo: { minWidth: 120 },
   projectManagerName: { minWidth: 90 },
   clientManager: { minWidth: 110 },
@@ -1542,6 +1593,14 @@ watch(visibleColumnKeys, (keys) => {
   }
 })
 const form = reactive(createEmptyProjectForm())
+const availableSubClients = ref([])
+const subClientsLoading = ref(false)
+let subClientRequestId = 0
+const subClientPlaceholder = computed(() => {
+  if (!form.clientId) return '请先选择已有母客户'
+  if (subClientsLoading.value) return '正在加载子客户'
+  return availableSubClients.value.length ? '不选则订单仅关联母客户' : '该母客户暂无子客户'
+})
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'translation-project',
   form,
@@ -1549,6 +1608,8 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   formRef,
   applyDraft: (draft) => {
     assignReactive(form, createEmptyProjectForm, draft)
+    availableSubClients.value = []
+    void loadSubClients(form.clientId)
     form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
     projectNameManuallyEdited.value = Boolean(draft.projectName)
   },
@@ -1593,7 +1654,7 @@ const validateWordCountMatrix = (_rule, value, callback) => {
 }
 const rules = {
   projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
-  clientShortName: [{ validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  clientShortName: [{ validator: requiredTextValidator('请选择或输入母客户简称'), trigger: ['blur', 'change'] }],
   serviceContent: [{ validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
   languagePair: [{ validator: requiredTextValidator('请选择翻译方向'), trigger: 'change' }],
   wordCountMatrix: [{ validator: validateWordCountMatrix, trigger: 'change' }],
@@ -1730,7 +1791,7 @@ const handleProjectNameInput = () => {
 }
 const regenerateProjectName = () => {
   const missing = []
-  if (!String(form.clientShortName || '').trim()) missing.push('客户简称')
+  if (!String(form.clientShortName || '').trim()) missing.push('母客户简称')
   if (!String(form.languagePair || '').trim()) missing.push('翻译方向')
   if (!form.customerDeadlineTime) missing.push('客户交稿时间')
   if (missing.length) return ElMessage.warning(`请先填写：${missing.join('、')}`)
@@ -1848,7 +1909,11 @@ const cleanPayload = (payload) => {
   })
   delete result.translatorName
   delete result.assignedTranslators
+  delete result.clientName
   delete result.clientManager
+  delete result.subClientName
+  delete result.subClientShortName
+  delete result.subClientCode
   result.managerContact = result.managerContact?.trim() || null
   delete result.subjectPrefix
   delete result.createdAt
@@ -2028,35 +2093,99 @@ const loadProjectEditorOptions = () => {
   return projectEditorOptionsRequest
 }
 
-const fetchClientSuggestions = fetchProjectClientSuggestions
+const fetchParentClientSuggestions = async (queryString, callback) => {
+  const keyword = String(queryString || '').trim()
+  try {
+    const clients = await getClients({
+      skip: 0,
+      limit: 20,
+      client_short_name: keyword || undefined,
+      frequent_first: true,
+    })
+    callback(Array.isArray(clients) ? clients : [])
+  } catch {
+    callback([])
+  }
+}
+const clearSubClientSelection = () => {
+  form.subClientId = ''
+  form.subClientName = ''
+  form.subClientShortName = ''
+  form.subClientCode = ''
+}
+const loadSubClients = async (clientId) => {
+  const requestId = ++subClientRequestId
+  if (!clientId) {
+    availableSubClients.value = []
+    subClientsLoading.value = false
+    return
+  }
+  subClientsLoading.value = true
+  try {
+    const client = await getClient(clientId)
+    if (requestId !== subClientRequestId || String(form.clientId) !== String(clientId)) return
+    availableSubClients.value = Array.isArray(client?.sub_clients) ? client.sub_clients : []
+    if (form.subClientId) {
+      const selected = availableSubClients.value.find((item) => String(item.id) === String(form.subClientId))
+      if (selected) {
+        form.subClientName = selected.client_name || selected.client_short_name || ''
+        form.subClientShortName = selected.client_short_name || ''
+        form.subClientCode = selected.sub_client_code || ''
+      } else {
+        clearSubClientSelection()
+      }
+    }
+  } catch {
+    if (requestId === subClientRequestId) availableSubClients.value = []
+  } finally {
+    if (requestId === subClientRequestId) subClientsLoading.value = false
+  }
+}
 const handleClientSelect = (client) => {
-  form.clientId = client.parent_client_id || client.id || ''
-  form.subClientId = client.sub_client_id || ''
+  form.clientId = client.id || ''
+  clearSubClientSelection()
+  form.clientName = client.client_name || ''
   form.clientShortName = client.client_short_name || ''
   form.clientCode = client.client_code || ''
   form.clientManager = client.client_manager || ''
   form.managerContact = client.manager_contact || ''
+  availableSubClients.value = Array.isArray(client.sub_clients) ? client.sub_clients : []
+  void loadSubClients(form.clientId)
   projectNameManuallyEdited.value = false
   syncProjectName({ force: true })
 }
 const handleClientShortNameInput = () => {
+  subClientRequestId += 1
   form.clientId = ''
-  form.subClientId = ''
+  form.clientName = ''
+  clearSubClientSelection()
   form.clientCode = ''
   form.clientManager = ''
   form.managerContact = ''
+  availableSubClients.value = []
+  subClientsLoading.value = false
   form.projectName = ''
   projectNameManuallyEdited.value = false
 }
 const clearSelectedClient = () => {
+  subClientRequestId += 1
   form.clientId = ''
-  form.subClientId = ''
+  form.clientName = ''
+  clearSubClientSelection()
   form.clientShortName = ''
   form.clientCode = ''
   form.clientManager = ''
   form.managerContact = ''
+  availableSubClients.value = []
+  subClientsLoading.value = false
   form.projectName = ''
   projectNameManuallyEdited.value = false
+}
+const handleSubClientChange = (subClientId) => {
+  const selected = availableSubClients.value.find((item) => String(item.id) === String(subClientId))
+  form.subClientName = selected?.client_name || selected?.client_short_name || ''
+  form.subClientShortName = selected?.client_short_name || ''
+  form.subClientCode = selected?.sub_client_code || ''
 }
 
 const getPreferredProjectPath = async (row) => {
@@ -2227,7 +2356,10 @@ const locateProjectField = async (selectedItem) => {
   }
 }
 const resetProjectForm = () => {
+  subClientRequestId += 1
   assignReactive(form, createEmptyProjectForm)
+  availableSubClients.value = []
+  subClientsLoading.value = false
   projectNameManuallyEdited.value = false
   projectDialogTab.value = 'basic'
   projectBasicExpandedSections.value = ['project', 'business', 'execution']
@@ -2259,6 +2391,8 @@ const handleEdit = async (row) => {
   clearFieldSearch()
   void loadProjectEditorOptions()
   assignReactive(form, createEmptyProjectForm, row)
+  availableSubClients.value = []
+  void loadSubClients(form.clientId)
   if (!String(form.taskType || '').trim()) form.taskType = '笔译项目'
   form.subjectPrefix = extractSubjectPrefix(form.emailSubjectPreview, form)
   currentProjectSubOrders.value = Array.isArray(row.subOrders) ? [...row.subOrders] : []

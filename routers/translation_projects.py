@@ -50,7 +50,7 @@ TRANSLATION_TEXT_FIELDS = {
 
 TRANSLATION_FILTER_FIELDS = {
     "order_no", "project_name", "service_content", "task_type", "client_short_name",
-    "client_code", "customer_order_no", "project_manager_id", "client_manager",
+    "client_code", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
     "manager_contact", "project_status", "file_type_secondary", "project_contract_type",
     "project_contract_status", "quotation_required", "quotation_status",
     "customer_requirement_professional", "customer_requirement_special", "language_pair",

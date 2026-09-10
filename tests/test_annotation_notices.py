@@ -8,13 +8,17 @@ import pytest
 from pydantic import ValidationError
 
 import annotation_notice_service
-from annotation_notice_schemas import AnnotationNoticeSectionUpdate
+from annotation_notice_schemas import AnnotationNoticeReorder, AnnotationNoticeSectionUpdate
 from annotation_notice_service import (
     ANNOTATION_NOTICE_SECTIONS,
-    _alpha_label,
     _display_titles,
     _escape_like_keyword,
     extract_notice_text,
+    get_annotation_notice_section,
+    list_annotation_notice_sections,
+    list_annotation_notice_tree,
+    reorder_annotation_notice_sections,
+    search_annotation_notice_sections,
     update_annotation_notice_section,
 )
 from concurrency import StaleUpdateError
@@ -33,24 +37,20 @@ def document(*marks, text="注意事项"):
 
 def test_fixed_notice_sections_keep_legacy_keys_and_expected_titles():
     assert [title for _key, title in ANNOTATION_NOTICE_SECTIONS] == [
-        "A. 客户报价", "B. 标注员报价", "C. 试标/试采流程", "D. 音频采集流程",
-        "E. 音频标注流程", "F. 音频评测流程", "G. 文本评测流程", "H. 质检流程",
-        "I. 测听流程", "J. 扣槽流程", "K. 泛化流程", "L. 翻译流程", "M. AI评测流程",
+        "客户报价", "标注员报价", "试标/试采流程", "音频采集流程",
+        "音频标注流程", "音频评测流程", "文本评测流程", "质检流程",
+        "测听流程", "扣槽流程", "泛化流程", "翻译流程", "AI评测流程",
     ]
 
 
-def test_alpha_label_supports_more_than_twenty_six_content_sections():
-    assert [_alpha_label(value) for value in (1, 26, 27, 28, 52, 53)] == ["A", "Z", "AA", "AB", "AZ", "BA"]
-
-
-def test_display_titles_follow_preorder_and_skip_group_only_nodes():
+def test_display_titles_use_plain_section_titles():
     root_a = notice_row(title="客户报价", sort_order=1)
     group = notice_row(title="项目流程", sort_order=2, has_content=False)
     child = notice_row(title="音频采集流程", sort_order=1, parent_id=group.id)
     labels = _display_titles([child, group, root_a])
-    assert labels[root_a.id] == "A. 客户报价"
+    assert labels[root_a.id] == "客户报价"
     assert labels[group.id] == "项目流程"
-    assert labels[child.id] == "B. 音频采集流程"
+    assert labels[child.id] == "音频采集流程"
 
 
 def test_extract_notice_text_collects_nested_tiptap_text():
@@ -131,6 +131,27 @@ class FakeDb:
     def commit(self): self.commits += 1
 
 
+class FakeRowsDb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.commits = 0
+        self.flushes = 0
+
+    def query(self, *_args): return FakeRowsQuery(self.rows)
+    def commit(self): self.commits += 1
+    def flush(self): self.flushes += 1
+
+
+class FakeRowsQuery:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def filter(self, *_args): return self
+    def with_for_update(self): return self
+    def options(self, *_args): return self
+    def all(self): return self.rows
+
+
 def notice_row(updated_at=None, *, title="客户报价", sort_order=1, has_content=True, parent_id=None):
     return SimpleNamespace(
         id=uuid4(), section_key="customer_quote", title=title, parent_id=parent_id,
@@ -139,6 +160,46 @@ def notice_row(updated_at=None, *, title="客户报价", sort_order=1, has_conte
         structure_updated_at=None,
         editor=SimpleNamespace(full_name="测试用户", username="tester"),
     )
+
+
+def test_tree_detail_search_and_legacy_responses_use_plain_titles(monkeypatch):
+    row = notice_row(title="客户报价")
+    row.search_text = "客户报价填写说明"
+    db = FakeDb(row)
+    monkeypatch.setattr(annotation_notice_service, "ensure_annotation_notice_sections", lambda _db: None)
+    monkeypatch.setattr(annotation_notice_service, "_active_rows", lambda _db: [row])
+
+    tree = list_annotation_notice_tree(db)
+    detail = get_annotation_notice_section(db, row.id)
+    legacy = list_annotation_notice_sections(db)
+    search = search_annotation_notice_sections(db, "客户报价")
+
+    assert tree[0]["display_title"] == "客户报价"
+    assert detail["display_title"] == "客户报价"
+    assert legacy[0]["title"] == "客户报价"
+    assert legacy[0]["display_title"] == "客户报价"
+    assert search["items"][0]["display_title"] == "客户报价"
+    assert search["items"][0]["breadcrumb"] == "客户报价"
+
+
+def test_reorder_persists_plain_title_navigation_order(monkeypatch):
+    first = notice_row(title="客户报价", sort_order=1)
+    second = notice_row(title="标注员报价", sort_order=2)
+    second.section_key = "annotator_quote"
+    rows = [first, second]
+    db = FakeRowsDb(rows)
+    monkeypatch.setattr(annotation_notice_service, "ensure_annotation_notice_sections", lambda _db: None)
+    monkeypatch.setattr(annotation_notice_service, "_active_rows", lambda _db: rows)
+
+    result = reorder_annotation_notice_sections(db, AnnotationNoticeReorder(placements=[
+        {"id": second.id, "sort_order": 1},
+        {"id": first.id, "sort_order": 2},
+    ]))
+
+    assert db.flushes == 1
+    assert db.commits == 1
+    assert [item["title"] for item in result] == ["标注员报价", "客户报价"]
+    assert [item["display_title"] for item in result] == ["标注员报价", "客户报价"]
 
 
 def test_notice_update_records_user_time_and_search_text(monkeypatch):

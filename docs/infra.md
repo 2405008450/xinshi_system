@@ -119,8 +119,10 @@ npm run dev -- --host 0.0.0.0 --port 3000
 
 调试访问地址为 `http://192.168.31.144:3000/`，后端为 `http://192.168.31.144:8000/`。
 
-局域网日常使用入口为 `http://192.168.31.144:3100/`。该入口由 Windows Nginx 提供
-`frontend/dist` 生产构建，并通过 `/api` 反向代理到本机 8000 端口；计划任务
+局域网日常使用入口为 `https://oa.xinshify.com.cn/`。内网 DNS 将该域名解析到
+`192.168.31.144`，Windows Nginx 在 443 端口提供 HTTPS；80 和 3100 端口只负责跳转到
+正式 HTTPS 地址。证书与私钥保存在仓库外的 `E:\xinshi_runtime\certs`，不得提交到 Git。
+Nginx 提供 `frontend/dist` 生产构建，并通过 `/api` 反向代理到本机 8000 端口；计划任务
 `XinshiLanProductionFrontend` 使用 `SYSTEM` 账号在开机时启动，不依赖交互式桌面会话。
 更新代码后的部署步骤为：
 
@@ -133,11 +135,48 @@ npm run build
     -t `
     -p 'E:\xinshi_runtime\nginx-1.30.4\' `
     -c 'E:\xinshi_system\deploy\nginx-lan.conf'
-& 'E:\xinshi_runtime\nginx-1.30.4\nginx.exe' `
-    -p 'E:\xinshi_runtime\nginx-1.30.4\' `
-    -c 'E:\xinshi_system\deploy\nginx-lan.conf' `
-    -s reload
+Stop-ScheduledTask -TaskName 'XinshiLanProductionFrontend'
+Get-Process -Name nginx -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq 'E:\xinshi_runtime\nginx-1.30.4\nginx.exe' } |
+    Stop-Process -Force
+Start-ScheduledTask -TaskName 'XinshiLanProductionFrontend'
 ```
+
+Nginx 由 `SYSTEM` 计划任务启动。SSH 管理员会话直接执行 `nginx -s reload` 会因为无权访问
+该进程的全局 reload 事件而失败，因此远程更新统一通过上述计划任务重启，不直接热重载。
+
+## 公网生产 HTTPS 入口
+
+公网生产环境的正式入口为 `https://www.oa.xinshify.com.cn/`，阿里云公网 DNS 使用 A 记录
+`www.oa.xinshify.com.cn -> 43.132.156.72`。局域网入口继续使用
+`https://oa.xinshify.com.cn/ -> 192.168.31.144`，不要覆盖现有 `oa` 记录，以免公网与内网环境
+互相影响。
+
+公网 HTTPS 由 Compose 服务 `https_gateway` 提供。该服务监听宿主机 443 端口，再反向代理到
+Compose 网络中的 `frontend:80`；原有 `http://43.132.156.72:3000/` 暂时保留为故障排查入口。
+配置文件为 `deploy/nginx-cloud-gateway.conf`，服务定义位于
+`deploy/docker-compose.cloud.yml`。证书与私钥保存在云服务器仓库外：
+
+```text
+/etc/xinshi/certs/oa.xinshify.com.cn.pem
+/etc/xinshi/certs/oa.xinshify.com.cn.key
+```
+
+私钥权限必须保持为仅 root 可读，不得把证书私钥提交到 Git。更新网关配置后，先在云服务器
+`/home/ubuntu/apps/xinshi_system/deploy` 中校验 Compose 配置，再只更新网关服务：
+
+```bash
+sudo docker-compose --env-file ../.env \
+  -f docker-compose.cloud.yml \
+  -f docker-compose.cloud.local.yml config --quiet
+
+sudo docker-compose --env-file ../.env \
+  -f docker-compose.cloud.yml \
+  -f docker-compose.cloud.local.yml up -d --no-deps https_gateway
+```
+
+部署后至少验证 HTTPS 页面、`/api/auth/session` 以及 WebSocket 握手路径。证书续期时只替换
+仓库外的 `.pem` 和 `.key` 文件，并重新创建 `https_gateway` 使新证书生效。
 
 `XinshiDebugBackendInteractive` 调用 `deploy/start_backend_interactive.ps1`。脚本会在启动
 Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Get-Item` 和一次只读枚举；

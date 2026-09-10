@@ -22,19 +22,19 @@ from concurrency import StaleUpdateError, parse_expected_updated_at
 
 # 保留该常量，兼容既有调用和固定栏目顺序测试；数据库初始化后不再覆盖用户调整。
 ANNOTATION_NOTICE_SECTIONS = (
-    ("customer_quote", "A. 客户报价"),
-    ("annotator_quote", "B. 标注员报价"),
-    ("trial_collection", "C. 试标/试采流程"),
-    ("audio_collection", "D. 音频采集流程"),
-    ("audio_annotation", "E. 音频标注流程"),
-    ("audio_evaluation", "F. 音频评测流程"),
-    ("text_evaluation", "G. 文本评测流程"),
-    ("quality_inspection", "H. 质检流程"),
-    ("listening_test", "I. 测听流程"),
-    ("slot_deduction", "J. 扣槽流程"),
-    ("generalization", "K. 泛化流程"),
-    ("translation", "L. 翻译流程"),
-    ("ai_evaluation", "M. AI评测流程"),
+    ("customer_quote", "客户报价"),
+    ("annotator_quote", "标注员报价"),
+    ("trial_collection", "试标/试采流程"),
+    ("audio_collection", "音频采集流程"),
+    ("audio_annotation", "音频标注流程"),
+    ("audio_evaluation", "音频评测流程"),
+    ("text_evaluation", "文本评测流程"),
+    ("quality_inspection", "质检流程"),
+    ("listening_test", "测听流程"),
+    ("slot_deduction", "扣槽流程"),
+    ("generalization", "泛化流程"),
+    ("translation", "翻译流程"),
+    ("ai_evaluation", "AI评测流程"),
 )
 
 _DEFAULT_ROOTS = (
@@ -75,14 +75,6 @@ def extract_notice_text(document: dict | None) -> str:
     return re.sub(r"[ \t]+", " ", "".join(chunks)).strip()
 
 
-def _alpha_label(index: int) -> str:
-    value = ""
-    while index > 0:
-        index, remainder = divmod(index - 1, 26)
-        value = chr(65 + remainder) + value
-    return value
-
-
 def _ordered_rows(rows: list[AnnotationNoticeSection]) -> list[AnnotationNoticeSection]:
     children: dict[UUID | None, list[AnnotationNoticeSection]] = defaultdict(list)
     for row in rows:
@@ -97,15 +89,8 @@ def _ordered_rows(rows: list[AnnotationNoticeSection]) -> list[AnnotationNoticeS
 
 
 def _display_titles(rows: list[AnnotationNoticeSection]) -> dict[UUID, str]:
-    labels: dict[UUID, str] = {}
-    number = 0
-    for row in _ordered_rows(rows):
-        if row.has_content:
-            number += 1
-            labels[row.id] = f"{_alpha_label(number)}. {row.title}"
-        else:
-            labels[row.id] = row.title
-    return labels
+    """保留 display_title 响应字段，但不再附加与顺序绑定的字母编号。"""
+    return {row.id: row.title for row in rows}
 
 
 def _serialize(row: AnnotationNoticeSection, labels: dict[UUID, str], *, include_content: bool) -> dict:
@@ -185,7 +170,7 @@ def list_annotation_notice_tree(db: Session) -> list[dict]:
 
 
 def list_annotation_notice_sections(db: Session) -> list[dict]:
-    """旧平铺接口：只返回正文栏目，并让旧客户端继续读取带编号的 title。"""
+    """旧平铺接口：只返回正文栏目，并让旧客户端继续从 title 读取栏目名称。"""
     ensure_annotation_notice_sections(db)
     rows = _active_rows(db)
     labels = _display_titles(rows)
@@ -342,11 +327,9 @@ def search_annotation_notice_sections(
 ) -> dict:
     ensure_annotation_notice_sections(db)
     normalized = keyword.strip()
-    prefix_match = re.match(r"^([A-Za-z]+)\.\s*(.*)$", normalized)
-    search_term = prefix_match.group(2).strip() if prefix_match else normalized
     query = db.query(AnnotationNoticeSection).filter(AnnotationNoticeSection.is_active.is_(True))
-    if search_term:
-        pattern = f"%{_escape_like_keyword(search_term)}%"
+    if normalized:
+        pattern = f"%{_escape_like_keyword(normalized)}%"
         query = query.filter(or_(
             AnnotationNoticeSection.title.ilike(pattern, escape="\\"),
             AnnotationNoticeSection.search_text.ilike(pattern, escape="\\"),
@@ -418,6 +401,6 @@ def update_annotation_notice_section(
     if not row:
         return None
     result = _update_content(db, row, payload, user_id)
-    # 旧客户端只识别 title，保持原有“字母编号 + 栏目名称”的返回形态。
+    # 旧客户端只识别 title，继续返回与 display_title 一致的栏目名称。
     result["title"] = result["display_title"]
     return result

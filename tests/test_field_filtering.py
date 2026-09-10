@@ -61,6 +61,9 @@ class RecordingTranslationQuery:
     def filter(self, *_args):
         return self
 
+    def add_columns(self, *_args):
+        return self
+
     def order_by(self, *ordering):
         self.ordering = ordering
         return self
@@ -88,6 +91,7 @@ class RecordingTranslationDb:
     [
         (client_field_filters, {"client_name": {"op": "contains", "value": "信实"}}),
         (translation_field_filters, {"project_status": {"op": "in", "value": ["confirmed", "paused"]}}),
+        (translation_field_filters, {"sub_client_short_name": {"op": "contains", "value": "子客户"}}),
         (translation_field_filters, {"translator_return_time": {"op": "between", "from": "2026-09-01", "to": "2026-09-30"}}),
         (interpretation_field_filters, {"scheduled_date": {"op": "between", "from": "2026-08-01", "to": "2026-08-31"}}),
         (recruitment_field_filters, {"candidate_count": {"op": "between", "min": 1, "max": 5}}),
@@ -126,6 +130,21 @@ def test_parse_field_filters_rejects_malformed_json_and_empty_in_values():
     with pytest.raises(HTTPException) as empty_values:
         parse_field_filters(encoded({"status": {"op": "in", "value": []}}))
     assert empty_values.value.status_code == 422
+
+
+def test_translation_parent_and_sub_client_filters_are_independent():
+    parent_sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={"client_short_name": {"op": "contains", "value": "母客户"}},
+    ))
+    sub_sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={"sub_client_short_name": {"op": "contains", "value": "子客户"}},
+    ))
+
+    assert "client.client_short_name" in parent_sql
+    assert "sub_client.client_short_name" not in parent_sql.split("where", 1)[-1]
+    assert "sub_client.client_short_name" in sub_sql
 
 
 def test_annotation_project_manager_filter_contract_accepts_multi_select():

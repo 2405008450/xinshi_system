@@ -601,6 +601,8 @@ def _confirm_consultation_project(
             project.project_name = preview["project_name"]
             project.email_subject_preview = preview["email_subject_preview"]
             project.task_type = consultation_task_type_label(consultation.consultation_type)
+            project.client_id = consultation.client_id
+            project.sub_client_id = consultation.sub_client_id
             if project.project_status in (None, "", "pending", "pending_confirmation"):
                 project.project_status = PROJECT_CONFIRMED_STATUS
             db.flush()
@@ -1185,6 +1187,7 @@ def create_project_from_consultation(
         ),
         consultation_id=db_consultation.id,
         client_id=db_consultation.client_id,
+        sub_client_id=db_consultation.sub_client_id,
         customer_reception_time=db_consultation.consultation_time,
         project_status=PROJECT_CONFIRMED_STATUS,
         created_by=current_user.id,

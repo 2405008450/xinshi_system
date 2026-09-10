@@ -24,6 +24,16 @@ test('栏目管理支持两级新增、拖拽、编辑和删除', () => {
   assert.match(noticeManager, /<AppForm/)
 })
 
+test('标注须知界面统一展示无字母编号的栏目名称', () => {
+  assert.match(noticePage, /\{\{ root\.title \}\}/)
+  assert.match(noticePage, /\{\{ child\.title \}\}/)
+  assert.match(noticePage, /activeNotice\.title/)
+  assert.match(noticePage, /row\.displayTitle/)
+  assert.match(noticeManager, /\{\{ data\.title \}\}/)
+  assert.doesNotMatch(noticePage, /root\.displayTitle|child\.displayTitle|activeNotice\?\.displayTitle/)
+  assert.doesNotMatch(noticeManager, /data\.displayTitle|selected\.value\.displayTitle/)
+})
+
 test('全文搜索遵循防抖、取消和旧响应保护范式', () => {
   assert.match(noticePage, /搜索栏目名称或内容/)
   assert.match(noticePage, /setTimeout\(\(\) => runSearch\(true, true\), 400\)/)

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildTranslatorAssignmentDetailUpdates,
   normalizeTranslatorAssignmentDetails,
+  toDateTimeInputValue,
   toNullablePrice,
 } from '../src/utils/translatorAssignmentDetails.js'
 
@@ -13,6 +14,12 @@ test('译员价格兼容 Decimal 字符串、零值和空值', () => {
   assert.equal(toNullablePrice(null), null)
   assert.equal(toNullablePrice(''), null)
   assert.equal(toNullablePrice('invalid'), null)
+})
+
+test('回稿时间兼容接口 ISO 格式并转换为日期控件格式', () => {
+  assert.equal(toDateTimeInputValue('2026-09-04T09:08:07'), '2026-09-04 09:08:07')
+  assert.equal(toDateTimeInputValue('2026-09-04 09:08'), '2026-09-04 09:08:00')
+  assert.equal(toDateTimeInputValue(null), '')
 })
 
 test('派稿译员数据同时兼容驼峰和下划线字段', () => {
@@ -41,6 +48,7 @@ test('派稿译员数据同时兼容驼峰和下划线字段', () => {
 test('保存载荷保留零值、清空价格并整理完成情况', () => {
   const updates = buildTranslatorAssignmentDetailUpdates([{
     arrangementId: 'arrangement-1',
+    returnTime: '2026-09-04 09:00:00',
     completionRemarks: '  已完成  ',
     translatorUnitPrice: 0,
     translatorTotalPrice: '',
@@ -48,6 +56,7 @@ test('保存载荷保留零值、清空价格并整理完成情况', () => {
 
   assert.deepEqual(updates, [{
     arrangementId: 'arrangement-1',
+    translatorReturnTime: '2026-09-04 09:00:00',
     completionRemarks: '已完成',
     translatorUnitPrice: 0,
     translatorTotalPrice: null,

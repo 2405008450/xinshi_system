@@ -2,7 +2,7 @@
   <el-popover
     v-model:visible="visible"
     trigger="click"
-    placement="left"
+    :placement="placement"
     :width="680"
     popper-class="translator-completion-popover"
     :disabled="!normalizedTranslators.length"
@@ -14,7 +14,7 @@
         type="button"
         class="translator-return-trigger business-clickable-cell"
         :class="{ 'is-disabled': !normalizedTranslators.length }"
-        :title="normalizedTranslators.length ? '点击编辑译员任务完成情况及价格' : '暂无已指派译员'"
+        :title="normalizedTranslators.length ? '点击编辑译员回稿时间、任务完成情况及价格' : '暂无已指派译员'"
         @click.stop
       >
         <div v-if="deadlineItems.length" class="translator-return-deadlines">
@@ -29,17 +29,36 @@
 
     <div class="translator-completion-panel">
       <div class="translator-completion-panel__header">
-        <strong>译员任务完成情况及价格</strong>
-        <span>完成情况、单价和总价与当前项目对应的派稿任务绑定</span>
+        <strong>译员回稿及结算信息</strong>
+        <span>修改会同步回写当前项目对应的稿件安排，并影响回稿提醒和紧急度排序</span>
       </div>
 
       <div class="translator-completion-panel__body">
         <div v-for="item in draft" :key="item.arrangementId" class="translator-completion-row">
           <div class="translator-completion-row__meta">
             <strong>{{ item.translatorName }}</strong>
-            <span>回稿时间：{{ formatDateTime(item.returnTime) }}</span>
+            <span>当前回稿时间：{{ formatDateTime(item.returnTime) }}</span>
           </div>
           <div class="translator-completion-row__fields">
+            <label class="translator-completion-field">
+              <span>译员回稿时间</span>
+              <el-date-picker
+                v-if="editable"
+                v-model="item.returnTime"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
+                time-format="HH:mm"
+                :clearable="false"
+                :show-now="true"
+                :show-confirm="true"
+                :show-footer="true"
+                style="width: 100%"
+              />
+              <div v-else class="translator-completion-row__readonly">
+                {{ formatDateTime(item.returnTime) }}
+              </div>
+            </label>
             <div class="translator-completion-row__prices">
               <label class="translator-completion-field">
                 <span>译员单价</span>
@@ -100,7 +119,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
 import {
@@ -114,6 +133,7 @@ const props = defineProps({
   status: { type: String, default: '' },
   editable: { type: Boolean, default: false },
   save: { type: Function, default: null },
+  placement: { type: String, default: 'left' },
 })
 
 const emit = defineEmits(['saved'])
@@ -132,15 +152,32 @@ const resetDraft = () => {
 
 const handleSave = async () => {
   if (!props.save || saving.value) return
+  const originalById = new Map(
+    normalizedTranslators.value.map((item) => [String(item.arrangementId), item.returnTime || '']),
+  )
+  const returnTimeChanged = draft.value.some((item) => (
+    (item.returnTime || '') !== originalById.get(String(item.arrangementId))
+  ))
+  if (returnTimeChanged) {
+    try {
+      await ElMessageBox.confirm(
+        '修改后会更新系统内的回稿提醒和紧急度排序，但不会自动重发派稿邮件或通知译员。确认保存吗？',
+        '确认修改译员回稿时间',
+        { type: 'warning', confirmButtonText: '确认保存', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
   saving.value = true
   try {
     const details = buildTranslatorAssignmentDetailUpdates(draft.value)
     const updated = await props.save(details)
     emit('saved', updated)
-    ElMessage.success('译员任务完成情况及价格已保存')
+    ElMessage.success('译员回稿及结算信息已保存')
     visible.value = false
   } catch (error) {
-    ElMessage.error(error?.detail || '译员任务完成情况及价格保存失败')
+    ElMessage.error(error?.detail || '译员回稿及结算信息保存失败')
   } finally {
     saving.value = false
   }
