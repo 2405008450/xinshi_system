@@ -95,20 +95,25 @@ select {
     box-shadow 180ms ease;
 }
 
-.el-button--primary {
+/*
+ * 仅覆盖实心主按钮。plain/link/text/disabled 按钮依赖 Element Plus 各自的
+ * 颜色变量；若在 .el-button--primary 上直接写背景，会把这些状态也涂成深色，
+ * 造成主题色文字与背景重叠，只有悬停后才可见。
+ */
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):not(.is-disabled) {
   border-color: var(--color-primary);
-  background: var(--color-primary);
+  background-color: var(--color-primary);
 }
 
-.el-button--primary:hover,
-.el-button--primary:focus-visible {
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):not(.is-disabled):hover,
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):not(.is-disabled):focus-visible {
   border-color: var(--color-primary-hover);
-  background: var(--color-primary-hover);
+  background-color: var(--color-primary-hover);
 }
 
-.el-button--primary:active {
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):not(.is-disabled):active {
   border-color: var(--color-primary-active);
-  background: var(--color-primary-active);
+  background-color: var(--color-primary-active);
 }
 
 /* 表单 */

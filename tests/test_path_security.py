@@ -4,7 +4,7 @@ from annotation_schemas import AnnotationProjectWrite
 from interpretation_schemas import InterpretationProjectWrite
 from manuscript_schemas import ManuscriptMailPathsUpdate
 from recruitment_schemas import RecruitmentCandidateCreate, RecruitmentProjectCreate
-from schemas import TranslationProjectCreate
+from schemas import ProjectFileCreate, ProjectFileUpdate, TranslationProjectCreate
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +20,15 @@ def allowed_roots(monkeypatch):
         (RecruitmentProjectCreate, {"project_path": r"\\attacker.example\share\payload.exe"}),
         (RecruitmentCandidateCreate, {"resume_path": r"\\attacker.example\share\payload.exe"}),
         (ManuscriptMailPathsUpdate, {"dispatch_path": r"\\attacker.example\share\payload.exe"}),
+        (
+            ProjectFileCreate,
+            {
+                "translation_project_id": "11111111-1111-1111-1111-111111111111",
+                "file_name": "安全测试",
+                "storage_path": r"\\attacker.example\share\source",
+            },
+        ),
+        (ProjectFileUpdate, {"dispatch_path": r"\\attacker.example\share\payload.exe"}),
         (TranslationProjectCreate, {"project_name": "安全测试", "network_file_path": r"\\attacker.example\share\payload.exe"}),
     ],
 )
@@ -60,6 +69,26 @@ def test_accepts_cloud_saved_path_without_checking_share_reachability(monkeypatc
     model = AnnotationProjectWrite(project_path=project_path)
 
     assert model.project_path == project_path
+
+
+def test_project_file_paths_accept_allowed_unc_roots(monkeypatch):
+    monkeypatch.setenv(
+        "OPENPATH_ALLOWED_ROOTS",
+        r"\\Win-server\服务器资料7;\\Win-server\服务器资料4",
+    )
+    storage_path = (
+        r"\\Win-server\服务器资料7\客户\其他客户翻译任务\2026年\9月"
+        r"\SGS通标标准技术\0909\1. 原文"
+    )
+    dispatch_path = (
+        r"\\Win-server\服务器资料7\客户\其他客户翻译任务\2026年\9月"
+        r"\SGS通标标准技术\0909" + "\\"
+    )
+
+    model = ProjectFileUpdate(storage_path=storage_path, dispatch_path=dispatch_path)
+
+    assert model.storage_path == storage_path
+    assert model.dispatch_path == dispatch_path.rstrip("\\")
 
 
 def test_rejects_similar_but_unapproved_share_root(monkeypatch):

@@ -19,6 +19,7 @@ test('母订单汇总字数在列表和编辑弹窗中均为只读', () => {
   assert.match(source, /:read-only="row\.wordCountMatrixSource === 'suborder_aggregate'"/)
   assert.match(source, /:read-only="form\.wordCountMatrixSource === 'suborder_aggregate'"/)
   assert.match(source, /来自 \{\{ form\.wordCountSubOrderCount \}\} 个子订单/)
+  assert.match(source, /validateWordCountMatrix[\s\S]*?form\.wordCountMatrixSource === 'suborder_aggregate'[\s\S]*?return callback\(\)/)
 })
 
 test('子订单收费编辑器按客户字数计算并按币种汇总', () => {
@@ -29,15 +30,14 @@ test('子订单收费编辑器按客户字数计算并按币种汇总', () => {
   assert.match(source, /Object\.entries\(totals\)/)
 })
 
-test('稿件安排逐译员保存选中文件并提示数量差异和重复名单', () => {
+test('稿件安排回退为可编辑路径并按整目录打包', () => {
   const source = read('src/views/manuscript/ManuscriptArrangements.vue')
-  const selector = read('src/views/manuscript/components/ManuscriptFileSelector.vue')
   const api = read('src/api/manuscriptArrangements.js')
 
-  assert.match(source, /file_selection_mode: 'selected'/)
-  assert.match(source, /selected_files: \[\]/)
-  assert.match(source, /译员预定数量合计与订单基准不一致/)
-  assert.match(source, /重复分配文件：/)
-  assert.match(selector, /relative_directory: currentDirectory\.value/)
-  assert.match(api, /projects\/\$\{projectId\}\/dispatch-files/)
+  assert.doesNotMatch(source, /ManuscriptFileSelector/)
+  assert.doesNotMatch(source, /file_selection_mode: 'selected'/)
+  assert.match(source, /v-model="mailPathForm\.dispatch_path"/)
+  assert.match(source, /@click="saveMailPaths"/)
+  assert.match(source, /自动将派稿文路径和参考文件路径一中的文件合并打包为 ZIP 附件/)
+  assert.match(api, /batches\/\$\{dispatchId\}\/mail-paths/)
 })

@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import Integer, and_, case, cast, func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from crud import create_translator as create_translator_record, get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
@@ -850,6 +850,7 @@ def _get_active_manuscript_projects(
     keyword: Optional[str] = None,
 ) -> dict:
     """查询稿件安排页所需的进行中母订单和子订单。"""
+    child_sub_order = aliased(TranslationSubOrder)
     deadline = func.coalesce(
         TranslationSubOrder.customer_deadline_time,
         TranslationProject.customer_deadline_time,
@@ -928,8 +929,8 @@ def _get_active_manuscript_projects(
         .filter(
             or_(
                 WorkflowInstance.sub_order_id.is_not(None),
-                ~db.query(TranslationSubOrder.id).filter(
-                    TranslationSubOrder.parent_project_id == TranslationProject.id
+                ~db.query(child_sub_order.id).filter(
+                    child_sub_order.parent_project_id == TranslationProject.id
                 ).exists(),
             )
         )

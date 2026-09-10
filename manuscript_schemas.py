@@ -266,11 +266,6 @@ class ManuscriptDispatchCreate(BaseModel):
             for item in self.arrangements:
                 if not (item.translation_scope or "").strip():
                     raise ValueError("多人派稿时，每位译员都必须填写需翻译部分")
-        if any(
-            item.file_selection_mode != "selected" or not item.selected_files
-            for item in self.arrangements
-        ):
-            raise ValueError("新建或编辑派稿时，每位译员都必须选择至少一个派稿文件")
         return self
 
 
@@ -325,8 +320,6 @@ class ManuscriptArrangementCreate(BaseModel):
             raise ValueError("必须填写全稿预定时间")
         if not (self.settlement_method or "").strip():
             raise ValueError("必须填写译员结账方式")
-        if self.file_selection_mode != "selected" or not self.selected_files:
-            raise ValueError("新建派稿时必须选择至少一个派稿文件")
         return self
 
 

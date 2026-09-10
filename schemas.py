@@ -1143,6 +1143,14 @@ class ProjectFileBase(BaseModel):
 class ProjectFileCreate(ProjectFileBase):
     uploaded_by: Optional[UUID] = None
 
+    @field_validator(
+        "storage_path", "dispatch_path", "translation_path", "translator_return_path",
+        "client_delivery_path", "project_feedback_path", "feedback_delivery_path",
+    )
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
+
 
 class ProjectFileUpdate(BaseModel):
     file_name: Optional[str] = None
@@ -1165,6 +1173,14 @@ class ProjectFileUpdate(BaseModel):
     file_ext: Optional[str] = None
     file_size: Optional[int] = None
     storage_type: Optional[str] = None
+
+    @field_validator(
+        "storage_path", "dispatch_path", "translation_path", "translator_return_path",
+        "client_delivery_path", "project_feedback_path", "feedback_delivery_path",
+    )
+    @classmethod
+    def validate_network_paths(cls, value):
+        return validate_managed_path(value)
 
 
 class ProjectFileResponse(ProjectFileBase):
