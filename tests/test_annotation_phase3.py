@@ -308,6 +308,36 @@ def test_annotation_progress_update_keeps_explicit_progress_mode():
     assert payload.change_note == "客户要求重新处理试标"
 
 
+def test_annotation_progress_update_accepts_ten_thousand_characters():
+    note = "进" * 10_000
+    payload = AnnotationProjectStatusUpdate(
+        project_status="trial_in_progress",
+        effective_on="2026-09-07 16:20:00",
+        change_note=note,
+        progress_only=True,
+    )
+    assert payload.change_note == note
+
+
+def test_annotation_progress_update_rejects_more_than_ten_thousand_characters():
+    with pytest.raises(ValueError):
+        AnnotationProjectStatusUpdate(
+            project_status="trial_in_progress",
+            effective_on="2026-09-07 16:20:00",
+            change_note="进" * 10_001,
+            progress_only=True,
+        )
+
+
+def test_annotation_status_update_keeps_five_hundred_character_limit():
+    with pytest.raises(ValueError, match="变更说明不能超过 500 字"):
+        AnnotationProjectStatusUpdate(
+            project_status="trial_in_progress",
+            effective_on="2026-09-07 16:20:00",
+            change_note="变" * 501,
+        )
+
+
 def test_annotation_status_update_requires_a_note():
     with pytest.raises(ValueError, match="请填写变更说明或进度说明"):
         AnnotationProjectStatusUpdate(

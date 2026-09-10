@@ -56,3 +56,27 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
   assert.match(chatApi, /put\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
   assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
 })
+
+test('标注沟通消息可以带入补充进度且不会影响笔译默认行为', () => {
+  assert.match(chatPanel, /canAddToProgress:\s*\{ type: Boolean, default: false \}/)
+  assert.match(chatPanel, /defineEmits\(\['add-to-progress'\]\)/)
+  assert.match(chatPanel, /v-if="canAddToProgress && String\(message\.content \|\| ''\)\.trim\(\)"/)
+  assert.match(chatPanel, /@click="emit\('add-to-progress', message\)"/)
+  assert.match(chatPanel, /添加为进度/)
+  assert.match(annotationPage, /:can-add-to-progress="canWrite"/)
+  assert.match(annotationPage, /@add-to-progress="handleChatMessageToProgress"/)
+})
+
+test('沟通消息只预填补充进度并保留两条进度操作路线', () => {
+  assert.match(annotationPage, /const handleChatMessageToProgress=async\(message\)=>/)
+  assert.match(annotationPage, /statusEntryMode\.value='progress'/)
+  assert.match(annotationPage, /projectStatus:activeProgressProject\.value\?\.projectStatus\|\|''/)
+  assert.match(annotationPage, /effectiveOn:localDateTimeValue\(effectiveDate\)/)
+  assert.match(annotationPage, /changeNote:content/)
+  assert.match(annotationPage, /具体进度中已有未保存内容/)
+  assert.match(annotationPage, /progressDialogTab\.value='progress'/)
+  assert.match(annotationPage, /已从项目沟通带入/)
+  assert.match(annotationPage, /:maxlength="statusEntryMode === 'progress' \? 10000 : 500"/)
+  assert.match(annotationPage, /progressDraftSource\.value=null;statusForm\.projectStatus=mode==='progress'[\s\S]*statusForm\.effectiveOn=localDateTimeValue\(\)/)
+  assert.match(annotationPage, /progressOnly=statusEntryMode\.value==='progress'/)
+})

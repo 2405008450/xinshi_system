@@ -349,7 +349,7 @@ class AnnotationProjectOrderNoUpdate(BaseModel):
 class AnnotationProjectStatusUpdate(BaseModel):
     project_status: str
     effective_on: datetime = Field(default_factory=datetime.now)
-    change_note: str = Field(min_length=1, max_length=500)
+    change_note: str = Field(min_length=1, max_length=10000)
     progress_only: bool = False
 
     @field_validator("project_status")
@@ -366,6 +366,14 @@ class AnnotationProjectStatusUpdate(BaseModel):
         if not normalized:
             raise ValueError("请填写变更说明或进度说明")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_note_length(self):
+        max_length = 10000 if self.progress_only else 500
+        if len(self.change_note) > max_length:
+            label = "具体进度" if self.progress_only else "变更说明"
+            raise ValueError(f"{label}不能超过 {max_length} 字")
+        return self
 
 
 class AnnotationProjectPriorityUpdate(BaseModel):
