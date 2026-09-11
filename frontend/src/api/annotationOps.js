@@ -54,6 +54,7 @@ export const createAnnotationWorkflow = (projectId, data) => post(`/annotation-o
 export const updateAnnotationWorkflow = (projectId, assigneeId, data) => put(`/annotation-ops/projects/${projectId}/workflow/${assigneeId}`, data)
 export const deleteAnnotationWorkflow = (projectId, assigneeId) => api.delete(`/annotation-ops/projects/${projectId}/workflow/${assigneeId}`)
 export const getStatusHistory = (projectId) => get(`/annotation-ops/projects/${projectId}/status-history`)
+export const getRecentStatusHistory = (params = {}, config = {}) => get('/annotation-ops/status-history/recent', params, config)
 export const searchStatusHistory = (params, config = {}) => get('/annotation-ops/status-history/search', params, config)
 export const getCustomFields = (tableCode, projectId = null, includeInactive = false) => get('/annotation-ops/custom-fields', { table_code: tableCode, project_id: projectId || undefined, include_inactive: includeInactive })
 export const createCustomField = (data) => post('/annotation-ops/custom-fields', data)

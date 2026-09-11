@@ -25,7 +25,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form">
+    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input
@@ -42,7 +42,7 @@
           </el-select>
         </el-form-item>
       </div>
-      <el-form-item>
+      <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover
@@ -307,7 +307,7 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
-          <span v-else-if="column.key === 'projectName'">{{ textValue(row.projectName) }}</span>
+          <span v-else-if="column.key === 'projectName'" class="project-name-ellipsis" :title="textValue(row.projectName)">{{ textValue(row.projectName) }}</span>
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
@@ -1454,7 +1454,6 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .interpreter-requirement-group { margin: 4px 0 16px; padding: 14px 14px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
 .requirement-group-title { margin-bottom: 12px; color: var(--el-text-color-regular); font-weight: 600; }
 .repeat-title { margin-bottom: 8px; color: var(--el-text-color-regular); font-weight: 600; }
-.project-name-cell { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .status-switch-tag.el-tag { display: inline-flex; min-width: 92px; max-width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity .15s ease; }
 .status-switch-tag :deep(.el-tag__content) { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
 .status-switch-text { line-height: 1; }

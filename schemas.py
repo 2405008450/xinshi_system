@@ -666,6 +666,7 @@ class TranslationProjectBase(BaseModel):
     customer_requirement_special: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
+    sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     manager_contact: Optional[str] = Field(default=None, max_length=100)
@@ -751,6 +752,7 @@ class TranslationProjectUpdate(BaseModel):
     customer_requirement_special: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
+    sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     manager_contact: Optional[str] = Field(default=None, max_length=100)

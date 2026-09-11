@@ -150,7 +150,7 @@
       </el-form-item>
     </AppForm>
 
-    <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+    <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border class="consultation-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
       <el-table-column prop="consultation_code" label="咨询编号" width="160">
@@ -309,7 +309,7 @@
                 type="primary"
                 link
                 class="client-short-name-link business-clickable-cell"
-                :title="`${row.client_short_name || '-'}（点击查看详情）`"
+                :title="`${row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-')}（点击查看详情）`"
                 @click.stop
               >
                 {{ row.sub_client_short_name ? `${row.client_short_name || '-'} / ${row.sub_client_short_name}` : (row.client_short_name || '-') }}
@@ -3484,17 +3484,18 @@ onBeforeUnmount(() => {
 .client-short-name-link,
 .consultation-code-link {
   display: block;
+  width: 100%;
   max-width: 100%;
   height: auto;
+  min-width: 0;
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
-  overflow-wrap: anywhere;
   text-align: left;
-  text-overflow: clip;
-  white-space: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .today-consultation-time {

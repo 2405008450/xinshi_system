@@ -9,15 +9,84 @@
             {{ settings.enabled ? '已开启' : '未开启' }}
           </el-tag>
         </div>
-        <el-switch
-          v-if="!alwaysEnabled && settings.canManage"
-          v-model="settings.enabled"
-          :loading="settingsLoading || toggleLoading"
-          inline-prompt
-          active-text="开"
-          inactive-text="关"
-          @change="handleToggle"
-        />
+        <div class="chat-toolbar__actions">
+          <el-button
+            v-if="canAddToProgress && eligibleProgressMessages.length && !progressSelectionMode"
+            type="default"
+            :size="compact ? 'small' : 'default'"
+            plain
+            @click="toggleProgressSelectionMode"
+          >
+            多选添加进度
+          </el-button>
+          <template v-if="canAddToProgress && progressSelectionMode">
+            <span class="chat-toolbar__selection-count">已选 {{ selectedProgressMessages.length }} 条</span>
+            <el-button
+              type="primary"
+              :size="compact ? 'small' : 'default'"
+              :disabled="!selectedProgressMessages.length"
+              @click="handleAddSelectedToProgress"
+            >
+              添加为进度
+            </el-button>
+            <el-button :size="compact ? 'small' : 'default'" plain @click="clearProgressSelection(true)">退出多选</el-button>
+          </template>
+          <el-popover
+            v-if="collapsibleFilters"
+            v-model:visible="filterPopoverVisible"
+            trigger="click"
+            placement="bottom-end"
+            width="min(560px, calc(100vw - 32px))"
+            popper-class="chat-filter-popover"
+          >
+            <template #reference>
+              <el-button :type="activeFilterCount ? 'primary' : 'default'" :size="compact ? 'small' : 'default'" plain>
+                查询筛选<span v-if="activeFilterCount">（{{ activeFilterCount }}）</span>
+              </el-button>
+            </template>
+            <AppForm :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover">
+              <el-form-item label="关键词" class="chat-filter-bar__field">
+                <el-input v-model="filters.keyword" clearable placeholder="搜索消息内容" @keyup.enter="handleSearch" />
+              </el-form-item>
+              <el-form-item label="发送人" class="chat-filter-bar__field">
+                <el-select v-model="filters.senderUserId" clearable filterable placeholder="全部发送人">
+                  <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="时间范围" class="chat-filter-bar__range">
+                <el-date-picker
+                  v-model="filters.dateRange"
+                  type="datetimerange"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  range-separator="至"
+                  start-placeholder="开始"
+                  end-placeholder="结束"
+                  format="YYYY-MM-DD HH:mm"
+                  time-format="HH:mm"
+                  :show-now="true"
+                  :show-confirm="true"
+                  :show-footer="true"
+                />
+              </el-form-item>
+              <el-form-item class="chat-filter-bar__favorite">
+                <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+              </el-form-item>
+              <el-form-item class="chat-filter-bar__actions">
+                <el-button @click="handleResetSearch">重置</el-button>
+                <el-button type="primary" @click="handleSearch">查询</el-button>
+              </el-form-item>
+            </AppForm>
+          </el-popover>
+          <el-switch
+            v-if="!alwaysEnabled && settings.canManage"
+            v-model="settings.enabled"
+            :loading="settingsLoading || toggleLoading"
+            inline-prompt
+            active-text="开"
+            inactive-text="关"
+            @change="handleToggle"
+          />
+        </div>
       </div>
       <div v-if="!alwaysEnabled" class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
 
@@ -29,7 +98,7 @@
         :title="settings.canManage ? '当前项目沟通未开启，可在右上角打开。' : '当前项目沟通未开启。'"
       />
 
-      <AppForm :inline="true" :model="filters" size="small" class="chat-filter-bar">
+      <AppForm v-if="!collapsibleFilters" :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词" class="chat-filter-bar__field">
             <el-input v-model="filters.keyword" clearable :placeholder="compact ? '搜索消息内容' : '搜消息内容'" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -64,9 +133,20 @@
 
         <el-scrollbar v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
           <div v-if="messages.length" class="chat-list__items">
-            <div v-for="message in messages" :key="message.id" class="chat-message-card">
+            <div
+              v-for="message in messages"
+              :key="message.id"
+              class="chat-message-card"
+              :class="{ 'chat-message-card--selected': isProgressMessageSelected(message) }"
+            >
               <div class="chat-message-card__meta">
                 <div class="chat-message-card__author">
+                  <el-checkbox
+                    v-if="progressSelectionMode && String(message.content || '').trim()"
+                    :model-value="isProgressMessageSelected(message)"
+                    :aria-label="`选择 ${message.senderName || '未知用户'} 的消息`"
+                    @change="checked => handleProgressMessageSelection(message, checked)"
+                  />
                   <strong>{{ message.senderName || '未知用户' }}</strong>
                   <el-tag v-if="message.messageType !== 'user'" size="small" :type="message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
                     {{ message.messageType === 'claim' ? '继承记录' : '交接记录' }}
@@ -90,16 +170,6 @@
                 </div>
                 <div class="chat-message-card__tools">
                   <span>{{ formatDateTime(message.createdAt) }}</span>
-                  <el-button
-                    v-if="canAddToProgress && String(message.content || '').trim()"
-                    type="primary"
-                    link
-                    size="small"
-                    class="chat-message-card__progress-action"
-                    @click="emit('add-to-progress', message)"
-                  >
-                    添加为进度
-                  </el-button>
                   <el-tooltip :content="message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
                     <el-button
                       link
@@ -149,7 +219,7 @@
             :total="pagination.total"
             layout="total, sizes, prev, pager, next"
             small
-            @current-change="loadMessages"
+            @current-change="handlePageChange"
             @size-change="handlePageSizeChange"
           />
         </div>
@@ -254,6 +324,7 @@ const props = defineProps({
   textOnly: { type: Boolean, default: false },
   alwaysEnabled: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
+  collapsibleFilters: { type: Boolean, default: false },
   canAddToProgress: { type: Boolean, default: false }
 })
 
@@ -268,6 +339,9 @@ const uploading = ref(false)
 const userOptions = ref([])
 const messages = ref([])
 const favoriteSavingIds = ref(new Set())
+const filterPopoverVisible = ref(false)
+const progressSelectionMode = ref(false)
+const selectedProgressMessageIds = ref(new Set())
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
 const composer = reactive({
@@ -279,7 +353,40 @@ const composer = reactive({
 const attachmentUrls = reactive({})
 const attachmentObjectUrls = new Set()
 const chatListMaxHeight = computed(() => (props.drawerMode ? 'calc(100vh - 360px)' : '420px'))
+const activeFilterCount = computed(() => [
+  filters.keyword.trim(),
+  filters.senderUserId,
+  Array.isArray(filters.dateRange) && filters.dateRange.length === 2,
+  filters.favoritesOnly
+].filter(Boolean).length)
+const eligibleProgressMessages = computed(() => messages.value.filter(message => String(message.content || '').trim()))
+const selectedProgressMessages = computed(() => eligibleProgressMessages.value.filter(message => selectedProgressMessageIds.value.has(String(message.id))))
 let pollTimer = null
+
+const clearProgressSelection = (exitMode = false) => {
+  selectedProgressMessageIds.value = new Set()
+  if (exitMode) progressSelectionMode.value = false
+}
+
+const toggleProgressSelectionMode = () => {
+  if (progressSelectionMode.value) return clearProgressSelection(true)
+  progressSelectionMode.value = true
+}
+
+const isProgressMessageSelected = message => selectedProgressMessageIds.value.has(String(message?.id))
+
+const handleProgressMessageSelection = (message, checked) => {
+  const next = new Set(selectedProgressMessageIds.value)
+  const id = String(message?.id)
+  if (checked) next.add(id)
+  else next.delete(id)
+  selectedProgressMessageIds.value = next
+}
+
+const handleAddSelectedToProgress = () => {
+  if (!selectedProgressMessages.value.length) return ElMessage.warning('请先选择需要添加的沟通消息')
+  emit('add-to-progress', [...selectedProgressMessages.value])
+}
 
 const clearPolling = () => {
   if (pollTimer) {
@@ -320,6 +427,8 @@ const resetChatState = () => {
   filters.senderUserId = ''
   filters.dateRange = []
   filters.favoritesOnly = false
+  filterPopoverVisible.value = false
+  clearProgressSelection(true)
   composer.content = ''
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserIds = []
@@ -382,6 +491,10 @@ const loadMessages = async () => {
     settings.enabled = !!res?.enabled
     if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     messages.value = Array.isArray(res?.items) ? res.items : []
+    if (progressSelectionMode.value) {
+      const currentIds = new Set(eligibleProgressMessages.value.map(message => String(message.id)))
+      selectedProgressMessageIds.value = new Set([...selectedProgressMessageIds.value].filter(id => currentIds.has(id)))
+    }
     pagination.total = Number(res?.total || 0)
     await ensureAttachmentUrls(messages.value)
   } catch (error) {
@@ -424,21 +537,31 @@ const handleToggle = async (enabled) => {
 }
 
 const handleSearch = () => {
+  clearProgressSelection(true)
   pagination.page = 1
+  filterPopoverVisible.value = false
   loadMessages()
 }
 
 const handleResetSearch = () => {
+  clearProgressSelection(true)
   filters.keyword = ''
   filters.senderUserId = ''
   filters.dateRange = []
   filters.favoritesOnly = false
   pagination.page = 1
+  filterPopoverVisible.value = false
   loadMessages()
 }
 
 const handlePageSizeChange = () => {
+  clearProgressSelection(true)
   pagination.page = 1
+  loadMessages()
+}
+
+const handlePageChange = () => {
+  clearProgressSelection(true)
   loadMessages()
 }
 
@@ -540,6 +663,7 @@ watch(() => [props.projectId, props.projectType], async () => {
 }, { immediate: true })
 
 watch(() => props.active, () => {
+  if (!props.active) clearProgressSelection(true)
   setupPolling()
   if (props.active && props.projectId) {
     loadMessages()
@@ -548,6 +672,10 @@ watch(() => props.active, () => {
 
 watch(() => settings.enabled, () => {
   setupPolling()
+})
+
+watch(() => props.canAddToProgress, canAdd => {
+  if (!canAdd) clearProgressSelection(true)
 })
 
 onMounted(() => {
@@ -586,6 +714,18 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.chat-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-toolbar__selection-count {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .chat-toolbar__hint {
   margin-top: -8px;
   font-size: 12px;
@@ -617,6 +757,35 @@ onBeforeUnmount(() => {
   flex: none;
 }
 
+.chat-filter-bar--popover {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.chat-filter-bar--popover :deep(.el-form-item) {
+  margin: 0;
+}
+
+.chat-filter-bar--popover :deep(.el-form-item__label) {
+  padding: 0 0 6px;
+}
+
+.chat-filter-bar--popover .chat-filter-bar__field :deep(.el-input),
+.chat-filter-bar--popover .chat-filter-bar__field :deep(.el-select),
+.chat-filter-bar--popover .chat-filter-bar__range :deep(.el-date-editor) {
+  width: 100%;
+}
+
+.chat-filter-bar--popover .chat-filter-bar__range,
+.chat-filter-bar--popover .chat-filter-bar__actions {
+  grid-column: 1 / -1;
+}
+
+.chat-filter-bar--popover .chat-filter-bar__actions :deep(.el-form-item__content) {
+  justify-content: flex-end;
+}
+
 .chat-list {
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
@@ -635,6 +804,11 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   padding: 12px;
   background: var(--el-fill-color-blank);
+}
+
+.chat-message-card--selected {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
 }
 
 .chat-message-card__meta {
@@ -783,6 +957,10 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.project-chat-panel--compact .chat-toolbar__actions {
+  gap: 6px;
+}
+
 .project-chat-panel--compact .chat-filter-bar {
   gap: 8px;
   padding: 10px 12px;
@@ -864,6 +1042,16 @@ onBeforeUnmount(() => {
   .chat-filter-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .chat-filter-bar--popover {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .chat-filter-bar--popover .chat-filter-bar__range,
+  .chat-filter-bar--popover .chat-filter-bar__actions {
+    grid-column: auto;
   }
 
   .chat-filter-bar :deep(.el-form-item) {

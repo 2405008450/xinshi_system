@@ -81,7 +81,10 @@
             <div class="sub-order-panel__header">
               <div class="sub-order-panel__meta">
                 <span>子订单列表</span>
-                <el-tag size="small" type="info">共 {{ getSubOrderCount(row) }} 条</el-tag>
+                <el-tag v-if="hasSubOrderListFilter()" size="small" type="info">
+                  匹配 {{ getSubOrderCount(row) }} / 共 {{ getTotalSubOrderCount(row) }} 条
+                </el-tag>
+                <el-tag v-else size="small" type="info">共 {{ getTotalSubOrderCount(row) }} 条</el-tag>
                 <el-tag v-if="hasMoreSubOrders(row)" size="small" type="warning">当前仅显示前 {{ SUB_ORDER_PREVIEW_LIMIT }} 条</el-tag>
               </div>
               <div class="sub-order-panel__actions">
@@ -129,6 +132,11 @@
                   />
                 </template>
               </el-table-column>
+              <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
+                <template #default="{ row: subRow }">
+                  <el-tag :type="getStatusType(subRow.status)">{{ getStatusLabel(subRow.status) }}</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column v-if="isSubOrderColumnVisible('languagePair')" prop="languagePair" label="翻译方向" min-width="120" />
               <el-table-column v-if="isSubOrderColumnVisible('wordCountMatrix')" label="字数统计" width="132" min-width="120">
                 <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
@@ -167,11 +175,6 @@
                     :editable="canWriteProjects"
                     :save="(completions) => saveSubOrderTranslatorCompletions(subRow, completions)"
                   />
-                </template>
-              </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
-                <template #default="{ row: subRow }">
-                  <el-tag :type="getStatusType(subRow.status)">{{ getStatusLabel(subRow.status) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="88" fixed="right" align="center">
@@ -263,7 +266,7 @@
             </BusinessDetailPopover>
             <PathActionButtons v-if="canReadProjectFiles" @open="openOriginalPath(row)" @copy="copyOriginalPath(row)" />
           </div>
-          <span v-else-if="column.key === 'projectName'">{{ row.projectName || '-' }}</span>
+          <span v-else-if="column.key === 'projectName'" class="project-name-ellipsis" :title="row.projectName || '-'">{{ row.projectName || '-' }}</span>
           <el-dropdown
             v-else-if="column.key === 'projectStatus' && canWriteProjects"
             trigger="click"
@@ -505,23 +508,30 @@
                     </el-col>
                     <el-col :xs="24" :md="12">
                       <el-form-item label="子客户" data-field-key="subClientShortName">
-                        <el-select
-                          v-model="form.subClientId"
-                          clearable
-                          filterable
-                          :loading="subClientsLoading"
-                          :disabled="!form.clientId"
-                          :placeholder="subClientPlaceholder"
-                          style="width: 100%"
-                          @change="handleSubClientChange"
-                        >
-                          <el-option
-                            v-for="item in availableSubClients"
-                            :key="item.id"
-                            :label="`${item.client_short_name || item.client_name}${item.sub_client_code ? `（${item.sub_client_code}）` : ''}`"
-                            :value="item.id"
-                          />
-                        </el-select>
+                        <div class="client-autocomplete-field">
+                          <el-autocomplete
+                            v-model="form.subClientShortName"
+                            :fetch-suggestions="fetchSubClientSuggestions"
+                            value-key="client_short_name"
+                            clearable
+                            :debounce="0"
+                            :trigger-on-focus="true"
+                            :disabled="!form.clientShortName"
+                            :placeholder="subClientPlaceholder"
+                            style="width: 100%"
+                            @select="handleSubClientSelect"
+                            @input="handleSubClientInput"
+                            @clear="clearSubClientSelection"
+                          >
+                            <template #default="{ item }">
+                              <div class="client-suggestion">
+                                <span>{{ item.client_short_name || item.client_name }}</span>
+                                <span class="client-suggestion__meta">{{ item.sub_client_code || '未生成编号' }} · {{ item.client_name }}</span>
+                              </div>
+                            </template>
+                          </el-autocomplete>
+                          <div class="client-autocomplete-hint">没有匹配子客户时，保存项目会在当前母客户下自动新增。</div>
+                        </div>
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -1119,11 +1129,11 @@ import { COMMON_SUBJECT_PREFIX_OPTIONS, notifyEmailSubjectGenerated, extractSubj
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
+import { filterTranslationSubOrdersByStatus } from '@/utils/projectStatus'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import {
   formatBusinessDateTime as formatDateTime,
   isTranslatorReturnTerminalStatus,
-  parseBusinessDateTime,
 } from '@/utils/deadlineDisplay'
 
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
@@ -1132,6 +1142,8 @@ import {
   TRANSLATION_PROJECT_TIME_SORT_MODES,
   getTranslationProjectTimeSortMode,
   getTranslationProjectTimeSortTitle,
+  getTranslationSubOrderEarliestReturnTime,
+  hasTranslationSubOrderReturnTime,
   isTranslationProjectTimeSortActive,
   nextTranslationProjectTimeSortMode,
 } from '@/utils/translationProjectTimeSort'
@@ -1597,9 +1609,9 @@ const availableSubClients = ref([])
 const subClientsLoading = ref(false)
 let subClientRequestId = 0
 const subClientPlaceholder = computed(() => {
-  if (!form.clientId) return '请先选择已有母客户'
+  if (!form.clientShortName) return '请先选择或输入母客户'
   if (subClientsLoading.value) return '正在加载子客户'
-  return availableSubClients.value.length ? '不选则订单仅关联母客户' : '该母客户暂无子客户'
+  return availableSubClients.value.length ? '选择已有子客户，或直接输入新名称' : '直接输入新子客户名称'
 })
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'translation-project',
@@ -1751,15 +1763,6 @@ const formatTranslatorCompletionRemarks = (items) => {
     .filter(Boolean)
   return values.length ? values.join('；') : '-'
 }
-const getTranslatorReturnDeadlineItems = (items) => (
-  Array.isArray(items)
-    ? items.map((item, index) => ({
-        key: item.arrangementId || item.arrangement_id || item.translatorId || item.translator_id || index,
-        name: item.translatorName || item.translator_name || '译员',
-        time: item.translatorReturnTime || item.translator_return_time || '',
-      })).filter((item) => item.time)
-    : []
-)
 const getAssignedTranslatorNames = (items, legacyName = '') => {
   if (Array.isArray(items) && items.length) {
     return items
@@ -1847,7 +1850,28 @@ const normalizeProject = (project) => ({
   layoutSpecialistName: getProjectRoleAssigneeName(project, 'layout_specialist'),
   subOrders: Array.isArray(project.subOrders) ? [...project.subOrders].sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
 })
-const getSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
+const hasSubOrderStatusFilter = () => (
+  Array.isArray(searchForm.projectStatus)
+    ? searchForm.projectStatus.length > 0
+    : Boolean(searchForm.projectStatus)
+)
+const hasTranslatorReturnSubOrderFilter = () => (
+  sortMode.value === TRANSLATION_PROJECT_TIME_SORT_MODES.translatorReturnTime
+)
+const hasSubOrderListFilter = () => (
+  hasSubOrderStatusFilter() || hasTranslatorReturnSubOrderFilter()
+)
+const getFilteredSubOrders = (row) => {
+  const statusMatched = filterTranslationSubOrdersByStatus(
+    row?.subOrders,
+    searchForm.projectStatus,
+  )
+  return hasTranslatorReturnSubOrderFilter()
+    ? statusMatched.filter(hasTranslationSubOrderReturnTime)
+    : statusMatched
+}
+const getSubOrderCount = (row) => getFilteredSubOrders(row).length
+const getTotalSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
 const clearProjectExpansion = () => {
   expandedProjectIds.value = []
   expandedInlineChanges.value = new Map()
@@ -1871,27 +1895,27 @@ const toggleProjectExpansion = (row) => {
   projectTableRef.value?.toggleRowExpansion(row, !isProjectExpanded(row))
 }
 const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
-const getEarliestTranslatorReturnTime = (row) => {
-  const timestamps = getTranslatorReturnDeadlineItems(row?.assignedTranslators)
-    .map((item) => parseBusinessDateTime(item.time)?.getTime())
-    .filter(Number.isFinite)
-  return timestamps.length ? Math.min(...timestamps) : Number.POSITIVE_INFINITY
-}
 const getSubOrderReturnSortRank = (row) => {
   if (isTranslatorReturnTerminalStatus(row?.status)) return 2
-  return Number.isFinite(getEarliestTranslatorReturnTime(row)) ? 0 : 1
+  return hasTranslationSubOrderReturnTime(row) ? 0 : 1
 }
 const compareSubOrdersByTranslatorReturn = (left, right) => {
   const rankDifference = getSubOrderReturnSortRank(left) - getSubOrderReturnSortRank(right)
   if (rankDifference) return rankDifference
-  const deadlineDifference = getEarliestTranslatorReturnTime(left) - getEarliestTranslatorReturnTime(right)
+  const deadlineDifference = getTranslationSubOrderEarliestReturnTime(left)
+    - getTranslationSubOrderEarliestReturnTime(right)
   if (Number.isFinite(deadlineDifference) && deadlineDifference) return deadlineDifference
   return String(left?.subOrderNo || '').localeCompare(String(right?.subOrderNo || ''))
 }
-const getVisibleSubOrders = (row) => (Array.isArray(row?.subOrders)
-  ? [...row.subOrders].sort(compareSubOrdersByTranslatorReturn).slice(0, SUB_ORDER_PREVIEW_LIMIT)
-  : [])
-const applyPagination = () => { clearProjectExpansion(); fetchData() }
+const getVisibleSubOrders = (row) => (
+  [...getFilteredSubOrders(row)]
+    .sort(compareSubOrdersByTranslatorReturn)
+    .slice(0, SUB_ORDER_PREVIEW_LIMIT)
+)
+const applyPagination = () => {
+  clearProjectExpansion()
+  fetchData({ expandSubOrders: hasSubOrderListFilter() })
+}
 const cleanPayload = (payload) => {
   const result = { ...payload }
   result.roleAssignments = projectRoleFieldConfigs.map((role) => ({
@@ -1912,7 +1936,7 @@ const cleanPayload = (payload) => {
   delete result.clientName
   delete result.clientManager
   delete result.subClientName
-  delete result.subClientShortName
+  result.subClientShortName = result.subClientShortName?.trim() || null
   delete result.subClientCode
   result.managerContact = result.managerContact?.trim() || null
   delete result.subjectPrefix
@@ -2113,6 +2137,14 @@ const clearSubClientSelection = () => {
   form.subClientShortName = ''
   form.subClientCode = ''
 }
+const fetchSubClientSuggestions = (queryString, callback) => {
+  const keyword = String(queryString || '').trim().toLowerCase()
+  callback(availableSubClients.value.filter((item) => {
+    if (!keyword) return true
+    return [item.client_short_name, item.client_name, item.sub_client_code]
+      .some((value) => String(value || '').toLowerCase().includes(keyword))
+  }))
+}
 const loadSubClients = async (clientId) => {
   const requestId = ++subClientRequestId
   if (!clientId) {
@@ -2181,11 +2213,16 @@ const clearSelectedClient = () => {
   form.projectName = ''
   projectNameManuallyEdited.value = false
 }
-const handleSubClientChange = (subClientId) => {
-  const selected = availableSubClients.value.find((item) => String(item.id) === String(subClientId))
+const handleSubClientSelect = (selected) => {
+  form.subClientId = selected?.id || ''
   form.subClientName = selected?.client_name || selected?.client_short_name || ''
   form.subClientShortName = selected?.client_short_name || ''
   form.subClientCode = selected?.sub_client_code || ''
+}
+const handleSubClientInput = (value) => {
+  form.subClientId = ''
+  form.subClientName = String(value || '').trim()
+  form.subClientCode = ''
 }
 
 const getPreferredProjectPath = async (row) => {
@@ -2231,7 +2268,13 @@ const handleTextSearch = (value) => {
   if (!value) return handleSearch()
   searchTimer = setTimeout(handleSearch, 400)
 }
-const handleSearch = () => { exitDeleteMode(); clearProjectExpansion(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const handleSearch = () => {
+  exitDeleteMode()
+  clearProjectExpansion()
+  clearTimeout(searchTimer)
+  pagination.page = 1
+  fetchData({ expandSubOrders: hasSubOrderListFilter() })
+}
 const handleSortChange = ({ expandSubOrders = false } = {}) => {
   exitDeleteMode()
   clearProjectExpansion()

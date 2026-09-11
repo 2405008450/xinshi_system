@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_TRANSLATION_PROJECT_SORT,
   TRANSLATION_PROJECT_TIME_SORT_MODES,
+  getTranslationSubOrderEarliestReturnTime,
   getTranslationProjectTimeSortTitle,
+  hasTranslationSubOrderReturnTime,
   isTranslationProjectTimeSortActive,
   nextTranslationProjectTimeSortMode,
 } from '../src/utils/translationProjectTimeSort.js'
@@ -60,5 +62,28 @@ test('排序按钮文案区分待交稿、待回稿和恢复默认', () => {
       '译员回稿时间',
     ),
     '译员回稿时间：恢复默认排序',
+  )
+})
+
+test('子订单回稿时间过滤兼容新旧字段并忽略空值和无效值', () => {
+  const subOrder = {
+    assignedTranslators: [
+      { translatorReturnTime: '2026-09-12 18:00' },
+      { translator_return_time: '2026-09-11 09:00' },
+      { translatorReturnTime: '' },
+    ],
+  }
+
+  assert.equal(hasTranslationSubOrderReturnTime(subOrder), true)
+  assert.equal(
+    getTranslationSubOrderEarliestReturnTime(subOrder),
+    Date.parse('2026-09-11T09:00:00+08:00'),
+  )
+  assert.equal(hasTranslationSubOrderReturnTime({ assignedTranslators: [] }), false)
+  assert.equal(
+    hasTranslationSubOrderReturnTime({
+      assignedTranslators: [{ translatorReturnTime: '不是日期' }],
+    }),
+    false,
   )
 })

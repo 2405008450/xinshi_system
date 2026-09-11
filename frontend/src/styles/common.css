@@ -92,6 +92,25 @@
   vertical-align: middle;
 }
 
+/* 项目列表查询栏在常规视口中保持单行：条件区按剩余空间收缩，操作按钮不换行。 */
+.project-list-search-form.el-form--inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.project-list-search-form > .project-list-primary-filters {
+  width: auto;
+  flex: 1 1 auto;
+}
+
+.project-list-search-form > .project-list-search-actions {
+  flex: 0 0 auto;
+  margin-right: 0;
+  white-space: nowrap;
+}
+
 .el-form--inline .project-list-primary-filters .el-form-item {
   margin-right: 0;
 }
@@ -122,6 +141,16 @@
     display: flex;
     width: 100%;
     gap: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .project-list-search-form.el-form--inline {
+    flex-wrap: wrap;
+  }
+
+  .project-list-search-form > .project-list-primary-filters {
+    flex-basis: 100%;
   }
 }
 
@@ -166,6 +195,21 @@
   padding-right: 4px;
   padding-left: 4px;
   line-height: 1.35;
+}
+
+/* 项目名称统一单行省略，避免长名称撑高整条记录。完整内容由 title 悬停提示承载。 */
+.project-detail-list-table .project-name-ellipsis {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-detail-list-table .order-cell,

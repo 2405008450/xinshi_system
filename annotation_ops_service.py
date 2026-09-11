@@ -1097,24 +1097,13 @@ def _escape_like_keyword(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def search_status_history(
-    db: Session,
-    *,
-    keyword: str,
-    date_from: date,
-    date_to: date,
-    skip: int = 0,
-    limit: int = 20,
-):
-    start_at = datetime.combine(date_from, datetime.min.time())
-    end_at = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
-    pattern = f"%{_escape_like_keyword(keyword)}%"
+def _status_history_search_query(db: Session):
     changed_by_user = aliased(AppUser)
     client_manager_user = aliased(AppUser)
     project_manager_user = aliased(AppUser)
     project_manager_assignment = aliased(ProjectWorkbenchResponsibility)
 
-    query = (
+    return (
         db.query(
             AnnotationProjectStatusHistory.id.label("id"),
             AnnotationProjectStatusHistory.project_id.label("project_id"),
@@ -1152,29 +1141,11 @@ def search_status_history(
             ),
         )
         .outerjoin(project_manager_user, project_manager_user.id == project_manager_assignment.assignee_id)
-        .filter(
-            AnnotationProjectStatusHistory.effective_on >= start_at,
-            AnnotationProjectStatusHistory.effective_on < end_at,
-            AnnotationProjectStatusHistory.change_note.isnot(None),
-            func.btrim(AnnotationProjectStatusHistory.change_note) != "",
-            AnnotationProjectStatusHistory.change_note.ilike(pattern, escape="\\"),
-        )
     )
-    rows = (
-        query.order_by(
-            AnnotationProjectStatusHistory.effective_on.desc(),
-            AnnotationProjectStatusHistory.changed_at.desc(),
-            AnnotationProjectStatusHistory.id.desc(),
-        )
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-    total = int(rows[0].page_total) if rows else (
-        query.with_entities(func.count(AnnotationProjectStatusHistory.id)).order_by(None).scalar()
-        if skip > 0 else 0
-    )
-    items = [{
+
+
+def _status_history_search_items(rows):
+    return [{
         "id": row.id,
         "project_id": row.project_id,
         "from_status": row.from_status,
@@ -1191,4 +1162,61 @@ def search_status_history(
         "project_manager_name": row.project_manager_name,
         "record_type": "progress" if row.from_status == row.to_status else "status_change",
     } for row in rows]
-    return {"items": items, "total": int(total or 0)}
+
+
+def list_recent_status_history(db: Session, skip: int = 0, limit: int = 10):
+    query = _status_history_search_query(db).filter(
+        AnnotationProjectStatusHistory.change_note.isnot(None),
+        func.btrim(AnnotationProjectStatusHistory.change_note) != "",
+    )
+    rows = (
+        query
+        .order_by(
+            AnnotationProjectStatusHistory.changed_at.desc(),
+            AnnotationProjectStatusHistory.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    total = int(rows[0].page_total) if rows else (
+        query.with_entities(func.count(AnnotationProjectStatusHistory.id)).order_by(None).scalar()
+        if skip > 0 else 0
+    )
+    return {"items": _status_history_search_items(rows), "total": int(total or 0)}
+
+
+def search_status_history(
+    db: Session,
+    *,
+    keyword: str,
+    date_from: date,
+    date_to: date,
+    skip: int = 0,
+    limit: int = 20,
+):
+    start_at = datetime.combine(date_from, datetime.min.time())
+    end_at = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
+    pattern = f"%{_escape_like_keyword(keyword)}%"
+    query = _status_history_search_query(db).filter(
+        AnnotationProjectStatusHistory.effective_on >= start_at,
+        AnnotationProjectStatusHistory.effective_on < end_at,
+        AnnotationProjectStatusHistory.change_note.isnot(None),
+        func.btrim(AnnotationProjectStatusHistory.change_note) != "",
+        AnnotationProjectStatusHistory.change_note.ilike(pattern, escape="\\"),
+    )
+    rows = (
+        query.order_by(
+            AnnotationProjectStatusHistory.effective_on.desc(),
+            AnnotationProjectStatusHistory.changed_at.desc(),
+            AnnotationProjectStatusHistory.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    total = int(rows[0].page_total) if rows else (
+        query.with_entities(func.count(AnnotationProjectStatusHistory.id)).order_by(None).scalar()
+        if skip > 0 else 0
+    )
+    return {"items": _status_history_search_items(rows), "total": int(total or 0)}

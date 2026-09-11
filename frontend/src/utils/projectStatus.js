@@ -129,6 +129,24 @@ export function normalizeProjectStatus(projectType, status) {
   return status
 }
 
+export function filterTranslationSubOrdersByStatus(subOrders, selectedStatuses) {
+  if (!Array.isArray(subOrders)) return []
+
+  const statusValues = Array.isArray(selectedStatuses)
+    ? selectedStatuses
+    : (selectedStatuses ? [selectedStatuses] : [])
+  const normalizedStatuses = new Set(
+    statusValues
+      .map((status) => normalizeProjectStatus('translation', status))
+      .filter(Boolean)
+  )
+
+  if (!normalizedStatuses.size) return subOrders
+  return subOrders.filter((subOrder) => (
+    normalizedStatuses.has(normalizeProjectStatus('translation', subOrder?.status))
+  ))
+}
+
 export function getProjectStatusOptions(projectType) {
   return PROJECT_STATUS_OPTIONS[projectType] || PROJECT_STATUS_OPTIONS.translation
 }

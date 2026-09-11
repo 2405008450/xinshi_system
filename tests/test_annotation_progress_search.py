@@ -7,8 +7,9 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
-from annotation_ops_service import _escape_like_keyword, search_status_history
-from routers.annotation_ops import project_router, status_history_search
+import recruitment_models  # noqa: F401  确保工作台关联模型在 SQLAlchemy 配置前完成注册。
+from annotation_ops_service import _escape_like_keyword, list_recent_status_history, search_status_history
+from routers.annotation_ops import project_router, recent_status_history, status_history_search
 
 
 def _sql(expression):
@@ -19,10 +20,13 @@ def _sql(expression):
 
 
 class RecordingQuery:
-    def __init__(self, rows):
+    def __init__(self, rows, scalar_total=0):
         self.rows = rows
+        self.scalar_total = scalar_total
         self.conditions = []
         self.ordering = []
+        self.offset_value = None
+        self.limit_value = None
 
     def join(self, *_args):
         return self
@@ -38,19 +42,27 @@ class RecordingQuery:
         self.ordering = list(ordering)
         return self
 
-    def offset(self, _value):
+    def offset(self, value):
+        self.offset_value = value
         return self
 
-    def limit(self, _value):
+    def limit(self, value):
+        self.limit_value = value
         return self
 
     def all(self):
         return self.rows
 
+    def with_entities(self, *_args):
+        return self
+
+    def scalar(self):
+        return self.scalar_total
+
 
 class RecordingDb:
-    def __init__(self, rows):
-        self.query_instance = RecordingQuery(rows)
+    def __init__(self, rows, scalar_total=0):
+        self.query_instance = RecordingQuery(rows, scalar_total)
 
     def query(self, *_columns):
         return self.query_instance
@@ -109,6 +121,37 @@ def test_progress_search_filters_body_and_node_date_and_maps_record_types():
     assert result["items"][0]["project_manager_name"] == "项目经理乙"
 
 
+def test_recent_progress_records_use_submission_order_and_pagination():
+    db = RecordingDb([
+        history_row(from_status="trial_in_progress", to_status="trial_in_progress", note="刚提交的具体进度"),
+        history_row(from_status="trial_in_progress", to_status="trial_passed", note="刚提交的状态说明"),
+    ])
+
+    result = list_recent_status_history(db, skip=20, limit=50)
+
+    condition_sql = " ".join(_sql(item) for item in db.query_instance.conditions)
+    ordering_sql = " ".join(_sql(item) for item in db.query_instance.ordering)
+    assert "change_note is not null" in condition_sql
+    assert "btrim" in condition_sql
+    assert "changed_at desc" in ordering_sql
+    assert "annotation_project_status_history.id desc" in ordering_sql
+    assert db.query_instance.offset_value == 20
+    assert db.query_instance.limit_value == 50
+    assert result["total"] == 2
+    assert [item["record_type"] for item in result["items"]] == ["progress", "status_change"]
+    assert result["items"][0]["project_order_no"] == "AP-260907-001"
+
+
+def test_recent_progress_records_keep_total_on_empty_later_page():
+    db = RecordingDb([], scalar_total=137)
+
+    result = list_recent_status_history(db, skip=100, limit=100)
+
+    assert result == {"items": [], "total": 137}
+    assert db.query_instance.offset_value == 100
+    assert db.query_instance.limit_value == 100
+
+
 @pytest.mark.parametrize(
     ("keyword", "date_from", "date_to", "message"),
     [
@@ -151,18 +194,31 @@ def test_progress_search_route_accepts_exactly_366_days(monkeypatch):
     assert captured["keyword"] == "客户确认"
 
 
+def test_recent_progress_route_forwards_validated_pagination(monkeypatch):
+    captured = {}
+
+    def fake_recent(_db, **kwargs):
+        captured.update(kwargs)
+        return {"items": [], "total": 0}
+
+    monkeypatch.setattr("routers.annotation_ops.list_recent_status_history", fake_recent)
+    assert recent_status_history(skip=50, limit=100, db=object()) == {"items": [], "total": 0}
+    assert captured == {"skip": 50, "limit": 100}
+
+
 def test_progress_search_route_uses_existing_project_module_permission():
-    route = next(
-        item for item in project_router.routes
-        if getattr(item, "path", None) == "/status-history/search"
-    )
-    permission_settings = [
-        inspect.getclosurevars(dependency.call).nonlocals
-        for dependency in route.dependant.dependencies
-        if inspect.isfunction(dependency.call)
-    ]
-    assert any(
-        settings.get("read_permission") == "projects:read"
-        and settings.get("write_permission") == "projects:write"
-        for settings in permission_settings
-    )
+    for path in ("/status-history/recent", "/status-history/search"):
+        route = next(
+            item for item in project_router.routes
+            if getattr(item, "path", None) == path
+        )
+        permission_settings = [
+            inspect.getclosurevars(dependency.call).nonlocals
+            for dependency in route.dependant.dependencies
+            if inspect.isfunction(dependency.call)
+        ]
+        assert any(
+            settings.get("read_permission") == "projects:read"
+            and settings.get("write_permission") == "projects:write"
+            for settings in permission_settings
+        )

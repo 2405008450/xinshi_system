@@ -33,14 +33,15 @@ test('标注聊天提醒可以直达项目沟通页签', () => {
   assert.match(annotationPage, /openProgress\(detail,'','chat'\)/)
 })
 
-test('项目沟通筛选区使用紧凑的响应式布局', () => {
+test('标注项目沟通默认收起查询筛选并使用悬浮小窗展示', () => {
   assert.match(chatPanel, /'project-chat-panel--compact': compact/)
   assert.match(chatPanel, /compact:\s*\{ type: Boolean, default: false \}/)
-  assert.match(chatPanel, /class="chat-filter-bar__range"/)
-  assert.match(chatPanel, /class="chat-filter-bar__actions"/)
-  assert.match(chatPanel, /\.chat-filter-bar\s*\{[\s\S]*display:\s*flex;[\s\S]*gap:\s*8px 16px;[\s\S]*flex-wrap:\s*wrap;/)
-  assert.match(chatPanel, /\.chat-filter-bar__range :deep\(\.el-date-editor\)\s*\{\s*width:\s*360px;/)
-  assert.match(chatPanel, /\.project-chat-panel--compact \.chat-filter-bar\s*\{[\s\S]*background:\s*var\(--el-color-primary-light-9\);/)
+  assert.match(chatPanel, /collapsibleFilters:\s*\{ type: Boolean, default: false \}/)
+  assert.match(chatPanel, /v-if="collapsibleFilters"[\s\S]*v-model:visible="filterPopoverVisible"[\s\S]*placement="bottom-end"/)
+  assert.match(chatPanel, /查询筛选<span v-if="activeFilterCount">（\{\{ activeFilterCount \}\}）<\/span>/)
+  assert.match(chatPanel, /class="chat-filter-bar chat-filter-bar--popover"/)
+  assert.match(chatPanel, /<AppForm v-if="!collapsibleFilters"/)
+  assert.match(annotationPage, /:collapsible-filters="true"/)
   assert.match(chatPanel, /\.project-chat-panel--compact \.chat-composer__body\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*flex-end;/)
 })
 
@@ -57,18 +58,27 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
   assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
 })
 
-test('标注沟通消息可以带入补充进度且不会影响笔译默认行为', () => {
+test('标注沟通消息支持多选后带入补充进度且不会影响笔译默认行为', () => {
   assert.match(chatPanel, /canAddToProgress:\s*\{ type: Boolean, default: false \}/)
   assert.match(chatPanel, /defineEmits\(\['add-to-progress'\]\)/)
-  assert.match(chatPanel, /v-if="canAddToProgress && String\(message\.content \|\| ''\)\.trim\(\)"/)
-  assert.match(chatPanel, /@click="emit\('add-to-progress', message\)"/)
-  assert.match(chatPanel, /添加为进度/)
+  assert.match(chatPanel, /progressSelectionMode/)
+  assert.match(chatPanel, /多选添加进度/)
+  assert.match(chatPanel, /class="chat-toolbar__selection-count">已选 \{\{ selectedProgressMessages\.length \}\} 条/)
+  assert.match(chatPanel, /:disabled="!selectedProgressMessages\.length"[\s\S]*@click="handleAddSelectedToProgress"/)
+  assert.doesNotMatch(chatPanel, /chat-progress-selection-bar/)
+  assert.doesNotMatch(chatPanel, /全选本页/)
+  assert.match(chatPanel, /emit\('add-to-progress', \[\.\.\.selectedProgressMessages\.value\]\)/)
+  assert.doesNotMatch(chatPanel, /@click="emit\('add-to-progress', message\)"/)
   assert.match(annotationPage, /:can-add-to-progress="canWrite"/)
   assert.match(annotationPage, /@add-to-progress="handleChatMessageToProgress"/)
 })
 
-test('沟通消息只预填补充进度并保留两条进度操作路线', () => {
-  assert.match(annotationPage, /const handleChatMessageToProgress=async\(message\)=>/)
+test('多条沟通消息按发送人整理后预填补充进度并保留两条进度操作路线', () => {
+  assert.match(annotationPage, /const handleChatMessageToProgress=async\(messages\)=>/)
+  assert.match(annotationPage, /sourceMessages\.map\(\(\{message,content:messageContent\}\)=>`【\$\{message\?\.senderName\|\|'未知用户'\}】\\n\$\{messageContent\}`\)/)
+  assert.match(annotationPage, /content\.length>10000/)
+  assert.match(annotationPage, /messageCount:sourceMessages\.length/)
+  assert.match(annotationPage, /senderSummary:senderNames\.join\('、'\)/)
   assert.match(annotationPage, /statusEntryMode\.value='progress'/)
   assert.match(annotationPage, /projectStatus:activeProgressProject\.value\?\.projectStatus\|\|''/)
   assert.match(annotationPage, /effectiveOn:localDateTimeValue\(effectiveDate\)/)

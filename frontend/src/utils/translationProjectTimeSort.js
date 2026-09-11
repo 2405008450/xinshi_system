@@ -1,3 +1,5 @@
+import { parseBusinessDateTime } from './deadlineDisplay.js'
+
 export const DEFAULT_TRANSLATION_PROJECT_SORT = 'unfinished_first_order_no_desc'
 
 export const TRANSLATION_PROJECT_TIME_SORT_MODES = Object.freeze({
@@ -27,3 +29,18 @@ export const getTranslationProjectTimeSortTitle = (currentMode, columnKey, label
     ? `${label}：待回稿紧急优先`
     : `${label}：待交稿紧急优先`
 }
+
+export const getTranslationSubOrderEarliestReturnTime = (subOrder) => {
+  const timestamps = (Array.isArray(subOrder?.assignedTranslators)
+    ? subOrder.assignedTranslators
+    : [])
+    .map((item) => item?.translatorReturnTime || item?.translator_return_time || '')
+    .map((value) => parseBusinessDateTime(value)?.getTime())
+    .filter(Number.isFinite)
+
+  return timestamps.length ? Math.min(...timestamps) : Number.POSITIVE_INFINITY
+}
+
+export const hasTranslationSubOrderReturnTime = (subOrder) => (
+  Number.isFinite(getTranslationSubOrderEarliestReturnTime(subOrder))
+)

@@ -8,14 +8,17 @@ const page = readFileSync(pagePath, 'utf8')
 
 test('笔译项目表单分别绑定母客户和可选子客户', () => {
   assert.match(page, /label="母客户简称"[\s\S]*v-model="form\.clientShortName"/)
-  assert.match(page, /label="子客户"[\s\S]*v-model="form\.subClientId"/)
-  assert.match(page, /:disabled="!form\.clientId"/)
+  assert.match(page, /label="子客户"[\s\S]*v-model="form\.subClientShortName"/)
+  assert.match(page, /:disabled="!form\.clientShortName"/)
+  assert.match(page, /@select="handleSubClientSelect"/)
+  assert.match(page, /@input="handleSubClientInput"/)
+  assert.match(page, /保存项目会在当前母客户下自动新增/)
   assert.match(page, /const clearSubClientSelection = \(\) =>/)
   assert.match(page, /const requestId = \+\+subClientRequestId/)
 })
 
 test('子客户仅更新独立展示字段，不参与项目名称生成', () => {
-  const handler = page.match(/const handleSubClientChange = \(subClientId\) => \{([\s\S]*?)\n\}/)?.[1] || ''
+  const handler = page.match(/const handleSubClientSelect = \(selected\) => \{([\s\S]*?)\n\}/)?.[1] || ''
   assert.match(handler, /form\.subClientShortName/)
   assert.match(handler, /form\.subClientCode/)
   assert.doesNotMatch(handler, /projectName|syncProjectName|emailSubjectPreview/)

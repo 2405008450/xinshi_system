@@ -1315,6 +1315,46 @@ def _resolve_project_client_link(
     return sub_client.parent_client_id
 
 
+def _resolve_or_create_project_sub_client(
+    db: Session,
+    parent_client_id: Optional[UUID],
+    sub_client_short_name: Optional[str],
+) -> Optional[UUID]:
+    """在指定母客户下按名称复用或新建待完善的子客户。"""
+    normalized_name = (sub_client_short_name or "").strip()
+    if not normalized_name:
+        return None
+    if not parent_client_id:
+        raise ValueError("请先选择或输入母客户")
+
+    name_key = normalized_name.lower()
+    existing = (
+        db.query(SubClient)
+        .filter(
+            SubClient.parent_client_id == parent_client_id,
+            or_(
+                func.lower(func.trim(SubClient.client_short_name)) == name_key,
+                func.lower(func.trim(SubClient.client_name)) == name_key,
+            ),
+        )
+        .order_by(SubClient.created_at.asc(), SubClient.id.asc())
+        .first()
+    )
+    if existing:
+        return existing.id
+
+    sub_client = SubClient(
+        parent_client_id=parent_client_id,
+        sub_client_code=generate_sub_client_code(db, parent_client_id),
+        client_name=normalized_name,
+        client_short_name=normalized_name,
+        client_status="pending",
+    )
+    db.add(sub_client)
+    db.flush()
+    return sub_client.id
+
+
 def _resolve_or_create_project_client(
     db: Session,
     client_short_name: Optional[str],
@@ -2163,7 +2203,8 @@ def create_translation_project(
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
-        'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments'
+        'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
+        'word_count_matrix', 'role_assignments'
     })
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
@@ -2191,6 +2232,13 @@ def create_translation_project(
             project_data['client_id'] = client_id
         if sub_client_id:
             project_data['sub_client_id'] = sub_client_id
+
+    if not project_data.get('sub_client_id') and (project.sub_client_short_name or '').strip():
+        project_data['sub_client_id'] = _resolve_or_create_project_sub_client(
+            db,
+            project_data.get('client_id'),
+            project.sub_client_short_name,
+        )
 
     project_data['client_id'] = _resolve_project_client_link(
         db,
@@ -2251,7 +2299,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     completion_updates = project_update.assigned_translator_completions
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'word_count_matrix', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'language_pair' in update_data:
@@ -2286,6 +2334,13 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
             update_data['client_id'] = client_id
             # 从原客户（尤其是子客户）切换到手工输入客户时，同步清除旧子客户关联。
             update_data['sub_client_id'] = sub_client_id
+
+    if not update_data.get('sub_client_id') and (project_update.sub_client_short_name or '').strip():
+        update_data['sub_client_id'] = _resolve_or_create_project_sub_client(
+            db,
+            update_data.get('client_id', db_project.client_id),
+            project_update.sub_client_short_name,
+        )
 
     # 只切换母客户时，自动清除已不匹配的子客户；显式提交子客户时则严格校验归属。
     if 'client_id' in update_data and 'sub_client_id' not in update_data and db_project.sub_client_id:
