@@ -200,7 +200,7 @@ class RecruitmentNamePreviewResponse(BaseModel):
 
 
 class RecruitmentProgressCreate(BaseModel):
-    note: str = Field(min_length=1)
+    note: str = Field(min_length=1, max_length=10000)
     occurred_at: Optional[datetime] = None
 
     @field_validator("note")
@@ -210,6 +210,10 @@ class RecruitmentProgressCreate(BaseModel):
         if not value:
             raise ValueError("进度说明不能为空")
         return value
+
+
+class RecruitmentProgressUpdate(RecruitmentProgressCreate):
+    """人工填写的项目进度可修改字段。"""
 
 
 class RecruitmentProgressResponse(BaseModel):

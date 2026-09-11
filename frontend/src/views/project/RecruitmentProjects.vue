@@ -283,7 +283,31 @@
         <el-input v-model="progressNote" placeholder="补充进度说明" @keyup.enter="addProgress" />
         <el-button type="primary" :loading="progressSaving" @click="addProgress">添加记录</el-button>
       </div>
-      <el-timeline v-loading="progressLoading"><el-timeline-item v-for="item in progressRows" :key="item.id" :timestamp="formatDateTime(item.occurredAt)" :type="item.isSystem ? 'primary' : 'success'" placement="top"><el-card shadow="never"><div v-if="item.fromStatus || item.toStatus"><b>{{ item.fromStatus ? statusLabel(item.fromStatus) : '创建项目' }}</b><span> → </span><b>{{ item.toStatus ? statusLabel(item.toStatus) : '补充记录' }}</b></div><div class="progress-note">{{ item.note || '-' }}</div><small>{{ item.operatorName || '系统' }} · {{ item.isSystem ? '系统记录' : '人工记录' }}</small></el-card></el-timeline-item></el-timeline>
+      <el-timeline v-loading="progressLoading">
+        <el-timeline-item v-for="item in progressRows" :key="item.id" :timestamp="formatDateTime(item.occurredAt)" :type="item.isSystem ? 'primary' : 'success'" placement="top">
+          <el-card shadow="never">
+            <template v-if="editingProgressId === item.id">
+              <div class="progress-edit-form">
+                <el-date-picker v-model="editingProgressOccurredAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择发生时间" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
+                <el-input v-model="editingProgressNote" type="textarea" :rows="3" :maxlength="10000" show-word-limit placeholder="填写进度说明" />
+                <div class="progress-edit-actions">
+                  <el-button :disabled="progressUpdating" @click="cancelEditProgress">取消</el-button>
+                  <el-button type="primary" :loading="progressUpdating" @click="saveProgressEdit(item)">保存修改</el-button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div class="progress-card-heading">
+                <div v-if="item.fromStatus || item.toStatus"><b>{{ item.fromStatus ? statusLabel(item.fromStatus) : '创建项目' }}</b><span> → </span><b>{{ item.toStatus ? statusLabel(item.toStatus) : '补充记录' }}</b></div>
+                <span v-else></span>
+                <el-button v-if="canWrite && !item.isSystem" type="primary" link @click="startEditProgress(item)">编辑</el-button>
+              </div>
+              <div class="progress-note">{{ item.note || '-' }}</div>
+              <small>{{ item.operatorName || '系统' }} · {{ item.isSystem ? '系统记录' : '人工记录' }}</small>
+            </template>
+          </el-card>
+        </el-timeline-item>
+      </el-timeline>
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(980px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-list-dialog">
@@ -371,7 +395,7 @@ import {
   deleteRecruitmentCandidate, deleteRecruitmentProject, getRecruitmentCandidates,
   getRecruitmentProgress, getRecruitmentProject, getRecruitmentProjectPage,
   getRecruitmentProjects, getRecruitmentResumeSources, patchRecruitmentProjectStatus, previewRecruitmentProjectName, updateRecruitmentCandidate,
-  resetRecruitmentProjectIdempotency, updateRecruitmentProject, updateRecruitmentProjectTextField,
+  resetRecruitmentProjectIdempotency, updateRecruitmentProgress, updateRecruitmentProject, updateRecruitmentProjectTextField,
 } from '@/api/recruitmentProjects'
 import RecruitmentLanguageDirections from '@/components/common/LanguageDirectionsEditor.vue'
 import RecruitmentCandidateTable from './recruitment/RecruitmentCandidateTable.vue'
@@ -656,10 +680,14 @@ const currentLocalDateTime = () => {
   const pad = (value) => String(value).padStart(2, '0')
   return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 }
-const progressVisible=ref(false), progressLoading=ref(false), progressSaving=ref(false), progressRows=ref([]), progressNote=ref(''), progressOccurredAt=ref(currentLocalDateTime()), activeProject=ref(null)
-const openProgress = async (row) => { activeProject.value=row; progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressVisible.value=true; progressLoading.value=true; try{progressRows.value=await getRecruitmentProgress(row.id)}catch{ElMessage.error('进度记录加载失败')}finally{progressLoading.value=false} }
+const progressVisible=ref(false), progressLoading=ref(false), progressSaving=ref(false), progressUpdating=ref(false), progressRows=ref([]), progressNote=ref(''), progressOccurredAt=ref(currentLocalDateTime()), activeProject=ref(null)
+const editingProgressId=ref(''), editingProgressNote=ref(''), editingProgressOccurredAt=ref('')
+const cancelEditProgress=()=>{editingProgressId.value='';editingProgressNote.value='';editingProgressOccurredAt.value=''}
+const openProgress = async (row) => { activeProject.value=row; progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); cancelEditProgress(); progressVisible.value=true; progressLoading.value=true; try{progressRows.value=await getRecruitmentProgress(row.id)}catch{ElMessage.error('进度记录加载失败')}finally{progressLoading.value=false} }
 const refreshProgressProject = async () => { const id=activeProject.value?.id; if(!id)return; try{const updated=await getRecruitmentProject(id); const listRow=rows.value.find((item)=>String(item.id)===String(id)); if(listRow)Object.assign(listRow,updated); activeProject.value=listRow||updated}catch{void fetchData()} }
 const addProgress = async () => { if(!progressOccurredAt.value)return ElMessage.warning('请选择发生时间'); if(!progressNote.value.trim())return ElMessage.warning('请输入进度说明'); progressSaving.value=true; try{await createRecruitmentProgress(activeProject.value.id,{note:progressNote.value.trim(),occurredAt:progressOccurredAt.value}); progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressRows.value=await getRecruitmentProgress(activeProject.value.id)}catch(error){ElMessage.error(error?.detail||'添加失败')}finally{progressSaving.value=false} }
+const startEditProgress=(item)=>{editingProgressId.value=item.id;editingProgressNote.value=item.note||'';editingProgressOccurredAt.value=item.occurredAt||''}
+const saveProgressEdit=async(item)=>{if(!editingProgressOccurredAt.value)return ElMessage.warning('请选择发生时间');if(!editingProgressNote.value.trim())return ElMessage.warning('请输入进度说明');progressUpdating.value=true;try{const updated=await updateRecruitmentProgress(activeProject.value.id,item.id,{note:editingProgressNote.value.trim(),occurredAt:editingProgressOccurredAt.value});const index=progressRows.value.findIndex((row)=>row.id===item.id);if(index>=0)progressRows.value.splice(index,1,updated);progressRows.value.sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt));cancelEditProgress();ElMessage.success('进度记录已更新')}catch(error){ElMessage.error(error?.detail||'更新失败')}finally{progressUpdating.value=false}}
 
 const candidateVisible=ref(false),candidateLoading=ref(false),candidateRows=ref([]),candidateEditorVisible=ref(false),candidateSaving=ref(false),candidateFormRef=ref()
 let candidateInterviewKey=0
@@ -705,7 +733,7 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);contr
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 :global(.recruitment-advanced-filter-popover){max-width:calc(100vw - 32px)!important;max-height:calc(100vh - 32px);overflow:hidden}:global(.recruitment-advanced-filter-popover .advanced-content){max-height:calc(100vh - 64px);overflow-y:auto}
 .card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
-.progress-dialog-heading{display:flex;align-items:baseline;gap:10px;padding-right:36px}.progress-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-order{color:var(--el-text-color-secondary);font-size:12px}.progress-project-name{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.progress-project-name__label{padding-top:1px;color:var(--el-text-color-secondary);font-size:13px}.progress-project-name :deep(.inline-text-field__trigger){font-weight:600;line-height:1.5}.progress-project-name :deep(.inline-text-field__value){color:var(--el-text-color-primary)}
+.progress-dialog-heading{display:flex;align-items:baseline;gap:10px;padding-right:36px}.progress-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-order{color:var(--el-text-color-secondary);font-size:12px}.progress-project-name{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.progress-project-name__label{padding-top:1px;color:var(--el-text-color-secondary);font-size:13px}.progress-project-name :deep(.inline-text-field__trigger){font-weight:600;line-height:1.5}.progress-project-name :deep(.inline-text-field__value){color:var(--el-text-color-primary)}.progress-card-heading,.progress-edit-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.progress-edit-form{display:flex;flex-direction:column;gap:12px}.progress-edit-form :deep(.el-date-editor){width:100%}.progress-edit-actions{justify-content:flex-end}
 .candidate-count-link{gap:2px}
 .recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:5px;padding-left:5px;line-height:1.35}.recruitment-list-table .order-cell{gap:2px}
 .recruitment-list-table .order-cell{min-width:0;gap:4px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 TRANSLATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=255, required=True),
+    "source_file_name": TextFieldRule(max_length=255),
     "email_subject_preview": TextFieldRule(),
     "task_type": TextFieldRule(max_length=50),
     "service_content": TextFieldRule(max_length=255),
@@ -49,7 +50,7 @@ TRANSLATION_TEXT_FIELDS = {
 }
 
 TRANSLATION_FILTER_FIELDS = {
-    "order_no", "project_name", "service_content", "task_type", "client_short_name",
+    "order_no", "project_name", "source_file_name", "service_content", "task_type", "client_short_name",
     "client_code", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
     "manager_contact", "project_status", "file_type_secondary", "project_contract_type",
     "project_contract_status", "quotation_required", "quotation_status",

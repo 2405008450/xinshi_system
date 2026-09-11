@@ -55,6 +55,7 @@ export const previewRecruitmentProjectName = (data) => api.post('/projects/recru
 
 export const getRecruitmentProgress = (projectId) => api.get(`/projects/recruitment/${projectId}/progress`).then(fromApi)
 export const createRecruitmentProgress = (projectId, data) => api.post(`/projects/recruitment/${projectId}/progress`, toApi(data)).then(fromApi)
+export const updateRecruitmentProgress = (projectId, progressId, data) => api.put(`/projects/recruitment/${projectId}/progress/${progressId}`, toApi(data)).then(fromApi)
 
 export const getRecruitmentCandidates = (projectId) => api.get(`/projects/recruitment/${projectId}/candidates`).then(fromApi)
 export const createRecruitmentCandidate = (projectId, data) => api.post(`/projects/recruitment/${projectId}/candidates`, toApi(data)).then(fromApi)

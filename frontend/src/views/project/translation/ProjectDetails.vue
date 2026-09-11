@@ -34,7 +34,7 @@
 
     <AppForm :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="关键词">
-        <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、客户名称或客户单号" clearable style="width: 340px" @input="handleTextSearch" @keyup.enter="handleSearch" />
+        <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable style="width: 380px" @input="handleTextSearch" @keyup.enter="handleSearch" />
       </el-form-item>
       <el-form-item label="状态">
         <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable style="width: 180px" @change="handleSearch">
@@ -475,6 +475,19 @@
                           />
                           <div class="auto-name-field__hint">按“母客户简称，翻译方向简称，月日时回稿”自动生成，例如“广州学在华留学咨询，法译中，9月1日16点回稿”；存在子订单时追加批次，也可手动修改。</div>
                         </div>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <el-row :gutter="16">
+                    <el-col :xs="24">
+                      <el-form-item label="文件名称" data-field-key="sourceFileName">
+                        <el-input
+                          v-model="form.sourceFileName"
+                          clearable
+                          maxlength="255"
+                          show-word-limit
+                          placeholder="请输入该母订单对应的真实文件名称，供后续对账使用"
+                        />
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -1220,6 +1233,7 @@ const progressFieldConfigs = [
 ]
 const basicProjectFieldSearchItems = [
   { key: 'projectName', label: '项目名称', aliases: ['项目名'], section: 'project', sectionLabel: '项目与客户' },
+  { key: 'sourceFileName', label: '文件名称', aliases: ['文件名', '源文件名称', '原文件名称'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'emailSubjectPreview', label: '邮件主题预览', aliases: ['邮件标题'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'taskType', label: '任务类型', aliases: ['项目类型', '咨询类型'], section: 'project', sectionLabel: '项目与客户' },
   { key: 'clientShortName', label: '母客户简称', aliases: ['客户名称', '客户', '母客户'], section: 'project', sectionLabel: '项目与客户' },
@@ -1282,6 +1296,7 @@ const progressMarks = { 0: '0%', 50: '50%', 100: '100%' }
 const projectDetailItems = [
   { label: '订单号', key: 'orderNo' },
   { label: '项目名称', key: 'projectName' },
+  { label: '文件名称', key: 'sourceFileName', span: 2, editable: true, maxlength: 255 },
   { label: '邮件主题预览', key: 'emailSubjectPreview', span: 2, editable: true, multiline: true },
   { label: '服务内容', key: 'serviceContent', span: 2, editable: true, maxlength: 255 },
   { label: '任务类型', key: 'taskType', editable: true, maxlength: 50 },
@@ -1368,7 +1383,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1448,6 +1463,7 @@ const advancedVisible = ref(false)
 const translationFilterFields = [
   { key: 'orderNo', label: '订单号', type: 'text' },
   { key: 'projectName', label: '项目名称', type: 'text' },
+  { key: 'sourceFileName', label: '文件名称', type: 'text' },
   { key: 'serviceContent', label: '服务内容', type: 'select', options: serviceContentOptions },
   { key: 'taskType', label: '任务类型', type: 'select', options: taskTypeOptions },
   { key: 'clientShortName', label: '母客户简称', type: 'text' },
@@ -1509,6 +1525,7 @@ const headerFilterDefinition = (columnKey) => {
 const tableColumnOverrides = {
   orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, minWidth: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目管理' },
   projectName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
+  sourceFileName: { minWidth: 220 },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
   clientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
@@ -1675,7 +1692,7 @@ const rules = {
   projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }],
 }
 const subOrderRules = { subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }] }
-const NULLABLE_FIELDS = ['emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
+const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const legacyStatusMap = {
   pending: 'pending_confirmation',
   in_progress: 'confirmed',

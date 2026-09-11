@@ -177,6 +177,7 @@ def _word_count_columns() -> list[ExportColumn]:
 PROJECT_COLUMNS = [
     ExportColumn("订单号", _attr("order_no"), "identifier", 18),
     ExportColumn("项目名称", _attr("project_name"), width=32),
+    ExportColumn("文件名称", _attr("source_file_name"), width=36),
     ExportColumn("邮件主题预览", _attr("email_subject_preview"), width=36),
     ExportColumn("服务内容", _attr("service_content"), width=24),
     ExportColumn("任务类型", _attr("task_type")),

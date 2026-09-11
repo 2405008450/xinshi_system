@@ -654,6 +654,7 @@ class ProjectRoleAssignmentResponse(ProjectRoleAssignmentInput):
 
 class TranslationProjectBase(BaseModel):
     project_name: str
+    source_file_name: Optional[str] = Field(default=None, max_length=255)
     task_type: Optional[str] = None
     consultation_id: Optional[UUID] = None
     file_type_secondary: Optional[str] = None
@@ -740,6 +741,7 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 class TranslationProjectUpdate(BaseModel):
     project_name: Optional[str] = None
+    source_file_name: Optional[str] = Field(default=None, max_length=255)
     task_type: Optional[str] = None
     consultation_id: Optional[UUID] = None
     file_type_secondary: Optional[str] = None

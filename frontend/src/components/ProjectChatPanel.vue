@@ -17,20 +17,9 @@
             plain
             @click="toggleProgressSelectionMode"
           >
-            多选添加进度
+            批量选择
           </el-button>
-          <template v-if="canAddToProgress && progressSelectionMode">
-            <span class="chat-toolbar__selection-count">已选 {{ selectedProgressMessages.length }} 条</span>
-            <el-button
-              type="primary"
-              :size="compact ? 'small' : 'default'"
-              :disabled="!selectedProgressMessages.length"
-              @click="handleAddSelectedToProgress"
-            >
-              添加为进度
-            </el-button>
-            <el-button :size="compact ? 'small' : 'default'" plain @click="clearProgressSelection(true)">退出多选</el-button>
-          </template>
+          <el-tag v-if="canAddToProgress && progressSelectionMode" type="primary" effect="plain">批量选择中</el-tag>
           <el-popover
             v-if="collapsibleFilters"
             v-model:visible="filterPopoverVisible"
@@ -137,7 +126,13 @@
               v-for="message in messages"
               :key="message.id"
               class="chat-message-card"
-              :class="{ 'chat-message-card--selected': isProgressMessageSelected(message) }"
+              :class="{
+                'chat-message-card--selected': isProgressMessageSelected(message),
+                'chat-message-card--selectable': progressSelectionMode && String(message.content || '').trim(),
+                'chat-message-card--context-active': progressTextMenu.visible && String(progressTextMenu.message?.id) === String(message.id)
+              }"
+              @click="handleProgressMessageCardClick($event, message)"
+              @contextmenu="handleMessageContextMenu($event, message)"
             >
               <div class="chat-message-card__meta">
                 <div class="chat-message-card__author">
@@ -145,6 +140,7 @@
                     v-if="progressSelectionMode && String(message.content || '').trim()"
                     :model-value="isProgressMessageSelected(message)"
                     :aria-label="`选择 ${message.senderName || '未知用户'} 的消息`"
+                    @click.stop
                     @change="checked => handleProgressMessageSelection(message, checked)"
                   />
                   <strong>{{ message.senderName || '未知用户' }}</strong>
@@ -177,14 +173,17 @@
                       :loading="favoriteSavingIds.has(message.id)"
                       :aria-label="message.isFavorited ? '取消收藏' : '收藏'"
                       class="chat-message-card__favorite"
-                      @click="handleFavoriteToggle(message)"
+                      @click.stop="handleFavoriteToggle(message)"
                     >
                       <el-icon><StarFilled v-if="message.isFavorited" /><Star v-else /></el-icon>
                     </el-button>
                   </el-tooltip>
                 </div>
               </div>
-              <div v-if="textOnly" class="chat-message-card__content">{{ message.content }}</div>
+              <div
+                v-if="textOnly"
+                class="chat-message-card__content"
+              >{{ message.content }}</div>
               <RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
@@ -210,6 +209,29 @@
           </div>
           <el-empty v-else description="暂无沟通记录" :image-size="compact ? 56 : 72" />
         </el-scrollbar>
+
+        <div v-if="canAddToProgress && progressSelectionMode" class="chat-batch-action-bar">
+          <div class="chat-batch-action-bar__summary">
+            <strong>已选 {{ selectedProgressMessages.length }} 条</strong>
+            <span :class="{ 'is-over-limit': selectedProgressCharacterCount > 10000 }">
+              预计 {{ selectedProgressCharacterCount }} / 10000 字
+            </span>
+            <span class="chat-batch-action-bar__hint">点击卡片选择，Shift + 点击可连续选择</span>
+          </div>
+          <div class="chat-batch-action-bar__actions">
+            <el-button size="small" @click="handleSelectAllPage">{{ allProgressMessagesSelected ? '取消全选' : '全选本页' }}</el-button>
+            <el-button size="small" :disabled="!selectedProgressMessages.length" @click="clearProgressSelection()">清空</el-button>
+            <el-button size="small" @click="clearProgressSelection(true)">退出</el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :disabled="!selectedProgressMessages.length || selectedProgressCharacterCount > 10000"
+              @click="handleAddSelectedToProgress"
+            >
+              合并为进度
+            </el-button>
+          </div>
+        </div>
 
         <div class="chat-pagination">
           <el-pagination
@@ -293,16 +315,49 @@
           </div>
         </div>
     </template>
+    <Teleport to="body">
+      <div
+        v-if="canAddToProgress && progressTextMenu.visible"
+        ref="progressTextMenuRef"
+        class="chat-selection-menu"
+        role="menu"
+        :style="{ left: `${progressTextMenu.left}px`, top: `${progressTextMenu.top}px` }"
+        @mousedown.stop
+        @contextmenu.prevent
+      >
+        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextMessageAddToProgress">
+          <el-icon class="chat-selection-menu__icon"><CirclePlus /></el-icon>
+          <span>{{ progressTextMenu.isExcerpt ? '添加选中内容为进度' : '添加为进度' }}</span>
+        </button>
+        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextMessageCopy">
+          <el-icon class="chat-selection-menu__icon"><CopyDocument /></el-icon>
+          <span>{{ progressTextMenu.isExcerpt ? '复制选中内容' : '复制' }}</span>
+        </button>
+        <div class="chat-selection-menu__divider" role="separator"></div>
+        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextFavoriteToggle">
+          <el-icon class="chat-selection-menu__icon">
+            <StarFilled v-if="progressTextMenu.message?.isFavorited" />
+            <Star v-else />
+          </el-icon>
+          <span>{{ progressTextMenu.message?.isFavorited ? '取消收藏' : '收藏' }}</span>
+        </button>
+        <button v-if="!progressSelectionMode" type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextStartMultiSelect">
+          <el-icon class="chat-selection-menu__icon"><Finished /></el-icon>
+          <span>多选</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Star, StarFilled } from '@element-plus/icons-vue'
+import { CirclePlus, CopyDocument, Finished, Star, StarFilled } from '@element-plus/icons-vue'
 import { getUsers } from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import {
   createProjectChatMessage,
   favoriteProjectChatMessage,
@@ -342,6 +397,9 @@ const favoriteSavingIds = ref(new Set())
 const filterPopoverVisible = ref(false)
 const progressSelectionMode = ref(false)
 const selectedProgressMessageIds = ref(new Set())
+const lastSelectedProgressMessageId = ref('')
+const progressTextMenuRef = ref(null)
+const progressTextMenu = reactive({ visible: false, left: 0, top: 0, message: null, text: '', isExcerpt: false })
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
 const composer = reactive({
@@ -361,10 +419,16 @@ const activeFilterCount = computed(() => [
 ].filter(Boolean).length)
 const eligibleProgressMessages = computed(() => messages.value.filter(message => String(message.content || '').trim()))
 const selectedProgressMessages = computed(() => eligibleProgressMessages.value.filter(message => selectedProgressMessageIds.value.has(String(message.id))))
+const selectedProgressCharacterCount = computed(() => selectedProgressMessages.value.reduce((total, message, index) => {
+  const formatted = `【${message.senderName || '未知用户'}】\n${String(message.content || '').trim()}`
+  return total + formatted.length + (index ? 2 : 0)
+}, 0))
+const allProgressMessagesSelected = computed(() => eligibleProgressMessages.value.length > 0 && selectedProgressMessages.value.length === eligibleProgressMessages.value.length)
 let pollTimer = null
 
 const clearProgressSelection = (exitMode = false) => {
   selectedProgressMessageIds.value = new Set()
+  lastSelectedProgressMessageId.value = ''
   if (exitMode) progressSelectionMode.value = false
 }
 
@@ -381,11 +445,114 @@ const handleProgressMessageSelection = (message, checked) => {
   if (checked) next.add(id)
   else next.delete(id)
   selectedProgressMessageIds.value = next
+  lastSelectedProgressMessageId.value = id
+}
+
+const handleProgressMessageCardClick = (event, message) => {
+  if (!progressSelectionMode.value || !String(message?.content || '').trim()) return
+  if (event.target.closest('button, a, input, label, [role="button"], [role="checkbox"]')) return
+  if (window.getSelection?.()?.toString().trim()) return
+  const id = String(message.id)
+  const next = new Set(selectedProgressMessageIds.value)
+  let rangeApplied = false
+  if (event.shiftKey && lastSelectedProgressMessageId.value) {
+    const lastIndex = eligibleProgressMessages.value.findIndex(item => String(item.id) === lastSelectedProgressMessageId.value)
+    const currentIndex = eligibleProgressMessages.value.findIndex(item => String(item.id) === id)
+    if (lastIndex >= 0 && currentIndex >= 0) {
+      const [start, end] = [lastIndex, currentIndex].sort((a, b) => a - b)
+      eligibleProgressMessages.value.slice(start, end + 1).forEach(item => next.add(String(item.id)))
+      rangeApplied = true
+    }
+  }
+  if (!rangeApplied) {
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+  }
+  selectedProgressMessageIds.value = next
+  lastSelectedProgressMessageId.value = id
+}
+
+const handleSelectAllPage = () => {
+  selectedProgressMessageIds.value = allProgressMessagesSelected.value
+    ? new Set()
+    : new Set(eligibleProgressMessages.value.map(message => String(message.id)))
+  lastSelectedProgressMessageId.value = ''
 }
 
 const handleAddSelectedToProgress = () => {
   if (!selectedProgressMessages.value.length) return ElMessage.warning('请先选择需要添加的沟通消息')
+  if (selectedProgressCharacterCount.value > 10000) return ElMessage.warning('所选消息超过具体进度 10000 字限制，请减少选择')
   emit('add-to-progress', [...selectedProgressMessages.value])
+}
+
+const closeProgressTextMenu = () => {
+  progressTextMenu.visible = false
+  progressTextMenu.message = null
+  progressTextMenu.text = ''
+  progressTextMenu.isExcerpt = false
+}
+
+const handleMessageContextMenu = (event, message) => {
+  if (!props.canAddToProgress || !String(message?.content || '').trim()) return
+  if (event.target.closest('button, a, input, label, [role="button"], [role="checkbox"]')) return
+  const selection = window.getSelection?.()
+  const contentElement = event.currentTarget.querySelector('.chat-message-card__content')
+  let selectedText = ''
+  if (selection && !selection.isCollapsed && selection.rangeCount && contentElement) {
+    const range = selection.getRangeAt(0)
+    if (contentElement.contains(range.startContainer) && contentElement.contains(range.endContainer)) selectedText = selection.toString().trim()
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  const menuWidth = 210
+  const menuHeight = progressSelectionMode.value ? 142 : 182
+  progressTextMenu.left = Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))
+  progressTextMenu.top = Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
+  progressTextMenu.message = message
+  progressTextMenu.text = selectedText || String(message.content).trim()
+  progressTextMenu.isExcerpt = !!selectedText
+  progressTextMenu.visible = true
+}
+
+const handleContextMessageAddToProgress = () => {
+  if (!progressTextMenu.message || !progressTextMenu.text) return
+  emit('add-to-progress', [{ ...progressTextMenu.message, content: progressTextMenu.text }])
+  closeProgressTextMenu()
+  window.getSelection?.()?.removeAllRanges()
+}
+
+const handleContextStartMultiSelect = () => {
+  const message = progressTextMenu.message
+  closeProgressTextMenu()
+  if (!message) return
+  progressSelectionMode.value = true
+  handleProgressMessageSelection(message, true)
+  window.getSelection?.()?.removeAllRanges()
+}
+
+const handleContextMessageCopy = async () => {
+  const successMessage = progressTextMenu.isExcerpt ? '选中内容已复制' : '消息已复制'
+  const copied = await copyTextToClipboard(progressTextMenu.text)
+  if (copied) ElMessage.success(successMessage)
+  else ElMessage.error('复制失败，请使用 Ctrl+C')
+  closeProgressTextMenu()
+}
+
+const handleContextFavoriteToggle = async () => {
+  const message = progressTextMenu.message
+  closeProgressTextMenu()
+  if (message) await handleFavoriteToggle(message)
+}
+
+const handleProgressTextMenuPointerDown = event => {
+  if (progressTextMenu.visible && !progressTextMenuRef.value?.contains(event.target)) closeProgressTextMenu()
+}
+
+const handleProgressTextMenuKeydown = event => {
+  if (event.key !== 'Escape' || !progressTextMenu.visible) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  closeProgressTextMenu()
 }
 
 const clearPolling = () => {
@@ -429,6 +596,7 @@ const resetChatState = () => {
   filters.favoritesOnly = false
   filterPopoverVisible.value = false
   clearProgressSelection(true)
+  closeProgressTextMenu()
   composer.content = ''
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserIds = []
@@ -663,7 +831,10 @@ watch(() => [props.projectId, props.projectType], async () => {
 }, { immediate: true })
 
 watch(() => props.active, () => {
-  if (!props.active) clearProgressSelection(true)
+  if (!props.active) {
+    clearProgressSelection(true)
+    closeProgressTextMenu()
+  }
   setupPolling()
   if (props.active && props.projectId) {
     loadMessages()
@@ -675,16 +846,27 @@ watch(() => settings.enabled, () => {
 })
 
 watch(() => props.canAddToProgress, canAdd => {
-  if (!canAdd) clearProgressSelection(true)
+  if (!canAdd) {
+    clearProgressSelection(true)
+    closeProgressTextMenu()
+  }
 })
 
 onMounted(() => {
   ensureUsersLoaded()
+  document.addEventListener('mousedown', handleProgressTextMenuPointerDown)
+  document.addEventListener('scroll', closeProgressTextMenu, true)
+  window.addEventListener('resize', closeProgressTextMenu)
+  window.addEventListener('keydown', handleProgressTextMenuKeydown, true)
 })
 
 onBeforeUnmount(() => {
   clearPolling()
   clearAttachmentUrls()
+  document.removeEventListener('mousedown', handleProgressTextMenuPointerDown)
+  document.removeEventListener('scroll', closeProgressTextMenu, true)
+  window.removeEventListener('resize', closeProgressTextMenu)
+  window.removeEventListener('keydown', handleProgressTextMenuKeydown, true)
 })
 </script>
 
@@ -806,9 +988,24 @@ onBeforeUnmount(() => {
   background: var(--el-fill-color-blank);
 }
 
+.chat-message-card--selectable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-message-card--selectable:hover {
+  border-color: var(--el-color-primary-light-7);
+}
+
 .chat-message-card--selected {
   border-color: var(--el-color-primary-light-5);
   background: var(--el-color-primary-light-9);
+}
+
+.chat-message-card--context-active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
 }
 
 .chat-message-card__meta {
@@ -846,6 +1043,99 @@ onBeforeUnmount(() => {
   word-break: break-word;
   color: var(--el-text-color-regular);
   line-height: 1.6;
+}
+
+.chat-selection-menu {
+  position: fixed;
+  z-index: 5000;
+  display: flex;
+  min-width: 210px;
+  flex-direction: column;
+  padding: 6px 0;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  background: var(--el-bg-color-overlay);
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.chat-selection-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  color: var(--el-text-color-regular);
+  background: transparent;
+  font: inherit;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-selection-menu__item:hover,
+.chat-selection-menu__item:focus-visible {
+  outline: none;
+  background: var(--el-fill-color-light);
+}
+
+.chat-selection-menu__icon {
+  width: 18px;
+  font-size: 17px;
+  color: var(--el-text-color-secondary);
+  flex: none;
+}
+
+.chat-selection-menu__divider {
+  height: 1px;
+  margin: 5px 12px;
+  background: var(--el-border-color-lighter);
+}
+
+.chat-batch-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 8px;
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 -2px 10px rgb(15 23 42 / 6%);
+}
+
+.chat-batch-action-bar__summary,
+.chat-batch-action-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-batch-action-bar__summary {
+  min-width: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.chat-batch-action-bar__summary strong {
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+
+.chat-batch-action-bar__summary .is-over-limit {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+
+.chat-batch-action-bar__hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-batch-action-bar__actions {
+  flex: none;
 }
 
 .handover-task-list {
@@ -1039,6 +1329,21 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  .chat-batch-action-bar,
+  .chat-batch-action-bar__summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chat-batch-action-bar__actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .chat-batch-action-bar__hint {
+    white-space: normal;
+  }
+
   .chat-filter-bar {
     align-items: stretch;
     flex-direction: column;

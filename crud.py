@@ -1747,6 +1747,7 @@ def _apply_translation_project_filters(
                 TranslationSubOrder.sub_order_no.ilike(pattern)
             ),
             TranslationProject.project_name.ilike(pattern),
+            TranslationProject.source_file_name.ilike(pattern),
             TranslationProject.customer_order_no.ilike(pattern),
             Client.client_name.ilike(pattern),
             Client.client_short_name.ilike(pattern),
@@ -1788,6 +1789,7 @@ def _apply_translation_project_filters(
     query = apply_scalar_specs(query, field_filters, {
         "order_no": (TranslationProject.order_no, "string"),
         "project_name": (TranslationProject.project_name, "string"),
+        "source_file_name": (TranslationProject.source_file_name, "string"),
         "service_content": (TranslationProject.service_content, "string"),
         "task_type": (TranslationProject.task_type, "string"),
         "customer_order_no": (TranslationProject.customer_order_no, "string"),

@@ -37,6 +37,7 @@ from recruitment_schemas import (
     RecruitmentCandidateUpdate,
     RecruitmentNamePreviewRequest,
     RecruitmentProgressCreate,
+    RecruitmentProgressUpdate,
     RecruitmentProjectCreate,
     RecruitmentProjectUpdate,
 )
@@ -513,6 +514,33 @@ def add_manual_progress(
         db, project, operator_id=operator_id, note=payload.note,
         is_system=False, occurred_at=payload.occurred_at,
     )
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def update_manual_progress(
+    db: Session,
+    project_id: UUID,
+    progress_id: UUID,
+    payload: RecruitmentProgressUpdate,
+) -> Optional[RecruitmentProjectProgress]:
+    """修改人工进度；系统状态流转记录必须保持只读。"""
+    record = (
+        db.query(RecruitmentProjectProgress)
+        .filter(
+            RecruitmentProjectProgress.id == progress_id,
+            RecruitmentProjectProgress.project_id == project_id,
+        )
+        .first()
+    )
+    if not record:
+        return None
+    if record.is_system:
+        raise ValueError("系统进度记录不能修改")
+    record.note = payload.note
+    if payload.occurred_at is not None:
+        record.occurred_at = payload.occurred_at
     db.commit()
     db.refresh(record)
     return record

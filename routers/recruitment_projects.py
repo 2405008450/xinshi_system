@@ -23,6 +23,7 @@ from recruitment_schemas import (
     RecruitmentNamePreviewResponse,
     RecruitmentProgressCreate,
     RecruitmentProgressResponse,
+    RecruitmentProgressUpdate,
     RecruitmentProjectCreate,
     RecruitmentProjectResponse,
     RecruitmentProjectStatusUpdate,
@@ -48,6 +49,7 @@ from recruitment_service import (
     update_candidate_communication,
     update_recruitment_project,
     update_recruitment_project_status,
+    update_manual_progress,
 )
 from pagination_schemas import PageResponse, resolve_page_total
 from resource_service import TalentDuplicateError
@@ -413,6 +415,27 @@ def create_progress(
     record = add_manual_progress(db, project_id, payload, current_user.id)
     if not record:
         raise HTTPException(status_code=404, detail="招聘项目不存在")
+    return record
+
+
+@router.put(
+    "/{project_id}/progress/{progress_id}",
+    response_model=RecruitmentProgressResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def edit_progress(
+    project_id: UUID,
+    progress_id: UUID,
+    payload: RecruitmentProgressUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        record = update_manual_progress(db, project_id, progress_id, payload)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not record:
+        raise HTTPException(status_code=404, detail="项目进度记录不存在")
     return record
 
 

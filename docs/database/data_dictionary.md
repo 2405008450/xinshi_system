@@ -259,6 +259,7 @@
 | `id` | `uuid` | PK；非空 | `gen_random_uuid()` | UUID 主键 |
 | `order_no` | `varchar(50)` | UQ；非空 | — | 主订单号 |
 | `project_name` | `varchar(255)` | 非空 | — | 项目名称 |
+| `source_file_name` | `varchar(255)` | 可空 | — | 母订单对应的真实文件名称 |
 | `task_type` | `varchar(50)` | 可空 | — | 任务类型 |
 | `consultation_id` | `uuid` | FK → consultation.id；UQ；可空 | — | 关联的 consultation ID |
 | `file_type_secondary` | `varchar(100)` | 可空 | — | 二级文件类型 |

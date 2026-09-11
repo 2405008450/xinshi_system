@@ -20,6 +20,7 @@ from recruitment_schemas import (
     RecruitmentCandidateCommunicationCreate,
     RecruitmentCandidatePatch,
     RecruitmentNamePreviewRequest,
+    RecruitmentProgressUpdate,
     RecruitmentProjectCreate,
     RecruitmentProjectStatusUpdate,
     RecruitmentResumeSourceCreate,
@@ -33,6 +34,7 @@ from recruitment_service import (
     ensure_recruitment_project_for_consultation,
     generate_recruitment_order_no,
     patch_candidate,
+    update_manual_progress,
     update_recruitment_project_status,
 )
 from annotation_service import _resolve_client as resolve_annotation_client
@@ -233,6 +235,64 @@ def test_inline_project_status_update_records_progress(monkeypatch):
     assert progress.from_status == "sourcing"
     assert progress.to_status == "interviewing"
     assert progress.note == "项目状态变更"
+
+
+class ProgressUpdateDb:
+    def __init__(self, record):
+        self.record = record
+        self.committed = False
+        self.refreshed = None
+
+    def query(self, _target):
+        return self
+
+    def filter(self, *_criteria):
+        return self
+
+    def first(self):
+        return self.record
+
+    def commit(self):
+        self.committed = True
+
+    def refresh(self, value):
+        self.refreshed = value
+
+
+def test_manual_progress_can_update_note_and_occurred_at():
+    project_id = uuid4()
+    record = RecruitmentProjectProgress(
+        id=uuid4(), project_id=project_id, note="原进度", is_system=False,
+        occurred_at=datetime(2026, 9, 10, 9, 0),
+    )
+    db = ProgressUpdateDb(record)
+    payload = RecruitmentProgressUpdate(
+        note="  修改后的进度  ", occurred_at=datetime(2026, 9, 11, 15, 30),
+    )
+
+    updated = update_manual_progress(db, project_id, record.id, payload)
+
+    assert updated is record
+    assert record.note == "修改后的进度"
+    assert record.occurred_at == datetime(2026, 9, 11, 15, 30)
+    assert db.committed is True
+    assert db.refreshed is record
+
+
+def test_system_progress_cannot_be_updated():
+    record = RecruitmentProjectProgress(
+        id=uuid4(), project_id=uuid4(), note="项目状态变更", is_system=True,
+        occurred_at=datetime(2026, 9, 11, 9, 0),
+    )
+    db = ProgressUpdateDb(record)
+
+    with pytest.raises(ValueError, match="系统进度记录不能修改"):
+        update_manual_progress(
+            db, record.project_id, record.id,
+            RecruitmentProgressUpdate(note="尝试篡改", occurred_at=record.occurred_at),
+        )
+
+    assert db.committed is False
 
 
 def test_candidate_tracking_payloads_normalize_and_validate():
