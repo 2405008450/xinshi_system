@@ -636,7 +636,6 @@
                       </el-select>
                     </el-form-item>
                   </el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="来源咨询 ID"><ReadonlyField :model-value="form.consultationId" source="auto" placeholder="手工新增项目无来源咨询" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="母客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择母客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
@@ -753,27 +752,6 @@
                     <div class="project-basic-collapse__body">
                       <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="优先级" data-field-key="priority"><el-select v-model="form.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-                  <el-col :xs="24" :md="12">
-                    <el-form-item label="项目经理" data-field-key="projectManagerId">
-                      <el-select
-                        v-model="form.projectManagerId"
-                        filterable
-                        clearable
-                        :loading="projectRoleOptionsLoading"
-                        placeholder="绑定管理层主负责人"
-                        style="width: 100%"
-                      >
-                        <el-option
-                          v-for="manager in projectManagerOptions"
-                          :key="manager.id"
-                          :label="manager.is_on_leave ? `${manager.full_name || manager.username}（${manager.assignment_disabled_reason || '请假中'}）` : (manager.full_name || manager.username)"
-                          :value="manager.id"
-                          :disabled="manager.is_on_leave && manager.id !== form.projectManagerId"
-                        />
-                      </el-select>
-                      <div class="auto-name-field__hint">管理层主负责人，与当前流程处理人相互独立。</div>
-                    </el-form-item>
-                  </el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col
@@ -952,6 +930,8 @@
                 ref="projectFilesTabRef"
                 :project-id="form.id"
                 :order-no="form.orderNo"
+                v-model:source-file-name="form.sourceFileName"
+                :source-file-name-editable="canWriteProjects"
                 entity-type="project"
                 :active="projectDialogTab === 'files'"
                 :show-save-action="false"
@@ -1254,7 +1234,6 @@ const basicProjectFieldSearchItems = [
   { key: 'customerRequirementSpecial', label: '客户特殊要求', aliases: ['特殊要求'], section: 'business', sectionLabel: '项目商务信息' },
   { key: 'priority', label: '优先级', aliases: ['紧急程度'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'projectStatus', label: '状态', aliases: ['项目状态', '业务状态'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'projectManagerId', label: '项目经理', aliases: ['负责人', '项目负责人'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'projectSpecialistId', label: '项目专员', aliases: ['项目专员负责人'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'projectAssistantId', label: '项目助理', aliases: ['项目助理负责人'], section: 'execution', sectionLabel: '项目执行信息' },
   { key: 'layoutSpecialistId', label: '排版专员', aliases: ['排版负责人'], section: 'execution', sectionLabel: '项目执行信息' },

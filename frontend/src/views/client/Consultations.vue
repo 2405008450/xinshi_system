@@ -1012,39 +1012,26 @@
 
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="处理方式" prop="handling_method">
-                <el-input v-model="form.handling_method" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
               <el-form-item label="跟进状态" prop="follow_up_status">
                 <el-input v-model="form.follow_up_status" />
               </el-form-item>
             </el-col>
-          </el-row>
-
-          <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="跟进次数" prop="follow_up_count">
-              <el-input-number v-model="form.follow_up_count" :min="0" style="width:100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="跟进时间" prop="follow_up_time">
-              <el-date-picker
-                v-model="form.follow_up_time"
-                type="datetime"
-                placeholder="选择日期时间"
-                style="width: 100%"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                format="YYYY-MM-DD HH:mm"
-                time-format="HH:mm"
-                :show-now="true"
-                :show-confirm="true"
-                :show-footer="true"
-              />
-            </el-form-item>
-          </el-col>
+            <el-col :span="12">
+              <el-form-item label="跟进时间" prop="follow_up_time">
+                <el-date-picker
+                  v-model="form.follow_up_time"
+                  type="datetime"
+                  placeholder="选择日期时间"
+                  style="width: 100%"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  format="YYYY-MM-DD HH:mm"
+                  time-format="HH:mm"
+                  :show-now="true"
+                  :show-confirm="true"
+                  :show-footer="true"
+                />
+              </el-form-item>
+            </el-col>
           </el-row>
 
           <section class="personnel-assignment-section">

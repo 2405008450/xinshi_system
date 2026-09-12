@@ -27,6 +27,27 @@
     />
 
     <AppForm
+      v-if="sourceFileName !== undefined"
+      :model="{ sourceFileName }"
+      :disabled="!sourceFileNameEditable"
+      label-width="130px"
+      class="source-file-name-form"
+    >
+      <el-form-item label="文件名称">
+        <div class="source-file-name-field">
+          <el-input
+            :model-value="sourceFileName"
+            clearable
+            maxlength="255"
+            show-word-limit
+            placeholder="请输入该母订单对应的真实文件名称，供后续对账使用"
+            @update:model-value="emit('update:sourceFileName', $event)"
+          />
+        </div>
+      </el-form-item>
+    </AppForm>
+
+    <AppForm
       ref="pathGroupFormRef"
       v-loading="fileLoading"
       :model="pathGroupForm"
@@ -183,7 +204,7 @@ import { createProjectFile, deleteProjectFile, getProjectFilesByProject, updateP
 import { hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
-const emit = defineEmits(['status-change', 'update:referenceFilePathOne'])
+const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName'])
 const props = defineProps({
   projectId: {
     type: [String, Number],
@@ -212,6 +233,14 @@ const props = defineProps({
   referenceFilePathOne: {
     type: String,
     default: undefined
+  },
+  sourceFileName: {
+    type: String,
+    default: undefined
+  },
+  sourceFileNameEditable: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -444,6 +473,18 @@ defineExpose({
 
 .path-group-form {
   min-height: 120px;
+}
+
+.source-file-name-form {
+  margin-top: 16px;
+  padding: 16px 16px 2px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.source-file-name-field {
+  width: 100%;
 }
 
 .file-edit-collapse__title {

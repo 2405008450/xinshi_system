@@ -28,16 +28,18 @@
       </el-button>
     </nav>
 
-    <AppForm :inline="true" :model="search" class="search-form">
-      <el-form-item label="关键词">
-        <el-input v-model="search.keyword" clearable placeholder="姓名、编号、电话或邮箱" style="width:240px" @input="handleTextInput" @keyup.enter="searchNow" />
-      </el-form-item>
-      <el-form-item label="状态">
-        <el-select v-model="search.status" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" style="width:160px" @change="searchNow">
-          <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
+    <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
+      <div class="project-list-primary-filters">
+        <el-form-item label="关键词" class="project-list-keyword-filter">
+          <el-input v-model="search.keyword" clearable placeholder="姓名、编号、电话或邮箱" @input="handleTextInput" @keyup.enter="searchNow" />
+        </el-form-item>
+        <el-form-item label="状态" class="project-list-status-filter">
+          <el-select v-model="search.status" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" @change="searchNow">
+            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+      </div>
+      <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="searchNow">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="talent-advanced-popper" @clear="clearAdvanced" @reset="resetSearch">

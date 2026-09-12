@@ -1,6 +1,6 @@
 <template>
   <div class="resource-request-page">
-    <el-card>
+    <el-card class="compact-list-card">
       <template #header>
         <div class="header">
           <div>
@@ -21,24 +21,30 @@
         </div>
       </template>
 
-      <div class="filters">
-        <el-input
-          v-model="searchForm.keyword"
-          clearable
-          placeholder="搜索请求编号、项目、客户或需求详情"
-          style="width: 330px"
-          @input="onKeyword"
-          @keyup.enter="search"
-        />
-        <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" style="width: 160px" @change="search">
-          <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
-        </el-select>
-        <el-button type="primary" @click="search">查询</el-button>
-        <el-button @click="reset">重置</el-button>
-        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="resource-request-advanced-popover" @clear="clearAdvanced" @reset="reset">
-          <CompactFilterGrid :fields="advancedFilterFields" :model="filterModel" @update="updateConfiguredFilter" @text-input="onConfiguredText" @change="search" @enter="search" />
-        </AdvancedFilterPopover>
-      </div>
+      <AppForm :inline="true" :model="searchForm" class="search-form">
+        <el-form-item label="关键词">
+          <el-input
+            v-model="searchForm.keyword"
+            clearable
+            placeholder="搜索请求编号、项目、客户或需求详情"
+            style="width: 380px"
+            @input="onKeyword"
+            @keyup.enter="search"
+          />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" style="width: 180px" @change="search">
+            <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="reset">重置</el-button>
+          <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="resource-request-advanced-popover" @clear="clearAdvanced" @reset="reset">
+            <CompactFilterGrid :fields="advancedFilterFields" :model="filterModel" @update="updateConfiguredFilter" @text-input="onConfiguredText" @change="search" @enter="search" />
+          </AdvancedFilterPopover>
+        </el-form-item>
+      </AppForm>
 
       <el-alert v-if="listError" class="list-error" type="error" show-icon :closable="false">
         <template #title>资源需求列表加载失败</template>
@@ -50,7 +56,7 @@
 
       <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
         <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-        <el-table-column type="index" label="序号" width="52" fixed="left" :index="rowIndex" />
+        <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" :index="rowIndex" />
         <el-table-column
           v-for="column in visibleColumns"
           :key="column.key"
@@ -86,7 +92,7 @@
               @hide="cancelInlineDetailEdit"
             >
               <template #reference>
-                <el-button link type="primary" class="business-clickable-cell" :title="`${row.requestNo || '-'}（点击查看详情）`" @click.stop>
+                <el-button link type="primary" class="request-no-link business-clickable-cell" :title="`${row.requestNo || '-'}（点击查看详情）`" @click.stop>
                   {{ row.requestNo || '-' }}
                 </el-button>
               </template>
@@ -249,6 +255,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDate, formatTimeMinute } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { getCachedOptions } from '@/utils/optionCache'
 
 const languageText = (items, languages) => {
@@ -363,7 +370,7 @@ const filterModel = reactive(createFilterModel(filterFields))
 const advancedFilterFields = filterFields.filter((item) => !['requestNo', 'requestStatus'].includes(item.key))
 
 const tableColumns = [
-  { key: 'requestNo', label: '请求编号', width: 130 },
+  { key: 'requestNo', label: '请求编号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
   { key: 'demandStatus', label: '需求状态', width: 110 },
   { key: 'projectType', label: '项目类型', minWidth: 120 },
   { key: 'sourceType', label: '来源', width: 82 },
@@ -786,12 +793,13 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 
 <style scoped>
 .resource-request-page { min-height: 0; }
-.header, .header-actions, .filters, .advanced__header, .section-title, .item-title { display: flex; align-items: center; }
+.header, .header-actions, .advanced__header, .section-title, .item-title { display: flex; align-items: center; }
 .header, .advanced__header, .section-title, .item-title { justify-content: space-between; }
-.header-actions, .filters { gap: 8px; }
+.header-actions { gap: 8px; }
 .header h2 { margin: 0; }
 .header p { margin: 4px 0 0; color: var(--el-text-color-secondary); }
-.filters { margin-bottom: 16px; flex-wrap: wrap; }
+.search-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 10px; margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-extra-light); }
+.search-form :deep(.el-form-item) { margin: 0; }
 .list-error { margin-bottom: 16px; }
 .list-error__content { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .count { margin-left: 5px; padding: 1px 6px; border-radius: 9px; color: #fff; background: var(--el-color-primary); font-size: 11px; }
@@ -799,6 +807,7 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 .advanced__header { position: sticky; top: 0; z-index: 1; margin-bottom: 12px; background: var(--el-bg-color-overlay); }
 .pagination { margin-top: 16px; }
 .detail { max-height: 560px; overflow-y: auto; }
+.request-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; text-align: left; white-space: nowrap; }
 .pre { white-space: pre-wrap; word-break: break-word; }
 .cell-summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-summary { margin-bottom: 16px; }
@@ -823,7 +832,7 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 .request-language-arrow { color: var(--el-color-primary); font-size: 20px; font-weight: 700; }
 .request-language-count { width: 170px; flex: 0 0 170px; }
 .show-detail-row { margin: -4px 0 12px 110px; }
-@media (max-width: 767px) { .header { align-items: flex-start; flex-direction: column; gap: 12px; } .header-actions { width: 100%; flex-wrap: wrap; } .show-detail-row { margin-left: 0; } .request-language-row { align-items: stretch; flex-direction: column; } .request-language-count { width: 100%; flex-basis: auto; } }
+@media (max-width: 767px) { .header { align-items: flex-start; flex-direction: column; gap: 12px; } .header-actions { width: 100%; flex-wrap: wrap; } .search-form :deep(.el-form-item), .search-form :deep(.el-form-item__content), .search-form :deep(.el-input), .search-form :deep(.el-select) { width: 100%; } .show-detail-row { margin-left: 0; } .request-language-row { align-items: stretch; flex-direction: column; } .request-language-count { width: 100%; flex-basis: auto; } }
 </style>
 
 <style>
