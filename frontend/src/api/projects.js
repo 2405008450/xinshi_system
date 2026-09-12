@@ -39,9 +39,9 @@ export const getProjectPage = (params, config = {}) => {
     return api.get('/projects/translation/page', { ...config, params }).then(res => convertKeys(res, toCamelCase))
 }
 
-export const exportTranslationProjects = async (params) => {
+const exportTranslationWorkbook = async (path, params) => {
     try {
-        return await api.get('/projects/translation/export', {
+        return await api.get(path, {
             params,
             responseType: 'blob',
             timeout: 120000,
@@ -63,6 +63,14 @@ export const exportTranslationProjects = async (params) => {
         throw error
     }
 }
+
+export const exportTranslationProjects = (params) => (
+    exportTranslationWorkbook('/projects/translation/export', params)
+)
+
+export const exportTranslationReconciliation = (params) => (
+    exportTranslationWorkbook('/projects/translation/reconciliation-export', params)
+)
 
 export const getProject = (id) => {
     return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))

@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
+  TRANSLATION_EXPORT_TYPES,
   buildTranslationExportFilename,
   buildTranslationExportParams,
 } from '../src/utils/translationProjectExport.js'
@@ -38,5 +39,13 @@ test('导出文件名包含时间口径和日期范围', () => {
   assert.equal(
     buildTranslationExportFilename('created_at', ['2026-09-01', '2026-09-30']),
     '笔译项目导出_创建时间_2026-09-01_至_2026-09-30.xlsx',
+  )
+  assert.equal(
+    buildTranslationExportFilename(
+      'customer_reception_time',
+      ['2026-09-01', '2026-09-30'],
+      TRANSLATION_EXPORT_TYPES.RECONCILIATION,
+    ),
+    '笔译项目对账单_客户接单时间_2026-09-01_至_2026-09-30.xlsx',
   )
 })

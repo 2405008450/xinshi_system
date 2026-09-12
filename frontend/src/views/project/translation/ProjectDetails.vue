@@ -4,7 +4,8 @@
       <div class="card-header">
         <span>笔译项目管理</span>
         <div class="header-actions">
-          <el-button v-if="!deleteMode" :icon="Download" @click="openExportDialog">导出 Excel</el-button>
+          <el-button v-if="!deleteMode" :icon="Download" @click="openExportDialog('projects')">导出 Excel</el-button>
+          <el-button v-if="!deleteMode" :icon="Download" @click="openExportDialog('reconciliation')">导出对账单</el-button>
           <TableColumnSettings
             v-model="visibleColumnKeys"
             v-model:secondary-model-value="visibleSubOrderColumnKeys"
@@ -382,7 +383,7 @@
 
     <DraggableFormDialog
       v-model="exportDialogVisible"
-      title="导出笔译项目"
+      :title="exportDialogTitle"
       width="min(520px, calc(100vw - 32px))"
       top="12vh"
       :close-on-click-modal="!exporting"
@@ -421,7 +422,7 @@
           />
         </el-form-item>
         <el-alert
-          title="将继承当前关键词和高级筛选，并导出命中母订单下的全部子订单。"
+          :title="exportDialogHint"
           type="info"
           :closable="false"
           show-icon
@@ -429,7 +430,7 @@
       </AppForm>
       <template #footer>
         <el-button :disabled="exporting" @click="exportDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="exporting" @click="handleExport">导出</el-button>
+        <el-button type="primary" :loading="exporting" @click="handleExport">{{ exportActionLabel }}</el-button>
       </template>
     </DraggableFormDialog>
 
@@ -1080,7 +1081,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, Download, MagicStick, SortUp } from '@element-plus/icons-vue'
-import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects } from '@/api/projects'
+import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo, exportTranslationProjects, exportTranslationReconciliation } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
 import { getProjectEditorOptionsAPI } from '@/api/workflow'
@@ -1142,6 +1143,7 @@ import {
 } from '@/utils/translationProjectTimeSort'
 import {
   DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
+  TRANSLATION_EXPORT_TYPES,
   TRANSLATION_EXPORT_TIME_OPTIONS,
   buildTranslationExportFilename,
   buildTranslationExportParams,
@@ -1368,6 +1370,7 @@ const loading = ref(false)
 const submitLoading = ref(false)
 const exporting = ref(false)
 const exportDialogVisible = ref(false)
+const exportType = ref(TRANSLATION_EXPORT_TYPES.PROJECTS)
 const exportFormRef = ref(null)
 const exportForm = reactive({
   timeField: DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
@@ -1377,6 +1380,20 @@ const exportRules = {
   timeField: [{ required: true, message: '请选择时间口径', trigger: 'change' }],
   dateRange: [{ type: 'array', required: true, len: 2, message: '请选择完整的时间范围', trigger: 'change' }],
 }
+const isReconciliationExport = computed(() => (
+  exportType.value === TRANSLATION_EXPORT_TYPES.RECONCILIATION
+))
+const exportDialogTitle = computed(() => (
+  isReconciliationExport.value ? '导出笔译项目对账单' : '导出笔译项目'
+))
+const exportActionLabel = computed(() => (
+  isReconciliationExport.value ? '导出对账单' : '导出 Excel'
+))
+const exportDialogHint = computed(() => (
+  isReconciliationExport.value
+    ? '将继承当前关键词和高级筛选。有子订单时按子订单逐行，无子订单时按母订单逐行；未录收费项仍会出现在对账清单。'
+    : '将继承当前关键词和高级筛选；Excel 包含母订单、子订单、子订单客户收费 3 个工作表。'
+))
 let submitLocked = false
 const projectCreateIdempotencyKey = ref('')
 const dialogVisible = ref(false)
@@ -1980,7 +1997,8 @@ const resetExportForm = () => {
   exportForm.dateRange = []
   exportFormRef.value?.clearValidate()
 }
-const openExportDialog = () => {
+const openExportDialog = (type = TRANSLATION_EXPORT_TYPES.PROJECTS) => {
+  exportType.value = type
   resetExportForm()
   exportDialogVisible.value = true
 }
@@ -1991,19 +2009,29 @@ const handleExport = async () => {
   exporting.value = true
   try {
     const params = buildTranslationExportParams(buildFilterParams(), exportForm, sortMode.value)
-    const blob = await exportTranslationProjects(params)
+    const exportRequest = isReconciliationExport.value
+      ? exportTranslationReconciliation
+      : exportTranslationProjects
+    const blob = await exportRequest(params)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = buildTranslationExportFilename(exportForm.timeField, exportForm.dateRange)
+    link.download = buildTranslationExportFilename(
+      exportForm.timeField,
+      exportForm.dateRange,
+      exportType.value,
+    )
     document.body.appendChild(link)
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
     exportDialogVisible.value = false
-    ElMessage.success('导出成功')
+    ElMessage.success(isReconciliationExport.value ? '对账单导出成功' : '导出成功')
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, '导出笔译项目失败'))
+    ElMessage.error(getLocalizedErrorMessage(
+      error,
+      isReconciliationExport.value ? '导出笔译项目对账单失败' : '导出笔译项目失败',
+    ))
   } finally {
     exporting.value = false
   }

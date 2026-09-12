@@ -118,12 +118,14 @@ const desktopNotificationState = ref(getDesktopNotificationState())
 const socket = ref(null)
 let reconnectTimer = null
 let heartbeatTimer = null
+let notificationPollTimer = null
+let notificationPollInFlight = false
 let allowReconnect = true
 
-const seenNotificationIds = new Map()
+const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
-const SEEN_NOTIFICATION_TTL = 10 * 60 * 1000
 const MAX_SEEN_NOTIFICATIONS = 200
+const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
 
 const desktopStatus = computed(() => {
   const state = desktopNotificationState.value
@@ -154,14 +156,10 @@ const syncDesktopNotificationState = () => {
 const rememberNotification = (notificationId) => {
   if (!notificationId) return true
   const id = String(notificationId)
-  const now = Date.now()
-  for (const [seenId, seenAt] of seenNotificationIds) {
-    if (now - seenAt > SEEN_NOTIFICATION_TTL) seenNotificationIds.delete(seenId)
-  }
   if (seenNotificationIds.has(id)) return false
-  seenNotificationIds.set(id, now)
+  seenNotificationIds.add(id)
   while (seenNotificationIds.size > MAX_SEEN_NOTIFICATIONS) {
-    seenNotificationIds.delete(seenNotificationIds.keys().next().value)
+    seenNotificationIds.delete(seenNotificationIds.values().next().value)
   }
   return true
 }
@@ -276,12 +274,63 @@ const activateNotification = async (item, showError = false) => {
 
 const displayIncomingNotification = (notification) => {
   const displayed = showDesktopNotification(notification, () => activateNotification(notification))
+  const isMention = String(notification.notification_type || '').endsWith('_mention')
+
+  if (isMention) {
+    ElNotification({
+      title: '有人在项目沟通中 @了你',
+      message: notification.content,
+      type: 'warning',
+      position: 'top-right',
+      duration: 12000,
+      showClose: true,
+      customClass: 'mention-notification',
+      onClick: () => activateNotification(notification, true),
+    })
+    return
+  }
+
   if (displayed) return
   ElNotification({
     title: notification.title,
     message: notification.content,
+    position: 'top-right',
     duration: 4000,
   })
+}
+
+// WebSocket 连接只在当前后端进程内生效。轮询用于补偿局域网与云端后端之间的通知同步。
+const pollNotifications = async () => {
+  if (notificationPollInFlight || !localStorage.getItem('token')) return
+
+  notificationPollInFlight = true
+  try {
+    const data = await getNotifications({ limit: 10 })
+    const latestNotifications = Array.isArray(data) ? data : []
+    const incomingNotifications = latestNotifications.filter((item) => rememberNotification(item.id))
+
+    notifications.value = latestNotifications
+    if (!incomingNotifications.length) return
+
+    await loadUnreadCount()
+    // 接口按时间倒序返回；按正序弹出，避免多条提醒遮挡时顺序颠倒。
+    incomingNotifications.slice().reverse().forEach(displayIncomingNotification)
+  } catch (error) {
+    console.error('轮询通知失败', error)
+  } finally {
+    notificationPollInFlight = false
+  }
+}
+
+const startNotificationPolling = () => {
+  if (notificationPollTimer) window.clearInterval(notificationPollTimer)
+  notificationPollTimer = window.setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL_MS)
+}
+
+const stopNotificationPolling = () => {
+  if (!notificationPollTimer) return
+  window.clearInterval(notificationPollTimer)
+  notificationPollTimer = null
 }
 
 const connectSocket = () => {
@@ -395,11 +444,13 @@ onMounted(() => {
   loadNotifications()
   loadUnreadCount()
   connectSocket()
+  startNotificationPolling()
   window.addEventListener('focus', syncDesktopNotificationState)
 })
 
 onBeforeUnmount(() => {
   closeSocket()
+  stopNotificationPolling()
   window.removeEventListener('focus', syncDesktopNotificationState)
 })
 
@@ -517,5 +568,26 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   font-size: 11px;
   color: var(--color-text-muted);
+}
+
+:global(.el-notification.mention-notification) {
+  width: min(420px, calc(100vw - 32px));
+  border: 2px solid var(--el-color-warning);
+  background: var(--el-color-warning-light-9);
+  box-shadow: 0 16px 36px rgb(15 23 42 / 24%);
+  cursor: pointer;
+}
+
+:global(.mention-notification .el-notification__title) {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+:global(.mention-notification .el-notification__content) {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
 }
 </style>

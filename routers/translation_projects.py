@@ -26,6 +26,7 @@ from translation_project_export_service import (
     TranslationExportEmptyError,
     TranslationExportLimitError,
     create_translation_project_export,
+    create_translation_reconciliation_export,
 )
 from pagination_schemas import PageResponse, resolve_page_total
 
@@ -350,6 +351,58 @@ def export_projects(
     time_label = TIME_FIELD_LABELS[time_field]
     filename = f"笔译项目导出_{time_label}_{date_start.isoformat()}_至_{date_end.isoformat()}.xlsx"
     ascii_filename = f"translation-projects-{date_start.isoformat()}-{date_end.isoformat()}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{quote(filename)}'
+            )
+        },
+    )
+
+
+@router.get("/reconciliation-export")
+def export_reconciliation(
+    time_field: Literal[
+        "customer_reception_time",
+        "customer_deadline_time",
+        "created_at",
+    ],
+    date_start: date,
+    date_end: date,
+    keyword: Optional[str] = None,
+    sort: Optional[Literal[
+        "order_no_desc",
+        "unfinished_first_order_no_desc",
+        "customer_deadline_time_asc",
+        "translator_return_time_asc",
+    ]] = None,
+    field_filters: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """按项目时间范围导出当前筛选命中的内部对账清单。"""
+    filters = _export_field_filters(
+        field_filters,
+        time_field=time_field,
+        date_start=date_start,
+        date_end=date_end,
+    )
+    try:
+        content = create_translation_reconciliation_export(
+            db,
+            keyword=keyword,
+            field_filters=filters,
+            sort=sort,
+        )
+    except TranslationExportEmptyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TranslationExportLimitError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    time_label = TIME_FIELD_LABELS[time_field]
+    filename = f"笔译项目对账单_{time_label}_{date_start.isoformat()}_至_{date_end.isoformat()}.xlsx"
+    ascii_filename = f"translation-reconciliation-{date_start.isoformat()}-{date_end.isoformat()}.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

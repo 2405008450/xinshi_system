@@ -56,6 +56,8 @@ def sample_project(*, project_name="示例项目", with_sub_order=True):
         sub_client_name="子客户全称",
         sub_client_short_name="子客户",
         sub_client_code="CL-001.001",
+        customer_order_no="PO-20260901",
+        project_manager_name="王经理",
         quotation_required=True,
         project_status="confirmed",
         role_assignments=[
@@ -69,6 +71,8 @@ def sample_project(*, project_name="示例项目", with_sub_order=True):
         },
         customer_reception_time=datetime(2026, 9, 1, 9, 0),
         customer_deadline_time=datetime(2026, 9, 8, 18, 0),
+        sent_to_client_time=datetime(2026, 9, 8, 17, 30),
+        language_pair="中译英",
         assigned_translators=[assignment],
         translator_delivery_progress="50%",
         sub_orders=[sub_order] if with_sub_order else [],
@@ -126,6 +130,126 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert workbook["母订单"].freeze_panes == "A2"
     assert workbook["子订单"].auto_filter.ref.endswith("2")
     assert charge_headers[:4] == ["母订单号", "母项目名称", "子订单号", "文件/子项目名称"]
+
+
+def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
+    parent_only = sample_project(project_name="纯母订单", with_sub_order=False)
+    parent_only.order_no = "TP-260901-002"
+    parent_only.source_file_name = None
+
+    project_with_children = sample_project(project_name="含子订单项目")
+    project_with_children.order_no = "TP-260901-003"
+    first_sub_order = project_with_children.sub_orders[0]
+    first_sub_order.sub_order_no = "TP-260901-003.001"
+    first_sub_order.sub_project_name = "第一份文件.docx"
+    second_sub_order = SimpleNamespace(
+        **{
+            **vars(first_sub_order),
+            "sub_order_no": "TP-260901-003.002",
+            "sub_project_name": "第二份文件.pdf",
+            "status": "sent_to_client",
+            "word_count_matrix": {"customer": {"pages": 12}},
+            "customer_charge_items": [],
+        }
+    )
+    project_with_children.sub_orders = [second_sub_order, first_sub_order]
+
+    content = export_service.translation_reconciliation_to_xlsx(
+        [[parent_only, project_with_children]]
+    )
+    workbook = load_workbook(BytesIO(content), data_only=False)
+
+    assert workbook.sheetnames == ["对账清单", "收费明细"]
+    rows = list(workbook["对账清单"].iter_rows(values_only=True))
+    headers = rows[0]
+    records = [dict(zip(headers, row)) for row in rows[1:]]
+    assert headers[18:24] == (
+        "客户字数",
+        "字符数（不计空格）",
+        "中朝文字数",
+        "外文字数",
+        "份数",
+        "页数",
+    )
+    assert len(records) == 3
+    assert [record["业务订单号"] for record in records] == [
+        "TP-260901-002",
+        "TP-260901-003.001",
+        "TP-260901-003.002",
+    ]
+    assert not any(record["业务订单号"] == "TP-260901-003" for record in records)
+
+    parent_row = records[0]
+    assert parent_row["子订单号"] is None
+    assert parent_row["文件名称"] is None
+    assert parent_row["客户字数"] is None
+    assert parent_row["页数"] == 8
+    assert parent_row["收费项数"] == 0
+    assert parent_row["数据状态"] == "待补文件名称；未录收费项"
+
+    first_child_row = records[1]
+    assert first_child_row["母订单号"] == "TP-260901-003"
+    assert first_child_row["文件名称"] == "第一份文件.docx"
+    assert first_child_row["客户交稿时间"] == datetime(2026, 9, 6, 17, 0)
+    assert first_child_row["收费项数"] == 1
+    assert first_child_row["数据状态"] is None
+
+    second_child_row = records[2]
+    assert second_child_row["状态"] == "已发客户"
+    assert second_child_row["页数"] == 12
+    assert second_child_row["数据状态"] == "未录收费项"
+    assert workbook["对账清单"].freeze_panes == "A2"
+    assert workbook["收费明细"].auto_filter.ref.endswith("2")
+
+
+def test_reconciliation_charge_detail_keeps_each_currency_and_numeric_values():
+    project = sample_project()
+    project.sub_orders[0].customer_charge_items.append(
+        SimpleNamespace(
+            item_name="排版费",
+            pricing_mode="fixed",
+            metric_type=None,
+            quantity=None,
+            unit_size=None,
+            unit_price=None,
+            currency="USD",
+            calculated_amount=None,
+            final_amount=50,
+            remarks="固定收费",
+        )
+    )
+
+    content = export_service.translation_reconciliation_to_xlsx([[project]])
+    workbook = load_workbook(BytesIO(content), data_only=False)
+    rows = list(workbook["收费明细"].iter_rows(values_only=True))
+    headers = rows[0]
+    records = [dict(zip(headers, row)) for row in rows[1:]]
+
+    assert len(records) == 2
+    assert [record["币种"] for record in records] == ["CNY", "USD"]
+    assert records[0]["数量"] == 800
+    assert records[0]["单价"] == 120
+    assert records[0]["计算金额"] == 96
+    assert records[0]["最终金额"] == 88
+    assert records[1]["最终金额"] == 50
+    assert records[1]["数量"] is None
+
+
+def test_reconciliation_rejects_business_row_limit():
+    project = sample_project()
+    project.sub_orders.append(
+        SimpleNamespace(
+            **{
+                **vars(project.sub_orders[0]),
+                "sub_order_no": "TP-260901-001.002",
+                "customer_charge_items": [],
+            }
+        )
+    )
+    with pytest.raises(export_service.TranslationExportLimitError, match="对账清单"):
+        export_service.translation_reconciliation_to_xlsx(
+            [[project]], max_rows_per_sheet=1
+        )
 
 
 def test_export_rejects_empty_data_and_sheet_row_limit():
@@ -213,6 +337,28 @@ def test_export_route_returns_xlsx_headers(monkeypatch):
     assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     disposition = response.headers["content-disposition"]
     assert "translation-projects-2026-09-01-2026-09-30.xlsx" in disposition
+    assert "filename*=UTF-8''" in disposition
+
+
+def test_reconciliation_route_returns_xlsx_headers(monkeypatch):
+    monkeypatch.setattr(
+        translation_router,
+        "create_translation_reconciliation_export",
+        lambda *_args, **_kwargs: b"xlsx-content",
+    )
+    response = translation_router.export_reconciliation(
+        time_field="customer_reception_time",
+        date_start=date(2026, 9, 1),
+        date_end=date(2026, 9, 30),
+        keyword="客户A",
+        sort="order_no_desc",
+        field_filters=None,
+        db=object(),
+    )
+
+    assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    disposition = response.headers["content-disposition"]
+    assert "translation-reconciliation-2026-09-01-2026-09-30.xlsx" in disposition
     assert "filename*=UTF-8''" in disposition
 
 

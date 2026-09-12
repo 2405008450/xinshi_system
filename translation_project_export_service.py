@@ -300,6 +300,137 @@ CHARGE_COLUMNS = [
 ]
 
 
+def _reconciliation_detail(item: tuple[Any, Any | None]) -> Any:
+    project, sub_order = item
+    return sub_order if sub_order is not None else project
+
+
+def _reconciliation_sub_order_no(item: tuple[Any, Any | None]) -> Any:
+    return _read(item[1], "sub_order_no") if item[1] is not None else None
+
+
+def _reconciliation_business_order_no(item: tuple[Any, Any | None]) -> Any:
+    return _reconciliation_sub_order_no(item) or _read(item[0], "order_no")
+
+
+def _reconciliation_file_name(item: tuple[Any, Any | None]) -> Any:
+    project, sub_order = item
+    if sub_order is not None:
+        return _read(sub_order, "sub_project_name")
+    return _read(project, "source_file_name")
+
+
+def _reconciliation_charge_items(item: tuple[Any, Any | None]) -> list[Any]:
+    sub_order = item[1]
+    if sub_order is None:
+        return []
+    return list(_read(sub_order, "customer_charge_items", []) or [])
+
+
+def _reconciliation_data_status(item: tuple[Any, Any | None]) -> str | None:
+    statuses = []
+    file_name = _reconciliation_file_name(item)
+    if not str(file_name or "").strip():
+        statuses.append("待补文件名称")
+    if not _reconciliation_charge_items(item):
+        statuses.append("未录收费项")
+    return "；".join(statuses) or None
+
+
+RECONCILIATION_COLUMNS = [
+    ExportColumn("母客户全称", lambda item: _read(item[0], "client_name"), width=32),
+    ExportColumn("母客户简称", lambda item: _read(item[0], "client_short_name"), width=24),
+    ExportColumn("母客户编号", lambda item: _read(item[0], "client_code"), "identifier", 18),
+    ExportColumn("子客户全称", lambda item: _read(item[0], "sub_client_name"), width=32),
+    ExportColumn("子客户简称", lambda item: _read(item[0], "sub_client_short_name"), width=24),
+    ExportColumn("子客户编号", lambda item: _read(item[0], "sub_client_code"), "identifier", 20),
+    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
+    ExportColumn("子订单号", _reconciliation_sub_order_no, "identifier", 20),
+    ExportColumn("业务订单号", _reconciliation_business_order_no, "identifier", 20),
+    ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
+    ExportColumn("项目名称", lambda item: _read(item[0], "project_name"), width=32),
+    ExportColumn("文件名称", _reconciliation_file_name, width=36),
+    ExportColumn("翻译方向", lambda item: _read(_reconciliation_detail(item), "language_pair"), width=24),
+    ExportColumn("项目经理", lambda item: _read(item[0], "project_manager_name"), width=18),
+    ExportColumn(
+        "状态",
+        lambda item: _status_label(
+            _read(item[1], "status") if item[1] is not None else _read(item[0], "project_status")
+        ),
+        width=16,
+    ),
+    ExportColumn("客户接单时间", lambda item: _read(item[0], "customer_reception_time"), "datetime", 20),
+    ExportColumn(
+        "客户交稿时间",
+        lambda item: _read(_reconciliation_detail(item), "customer_deadline_time"),
+        "datetime",
+        20,
+    ),
+    ExportColumn(
+        "发客户时间",
+        lambda item: _read(_reconciliation_detail(item), "sent_to_client_time"),
+        "datetime",
+        20,
+    ),
+    *[
+        ExportColumn(
+            column_label,
+            lambda item, metric=metric: _word_count_value(
+                _reconciliation_detail(item), "customer", metric
+            ),
+            "integer",
+            18 if metric not in {"characters_no_spaces", "cjk_chars_korean_words"} else 24,
+        )
+        for metric, column_label in (
+            ("words", "客户字数"),
+            ("characters_no_spaces", "字符数（不计空格）"),
+            ("cjk_chars_korean_words", "中朝文字数"),
+            ("foreign_words", "外文字数"),
+            ("documents", "份数"),
+            ("pages", "页数"),
+        )
+    ],
+    ExportColumn("收费项数", lambda item: len(_reconciliation_charge_items(item)), "integer", 12),
+    ExportColumn("数据状态", _reconciliation_data_status, width=28),
+]
+
+
+RECONCILIATION_CHARGE_COLUMNS = [
+    ExportColumn("母客户全称", lambda item: _read(item[0], "client_name"), width=32),
+    ExportColumn("母客户简称", lambda item: _read(item[0], "client_short_name"), width=24),
+    ExportColumn("母客户编号", lambda item: _read(item[0], "client_code"), "identifier", 18),
+    ExportColumn("子客户全称", lambda item: _read(item[0], "sub_client_name"), width=32),
+    ExportColumn("子客户简称", lambda item: _read(item[0], "sub_client_short_name"), width=24),
+    ExportColumn("子客户编号", lambda item: _read(item[0], "sub_client_code"), "identifier", 20),
+    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
+    ExportColumn("子订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
+    ExportColumn("业务订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
+    ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
+    ExportColumn("项目名称", lambda item: _read(item[0], "project_name"), width=32),
+    ExportColumn("文件名称", lambda item: _read(item[1], "sub_project_name"), width=36),
+    ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
+    ExportColumn(
+        "计价模式",
+        lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费",
+        width=14,
+    ),
+    ExportColumn(
+        "客户字数口径",
+        lambda item: WORD_COUNT_METRIC_LABELS.get(
+            _read(item[2], "metric_type"), _read(item[2], "metric_type")
+        ),
+        width=24,
+    ),
+    ExportColumn("数量", lambda item: _read(item[2], "quantity"), "integer", 16),
+    ExportColumn("每计价单位", lambda item: _read(item[2], "unit_size"), "decimal", 16),
+    ExportColumn("单价", lambda item: _read(item[2], "unit_price"), "decimal", 16),
+    ExportColumn("币种", lambda item: _read(item[2], "currency"), width=10),
+    ExportColumn("计算金额", lambda item: _read(item[2], "calculated_amount"), "money", 16),
+    ExportColumn("最终金额", lambda item: _read(item[2], "final_amount"), "money", 16),
+    ExportColumn("备注", lambda item: _read(item[2], "remarks"), width=36),
+]
+
+
 def _percent_value(value: Any) -> float | str | None:
     if value in (None, ""):
         return None
@@ -436,6 +567,78 @@ def translation_projects_to_xlsx(
     return output.getvalue()
 
 
+def _reconciliation_items(project: Any) -> Iterator[tuple[Any, Any | None]]:
+    sub_orders = sorted(
+        _read(project, "sub_orders", []) or [],
+        key=lambda item: str(_read(item, "sub_order_no") or ""),
+    )
+    if sub_orders:
+        for sub_order in sub_orders:
+            yield project, sub_order
+        return
+    yield project, None
+
+
+def translation_reconciliation_to_xlsx(
+    batches: Iterable[Sequence[Any]],
+    *,
+    max_rows_per_sheet: int = EXPORT_MAX_ROWS_PER_SHEET,
+) -> bytes:
+    """把母子订单标准化为对账清单，并附带已有的子订单收费明细。"""
+    workbook = Workbook(write_only=True)
+    reconciliation_sheet = _make_sheet(workbook, "对账清单", RECONCILIATION_COLUMNS)
+    charge_sheet = _make_sheet(workbook, "收费明细", RECONCILIATION_CHARGE_COLUMNS)
+    project_count = 0
+    reconciliation_count = 0
+    charge_count = 0
+
+    try:
+        for batch in batches:
+            for project in batch:
+                project_count += 1
+                for item in _reconciliation_items(project):
+                    reconciliation_count += 1
+                    if reconciliation_count > max_rows_per_sheet:
+                        raise TranslationExportLimitError(
+                            f"对账清单超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                        )
+                    _append_row(reconciliation_sheet, RECONCILIATION_COLUMNS, item)
+                    project_item, sub_order = item
+                    if sub_order is None:
+                        continue
+                    for charge in _reconciliation_charge_items(item):
+                        charge_count += 1
+                        if charge_count > max_rows_per_sheet:
+                            raise TranslationExportLimitError(
+                                f"收费明细超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                            )
+                        _append_row(
+                            charge_sheet,
+                            RECONCILIATION_CHARGE_COLUMNS,
+                            (project_item, sub_order, charge),
+                        )
+
+        if not project_count:
+            raise TranslationExportEmptyError("所选范围内没有可导出的数据")
+    except Exception:
+        # write_only 工作表使用流式 XML writer；提前失败时保存到废弃缓冲区以完整关闭 writer。
+        try:
+            workbook.save(BytesIO())
+        except Exception:
+            pass
+        raise
+
+    reconciliation_sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(RECONCILIATION_COLUMNS))}{reconciliation_count + 1}"
+    )
+    charge_sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(RECONCILIATION_CHARGE_COLUMNS))}{charge_count + 1}"
+    )
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
 def _project_batches(
     db: Session,
     *,
@@ -470,6 +673,24 @@ def create_translation_project_export(
 ) -> bytes:
     """复用列表查询分批读取全部命中项目并生成 XLSX。"""
     return translation_projects_to_xlsx(
+        _project_batches(
+            db,
+            keyword=keyword,
+            field_filters=field_filters,
+            sort=sort,
+        )
+    )
+
+
+def create_translation_reconciliation_export(
+    db: Session,
+    *,
+    keyword: str | None,
+    field_filters: dict,
+    sort: str | None,
+) -> bytes:
+    """复用列表查询分批读取全部命中项目并生成对账单 XLSX。"""
+    return translation_reconciliation_to_xlsx(
         _project_batches(
             db,
             keyword=keyword,
