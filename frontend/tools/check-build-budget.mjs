@@ -1,8 +1,12 @@
 import { readFileSync, statSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
-const distDir = join(process.cwd(), 'dist')
+const distDirArgumentIndex = process.argv.indexOf('--dist-dir')
+const distDirArgument = distDirArgumentIndex >= 0 ? process.argv[distDirArgumentIndex + 1] : 'dist'
+if (!distDirArgument) throw new Error('Missing value for --dist-dir')
+
+const distDir = resolve(process.cwd(), distDirArgument)
 const manifest = JSON.parse(
   readFileSync(join(distDir, '.vite', 'manifest.json'), 'utf8')
 )

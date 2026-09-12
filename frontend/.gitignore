@@ -1,5 +1,7 @@
 node_modules
 dist
+.publish-staging
+.frontend-publish.lock
 .DS_Store
 *.log
 .env.local

@@ -124,12 +124,19 @@ npm run dev -- --host 0.0.0.0 --port 3000
 正式 HTTPS 地址。证书与私钥保存在仓库外的 `E:\xinshi_runtime\certs`，不得提交到 Git。
 Nginx 提供 `frontend/dist` 生产构建，并通过 `/api` 反向代理到本机 8000 端口；计划任务
 `XinshiLanProductionFrontend` 使用 `SYSTEM` 账号在开机时启动，不依赖交互式桌面会话。
-更新代码后的部署步骤为：
+更新代码后的前端发布使用两阶段脚本，不得直接在 Nginx 正在服务的 `frontend/dist` 中运行
+`npm run build`。脚本会先在隔离目录完成依赖安装、构建和预算校验，再先复制哈希资源、最后
+原子替换 `index.html`；旧哈希资源会保留，避免刷新页面时混用新旧版本：
 
 ```powershell
-Set-Location -LiteralPath 'E:\xinshi_system\frontend'
-npm ci
-npm run build
+Set-Location -LiteralPath 'E:\xinshi_system'
+& '.\frontend\tools\publish-lan-frontend.ps1'
+```
+
+只更新前端静态产物不需要重启 Nginx。修改 Nginx 配置时，才执行配置校验并通过计划任务重启：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system'
 
 & 'E:\xinshi_runtime\nginx-1.30.4\nginx.exe' `
     -t `

@@ -15,7 +15,7 @@ if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
 }
 
 if (-not (Test-Path -LiteralPath 'E:\xinshi_system\frontend\dist\index.html' -PathType Leaf)) {
-    throw 'The frontend production build is missing. Run npm run build first.'
+    throw 'The frontend production build is missing. Run frontend\tools\publish-lan-frontend.ps1 first.'
 }
 
 & $nginxExecutable -t -p "$NginxRoot\" -c $ConfigPath
