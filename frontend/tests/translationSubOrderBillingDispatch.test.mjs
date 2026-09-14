@@ -22,12 +22,24 @@ test('母订单汇总字数在列表和编辑弹窗中均为只读', () => {
   assert.match(source, /validateWordCountMatrix[\s\S]*?form\.wordCountMatrixSource === 'suborder_aggregate'[\s\S]*?return callback\(\)/)
 })
 
-test('子订单收费编辑器按客户字数计算并按币种汇总', () => {
-  const source = read('src/views/project/translation/components/SubOrderChargeEditor.vue')
+test('母子订单通用收费编辑器按客户字数计算税价并按币种汇总', () => {
+  const source = read('src/views/project/translation/components/CustomerChargeEditor.vue')
+  const projectDetails = read('src/views/project/translation/ProjectDetails.vue')
+  const subOrderManagement = read('src/views/project/translation/SubOrderManagement.vue')
 
   assert.match(source, /normalizeWordCountMatrix\(props\.wordCountMatrix\)\.customer/)
-  assert.match(source, /Number\(count\) \/ Number\(row\.unitSize\) \* Number\(row\.unitPrice\)/)
+  assert.match(source, /Number\(count\) \/ Number\(row\.unitSize\) \* Number\(unitPrice\)/)
+  assert.match(source, /unitPriceExclTax/)
+  assert.match(source, /unitPriceInclTax/)
+  assert.match(source, /totalExclTax/)
+  assert.match(source, /totalInclTax/)
+  assert.match(source, /value-format="YYYY-MM"/)
+  assert.match(source, /lastSuggestions/)
+  assert.match(source, /sameAmount\(row\[key\], previous\)/)
   assert.match(source, /Object\.entries\(totals\)/)
+  assert.equal((projectDetails.match(/<CustomerChargeEditor/g) || []).length, 2)
+  assert.match(subOrderManagement, /<CustomerChargeEditor/)
+  assert.doesNotMatch(subOrderManagement, /SubOrderChargeEditor/)
 })
 
 test('稿件安排回退为可编辑路径并按整目录打包', () => {
@@ -40,4 +52,13 @@ test('稿件安排回退为可编辑路径并按整目录打包', () => {
   assert.match(source, /@click="saveMailPaths"/)
   assert.match(source, /自动将派稿文路径和参考文件路径一中的文件合并打包为 ZIP 附件/)
   assert.match(api, /batches\/\$\{dispatchId\}\/mail-paths/)
+})
+
+test('稿件安排可编辑当前订单的文件名称并随派稿保存', () => {
+  const source = read('src/views/manuscript/ManuscriptArrangements.vue')
+
+  assert.equal((source.match(/v-model="dispatchForm\.file_name"/g) || []).length, 2)
+  assert.match(source, /file_name: selectedProject\.value\?\.file_name \|\| ''/)
+  assert.match(source, /file_name: dispatchForm\.file_name\.trim\(\) \|\| null/)
+  assert.match(source, /保存后同步到笔译项目中的对应订单/)
 })

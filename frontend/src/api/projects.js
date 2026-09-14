@@ -1,6 +1,7 @@
 import api from './index'
 import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
 import { invalidateOptionCache } from '@/utils/optionCache'
+import { normalizeBlobApiError } from '@/utils/errorMessages'
 
 const projectCreateState = { key: '', signature: '' }
 
@@ -47,20 +48,7 @@ const exportTranslationWorkbook = async (path, params) => {
             timeout: 120000,
         })
     } catch (error) {
-        const blob = error?.response?.data
-        if (typeof Blob !== 'undefined' && blob instanceof Blob && blob.type?.includes('json')) {
-            try {
-                const payload = JSON.parse(await blob.text())
-                if (payload?.detail) {
-                    error.rawDetail = payload.detail
-                    error.detail = payload.detail
-                    error.message = payload.detail
-                }
-            } catch {
-                // 保留统一错误处理给出的回退文案。
-            }
-        }
-        throw error
+        throw await normalizeBlobApiError(error)
     }
 }
 
@@ -70,6 +58,10 @@ export const exportTranslationProjects = (params) => (
 
 export const exportTranslationReconciliation = (params) => (
     exportTranslationWorkbook('/projects/translation/reconciliation-export', params)
+)
+
+export const exportTranslationTranslatorReconciliation = (params) => (
+    exportTranslationWorkbook('/projects/translation/translator-reconciliation-export', params)
 )
 
 export const getProject = (id) => {

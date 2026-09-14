@@ -113,6 +113,8 @@ class ManuscriptActiveProjectItem(BaseModel):
     order_no: str
     project_name: str
     sub_project_name: Optional[str] = None
+    # 稿件安排统一使用此业务字段；底层分别映射母订单和子订单的历史字段。
+    file_name: Optional[str] = None
     client_short_name: Optional[str] = None
     current_stage_key: str
     current_assignee_id: Optional[UUID] = None
@@ -250,8 +252,16 @@ class ManuscriptDispatchCreate(BaseModel):
     entity_type: EntityType
     translation_project_id: UUID
     sub_order_id: Optional[UUID] = None
+    file_name: Optional[str] = Field(default=None, max_length=255)
     remarks: Optional[str] = Field(default=None, max_length=5000)
     arrangements: list[ManuscriptAssignmentInput] = Field(min_length=1)
+
+    @field_validator("file_name", mode="before")
+    @classmethod
+    def normalize_file_name(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
     @model_validator(mode="after")
     def validate_dispatch(self):

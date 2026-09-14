@@ -1050,8 +1050,11 @@ def _attach_manuscript_assignees(
             "translation_scope": row.translation_scope,
             "translator_return_time": row.planned_delivery_at,
             "completion_remarks": row.completion_remarks,
+            "settlement_method": getattr(row, "settlement_method", None),
+            "translator_pricing_method": getattr(row, "translator_pricing_method", None),
             "translator_unit_price": row.translator_unit_price,
             "translator_total_price": row.translator_total_price,
+            "remarks": getattr(row, "remarks", None),
         }
 
     for project in projects:
@@ -1179,6 +1182,7 @@ def _attach_word_count_matrices(
     if arrangement_map:
         filters.append(WordCountMetric.arrangement_id.in_(arrangement_map))
     if not filters:
+        _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
         return
 
     for metric in db.query(WordCountMetric).filter(or_(*filters)).all():
@@ -1206,28 +1210,44 @@ def _attach_word_count_matrices(
                 aggregate[dimension][metric_type] = sum(values) if values else None
         project.word_count_matrix = aggregate
 
-    _attach_sub_order_charge_amounts(all_sub_orders)
+    _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
 
 
-def _attach_sub_order_charge_amounts(sub_orders: List[TranslationSubOrder]) -> None:
-    """补齐收费项的数量、计算金额和最终金额，不重复存储字数数量。"""
-    for sub_order in sub_orders:
-        customer_values = (getattr(sub_order, "word_count_matrix", {}) or {}).get("customer", {})
-        for charge in getattr(sub_order, "customer_charge_items", []) or []:
+def _attach_customer_charge_amounts(owners) -> None:
+    """补齐母/子订单收费项的数量、建议金额及旧版兼容字段。"""
+    for owner in owners:
+        customer_values = (getattr(owner, "word_count_matrix", {}) or {}).get("customer", {})
+        for charge in getattr(owner, "customer_charge_items", []) or []:
             quantity = customer_values.get(charge.metric_type) if charge.pricing_mode == "metric" else None
-            calculated = None
-            if (
-                charge.pricing_mode == "metric"
-                and quantity is not None
-                and charge.unit_size is not None
-                and charge.unit_price is not None
-            ):
-                calculated = (
-                    Decimal(quantity) / Decimal(charge.unit_size) * Decimal(charge.unit_price)
+            unit_price_excl_tax = getattr(charge, 'unit_price_excl_tax', None)
+            if unit_price_excl_tax is None:
+                unit_price_excl_tax = charge.unit_price
+
+            def calculated_total(unit_price):
+                if (
+                    charge.pricing_mode != "metric"
+                    or quantity is None
+                    or charge.unit_size is None
+                    or unit_price is None
+                ):
+                    return None
+                return (
+                    Decimal(quantity) / Decimal(charge.unit_size) * Decimal(unit_price)
                 ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            calculated_excl_tax = calculated_total(unit_price_excl_tax)
+            calculated_incl_tax = calculated_total(getattr(charge, 'unit_price_incl_tax', None))
+            total_excl_tax = getattr(charge, 'total_excl_tax', None)
+            if total_excl_tax is None:
+                total_excl_tax = charge.amount_override
+            if total_excl_tax is None:
+                total_excl_tax = calculated_excl_tax
             charge.quantity = quantity
-            charge.calculated_amount = calculated
-            charge.final_amount = charge.amount_override if charge.amount_override is not None else calculated
+            charge.unit_price_excl_tax = unit_price_excl_tax
+            charge.calculated_total_excl_tax = calculated_excl_tax
+            charge.calculated_total_incl_tax = calculated_incl_tax
+            charge.calculated_amount = calculated_excl_tax
+            charge.final_amount = total_excl_tax
 
 
 def _attach_project_client_fields(project: TranslationProject) -> None:
@@ -1651,6 +1671,7 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
             selectinload(TranslationProject.project_role_assignments)
             .joinedload(ProjectRoleAssignment.assignee),
             joinedload(TranslationProject.project_file),
+            selectinload(TranslationProject.customer_charge_items),
             selectinload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
         )
@@ -1679,6 +1700,7 @@ def get_translation_project_by_no(db: Session, order_no: str) -> Optional[Transl
             selectinload(TranslationProject.project_role_assignments)
             .selectinload(ProjectRoleAssignment.assignee),
             selectinload(TranslationProject.project_file),
+            selectinload(TranslationProject.customer_charge_items),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.translator),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
         )
@@ -1746,6 +1768,9 @@ def _apply_translation_project_filters(
             TranslationProject.sub_orders.any(
                 TranslationSubOrder.sub_order_no.ilike(pattern)
             ),
+            TranslationProject.sub_orders.any(
+                TranslationSubOrder.sub_project_name.ilike(pattern)
+            ),
             TranslationProject.project_name.ilike(pattern),
             TranslationProject.source_file_name.ilike(pattern),
             TranslationProject.customer_order_no.ilike(pattern),
@@ -1807,7 +1832,6 @@ def _apply_translation_project_filters(
         "customer_deadline_time": (TranslationProject.customer_deadline_time, "datetime"),
         "sent_to_client_time": (TranslationProject.sent_to_client_time, "datetime"),
         "major_project_manager_confirmation": (TranslationProject.major_project_manager_confirmation, "string"),
-        "translator_id": (TranslationProject.translator_id, "uuid"),
         "translator_assignment_time": (TranslationProject.translator_assignment_time, "datetime"),
         "client_feedback": (TranslationProject.client_feedback, "string"),
         "created_at": (TranslationProject.created_at, "datetime"),
@@ -1886,7 +1910,6 @@ def _apply_translation_project_filters(
                 pattern = f"%{keyword}%"
                 confirmed_arrangement = db_exists().where(and_(
                     ManuscriptArrangement.translation_project_id == TranslationProject.id,
-                    ManuscriptArrangement.sub_order_id.is_(None),
                     ManuscriptArrangement.status != "cancelled",
                     ManuscriptArrangement.translator_name_snapshot.ilike(pattern),
                     ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
@@ -1895,6 +1918,24 @@ def _apply_translation_project_filters(
                 ))
                 query = query.filter(or_(
                     TranslationProject.translator.has(Translator.translator_name.ilike(pattern)),
+                    confirmed_arrangement,
+                ))
+        elif field == "translator_id":
+            translator_ids = descriptor.get("value") or []
+            if not isinstance(translator_ids, (list, tuple, set)):
+                translator_ids = [translator_ids]
+            if translator_ids:
+                from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+                confirmed_arrangement = db_exists().where(and_(
+                    ManuscriptArrangement.translation_project_id == TranslationProject.id,
+                    ManuscriptArrangement.translator_id.in_(translator_ids),
+                    ManuscriptArrangement.status != "cancelled",
+                    ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+                    ManuscriptDispatch.status != "cancelled",
+                    ManuscriptDispatch.confirmed_at.is_not(None),
+                ))
+                query = query.filter(or_(
+                    TranslationProject.translator_id.in_(translator_ids),
                     confirmed_arrangement,
                 ))
         elif field in {"project_specialist_name", "project_assistant_name", "layout_specialist_name"}:
@@ -1965,6 +2006,7 @@ def get_translation_projects(
             selectinload(TranslationProject.project_role_assignments)
             .joinedload(ProjectRoleAssignment.assignee),
             joinedload(TranslationProject.project_file),
+            selectinload(TranslationProject.customer_charge_items),
             selectinload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
             selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
         )
@@ -2206,7 +2248,7 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'role_assignments'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments'
     })
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
@@ -2268,6 +2310,12 @@ def create_translation_project(
         project.word_count_matrix,
         updated_by=project.created_by,
     )
+    _replace_customer_charge_items(
+        db,
+        db_project,
+        project.customer_charge_items,
+        customer_values=project.word_count_matrix.customer.model_dump(),
+    )
 
     from workflow_crud import init_workflow
 
@@ -2299,9 +2347,11 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     )
     role_assignments = project_update.role_assignments if role_assignments_provided else None
     completion_updates = project_update.assigned_translator_completions
+    charge_updates = project_update.customer_charge_items
+    matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'language_pair' in update_data:
@@ -2382,6 +2432,24 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         project_id=db_project.id,
         sub_order_id=None,
     )
+    if matrix_update is not None:
+        from word_count_service import replace_entity_matrix
+        replace_entity_matrix(
+            db,
+            'project',
+            db_project.id,
+            matrix_update,
+            updated_by=None,
+        )
+        customer_values = matrix_update.customer.model_dump()
+    else:
+        customer_values = (getattr(db_project, 'word_count_matrix', {}) or {}).get('customer', {})
+    if charge_updates is not None:
+        _replace_customer_charge_items(
+            db, db_project, charge_updates, customer_values=customer_values,
+        )
+    elif matrix_update is not None:
+        _validate_charge_metric_values(db_project.customer_charge_items, customer_values)
     db_project.updated_at = datetime.now()
     
     db.commit()
@@ -3337,7 +3405,7 @@ def _create_sub_order_in_transaction(
         sub_order.word_count_matrix,
         updated_by=sub_order.created_by,
     )
-    _replace_sub_order_charge_items(
+    _replace_customer_charge_items(
         db,
         db_sub,
         sub_order.customer_charge_items,
@@ -3471,21 +3539,25 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     else:
         customer_values = (getattr(db_sub, 'word_count_matrix', {}) or {}).get('customer', {})
     if charge_updates is not None:
-        _replace_sub_order_charge_items(
+        _replace_customer_charge_items(
             db, db_sub, charge_updates, customer_values=customer_values,
         )
     elif matrix_update is not None:
-        for charge in db_sub.customer_charge_items or []:
-            if charge.pricing_mode == 'metric' and customer_values.get(charge.metric_type) is None:
-                raise ValueError(f'收费项“{charge.item_name}”对应的客户字数口径不能清空')
+        _validate_charge_metric_values(db_sub.customer_charge_items, customer_values)
     db_sub.updated_at = datetime.now()
     db.commit()
     return get_sub_order(db, db_sub.id)
 
 
-def _replace_sub_order_charge_items(
+def _validate_charge_metric_values(items, customer_values: dict) -> None:
+    for charge in items or []:
+        if charge.pricing_mode == 'metric' and customer_values.get(charge.metric_type) is None:
+            raise ValueError(f'收费项“{charge.item_name}”对应的客户字数口径不能清空')
+
+
+def _replace_customer_charge_items(
     db: Session,
-    sub_order: TranslationSubOrder,
+    owner: TranslationProject | TranslationSubOrder,
     items,
     *,
     customer_values: dict,
@@ -3493,7 +3565,7 @@ def _replace_sub_order_charge_items(
     """按稳定 ID 更新收费项，并删除本次未提交的旧收费项。"""
     existing = {
         item.id: item
-        for item in list(getattr(sub_order, 'customer_charge_items', []) or [])
+        for item in list(getattr(owner, 'customer_charge_items', []) or [])
     }
     kept_ids = set()
     normalized = []
@@ -3502,19 +3574,26 @@ def _replace_sub_order_charge_items(
             raise ValueError(f'收费项“{payload.item_name}”对应的客户字数口径尚未填写')
         row = existing.get(payload.id) if payload.id else None
         if payload.id and row is None:
-            raise ValueError('客户收费项不存在或不属于当前子订单')
+            raise ValueError('客户收费项不存在或不属于当前订单')
         if row is None:
-            row = TranslationSubOrderChargeItem(sub_order_id=sub_order.id)
-            if not hasattr(sub_order, 'customer_charge_items'):
-                sub_order.customer_charge_items = []
-            sub_order.customer_charge_items.append(row)
+            row = TranslationSubOrderChargeItem(
+                translation_project_id=owner.id if isinstance(owner, TranslationProject) else None,
+                sub_order_id=owner.id if isinstance(owner, TranslationSubOrder) else None,
+            )
+            if not hasattr(owner, 'customer_charge_items'):
+                owner.customer_charge_items = []
+            owner.customer_charge_items.append(row)
         else:
             kept_ids.add(row.id)
         values = payload.model_dump(exclude={'id'})
         values['sequence_no'] = index
         values['metric_type'] = values['metric_type'] if payload.pricing_mode == 'metric' else None
         values['unit_size'] = values['unit_size'] if payload.pricing_mode == 'metric' else None
-        values['unit_price'] = values['unit_price'] if payload.pricing_mode == 'metric' else None
+        values['unit_price_excl_tax'] = values['unit_price_excl_tax'] if payload.pricing_mode == 'metric' else None
+        values['unit_price_incl_tax'] = values['unit_price_incl_tax'] if payload.pricing_mode == 'metric' else None
+        # 旧字段与新的不含税字段同步，兼容尚未升级的调用方。
+        values['unit_price'] = values['unit_price_excl_tax']
+        values['amount_override'] = values['total_excl_tax']
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_at = datetime.now()
@@ -3522,7 +3601,7 @@ def _replace_sub_order_charge_items(
     for item_id, row in existing.items():
         if item_id not in kept_ids:
             db.delete(row)
-    sub_order.customer_charge_items = normalized
+    owner.customer_charge_items = normalized
 
 
 def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:

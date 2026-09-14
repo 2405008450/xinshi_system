@@ -9,6 +9,7 @@ export const DEFAULT_TRANSLATION_EXPORT_TIME_FIELD = 'customer_reception_time'
 export const TRANSLATION_EXPORT_TYPES = Object.freeze({
   PROJECTS: 'projects',
   RECONCILIATION: 'reconciliation',
+  TRANSLATOR_RECONCILIATION: 'translator_reconciliation',
 })
 
 const safeParseFilters = (value) => {
@@ -46,8 +47,9 @@ export function buildTranslationExportFilename(
 ) {
   const label = TRANSLATION_EXPORT_TIME_OPTIONS.find((item) => item.value === timeField)?.label || '时间范围'
   const [dateStart, dateEnd] = dateRange || []
-  const prefix = exportType === TRANSLATION_EXPORT_TYPES.RECONCILIATION
-    ? '笔译项目对账单'
-    : '笔译项目导出'
+  const prefix = {
+    [TRANSLATION_EXPORT_TYPES.RECONCILIATION]: '笔译项目对账单',
+    [TRANSLATION_EXPORT_TYPES.TRANSLATOR_RECONCILIATION]: '笔译项目译员对账单',
+  }[exportType] || '笔译项目导出'
   return `${prefix}_${label}_${dateStart}_至_${dateEnd}.xlsx`
 }

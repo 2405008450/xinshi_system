@@ -15,6 +15,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from crud import get_translation_projects
+from manuscript_models import ManuscriptArrangement, ManuscriptArrangementFile, ManuscriptDispatch
 
 
 EXPORT_BATCH_SIZE = 500
@@ -301,133 +302,129 @@ CHARGE_COLUMNS = [
 
 
 def _reconciliation_detail(item: tuple[Any, Any | None]) -> Any:
-    project, sub_order = item
-    return sub_order if sub_order is not None else project
+    return item[1]
 
 
-def _reconciliation_sub_order_no(item: tuple[Any, Any | None]) -> Any:
-    return _read(item[1], "sub_order_no") if item[1] is not None else None
+def _reconciliation_business_order_no(item: tuple[Any, Any, Any | None]) -> Any:
+    return _read(_reconciliation_detail(item), "sub_order_no") or _read(item[0], "order_no")
 
 
-def _reconciliation_business_order_no(item: tuple[Any, Any | None]) -> Any:
-    return _reconciliation_sub_order_no(item) or _read(item[0], "order_no")
+def _effective_file_name(project: Any, detail: Any) -> Any:
+    """按订单层级返回显式文件名称，并回退到同层级的最近有效派稿快照。"""
+    primary = (
+        _read(detail, "sub_project_name")
+        if _read(detail, "sub_order_no")
+        else _read(project, "source_file_name")
+    )
+    return primary or _read(detail, "reconciliation_file_names")
 
 
-def _reconciliation_file_name(item: tuple[Any, Any | None]) -> Any:
-    project, sub_order = item
-    if sub_order is not None:
-        return _read(sub_order, "sub_project_name")
-    return _read(project, "source_file_name")
+def _reconciliation_file_name(item: tuple[Any, Any, Any | None]) -> Any:
+    project, detail = item[:2]
+    return _effective_file_name(project, detail)
 
 
-def _reconciliation_charge_items(item: tuple[Any, Any | None]) -> list[Any]:
-    sub_order = item[1]
-    if sub_order is None:
-        return []
-    return list(_read(sub_order, "customer_charge_items", []) or [])
+def _effective_customer_name(project: Any) -> Any:
+    return _read(project, "sub_client_name") or _read(project, "client_name")
 
 
-def _reconciliation_data_status(item: tuple[Any, Any | None]) -> str | None:
-    statuses = []
-    file_name = _reconciliation_file_name(item)
-    if not str(file_name or "").strip():
-        statuses.append("待补文件名称")
-    if not _reconciliation_charge_items(item):
-        statuses.append("未录收费项")
-    return "；".join(statuses) or None
+def _effective_customer_code(project: Any) -> Any:
+    return _read(project, "sub_client_code") or _read(project, "client_code")
+
+
+def _detail_value(item: tuple[Any, Any, Any | None], field: str) -> Any:
+    project, detail = item[:2]
+    value = _read(detail, field)
+    return value if value not in (None, "") else _read(project, field)
+
+
+def _charge_value(item: tuple[Any, Any, Any | None], field: str) -> Any:
+    return _read(item[2], field) if item[2] is not None else None
+
+
+def _charge_metric_label(item: tuple[Any, Any, Any | None]) -> Any:
+    value = _charge_value(item, "metric_type")
+    return WORD_COUNT_METRIC_LABELS.get(value, value)
+
+
+def _effective_customer_short_name(project: Any) -> Any:
+    return _read(project, "sub_client_short_name") or _read(project, "client_short_name")
+
+
+def _translator_business_order_no(item: tuple[Any, Any, Any]) -> Any:
+    project, detail, _assignment = item
+    return _read(detail, "sub_order_no") or _read(project, "order_no")
+
+
+def _translator_project_name(item: tuple[Any, Any, Any]) -> Any:
+    project, _detail, _assignment = item
+    return _read(project, "project_name")
+
+
+def _translator_file_name(item: tuple[Any, Any, Any]) -> Any:
+    project, detail, _assignment = item
+    return _effective_file_name(project, detail)
+
+
+def _translator_business_status(item: tuple[Any, Any, Any]) -> Any:
+    project, detail, _assignment = item
+    status = _read(detail, "status") if _read(detail, "sub_order_no") else None
+    return _status_label(status or _read(project, "project_status"))
+
+
+def _translator_actual_quantity(item: tuple[Any, Any, Any]) -> str | None:
+    actual = _read(item[2], "actual", {}) or {}
+    values = []
+    for metric, label in WORD_COUNT_METRICS:
+        value = _read(actual, metric)
+        if value is not None:
+            values.append(f"{label}：{value}")
+    return "；".join(values) or None
 
 
 RECONCILIATION_COLUMNS = [
-    ExportColumn("母客户全称", lambda item: _read(item[0], "client_name"), width=32),
-    ExportColumn("母客户简称", lambda item: _read(item[0], "client_short_name"), width=24),
-    ExportColumn("母客户编号", lambda item: _read(item[0], "client_code"), "identifier", 18),
-    ExportColumn("子客户全称", lambda item: _read(item[0], "sub_client_name"), width=32),
-    ExportColumn("子客户简称", lambda item: _read(item[0], "sub_client_short_name"), width=24),
-    ExportColumn("子客户编号", lambda item: _read(item[0], "sub_client_code"), "identifier", 20),
-    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
-    ExportColumn("子订单号", _reconciliation_sub_order_no, "identifier", 20),
-    ExportColumn("业务订单号", _reconciliation_business_order_no, "identifier", 20),
-    ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
-    ExportColumn("项目名称", lambda item: _read(item[0], "project_name"), width=32),
+    ExportColumn("订单号", _reconciliation_business_order_no, "identifier", 20),
     ExportColumn("文件名称", _reconciliation_file_name, width=36),
-    ExportColumn("翻译方向", lambda item: _read(_reconciliation_detail(item), "language_pair"), width=24),
-    ExportColumn("项目经理", lambda item: _read(item[0], "project_manager_name"), width=18),
-    ExportColumn(
-        "状态",
-        lambda item: _status_label(
-            _read(item[1], "status") if item[1] is not None else _read(item[0], "project_status")
-        ),
-        width=16,
-    ),
+    ExportColumn("客户全称", lambda item: _effective_customer_name(item[0]), width=32),
+    ExportColumn("客户编号", lambda item: _effective_customer_code(item[0]), "identifier", 20),
     ExportColumn("客户接单时间", lambda item: _read(item[0], "customer_reception_time"), "datetime", 20),
-    ExportColumn(
-        "客户交稿时间",
-        lambda item: _read(_reconciliation_detail(item), "customer_deadline_time"),
-        "datetime",
-        20,
-    ),
-    ExportColumn(
-        "发客户时间",
-        lambda item: _read(_reconciliation_detail(item), "sent_to_client_time"),
-        "datetime",
-        20,
-    ),
-    *[
-        ExportColumn(
-            column_label,
-            lambda item, metric=metric: _word_count_value(
-                _reconciliation_detail(item), "customer", metric
-            ),
-            "integer",
-            18 if metric not in {"characters_no_spaces", "cjk_chars_korean_words"} else 24,
-        )
-        for metric, column_label in (
-            ("words", "客户字数"),
-            ("characters_no_spaces", "字符数（不计空格）"),
-            ("cjk_chars_korean_words", "中朝文字数"),
-            ("foreign_words", "外文字数"),
-            ("documents", "份数"),
-            ("pages", "页数"),
-        )
-    ],
-    ExportColumn("收费项数", lambda item: len(_reconciliation_charge_items(item)), "integer", 12),
-    ExportColumn("数据状态", _reconciliation_data_status, width=28),
+    ExportColumn("客户交稿时间", lambda item: _detail_value(item, "customer_deadline_time"), "datetime", 20),
+    ExportColumn("翻译方向", lambda item: _detail_value(item, "language_pair"), width=24),
+    ExportColumn("字数", lambda item: _charge_value(item, "quantity"), "integer", 16),
+    ExportColumn("含税单价", lambda item: _charge_value(item, "unit_price_incl_tax"), "decimal", 16),
+    ExportColumn("不含税单价", lambda item: _charge_value(item, "unit_price_excl_tax"), "decimal", 16),
+    ExportColumn("含税总价", lambda item: _charge_value(item, "total_incl_tax"), "money", 16),
+    ExportColumn("不含税总价", lambda item: _charge_value(item, "total_excl_tax"), "money", 16),
+    ExportColumn("账单月份", lambda item: _charge_value(item, "billing_month"), width=14),
+    ExportColumn("备注", lambda item: _charge_value(item, "remarks"), width=36),
+    ExportColumn("收费项目", lambda item: _charge_value(item, "item_name"), width=18),
+    ExportColumn("字数口径", _charge_metric_label, width=24),
+    ExportColumn("每计价单位", lambda item: _charge_value(item, "unit_size"), "decimal", 16),
+    ExportColumn("币种", lambda item: _charge_value(item, "currency"), width=10),
 ]
 
 
-RECONCILIATION_CHARGE_COLUMNS = [
-    ExportColumn("母客户全称", lambda item: _read(item[0], "client_name"), width=32),
-    ExportColumn("母客户简称", lambda item: _read(item[0], "client_short_name"), width=24),
-    ExportColumn("母客户编号", lambda item: _read(item[0], "client_code"), "identifier", 18),
-    ExportColumn("子客户全称", lambda item: _read(item[0], "sub_client_name"), width=32),
-    ExportColumn("子客户简称", lambda item: _read(item[0], "sub_client_short_name"), width=24),
-    ExportColumn("子客户编号", lambda item: _read(item[0], "sub_client_code"), "identifier", 20),
-    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
-    ExportColumn("子订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
-    ExportColumn("业务订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
+PENDING_RECONCILIATION_COLUMNS = [
+    *RECONCILIATION_COLUMNS,
+    ExportColumn("缺失原因", lambda item: item[3], width=48),
+]
+
+
+TRANSLATOR_RECONCILIATION_COLUMNS = [
+    ExportColumn("订单号", _translator_business_order_no, "identifier", 20),
     ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
-    ExportColumn("项目名称", lambda item: _read(item[0], "project_name"), width=32),
-    ExportColumn("文件名称", lambda item: _read(item[1], "sub_project_name"), width=36),
-    ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
-    ExportColumn(
-        "计价模式",
-        lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费",
-        width=14,
-    ),
-    ExportColumn(
-        "客户字数口径",
-        lambda item: WORD_COUNT_METRIC_LABELS.get(
-            _read(item[2], "metric_type"), _read(item[2], "metric_type")
-        ),
-        width=24,
-    ),
-    ExportColumn("数量", lambda item: _read(item[2], "quantity"), "integer", 16),
-    ExportColumn("每计价单位", lambda item: _read(item[2], "unit_size"), "decimal", 16),
-    ExportColumn("单价", lambda item: _read(item[2], "unit_price"), "decimal", 16),
-    ExportColumn("币种", lambda item: _read(item[2], "currency"), width=10),
-    ExportColumn("计算金额", lambda item: _read(item[2], "calculated_amount"), "money", 16),
-    ExportColumn("最终金额", lambda item: _read(item[2], "final_amount"), "money", 16),
-    ExportColumn("备注", lambda item: _read(item[2], "remarks"), width=36),
+    ExportColumn("项目名称", _translator_project_name, width=32),
+    ExportColumn("文件名称", _translator_file_name, width=36),
+    ExportColumn("客户简称", lambda item: _effective_customer_short_name(item[0]), width=24),
+    ExportColumn("状态", _translator_business_status, width=16),
+    ExportColumn("译员", lambda item: _read(item[2], "translator_name"), width=18),
+    ExportColumn("实际数量", _translator_actual_quantity, width=38),
+    ExportColumn("译员计价方式", lambda item: _read(item[2], "translator_pricing_method"), width=18),
+    ExportColumn("译员单价", lambda item: _read(item[2], "translator_unit_price"), "decimal", 16),
+    ExportColumn("译员总价", lambda item: _read(item[2], "translator_total_price"), "money", 16),
+    ExportColumn("译员结账方式", lambda item: _read(item[2], "settlement_method"), width=18),
+    ExportColumn("派稿补充要求", lambda item: _read(item[2], "remarks"), width=36),
+    ExportColumn("任务完成情况", lambda item: _read(item[2], "completion_remarks"), width=36),
 ]
 
 
@@ -567,16 +564,60 @@ def translation_projects_to_xlsx(
     return output.getvalue()
 
 
-def _reconciliation_items(project: Any) -> Iterator[tuple[Any, Any | None]]:
+def _reconciliation_entities(project: Any) -> Iterator[tuple[Any, Any]]:
+    """母订单自身有收费项时保留；子订单始终按订单号稳定展开。"""
     sub_orders = sorted(
         _read(project, "sub_orders", []) or [],
         key=lambda item: str(_read(item, "sub_order_no") or ""),
     )
-    if sub_orders:
-        for sub_order in sub_orders:
-            yield project, sub_order
-        return
-    yield project, None
+    if _read(project, "customer_charge_items", []) or not sub_orders:
+        yield project, project
+    for sub_order in sub_orders:
+        yield project, sub_order
+
+
+def _missing_reconciliation_fields(item: tuple[Any, Any, Any | None]) -> list[str]:
+    project, _detail, charge = item
+    missing = []
+    for label, value in (
+        ("文件名称", _reconciliation_file_name(item)),
+        ("客户全称", _effective_customer_name(project)),
+        ("客户编号", _effective_customer_code(project)),
+    ):
+        if value in (None, ""):
+            missing.append(label)
+    if charge is None:
+        missing.append("客户收费项")
+        return missing
+    if not _charge_value(item, "billing_month"):
+        missing.append("账单月份")
+    if _charge_value(item, "pricing_mode") == "metric":
+        for label, field in (
+            ("字数", "quantity"),
+            ("含税单价", "unit_price_incl_tax"),
+            ("不含税单价", "unit_price_excl_tax"),
+        ):
+            if _charge_value(item, field) is None:
+                missing.append(label)
+    for label, field in (
+        ("含税总价", "total_incl_tax"),
+        ("不含税总价", "total_excl_tax"),
+    ):
+        if _charge_value(item, field) is None:
+            missing.append(label)
+    return missing
+
+
+def _reconciliation_items(project: Any) -> Iterator[tuple[tuple[Any, Any, Any], list[str]]]:
+    for project_item, detail in _reconciliation_entities(project):
+        charges = list(_read(detail, "customer_charge_items", []) or [])
+        if not charges:
+            item = (project_item, detail, None)
+            yield item, _missing_reconciliation_fields(item)
+            continue
+        for charge in charges:
+            item = (project_item, detail, charge)
+            yield item, _missing_reconciliation_fields(item)
 
 
 def translation_reconciliation_to_xlsx(
@@ -584,39 +625,37 @@ def translation_reconciliation_to_xlsx(
     *,
     max_rows_per_sheet: int = EXPORT_MAX_ROWS_PER_SHEET,
 ) -> bytes:
-    """把母子订单标准化为对账清单，并附带已有的子订单收费明细。"""
+    """按客户收费项生成正式对账单，并把资料不完整的记录分流到待补清单。"""
     workbook = Workbook(write_only=True)
-    reconciliation_sheet = _make_sheet(workbook, "对账清单", RECONCILIATION_COLUMNS)
-    charge_sheet = _make_sheet(workbook, "收费明细", RECONCILIATION_CHARGE_COLUMNS)
+    reconciliation_sheet = _make_sheet(workbook, "对账单", RECONCILIATION_COLUMNS)
+    pending_sheet = _make_sheet(workbook, "待补数据", PENDING_RECONCILIATION_COLUMNS)
     project_count = 0
     reconciliation_count = 0
-    charge_count = 0
+    pending_count = 0
 
     try:
         for batch in batches:
             for project in batch:
                 project_count += 1
-                for item in _reconciliation_items(project):
-                    reconciliation_count += 1
-                    if reconciliation_count > max_rows_per_sheet:
-                        raise TranslationExportLimitError(
-                            f"对账清单超过 {max_rows_per_sheet} 行，请缩小时间范围"
-                        )
-                    _append_row(reconciliation_sheet, RECONCILIATION_COLUMNS, item)
-                    project_item, sub_order = item
-                    if sub_order is None:
-                        continue
-                    for charge in _reconciliation_charge_items(item):
-                        charge_count += 1
-                        if charge_count > max_rows_per_sheet:
+                for item, missing in _reconciliation_items(project):
+                    if missing:
+                        pending_count += 1
+                        if pending_count > max_rows_per_sheet:
                             raise TranslationExportLimitError(
-                                f"收费明细超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                                f"待补数据超过 {max_rows_per_sheet} 行，请缩小时间范围"
                             )
                         _append_row(
-                            charge_sheet,
-                            RECONCILIATION_CHARGE_COLUMNS,
-                            (project_item, sub_order, charge),
+                            pending_sheet,
+                            PENDING_RECONCILIATION_COLUMNS,
+                            (*item, "；".join(f"缺少{label}" for label in missing)),
                         )
+                    else:
+                        reconciliation_count += 1
+                        if reconciliation_count > max_rows_per_sheet:
+                            raise TranslationExportLimitError(
+                                f"对账单超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                            )
+                        _append_row(reconciliation_sheet, RECONCILIATION_COLUMNS, item)
 
         if not project_count:
             raise TranslationExportEmptyError("所选范围内没有可导出的数据")
@@ -631,8 +670,89 @@ def translation_reconciliation_to_xlsx(
     reconciliation_sheet.auto_filter.ref = (
         f"A1:{get_column_letter(len(RECONCILIATION_COLUMNS))}{reconciliation_count + 1}"
     )
-    charge_sheet.auto_filter.ref = (
-        f"A1:{get_column_letter(len(RECONCILIATION_CHARGE_COLUMNS))}{charge_count + 1}"
+    pending_sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(PENDING_RECONCILIATION_COLUMNS))}{pending_count + 1}"
+    )
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _translator_reconciliation_entities(project: Any) -> Iterator[tuple[Any, Any]]:
+    """依次展开母订单和子订单；没有有效译员安排的对象不会产生导出行。"""
+    yield project, project
+    for sub_order in sorted(
+        _read(project, "sub_orders", []) or [],
+        key=lambda item: str(_read(item, "sub_order_no") or ""),
+    ):
+        yield project, sub_order
+
+
+def _translator_reconciliation_items(
+    project: Any,
+    *,
+    translator_name: str | None = None,
+    translator_ids: set[str] | None = None,
+) -> Iterator[tuple[Any, Any, Any]]:
+    normalized_name = (translator_name or "").strip().casefold()
+    normalized_ids = translator_ids or set()
+    for project_item, detail in _translator_reconciliation_entities(project):
+        assignments = sorted(
+            _read(detail, "assigned_translators", []) or [],
+            key=lambda item: (
+                str(_read(item, "translator_name") or ""),
+                str(_read(item, "arrangement_id") or ""),
+            ),
+        )
+        for assignment in assignments:
+            if normalized_name and normalized_name not in str(
+                _read(assignment, "translator_name") or ""
+            ).casefold():
+                continue
+            if normalized_ids and str(_read(assignment, "translator_id")) not in normalized_ids:
+                continue
+            yield project_item, detail, assignment
+
+
+def translation_translator_reconciliation_to_xlsx(
+    batches: Iterable[Sequence[Any]],
+    *,
+    translator_name: str | None = None,
+    translator_ids: set[str] | None = None,
+    max_rows_per_sheet: int = EXPORT_MAX_ROWS_PER_SHEET,
+) -> bytes:
+    """把当前有效派稿按“订单/译员”展开为译员对账单。"""
+    workbook = Workbook(write_only=True)
+    sheet = _make_sheet(workbook, "译员对账单", TRANSLATOR_RECONCILIATION_COLUMNS)
+    row_count = 0
+
+    try:
+        for batch in batches:
+            for project in batch:
+                for item in _translator_reconciliation_items(
+                    project,
+                    translator_name=translator_name,
+                    translator_ids=translator_ids,
+                ):
+                    row_count += 1
+                    if row_count > max_rows_per_sheet:
+                        raise TranslationExportLimitError(
+                            f"译员对账单超过 {max_rows_per_sheet} 行，请缩小时间范围"
+                        )
+                    _append_row(sheet, TRANSLATOR_RECONCILIATION_COLUMNS, item)
+
+        if not row_count:
+            raise TranslationExportEmptyError("所选范围内没有可导出的有效译员安排")
+    except Exception:
+        # write_only 工作表使用流式 XML writer；提前失败时保存到废弃缓冲区以完整关闭 writer。
+        try:
+            workbook.save(BytesIO())
+        except Exception:
+            pass
+        raise
+
+    sheet.auto_filter.ref = (
+        f"A1:{get_column_letter(len(TRANSLATOR_RECONCILIATION_COLUMNS))}{row_count + 1}"
     )
     output = BytesIO()
     workbook.save(output)
@@ -658,10 +778,58 @@ def _project_batches(
         )
         if not projects:
             return
+        _attach_reconciliation_file_names(db, projects)
         yield projects
         if len(projects) < EXPORT_BATCH_SIZE:
             return
         skip += EXPORT_BATCH_SIZE
+
+
+def _attach_reconciliation_file_names(db: Session, projects: Sequence[Any]) -> None:
+    """批量附加最近有效派稿中的文件快照；不触碰 UNC 实际目录。"""
+    project_ids = [_read(project, "id") for project in projects if _read(project, "id")]
+    if not project_ids:
+        return
+    rows = (
+        db.query(
+            ManuscriptDispatch.id,
+            ManuscriptDispatch.translation_project_id,
+            ManuscriptDispatch.sub_order_id,
+            ManuscriptArrangementFile.file_name,
+        )
+        .join(ManuscriptArrangement, ManuscriptArrangement.dispatch_id == ManuscriptDispatch.id)
+        .join(ManuscriptArrangementFile, ManuscriptArrangementFile.arrangement_id == ManuscriptArrangement.id)
+        .filter(
+            ManuscriptDispatch.translation_project_id.in_(project_ids),
+            ManuscriptDispatch.status != "cancelled",
+            ManuscriptDispatch.confirmed_at.is_not(None),
+            ManuscriptArrangement.status != "cancelled",
+        )
+        .order_by(
+            ManuscriptDispatch.confirmed_at.desc(),
+            ManuscriptDispatch.created_at.desc(),
+            ManuscriptArrangementFile.relative_path.asc(),
+        )
+        .all()
+    )
+    latest_dispatch = {}
+    names = {}
+    for dispatch_id, project_id, sub_order_id, file_name in rows:
+        key = (project_id, sub_order_id)
+        if key not in latest_dispatch:
+            latest_dispatch[key] = dispatch_id
+        if latest_dispatch[key] != dispatch_id or not str(file_name or "").strip():
+            continue
+        names.setdefault(key, [])
+        if file_name not in names[key]:
+            names[key].append(file_name)
+
+    for project in projects:
+        project.reconciliation_file_names = "、".join(names.get((project.id, None), [])) or None
+        for sub_order in _read(project, "sub_orders", []) or []:
+            sub_order.reconciliation_file_names = (
+                "、".join(names.get((project.id, sub_order.id), [])) or None
+            )
 
 
 def create_translation_project_export(
@@ -697,4 +865,39 @@ def create_translation_reconciliation_export(
             field_filters=field_filters,
             sort=sort,
         )
+    )
+
+
+def create_translation_translator_reconciliation_export(
+    db: Session,
+    *,
+    keyword: str | None,
+    field_filters: dict,
+    sort: str | None,
+) -> bytes:
+    """复用项目列表筛选，按当前有效译员安排生成对账单 XLSX。"""
+    translator_name_descriptor = field_filters.get("translator_name") or {}
+    translator_id_descriptor = field_filters.get("translator_id") or {}
+    translator_name = (
+        str(translator_name_descriptor.get("value") or "").strip()
+        if translator_name_descriptor.get("op") == "contains"
+        else None
+    )
+    raw_translator_ids = translator_id_descriptor.get("value") or []
+    if not isinstance(raw_translator_ids, (list, tuple, set)):
+        raw_translator_ids = [raw_translator_ids]
+    translator_ids = {
+        str(value)
+        for value in raw_translator_ids
+        if value not in (None, "")
+    }
+    return translation_translator_reconciliation_to_xlsx(
+        _project_batches(
+            db,
+            keyword=keyword,
+            field_filters=field_filters,
+            sort=sort,
+        ),
+        translator_name=translator_name,
+        translator_ids=translator_ids,
     )

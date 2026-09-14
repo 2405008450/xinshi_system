@@ -145,6 +145,27 @@ export function normalizeApiError(error) {
   return error
 }
 
+export async function normalizeBlobApiError(error) {
+  const blob = error?.response?.data
+  if (typeof Blob === 'undefined' || !(blob instanceof Blob) || !blob.type?.includes('json')) {
+    return error
+  }
+  try {
+    const payload = JSON.parse(await blob.text())
+    if (!Object.prototype.hasOwnProperty.call(payload || {}, 'detail')) return error
+    const detail = getLocalizedErrorMessage(
+      { ...error, rawDetail: payload.detail },
+      statusFallback(error?.response?.status, '请求失败，请稍后重试'),
+    )
+    error.rawDetail = payload.detail
+    error.detail = detail
+    error.message = detail
+  } catch {
+    // Blob 不是有效 JSON 时保留响应拦截器已经生成的中文兜底信息。
+  }
+  return error
+}
+
 export function installChineseMessageGuard(messageService) {
   const fallbacks = {
     error: '操作失败，请稍后重试',

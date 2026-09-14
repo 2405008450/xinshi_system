@@ -529,6 +529,31 @@ def _entity_values(
     }
 
 
+def _entity_file_name(
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+) -> Optional[str]:
+    """返回稿件安排当前订单层级对应的文件名称。"""
+    return sub_order.sub_project_name if sub_order else project.source_file_name
+
+
+def _sync_entity_file_name(
+    payload: ManuscriptDispatchCreate,
+    project: TranslationProject,
+    sub_order: Optional[TranslationSubOrder],
+) -> None:
+    """仅在新接口显式提交文件名称时回写订单，兼容未传字段的旧调用方。"""
+    if "file_name" not in payload.model_fields_set:
+        return
+    now = datetime.datetime.now()
+    if sub_order:
+        sub_order.sub_project_name = payload.file_name
+        sub_order.updated_at = now
+    else:
+        project.source_file_name = payload.file_name
+        project.updated_at = now
+
+
 def _get_project_file(db: Session, translation_project_id: UUID) -> Optional[ProjectFile]:
     """按项目外键取得项目详情中的唯一文件记录。"""
     return (
@@ -942,6 +967,7 @@ def _get_active_manuscript_projects(
             or_(
                 TranslationProject.order_no.ilike(pattern),
                 TranslationProject.project_name.ilike(pattern),
+                TranslationProject.source_file_name.ilike(pattern),
                 TranslationSubOrder.sub_order_no.ilike(pattern),
                 TranslationSubOrder.sub_project_name.ilike(pattern),
                 Client.client_short_name.ilike(pattern),
@@ -1028,6 +1054,7 @@ def _get_active_manuscript_projects(
                     if is_sub_order and sub_order
                     else None
                 ),
+                "file_name": _entity_file_name(project, sub_order if is_sub_order else None),
                 "client_short_name": client_short_name,
                 "current_stage_key": workflow.current_stage_key,
                 "current_assignee_id": workflow.current_assignee_id,
@@ -1386,6 +1413,7 @@ def create_dispatch(
     )
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     _ensure_dispatch_granularity(db, project, sub_order)
+    _sync_entity_file_name(payload, project, sub_order)
     values = _entity_values(
         project,
         sub_order,
@@ -1456,6 +1484,7 @@ def update_dispatch(
     )
     _ensure_can_manage_manuscript(db, project, sub_order, current_user)
     _ensure_dispatch_granularity(db, project, sub_order)
+    _sync_entity_file_name(payload, project, sub_order)
     values = _entity_values(
         project,
         sub_order,

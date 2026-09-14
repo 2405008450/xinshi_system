@@ -543,6 +543,13 @@ class TranslationProject(Base):
     chat_setting: Mapped[Optional['ChatProjectEnabled']] = relationship('ChatProjectEnabled', back_populates='project', uselist=False, cascade='all, delete-orphan')
     chat_messages: Mapped[list['ChatProjectMessage']] = relationship('ChatProjectMessage', back_populates='project', cascade='all, delete-orphan')
     sub_orders: Mapped[list['TranslationSubOrder']] = relationship('TranslationSubOrder', back_populates='parent_project', cascade='all, delete-orphan')
+    customer_charge_items: Mapped[list['TranslationSubOrderChargeItem']] = relationship(
+        'TranslationSubOrderChargeItem',
+        back_populates='project',
+        cascade='all, delete-orphan',
+        order_by='TranslationSubOrderChargeItem.sequence_no',
+        foreign_keys='TranslationSubOrderChargeItem.translation_project_id',
+    )
 
     @property
     def translator_name(self) -> Optional[str]:
@@ -643,6 +650,7 @@ class TranslationSubOrder(Base):
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     parent_project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     sub_order_no: Mapped[str] = mapped_column(String(60), nullable=False)  # 如 TP-260302-014.001
+    # 兼容保留的历史字段名；业务语义为“子订单文件名称”。
     sub_project_name: Mapped[Optional[str]] = mapped_column(String(255))
 
     # 文件/语言/字数
@@ -697,13 +705,17 @@ class TranslationSubOrder(Base):
 
 
 class TranslationSubOrderChargeItem(Base):
-    """子订单客户收费明细；计量数量取自子订单客户字数矩阵。"""
+    """母/子订单客户收费明细；物理表名保留以兼容历史版本。"""
 
     __tablename__ = 'translation_sub_order_charge_item'
     __table_args__ = (
         ForeignKeyConstraint(
             ['sub_order_id'], ['translation_sub_order.id'], ondelete='CASCADE',
             name='fk_sub_order_charge_item_sub_order',
+        ),
+        ForeignKeyConstraint(
+            ['translation_project_id'], ['translation_project.id'], ondelete='CASCADE',
+            name='fk_sub_order_charge_item_project',
         ),
         PrimaryKeyConstraint('id', name='translation_sub_order_charge_item_pkey'),
         CheckConstraint("pricing_mode IN ('metric', 'fixed')", name='ck_sub_order_charge_item_mode'),
@@ -715,11 +727,28 @@ class TranslationSubOrderChargeItem(Base):
         CheckConstraint('unit_size IS NULL OR unit_size > 0', name='ck_sub_order_charge_item_unit_size'),
         CheckConstraint('unit_price IS NULL OR unit_price >= 0', name='ck_sub_order_charge_item_unit_price'),
         CheckConstraint('amount_override IS NULL OR amount_override >= 0', name='ck_sub_order_charge_item_amount_override'),
+        CheckConstraint(
+            '(unit_price_excl_tax IS NULL OR unit_price_excl_tax >= 0) AND '
+            '(unit_price_incl_tax IS NULL OR unit_price_incl_tax >= 0) AND '
+            '(total_excl_tax IS NULL OR total_excl_tax >= 0) AND '
+            '(total_incl_tax IS NULL OR total_incl_tax >= 0)',
+            name='ck_customer_charge_item_prices_nonnegative',
+        ),
+        CheckConstraint(
+            'num_nonnulls(translation_project_id, sub_order_id) = 1',
+            name='ck_sub_order_charge_item_single_owner',
+        ),
+        CheckConstraint(
+            "billing_month IS NULL OR billing_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'",
+            name='ck_sub_order_charge_item_billing_month',
+        ),
         Index('ix_sub_order_charge_item_sub_order', 'sub_order_id', 'sequence_no'),
+        Index('ix_sub_order_charge_item_project', 'translation_project_id', 'sequence_no'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    sub_order_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    translation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    sub_order_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
     item_name: Mapped[str] = mapped_column(String(100), nullable=False)
     pricing_mode: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'metric'"))
@@ -728,12 +757,22 @@ class TranslationSubOrderChargeItem(Base):
     unit_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default=text("'CNY'"))
     amount_override: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    billing_month: Mapped[Optional[str]] = mapped_column(String(7))
+    unit_price_excl_tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
+    unit_price_incl_tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4))
+    total_excl_tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    total_incl_tax: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
     sub_order: Mapped['TranslationSubOrder'] = relationship(
         'TranslationSubOrder', back_populates='customer_charge_items'
+    )
+    project: Mapped[Optional['TranslationProject']] = relationship(
+        'TranslationProject',
+        back_populates='customer_charge_items',
+        foreign_keys=[translation_project_id],
     )
 
 

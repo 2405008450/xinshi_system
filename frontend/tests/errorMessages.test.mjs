@@ -5,6 +5,7 @@ import {
   formatValidationErrors,
   getLocalizedErrorMessage,
   normalizeApiError,
+  normalizeBlobApiError,
 } from '../src/utils/errorMessages.js'
 
 test('必填、类型和长度错误使用业务字段中文提示', () => {
@@ -54,4 +55,22 @@ test('数据库和未知技术信息不会直接展示', () => {
   }
 
   assert.equal(normalizeApiError(error).message, '服务暂时异常，请稍后重试')
+})
+
+test('Blob JSON 下载错误转换为统一中文业务提示', async () => {
+  const error = normalizeApiError({
+    response: {
+      status: 404,
+      data: new Blob([JSON.stringify({ detail: '所选范围内没有可导出的有效译员安排' })], {
+        type: 'application/json',
+      }),
+    },
+    message: 'Request failed with status code 404',
+  })
+
+  const normalized = await normalizeBlobApiError(error)
+
+  assert.equal(normalized.rawDetail, '所选范围内没有可导出的有效译员安排')
+  assert.equal(normalized.detail, '所选范围内没有可导出的有效译员安排')
+  assert.equal(normalized.message, '所选范围内没有可导出的有效译员安排')
 })

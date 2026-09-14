@@ -12,8 +12,8 @@
         @keyup.enter.stop="save()"
         @keyup.esc.stop="cancel"
       />
-      <el-button type="primary" link :icon="Check" :loading="saving" aria-label="保存子项目名称" @click.stop="save()" />
-      <el-button link :icon="Close" :disabled="saving" aria-label="取消修改子项目名称" @click.stop="cancel" />
+      <el-button type="primary" link :icon="Check" :loading="saving" aria-label="保存文件名称" @click.stop="save()" />
+      <el-button link :icon="Close" :disabled="saving" aria-label="取消修改文件名称" @click.stop="cancel" />
     </template>
     <button
       v-else-if="editable"
@@ -78,17 +78,17 @@ const cancel = () => {
 
 const save = async () => {
   const name = draft.value.trim()
-  if (!name) return ElMessage.warning('子项目名称不能为空')
-  if (name.length > 255) return ElMessage.warning('子项目名称不能超过 255 个字符')
+  if (!name) return ElMessage.warning('文件名称不能为空')
+  if (name.length > 255) return ElMessage.warning('文件名称不能超过 255 个字符')
   if (name === (props.modelValue || '').trim()) return cancel()
   saving.value = true
   try {
     const updated = await updateSubOrder(props.subOrderId, { subProjectName: name })
     emit('saved', updated)
     editing.value = false
-    ElMessage.success('子项目名称已更新')
+    ElMessage.success('文件名称已更新')
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, '子项目名称更新失败'))
+    ElMessage.error(getLocalizedErrorMessage(error, '文件名称更新失败'))
   } finally {
     saving.value = false
   }

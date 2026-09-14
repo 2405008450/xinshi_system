@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -48,4 +49,29 @@ test('导出文件名包含时间口径和日期范围', () => {
     ),
     '笔译项目对账单_客户接单时间_2026-09-01_至_2026-09-30.xlsx',
   )
+  assert.equal(
+    buildTranslationExportFilename(
+      'customer_deadline_time',
+      ['2026-09-01', '2026-09-30'],
+      TRANSLATION_EXPORT_TYPES.TRANSLATOR_RECONCILIATION,
+    ),
+    '笔译项目译员对账单_客户交稿时间_2026-09-01_至_2026-09-30.xlsx',
+  )
+})
+
+
+test('笔译项目页通过统一入口提供三种导出选项', () => {
+  const page = fs.readFileSync(
+    new URL('../src/views/project/translation/ProjectDetails.vue', import.meta.url),
+    'utf8',
+  )
+  const api = fs.readFileSync(new URL('../src/api/projects.js', import.meta.url), 'utf8')
+
+  assert.match(page, /<el-dropdown[\s\S]*?@command="openExportDialog"/)
+  assert.match(page, /<el-dropdown-item command="projects">导出项目 Excel<\/el-dropdown-item>/)
+  assert.match(page, /<el-dropdown-item command="reconciliation">导出客户对账单<\/el-dropdown-item>/)
+  assert.match(page, /<el-dropdown-item command="translator_reconciliation">导出译员对账单<\/el-dropdown-item>/)
+  assert.match(page, /TRANSLATOR_RECONCILIATION/)
+  assert.match(page, /exportTranslationTranslatorReconciliation/)
+  assert.match(api, /\/projects\/translation\/translator-reconciliation-export/)
 })

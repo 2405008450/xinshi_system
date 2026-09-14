@@ -652,6 +652,82 @@ class ProjectRoleAssignmentResponse(ProjectRoleAssignmentInput):
     assignment_type: Literal['direct', 'role_pool']
 
 
+class TranslationSubOrderChargeItemInput(BaseModel):
+    """母/子订单共用的客户收费项；旧字段保留用于兼容既有调用方。"""
+
+    id: Optional[UUID] = None
+    sequence_no: int = Field(default=1, ge=1)
+    item_name: str = Field(min_length=1, max_length=100)
+    pricing_mode: Literal['metric', 'fixed'] = 'metric'
+    metric_type: Optional[str] = None
+    unit_size: Optional[Decimal] = Field(default=None, gt=0, max_digits=14, decimal_places=4)
+    billing_month: Optional[str] = Field(default=None, pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    unit_price_excl_tax: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
+    unit_price_incl_tax: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
+    total_excl_tax: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    total_incl_tax: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    currency: str = Field(default='CNY', min_length=3, max_length=3)
+    remarks: Optional[str] = Field(default=None, max_length=5000)
+    # 兼容旧版前端：分别映射为不含税单价和不含税总价。
+    unit_price: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
+    amount_override: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+
+    @field_validator('item_name', 'remarks', mode='before')
+    @classmethod
+    def normalize_charge_text(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @field_validator('billing_month', mode='before')
+    @classmethod
+    def normalize_billing_month(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @field_validator('currency', mode='before')
+    @classmethod
+    def normalize_charge_currency(cls, value):
+        return str(value or 'CNY').strip().upper()
+
+    @model_validator(mode='after')
+    def validate_pricing_mode(self):
+        if self.unit_price_excl_tax is None:
+            self.unit_price_excl_tax = self.unit_price
+        if self.total_excl_tax is None:
+            self.total_excl_tax = self.amount_override
+        self.unit_price = self.unit_price_excl_tax
+        self.amount_override = self.total_excl_tax
+        if self.pricing_mode == 'metric':
+            if self.metric_type not in WORD_COUNT_METRIC_TYPES:
+                raise ValueError('计量计价必须选择有效的客户字数口径')
+            if self.unit_size is None:
+                self.unit_size = Decimal('1') if self.metric_type in {'documents', 'pages'} else Decimal('1000')
+        else:
+            self.metric_type = None
+            self.unit_size = None
+            self.unit_price = None
+            self.unit_price_excl_tax = None
+            self.unit_price_incl_tax = None
+        return self
+
+
+class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
+    id: UUID
+    translation_project_id: Optional[UUID] = None
+    sub_order_id: Optional[UUID] = None
+    quantity: Optional[int] = None
+    calculated_amount: Optional[Decimal] = None
+    final_amount: Optional[Decimal] = None
+    calculated_total_excl_tax: Optional[Decimal] = None
+    calculated_total_incl_tax: Optional[Decimal] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TranslationProjectBase(BaseModel):
     project_name: str
     source_file_name: Optional[str] = Field(default=None, max_length=255)
@@ -681,6 +757,7 @@ class TranslationProjectBase(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    customer_charge_items: list[TranslationSubOrderChargeItemInput] = Field(default_factory=list)
     project_status: Optional[str] = None
     project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
@@ -768,6 +845,7 @@ class TranslationProjectUpdate(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: Optional[WordCountCreateMatrix] = None
+    customer_charge_items: Optional[list[TranslationSubOrderChargeItemInput]] = None
     project_status: Optional[str] = None
     project_manager_id: Optional[UUID] = None
     pm_confirmed_by: Optional[UUID] = None
@@ -822,56 +900,6 @@ class ProjectAssignedTranslatorResponse(BaseModel):
     # 与稿件安排中的译员结算价格共用同一数据源。
     translator_unit_price: Optional[Decimal] = None
     translator_total_price: Optional[Decimal] = None
-
-
-class TranslationSubOrderChargeItemInput(BaseModel):
-    id: Optional[UUID] = None
-    sequence_no: int = Field(default=1, ge=1)
-    item_name: str = Field(min_length=1, max_length=100)
-    pricing_mode: Literal['metric', 'fixed'] = 'metric'
-    metric_type: Optional[str] = None
-    unit_size: Optional[Decimal] = Field(default=None, gt=0, max_digits=14, decimal_places=4)
-    unit_price: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=4)
-    currency: str = Field(default='CNY', min_length=3, max_length=3)
-    amount_override: Optional[Decimal] = Field(default=None, ge=0, max_digits=14, decimal_places=2)
-    remarks: Optional[str] = Field(default=None, max_length=5000)
-
-    @field_validator('item_name', 'remarks', mode='before')
-    @classmethod
-    def normalize_charge_text(cls, value):
-        if isinstance(value, str):
-            return value.strip() or None
-        return value
-
-    @field_validator('currency', mode='before')
-    @classmethod
-    def normalize_charge_currency(cls, value):
-        return str(value or 'CNY').strip().upper()
-
-    @model_validator(mode='after')
-    def validate_pricing_mode(self):
-        if self.pricing_mode == 'metric':
-            if self.metric_type not in WORD_COUNT_METRIC_TYPES:
-                raise ValueError('计量计价必须选择有效的客户字数口径')
-            if self.unit_size is None:
-                self.unit_size = Decimal('1') if self.metric_type in {'documents', 'pages'} else Decimal('1000')
-            if self.unit_price is None:
-                raise ValueError('计量计价必须填写单价')
-        elif self.amount_override is None:
-            raise ValueError('固定收费必须填写最终金额')
-        return self
-
-
-class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
-    id: UUID
-    sub_order_id: UUID
-    quantity: Optional[int] = None
-    calculated_amount: Optional[Decimal] = None
-    final_amount: Optional[Decimal] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
@@ -932,6 +960,7 @@ class TranslationProjectResponse(TranslationProjectBase):
     updated_at: Optional[datetime] = None
     sub_orders: list['TranslationSubOrderResponse'] = Field(default_factory=list)
     assigned_translators: list[ProjectAssignedTranslatorResponse] = Field(default_factory=list)
+    customer_charge_items: list[TranslationSubOrderChargeItemResponse] = Field(default_factory=list)
     project_file_name: Optional[str] = None
     project_file_translation_domain_level1: Optional[str] = None
     project_file_translation_domain_level2: Optional[str] = None
@@ -1082,9 +1111,9 @@ class TranslationSubOrderBulkCreate(BaseModel):
         for index, value in enumerate(values, start=1):
             name = str(value or '').lstrip('\ufeff').strip()
             if not name:
-                raise ValueError(f'第 {index} 条子项目名称不能为空')
+                raise ValueError(f'第 {index} 条文件名称不能为空')
             if len(name) > 255:
-                raise ValueError(f'第 {index} 条子项目名称不能超过 255 个字符')
+                raise ValueError(f'第 {index} 条文件名称不能超过 255 个字符')
             cleaned.append(name)
         return cleaned
 

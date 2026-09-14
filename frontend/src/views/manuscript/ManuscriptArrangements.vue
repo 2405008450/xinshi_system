@@ -303,6 +303,19 @@
             <el-tabs v-model="workbenchStage" class="assignment-tabs">
               <el-tab-pane label="安排" name="arrange">
                 <div class="assignment-stage-content">
+                  <div class="legacy-field-grid order-file-name-field">
+                    <label>文件名称</label>
+                    <div>
+                      <el-input
+                        v-model="dispatchForm.file_name"
+                        clearable
+                        maxlength="255"
+                        :disabled="workbenchReadonly"
+                        placeholder="填写当前订单对应的文件名称"
+                      />
+                      <div class="muted-text order-file-name-field__hint">保存后同步到笔译项目中的对应订单</div>
+                    </div>
+                  </div>
                   <el-tabs v-model="activeArrangementTranslatorId" class="assignment-translator-tabs">
                     <el-tab-pane
                       v-for="assignment in dispatchForm.arrangements"
@@ -1142,6 +1155,15 @@
       </el-descriptions>
 
       <AppForm label-width="155px" class="dispatch-form">
+        <el-form-item label="文件名称">
+          <el-input
+            v-model="dispatchForm.file_name"
+            clearable
+            maxlength="255"
+            placeholder="填写当前订单对应的文件名称"
+          />
+          <div class="muted-text">保存后同步到笔译项目中的对应订单</div>
+        </el-form-item>
         <el-form-item label="选择译员" required>
           <el-select
             v-model="selectedTranslatorIds"
@@ -2133,6 +2155,7 @@ const mailStatus = reactive({
 
 const dispatchForm = reactive({
   id: '',
+  file_name: '',
   remarks: '',
   arrangements: [],
   updated_at: null
@@ -2485,11 +2508,15 @@ function matrixEntityId(row) {
 
 async function handleWordCountMatrixSaved() {
   const identity = projectIdentity(selectedProject.value)
+  const pendingFileName = dispatchForm.file_name
   await Promise.all([loadContext(), loadDispatches()])
   const freshProject = activeProjects.value.find((item) => projectIdentity(item) === identity)
   if (freshProject) selectedProject.value = freshProject
   const freshDispatch = selectedProjectDispatch.value
-  if (freshDispatch && dispatchForm.id === freshDispatch.id) hydrateDispatchForm(freshDispatch)
+  if (freshDispatch && dispatchForm.id === freshDispatch.id) {
+    hydrateDispatchForm(freshDispatch)
+    dispatchForm.file_name = pendingFileName
+  }
   await loadActiveMailPreview()
 }
 
@@ -2762,7 +2789,13 @@ function sumField(dispatch, field, nullWhenEmpty = false) {
 }
 
 function resetDispatchForm() {
-  Object.assign(dispatchForm, { id: '', remarks: '', arrangements: [], updated_at: null })
+  Object.assign(dispatchForm, {
+    id: '',
+    file_name: selectedProject.value?.file_name || '',
+    remarks: '',
+    arrangements: [],
+    updated_at: null
+  })
   selectedTranslatorIds.value = []
   activeArrangementTranslatorId.value = ''
   workbenchStage.value = 'arrange'
@@ -2770,6 +2803,7 @@ function resetDispatchForm() {
 
 function hydrateDispatchForm(row, { asNew = false } = {}) {
   dispatchForm.id = asNew ? '' : row.id
+  dispatchForm.file_name = selectedProject.value?.file_name || ''
   dispatchForm.remarks = row.remarks || ''
   dispatchForm.updated_at = asNew ? null : (row.updated_at || null)
   dispatchForm.arrangements = (row.arrangements || []).map((item) => ({
@@ -2956,6 +2990,7 @@ function buildDispatchPayload() {
       selectedProject.value.entity_type === 'suborder'
         ? selectedProject.value.sub_order_id
         : null,
+    file_name: dispatchForm.file_name.trim() || null,
     remarks: dispatchForm.remarks || null,
     expected_updated_at: dispatchForm.id ? dispatchForm.updated_at || null : undefined,
     arrangements: dispatchForm.arrangements.map((item) => ({
@@ -3686,6 +3721,14 @@ onBeforeUnmount(() => {
 
 .assignment-stage-content {
   min-width: 0;
+}
+
+.order-file-name-field {
+  margin-bottom: 10px;
+}
+
+.order-file-name-field__hint {
+  margin-top: 4px;
 }
 
 .assignment-translator-tabs {

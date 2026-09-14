@@ -311,7 +311,7 @@
 | `id` | `uuid` | PK；非空 | `gen_random_uuid()` | UUID 主键 |
 | `parent_project_id` | `uuid` | FK → translation_project.id；非空 | — | 所属翻译主订单 |
 | `sub_order_no` | `varchar(60)` | UQ；非空 | — | 子订单号 |
-| `sub_project_name` | `varchar(255)` | 可空 | — | 子项目名称 |
+| `sub_project_name` | `varchar(255)` | 可空 | — | 子订单文件名称（兼容保留的历史字段名） |
 | `file_type_secondary` | `varchar(100)` | 可空 | — | 二级文件类型 |
 | `language_pair` | `varchar(500)` | 可空 | — | 语言对 |
 | `priority` | `varchar(50)` | 可空 | — | 优先级 |

@@ -16,8 +16,8 @@
             <el-col :xs="24" :md="12"><el-form-item label="生成数量"><el-input-number v-model="form.count" :min="1" :max="500" style="width:100%" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="起始序号"><el-input-number v-model="form.startIndex" :min="1" style="width:100%" /></el-form-item></el-col>
           </el-row>
-          <el-form-item label="子项目名前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则按 母项目名称-子订单01 自动生成" /></el-form-item>
-          <el-alert type="info" :closable="false" show-icon :title="`将生成 ${quantityNames.length} 个子订单，名称示例：${quantityNames.slice(0, 3).join('、')}`" />
+          <el-form-item label="文件名称前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则按 母项目名称-子订单01 自动生成，可创建后修改" /></el-form-item>
+          <el-alert type="info" :closable="false" show-icon :title="`将生成 ${quantityNames.length} 个子订单，文件名称示例：${quantityNames.slice(0, 3).join('、')}`" />
         </AppForm>
       </el-tab-pane>
 
@@ -54,7 +54,7 @@
           <el-table-column label="状态" width="92">
             <template #default="{ row }"><el-tag :type="previewTagType(row.status)" size="small">{{ previewStatusLabel(row.status) }}</el-tag></template>
           </el-table-column>
-          <el-table-column prop="name" label="子项目名称" min-width="300" show-overflow-tooltip />
+          <el-table-column prop="name" label="文件名称" min-width="300" show-overflow-tooltip />
           <el-table-column prop="reason" label="说明" min-width="220"><template #default="{ row }">{{ row.reason || '-' }}</template></el-table-column>
         </el-table>
       </el-tab-pane>
@@ -164,11 +164,11 @@ const previewRows = computed(() => {
     if (contentIndex > 500) {
       status = 'error'; reason = '单次最多导入 500 条'
     } else if (name.length > 255) {
-      status = 'error'; reason = '名称不能超过 255 个字符'
+      status = 'error'; reason = '文件名称不能超过 255 个字符'
     } else if (existing.has(key)) {
       status = 'duplicate'; reason = '当前母订单已存在同名子订单'
     } else if (seen.has(key)) {
-      status = 'duplicate'; reason = '本次导入内容中名称重复'
+      status = 'duplicate'; reason = '本次导入内容中文件名称重复'
     }
     if (status === 'create') seen.add(key)
     rows.push({ lineNumber: index + 1, name, status, reason })
@@ -244,7 +244,7 @@ const submit = async () => {
     ElMessage.success(`批量创建完成：新增 ${result.createdCount} 条，跳过 ${result.skippedCount} 条`)
     if (result.skippedCount) {
       const reasons = result.skipped.slice(0, 3).map((item) => `${item.name}：${item.reason}`).join('；')
-      ElMessage.warning(`已跳过重复名称：${reasons}${result.skippedCount > 3 ? '；更多结果未展开' : ''}`)
+      ElMessage.warning(`已跳过重复文件名称：${reasons}${result.skippedCount > 3 ? '；更多结果未展开' : ''}`)
     }
     emit('created', result)
     emit('update:modelValue', false)

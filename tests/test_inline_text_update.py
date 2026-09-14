@@ -28,7 +28,7 @@ def test_text_field_whitelists_match_detail_quick_edit_scope():
         "handling_method", "follow_up_status", "follow_up_remarks", "remarks",
     }
     assert set(TRANSLATION_TEXT_FIELDS) == {
-        "project_name", "email_subject_preview", "task_type", "service_content",
+        "project_name", "source_file_name", "email_subject_preview", "task_type", "service_content",
         "customer_order_no", "file_type_secondary", "project_contract_type",
         "project_contract_status", "quotation_status", "quotation_path",
         "customer_requirement_professional", "customer_requirement_special",

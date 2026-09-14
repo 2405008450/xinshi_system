@@ -43,7 +43,7 @@
       <el-table-column min-width="240">
         <template #header>
           <div class="sub-order-name-header">
-            <span>子项目名称</span>
+            <span>文件名称</span>
             <el-button
               v-if="canWriteProjects && !deleteMode"
               type="primary"
@@ -52,7 +52,7 @@
               :icon="Check"
               :loading="inlineSaving"
               :disabled="inlinePendingCount === 0"
-              title="保存全部子项目名称"
+              title="保存全部文件名称"
               @click="saveAllInlineNames"
             >保存全部{{ inlinePendingCount ? `（${inlinePendingCount}）` : '' }}</el-button>
           </div>
@@ -108,7 +108,7 @@
           <el-col :span="12"><el-form-item label="子订单号"><ReadonlyField :model-value="subOrderForm.subOrderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="子项目名称" prop="subProjectName"><el-input v-model="subOrderForm.subProjectName" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="文件名称" prop="subProjectName"><el-input v-model="subOrderForm.subProjectName" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="状态"><el-select v-model="subOrderForm.status" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
@@ -147,7 +147,7 @@
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="subOrderForm.remarks" type="textarea" :rows="3" /></el-form-item></el-col>
         </el-row>
-        <SubOrderChargeEditor v-model="subOrderForm.customerChargeItems" :word-count-matrix="subOrderForm.wordCountMatrix" />
+        <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" :word-count-matrix="subOrderForm.wordCountMatrix" />
       </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -174,7 +174,7 @@ import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder }
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
-import SubOrderChargeEditor from './components/SubOrderChargeEditor.vue'
+import CustomerChargeEditor from './components/CustomerChargeEditor.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -215,10 +215,10 @@ const projectStatusOptions = [
   { label: '已部分取消', value: 'partially_cancelled' }, { label: '已暂停', value: 'paused' }
 ]
 const priorityOptions = ['低', '中', '高', '紧急']
-const subOrderRules = { subProjectName: [{ required: true, message: '请输入子项目名称', trigger: 'blur' }] }
+const subOrderRules = { subProjectName: [{ required: true, message: '请输入文件名称', trigger: 'blur' }] }
 const NULLABLE_FIELDS = ['subProjectName', 'fileTypeSecondary', 'languagePair', 'priority', 'customerDeadlineTime', 'sentToClientTime', 'clientFeedback', 'translatorId', 'translatorAssignmentTime', 'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress', 'layoutProgress', 'consolidationProgress', 'networkFilePath', 'remarks']
 const subOrderDetailItems = [
-  { label: '子订单号', key: 'subOrderNo' }, { label: '子项目名称', key: 'subProjectName' },
+  { label: '子订单号', key: 'subOrderNo' }, { label: '文件名称', key: 'subProjectName' },
   { label: '状态', key: 'status', type: 'status' }, { label: '文件二级类型', key: 'fileTypeSecondary' }, { label: '翻译方向', key: 'languagePair' }, { label: '优先级', key: 'priority' },
   { label: '字数统计', key: 'wordCountMatrix', formatter: formatWordCountMatrix }, { label: '客户交稿时间', key: 'customerDeadlineTime' }, { label: '发客户时间', key: 'sentToClientTime' }, { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '译员分配时间', key: 'translatorAssignmentTime' },
@@ -268,7 +268,7 @@ const saveAllInlineNames = async () => {
   const pending = [...inlineChanges.value.values()]
   if (!pending.length || inlineSaving.value) return
   if (pending.some((item) => !item.valid)) {
-    ElMessage.warning('请先补全所有子项目名称，再保存全部')
+    ElMessage.warning('请先补全所有文件名称，再保存全部')
     return
   }
   inlineSaving.value = true
@@ -287,7 +287,7 @@ const saveAllInlineNames = async () => {
     inlineChanges.value = remaining
     const failedCount = results.length - successCount
     if (failedCount) ElMessage.warning(`已保存 ${successCount} 条，${failedCount} 条保存失败，请重试`)
-    else ElMessage.success(`已保存 ${successCount} 条子项目名称`)
+    else ElMessage.success(`已保存 ${successCount} 条文件名称`)
   } finally {
     inlineSaving.value = false
   }

@@ -380,7 +380,7 @@ def check_suborder_sort_expansion(page) -> list[str]:
 
 
 def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: str, out_dir: Path) -> list[str]:
-    """验证 TXT/粘贴预览、事务批量创建及子项目名称行内改名。"""
+    """验证 TXT/粘贴预览、事务批量创建及文件名称行内改名。"""
     failures = []
     if not can_write:
         print("[跳过] 当前账号无 projects:write 权限，未执行批量导入与行内改名验收")
@@ -452,7 +452,7 @@ def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: 
 
         inline_triggers = panel.locator(".inline-sub-project-name__trigger")
         if not inline_triggers.count():
-            failures.append("子项目名称未渲染为可点击行内编辑控件")
+            failures.append("文件名称未渲染为可点击行内编辑控件")
         else:
             inline_trigger = inline_triggers.first
             original_name = inline_trigger.inner_text().strip()
@@ -473,14 +473,14 @@ def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: 
                 lambda response: response.request.method == "PUT" and "/api/sub-orders/" in response.url,
                 timeout=10000,
             ):
-                inline_editor.get_by_role("button", name="保存子项目名称", exact=True).click()
+                inline_editor.get_by_role("button", name="保存文件名称", exact=True).click()
             panel.locator(".inline-sub-project-name__trigger").filter(has_text=renamed_value).wait_for(state="visible", timeout=5000)
 
             restore_trigger = panel.locator(".inline-sub-project-name__trigger").filter(has_text=renamed_value)
             restore_trigger.click()
             restore_editor = panel.locator(".inline-sub-project-name").filter(has=page.locator("input")).first
             restore_editor.locator("input").fill(original_name)
-            restore_editor.get_by_role("button", name="保存子项目名称", exact=True).click()
+            restore_editor.get_by_role("button", name="保存文件名称", exact=True).click()
             panel.locator(".inline-sub-project-name__trigger").filter(has_text=original_name).wait_for(state="visible", timeout=5000)
     except Exception as exc:
         failures.append(f"批量导入或行内改名交互异常：{exc}")
@@ -501,9 +501,9 @@ def check_suborder_bulk_and_inline(page, can_write: bool, base_url: str, token: 
                             headers=headers,
                         )
                         if not restored.ok:
-                            failures.append(f"恢复原子项目名称失败：接口返回 {restored.status}")
+                            failures.append(f"恢复原文件名称失败：接口返回 {restored.status}")
             except Exception as exc:
-                failures.append(f"恢复原子项目名称失败：{exc}")
+                failures.append(f"恢复原文件名称失败：{exc}")
         try:
             lookup = page.request.get(
                 f"{base_url}/api/sub-orders/",

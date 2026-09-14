@@ -36,7 +36,7 @@ def test_metric_charge_calculates_and_preserves_manual_override():
         customer_charge_items=[calculated, overridden, fixed],
     )
 
-    crud._attach_sub_order_charge_amounts([sub_order])
+    crud._attach_customer_charge_amounts([sub_order])
 
     assert calculated.quantity == 1500
     assert calculated.calculated_amount == Decimal("185.19")
@@ -58,6 +58,7 @@ def test_charge_schema_supports_currency_and_rejects_incomplete_metric_charge():
     )
     assert item.currency == "USD"
     assert item.amount_override == Decimal("99.90")
+    assert item.total_excl_tax == Decimal("99.90")
 
     words = TranslationSubOrderChargeItemInput(
         item_name="翻译费", pricing_mode="metric", metric_type="words", unit_price=100,
@@ -68,10 +69,32 @@ def test_charge_schema_supports_currency_and_rejects_incomplete_metric_charge():
     assert words.unit_size == Decimal("1000")
     assert pages.unit_size == Decimal("1")
 
+    modern = TranslationSubOrderChargeItemInput(
+        item_name="翻译费",
+        pricing_mode="metric",
+        metric_type="words",
+        billing_month="2026-09",
+        unit_price_excl_tax="100.0000",
+        unit_price_incl_tax="106.0000",
+        total_excl_tax="150.00",
+        total_incl_tax="159.00",
+    )
+    assert modern.unit_price == Decimal("100.0000")
+    assert modern.amount_override == Decimal("150.00")
+
     with pytest.raises(ValidationError, match="必须选择有效的客户字数口径"):
         TranslationSubOrderChargeItemInput(
             item_name="翻译费",
             pricing_mode="metric",
             unit_size=1000,
             unit_price=100,
+        )
+
+    with pytest.raises(ValidationError):
+        TranslationSubOrderChargeItemInput(
+            item_name="翻译费",
+            pricing_mode="fixed",
+            billing_month="2026-13",
+            total_excl_tax=100,
+            total_incl_tax=106,
         )

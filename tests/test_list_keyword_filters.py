@@ -91,6 +91,7 @@ def test_translation_keyword_and_advanced_filters_share_one_and_query():
     _assert_keyword_columns(sql, "translation_project")
     assert "translation_project.source_file_name" in sql
     assert "translation_sub_order.sub_order_no" in sql
+    assert "translation_sub_order.sub_project_name" in sql
     assert "translation_sub_order.status" in sql
     for column in (
         "translation_project.project_status",

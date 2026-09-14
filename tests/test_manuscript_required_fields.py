@@ -10,6 +10,7 @@ from manuscript_schemas import (
     ManuscriptDispatchCreate,
     ManuscriptMilestoneInput,
 )
+from manuscript_service import _sync_entity_file_name
 
 
 def _valid_values():
@@ -150,3 +151,36 @@ def test_selected_file_mode_still_requires_a_file():
     values["file_selection_mode"] = "selected"
     with pytest.raises(ValidationError, match="请选择至少一个派稿文件"):
         ManuscriptAssignmentInput(**values)
+
+
+def test_dispatch_file_name_is_trimmed_and_syncs_to_the_selected_order_level():
+    project = type("Project", (), {"source_file_name": "母稿.docx", "updated_at": None})()
+    sub_order = type("SubOrder", (), {"sub_project_name": "旧子稿.docx", "updated_at": None})()
+    payload = ManuscriptDispatchCreate(
+        entity_type="suborder",
+        translation_project_id=uuid4(),
+        sub_order_id=uuid4(),
+        file_name="  新子稿.pdf  ",
+        arrangements=[ManuscriptAssignmentInput(**_valid_values())],
+    )
+
+    _sync_entity_file_name(payload, project, sub_order)
+
+    assert payload.file_name == "新子稿.pdf"
+    assert sub_order.sub_project_name == "新子稿.pdf"
+    assert sub_order.updated_at is not None
+    assert project.source_file_name == "母稿.docx"
+
+
+def test_legacy_dispatch_payload_does_not_clear_existing_file_name():
+    project = type("Project", (), {"source_file_name": "母稿.docx", "updated_at": None})()
+    payload = ManuscriptDispatchCreate(
+        entity_type="project",
+        translation_project_id=uuid4(),
+        arrangements=[ManuscriptAssignmentInput(**_valid_values())],
+    )
+
+    _sync_entity_file_name(payload, project, None)
+
+    assert project.source_file_name == "母稿.docx"
+    assert project.updated_at is None

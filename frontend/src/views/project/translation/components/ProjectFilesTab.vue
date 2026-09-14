@@ -33,7 +33,7 @@
       label-width="130px"
       class="source-file-name-form"
     >
-      <el-form-item label="文件名称">
+      <el-form-item label="母订单文件名称">
         <div class="source-file-name-field">
           <el-input
             :model-value="sourceFileName"

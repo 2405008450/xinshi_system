@@ -63,7 +63,7 @@
           <el-table-column prop="current_stage_role_name" label="责任角色" width="90" />
           <el-table-column prop="client_name" label="客户" min-width="140" show-overflow-tooltip />
           <el-table-column prop="project_name" label="母项目" min-width="170" show-overflow-tooltip />
-          <el-table-column prop="sub_project_name" label="子项目" min-width="140" show-overflow-tooltip>
+          <el-table-column prop="sub_project_name" label="文件名称" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">{{ row.sub_project_name || '-' }}</template>
           </el-table-column>
           <el-table-column prop="order_no" label="订单编号" width="165" />

@@ -48,8 +48,11 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
         translation_scope="全文",
         planned_delivery_at=return_time,
         completion_remarks="实际耗时 3 小时，质量良好",
+        settlement_method="次月结",
+        translator_pricing_method="按字数",
         translator_unit_price=Decimal("0.1234"),
         translator_total_price=Decimal("123.45"),
+        remarks="术语以附件为准",
     )
     project = SimpleNamespace(id=project_id, sub_orders=[])
     monkeypatch.setattr(crud, "_attach_word_count_matrices", lambda *args, **kwargs: None)
@@ -58,8 +61,11 @@ def test_translation_project_assignee_exposes_final_planned_time(monkeypatch):
 
     assert project.assigned_translators[0]["translator_return_time"] == return_time
     assert project.assigned_translators[0]["completion_remarks"] == "实际耗时 3 小时，质量良好"
+    assert project.assigned_translators[0]["settlement_method"] == "次月结"
+    assert project.assigned_translators[0]["translator_pricing_method"] == "按字数"
     assert project.assigned_translators[0]["translator_unit_price"] == Decimal("0.1234")
     assert project.assigned_translators[0]["translator_total_price"] == Decimal("123.45")
+    assert project.assigned_translators[0]["remarks"] == "术语以附件为准"
 
 
 def test_project_editor_syncs_completion_back_to_arrangement():

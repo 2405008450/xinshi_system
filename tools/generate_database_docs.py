@@ -295,7 +295,7 @@ FIELD_DESCRIPTIONS = {
     "sub_order_no": "子订单号",
     "project_name": "项目名称",
     "source_file_name": "母订单对应的真实文件名称",
-    "sub_project_name": "子项目名称",
+    "sub_project_name": "子订单文件名称（兼容保留的历史字段名）",
     "file_type_secondary": "二级文件类型",
     "customer_reception_time": "客户稿件接收时间",
     "customer_deadline_time": "客户要求截止时间",

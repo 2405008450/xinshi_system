@@ -86,7 +86,7 @@ test('状态筛选查询及翻页后自动展开存在命中子订单的母订�
   )
 })
 
-test('子订单状态列位于子项目名称和翻译方向之间以对齐母订单状态列', () => {
+test('子订单状态列位于文件名称和翻译方向之间以对齐母订单状态列', () => {
   const subProjectNameColumn = projectDetailsSource.indexOf(
     `isSubOrderColumnVisible('subProjectName')`,
   )
