@@ -124,8 +124,12 @@ let allowReconnect = true
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
+const activeMentionNotifications = new Map()
 const MAX_SEEN_NOTIFICATIONS = 200
 const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
+
+const isMentionNotification = (notification) =>
+  String(notification?.notification_type || '').endsWith('_mention')
 
 const desktopStatus = computed(() => {
   const state = desktopNotificationState.value
@@ -183,6 +187,19 @@ const loadUnreadCount = async () => {
   }
 }
 
+const loadUnreadMentionNotifications = async () => {
+  try {
+    const data = await getNotifications({ limit: 100, unread_only: true })
+    const unreadMentions = (Array.isArray(data) ? data : []).filter(isMentionNotification)
+    unreadMentions.slice().reverse().forEach((item) => {
+      rememberNotification(item.id)
+      displayMentionNotification(item)
+    })
+  } catch (error) {
+    console.error('加载未读 @ 通知失败', error)
+  }
+}
+
 const closeSocket = (preserveReconnect = false) => {
   if (!preserveReconnect) allowReconnect = false
   if (reconnectTimer) {
@@ -212,6 +229,21 @@ const upsertNotification = (notification) => {
   notifications.value = [notification, ...current].slice(0, 10)
 }
 
+const closeMentionNotification = (notificationId) => {
+  if (!notificationId) return
+  const id = String(notificationId)
+  const instance = activeMentionNotifications.get(id)
+  if (!instance) return
+  activeMentionNotifications.delete(id)
+  instance.close()
+}
+
+const closeAllMentionNotifications = () => {
+  const instances = [...activeMentionNotifications.values()]
+  activeMentionNotifications.clear()
+  instances.forEach((instance) => instance.close())
+}
+
 const markItemRead = async (item, showError = false) => {
   if (!item?.id || item.is_read) return true
   const id = String(item.id)
@@ -223,6 +255,7 @@ const markItemRead = async (item, showError = false) => {
     const listItem = notifications.value.find((candidate) => String(candidate.id) === id)
     if (listItem) listItem.is_read = true
     unreadCount.value = Math.max(0, unreadCount.value - 1)
+    closeMentionNotification(item.id)
     return true
   } catch (error) {
     console.error('标记通知已读失败', error)
@@ -272,21 +305,30 @@ const activateNotification = async (item, showError = false) => {
   }
 }
 
+const displayMentionNotification = (notification) => {
+  if (!notification?.id || notification.is_read) return
+  const id = String(notification.id)
+  if (activeMentionNotifications.has(id)) return
+
+  const instance = ElNotification({
+    title: '有人在项目沟通中 @了你',
+    message: notification.content,
+    type: 'warning',
+    position: 'top-right',
+    duration: 0,
+    showClose: false,
+    customClass: 'mention-notification',
+    onClick: () => activateNotification(notification, true),
+    onClose: () => activeMentionNotifications.delete(id),
+  })
+  activeMentionNotifications.set(id, instance)
+}
+
 const displayIncomingNotification = (notification) => {
   const displayed = showDesktopNotification(notification, () => activateNotification(notification))
-  const isMention = String(notification.notification_type || '').endsWith('_mention')
 
-  if (isMention) {
-    ElNotification({
-      title: '有人在项目沟通中 @了你',
-      message: notification.content,
-      type: 'warning',
-      position: 'top-right',
-      duration: 12000,
-      showClose: true,
-      customClass: 'mention-notification',
-      onClick: () => activateNotification(notification, true),
-    })
+  if (isMentionNotification(notification)) {
+    displayMentionNotification(notification)
     return
   }
 
@@ -434,6 +476,7 @@ const handleMarkAllRead = async () => {
     await markAllNotificationsRead()
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
+    closeAllMentionNotifications()
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '批量已读失败'))
   }
@@ -443,6 +486,7 @@ onMounted(() => {
   syncDesktopNotificationState()
   loadNotifications()
   loadUnreadCount()
+  loadUnreadMentionNotifications()
   connectSocket()
   startNotificationPolling()
   window.addEventListener('focus', syncDesktopNotificationState)
@@ -451,6 +495,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   closeSocket()
   stopNotificationPolling()
+  closeAllMentionNotifications()
   window.removeEventListener('focus', syncDesktopNotificationState)
 })
 

@@ -25,7 +25,9 @@
           :type="editor.isActive('highlight') ? 'warning' : ''"
           @click="editor.chain().focus().toggleMark('highlight', { color: '#fff59d' }).run()"
         >黄色高亮</el-button>
-        <el-button size="small" @click="clearFormatting">清除格式</el-button>
+        <el-tooltip content="字体颜色或高亮异常时，请全选内容并清除格式后重新设置" placement="top">
+          <el-button size="small" @click="clearFormatting">清除格式</el-button>
+        </el-tooltip>
       </template>
       <el-button size="small" @click="editor.chain().focus().undo().run()">撤销</el-button>
       <el-button size="small" @click="editor.chain().focus().redo().run()">重做</el-button>

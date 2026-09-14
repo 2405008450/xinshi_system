@@ -306,7 +306,12 @@ async function saveNotice() {
     editorVisible.value = false
     ElMessage.success('标注须知已保存')
   } catch (error) {
-    ElMessage.error(error?.response?.status === 409 ? '该栏目已被他人更新，请取消编辑并刷新后重试' : getLocalizedErrorMessage(error, '标注须知保存失败'))
+    const errorMessage = getLocalizedErrorMessage(error, '标注须知保存失败')
+    if (errorMessage.includes('字体颜色格式无效') || errorMessage.includes('高亮颜色无效')) {
+      ElMessage.error('粘贴内容可能包含不兼容的 Word 格式，请全选编辑器内容，点击“清除格式”后重新设置字体颜色或高亮')
+    } else {
+      ElMessage.error(error?.response?.status === 409 ? '该栏目已被他人更新，请取消编辑并刷新后重试' : errorMessage)
+    }
   } finally {
     saving.value = false
     closingAfterSave = false

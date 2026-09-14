@@ -6,6 +6,7 @@ const noticePage = readFileSync(new URL('../src/views/project/AnnotationNotices.
 const noticeManager = readFileSync(new URL('../src/components/annotation/AnnotationNoticeManager.vue', import.meta.url), 'utf8')
 const noticeApi = readFileSync(new URL('../src/api/annotationNotices.js', import.meta.url), 'utf8')
 const richTextComposer = readFileSync(new URL('../src/components/RichTextComposer.vue', import.meta.url), 'utf8')
+const richTextMarks = readFileSync(new URL('../src/utils/richTextMarks.js', import.meta.url), 'utf8')
 
 test('标注须知使用后端树形栏目并按需加载正文', () => {
   assert.match(noticePage, /getAnnotationNoticeTree/)
@@ -56,4 +57,12 @@ test('富文本编辑器为列表恢复缩进，编号不会被左边界裁切',
   assert.match(richTextComposer, /\.rich-editor__prose ul/)
   assert.match(richTextComposer, /\.rich-editor__prose ol/)
   assert.match(richTextComposer, /padding-left:\s*28px/)
+})
+
+test('Word 高亮不会被误识别为字体颜色，并提供清除格式提示', () => {
+  assert.doesNotMatch(richTextMarks, /span\[style\*=["']color/)
+  assert.match(richTextMarks, /element\.style\.color \? null : false/)
+  assert.match(richTextComposer, /字体颜色或高亮异常时，请全选内容并清除格式后重新设置/)
+  assert.match(noticePage, /粘贴内容可能包含不兼容的 Word 格式/)
+  assert.match(noticePage, /点击“清除格式”后重新设置字体颜色或高亮/)
 })

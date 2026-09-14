@@ -16,12 +16,19 @@ test('通知轮询补偿跨后端 WebSocket 并避免重复提醒', () => {
   assert.match(notificationBell, /startNotificationPolling\(\)[\s\S]*onBeforeUnmount[\s\S]*stopNotificationPolling\(\)/)
 })
 
-test('@ 通知在网页右上角使用醒目且可点击的长时提醒', () => {
+test('@ 通知在网页右上角持续显示到用户点击并标记已读', () => {
+  assert.match(notificationBell, /const isMentionNotification/)
   assert.match(notificationBell, /endsWith\('_mention'\)/)
+  assert.match(notificationBell, /getNotifications\(\{ limit: 100, unread_only: true \}\)/)
+  assert.match(notificationBell, /loadUnreadMentionNotifications\(\)/)
+  assert.match(notificationBell, /activeMentionNotifications\.has\(id\)/)
   assert.match(notificationBell, /title: '有人在项目沟通中 @了你'/)
   assert.match(notificationBell, /position: 'top-right'/)
-  assert.match(notificationBell, /duration: 12000/)
+  assert.match(notificationBell, /duration: 0/)
+  assert.match(notificationBell, /showClose: false/)
   assert.match(notificationBell, /customClass: 'mention-notification'/)
   assert.match(notificationBell, /onClick: \(\) => activateNotification\(notification, true\)/)
+  assert.match(notificationBell, /closeMentionNotification\(item\.id\)/)
+  assert.match(notificationBell, /closeAllMentionNotifications\(\)/)
   assert.match(notificationBell, /\.el-notification\.mention-notification/)
 })

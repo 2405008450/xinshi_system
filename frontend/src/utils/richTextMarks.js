@@ -16,7 +16,12 @@ export const TextColor = Mark.create({
   },
 
   parseHTML() {
-    return [{ tag: 'span[style*="color"]' }]
+    return [{
+      tag: 'span',
+      // 不能使用 style*="color"，否则 Word 粘贴的 background-color
+      // 也会被误识别成字体颜色，并生成 color: null 的无效标记。
+      getAttrs: element => element.style.color ? null : false
+    }]
   },
 
   renderHTML({ HTMLAttributes }) {
