@@ -44,6 +44,8 @@ from manuscript_schemas import (
     ManuscriptDispatchUpdate,
     ManuscriptMailPathsUpdate,
     ManuscriptQuickTranslatorCreate,
+    ManuscriptSelectedFileInput,
+    ManuscriptSelectedFilesUpdate,
     ManuscriptSettlementUpdate,
 )
 from models import (
@@ -782,6 +784,29 @@ def _apply_milestones(
     arrangement.planned_delivery_at = _final_delivery_at(assignment.milestones)
 
 
+def _build_selected_file_snapshots(
+    root: str,
+    selected_files: list[ManuscriptSelectedFileInput],
+) -> list[dict]:
+    """校验文件并生成当前共享目录中的派稿文件快照。"""
+    seen_paths = set()
+    snapshots = []
+    for selected in selected_files:
+        if selected.relative_path in seen_paths:
+            raise ValueError("同一译员不能重复选择同一个派稿文件")
+        seen_paths.add(selected.relative_path)
+        file_path = resolve_selected_dispatch_file(Path(root), selected.relative_path)
+        stat = file_path.stat()
+        snapshots.append({
+            "relative_path": selected.relative_path,
+            "file_name": file_path.name,
+            "file_size": stat.st_size,
+            "modified_at": datetime.datetime.fromtimestamp(stat.st_mtime),
+        })
+
+    return snapshots
+
+
 def _create_arrangement_line(
     db: Session,
     dispatch: ManuscriptDispatch,
@@ -847,23 +872,12 @@ def _create_arrangement_line(
     if assignment.file_selection_mode == "selected":
         if not root:
             raise ValueError("请先填写母订单派稿文路径并选择派稿文件")
-        seen_paths = set()
-        for selected in assignment.selected_files:
-            if selected.relative_path in seen_paths:
-                raise ValueError("同一译员不能重复选择同一个派稿文件")
-            seen_paths.add(selected.relative_path)
-            file_path = resolve_selected_dispatch_file(
-                Path(root), selected.relative_path,
+        arrangement.selected_files.extend(
+            ManuscriptArrangementFile(**snapshot)
+            for snapshot in _build_selected_file_snapshots(
+                root, assignment.selected_files
             )
-            stat = file_path.stat()
-            arrangement.selected_files.append(
-                ManuscriptArrangementFile(
-                    relative_path=selected.relative_path,
-                    file_name=file_path.name,
-                    file_size=stat.st_size,
-                    modified_at=datetime.datetime.fromtimestamp(stat.st_mtime),
-                )
-            )
+        )
     return arrangement
 
 
@@ -1190,6 +1204,22 @@ def _attach_dispatch_responsibilities(
     sub_order_ids = {
         dispatch.sub_order_id for dispatch in dispatches if dispatch.sub_order_id
     }
+    project_by_id = {
+        project.id: project
+        for project in (
+            db.query(TranslationProject)
+            .filter(TranslationProject.id.in_(project_ids))
+            .all()
+        )
+    }
+    sub_order_by_id = {
+        sub_order.id: sub_order
+        for sub_order in (
+            db.query(TranslationSubOrder)
+            .filter(TranslationSubOrder.id.in_(sub_order_ids))
+            .all()
+        )
+    } if sub_order_ids else {}
     assignment_by_project_id = {
         assignment.translation_project_id: assignment
         for assignment in (
@@ -1229,6 +1259,12 @@ def _attach_dispatch_responsibilities(
     }
     actor_state = _project_assistant_actor_state(db, current_user)
     for dispatch in dispatches:
+        project = project_by_id.get(dispatch.translation_project_id)
+        sub_order = sub_order_by_id.get(dispatch.sub_order_id)
+        dispatch.file_name = (
+            _entity_file_name(project, sub_order)
+            if project else None
+        )
         workflow = (
             workflow_by_sub_order_id.get(dispatch.sub_order_id)
             if dispatch.sub_order_id else
@@ -1969,6 +2005,46 @@ def send_dispatch(
             failed_count += 1
     refreshed = _load_dispatch_for_actor(db, dispatch_id, current_user)
     return refreshed, sent_count, failed_count, skipped_count
+
+
+def update_selected_files(
+    db: Session,
+    arrangement_id: UUID,
+    payload: ManuscriptSelectedFilesUpdate,
+    current_user: AppUser,
+) -> Optional[ManuscriptArrangement]:
+    """在发送阶段为已确认译员明细重新选择派稿文件。"""
+    arrangement = get_arrangement(db, arrangement_id)
+    if not arrangement:
+        return None
+    project, sub_order = _load_entity(
+        db,
+        arrangement.entity_type,
+        arrangement.translation_project_id,
+        arrangement.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    if arrangement.status == "sent":
+        raise ValueError("该译员稿件已发送，不能再修改派稿文件")
+    if arrangement.status == "cancelled":
+        raise ValueError("已取消的译员明细不能修改派稿文件")
+
+    root = _get_project_dispatch_path(db, arrangement.translation_project_id)
+    if not root:
+        raise ValueError("请先保存派稿文路径，再选择派稿文件")
+    snapshots = _build_selected_file_snapshots(root, payload.selected_files)
+
+    # 先删除旧快照并刷入数据库，避免重新选择同一路径时触发唯一约束。
+    arrangement.selected_files.clear()
+    db.flush()
+    arrangement.selected_files.extend(
+        ManuscriptArrangementFile(**snapshot) for snapshot in snapshots
+    )
+    arrangement.file_selection_mode = "selected"
+    arrangement.manuscript_source_path = root
+    arrangement.updated_at = datetime.datetime.now()
+    db.commit()
+    return get_arrangement(db, arrangement.id)
 
 
 def update_settlement(

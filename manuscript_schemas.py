@@ -48,6 +48,13 @@ class ManuscriptSelectedFileResponse(ManuscriptSelectedFileInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ManuscriptSelectedFilesUpdate(BaseModel):
+    selected_files: list[ManuscriptSelectedFileInput] = Field(
+        min_length=1,
+        max_length=500,
+    )
+
+
 class ManuscriptDispatchFileItem(BaseModel):
     relative_path: str
     name: str
@@ -411,6 +418,7 @@ class ManuscriptDispatchResponse(BaseModel):
     sub_order_id: Optional[UUID] = None
     order_no_snapshot: str
     project_name_snapshot: str
+    file_name: Optional[str] = None
     status: DispatchStatus
     remarks: Optional[str] = None
     created_by: Optional[UUID] = None

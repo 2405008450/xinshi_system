@@ -31,6 +31,7 @@ from manuscript_schemas import (
     ManuscriptMailPathsUpdate,
     ManuscriptMailStatus,
     ManuscriptQuickTranslatorCreate,
+    ManuscriptSelectedFilesUpdate,
     ManuscriptTranslatorItem,
     ManuscriptSettlementUpdate,
 )
@@ -53,6 +54,7 @@ from manuscript_service import (
     update_completion,
     update_dispatch,
     update_dispatch_mail_paths,
+    update_selected_files,
     update_settlement,
 )
 from models import AppUser
@@ -444,6 +446,30 @@ def update_dispatch_mail_paths_endpoint(
     if not result:
         raise HTTPException(status_code=404, detail="派稿批次不存在")
     return result
+
+
+@router.patch(
+    "/batches/{dispatch_id}/arrangements/{arrangement_id}/selected-files",
+    response_model=ManuscriptArrangementResponse,
+)
+def update_selected_files_endpoint(
+    dispatch_id: UUID,
+    arrangement_id: UUID,
+    payload: ManuscriptSelectedFilesUpdate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    current = get_arrangement(db, arrangement_id)
+    if not current or current.dispatch_id != dispatch_id:
+        raise HTTPException(status_code=404, detail="译员派稿明细不存在")
+    try:
+        arrangement = update_selected_files(
+            db, arrangement_id, payload, current_user
+        )
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+    return arrangement
 
 
 @router.patch(

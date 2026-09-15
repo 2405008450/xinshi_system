@@ -94,12 +94,12 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { formatDateTimeMinute as formatTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
-  createNotificationSocket,
   getNotifications,
   getUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
 } from '../api/notifications'
+import { closeSocket, ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
   disableDesktopNotifications,
   enableDesktopNotifications,
@@ -115,12 +115,10 @@ const unreadCount = ref(0)
 const popoverVisible = ref(false)
 const permissionRequesting = ref(false)
 const desktopNotificationState = ref(getDesktopNotificationState())
-const socket = ref(null)
-let reconnectTimer = null
-let heartbeatTimer = null
 let notificationPollTimer = null
 let notificationPollInFlight = false
-let allowReconnect = true
+let unsubscribeNotification = null
+let unsubscribeSnapshot = null
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
@@ -198,30 +196,6 @@ const loadUnreadMentionNotifications = async () => {
   } catch (error) {
     console.error('加载未读 @ 通知失败', error)
   }
-}
-
-const closeSocket = (preserveReconnect = false) => {
-  if (!preserveReconnect) allowReconnect = false
-  if (reconnectTimer) {
-    window.clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-  if (heartbeatTimer) {
-    window.clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
-  if (socket.value) {
-    socket.value.close()
-    socket.value = null
-  }
-}
-
-const scheduleReconnect = () => {
-  if (reconnectTimer) return
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = null
-    connectSocket()
-  }, 3000)
 }
 
 const upsertNotification = (notification) => {
@@ -375,56 +349,22 @@ const stopNotificationPolling = () => {
   notificationPollTimer = null
 }
 
-const connectSocket = () => {
-  const token = localStorage.getItem('token')
-  if (!token) return
+const handleSocketSnapshot = (payload) => {
+  unreadCount.value = Number(payload?.unread_count || 0)
+}
 
-  allowReconnect = true
-  closeSocket(true)
-  const ws = createNotificationSocket(token)
-  socket.value = ws
-
-  ws.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(event.data)
-      if (payload?.type === 'snapshot') {
-        unreadCount.value = Number(payload.unread_count || 0)
-        return
-      }
-      if (payload?.type === 'pong') return
-      if (payload?.type === 'notification' && payload.notification) {
-        if (!rememberNotification(payload.notification.id)) return
-        upsertNotification(payload.notification)
-        unreadCount.value += payload.notification.is_read ? 0 : 1
-        if (payload.notification.notification_type === 'workflow_handover_pending') {
-          window.dispatchEvent(new CustomEvent('workflow-handover-pending'))
-        }
-        if (payload.notification.notification_type === 'project_manager_handover_pending') {
-          window.dispatchEvent(new CustomEvent('project-manager-handover-pending'))
-        }
-        displayIncomingNotification(payload.notification)
-      }
-    } catch (error) {
-      console.error('解析通知消息失败', error)
-    }
+const handleSocketNotification = (payload) => {
+  const notification = payload?.notification
+  if (!notification || !rememberNotification(notification.id)) return
+  upsertNotification(notification)
+  unreadCount.value += notification.is_read ? 0 : 1
+  if (notification.notification_type === 'workflow_handover_pending') {
+    window.dispatchEvent(new CustomEvent('workflow-handover-pending'))
   }
-
-  ws.onopen = () => {
-    if (heartbeatTimer) window.clearInterval(heartbeatTimer)
-    heartbeatTimer = window.setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send('ping')
-    }, 25000)
+  if (notification.notification_type === 'project_manager_handover_pending') {
+    window.dispatchEvent(new CustomEvent('project-manager-handover-pending'))
   }
-
-  ws.onclose = () => {
-    if (heartbeatTimer) {
-      window.clearInterval(heartbeatTimer)
-      heartbeatTimer = null
-    }
-    if (allowReconnect && localStorage.getItem('token')) scheduleReconnect()
-  }
-
-  ws.onerror = () => ws.close()
+  displayIncomingNotification(notification)
 }
 
 const handlePopoverShow = () => {
@@ -487,12 +427,16 @@ onMounted(() => {
   loadNotifications()
   loadUnreadCount()
   loadUnreadMentionNotifications()
-  connectSocket()
+  unsubscribeSnapshot = subscribe('snapshot', handleSocketSnapshot)
+  unsubscribeNotification = subscribe('notification', handleSocketNotification)
+  ensureConnected()
   startNotificationPolling()
   window.addEventListener('focus', syncDesktopNotificationState)
 })
 
 onBeforeUnmount(() => {
+  unsubscribeSnapshot?.()
+  unsubscribeNotification?.()
   closeSocket()
   stopNotificationPolling()
   closeAllMentionNotifications()

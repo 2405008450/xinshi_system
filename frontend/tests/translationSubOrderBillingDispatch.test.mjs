@@ -42,16 +42,33 @@ test('母子订单通用收费编辑器按客户字数计算税价并按币种�
   assert.doesNotMatch(subOrderManagement, /SubOrderChargeEditor/)
 })
 
-test('稿件安排回退为可编辑路径并按整目录打包', () => {
+test('稿件安排按译员勾选派稿文件并提交文件清单', () => {
   const source = read('src/views/manuscript/ManuscriptArrangements.vue')
+  const selector = read('src/views/manuscript/components/ManuscriptFileSelector.vue')
   const api = read('src/api/manuscriptArrangements.js')
 
-  assert.doesNotMatch(source, /ManuscriptFileSelector/)
-  assert.doesNotMatch(source, /file_selection_mode: 'selected'/)
+  assert.match(source, /import ManuscriptFileSelector/)
+  assert.match(source, /file_selection_mode: 'selected'/)
+  assert.match(source, /selected_files: \[\]/)
+  assert.match(source, /请选择至少一个派稿文件/)
+  assert.match(source, /selected_files: \(item\.selected_files \|\| \[\]\)\.map/)
+  assert.match(selector, /relative_directory: currentDirectory\.value/)
+  assert.match(api, /projects\/\$\{projectId\}\/dispatch-files/)
   assert.match(source, /v-model="mailPathForm\.dispatch_path"/)
   assert.match(source, /@click="saveMailPaths"/)
-  assert.match(source, /自动将派稿文路径和参考文件路径一中的文件合并打包为 ZIP 附件/)
+  assert.match(source, /class="mail-path-input-row"/)
+  assert.match(source, /当前译员已勾选的派稿文件与参考文件路径一中的文件合并打包为 ZIP 附件/)
   assert.match(api, /batches\/\$\{dispatchId\}\/mail-paths/)
+  assert.match(source, /<label>本次派稿文件<\/label>/)
+  assert.match(source, /@click="saveActiveSelectedFiles"/)
+  assert.match(source, /@click="savePreviewSelectedFiles"/)
+  assert.match(source, /function allPendingAssignmentsHaveSelectedFiles/)
+  assert.match(api, /arrangements\/\$\{arrangementId\}\/selected-files/)
+  assert.match(selector, /import DraggableFormDialog/)
+  assert.match(selector, /<DraggableFormDialog[\s\S]*?append-to-body[\s\S]*?class="file-selector-dialog"/)
+  assert.match(selector, /<el-descriptions-item label="文件名称">[\s\S]*?fileName \|\| '-'/)
+  assert.equal((source.match(/:file-name="dispatchForm\.file_name \|\| selectedProject\.file_name \|\| ''"/g) || []).length, 4)
+  assert.doesNotMatch(selector, /<el-popover/)
 })
 
 test('稿件安排可编辑当前订单的文件名称并随派稿保存', () => {
@@ -61,4 +78,14 @@ test('稿件安排可编辑当前订单的文件名称并随派稿保存', () =>
   assert.match(source, /file_name: selectedProject\.value\?\.file_name \|\| ''/)
   assert.match(source, /file_name: dispatchForm\.file_name\.trim\(\) \|\| null/)
   assert.match(source, /保存后同步到笔译项目中的对应订单/)
+})
+
+test('点击稿件安排记录会选中对应批次并回填译员派稿信息', () => {
+  const source = read('src/views/manuscript/ManuscriptArrangements.vue')
+
+  assert.match(source, /class="dispatch-records-table"[\s\S]*?@row-click="selectDispatchRecord"/)
+  assert.match(source, /const selectedDispatchId = ref\(''\)/)
+  assert.match(source, /function selectDispatchRecord\(row, _column, event\)[\s\S]*?selectedProject\.value = matchedProject[\s\S]*?file_name: matchedProject\.file_name \|\| row\.file_name \|\| ''[\s\S]*?selectedDispatchId\.value = row\.id[\s\S]*?hydrateDispatchForm\(row\)/)
+  assert.match(source, /const selectedProjectDispatch = computed\([\s\S]*?selectedDispatchId\.value[\s\S]*?selectedDispatch \|\| activeDispatchFor/)
+  assert.match(source, /:label="assignmentTranslatorName\(assignment\)"/)
 })

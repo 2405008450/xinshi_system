@@ -120,7 +120,7 @@
           </el-form-item>
         </AppForm>
 
-        <el-scrollbar v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
+        <el-scrollbar ref="chatListRef" v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
           <div v-if="messages.length" class="chat-list__items">
             <div
               v-for="message in messages"
@@ -350,14 +350,20 @@
   </div>
 </template>
 
+<script>
+let projectChatUsersCache = null
+let projectChatUsersRequest = null
+</script>
+
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CirclePlus, CopyDocument, Finished, Star, StarFilled } from '@element-plus/icons-vue'
 import { getUsers } from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { copyTextToClipboard } from '@/utils/clipboard'
+import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
   createProjectChatMessage,
   favoriteProjectChatMessage,
@@ -389,6 +395,7 @@ const settings = reactive({ enabled: false, canManage: false })
 const settingsLoading = ref(false)
 const toggleLoading = ref(false)
 const messagesLoading = ref(false)
+const chatListRef = ref(null)
 const sending = ref(false)
 const uploading = ref(false)
 const userOptions = ref([])
@@ -425,6 +432,9 @@ const selectedProgressCharacterCount = computed(() => selectedProgressMessages.v
 }, 0))
 const allProgressMessagesSelected = computed(() => eligibleProgressMessages.value.length > 0 && selectedProgressMessages.value.length === eligibleProgressMessages.value.length)
 let pollTimer = null
+let unsubscribeChatMessage = null
+let unsubscribeSocketConnected = null
+let newerMessageNoticeShown = false
 
 const clearProgressSelection = (exitMode = false) => {
   selectedProgressMessageIds.value = new Set()
@@ -608,10 +618,24 @@ const resetChatState = () => {
 const ensureUsersLoaded = async () => {
   if (userOptions.value.length) return
   try {
-    const res = await getUsers({ skip: 0, limit: 500 })
-    userOptions.value = Array.isArray(res)
-      ? res.filter(user => user.isActive !== false && user.is_active !== false)
-      : []
+    if (projectChatUsersCache) {
+      userOptions.value = projectChatUsersCache
+      return
+    }
+    if (!projectChatUsersRequest) {
+      projectChatUsersRequest = getUsers({ skip: 0, limit: 500 })
+        .then(res => {
+          projectChatUsersCache = Array.isArray(res)
+            ? res.filter(user => user.isActive !== false && user.is_active !== false)
+            : []
+          return projectChatUsersCache
+        })
+        .catch(error => {
+          projectChatUsersRequest = null
+          throw error
+        })
+    }
+    userOptions.value = await projectChatUsersRequest
   } catch (error) {
     console.error('加载用户失败', error)
   }
@@ -664,6 +688,7 @@ const loadMessages = async () => {
       selectedProgressMessageIds.value = new Set([...selectedProgressMessageIds.value].filter(id => currentIds.has(id)))
     }
     pagination.total = Number(res?.total || 0)
+    if (pagination.page === 1) newerMessageNoticeShown = false
     await ensureAttachmentUrls(messages.value)
   } catch (error) {
     messages.value = []
@@ -814,12 +839,38 @@ const removeComposerAttachment = (attachmentId) => {
   composer.attachments = composer.attachments.filter(item => item.id !== attachmentId)
 }
 
+const handleRealtimeChatMessage = async (payload) => {
+  if (
+    String(payload?.projectId || '') !== String(props.projectId || '')
+    || payload?.projectType !== props.projectType
+    || !payload?.message?.id
+  ) return
+  if (messages.value.some(item => String(item.id) === String(payload.message.id))) return
+  if (pagination.page > 1) {
+    if (!newerMessageNoticeShown) {
+      newerMessageNoticeShown = true
+      ElMessage.info('有新消息，返回第一页即可查看')
+    }
+    return
+  }
+
+  messages.value = [payload.message, ...messages.value].slice(0, pagination.limit)
+  pagination.total += 1
+  await ensureAttachmentUrls([payload.message])
+  await nextTick()
+  chatListRef.value?.setScrollTop?.(0)
+}
+
+const handleSocketConnected = () => {
+  if (props.active && props.projectId) loadMessages()
+}
+
 const setupPolling = () => {
   clearPolling()
   if (!props.active || !props.projectId) return
   pollTimer = window.setInterval(() => {
     loadMessages()
-  }, 15000)
+  }, 60000)
 }
 
 watch(() => [props.projectId, props.projectType], async () => {
@@ -854,6 +905,9 @@ watch(() => props.canAddToProgress, canAdd => {
 
 onMounted(() => {
   ensureUsersLoaded()
+  unsubscribeChatMessage = subscribe('chat_message', handleRealtimeChatMessage)
+  unsubscribeSocketConnected = subscribe('connected', handleSocketConnected)
+  ensureConnected()
   document.addEventListener('mousedown', handleProgressTextMenuPointerDown)
   document.addEventListener('scroll', closeProgressTextMenu, true)
   window.addEventListener('resize', closeProgressTextMenu)
@@ -861,6 +915,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  unsubscribeChatMessage?.()
+  unsubscribeSocketConnected?.()
   clearPolling()
   clearAttachmentUrls()
   document.removeEventListener('mousedown', handleProgressTextMenuPointerDown)

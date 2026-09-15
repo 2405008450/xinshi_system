@@ -20,6 +20,12 @@ MAX_MANUSCRIPT_ARCHIVE_SOURCE_BYTES = 50 * 1024 * 1024
 MAX_MANUSCRIPT_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 75 * 1024 * 1024
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+IGNORED_MANUSCRIPT_FILE_NAMES = {".ds_store", "desktop.ini", "thumbs.db"}
+
+
+def _is_ignored_manuscript_file(path: Path) -> bool:
+    name = path.name
+    return name.startswith("~$") or name.casefold() in IGNORED_MANUSCRIPT_FILE_NAMES
 
 
 def _is_reparse_point(path: Path) -> bool:
@@ -100,6 +106,8 @@ def resolve_selected_dispatch_file(root: Path, relative_path: str) -> Path:
         raise ValueError(f"无法读取选中的派稿文件：{relative.as_posix()}（{exc}）") from exc
     if candidate.suffix.casefold() in DANGEROUS_FILE_EXTENSIONS:
         raise ValueError(f"禁止发送该文件类型：{candidate.name}")
+    if _is_ignored_manuscript_file(candidate):
+        raise ValueError(f"不能发送临时或系统文件：{candidate.name}")
     return candidate
 
 
@@ -144,6 +152,9 @@ def list_manuscript_directory(
         elif entry.suffix.casefold() in DANGEROUS_FILE_EXTENSIONS:
             selectable = False
             reason = "禁止发送该文件类型"
+        elif _is_ignored_manuscript_file(entry):
+            selectable = False
+            reason = "临时或系统文件不可发送"
         elif not entry.is_file():
             selectable = False
             reason = "不是普通文件"

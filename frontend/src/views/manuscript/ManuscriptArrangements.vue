@@ -320,7 +320,7 @@
                     <el-tab-pane
                       v-for="assignment in dispatchForm.arrangements"
                       :key="`arrange-${assignment.translator_id}`"
-                      :label="translatorById(assignment.translator_id)?.translator_name || '译员'"
+                      :label="assignmentTranslatorName(assignment)"
                       :name="assignment.translator_id"
                     />
                   </el-tabs>
@@ -352,6 +352,31 @@
                       :disabled="workbenchReadonly"
                       placeholder="如：第1-20页、文档A或具体章节范围"
                     />
+
+                    <label class="is-required">派稿文件</label>
+                    <div>
+                      <ManuscriptFileSelector
+                        v-if="activeWorkbenchAssignment.file_selection_mode === 'selected' || !workbenchReadonly"
+                        :project-id="selectedProject.translation_project_id"
+                        :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
+                        :model-value="activeWorkbenchAssignment.selected_files"
+                        :disabled="workbenchReadonly"
+                        @update:model-value="updateSelectedFiles(activeWorkbenchAssignment, $event)"
+                      />
+                      <el-alert
+                        v-else
+                        title="该历史安排按原有规则发送派稿文路径中的全部文件"
+                        type="info"
+                        :closable="false"
+                        show-icon
+                      />
+                      <div
+                        v-if="activeWorkbenchAssignment.file_selection_mode === 'legacy_all' && !workbenchReadonly"
+                        class="muted-text"
+                      >
+                        这是历史整目录草稿；勾选任意文件后将切换为按文件发送。
+                      </div>
+                    </div>
 
                     <template
                       v-for="milestone in activeWorkbenchAssignment.milestones"
@@ -437,14 +462,14 @@
                       <el-tab-pane
                         v-for="assignment in dispatchForm.arrangements"
                         :key="`send-${assignment.translator_id}`"
-                        :label="translatorById(assignment.translator_id)?.translator_name || '译员'"
+                        :label="assignmentTranslatorName(assignment)"
                         :name="assignment.translator_id"
                       />
                     </el-tabs>
 
                     <div v-loading="mailPreviewLoading" class="mail-stage">
                       <el-alert
-                        title="发送时会自动将派稿文路径和参考文件路径一中的文件合并打包为 ZIP 附件；路径分别关联项目文件和母项目，译员邮箱关联译员资料。"
+                        title="发送时会将当前译员已勾选的派稿文件与参考文件路径一中的文件合并打包为 ZIP 附件；每位译员只会收到分配给自己的派稿文件。"
                         type="info"
                         :closable="false"
                         show-icon
@@ -470,15 +495,26 @@
 
                       <div class="legacy-mail-fields">
                         <label>派稿文路径</label>
-                        <el-input
-                          v-model="mailPathForm.dispatch_path"
-                          type="textarea"
-                          :rows="2"
-                          :disabled="!canManageSelectedProject || mailPathsSaving"
-                          maxlength="5000"
-                          placeholder="请输入项目文件的派稿文路径"
-                          @input="mailPathsDirty = true"
-                        />
+                        <div class="mail-path-input-row">
+                          <el-input
+                            v-model="mailPathForm.dispatch_path"
+                            type="textarea"
+                            :rows="2"
+                            :disabled="!canManageSelectedProject || mailPathsSaving"
+                            maxlength="5000"
+                            placeholder="请输入项目文件的派稿文路径"
+                            @input="mailPathsDirty = true"
+                          />
+                          <el-button
+                            v-if="canManageSelectedProject"
+                            type="primary"
+                            :loading="mailPathsSaving"
+                            :disabled="!mailPathsDirty"
+                            @click="saveMailPaths"
+                          >
+                            保存发送路径
+                          </el-button>
+                        </div>
                         <label>参考文件路径一</label>
                         <el-input
                           v-model="mailPathForm.reference_file_path_one"
@@ -491,16 +527,30 @@
                         />
                         <label>译员邮箱</label>
                         <el-input :model-value="mailPreview.recipient_email || ''" readonly />
+                        <label>本次派稿文件</label>
+                        <div class="mail-file-selector">
+                          <ManuscriptFileSelector
+                            v-if="activeWorkbenchAssignment"
+                            :project-id="selectedProject.translation_project_id"
+                            :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
+                            :model-value="activeWorkbenchAssignment.selected_files || []"
+                            :disabled="!canManageSelectedProject || selectedFilesSavingId === activeExistingArrangement?.id || mailPathsDirty || !mailPathForm.dispatch_path || activeExistingArrangement?.status === 'sent'"
+                            @update:model-value="updateSendSelectedFiles(activeWorkbenchAssignment, $event)"
+                          />
+                          <div class="muted-text">
+                            先保存派稿文路径，再选择要发给当前译员的一个或多个文件。
+                          </div>
+                        </div>
                       </div>
 
                       <div v-if="canManageSelectedProject" class="mail-path-actions">
                         <el-button
                           type="primary"
-                          :loading="mailPathsSaving"
-                          :disabled="!mailPathsDirty"
-                          @click="saveMailPaths"
+                          :loading="selectedFilesSavingId === activeExistingArrangement?.id"
+                          :disabled="!activeSelectedFilesDirty || mailPathsDirty || !mailPathForm.dispatch_path || !(activeWorkbenchAssignment?.selected_files || []).length"
+                          @click="saveActiveSelectedFiles"
                         >
-                          保存发送路径
+                          保存文件选择
                         </el-button>
                       </div>
 
@@ -511,7 +561,7 @@
                         v-if="activeExistingArrangement && ['ready', 'failed'].includes(activeExistingArrangement.status)"
                         type="primary"
                         :loading="sendingId === activeExistingArrangement.id"
-                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || !mailPathForm.dispatch_path || !mailPreview.recipient_email"
+                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || activeSelectedFilesDirty || !mailPathForm.dispatch_path || !mailPreview.recipient_email"
                         @click="sendActiveWorkbenchAssignment"
                       >
                         预览并发送
@@ -519,7 +569,7 @@
                       <el-button
                         v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
                         :loading="sendingBatchId === selectedProjectDispatch.id"
-                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || !mailPathForm.dispatch_path"
+                        :disabled="!mailStatus.configured || mailPreviewLoading || mailPathsDirty || hasUnsavedSelectedFiles || !allPendingAssignmentsHaveSelectedFiles(selectedProjectDispatch) || !mailPathForm.dispatch_path"
                         @click="openBatchMailPreviewDialog(selectedProjectDispatch)"
                       >
                         批量发送
@@ -866,7 +916,7 @@
         <div class="panel-header">
           <div>
             <h2>稿件安排记录</h2>
-            <span>按派稿批次汇总，展开后查看每位译员的分工与发送结果</span>
+            <span>点击记录可在上方查看译员派稿信息，展开后查看每位译员的分工与发送结果</span>
           </div>
           <div class="panel-tools">
             <el-input
@@ -891,8 +941,11 @@
         row-key="id"
         border
         size="small"
+        highlight-current-row
         :expand-row-keys="expandedDispatchRowKeys"
+        :row-class-name="dispatchRowClassName"
         @expand-change="handleDispatchExpandChange"
+        @row-click="selectDispatchRecord"
       >
         <el-table-column
           type="expand"
@@ -1271,6 +1324,17 @@
               placeholder="如：第1-20页、文档A，或具体章节范围"
             />
           </el-form-item>
+          <el-form-item label="派稿文件" required>
+            <ManuscriptFileSelector
+              :project-id="selectedProject.translation_project_id"
+              :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
+              :model-value="assignment.selected_files"
+              @update:model-value="updateSelectedFiles(assignment, $event)"
+            />
+            <div v-if="assignment.file_selection_mode === 'legacy_all'" class="muted-text">
+              这是历史整目录草稿；勾选任意文件后将切换为按文件发送。
+            </div>
+          </el-form-item>
 
           <div class="milestone-editor">
             <div class="subsection-header">
@@ -1415,7 +1479,34 @@
           <el-descriptions-item v-if="mailSendPreview.preview.reference_file_path_one" label="参考文件路径一">
             {{ mailSendPreview.preview.reference_file_path_one }}
           </el-descriptions-item>
+          <el-descriptions-item label="已选派稿文件">
+            {{ selectedFileSummary(mailSendPreview.assignment) }}
+          </el-descriptions-item>
         </el-descriptions>
+
+        <div v-if="mailSendPreview.preview.arrangement_id && mailSendPreview.assignment" class="mail-preview-file-selector">
+          <label>本次派稿文件</label>
+          <div>
+            <ManuscriptFileSelector
+              :project-id="mailSendPreview.dispatch.translation_project_id"
+              :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
+              :model-value="mailSendPreview.assignment.selected_files || []"
+              :disabled="mailSendPreviewSending || selectedFilesSavingId === mailSendPreview.assignment.id"
+              @update:model-value="updatePreviewSelectedFiles"
+            />
+            <div class="mail-preview-file-actions">
+              <span class="muted-text">确认发送前必须保存当前译员的文件选择。</span>
+              <el-button
+                type="primary"
+                :loading="selectedFilesSavingId === mailSendPreview.assignment.id"
+                :disabled="!mailPreviewSelectedFilesDirty || !(mailSendPreview.assignment.selected_files || []).length"
+                @click="savePreviewSelectedFiles"
+              >
+                保存文件选择
+              </el-button>
+            </div>
+          </div>
+        </div>
 
         <div v-if="mailSendPreview.preview.arrangement_id" class="mail-send-preview-content">
           <label>邮件标题</label>
@@ -1631,6 +1722,7 @@ import {
   updateManuscriptDispatch,
   updateManuscriptCompletion,
   updateManuscriptMailPaths,
+  updateManuscriptSelectedFiles,
   updateManuscriptSettlement
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
@@ -1638,6 +1730,7 @@ import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.v
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
+import ManuscriptFileSelector from './components/ManuscriptFileSelector.vue'
 import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
@@ -1665,6 +1758,7 @@ const dispatches = ref([])
 const dispatchTableRef = ref(null)
 const expandedDispatchIds = ref(new Set())
 const expandedDispatchRowKeys = computed(() => [...expandedDispatchIds.value])
+const selectedDispatchId = ref('')
 const selectedProject = ref(null)
 const projectKeyword = ref('')
 const dispatchKeyword = ref('')
@@ -1767,7 +1861,15 @@ function activeDispatchFor(project) {
 
 const selectedProjectDispatch = computed(() => {
   if (creatingNewBatch.value) return null
-  return selectedProject.value ? activeDispatchFor(selectedProject.value) : null
+  if (!selectedProject.value) return null
+  const selectedIdentity = projectIdentity(selectedProject.value)
+  const selectedDispatch = selectedDispatchId.value
+    ? dispatches.value.find(
+        (item) => item.id === selectedDispatchId.value
+          && projectIdentity(item) === selectedIdentity
+      )
+    : null
+  return selectedDispatch || activeDispatchFor(selectedProject.value)
 })
 
 const selectedProjectCancelledDispatch = computed(() => {
@@ -1810,7 +1912,7 @@ const activeExistingArrangement = computed(() => {
 const mailStageVisible = computed(
   () => Boolean(
     selectedProjectDispatch.value
-    && selectedProjectDispatch.value.status !== 'draft'
+    && ['ready', 'partially_sent', 'sent'].includes(selectedProjectDispatch.value.status)
   )
 )
 const mailPreviewLoading = ref(false)
@@ -1818,6 +1920,9 @@ const mailPreviewError = ref('')
 const mailPathsSaving = ref(false)
 const mailPathsDirty = ref(false)
 const mailPathsDispatchId = ref('')
+const selectedFilesSavingId = ref('')
+const selectedFilesDirtyIds = ref(new Set())
+const mailPreviewSelectedFilesDirty = ref(false)
 const mailSendPreviewDialogVisible = ref(false)
 const mailSendPreviewLoading = ref(false)
 const mailSendPreviewSending = ref(false)
@@ -1869,8 +1974,18 @@ const mailSendPreviewBatchCount = computed(() => {
   return activeAssignments(dispatch).filter((item) => item.status !== 'sent').length
 })
 
+const activeSelectedFilesDirty = computed(() => {
+  const arrangementId = activeExistingArrangement.value?.id
+  return Boolean(arrangementId && selectedFilesDirtyIds.value.has(arrangementId))
+})
+
+const hasUnsavedSelectedFiles = computed(() => selectedFilesDirtyIds.value.size > 0)
+
 const mailSendPreviewConfirmDisabled = computed(() => {
   const preview = mailSendPreview.preview
+  const selectionReady = mailSendPreviewMode.value === 'batch'
+    ? allPendingAssignmentsHaveSelectedFiles(mailSendPreview.dispatch)
+    : hasSelectedDispatchFiles(mailSendPreview.assignment)
   return Boolean(
     mailSendPreviewLoading.value
     || mailSendPreviewSending.value
@@ -1880,6 +1995,8 @@ const mailSendPreviewConfirmDisabled = computed(() => {
     || !preview.recipient_email
     || !preview.subject.trim()
     || !preview.dispatch_path
+    || mailPreviewSelectedFilesDirty.value
+    || !selectionReady
   )
 })
 
@@ -1916,6 +2033,7 @@ function clearMailSendPreview() {
   mailBatchOriginalBody.value = ''
   mailSendPreview.dispatch = null
   mailSendPreview.assignment = null
+  mailPreviewSelectedFilesDirty.value = false
   mailAttachmentFile.value = null
   mailAttachmentList.value = []
   mailSendPreview.batch_image_html = ''
@@ -1982,7 +2100,13 @@ async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
   const requestId = ++mailSendPreviewRequestId
   mailSendPreviewMode.value = mode
   mailSendPreview.dispatch = dispatch
-  mailSendPreview.assignment = assignment
+  mailSendPreview.assignment = {
+    ...assignment,
+    selected_files: (assignment.selected_files || []).map((file) => ({
+      relative_path: file.relative_path
+    }))
+  }
+  mailPreviewSelectedFilesDirty.value = false
   mailSendPreviewError.value = ''
   mailSendPreviewLoading.value = true
   mailSendPreviewDialogVisible.value = true
@@ -2545,12 +2669,58 @@ function projectRowClassName({ row }) {
 
 function selectProject(row) {
   if (!row) return
+  selectedDispatchId.value = ''
   selectedProject.value = row
   prepareWorkbenchForProject()
 }
 
+function dispatchRowClassName({ row }) {
+  return row.id === selectedDispatchId.value ? 'selected-row dispatch-record-row' : 'dispatch-record-row'
+}
+
+function selectDispatchRecord(row, _column, event) {
+  if (!row) return
+  if (event?.target?.closest?.('button, a, input, textarea, select, [role="button"], .assignment-detail-wrap')) {
+    return
+  }
+  const matchedProject = activeProjects.value.find(
+    (item) => projectIdentity(item) === projectIdentity(row)
+  )
+  selectedProject.value = matchedProject
+    ? {
+        ...matchedProject,
+        file_name: matchedProject.file_name || row.file_name || ''
+      }
+    : {
+        entity_type: row.entity_type,
+        translation_project_id: row.translation_project_id,
+        sub_order_id: row.sub_order_id,
+        order_no: row.order_no_snapshot,
+        project_name: row.project_name_snapshot,
+        sub_project_name: row.entity_type === 'suborder' ? row.project_name_snapshot : null,
+        file_name: row.file_name || '',
+        project_assistant_id: row.project_assistant_id,
+        project_assistant_name: row.project_assistant_name,
+        can_manage_manuscript: row.can_manage_manuscript,
+        manuscript_access_reason: row.manuscript_access_reason
+      }
+  selectedDispatchId.value = row.id
+  creatingNewBatch.value = false
+  hydrateDispatchForm(row)
+  workbenchStage.value = ['ready', 'partially_sent', 'sent'].includes(row.status)
+    ? 'send'
+    : 'arrange'
+}
+
 function translatorById(id) {
   return translators.value.find((item) => item.id === id)
+}
+
+function assignmentTranslatorName(assignment) {
+  return translatorById(assignment?.translator_id)?.translator_name
+    || assignment?.translator_name_snapshot
+    || assignment?.translator_name
+    || '译员'
 }
 
 function legacyMilestoneName(milestone) {
@@ -2641,8 +2811,123 @@ function createAssignment(translator) {
     email_subject: defaultSubject(translator),
     email_body: defaultBody(translator),
     remarks: '',
+    file_selection_mode: 'selected',
+    selected_files: [],
     milestones: defaultMilestones()
   }
+}
+
+function updateSelectedFiles(assignment, files) {
+  assignment.file_selection_mode = 'selected'
+  assignment.selected_files = files
+}
+
+function hasSelectedDispatchFiles(assignment) {
+  return assignment?.file_selection_mode === 'selected'
+    && Boolean(assignment.selected_files?.length)
+}
+
+function allPendingAssignmentsHaveSelectedFiles(dispatch) {
+  if (!dispatch) return false
+  const pending = activeAssignments(dispatch).filter((item) => item.status !== 'sent')
+  return Boolean(pending.length) && pending.every(hasSelectedDispatchFiles)
+}
+
+function setSelectedFilesDirty(arrangementId, dirty) {
+  if (!arrangementId) return
+  const next = new Set(selectedFilesDirtyIds.value)
+  if (dirty) next.add(arrangementId)
+  else next.delete(arrangementId)
+  selectedFilesDirtyIds.value = next
+}
+
+function updateSendSelectedFiles(assignment, files) {
+  updateSelectedFiles(assignment, files)
+  setSelectedFilesDirty(assignment?.id, true)
+}
+
+function updatePreviewSelectedFiles(files) {
+  if (!mailSendPreview.assignment) return
+  mailSendPreview.assignment = {
+    ...mailSendPreview.assignment,
+    file_selection_mode: 'selected',
+    selected_files: files
+  }
+  mailPreviewSelectedFilesDirty.value = true
+}
+
+function applySavedSelectedFiles(saved) {
+  if (!saved?.id) return
+  const selectedFiles = (saved.selected_files || []).map((file) => ({
+    relative_path: file.relative_path
+  }))
+  for (const dispatch of dispatches.value) {
+    const arrangement = dispatch.arrangements?.find((item) => item.id === saved.id)
+    if (arrangement) Object.assign(arrangement, saved)
+  }
+  const formAssignment = dispatchForm.arrangements.find((item) => item.id === saved.id)
+  if (formAssignment) {
+    formAssignment.file_selection_mode = 'selected'
+    formAssignment.selected_files = selectedFiles
+  }
+  if (mailSendPreview.assignment?.id === saved.id) {
+    mailSendPreview.assignment = {
+      ...mailSendPreview.assignment,
+      ...saved,
+      selected_files: selectedFiles
+    }
+  }
+  setSelectedFilesDirty(saved.id, false)
+}
+
+async function persistSelectedFiles(dispatch, assignment, files) {
+  if (!dispatch?.id || !assignment?.id) return null
+  if (!files?.length) {
+    ElMessage.warning('请至少选择一个派稿文件')
+    return null
+  }
+  selectedFilesSavingId.value = assignment.id
+  try {
+    const saved = await updateManuscriptSelectedFiles(dispatch.id, assignment.id, {
+      selected_files: files.map((file) => ({ relative_path: file.relative_path }))
+    })
+    applySavedSelectedFiles(saved)
+    return saved
+  } catch (error) {
+    ElMessage.error(error.detail || '保存派稿文件选择失败')
+    return null
+  } finally {
+    selectedFilesSavingId.value = ''
+  }
+}
+
+async function saveActiveSelectedFiles() {
+  if (!ensureCanManage(selectedProjectDispatch.value)) return
+  const saved = await persistSelectedFiles(
+    selectedProjectDispatch.value,
+    activeExistingArrangement.value,
+    activeWorkbenchAssignment.value?.selected_files || []
+  )
+  if (saved) ElMessage.success('当前译员的派稿文件已保存')
+}
+
+async function savePreviewSelectedFiles() {
+  if (!ensureCanManage(mailSendPreview.dispatch)) return
+  const saved = await persistSelectedFiles(
+    mailSendPreview.dispatch,
+    mailSendPreview.assignment,
+    mailSendPreview.assignment?.selected_files || []
+  )
+  if (saved) {
+    mailPreviewSelectedFilesDirty.value = false
+    ElMessage.success('当前译员的派稿文件已保存')
+  }
+}
+
+function selectedFileSummary(assignment) {
+  if (assignment?.file_selection_mode !== 'selected') return '历史安排：派稿目录中的全部文件'
+  const paths = (assignment?.selected_files || []).map((file) => file.relative_path)
+  return paths.length ? paths.join('；') : '尚未选择'
 }
 
 function normalizedProjectTranslatorEstimate() {
@@ -2789,6 +3074,7 @@ function sumField(dispatch, field, nullWhenEmpty = false) {
 }
 
 function resetDispatchForm() {
+  selectedFilesDirtyIds.value = new Set()
   Object.assign(dispatchForm, {
     id: '',
     file_name: selectedProject.value?.file_name || '',
@@ -2802,6 +3088,7 @@ function resetDispatchForm() {
 }
 
 function hydrateDispatchForm(row, { asNew = false } = {}) {
+  selectedFilesDirtyIds.value = new Set()
   dispatchForm.id = asNew ? '' : row.id
   dispatchForm.file_name = selectedProject.value?.file_name || ''
   dispatchForm.remarks = row.remarks || ''
@@ -2824,6 +3111,11 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
     email_subject: item.email_subject || '',
     email_body: item.email_body || '',
     remarks: item.remarks || '',
+    file_selection_mode:
+      item.file_selection_mode === 'selected' || asNew ? 'selected' : 'legacy_all',
+    selected_files: (item.selected_files || []).map((file) => ({
+      relative_path: file.relative_path
+    })),
     milestones: normalizeAssignmentMilestones(item.milestones)
   }))
   selectedTranslatorIds.value = dispatchForm.arrangements.map(
@@ -2862,6 +3154,7 @@ function startNewBatch() {
     return
   }
   if (!ensureCanManage()) return
+  selectedDispatchId.value = ''
   creatingNewBatch.value = true
   resetDispatchForm()
   selectedTranslatorIds.value = workspaceSelectedTranslators.value.map((item) => item.id)
@@ -2877,6 +3170,7 @@ function openCreateDialog() {
     return
   }
   if (!ensureCanManage()) return
+  selectedDispatchId.value = ''
   resetDispatchForm()
   selectedTranslatorIds.value = workspaceSelectedTranslators.value.map((item) => item.id)
   syncSelectedTranslators(selectedTranslatorIds.value)
@@ -2897,6 +3191,7 @@ function editDraft(row) {
     order_no: row.order_no_snapshot,
     project_name: row.project_name_snapshot
   }
+  selectedDispatchId.value = row.id
   hydrateDispatchForm(row)
   dispatchDialogVisible.value = true
 }
@@ -2913,6 +3208,7 @@ function reEditCancelled(row, translatorId = '') {
     order_no: row.order_no_snapshot,
     project_name: row.project_name_snapshot
   }
+  selectedDispatchId.value = ''
   // 取消记录保留用于审计；这里只复制参数，新保存时会创建独立草稿。
   hydrateDispatchForm(row, { asNew: true })
   if (
@@ -2937,6 +3233,7 @@ function editCancelledInWorkbench(row, translatorId = '') {
     can_manage_manuscript: row.can_manage_manuscript,
     manuscript_access_reason: row.manuscript_access_reason
   }
+  selectedDispatchId.value = ''
   creatingNewBatch.value = true
   hydrateDispatchForm(row, { asNew: true })
   if (
@@ -2960,6 +3257,9 @@ function validateDispatchForm() {
   }
   for (const assignment of dispatchForm.arrangements) {
     const translatorName = translatorById(assignment.translator_id)?.translator_name || '译员'
+    if (assignment.file_selection_mode === 'selected' && !assignment.selected_files?.length) {
+      return `${translatorName}：请选择至少一个派稿文件`
+    }
     if (!hasWordCountValue(assignment.planned)) {
       return `${translatorName}：字数与结算至少需要填写一个字数数值`
     }
@@ -3006,6 +3306,10 @@ function buildDispatchPayload() {
       email_subject: item.email_subject || null,
       email_body: item.email_body || null,
       remarks: item.remarks || null,
+      file_selection_mode: item.file_selection_mode || 'legacy_all',
+      selected_files: (item.selected_files || []).map((file) => ({
+        relative_path: file.relative_path
+      })),
       milestones: item.milestones.map((milestone, index) => ({
         milestone_type: milestone.milestone_type,
         name:
@@ -3034,6 +3338,7 @@ async function saveDraft(shouldConfirm) {
       ? await updateManuscriptDispatch(dispatchForm.id, payload)
       : await createManuscriptDispatch(payload)
     creatingNewBatch.value = false
+    selectedDispatchId.value = saved.id
     dispatchForm.id = saved.id
     dispatchForm.updated_at = saved.updated_at || null
     if (shouldConfirm) {
@@ -3850,7 +4155,21 @@ onBeforeUnmount(() => {
 .mail-path-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   padding-top: 10px;
+}
+
+.mail-path-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.mail-file-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 :deep(.mail-send-preview-dialog) {
@@ -3906,6 +4225,31 @@ onBeforeUnmount(() => {
   word-break: break-all;
 }
 
+.mail-preview-file-selector {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+}
+
+.mail-preview-file-selector > label {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 32px;
+}
+
+.mail-preview-file-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 .mail-send-preview-content {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
@@ -3948,6 +4292,10 @@ onBeforeUnmount(() => {
   }
 
   .mail-attachment-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .mail-preview-file-selector {
     grid-template-columns: 1fr;
   }
 }

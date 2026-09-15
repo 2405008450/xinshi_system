@@ -18,7 +18,8 @@ from models import (
     ChatProjectMessageFavorite,
     TranslationProject,
 )
-from notification_ws import dispatch_personal_message
+from notification_ws import broadcast_to_users, dispatch_personal_message
+from workflow_models import ProjectWorkbenchResponsibility
 from workflow_crud import STAGE_BY_KEY
 
 
@@ -105,6 +106,155 @@ def _push_notifications(notifications: list) -> None:
                 'notification': _serialize_notification(notification),
             },
         )
+
+
+def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) -> dict:
+    mention_rows = sorted(
+        getattr(message, 'mentions', None) or [],
+        key=lambda item: (item.created_at is None, item.created_at or dt.datetime.min, str(item.id)),
+    )
+    attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
+    return {
+        'id': str(message.id),
+        'projectId': str(message.annotation_project_id if project_type == 'annotation' else message.project_id),
+        'projectType': project_type,
+        'senderUserId': str(message.sender_user_id) if message.sender_user_id else None,
+        'senderName': message.sender_name,
+        'content': message.content,
+        'contentJson': message.content_json,
+        'messageType': message.message_type,
+        'metadata': message.event_data or {},
+        'createdAt': message.created_at.isoformat() if message.created_at else None,
+        'updatedAt': message.updated_at.isoformat() if message.updated_at else None,
+        'mentionedUserId': str(mention_rows[0].mentioned_user_id) if mention_rows else None,
+        'mentionedUserName': mention_rows[0].mentioned_user_name if mention_rows else None,
+        'mentions': [
+            {
+                'mentionedUserId': str(mention.mentioned_user_id),
+                'mentionedUserName': mention.mentioned_user_name,
+            }
+            for mention in mention_rows
+        ],
+        'isFavorited': False,
+        'favoritedAt': None,
+        'attachments': [
+            {
+                'id': str(link.attachment.id),
+                'originalName': link.attachment.original_name,
+                'contentType': link.attachment.content_type,
+                'fileSize': link.attachment.file_size,
+                'createdAt': link.attachment.created_at.isoformat() if link.attachment.created_at else None,
+            }
+            for link in attachment_links
+            if link.attachment
+        ],
+    }
+
+
+def _chat_participant_user_ids(
+    db: Session,
+    *,
+    annotation_project_id: Optional[UUID] = None,
+    project_id: Optional[UUID] = None,
+    exclude_user_id: Optional[UUID] = None,
+) -> set[UUID]:
+    """返回历史发言人和项目当前负责人，供实时消息定向推送。"""
+    if bool(annotation_project_id) == bool(project_id):
+        raise ValueError('必须且只能指定一种项目类型')
+
+    project_filter = (
+        ChatProjectMessage.annotation_project_id == annotation_project_id
+        if annotation_project_id
+        else ChatProjectMessage.project_id == project_id
+    )
+    participants = {
+        user_id
+        for (user_id,) in (
+            db.query(ChatProjectMessage.sender_user_id)
+            .filter(project_filter, ChatProjectMessage.sender_user_id.is_not(None))
+            .distinct()
+            .all()
+        )
+        if user_id
+    }
+
+    if annotation_project_id:
+        project = db.get(AnnotationProject, annotation_project_id)
+        if project:
+            participants.update(
+                user_id
+                for user_id in (
+                    getattr(project, 'client_manager_id', None),
+                    getattr(project, 'created_by', None),
+                )
+                if user_id
+            )
+        participants.update(
+            assignee_id
+            for (assignee_id,) in (
+                db.query(ProjectWorkbenchResponsibility.assignee_id)
+                .filter(
+                    ProjectWorkbenchResponsibility.annotation_project_id == annotation_project_id,
+                    ProjectWorkbenchResponsibility.assignee_id.is_not(None),
+                )
+                .all()
+            )
+            if assignee_id
+        )
+    else:
+        project = (
+            db.query(TranslationProject)
+            .options(
+                selectinload(TranslationProject.workflow_instance),
+                selectinload(TranslationProject.project_role_assignments),
+            )
+            .filter(TranslationProject.id == project_id)
+            .first()
+        )
+        if project:
+            participants.update(get_default_chat_recipient_ids(db, project))
+            participants.update(
+                user_id
+                for user_id in (project.project_manager_id, project.created_by, project.pm_confirmed_by)
+                if user_id
+            )
+            participants.update(
+                assignment.assignee_id
+                for assignment in project.project_role_assignments
+                if assignment.assignee_id
+            )
+
+    if exclude_user_id:
+        participants.discard(exclude_user_id)
+    return participants
+
+
+def _broadcast_chat_message(
+    db: Session,
+    message: ChatProjectMessage,
+    *,
+    project_type: str,
+    mentioned_user_ids: list[UUID],
+) -> None:
+    project_id = message.annotation_project_id if project_type == 'annotation' else message.project_id
+    participants = _chat_participant_user_ids(
+        db,
+        annotation_project_id=project_id if project_type == 'annotation' else None,
+        project_id=project_id if project_type == 'translation' else None,
+        exclude_user_id=message.sender_user_id,
+    )
+    participants.update(mentioned_user_ids)
+    if message.sender_user_id:
+        participants.discard(message.sender_user_id)
+    broadcast_to_users(
+        participants,
+        {
+            'type': 'chat_message',
+            'projectType': project_type,
+            'projectId': str(project_id),
+            'message': _serialize_realtime_message(message, project_type),
+        },
+    )
 
 
 
@@ -521,6 +671,13 @@ def create_project_chat_message(
     if notifications:
         _push_notifications(notifications)
 
+    _broadcast_chat_message(
+        db,
+        created,
+        project_type='translation',
+        mentioned_user_ids=[user.id for user in mention_users],
+    )
+
     return created
 
 
@@ -585,5 +742,12 @@ def create_annotation_project_chat_message(
             commit=True,
         )
         _push_notifications(notifications)
+
+    _broadcast_chat_message(
+        db,
+        created,
+        project_type='annotation',
+        mentioned_user_ids=[user.id for user in mention_users],
+    )
 
     return created

@@ -14,7 +14,8 @@ from manuscript_archive import (
     resolve_selected_dispatch_file,
     validate_manuscript_mail_size,
 )
-from manuscript_service import _validate_selected_file_snapshots
+from manuscript_schemas import ManuscriptSelectedFileInput, ManuscriptSelectedFilesUpdate
+from manuscript_service import _build_selected_file_snapshots, _validate_selected_file_snapshots
 
 
 def test_build_archive_combines_dispatch_and_reference_directories(tmp_path):
@@ -79,6 +80,7 @@ def test_dispatch_file_listing_is_lazy_and_rejects_traversal(tmp_path):
     nested.mkdir()
     (tmp_path / "稿件.docx").write_bytes(b"content")
     (tmp_path / "payload.exe").write_bytes(b"unsafe")
+    (tmp_path / "~$稿件.docx").write_bytes(b"office-lock")
     (nested / "子文件.txt").write_bytes(b"nested")
 
     root_result = list_manuscript_directory(str(tmp_path))
@@ -86,6 +88,7 @@ def test_dispatch_file_listing_is_lazy_and_rejects_traversal(tmp_path):
     assert by_name["nested"]["is_directory"] is True
     assert by_name["稿件.docx"]["selectable"] is True
     assert by_name["payload.exe"]["selectable"] is False
+    assert by_name["~$稿件.docx"]["selectable"] is False
     assert all(item["name"] != "子文件.txt" for item in root_result["items"])
 
     nested_result = list_manuscript_directory(str(tmp_path), "nested")
@@ -94,6 +97,8 @@ def test_dispatch_file_listing_is_lazy_and_rejects_traversal(tmp_path):
         list_manuscript_directory(str(tmp_path), "../outside")
     with pytest.raises(ValueError, match="路径无效"):
         resolve_selected_dispatch_file(tmp_path, "../outside.txt")
+    with pytest.raises(ValueError, match="临时或系统文件"):
+        resolve_selected_dispatch_file(tmp_path, "~$稿件.docx")
 
 
 def test_selected_file_snapshot_detects_change_before_send(tmp_path):
@@ -114,6 +119,26 @@ def test_selected_file_snapshot_detects_change_before_send(tmp_path):
     file_path.write_bytes(b"changed content")
     with pytest.raises(ValueError, match="已发生变化"):
         _validate_selected_file_snapshots(arrangement, str(tmp_path))
+
+
+def test_selected_file_update_builds_fresh_snapshot(tmp_path):
+    file_path = tmp_path / "稿件.docx"
+    file_path.write_bytes(b"content")
+
+    snapshots = _build_selected_file_snapshots(
+        str(tmp_path),
+        [ManuscriptSelectedFileInput(relative_path="稿件.docx")],
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0]["relative_path"] == "稿件.docx"
+    assert snapshots[0]["file_name"] == "稿件.docx"
+    assert snapshots[0]["file_size"] == len(b"content")
+
+
+def test_selected_file_update_requires_at_least_one_file():
+    with pytest.raises(ValueError, match="at least 1 item"):
+        ManuscriptSelectedFilesUpdate(selected_files=[])
 
 
 def test_build_archive_rejects_empty_directories(tmp_path):

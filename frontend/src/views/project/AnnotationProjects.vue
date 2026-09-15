@@ -179,16 +179,19 @@
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
-          <ProjectListRowActions
-            v-if="canWrite || canViewAccounts"
-            :editable="canWrite"
-            :show-start-request="canWrite"
-            :start-request-label="resourceRequestActionLabel(row.id)"
-            :extra-actions="accountSheetActions"
-            @edit="handleEdit(row)"
-            @start-request="startResourceRequest(row)"
-            @extra-command="(command) => handleProjectExtraAction(command, row)"
-          />
+          <div class="action-buttons">
+            <el-button type="primary" link @click="openProjectChat(row)">沟通</el-button>
+            <ProjectListRowActions
+              v-if="canWrite || canViewAccounts"
+              :editable="canWrite"
+              :show-start-request="canWrite"
+              :start-request-label="resourceRequestActionLabel(row.id)"
+              :extra-actions="accountSheetActions"
+              @edit="handleEdit(row)"
+              @start-request="startResourceRequest(row)"
+              @extra-command="(command) => handleProjectExtraAction(command, row)"
+            />
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -530,6 +533,7 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
@@ -546,8 +550,15 @@ const canChangeOrderNo = canWrite && hasPermission('projects:order_no:write')
 const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
 const route = useRoute()
 const router = useRouter()
+const { openChat } = useProjectChatDock()
 const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLabel } = useResourceRequestStatuses('annotation')
 const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'annotation', sourceProjectId: row.id } })
+const openProjectChat = (row) => openChat({
+  projectId: row.id,
+  projectType: 'annotation',
+  title: row.projectName || '未命名标注项目',
+  subtitle: row.orderNo || '',
+})
 const accountSheetActions = canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []
 const handleProjectExtraAction = (command, row) => {
   if (command !== 'account-sheet') return

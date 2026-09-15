@@ -148,6 +148,7 @@
         </router-view>
       </el-main>
     </el-container>
+    <ProjectChatDock />
   </el-container>
 </template>
 
@@ -161,6 +162,7 @@ import {
   hasPermission
 } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
+import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'

@@ -122,6 +122,17 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
         lambda _db, **kwargs: notifications.append(kwargs) or [],
     )
     monkeypatch.setattr(project_chat_crud, "_push_notifications", lambda _items: None)
+    broadcast_messages = []
+    monkeypatch.setattr(
+        project_chat_crud,
+        "_chat_participant_user_ids",
+        lambda *_args, **_kwargs: {mentioned.id},
+    )
+    monkeypatch.setattr(
+        project_chat_crud,
+        "broadcast_to_users",
+        lambda user_ids, payload: broadcast_messages.append((set(user_ids), payload)),
+    )
 
     message = project_chat_crud.create_annotation_project_chat_message(
         FakeDb(),
@@ -146,6 +157,11 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
         "related_entity_id": project_id,
         "commit": True,
     }]
+    assert broadcast_messages[0][0] == {mentioned.id}
+    assert broadcast_messages[0][1]["type"] == "chat_message"
+    assert broadcast_messages[0][1]["projectType"] == "annotation"
+    assert broadcast_messages[0][1]["projectId"] == str(project_id)
+    assert broadcast_messages[0][1]["message"]["content"] == "当前正在补充数据"
 
 
 def test_annotation_chat_rejects_blank_message():

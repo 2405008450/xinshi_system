@@ -1,9 +1,13 @@
 import asyncio
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Dict, Set
 from uuid import UUID
 
 from fastapi import WebSocket
+
+
+_main_event_loop: asyncio.AbstractEventLoop | None = None
 
 
 class NotificationConnectionManager:
@@ -11,6 +15,8 @@ class NotificationConnectionManager:
         self.active_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
 
     async def connect(self, user_id: UUID, websocket: WebSocket) -> None:
+        global _main_event_loop
+        _main_event_loop = asyncio.get_running_loop()
         await websocket.accept()
         self.active_connections[str(user_id)].add(websocket)
 
@@ -32,16 +38,38 @@ class NotificationConnectionManager:
         for websocket in stale_connections:
             self.disconnect(user_id, websocket)
 
+    async def broadcast_to_users(self, user_ids: Iterable[UUID], payload: dict) -> None:
+        for user_id in dict.fromkeys(user_ids):
+            await self.send_personal_message(user_id, payload)
+
 
 notification_manager = NotificationConnectionManager()
 
 
-
-def dispatch_personal_message(user_id: UUID, payload: dict) -> None:
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        asyncio.run(notification_manager.send_personal_message(user_id, payload))
+def _dispatch_on_main_loop(coroutine_factory) -> None:
+    """把线程池中的同步端点消息安全派发回 WebSocket 所属事件循环。"""
+    loop = _main_event_loop
+    if loop is None or loop.is_closed():
         return
 
-    loop.create_task(notification_manager.send_personal_message(user_id, payload))
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    coroutine = coroutine_factory()
+    if running_loop is loop:
+        loop.create_task(coroutine)
+    else:
+        asyncio.run_coroutine_threadsafe(coroutine, loop)
+
+
+def dispatch_personal_message(user_id: UUID, payload: dict) -> None:
+    _dispatch_on_main_loop(lambda: notification_manager.send_personal_message(user_id, payload))
+
+
+def broadcast_to_users(user_ids: Iterable[UUID], payload: dict) -> None:
+    recipients = tuple(dict.fromkeys(user_ids))
+    if not recipients:
+        return
+    _dispatch_on_main_loop(lambda: notification_manager.broadcast_to_users(recipients, payload))
