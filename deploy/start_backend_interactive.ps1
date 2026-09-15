@@ -1,6 +1,6 @@
 param(
     [string]$SharePath = ('\\Win-server\' + (-join ([char[]](0x670D, 0x52A1, 0x5668, 0x8D44, 0x6599, 0x37)))),
-    [int]$MaxAttempts = 24,
+    [int]$MaxAttempts = 720,
     [int]$RetryDelaySeconds = 5
 )
 
