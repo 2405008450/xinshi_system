@@ -2581,6 +2581,21 @@ const handleSubmit = async (sendAfterSave = false) => {
     submitLocked = false
     return
   }
+
+  try {
+    await projectFilesTabRef.value?.fillSourceFileNameFromPath({
+      notifySuccess: false,
+      notifyError: false,
+    })
+  } catch (error) {
+    if (!String(form.sourceFileName || '').trim()) {
+      projectDialogTab.value = 'files'
+      ElMessage.error(getLocalizedErrorMessage(error, '无法从原文路径读取母订单文件名称'))
+      submitLoading.value = false
+      submitLocked = false
+      return
+    }
+  }
   let projectSaved = false
   try {
     const payloadSource = { ...form }

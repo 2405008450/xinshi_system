@@ -1232,6 +1232,17 @@ class ProjectFileResponse(ProjectFileBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProjectSourcePathInspectRequest(BaseModel):
+    storage_path: str
+
+
+class ProjectSourcePathInspectResponse(BaseModel):
+    storage_path: str
+    file_names: list[str]
+    file_count: int
+    source_file_name: str
+
+
 # WorkSchedule Schemas
 from datetime import date as date_type
 from typing import Any

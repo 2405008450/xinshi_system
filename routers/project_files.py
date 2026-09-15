@@ -12,7 +12,14 @@ from crud import (
     create_project_file, update_project_file, delete_project_file
 )
 from models import ProjectFile
-from schemas import ProjectFileCreate, ProjectFileUpdate, ProjectFileResponse
+from schemas import (
+    ProjectFileCreate,
+    ProjectFileResponse,
+    ProjectFileUpdate,
+    ProjectSourcePathInspectRequest,
+    ProjectSourcePathInspectResponse,
+)
+from project_file_service import inspect_project_source_path
 from routers.auth import require_module_access
 
 router = APIRouter(prefix="/project-files", tags=["project-files"], dependencies=[Depends(require_module_access("project_files:read", "project_files:write"))])
@@ -87,6 +94,15 @@ def read_project_file_count(
     db: Session = Depends(get_db)
 ):
     return {"total": count_project_files(db, order_no=order_no)}
+
+
+@router.post("/source-path/inspect", response_model=ProjectSourcePathInspectResponse)
+def inspect_source_path(payload: ProjectSourcePathInspectRequest):
+    """读取企业共享原文路径，并生成母订单文件名称。"""
+    try:
+        return inspect_project_source_path(payload.storage_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/{file_id}", response_model=ProjectFileResponse)

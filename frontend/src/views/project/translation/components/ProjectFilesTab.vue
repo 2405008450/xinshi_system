@@ -43,6 +43,7 @@
             placeholder="请输入该母订单对应的真实文件名称，供后续对账使用"
             @update:model-value="emit('update:sourceFileName', $event)"
           />
+          <div class="source-file-name-hint">填写原文路径后自动读取当前目录第一层文件；多个文件以中文分号分隔。</div>
         </div>
       </el-form-item>
     </AppForm>
@@ -144,7 +145,21 @@
           </template>
           <div class="file-edit-collapse__body">
             <el-form-item label="原文路径" prop="storage_path">
-              <el-input v-model="pathGroupForm.storage_path" placeholder="如 \\win-server\原文" />
+              <el-input
+                v-model="pathGroupForm.storage_path"
+                placeholder="如 \\win-server\原文"
+                @blur="handleSourcePathBlur"
+              >
+                <template #append>
+                  <el-button
+                    :loading="sourceNameLoading"
+                    :disabled="!canWrite || !String(pathGroupForm.storage_path || '').trim()"
+                    @click="handleSourceNameReload"
+                  >
+                    读取文件名
+                  </el-button>
+                </template>
+              </el-input>
             </el-form-item>
             <el-form-item label="派稿文路径">
               <el-input v-model="pathGroupForm.dispatch_path" placeholder="如 \\win-server\派稿" />
@@ -200,7 +215,13 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { createProjectFile, deleteProjectFile, getProjectFilesByProject, updateProjectFile } from '@/api/projectFiles'
+import {
+  createProjectFile,
+  deleteProjectFile,
+  getProjectFilesByProject,
+  inspectProjectSourcePath,
+  updateProjectFile
+} from '@/api/projectFiles'
 import { hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
@@ -269,6 +290,9 @@ const canWrite = computed(() => hasPermission('project_files:write'))
 const associatedOrderNo = computed(() => props.orderNo || '')
 const fileLoading = ref(false)
 const fileSaving = ref(false)
+const sourceNameLoading = ref(false)
+const lastInspectedStoragePath = ref('')
+let sourceNameRequest = null
 const pathGroupFormRef = ref(null)
 const expandedSections = ref(['classification', 'paths'])
 const pathGroupForm = reactive(createEmptyPathGroup())
@@ -288,8 +312,46 @@ function validateStoragePath(_rule, value, callback) {
 
 function assignPathGroup(source = {}) {
   Object.assign(pathGroupForm, createEmptyPathGroup(), source)
+  lastInspectedStoragePath.value = props.sourceFileName
+    ? String(source.storage_path || '').trim()
+    : ''
   expandedSections.value = ['classification', 'paths']
   pathGroupFormRef.value?.clearValidate()
+}
+
+async function fillSourceFileNameFromPath({ force = false, notifySuccess = true, notifyError = true } = {}) {
+  const storagePath = String(pathGroupForm.storage_path || '').trim()
+  if (!storagePath) return null
+  if (!force && storagePath === lastInspectedStoragePath.value) return props.sourceFileName || null
+  if (sourceNameRequest) return sourceNameRequest
+
+  sourceNameLoading.value = true
+  sourceNameRequest = inspectProjectSourcePath(storagePath)
+    .then((response) => {
+      emit('update:sourceFileName', response.source_file_name || '')
+      lastInspectedStoragePath.value = storagePath
+      if (notifySuccess) {
+        ElMessage.success(`已从原文路径读取 ${response.file_count} 个文件名`)
+      }
+      return response
+    })
+    .catch((error) => {
+      if (notifyError) ElMessage.error(getLocalizedErrorMessage(error, '读取原文路径中的文件名失败'))
+      throw error
+    })
+    .finally(() => {
+      sourceNameLoading.value = false
+      sourceNameRequest = null
+    })
+  return sourceNameRequest
+}
+
+function handleSourcePathBlur() {
+  void fillSourceFileNameFromPath({ notifySuccess: false }).catch(() => {})
+}
+
+function handleSourceNameReload() {
+  void fillSourceFileNameFromPath({ force: true }).catch(() => {})
 }
 
 function resetPathGroup() {
@@ -441,6 +503,7 @@ watch(
 )
 
 defineExpose({
+  fillSourceFileNameFromPath,
   loadFiles,
   resetPathGroup,
   savePathGroup,
@@ -485,6 +548,13 @@ defineExpose({
 
 .source-file-name-field {
   width: 100%;
+}
+
+.source-file-name-hint {
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .file-edit-collapse__title {

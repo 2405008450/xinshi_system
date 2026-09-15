@@ -10,3 +10,5 @@ export const getProjectFile = (id) => api.get(`/project-files/${id}`)
 export const createProjectFile = (data) => api.post('/project-files/', data)
 export const updateProjectFile = (id, data) => api.put(`/project-files/${id}`, data)
 export const deleteProjectFile = (id) => api.delete(`/project-files/${id}`)
+export const inspectProjectSourcePath = (storagePath) =>
+  api.post('/project-files/source-path/inspect', { storage_path: storagePath })
