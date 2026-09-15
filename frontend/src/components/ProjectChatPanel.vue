@@ -490,7 +490,7 @@
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 6 }"
               maxlength="10000"
-              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+              placeholder="Enter 发送，Shift+Enter 换行"
               @keydown="handleComposerKeydown"
             />
             <RichTextComposer
