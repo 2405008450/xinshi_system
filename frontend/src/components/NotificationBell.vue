@@ -87,12 +87,13 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { formatDateTimeMinute as formatTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -110,6 +111,7 @@ import {
 } from '../utils/desktopNotifications'
 
 const router = useRouter()
+const { openChat } = useProjectChatDock()
 const notifications = ref([])
 const unreadCount = ref(0)
 const popoverVisible = ref(false)
@@ -240,11 +242,26 @@ const markItemRead = async (item, showError = false) => {
   }
 }
 
+const CHAT_NOTIFICATION_TYPES = ['project_chat', 'project_chat_mention', 'annotation_project_chat_mention']
+
+const isChatNotification = (item) => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
+
+// 聊天类通知统一打开聊天小窗，不再跳转项目页面；缺少项目关联时走原跳转兜底。
+const openChatNotification = (item) => {
+  const projectType = item.related_project_type || 'translation'
+  const projectId = item.related_entity_id || item.related_project_id
+  if (!projectId) return false
+  openChat({ projectId, projectType })
+  popoverVisible.value = false
+  return true
+}
+
 const navigateToNotification = async (item) => {
   if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
     await router.push('/workbench')
     return
   }
+  if (isChatNotification(item) && openChatNotification(item)) return
   if (item.related_project_type && item.related_entity_id) {
     const routeName = {
       translation: 'TranslationProjectDetails',
@@ -285,12 +302,15 @@ const displayMentionNotification = (notification) => {
   if (activeMentionNotifications.has(id)) return
 
   const instance = ElNotification({
-    title: '有人在项目沟通中 @了你',
-    message: notification.content,
-    type: 'warning',
+    title: notification.title || '有人在项目沟通中 @了你',
+    message: h('div', { class: 'mention-notification__body' }, [
+      h('div', { class: 'mention-notification__summary' }, notification.content || ''),
+      h('div', { class: 'mention-notification__hint' }, '点击打开沟通'),
+    ]),
+    type: 'info',
     position: 'top-right',
     duration: 0,
-    showClose: false,
+    showClose: true,
     customClass: 'mention-notification',
     onClick: () => activateNotification(notification, true),
     onClose: () => activeMentionNotifications.delete(id),
@@ -560,23 +580,36 @@ onBeforeUnmount(() => {
 }
 
 :global(.el-notification.mention-notification) {
-  width: min(420px, calc(100vw - 32px));
-  border: 2px solid var(--el-color-warning);
-  background: var(--el-color-warning-light-9);
-  box-shadow: 0 16px 36px rgb(15 23 42 / 24%);
+  width: min(380px, calc(100vw - 32px));
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
   cursor: pointer;
 }
 
 :global(.mention-notification .el-notification__title) {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--color-text-primary);
 }
 
 :global(.mention-notification .el-notification__content) {
-  margin-top: 8px;
-  font-size: 14px;
+  margin-top: 6px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--color-text-secondary);
+}
+
+:global(.mention-notification__summary) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+:global(.mention-notification__hint) {
+  margin-top: 6px;
+  color: var(--el-color-primary);
+  font-size: 12px;
 }
 </style>

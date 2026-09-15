@@ -1,10 +1,10 @@
 <template>
-  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact }]">
+  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode }]">
     <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
     <template v-else>
       <div class="chat-toolbar">
         <div class="chat-toolbar__title">
-          <span>项目沟通</span>
+          <span v-if="!conversationMode">项目沟通</span>
           <el-tag v-if="!alwaysEnabled" :type="settings.enabled ? 'success' : 'info'" effect="plain">
             {{ settings.enabled ? '已开启' : '未开启' }}
           </el-tag>
@@ -87,7 +87,136 @@
         :title="settings.canManage ? '当前项目沟通未开启，可在右上角打开。' : '当前项目沟通未开启。'"
       />
 
-      <AppForm v-if="!collapsibleFilters" :inline="true" :model="filters" size="small" class="chat-filter-bar">
+      <AppForm v-if="conversationMode && conversationFiltersVisible" :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover chat-filter-panel">
+        <el-form-item label="关键词" class="chat-filter-bar__field">
+          <el-input v-model="filters.keyword" clearable placeholder="搜索消息内容" @keyup.enter="handleSearch" />
+        </el-form-item>
+        <el-form-item label="发送人" class="chat-filter-bar__field">
+          <el-select v-model="filters.senderUserId" clearable filterable placeholder="全部发送人">
+            <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="时间范围" class="chat-filter-bar__range">
+          <el-date-picker
+            v-model="filters.dateRange"
+            type="datetimerange"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            range-separator="至"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            format="YYYY-MM-DD HH:mm"
+            time-format="HH:mm"
+            :show-now="true"
+            :show-confirm="true"
+            :show-footer="true"
+          />
+        </el-form-item>
+        <el-form-item class="chat-filter-bar__favorite">
+          <el-checkbox v-model="filters.favoritesOnly" @change="handleSearch">只看收藏</el-checkbox>
+        </el-form-item>
+        <el-form-item class="chat-filter-bar__actions">
+          <el-button @click="handleResetSearch">重置</el-button>
+          <el-button type="primary" @click="handleSearch">查询</el-button>
+        </el-form-item>
+      </AppForm>
+
+      <div v-if="conversationMode" class="chat-conversation-wrap">
+        <el-scrollbar ref="chatListRef" v-loading="messagesLoading" class="chat-list chat-list--conversation" @scroll="handleConversationScroll">
+          <div v-if="messages.length" class="chat-conversation">
+            <div v-if="loadingEarlier" class="chat-conversation__notice">正在加载更早的消息…</div>
+            <div v-else-if="!hasEarlierMessages && messages.length > conversationPageSize" class="chat-conversation__notice">已经到最早的消息了</div>
+            <template v-for="item in conversationItems" :key="item.key">
+              <div v-if="item.type === 'date'" class="chat-date-divider"><span>{{ item.label }}</span></div>
+              <div v-else-if="item.isSystem" class="chat-system-message">
+                <div class="chat-system-message__bar">
+                  <el-tag size="small" :type="item.message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
+                    {{ item.message.messageType === 'claim' ? '继承记录' : '交接记录' }}
+                  </el-tag>
+                  <span>{{ item.message.content }}</span>
+                </div>
+                <div v-if="item.message.metadata?.tasks?.length" class="handover-task-list">
+                  <div v-for="task in item.message.metadata.tasks" :key="task.workflowInstanceId">
+                    <strong>{{ task.orderNo }}</strong>
+                    <span>{{ task.taskName }}</span>
+                    <span>{{ task.fromUserName }} → {{ task.toUserName }}</span>
+                  </div>
+                </div>
+                <span class="chat-system-message__time">{{ formatDateTime(item.message.createdAt) }}</span>
+              </div>
+              <div
+                v-else
+                class="chat-conversation-item"
+                :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart }"
+              >
+                <div v-if="!item.isOwn" class="chat-conversation-item__avatar">
+                  <span v-if="item.groupStart" class="chat-avatar">{{ avatarText(item.message.senderName) }}</span>
+                </div>
+                <div class="chat-conversation-item__main">
+                  <div v-if="item.groupStart" class="chat-conversation-item__meta">
+                    <strong v-if="!item.isOwn">{{ item.message.senderName || '未知用户' }}</strong>
+                    <span class="chat-conversation-item__time">{{ formatDateTime(item.message.createdAt) }}</span>
+                    <el-tag
+                      v-for="mention in messageMentions(item.message).slice(0, 3)"
+                      :key="mention.mentionedUserId"
+                      size="small"
+                      type="warning"
+                      effect="plain"
+                    >
+                      @{{ mention.mentionedUserName }}
+                    </el-tag>
+                    <el-tooltip
+                      v-if="messageMentions(item.message).length > 3"
+                      :content="messageMentions(item.message).slice(3).map(entry => `@${entry.mentionedUserName}`).join('、')"
+                      placement="top"
+                    >
+                      <el-tag size="small" type="warning" effect="plain">+{{ messageMentions(item.message).length - 3 }}</el-tag>
+                    </el-tooltip>
+                  </div>
+                  <div class="chat-conversation-item__bubble-row">
+                    <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }">
+                      <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
+                      <RichTextContent v-else :document="item.message.contentJson" :fallback="item.message.content" />
+                      <div v-if="item.message.attachments?.length" class="message-attachments">
+                        <a
+                          v-for="attachment in item.message.attachments"
+                          :key="attachment.id"
+                          :href="attachmentUrls[attachment.id] || undefined"
+                          target="_blank"
+                          rel="noopener"
+                          class="message-attachment"
+                        >
+                          <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                          <span>{{ attachment.originalName }}</span>
+                        </a>
+                      </div>
+                    </div>
+                    <div class="chat-conversation-item__tools">
+                      <el-tooltip :content="item.message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
+                        <el-button
+                          link
+                          :type="item.message.isFavorited ? 'warning' : 'info'"
+                          :class="{ 'is-favorited': item.message.isFavorited }"
+                          :loading="favoriteSavingIds.has(item.message.id)"
+                          :aria-label="item.message.isFavorited ? '取消收藏' : '收藏'"
+                          @click.stop="handleFavoriteToggle(item.message)"
+                        >
+                          <el-icon><StarFilled v-if="item.message.isFavorited" /><Star v-else /></el-icon>
+                        </el-button>
+                      </el-tooltip>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+          <el-empty v-else description="暂无沟通记录" :image-size="56" />
+        </el-scrollbar>
+        <button v-if="pendingNewCount" type="button" class="chat-new-message-tip" @click="handleNewMessageTipClick">
+          有 {{ pendingNewCount }} 条新消息，点击查看
+        </button>
+      </div>
+
+      <AppForm v-if="!conversationMode && !collapsibleFilters" :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词" class="chat-filter-bar__field">
             <el-input v-model="filters.keyword" clearable :placeholder="compact ? '搜索消息内容' : '搜消息内容'" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -120,7 +249,7 @@
           </el-form-item>
         </AppForm>
 
-        <el-scrollbar ref="chatListRef" v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
+        <el-scrollbar v-if="!conversationMode" ref="chatListRef" v-loading="messagesLoading" :max-height="chatListMaxHeight" class="chat-list">
           <div v-if="messages.length" class="chat-list__items">
             <div
               v-for="message in messages"
@@ -233,7 +362,7 @@
           </div>
         </div>
 
-        <div class="chat-pagination">
+        <div v-if="!conversationMode" class="chat-pagination">
           <el-pagination
             v-model:current-page="pagination.page"
             v-model:page-size="pagination.limit"
@@ -246,7 +375,7 @@
           />
         </div>
 
-        <div v-if="settings.enabled" class="chat-composer">
+        <div v-if="settings.enabled && !conversationMode" class="chat-composer">
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -307,6 +436,91 @@
             <el-tag
               v-for="attachment in composer.attachments"
               :key="attachment.id"
+              closable
+              @close="removeComposerAttachment(attachment.id)"
+            >
+              {{ attachment.originalName }}
+            </el-tag>
+          </div>
+        </div>
+
+        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation">
+          <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
+            <el-tag
+              v-for="userId in composer.mentionedUserIds"
+              :key="userId"
+              size="small"
+              type="warning"
+              effect="plain"
+              closable
+              @close="removeMention(userId)"
+            >
+              @{{ userNameById(userId) }}
+            </el-tag>
+          </div>
+          <div class="chat-composer__input-row">
+            <el-popover v-model:visible="mentionPopoverVisible" trigger="click" placement="top-start" :width="280">
+              <template #reference>
+                <el-button
+                  class="chat-composer__at"
+                  :type="composer.mentionedUserIds.length ? 'primary' : 'default'"
+                  plain
+                  aria-label="@提醒用户"
+                  title="@提醒用户"
+                >
+                  @
+                </el-button>
+              </template>
+              <el-select
+                v-model="composer.mentionedUserIds"
+                multiple
+                filterable
+                collapse-tags
+                collapse-tags-tooltip
+                :multiple-limit="20"
+                placeholder="选择要提醒的用户"
+                style="width: 100%"
+              >
+                <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+              </el-select>
+            </el-popover>
+            <el-input
+              v-if="textOnly"
+              v-model="composer.content"
+              type="textarea"
+              :autosize="{ minRows: 1, maxRows: 6 }"
+              maxlength="10000"
+              placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+              @keydown="handleComposerKeydown"
+            />
+            <RichTextComposer
+              v-else
+              v-model="composer.contentJson"
+              placeholder="输入项目沟通内容…"
+              @update:plain-text="composer.content = $event"
+            />
+            <el-button
+              type="primary"
+              :loading="sending"
+              :disabled="sending || (!composer.content.trim() && !composer.attachments.length)"
+              @click="handleSend"
+            >
+              发送
+            </el-button>
+          </div>
+          <div v-if="!textOnly" class="composer-attachments">
+            <el-upload
+              :show-file-list="false"
+              :http-request="handleAttachmentUpload"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+            >
+              <el-button :loading="uploading" :disabled="composer.attachments.length >= 9" size="small">添加图片</el-button>
+            </el-upload>
+            <el-tag
+              v-for="attachment in composer.attachments"
+              :key="attachment.id"
+              size="small"
               closable
               @close="removeComposerAttachment(attachment.id)"
             >
@@ -386,10 +600,11 @@ const props = defineProps({
   alwaysEnabled: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
   collapsibleFilters: { type: Boolean, default: false },
-  canAddToProgress: { type: Boolean, default: false }
+  canAddToProgress: { type: Boolean, default: false },
+  conversationMode: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['add-to-progress'])
+const emit = defineEmits(['add-to-progress', 'unread'])
 
 const settings = reactive({ enabled: false, canManage: false })
 const settingsLoading = ref(false)
@@ -408,6 +623,12 @@ const lastSelectedProgressMessageId = ref('')
 const progressTextMenuRef = ref(null)
 const progressTextMenu = reactive({ visible: false, left: 0, top: 0, message: null, text: '', isExcerpt: false })
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
+const conversationPageSize = 20
+const currentUserId = String(localStorage.getItem('user_id') || '')
+const conversationFiltersVisible = ref(false)
+const mentionPopoverVisible = ref(false)
+const loadingEarlier = ref(false)
+const pendingNewCount = ref(0)
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
 const composer = reactive({
   content: '',
@@ -417,7 +638,10 @@ const composer = reactive({
 })
 const attachmentUrls = reactive({})
 const attachmentObjectUrls = new Set()
-const chatListMaxHeight = computed(() => (props.drawerMode ? 'calc(100vh - 360px)' : '420px'))
+const chatListMaxHeight = computed(() => {
+  if (props.conversationMode) return undefined
+  return props.drawerMode ? 'calc(100vh - 360px)' : '420px'
+})
 const activeFilterCount = computed(() => [
   filters.keyword.trim(),
   filters.senderUserId,
@@ -593,6 +817,187 @@ const ensureAttachmentUrls = async (items) => {
   }))
 }
 
+const buildMessageParams = (skip, limit) => ({
+  skip,
+  limit,
+  keyword: filters.keyword || undefined,
+  sender_user_id: filters.senderUserId || undefined,
+  date_from: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[0] : undefined,
+  date_to: Array.isArray(filters.dateRange) && filters.dateRange.length === 2 ? filters.dateRange[1] : undefined,
+  favorites_only: filters.favoritesOnly || undefined
+})
+
+const getScrollWrap = () => chatListRef.value?.wrapRef || null
+
+const isConversationAtBottom = () => {
+  const wrap = getScrollWrap()
+  if (!wrap) return true
+  return wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40
+}
+
+const scrollConversationToBottom = () => {
+  const wrap = getScrollWrap()
+  if (wrap) wrap.scrollTop = wrap.scrollHeight
+}
+
+const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
+  if (!props.projectId) {
+    messages.value = []
+    pagination.total = 0
+    return
+  }
+  messagesLoading.value = true
+  try {
+    const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
+    settings.enabled = !!res?.enabled
+    if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
+    // 后端按时间倒序返回，会话视图反转为正序展示。
+    messages.value = (Array.isArray(res?.items) ? res.items : []).slice().reverse()
+    pagination.total = Number(res?.total || 0)
+    pendingNewCount.value = 0
+    await ensureAttachmentUrls(messages.value)
+    if (scrollToEnd) {
+      await nextTick()
+      scrollConversationToBottom()
+    }
+  } catch (error) {
+    messages.value = []
+    pagination.total = 0
+    ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
+  } finally {
+    messagesLoading.value = false
+  }
+}
+
+const hasEarlierMessages = computed(() => messages.value.length < pagination.total)
+
+// 滚动到顶部加载更早消息，并保持原滚动锚点不跳动。
+const loadEarlierMessages = async () => {
+  if (!props.conversationMode || !hasEarlierMessages.value || loadingEarlier.value || messagesLoading.value) return
+  loadingEarlier.value = true
+  const wrap = getScrollWrap()
+  const prevHeight = wrap?.scrollHeight || 0
+  const prevTop = wrap?.scrollTop || 0
+  try {
+    const res = await getProjectChatMessages(
+      props.projectId,
+      buildMessageParams(messages.value.length, conversationPageSize),
+      props.projectType
+    )
+    const existingIds = new Set(messages.value.map(item => String(item.id)))
+    const older = (Array.isArray(res?.items) ? res.items : [])
+      .slice()
+      .reverse()
+      .filter(item => !existingIds.has(String(item.id)))
+    if (older.length) {
+      messages.value = [...older, ...messages.value]
+      await ensureAttachmentUrls(older)
+    }
+    pagination.total = Number(res?.total || pagination.total)
+    await nextTick()
+    if (wrap) wrap.scrollTop = wrap.scrollHeight - prevHeight + prevTop
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, '加载更早的消息失败'))
+  } finally {
+    loadingEarlier.value = false
+  }
+}
+
+// 轮询与重连时静默合并最新消息，避免打断用户阅读历史消息。
+const mergeLatestConversationMessages = async () => {
+  if (!props.projectId || activeFilterCount.value || messagesLoading.value || loadingEarlier.value) return
+  try {
+    const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
+    settings.enabled = !!res?.enabled
+    const existingIds = new Set(messages.value.map(item => String(item.id)))
+    const fresh = (Array.isArray(res?.items) ? res.items : [])
+      .filter(item => !existingIds.has(String(item.id)))
+      .reverse()
+    pagination.total = Number(res?.total || pagination.total)
+    if (!fresh.length) return
+    const wasAtBottom = isConversationAtBottom()
+    messages.value = [...messages.value, ...fresh]
+    await ensureAttachmentUrls(fresh)
+    await nextTick()
+    if (!props.active) return
+    if (wasAtBottom) scrollConversationToBottom()
+    else pendingNewCount.value += fresh.length
+  } catch (error) {
+    console.error('刷新沟通消息失败', error)
+  }
+}
+
+const handleConversationScroll = ({ scrollTop }) => {
+  if (!props.conversationMode) return
+  if (scrollTop <= 2) loadEarlierMessages()
+  if (isConversationAtBottom()) pendingNewCount.value = 0
+}
+
+const handleNewMessageTipClick = async () => {
+  pendingNewCount.value = 0
+  await nextTick()
+  scrollConversationToBottom()
+}
+
+const conversationDayKey = (value) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+const formatConversationDateSeparator = (value) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const today = new Date()
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  if (conversationDayKey(date) === conversationDayKey(today)) return '今天'
+  if (conversationDayKey(date) === conversationDayKey(yesterday)) return '昨天'
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+const avatarText = (name) => String(name || '?').trim().slice(0, 1) || '?'
+
+// 时间正序 + 日期分隔线 + 同发送人连续消息合并头像与姓名。
+const conversationItems = computed(() => {
+  const items = []
+  let previous = null
+  messages.value.forEach((message) => {
+    const day = conversationDayKey(message.createdAt)
+    if (!previous || previous.day !== day) {
+      items.push({ type: 'date', key: `date-${day}-${message.id}`, label: formatConversationDateSeparator(message.createdAt) })
+    }
+    const isSystem = !!message.messageType && message.messageType !== 'user'
+    const sender = String(message.senderUserId || '')
+    const isOwn = !isSystem && sender === currentUserId
+    const groupStart = isSystem || !previous || previous.isSystem || previous.sender !== sender || previous.day !== day
+    items.push({ type: 'message', key: `message-${message.id}`, message, isOwn, isSystem, groupStart })
+    previous = { day, sender, isSystem }
+  })
+  return items
+})
+
+const toggleFilters = () => {
+  conversationFiltersVisible.value = !conversationFiltersVisible.value
+}
+
+const userNameById = (userId) => {
+  const user = userOptions.value.find(item => String(item.id) === String(userId))
+  return user ? (user.full_name || user.username) : '未知用户'
+}
+
+const removeMention = (userId) => {
+  composer.mentionedUserIds = composer.mentionedUserIds.filter(id => String(id) !== String(userId))
+}
+
+// Enter 发送、Shift+Enter 换行；中文输入法组词期间不触发发送。
+const handleComposerKeydown = (event) => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  handleSend()
+}
+
+defineExpose({ toggleFilters })
+
 const resetChatState = () => {
   settings.enabled = props.alwaysEnabled
   settings.canManage = false
@@ -605,6 +1010,10 @@ const resetChatState = () => {
   filters.dateRange = []
   filters.favoritesOnly = false
   filterPopoverVisible.value = false
+  conversationFiltersVisible.value = false
+  mentionPopoverVisible.value = false
+  loadingEarlier.value = false
+  pendingNewCount.value = 0
   clearProgressSelection(true)
   closeProgressTextMenu()
   composer.content = ''
@@ -663,6 +1072,10 @@ const loadSettings = async () => {
 }
 
 const loadMessages = async () => {
+  if (props.conversationMode) {
+    await conversationLoadLatest()
+    return
+  }
   if (!props.projectId) {
     messages.value = []
     pagination.total = 0
@@ -846,6 +1259,19 @@ const handleRealtimeChatMessage = async (payload) => {
     || !payload?.message?.id
   ) return
   if (messages.value.some(item => String(item.id) === String(payload.message.id))) return
+  if (props.conversationMode) {
+    if (!props.active) emit('unread')
+    if (activeFilterCount.value) return
+    const wasAtBottom = isConversationAtBottom()
+    messages.value = [...messages.value, payload.message]
+    pagination.total += 1
+    await ensureAttachmentUrls([payload.message])
+    await nextTick()
+    if (!props.active) return
+    if (wasAtBottom) scrollConversationToBottom()
+    else pendingNewCount.value += 1
+    return
+  }
   if (pagination.page > 1) {
     if (!newerMessageNoticeShown) {
       newerMessageNoticeShown = true
@@ -862,14 +1288,17 @@ const handleRealtimeChatMessage = async (payload) => {
 }
 
 const handleSocketConnected = () => {
-  if (props.active && props.projectId) loadMessages()
+  if (!props.active || !props.projectId) return
+  if (props.conversationMode) mergeLatestConversationMessages()
+  else loadMessages()
 }
 
 const setupPolling = () => {
   clearPolling()
   if (!props.active || !props.projectId) return
   pollTimer = window.setInterval(() => {
-    loadMessages()
+    if (props.conversationMode) mergeLatestConversationMessages()
+    else loadMessages()
   }, 60000)
 }
 
@@ -1382,6 +1811,255 @@ onBeforeUnmount(() => {
 .project-chat-panel--compact .chat-composer__actions {
   flex: none;
   margin-top: 0;
+}
+
+.project-chat-panel--conversation {
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+}
+
+.project-chat-panel--conversation .chat-toolbar {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.chat-filter-panel {
+  padding: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+}
+
+.chat-conversation-wrap {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.chat-list--conversation {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--el-bg-color);
+}
+
+.chat-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px;
+}
+
+.chat-conversation__notice {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.chat-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.chat-date-divider::before,
+.chat-date-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--el-border-color-lighter);
+  content: '';
+}
+
+.chat-system-message {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-system-message__bar {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 5px 12px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 12px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-system-message__time {
+  color: var(--el-text-color-placeholder);
+  font-size: 11px;
+}
+
+.chat-conversation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-conversation-item--grouped {
+  margin-top: -4px;
+}
+
+.chat-conversation-item__avatar {
+  width: 32px;
+  flex: none;
+}
+
+.chat-avatar {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--el-color-primary-light-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chat-conversation-item__main {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 40px);
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-conversation-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.chat-conversation-item__time {
+  color: var(--el-text-color-placeholder);
+  font-size: 11px;
+}
+
+.chat-conversation-item__bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.chat-bubble {
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border-top-left-radius: 4px;
+  background: var(--el-fill-color);
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.chat-bubble__text {
+  white-space: pre-wrap;
+}
+
+.chat-conversation-item--own {
+  justify-content: flex-end;
+}
+
+.chat-conversation-item--own .chat-conversation-item__main {
+  align-items: flex-end;
+}
+
+.chat-conversation-item--own .chat-conversation-item__meta {
+  flex-direction: row-reverse;
+}
+
+.chat-conversation-item--own .chat-conversation-item__bubble-row {
+  flex-direction: row-reverse;
+}
+
+.chat-bubble--own {
+  border-radius: 10px;
+  border-top-right-radius: 4px;
+  background: var(--el-color-primary-light-8);
+}
+
+.chat-conversation-item__tools {
+  visibility: hidden;
+  flex: none;
+}
+
+.chat-conversation-item:hover .chat-conversation-item__tools,
+.chat-conversation-item__tools:has(.is-favorited) {
+  visibility: visible;
+}
+
+.chat-conversation-item__tools .el-button {
+  padding: 2px;
+  font-size: 15px;
+}
+
+.chat-new-message-tip {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 2;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 14px;
+  color: #fff;
+  background: var(--el-color-primary);
+  box-shadow: var(--el-box-shadow-light);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-composer--conversation {
+  padding: 10px 12px;
+  border: 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-radius: 0;
+  background: var(--el-bg-color);
+}
+
+.chat-composer__mention-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chat-composer__input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-composer__input-row > :first-child {
+  flex: none;
+}
+
+.chat-composer__input-row .el-input,
+.chat-composer__input-row > :nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-composer__at {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 @media (max-width: 720px) {

@@ -353,14 +353,14 @@
                       placeholder="如：第1-20页、文档A或具体章节范围"
                     />
 
-                    <label class="is-required">派稿文件</label>
+                    <label>派稿文件</label>
                     <div>
                       <ManuscriptFileSelector
                         v-if="activeWorkbenchAssignment.file_selection_mode === 'selected' || !workbenchReadonly"
                         :project-id="selectedProject.translation_project_id"
                         :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
                         :model-value="activeWorkbenchAssignment.selected_files"
-                        :disabled="workbenchReadonly"
+                        :disabled="workbenchReadonly || !selectedProject.dispatch_path"
                         @update:model-value="updateSelectedFiles(activeWorkbenchAssignment, $event)"
                       />
                       <el-alert
@@ -375,6 +375,9 @@
                         class="muted-text"
                       >
                         这是历史整目录草稿；勾选任意文件后将切换为按文件发送。
+                      </div>
+                      <div v-if="!selectedProject.dispatch_path && !workbenchReadonly" class="muted-text">
+                        可先确认安排，之后在“发送”阶段填写派稿文路径并选择文件。
                       </div>
                     </div>
 
@@ -1324,13 +1327,17 @@
               placeholder="如：第1-20页、文档A，或具体章节范围"
             />
           </el-form-item>
-          <el-form-item label="派稿文件" required>
+          <el-form-item label="派稿文件">
             <ManuscriptFileSelector
               :project-id="selectedProject.translation_project_id"
               :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
               :model-value="assignment.selected_files"
+              :disabled="!selectedProject.dispatch_path"
               @update:model-value="updateSelectedFiles(assignment, $event)"
             />
+            <div v-if="!selectedProject.dispatch_path" class="muted-text">
+              可先保存或确认安排，之后在“发送”阶段填写派稿文路径并选择文件。
+            </div>
             <div v-if="assignment.file_selection_mode === 'legacy_all'" class="muted-text">
               这是历史整目录草稿；勾选任意文件后将切换为按文件发送。
             </div>
@@ -3257,9 +3264,6 @@ function validateDispatchForm() {
   }
   for (const assignment of dispatchForm.arrangements) {
     const translatorName = translatorById(assignment.translator_id)?.translator_name || '译员'
-    if (assignment.file_selection_mode === 'selected' && !assignment.selected_files?.length) {
-      return `${translatorName}：请选择至少一个派稿文件`
-    }
     if (!hasWordCountValue(assignment.planned)) {
       return `${translatorName}：字数与结算至少需要填写一个字数数值`
     }

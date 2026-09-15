@@ -146,11 +146,13 @@ def test_sub_order_dispatch_supports_legacy_directory_and_selected_files():
     assert payload.arrangements[0].selected_files[0].relative_path == "合同/正文.docx"
 
 
-def test_selected_file_mode_still_requires_a_file():
+def test_selected_file_mode_allows_files_to_be_selected_during_send_stage():
     values = _valid_values()
     values["file_selection_mode"] = "selected"
-    with pytest.raises(ValidationError, match="请选择至少一个派稿文件"):
-        ManuscriptAssignmentInput(**values)
+
+    assignment = ManuscriptAssignmentInput(**values)
+
+    assert assignment.selected_files == []
 
 
 def test_dispatch_file_name_is_trimmed_and_syncs_to_the_selected_order_level():

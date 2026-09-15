@@ -478,11 +478,15 @@ def list_dispatch_files(
 def _validate_selected_file_snapshots(
     arrangement: ManuscriptArrangement,
     dispatch_path: Optional[str],
+    *,
+    require_selection: bool = True,
 ) -> None:
     if arrangement.file_selection_mode != "selected":
         return
     if not arrangement.selected_files:
-        raise ValueError(f"{arrangement.translator_name_snapshot} 尚未选择派稿文件")
+        if require_selection:
+            raise ValueError(f"{arrangement.translator_name_snapshot} 尚未选择派稿文件")
+        return
     if not dispatch_path:
         raise ValueError("请先填写母订单派稿文路径")
     for selected in arrangement.selected_files:
@@ -869,9 +873,9 @@ def _create_arrangement_line(
     )
     _apply_milestones(arrangement, assignment)
     root = entity_values.get("dispatch_path")
-    if assignment.file_selection_mode == "selected":
+    if assignment.file_selection_mode == "selected" and assignment.selected_files:
         if not root:
-            raise ValueError("请先填写母订单派稿文路径并选择派稿文件")
+            raise ValueError("请先填写母订单派稿文路径后再选择派稿文件")
         arrangement.selected_files.extend(
             ManuscriptArrangementFile(**snapshot)
             for snapshot in _build_selected_file_snapshots(
@@ -1691,7 +1695,9 @@ def confirm_dispatch(
     for arrangement in dispatch.arrangements:
         _validate_stored_arrangement_required_fields(arrangement)
         _validate_selected_file_snapshots(
-            arrangement, _get_project_dispatch_path(db, project.id),
+            arrangement,
+            _get_project_dispatch_path(db, project.id),
+            require_selection=False,
         )
         translator = (
             db.query(Translator)

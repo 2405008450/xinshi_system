@@ -121,6 +121,23 @@ def test_selected_file_snapshot_detects_change_before_send(tmp_path):
         _validate_selected_file_snapshots(arrangement, str(tmp_path))
 
 
+def test_arrangement_confirmation_allows_selecting_files_later():
+    arrangement = SimpleNamespace(
+        file_selection_mode="selected",
+        translator_name_snapshot="张三",
+        selected_files=[],
+    )
+
+    with pytest.raises(ValueError, match="尚未选择派稿文件"):
+        _validate_selected_file_snapshots(arrangement, None)
+
+    _validate_selected_file_snapshots(
+        arrangement,
+        None,
+        require_selection=False,
+    )
+
+
 def test_selected_file_update_builds_fresh_snapshot(tmp_path):
     file_path = tmp_path / "稿件.docx"
     file_path.write_bytes(b"content")

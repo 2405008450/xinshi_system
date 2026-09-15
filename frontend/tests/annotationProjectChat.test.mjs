@@ -40,7 +40,7 @@ test('标注项目沟通默认收起查询筛选并使用悬浮小窗展示', ()
   assert.match(chatPanel, /v-if="collapsibleFilters"[\s\S]*v-model:visible="filterPopoverVisible"[\s\S]*placement="bottom-end"/)
   assert.match(chatPanel, /查询筛选<span v-if="activeFilterCount">（\{\{ activeFilterCount \}\}）<\/span>/)
   assert.match(chatPanel, /class="chat-filter-bar chat-filter-bar--popover"/)
-  assert.match(chatPanel, /<AppForm v-if="!collapsibleFilters"/)
+  assert.match(chatPanel, /<AppForm v-if="!conversationMode && !collapsibleFilters"/)
   assert.match(annotationPage, /:collapsible-filters="true"/)
   assert.match(chatPanel, /\.project-chat-panel--compact \.chat-composer__body\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*flex-end;/)
 })
@@ -60,7 +60,7 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
 
 test('标注沟通消息支持多选后带入补充进度且不会影响笔译默认行为', () => {
   assert.match(chatPanel, /canAddToProgress:\s*\{ type: Boolean, default: false \}/)
-  assert.match(chatPanel, /defineEmits\(\['add-to-progress'\]\)/)
+  assert.match(chatPanel, /defineEmits\(\['add-to-progress', 'unread'\]\)/)
   assert.match(chatPanel, /progressSelectionMode/)
   assert.match(chatPanel, /批量选择/)
   assert.match(chatPanel, /class="chat-batch-action-bar"/)

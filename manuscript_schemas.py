@@ -209,8 +209,6 @@ class ManuscriptAssignmentInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_settlement_and_milestones(self):
-        if self.file_selection_mode == "selected" and not self.selected_files:
-            raise ValueError("请选择至少一个派稿文件")
         if not any(
             getattr(self.planned, metric_type) is not None
             for metric_type in (
