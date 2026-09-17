@@ -17,6 +17,7 @@ from concurrency import VERSION_FIELD, assert_fresh
 import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作流关系
 from interpretation_models import (
     InterpretationLanguage,
+    InterpretationLanguageAlias,
     InterpretationProject,
     InterpretationProjectStatusHistory,
     InterpretationProjectDirectionExtraLanguage,
@@ -30,7 +31,12 @@ from interpretation_schemas import (
     InterpretationProjectCreate,
     InterpretationProjectUpdate,
 )
-from language_catalog import LANGUAGE_VARIANTS
+from language_catalog import (
+    LANGUAGE_ENGLISH_NAMES,
+    LANGUAGE_SEARCH_SHORTCUTS,
+    LANGUAGE_VARIANTS,
+    normalize_language_search_text,
+)
 from models import AppUser, Client, Consultation, SubClient, TranslationProject, Translator
 from field_filtering import apply_scalar_specs
 
@@ -43,13 +49,39 @@ def is_interpretation_type(value: Optional[str]) -> bool:
 
 
 def ensure_default_interpretation_languages(db: Session) -> None:
-    existing = {row[0] for row in db.query(InterpretationLanguage.label).all()}
+    existing = {row.label: row for row in db.query(InterpretationLanguage).all()}
     changed = False
     for item in LANGUAGE_VARIANTS:
-        if item["label"] in existing:
-            continue
-        db.add(InterpretationLanguage(label=item["label"], is_custom=False))
-        changed = True
+        language = existing.get(item["label"])
+        if language is None:
+            language = InterpretationLanguage(label=item["label"], is_custom=False)
+            db.add(language)
+            db.flush()
+            existing[item["label"]] = language
+            changed = True
+        language.code = item["code"]
+        language.name_zh = item["label"]
+        language.name_en = LANGUAGE_ENGLISH_NAMES.get(item["code"])
+        shortcuts = LANGUAGE_SEARCH_SHORTCUTS.get(item["code"], [])
+        language.short_name_zh = shortcuts[0] if shortcuts else None
+        language.short_name_en = item["code"].split("-", 1)[0].upper()
+        alias_values = [
+            *[(value, "zh_alias") for value in item.get("aliases", [])],
+            *[(value, "business_shortcut") for value in shortcuts],
+            (language.name_en, "en_name"),
+            (language.short_name_en, "abbreviation"),
+            (language.code, "code"),
+        ]
+        current_aliases = {value.normalized_alias for value in language.aliases}
+        for alias, alias_type in alias_values:
+            normalized = normalize_language_search_text(alias)
+            if not normalized or normalized in current_aliases:
+                continue
+            language.aliases.append(InterpretationLanguageAlias(
+                alias=alias, normalized_alias=normalized, alias_type=alias_type,
+            ))
+            current_aliases.add(normalized)
+            changed = True
     if changed:
         db.commit()
 

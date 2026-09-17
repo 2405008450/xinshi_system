@@ -58,6 +58,22 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
   assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
 })
 
+test('标注聊天输入 @ 自动展开用户选择并保留原提醒链路', () => {
+  assert.match(chatPanel, /props\.projectType === 'annotation' && props\.textOnly && props\.conversationMode/)
+  assert.match(chatPanel, /ref="composerInputRef"[\s\S]*@input="handleComposerInput"/)
+  assert.match(chatPanel, /ref="mentionSelectRef"[\s\S]*:automatic-dropdown="automaticMentionActive"/)
+  assert.match(chatPanel, /composer\.content\[cursor - 1\] !== '@'/)
+  assert.match(chatPanel, /previousCharacter = composer\.content[\s\S]*A-Za-z0-9/)
+  assert.match(chatPanel, /@compositionstart="handleComposerCompositionStart"/)
+  assert.match(chatPanel, /@compositionend="handleComposerCompositionEnd"/)
+  assert.match(chatPanel, /handleMentionSelectionChange/)
+  assert.match(chatPanel, /composer\.content\.slice\(triggerIndex \+ 1\)/)
+  assert.match(chatPanel, /@keydown\.esc\.capture\.stop\.prevent="handleMentionEscape"/)
+  assert.match(chatPanel, /if \(mentionPopoverVisible\.value\)[\s\S]*event\.preventDefault\(\)/)
+  assert.match(chatPanel, /@click="handleMentionButtonClick"/)
+  assert.match(chatPanel, /mentionedUserIds: composer\.mentionedUserIds/)
+})
+
 test('标注沟通消息支持多选后带入补充进度且不会影响笔译默认行为', () => {
   assert.match(chatPanel, /canAddToProgress:\s*\{ type: Boolean, default: false \}/)
   assert.match(chatPanel, /defineEmits\(\['add-to-progress', 'unread'\]\)/)

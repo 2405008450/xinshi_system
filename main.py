@@ -49,6 +49,7 @@ from permission_registry import PERMISSION_CODES, SUPER_ROLE_NAMES
 from routers import users, roles, translation_projects, interpretation_projects, annotation_projects, annotation_comparisons, annotation_notices, annotation_ops, resource_requests, recruitment_projects, project_languages, user_roles, project_files, auth, clients, client_contacts, translators, talents, talent_options, workflow, schedule, leave, consultations, finance, sub_orders, notifications, project_chat, permissions, tasks, manuscript_arrangements, word_counts
 from interpretation_models import (
     InterpretationLanguage,
+    InterpretationLanguageAlias,
     InterpretationProject,
     InterpretationProjectStatusHistory,
     InterpretationProjectDirectionExtraLanguage,
@@ -80,8 +81,12 @@ from resource_models import (
     AnnotationProfile,
     InterpretationProfile,
     ResourceCapability,
+    ResourceCertificate,
     ResourceCareerProfile,
+    ResourceEducationExperience,
+    ResourceLanguageSkill,
     ResourcePerson,
+    ResourcePersonAttachment,
     WrittenTranslationProfile,
 )
 from resource_service import backfill_resource_people
@@ -457,6 +462,13 @@ INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS = (
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS updated_by UUID",
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS code VARCHAR(30)",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS name_zh VARCHAR(100)",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS name_en VARCHAR(100)",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS short_name_zh VARCHAR(50)",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS short_name_en VARCHAR(50)",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS language_type VARCHAR(30) NOT NULL DEFAULT 'language'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_interpretation_language_code ON interpretation_language(code) WHERE code IS NOT NULL",
     """
     DO $$
     BEGIN
@@ -534,6 +546,30 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS send_error TEXT",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS completion_remarks VARCHAR(255)",
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS file_selection_mode VARCHAR(20) NOT NULL DEFAULT 'legacy_all'",
+)
+RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS chinese_name VARCHAR(255)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS english_name VARCHAR(255)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS nickname VARCHAR(255)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS other_names JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS wechat VARCHAR(100)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(100)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS skype VARCHAR(100)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS line VARCHAR(100)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS birth_year_month VARCHAR(7)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS employment_status VARCHAR(30)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS employment_detail VARCHAR(500)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS student_stage VARCHAR(50)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS enrollment_year INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS program_duration_years INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS student_grade_override VARCHAR(50)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS highest_education VARCHAR(30)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS annotation_experience TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS interpretation_experience TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS translation_experience TEXT",
+    "UPDATE resource_person SET birth_year_month=to_char(birth_date, 'YYYY-MM') WHERE birth_year_month IS NULL AND birth_date IS NOT NULL",
+    "UPDATE resource_person SET chinese_name=full_name WHERE chinese_name IS NULL AND full_name ~ '[一-龥]'",
+    "UPDATE resource_person SET english_name=full_name WHERE english_name IS NULL AND chinese_name IS NULL",
 )
 
 
@@ -881,6 +917,15 @@ def ensure_resource_compat_columns():
         return
     with engine.begin() as conn:
         for statement in RESOURCE_COMPAT_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+
+
+def ensure_resource_person_profile_columns():
+    """补齐人才主档的姓名、联系方式、职业与教育摘要字段。"""
+    if "resource_person" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS:
             conn.execute(text(statement))
 
 
@@ -1526,6 +1571,7 @@ def run_runtime_migrations():
     ensure_personal_task_permissions()
     ensure_talent_permission_compatibility()
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)
+    ensure_resource_person_profile_columns()
     ResourceCapability.__table__.create(bind=engine, checkfirst=True)
     WrittenTranslationProfile.__table__.create(bind=engine, checkfirst=True)
     InterpretationProfile.__table__.create(bind=engine, checkfirst=True)
@@ -1538,6 +1584,11 @@ def run_runtime_migrations():
     ProjectManagerHandoverRequest.__table__.create(bind=engine, checkfirst=True)
     InterpretationLanguage.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_language_columns()
+    InterpretationLanguageAlias.__table__.create(bind=engine, checkfirst=True)
+    ResourceEducationExperience.__table__.create(bind=engine, checkfirst=True)
+    ResourceLanguageSkill.__table__.create(bind=engine, checkfirst=True)
+    ResourceCertificate.__table__.create(bind=engine, checkfirst=True)
+    ResourcePersonAttachment.__table__.create(bind=engine, checkfirst=True)
     InterpretationProject.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_status_history_seed()

@@ -4,7 +4,8 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,8 @@ from resource_schemas import (
     ResourcePersonNameUpdate,
     ResourcePersonStatusUpdate,
     ResourcePersonUpdate,
+    TalentAttachmentResponse,
+    TalentProjectHistoryResponse,
 )
 from resource_service import (
     TalentDuplicateError,
@@ -26,14 +29,20 @@ from resource_service import (
     delete_talent,
     find_duplicate_talents,
     get_talent,
+    get_talent_project_history,
     get_talents,
     update_recruitment_talent,
     update_talent,
     update_talent_name,
     update_talent_status,
 )
-from routers.auth import require_any_role, require_module_access
-from resource_models import ResourcePerson
+from routers.auth import get_current_user, require_any_role, require_module_access
+from resource_models import ResourcePerson, ResourcePersonAttachment
+from talent_attachment_service import (
+    attachment_path,
+    delete_talent_attachment,
+    save_talent_attachment,
+)
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
 
@@ -64,6 +73,7 @@ TALENT_FILTER_FIELDS = {
     "annotation_language_directions", "industries", "job_titles", "years_experience",
     "status", "cooperation_type", "primary_phone", "primary_email", "gender", "age",
     "native_place", "residence_address", "dialects", "dialect_regions", "nationality",
+    "employment_status", "highest_education", "language_skills", "certificate_received",
     "overall_rating", "first_contact_date", "updated_at", "duplicate_review_required",
 }
 
@@ -72,8 +82,8 @@ def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TALENT_FILTER_FIELDS)
     ranges = {"years_experience", "age", "first_contact_date", "updated_at"}
-    enums = {"capability_types", "status", "cooperation_type"}
-    booleans = {"duplicate_review_required"}
+    enums = {"capability_types", "status", "cooperation_type", "employment_status", "highest_education"}
+    booleans = {"duplicate_review_required", "certificate_received"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
     return value
 
@@ -219,6 +229,60 @@ def read_talent(person_id: UUID, db: Session = Depends(get_db)):
     return person
 
 
+@router.get("/{person_id}/projects", response_model=List[TalentProjectHistoryResponse])
+def read_talent_projects(person_id: UUID, db: Session = Depends(get_db)):
+    if not db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first():
+        raise HTTPException(status_code=404, detail="人才档案不存在")
+    return get_talent_project_history(db, person_id)
+
+
+@router.post(
+    "/{person_id}/attachments", response_model=TalentAttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_talent_attachment(
+    person_id: UUID,
+    category: str = Form(...),
+    certificate_id: Optional[UUID] = Form(None),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        return await save_talent_attachment(
+            db, person_id, category, file,
+            uploaded_by=current_user.id, certificate_id=certificate_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/{person_id}/attachments/{attachment_id}")
+def download_talent_attachment(
+    person_id: UUID, attachment_id: UUID, db: Session = Depends(get_db),
+):
+    row = db.query(ResourcePersonAttachment).filter(
+        ResourcePersonAttachment.id == attachment_id,
+        ResourcePersonAttachment.person_id == person_id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="人才附件不存在")
+    path = attachment_path(row.storage_name)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="人才附件文件不存在")
+    return FileResponse(path, media_type=row.content_type, filename=row.original_name)
+
+
+@router.delete("/{person_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_talent_attachment(
+    person_id: UUID, attachment_id: UUID, db: Session = Depends(get_db),
+):
+    if not delete_talent_attachment(db, person_id, attachment_id):
+        raise HTTPException(status_code=404, detail="人才附件不存在")
+
+
 @router.put("/{person_id}", response_model=ResourcePersonDetailResponse)
 def update_talent_endpoint(
     person_id: UUID, payload: ResourcePersonUpdate, db: Session = Depends(get_db)
@@ -312,6 +376,10 @@ recruitment_router.add_api_route(
 )
 recruitment_router.add_api_route(
     "/{person_id}", read_talent, methods=["GET"], response_model=ResourcePersonDetailResponse
+)
+recruitment_router.add_api_route(
+    "/{person_id}/projects", read_talent_projects, methods=["GET"],
+    response_model=List[TalentProjectHistoryResponse],
 )
 recruitment_router.add_api_route(
     "/{person_id}", update_recruitment_talent_endpoint, methods=["PUT"],

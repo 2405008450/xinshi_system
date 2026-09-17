@@ -5,6 +5,7 @@
 """
 
 import re
+import unicodedata
 from typing import Optional
 
 
@@ -116,6 +117,33 @@ LANGUAGE_SEARCH_SHORTCUTS = {
 
 LANGUAGE_PAIR_SPLIT_PATTERN = re.compile(r"[；;，,、\n]+")
 LANGUAGE_LABEL_FORBIDDEN_PATTERN = re.compile(r"[→；;,，、\r\n]")
+
+LANGUAGE_ENGLISH_NAMES = {
+    "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional, Taiwan)",
+    "zh-HK": "Chinese (Traditional, Hong Kong)", "en-US": "English (United States)",
+    "en-GB": "English (United Kingdom)", "es-419": "Spanish (Latin America)",
+    "es-ES": "Spanish (Spain)", "pt-BR": "Portuguese (Brazil)",
+    "pt-PT": "Portuguese (Portugal)", "fr-FR": "French (France)",
+    "fr-CA": "French (Canada)", "de-DE": "German", "it-IT": "Italian",
+    "nl-NL": "Dutch", "ru-RU": "Russian", "uk-UA": "Ukrainian",
+    "pl-PL": "Polish", "cs-CZ": "Czech", "sk-SK": "Slovak",
+    "hu-HU": "Hungarian", "ro-RO": "Romanian", "bg-BG": "Bulgarian",
+    "sr-Latn": "Serbian (Latin)", "sr-Cyrl": "Serbian (Cyrillic)",
+    "el-GR": "Greek", "tr-TR": "Turkish", "sv-SE": "Swedish",
+    "da-DK": "Danish", "nb-NO": "Norwegian Bokmal", "fi-FI": "Finnish",
+    "is-IS": "Icelandic", "ja-JP": "Japanese", "ko-KR": "Korean",
+    "vi-VN": "Vietnamese", "th-TH": "Thai", "id-ID": "Indonesian",
+    "ms-MY": "Malay", "hi-IN": "Hindi", "bn-BD": "Bengali",
+    "ar-MSA": "Modern Standard Arabic", "he-IL": "Hebrew", "fa-IR": "Persian",
+    "ur-PK": "Urdu", "kk-KZ": "Kazakh", "mn-MN": "Mongolian (Cyrillic)",
+    "bo-CN": "Tibetan", "my-MM": "Burmese", "km-KH": "Khmer", "lo-LA": "Lao",
+}
+
+
+def normalize_language_search_text(value: object) -> str:
+    """生成语言名称和别名的大小写、宽度及常见分隔符无关搜索键。"""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold().strip()
+    return re.sub(r"[\s_./()（）·-]+", "", normalized)
 
 
 def compact_language_name(value: object) -> str:

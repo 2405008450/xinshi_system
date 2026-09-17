@@ -31,10 +31,26 @@ export const patchTalentName = (id, fullName) => api.patch(`/talents/${id}/name`
 export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/status`, toApi({ status })).then(fromApi)
 export const deleteTalent = (id) => api.delete(`/talents/${id}`)
 export const checkTalentDuplicates = (params) => api.get('/talents/duplicates', { params }).then(fromApi)
+export const getTalentProjects = (id) => api.get(`/talents/${id}/projects`).then(fromApi)
+export const uploadTalentAttachment = (id, category, file, certificateId = null) => {
+  const form = new FormData()
+  form.append('category', category)
+  if (certificateId) form.append('certificate_id', certificateId)
+  form.append('file', file)
+  return api.post(`/talents/${id}/attachments`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(fromApi)
+}
+export const getTalentAttachmentBlob = (id, attachmentId) => api.get(
+  `/talents/${id}/attachments/${attachmentId}`,
+  { responseType: 'blob' },
+)
+export const deleteTalentAttachment = (id, attachmentId) => api.delete(`/talents/${id}/attachments/${attachmentId}`)
 
 export const getRecruitmentTalents = (params, config = {}) => api.get('/recruitment-talents/', { ...config, params }).then(fromApi)
 export const getRecruitmentTalentCount = (params, config = {}) => api.get('/recruitment-talents/count', { ...config, params })
 export const getRecruitmentTalent = (id) => api.get(`/recruitment-talents/${id}`).then(fromApi)
+export const getRecruitmentTalentProjects = (id) => api.get(`/recruitment-talents/${id}/projects`).then(fromApi)
 export const createRecruitmentTalent = (data) => api.post('/recruitment-talents/', toApi(data)).then(fromApi)
 export const updateRecruitmentTalent = (id, data) => api.put(`/recruitment-talents/${id}`, toApi(data)).then(fromApi)
 export const patchRecruitmentTalentStatus = (id, status) => api.patch(`/recruitment-talents/${id}/status`, toApi({ status })).then(fromApi)

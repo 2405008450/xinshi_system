@@ -45,6 +45,14 @@ class InterpretationLanguage(Base):
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     label: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[Optional[str]] = mapped_column(String(30))
+    name_zh: Mapped[Optional[str]] = mapped_column(String(100))
+    name_en: Mapped[Optional[str]] = mapped_column(String(100))
+    short_name_zh: Mapped[Optional[str]] = mapped_column(String(50))
+    short_name_en: Mapped[Optional[str]] = mapped_column(String(50))
+    language_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'language'")
+    )
     is_custom: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
@@ -62,6 +70,34 @@ class InterpretationLanguage(Base):
 
     creator: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[created_by])
     updater: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[updated_by])
+    aliases: Mapped[list["InterpretationLanguageAlias"]] = relationship(
+        back_populates="language", cascade="all, delete-orphan"
+    )
+
+
+class InterpretationLanguageAlias(Base):
+    __tablename__ = "interpretation_language_alias"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="interpretation_language_alias_pkey"),
+        ForeignKeyConstraint(
+            ["language_id"], ["interpretation_language.id"], ondelete="CASCADE",
+            name="fk_interpretation_language_alias_language",
+        ),
+        UniqueConstraint("language_id", "normalized_alias", name="uq_interpretation_language_alias_value"),
+        Index("ix_interpretation_language_alias_normalized", "normalized_alias"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    alias: Mapped[str] = mapped_column(String(100), nullable=False)
+    normalized_alias: Mapped[str] = mapped_column(String(100), nullable=False)
+    alias_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'other'"))
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+
+    language: Mapped[InterpretationLanguage] = relationship(back_populates="aliases")
 
 
 class InterpretationProject(Base):

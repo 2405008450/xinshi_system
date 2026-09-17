@@ -17,8 +17,12 @@ from resource_models import (
     InterpretationProfile,
     ResourceAnnotationLanguageSkill,
     ResourceCapability,
+    ResourceCertificate,
     ResourceCareerProfile,
+    ResourceEducationExperience,
+    ResourceLanguageSkill,
     ResourcePerson,
+    ResourcePersonAttachment,
     WrittenTranslationProfile,
 )
 from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
@@ -50,6 +54,10 @@ _OWNED_PERSON_TABLES = {
     "resource_annotation_profile",
     "resource_annotation_language_skill",
     "resource_career_profile",
+    "resource_education_experience",
+    "resource_language_skill",
+    "resource_certificate",
+    "resource_person_attachment",
 }
 
 _REFERENCE_LABELS = {
@@ -94,6 +102,10 @@ def _person_options():
             ResourceAnnotationLanguageSkill.target_language
         ),
         joinedload(ResourcePerson.career_profile),
+        selectinload(ResourcePerson.education_experiences),
+        selectinload(ResourcePerson.language_skills).joinedload(ResourceLanguageSkill.language),
+        selectinload(ResourcePerson.certificates).joinedload(ResourceCertificate.language),
+        selectinload(ResourcePerson.attachments),
     )
 
 
@@ -145,6 +157,7 @@ def delete_talent(db: Session, person_id: UUID) -> bool:
             f"无法删除人才“{person.full_name}”：仍被{'、'.join(references)}引用。"
             "请先解除关联，或将人才状态改为停用以保留历史记录。"
         )
+    attachment_names = [item.storage_name for item in person.attachments]
     try:
         db.delete(person)
         db.commit()
@@ -153,6 +166,10 @@ def delete_talent(db: Session, person_id: UUID) -> bool:
         raise TalentDeleteConflictError(
             f"无法删除人才“{person.full_name}”：仍存在关联业务记录，请先解除关联或改为停用。"
         ) from exc
+    if attachment_names:
+        from talent_attachment_service import attachment_path
+        for storage_name in attachment_names:
+            attachment_path(storage_name).unlink(missing_ok=True)
     return True
 
 
@@ -181,8 +198,16 @@ def _talent_query(
         query = query.filter(or_(
             ResourcePerson.resource_code.ilike(pattern),
             ResourcePerson.full_name.ilike(pattern),
+            ResourcePerson.chinese_name.ilike(pattern),
+            ResourcePerson.english_name.ilike(pattern),
+            ResourcePerson.nickname.ilike(pattern),
+            cast(ResourcePerson.other_names, String).ilike(pattern),
             ResourcePerson.primary_phone.ilike(pattern),
             ResourcePerson.primary_email.ilike(pattern),
+            ResourcePerson.wechat.ilike(pattern),
+            ResourcePerson.whatsapp.ilike(pattern),
+            ResourcePerson.skype.ilike(pattern),
+            ResourcePerson.line.ilike(pattern),
             ResourcePerson.contact_info.ilike(pattern),
         ))
     if status:
@@ -210,6 +235,8 @@ def _talent_query(
         "primary_phone": (ResourcePerson.primary_phone, "string"),
         "primary_email": (ResourcePerson.primary_email, "string"),
         "gender": (ResourcePerson.gender, "string"),
+        "employment_status": (ResourcePerson.employment_status, "string"),
+        "highest_education": (ResourcePerson.highest_education, "string"),
         "native_place": (ResourcePerson.native_place, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
@@ -254,13 +281,30 @@ def _talent_query(
             minimum, maximum = descriptor.get("min"), descriptor.get("max")
             if minimum not in (None, ""):
                 cutoff = today.replace(year=today.year - int(minimum))
-                query = query.filter(ResourcePerson.birth_date <= cutoff)
+                month_cutoff = f"{cutoff.year:04d}-{cutoff.month:02d}"
+                query = query.filter(or_(
+                    ResourcePerson.birth_year_month <= month_cutoff,
+                    and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date <= cutoff),
+                ))
             if maximum not in (None, ""):
                 cutoff = today.replace(year=today.year - int(maximum) - 1)
-                query = query.filter(ResourcePerson.birth_date > cutoff)
+                month_cutoff = f"{cutoff.year:04d}-{cutoff.month:02d}"
+                query = query.filter(or_(
+                    ResourcePerson.birth_year_month > month_cutoff,
+                    and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date > cutoff),
+                ))
         elif field in {"dialects", "dialect_regions"}:
             column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
             query = query.filter(cast(column, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+        elif field == "language_skills":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(ResourcePerson.language_skills.any(
+                ResourceLanguageSkill.language.has(InterpretationLanguage.label.ilike(pattern))
+            ))
+        elif field == "certificate_received":
+            query = query.filter(ResourcePerson.certificates.any(
+                ResourceCertificate.material_received == bool(descriptor.get("value"))
+            ))
     return query.distinct()
 
 
@@ -283,6 +327,90 @@ def get_talents(db: Session, *, skip: int = 0, limit: int = 100, **filters) -> l
 
 def count_talents(db: Session, **filters) -> int:
     return _talent_query(db, **filters).count()
+
+
+def get_talent_project_history(db: Session, person_id: UUID) -> list[dict]:
+    """汇总人才在各业务项目中的真实关联，不接受手工维护。"""
+    from annotation_models import AnnotationProject, AnnotationProjectAssignee
+    from interpretation_models import InterpretationProject, InterpretationProjectInterpreter
+    from manuscript_models import ManuscriptArrangement
+    from models import TranslationProject, TranslationSubOrder, Translator
+    from recruitment_models import RecruitmentCandidate, RecruitmentProject
+
+    translator_ids = {
+        value for (value,) in db.query(Translator.id).filter(or_(
+            Translator.resource_person_id == person_id,
+            Translator.id == person_id,
+        )).all()
+    }
+    result: list[dict] = []
+    if translator_ids:
+        for project in db.query(TranslationProject).filter(
+            TranslationProject.translator_id.in_(translator_ids)
+        ).all():
+            result.append({
+                "project_type": "translation", "project_id": project.id,
+                "project_name": project.project_name, "order_no": project.order_no,
+                "role": "译员", "status": project.project_status,
+                "participated_at": project.created_at,
+            })
+        for sub_order in db.query(TranslationSubOrder).filter(
+            TranslationSubOrder.translator_id.in_(translator_ids)
+        ).all():
+            result.append({
+                "project_type": "translation", "project_id": sub_order.parent_project_id,
+                "project_name": sub_order.sub_project_name, "order_no": sub_order.sub_order_no,
+                "role": "译员", "status": getattr(sub_order, "status", None),
+                "participated_at": sub_order.created_at,
+            })
+        for assignment in db.query(ManuscriptArrangement).filter(
+            ManuscriptArrangement.translator_id.in_(translator_ids)
+        ).all():
+            result.append({
+                "project_type": "translation", "project_id": assignment.translation_project_id,
+                "project_name": assignment.project_name_snapshot,
+                "order_no": assignment.order_no_snapshot, "role": "稿件译员",
+                "status": assignment.status,
+                "participated_at": assignment.created_at,
+            })
+        for assignment, project in db.query(
+            InterpretationProjectInterpreter, InterpretationProject,
+        ).join(
+            InterpretationProject, InterpretationProject.id == InterpretationProjectInterpreter.project_id,
+        ).filter(InterpretationProjectInterpreter.translator_id.in_(translator_ids)).all():
+            result.append({
+                "project_type": "interpretation", "project_id": project.id,
+                "project_name": project.project_name, "order_no": project.order_no,
+                "role": "口译员", "status": project.project_status,
+                "participated_at": project.created_at,
+            })
+    for assignment, project in db.query(
+        AnnotationProjectAssignee, AnnotationProject,
+    ).join(AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id).filter(
+        AnnotationProjectAssignee.person_id == person_id,
+    ).all():
+        result.append({
+            "project_type": "annotation", "project_id": project.id,
+            "project_name": project.project_name, "order_no": project.order_no,
+            "role": assignment.assignment_role, "status": project.project_status,
+            "participated_at": assignment.created_at,
+        })
+    for candidate, project in db.query(
+        RecruitmentCandidate, RecruitmentProject,
+    ).join(RecruitmentProject, RecruitmentProject.id == RecruitmentCandidate.project_id).filter(
+        RecruitmentCandidate.person_id == person_id,
+    ).all():
+        result.append({
+            "project_type": "recruitment", "project_id": project.id,
+            "project_name": project.project_name, "order_no": project.order_no,
+            "role": "招聘候选人", "status": candidate.stage or project.project_status,
+            "participated_at": candidate.created_at,
+        })
+    unique = {}
+    for item in result:
+        key = (item["project_type"], item.get("project_id"), item.get("order_no"), item.get("role"))
+        unique[key] = item
+    return sorted(unique.values(), key=lambda item: item.get("participated_at") or datetime.min, reverse=True)
 
 
 def find_duplicate_talents(
@@ -401,6 +529,51 @@ def _sync_annotation_language_skills(db: Session, person: ResourcePerson, payloa
             )
 
 
+def _sync_display_name(person: ResourcePerson) -> None:
+    candidates = [
+        person.chinese_name, person.english_name, person.nickname,
+        *(person.other_names or []), person.full_name,
+    ]
+    person.full_name = next((str(value).strip() for value in candidates if str(value or "").strip()), "未命名人才")
+
+
+def _sync_owned_collections(db: Session, person: ResourcePerson, payload) -> None:
+    language_ids = {
+        item.language_id for item in payload.language_skills
+    } | {
+        item.language_id for item in payload.certificates if item.language_id is not None
+    }
+    if language_ids:
+        found = {
+            value for (value,) in db.query(InterpretationLanguage.id)
+            .filter(InterpretationLanguage.id.in_(language_ids)).all()
+        }
+        if found != language_ids:
+            raise ValueError("人才语言或证书中包含不存在的语种")
+
+    def sync(items, incoming, model):
+        existing = {item.id: item for item in items}
+        incoming_ids = {item.id for item in incoming if item.id is not None}
+        unknown = incoming_ids - set(existing)
+        if unknown:
+            raise ValueError("提交的数据包含不属于当前人才的子记录")
+        for row in list(items):
+            if row.id not in incoming_ids:
+                items.remove(row)
+        for value in incoming:
+            data = value.model_dump(exclude={"id"})
+            if value.id is None:
+                items.append(model(**data))
+            else:
+                row = existing[value.id]
+                for key, field_value in data.items():
+                    setattr(row, key, field_value)
+
+    sync(person.education_experiences, payload.education_experiences, ResourceEducationExperience)
+    sync(person.language_skills, payload.language_skills, ResourceLanguageSkill)
+    sync(person.certificates, payload.certificates, ResourceCertificate)
+
+
 def _legacy_translation_type(capability_types: set[str]) -> Optional[str]:
     if {"written_translation", "interpretation"}.issubset(capability_types):
         return "笔译/口译"
@@ -478,7 +651,8 @@ def create_talent(
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile",
+        "education_experiences", "language_skills", "certificates", "allow_duplicate",
     })
     person = ResourcePerson(
         duplicate_review_required=bool(duplicates and payload.allow_duplicate),
@@ -489,6 +663,8 @@ def create_talent(
     _sync_capabilities(db, person, payload)
     _sync_profiles(db, person, payload)
     _sync_annotation_language_skills(db, person, payload)
+    _sync_owned_collections(db, person, payload)
+    _sync_display_name(person)
     db.flush()
     _sync_legacy_translator(db, person)
     db.commit()
@@ -541,7 +717,8 @@ def update_talent(
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile",
+        "education_experiences", "language_skills", "certificates", "allow_duplicate",
     })
     for key, value in data.items():
         setattr(person, key, value)
@@ -550,6 +727,8 @@ def update_talent(
     _sync_capabilities(db, person, payload)
     _sync_profiles(db, person, payload)
     _sync_annotation_language_skills(db, person, payload)
+    _sync_owned_collections(db, person, payload)
+    _sync_display_name(person)
     person.updated_at = datetime.now()
     db.flush()
     _sync_legacy_translator(db, person)
@@ -571,7 +750,8 @@ def update_recruitment_talent(
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
-        "annotation_profile", "annotation_language_skills", "career_profile", "allow_duplicate",
+        "annotation_profile", "annotation_language_skills", "career_profile",
+        "education_experiences", "language_skills", "certificates", "allow_duplicate",
     })
     for key, value in data.items():
         setattr(person, key, value)
@@ -584,6 +764,8 @@ def update_recruitment_talent(
         else:
             for key, value in values.items():
                 setattr(person.career_profile, key, value)
+    _sync_owned_collections(db, person, payload)
+    _sync_display_name(person)
     person.updated_at = datetime.now()
     db.flush()
     _sync_legacy_translator(db, person)

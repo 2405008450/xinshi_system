@@ -13,6 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 CapabilityType = Literal["written_translation", "interpretation", "annotation"]
 ResourceStatus = Literal["active", "standby", "inactive"]
 InterpretationMode = Literal["simultaneous", "consecutive"]
+EducationLevel = Literal["associate", "bachelor", "second_degree", "master", "doctor"]
+HighestEducation = Literal[
+    "high_school_or_below", "secondary_vocational", "associate", "bachelor",
+    "master", "doctor", "other",
+]
+EmploymentStatus = Literal["student", "employed", "freelance", "seeking", "retired", "other"]
+LanguageRole = Literal["native", "foreign", "dialect_ethnic"]
+LanguageProficiency = Literal["very_familiar", "familiar", "basic", "listening_mainly", "listening_only"]
+CertificateType = Literal["language", "other"]
 
 
 def _clean_text(value):
@@ -116,9 +125,61 @@ class CareerProfileInput(BaseModel):
     _normalize_text = field_validator("expected_salary", "summary", mode="before")(_clean_text)
 
 
+class EducationExperienceInput(BaseModel):
+    id: Optional[UUID] = None
+    education_level: EducationLevel
+    institution: Optional[str] = None
+    institution_category: Optional[str] = None
+    major: Optional[str] = None
+    major_category: Optional[str] = None
+    graduation_year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    minor_major: Optional[str] = None
+    degree_name: Optional[str] = None
+    remarks: Optional[str] = None
+    sort_order: int = Field(default=0, ge=0)
+
+    _normalize_text = field_validator(
+        "institution", "institution_category", "major", "major_category",
+        "minor_major", "degree_name", "remarks", mode="before",
+    )(_clean_text)
+
+
+class LanguageSkillInput(BaseModel):
+    id: Optional[UUID] = None
+    language_id: UUID
+    role: LanguageRole
+    priority: int = Field(default=0, ge=0, le=9)
+    proficiency: Optional[LanguageProficiency] = None
+    remarks: Optional[str] = None
+    sort_order: int = Field(default=0, ge=0)
+
+    _normalize_remarks = field_validator("remarks", mode="before")(_clean_text)
+
+
+class CertificateInput(BaseModel):
+    id: Optional[UUID] = None
+    certificate_type: CertificateType
+    name: str = Field(min_length=1, max_length=255)
+    language_id: Optional[UUID] = None
+    issuer: Optional[str] = None
+    certificate_no: Optional[str] = None
+    issued_on: Optional[date] = None
+    material_received: bool = False
+    remarks: Optional[str] = None
+    sort_order: int = Field(default=0, ge=0)
+
+    _normalize_text = field_validator(
+        "name", "issuer", "certificate_no", "remarks", mode="before",
+    )(_clean_text)
+
+
 class ResourcePersonWrite(BaseModel):
     resource_code: Optional[str] = None
     full_name: str = Field(min_length=1, max_length=255)
+    chinese_name: Optional[str] = None
+    english_name: Optional[str] = None
+    nickname: Optional[str] = None
+    other_names: list[str] = Field(default_factory=list)
     cooperation_type: Optional[str] = None
     contact_info: Optional[str] = None
     primary_phone: Optional[str] = None
@@ -126,9 +187,14 @@ class ResourcePersonWrite(BaseModel):
     primary_email: Optional[str] = None
     secondary_email: Optional[str] = None
     other_contact: Optional[str] = None
+    wechat: Optional[str] = None
+    whatsapp: Optional[str] = None
+    skype: Optional[str] = None
+    line: Optional[str] = None
     resume_path: Optional[str] = None
     gender: Optional[str] = None
     birth_date: Optional[date] = None
+    birth_year_month: Optional[str] = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     native_place: Optional[str] = None
     residence_address: Optional[str] = None
     dialects: list[str] = Field(default_factory=list)
@@ -137,6 +203,16 @@ class ResourcePersonWrite(BaseModel):
     appearance: Optional[str] = None
     nationality: Optional[str] = None
     ethnicity: Optional[str] = None
+    employment_status: Optional[EmploymentStatus] = None
+    employment_detail: Optional[str] = None
+    student_stage: Optional[str] = None
+    enrollment_year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    program_duration_years: Optional[int] = Field(default=None, ge=1, le=15)
+    student_grade_override: Optional[str] = None
+    highest_education: Optional[HighestEducation] = None
+    annotation_experience: Optional[str] = None
+    interpretation_experience: Optional[str] = None
+    translation_experience: Optional[str] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
@@ -147,20 +223,25 @@ class ResourcePersonWrite(BaseModel):
     annotation_profile: Optional[AnnotationProfileInput] = None
     annotation_language_skills: list[AnnotationLanguageSkillInput] = Field(default_factory=list)
     career_profile: Optional[CareerProfileInput] = None
+    education_experiences: list[EducationExperienceInput] = Field(default_factory=list)
+    language_skills: list[LanguageSkillInput] = Field(default_factory=list)
+    certificates: list[CertificateInput] = Field(default_factory=list)
     allow_duplicate: bool = False
 
     @field_validator(
-        "resource_code", "full_name", "cooperation_type", "contact_info",
+        "resource_code", "full_name", "chinese_name", "english_name", "nickname",
+        "cooperation_type", "contact_info",
         "primary_phone", "secondary_phone", "primary_email", "secondary_email",
-        "other_contact", "resume_path", "gender", "native_place", "residence_address",
-        "height", "appearance",
-        "nationality", "ethnicity", "overall_rating", "remarks", mode="before",
+        "other_contact", "wechat", "whatsapp", "skype", "line", "resume_path", "gender",
+        "native_place", "residence_address", "height", "appearance", "nationality", "ethnicity",
+        "employment_detail", "student_stage", "student_grade_override", "annotation_experience",
+        "interpretation_experience", "translation_experience", "overall_rating", "remarks", mode="before",
     )
     @classmethod
     def normalize_text(cls, value):
         return _clean_text(value)
 
-    @field_validator("birth_date", mode="before")
+    @field_validator("birth_date", "birth_year_month", mode="before")
     @classmethod
     def normalize_birth_date(cls, value):
         return _blank_to_none(value)
@@ -191,6 +272,11 @@ class ResourcePersonWrite(BaseModel):
         }
         if len(language_keys) != len(self.annotation_language_skills):
             raise ValueError("标注语言方向不能重复")
+        skill_keys = {(item.language_id, item.role, item.priority) for item in self.language_skills}
+        if len(skill_keys) != len(self.language_skills):
+            raise ValueError("人才语言能力不能重复")
+        if self.employment_status == "student" and self.enrollment_year and not self.program_duration_years:
+            raise ValueError("填写入学年份后必须填写学制")
         return self
 
 
@@ -248,10 +334,51 @@ class CareerProfileResponse(CareerProfileInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EducationExperienceResponse(EducationExperienceInput):
+    id: UUID
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LanguageSkillResponse(LanguageSkillInput):
+    id: UUID
+    language_label: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CertificateResponse(CertificateInput):
+    id: UUID
+    language_label: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TalentAttachmentResponse(BaseModel):
+    id: UUID
+    certificate_id: Optional[UUID] = None
+    category: str
+    original_name: str
+    content_type: str
+    file_size: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TalentProjectHistoryResponse(BaseModel):
+    project_type: str
+    project_id: Optional[UUID] = None
+    project_name: Optional[str] = None
+    order_no: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[str] = None
+    participated_at: Optional[datetime] = None
+
+
 class ResourcePersonListResponse(BaseModel):
     id: UUID
     resource_code: Optional[str] = None
     full_name: str
+    chinese_name: Optional[str] = None
+    english_name: Optional[str] = None
+    nickname: Optional[str] = None
     cooperation_type: Optional[str] = None
     primary_phone: Optional[str] = None
     primary_email: Optional[str] = None
@@ -265,6 +392,13 @@ class ResourcePersonListResponse(BaseModel):
     years_experience: Optional[Decimal] = None
     gender: Optional[str] = None
     birth_date: Optional[date] = None
+    birth_year_month: Optional[str] = None
+    current_age: Optional[int] = None
+    employment_status: Optional[str] = None
+    current_student_grade: Optional[str] = None
+    highest_education: Optional[str] = None
+    education_summary: Optional[str] = None
+    language_summary: Optional[str] = None
     native_place: Optional[str] = None
     residence_address: Optional[str] = None
     dialects: list[str] = Field(default_factory=list)
@@ -292,16 +426,29 @@ class TalentOptionResponse(BaseModel):
 
 
 class ResourcePersonDetailResponse(ResourcePersonListResponse):
+    other_names: list[str] = Field(default_factory=list)
     contact_info: Optional[str] = None
     secondary_phone: Optional[str] = None
     secondary_email: Optional[str] = None
     other_contact: Optional[str] = None
+    wechat: Optional[str] = None
+    whatsapp: Optional[str] = None
+    skype: Optional[str] = None
+    line: Optional[str] = None
     resume_path: Optional[str] = None
     gender: Optional[str] = None
     height: Optional[str] = None
     appearance: Optional[str] = None
     nationality: Optional[str] = None
     ethnicity: Optional[str] = None
+    employment_detail: Optional[str] = None
+    student_stage: Optional[str] = None
+    enrollment_year: Optional[int] = None
+    program_duration_years: Optional[int] = None
+    student_grade_override: Optional[str] = None
+    annotation_experience: Optional[str] = None
+    interpretation_experience: Optional[str] = None
+    translation_experience: Optional[str] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
@@ -311,6 +458,10 @@ class ResourcePersonDetailResponse(ResourcePersonListResponse):
     annotation_profile: Optional[AnnotationProfileResponse] = None
     annotation_language_skills: list[AnnotationLanguageSkillResponse] = Field(default_factory=list)
     career_profile: Optional[CareerProfileResponse] = None
+    education_experiences: list[EducationExperienceResponse] = Field(default_factory=list)
+    language_skills: list[LanguageSkillResponse] = Field(default_factory=list)
+    certificates: list[CertificateResponse] = Field(default_factory=list)
+    attachments: list[TalentAttachmentResponse] = Field(default_factory=list)
 
 
 class DuplicateCandidateResponse(BaseModel):

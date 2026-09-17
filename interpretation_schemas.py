@@ -1,7 +1,7 @@
 """口译项目 API 数据契约。"""
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -372,6 +372,12 @@ class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
 
 class InterpretationLanguageCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
+    code: Optional[str] = Field(default=None, max_length=30)
+    name_zh: Optional[str] = Field(default=None, max_length=100)
+    name_en: Optional[str] = Field(default=None, max_length=100)
+    short_name_zh: Optional[str] = Field(default=None, max_length=50)
+    short_name_en: Optional[str] = Field(default=None, max_length=50)
+    language_type: Literal["language", "dialect", "ethnic_language"] = "language"
 
     @field_validator("label")
     @classmethod
@@ -400,6 +406,12 @@ class InterpretationLanguageUpdate(BaseModel):
 class InterpretationLanguageResponse(BaseModel):
     id: UUID
     label: str
+    code: Optional[str] = None
+    name_zh: Optional[str] = None
+    name_en: Optional[str] = None
+    short_name_zh: Optional[str] = None
+    short_name_en: Optional[str] = None
+    language_type: str = "language"
     is_custom: bool
     is_active: bool = True
     created_by: Optional[UUID] = None

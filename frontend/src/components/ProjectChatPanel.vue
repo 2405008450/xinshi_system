@@ -459,7 +459,13 @@
             </el-tag>
           </div>
           <div class="chat-composer__input-row">
-            <el-popover v-model:visible="mentionPopoverVisible" trigger="click" placement="top-start" :width="280">
+            <el-popover
+              v-model:visible="mentionPopoverVisible"
+              trigger="click"
+              placement="top-start"
+              :width="280"
+              @hide="handleMentionPopoverHide"
+            >
               <template #reference>
                 <el-button
                   class="chat-composer__at"
@@ -467,30 +473,40 @@
                   plain
                   aria-label="@提醒用户"
                   title="@提醒用户"
+                  @click="handleMentionButtonClick"
                 >
                   @
                 </el-button>
               </template>
-              <el-select
-                v-model="composer.mentionedUserIds"
-                multiple
-                filterable
-                collapse-tags
-                collapse-tags-tooltip
-                :multiple-limit="20"
-                placeholder="选择要提醒的用户"
-                style="width: 100%"
-              >
-                <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-              </el-select>
+              <div @keydown.esc.capture.stop.prevent="handleMentionEscape">
+                <el-select
+                  ref="mentionSelectRef"
+                  v-model="composer.mentionedUserIds"
+                  multiple
+                  filterable
+                  :automatic-dropdown="automaticMentionActive"
+                  collapse-tags
+                  collapse-tags-tooltip
+                  :multiple-limit="20"
+                  placeholder="选择要提醒的用户"
+                  style="width: 100%"
+                  @change="handleMentionSelectionChange"
+                >
+                  <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                </el-select>
+              </div>
             </el-popover>
             <el-input
               v-if="textOnly"
+              ref="composerInputRef"
               v-model="composer.content"
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 6 }"
               maxlength="10000"
               placeholder="Enter 发送，Shift+Enter 换行"
+              @input="handleComposerInput"
+              @compositionstart="handleComposerCompositionStart"
+              @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
             <RichTextComposer
@@ -611,6 +627,8 @@ const settingsLoading = ref(false)
 const toggleLoading = ref(false)
 const messagesLoading = ref(false)
 const chatListRef = ref(null)
+const composerInputRef = ref(null)
+const mentionSelectRef = ref(null)
 const sending = ref(false)
 const uploading = ref(false)
 const userOptions = ref([])
@@ -627,6 +645,10 @@ const conversationPageSize = 20
 const currentUserId = String(localStorage.getItem('user_id') || '')
 const conversationFiltersVisible = ref(false)
 const mentionPopoverVisible = ref(false)
+const automaticMentionActive = ref(false)
+const automaticMentionTriggerIndex = ref(-1)
+const mentionIdsAtAutomaticTrigger = ref(new Set())
+const composerIsComposing = ref(false)
 const loadingEarlier = ref(false)
 const pendingNewCount = ref(0)
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
@@ -648,6 +670,9 @@ const activeFilterCount = computed(() => [
   Array.isArray(filters.dateRange) && filters.dateRange.length === 2,
   filters.favoritesOnly
 ].filter(Boolean).length)
+const automaticMentionEnabled = computed(() => (
+  props.projectType === 'annotation' && props.textOnly && props.conversationMode
+))
 const eligibleProgressMessages = computed(() => messages.value.filter(message => String(message.content || '').trim()))
 const selectedProgressMessages = computed(() => eligibleProgressMessages.value.filter(message => selectedProgressMessageIds.value.has(String(message.id))))
 const selectedProgressCharacterCount = computed(() => selectedProgressMessages.value.reduce((total, message, index) => {
@@ -989,9 +1014,87 @@ const removeMention = (userId) => {
   composer.mentionedUserIds = composer.mentionedUserIds.filter(id => String(id) !== String(userId))
 }
 
+const resetAutomaticMentionTrigger = () => {
+  automaticMentionActive.value = false
+  automaticMentionTriggerIndex.value = -1
+  mentionIdsAtAutomaticTrigger.value = new Set()
+}
+
+const closeMentionPopover = () => {
+  mentionPopoverVisible.value = false
+  resetAutomaticMentionTrigger()
+}
+
+const handleMentionButtonClick = () => {
+  resetAutomaticMentionTrigger()
+}
+
+const handleMentionPopoverHide = () => {
+  resetAutomaticMentionTrigger()
+}
+
+const handleMentionEscape = () => {
+  closeMentionPopover()
+  nextTick(() => composerInputRef.value?.focus?.())
+}
+
+const activateAutomaticMention = async (triggerIndex) => {
+  automaticMentionActive.value = true
+  automaticMentionTriggerIndex.value = triggerIndex
+  mentionIdsAtAutomaticTrigger.value = new Set(composer.mentionedUserIds.map(id => String(id)))
+  mentionPopoverVisible.value = true
+  await ensureUsersLoaded()
+  await nextTick()
+  mentionSelectRef.value?.focus?.()
+}
+
+// 只识别刚在光标前输入的独立 @；排除邮箱、账号等英文字符紧邻的场景。
+const handleComposerInput = () => {
+  if (!automaticMentionEnabled.value || composerIsComposing.value || automaticMentionActive.value) return
+  nextTick(() => {
+    const textarea = composerInputRef.value?.textarea
+    const cursor = textarea?.selectionStart
+    if (!Number.isInteger(cursor) || cursor < 1 || composer.content[cursor - 1] !== '@') return
+    const previousCharacter = composer.content[cursor - 2] || ''
+    if (/[A-Za-z0-9._%+-]/.test(previousCharacter)) return
+    activateAutomaticMention(cursor - 1)
+  })
+}
+
+const handleComposerCompositionStart = () => {
+  composerIsComposing.value = true
+}
+
+const handleComposerCompositionEnd = () => {
+  composerIsComposing.value = false
+  handleComposerInput()
+}
+
+const handleMentionSelectionChange = (selectedUserIds) => {
+  if (!automaticMentionActive.value) return
+  const hasNewMention = selectedUserIds.some(id => !mentionIdsAtAutomaticTrigger.value.has(String(id)))
+  if (!hasNewMention) return
+
+  const triggerIndex = automaticMentionTriggerIndex.value
+  if (triggerIndex >= 0 && composer.content[triggerIndex] === '@') {
+    composer.content = `${composer.content.slice(0, triggerIndex)}${composer.content.slice(triggerIndex + 1)}`
+  }
+  closeMentionPopover()
+  nextTick(() => {
+    const textarea = composerInputRef.value?.textarea
+    composerInputRef.value?.focus?.()
+    const cursor = Math.min(Math.max(triggerIndex, 0), composer.content.length)
+    textarea?.setSelectionRange?.(cursor, cursor)
+  })
+}
+
 // Enter 发送、Shift+Enter 换行；中文输入法组词期间不触发发送。
 const handleComposerKeydown = (event) => {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  if (mentionPopoverVisible.value) {
+    event.preventDefault()
+    return
+  }
   event.preventDefault()
   handleSend()
 }
@@ -1011,7 +1114,8 @@ const resetChatState = () => {
   filters.favoritesOnly = false
   filterPopoverVisible.value = false
   conversationFiltersVisible.value = false
-  mentionPopoverVisible.value = false
+  closeMentionPopover()
+  composerIsComposing.value = false
   loadingEarlier.value = false
   pendingNewCount.value = 0
   clearProgressSelection(true)
@@ -1191,6 +1295,7 @@ const handleSend = async () => {
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserIds = []
     composer.attachments = []
+    closeMentionPopover()
     pagination.page = 1
     await loadMessages()
     ElMessage.success('消息已发送')
@@ -1314,6 +1419,8 @@ watch(() => props.active, () => {
   if (!props.active) {
     clearProgressSelection(true)
     closeProgressTextMenu()
+    closeMentionPopover()
+    composerIsComposing.value = false
   }
   setupPolling()
   if (props.active && props.projectId) {
@@ -2147,6 +2254,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-
-

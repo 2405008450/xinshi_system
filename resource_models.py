@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -55,6 +56,12 @@ class ResourcePerson(Base):
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     resource_code: Mapped[Optional[str]] = mapped_column(String(50))
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    chinese_name: Mapped[Optional[str]] = mapped_column(String(255))
+    english_name: Mapped[Optional[str]] = mapped_column(String(255))
+    nickname: Mapped[Optional[str]] = mapped_column(String(255))
+    other_names: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))
     contact_info: Mapped[Optional[str]] = mapped_column(String(500))
     primary_phone: Mapped[Optional[str]] = mapped_column(String(50))
@@ -62,9 +69,14 @@ class ResourcePerson(Base):
     primary_email: Mapped[Optional[str]] = mapped_column(String(255))
     secondary_email: Mapped[Optional[str]] = mapped_column(String(255))
     other_contact: Mapped[Optional[str]] = mapped_column(String(255))
+    wechat: Mapped[Optional[str]] = mapped_column(String(100))
+    whatsapp: Mapped[Optional[str]] = mapped_column(String(100))
+    skype: Mapped[Optional[str]] = mapped_column(String(100))
+    line: Mapped[Optional[str]] = mapped_column(String(100))
     resume_path: Mapped[Optional[str]] = mapped_column(Text)
     gender: Mapped[Optional[str]] = mapped_column(String(20))
     birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    birth_year_month: Mapped[Optional[str]] = mapped_column(String(7))
     native_place: Mapped[Optional[str]] = mapped_column(String(255))
     residence_address: Mapped[Optional[str]] = mapped_column(String(500))
     dialects: Mapped[list] = mapped_column(
@@ -77,6 +89,16 @@ class ResourcePerson(Base):
     appearance: Mapped[Optional[str]] = mapped_column(String(255))
     nationality: Mapped[Optional[str]] = mapped_column(String(100))
     ethnicity: Mapped[Optional[str]] = mapped_column(String(100))
+    employment_status: Mapped[Optional[str]] = mapped_column(String(30))
+    employment_detail: Mapped[Optional[str]] = mapped_column(String(500))
+    student_stage: Mapped[Optional[str]] = mapped_column(String(50))
+    enrollment_year: Mapped[Optional[int]] = mapped_column(Integer)
+    program_duration_years: Mapped[Optional[int]] = mapped_column(Integer)
+    student_grade_override: Mapped[Optional[str]] = mapped_column(String(50))
+    highest_education: Mapped[Optional[str]] = mapped_column(String(30))
+    annotation_experience: Mapped[Optional[str]] = mapped_column(Text)
+    interpretation_experience: Mapped[Optional[str]] = mapped_column(Text)
+    translation_experience: Mapped[Optional[str]] = mapped_column(Text)
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
     first_contact_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
@@ -111,6 +133,18 @@ class ResourcePerson(Base):
     career_profile: Mapped[Optional["ResourceCareerProfile"]] = relationship(
         back_populates="person", cascade="all, delete-orphan", uselist=False
     )
+    education_experiences: Mapped[list["ResourceEducationExperience"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan", order_by="ResourceEducationExperience.sort_order"
+    )
+    language_skills: Mapped[list["ResourceLanguageSkill"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan", order_by="ResourceLanguageSkill.sort_order"
+    )
+    certificates: Mapped[list["ResourceCertificate"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan", order_by="ResourceCertificate.sort_order"
+    )
+    attachments: Mapped[list["ResourcePersonAttachment"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan"
+    )
 
     @property
     def capability_types(self) -> list[str]:
@@ -141,6 +175,195 @@ class ResourcePerson(Base):
     @property
     def years_experience(self) -> Optional[Decimal]:
         return self.career_profile.years_experience if self.career_profile else None
+
+    @property
+    def current_age(self) -> Optional[int]:
+        today = datetime.date.today()
+        if self.birth_year_month:
+            try:
+                year, month = (int(part) for part in self.birth_year_month.split("-", 1))
+                return today.year - year - (today.month < month)
+            except (TypeError, ValueError):
+                pass
+        if self.birth_date:
+            return today.year - self.birth_date.year - (
+                (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
+            )
+        return None
+
+    @property
+    def current_student_grade(self) -> Optional[str]:
+        if self.employment_status != "student":
+            return None
+        if self.student_grade_override:
+            return self.student_grade_override
+        if not self.enrollment_year:
+            return None
+        today = datetime.date.today()
+        academic_year = today.year if today.month >= 9 else today.year - 1
+        grade = academic_year - self.enrollment_year + 1
+        if grade < 1:
+            return "未入学"
+        if self.program_duration_years and grade > self.program_duration_years:
+            return "已超过预计学制"
+        return f"大{grade}"
+
+    @property
+    def education_summary(self) -> Optional[str]:
+        label_map = {
+            "high_school_or_below": "高中及以下", "secondary_vocational": "中专/职高",
+            "associate": "专科", "bachelor": "本科", "master": "硕士研究生",
+            "doctor": "博士研究生", "other": "其他",
+        }
+        level = label_map.get(self.highest_education or "", self.highest_education)
+        rows = list(self.education_experiences or [])
+        school = next((item.institution for item in reversed(rows) if item.institution), None)
+        return " · ".join(value for value in (level, school) if value) or None
+
+    @property
+    def language_summary(self) -> Optional[str]:
+        rows = list(self.language_skills or [])
+        rows.sort(key=lambda item: (item.sort_order, item.priority))
+        labels = [item.language_label for item in rows if item.role in {"native", "foreign"}]
+        return " · ".join(dict.fromkeys(labels[:3])) or None
+
+
+class ResourceEducationExperience(Base):
+    __tablename__ = "resource_education_experience"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_education_experience_pkey"),
+        ForeignKeyConstraint(
+            ["person_id"], ["resource_person.id"], ondelete="CASCADE",
+            name="fk_resource_education_person",
+        ),
+        Index("ix_resource_education_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    education_level: Mapped[str] = mapped_column(String(30), nullable=False)
+    institution: Mapped[Optional[str]] = mapped_column(String(255))
+    institution_category: Mapped[Optional[str]] = mapped_column(String(100))
+    major: Mapped[Optional[str]] = mapped_column(String(255))
+    major_category: Mapped[Optional[str]] = mapped_column(String(100))
+    graduation_year: Mapped[Optional[int]] = mapped_column(Integer)
+    minor_major: Mapped[Optional[str]] = mapped_column(String(255))
+    degree_name: Mapped[Optional[str]] = mapped_column(String(255))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="education_experiences")
+
+
+class ResourceLanguageSkill(Base):
+    __tablename__ = "resource_language_skill"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_language_skill_pkey"),
+        ForeignKeyConstraint(
+            ["person_id"], ["resource_person.id"], ondelete="CASCADE",
+            name="fk_resource_language_skill_person",
+        ),
+        ForeignKeyConstraint(
+            ["language_id"], ["interpretation_language.id"], ondelete="RESTRICT",
+            name="fk_resource_language_skill_language",
+        ),
+        UniqueConstraint("person_id", "language_id", "role", "priority", name="uq_resource_language_skill_role"),
+        Index("ix_resource_language_skill_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    role: Mapped[str] = mapped_column(String(30), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    proficiency: Mapped[Optional[str]] = mapped_column(String(30))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="language_skills")
+    language = relationship("InterpretationLanguage")
+
+    @property
+    def language_label(self) -> str:
+        return self.language.label
+
+
+class ResourceCertificate(Base):
+    __tablename__ = "resource_certificate"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_certificate_pkey"),
+        ForeignKeyConstraint(
+            ["person_id"], ["resource_person.id"], ondelete="CASCADE",
+            name="fk_resource_certificate_person",
+        ),
+        ForeignKeyConstraint(
+            ["language_id"], ["interpretation_language.id"], ondelete="SET NULL",
+            name="fk_resource_certificate_language",
+        ),
+        Index("ix_resource_certificate_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    certificate_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    language_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    issuer: Mapped[Optional[str]] = mapped_column(String(255))
+    certificate_no: Mapped[Optional[str]] = mapped_column(String(100))
+    issued_on: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    material_received: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="certificates")
+    language = relationship("InterpretationLanguage")
+
+    @property
+    def language_label(self) -> Optional[str]:
+        return self.language.label if self.language else None
+
+
+class ResourcePersonAttachment(Base):
+    __tablename__ = "resource_person_attachment"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_person_attachment_pkey"),
+        ForeignKeyConstraint(
+            ["person_id"], ["resource_person.id"], ondelete="CASCADE",
+            name="fk_resource_attachment_person",
+        ),
+        ForeignKeyConstraint(
+            ["certificate_id"], ["resource_certificate.id"], ondelete="CASCADE",
+            name="fk_resource_attachment_certificate",
+        ),
+        ForeignKeyConstraint(
+            ["uploaded_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_resource_attachment_uploader",
+        ),
+        Index("ix_resource_attachment_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    certificate_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    category: Mapped[str] = mapped_column(String(30), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="attachments")
 
 
 class ResourceCapability(Base):

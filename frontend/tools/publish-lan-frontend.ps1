@@ -35,9 +35,16 @@ try {
     Push-Location $frontendPath
     try {
         if (-not $SkipInstall) {
-            & npm.cmd ci
-            if ($LASTEXITCODE -ne 0) {
-                throw "npm ci failed with exit code $LASTEXITCODE."
+            $savedErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & npm.cmd ci
+                $nativeExitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
+            if ($nativeExitCode -ne 0) {
+                throw "npm ci failed with exit code $nativeExitCode."
             }
         }
 
@@ -46,14 +53,28 @@ try {
             throw "Vite executable was not found: $vitePath"
         }
 
-        & $vitePath build --outDir $stagingPath --emptyOutDir
-        if ($LASTEXITCODE -ne 0) {
-            throw "Frontend build failed with exit code $LASTEXITCODE."
+        $savedErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $vitePath build --outDir $stagingPath --emptyOutDir
+            $nativeExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+        }
+        if ($nativeExitCode -ne 0) {
+            throw "Frontend build failed with exit code $nativeExitCode."
         }
 
-        & node.exe (Join-Path $frontendPath 'tools\check-build-budget.mjs') --dist-dir $stagingPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Build budget validation failed with exit code $LASTEXITCODE."
+        $savedErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & node.exe (Join-Path $frontendPath 'tools\check-build-budget.mjs') --dist-dir $stagingPath
+            $nativeExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+        }
+        if ($nativeExitCode -ne 0) {
+            throw "Build budget validation failed with exit code $nativeExitCode."
         }
     } finally {
         Pop-Location
@@ -70,17 +91,26 @@ try {
     Get-ChildItem -LiteralPath $stagingPath -File -Recurse |
         Where-Object { $_.FullName -ne $stagedIndexPath } |
         ForEach-Object {
-            $relativePath = $_.FullName.Substring($stagingPath.Length).TrimStart('\', '/')
+            $sourcePath = $_.FullName
+            $relativePath = $sourcePath.Substring($stagingPath.Length + 1)
             $destinationPath = Join-Path $liveDistPath $relativePath
             $destinationDirectory = Split-Path -Parent $destinationPath
-            New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-            Copy-Item -LiteralPath $_.FullName -Destination $destinationPath -Force
+            [System.IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
+            [System.IO.File]::Copy($sourcePath, $destinationPath, $true)
         }
 
     $indexHtml = Get-Content -LiteralPath $stagedIndexPath -Raw -Encoding UTF8
     $entryAssetMatches = [regex]::Matches($indexHtml, '(?:src|href)="/?(assets/[^"?]+)')
     foreach ($match in $entryAssetMatches) {
-        $entryAssetPath = Join-Path $liveDistPath $match.Groups[1].Value
+        $relativeEntryAssetPath = $match.Groups[1].Value
+        $stagedEntryAssetPath = Join-Path $stagingPath $relativeEntryAssetPath
+        $entryAssetPath = Join-Path $liveDistPath $relativeEntryAssetPath
+        if (-not (Test-Path -LiteralPath $stagedEntryAssetPath -PathType Leaf)) {
+            throw "Staged entry asset is missing: $stagedEntryAssetPath"
+        }
+
+        # 入口依赖再执行一次显式复制，避免 Windows 文件系统在大量流水线复制时偶发漏项。
+        [System.IO.File]::Copy($stagedEntryAssetPath, $entryAssetPath, $true)
         if (-not (Test-Path -LiteralPath $entryAssetPath -PathType Leaf)) {
             throw "Published entry asset is missing: $entryAssetPath"
         }
