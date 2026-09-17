@@ -67,6 +67,10 @@ test('人才资源库要求项目助理角色与读取权限同时满足', () =>
   assert.equal(canViewTalentResourceLibrary(), true)
   assert.equal(getDefaultRoute(), '/resource-management/recruitment-talents')
 
+  setAccess(['项目助理'], ['talents:read'])
+  assert.equal(canViewTalentResourceLibrary(), true)
+  assert.equal(getDefaultRoute(), '/resource-management/talent-overview')
+
   setAccess(['超级管理员'], [])
   assert.equal(canViewTalentResourceLibrary(), true)
   assert.equal(canAccessRoute({

@@ -14,19 +14,7 @@
       </div>
     </template>
 
-    <nav class="resource-nav" aria-label="人才资源分类">
-      <el-button
-        v-for="item in visibleResourceViews"
-        :key="item.path"
-        class="resource-nav__item"
-        :class="{ 'is-current': route.path === item.path }"
-        :aria-current="route.path === item.path ? 'page' : undefined"
-        text
-        @click="router.push(item.path)"
-      >
-        {{ item.label }}
-      </el-button>
-    </nav>
+    <TalentResourceNav />
 
     <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
@@ -197,7 +185,7 @@
 
 <script setup>
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
@@ -212,6 +200,7 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
+import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -219,15 +208,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
-const route = useRoute(); const router = useRouter()
-const resourceViews = [
-  {label:'人才总库',path:'/resource-management/talents',permissions:['talents:read','translators:read']},
-  {label:'笔译资源',path:'/resource-management/translators',permissions:['talents:read','translators:read']},
-  {label:'口译资源',path:'/resource-management/interpreters',permissions:['talents:read','translators:read']},
-  {label:'标注员',path:'/resource-management/annotators',permissions:['talents:read','translators:read']},
-  {label:'招聘人才库',path:'/resource-management/recruitment-talents',permissions:['recruitment_talents:read']}
-]
-const visibleResourceViews = resourceViews.filter(item => hasPermission(item.permissions))
+const route = useRoute()
 const pageTitle = computed(() => route.meta.title || '人才总库')
 const capabilityType = computed(() => route.meta.capabilityType || '')
 const isRecruitmentPool = computed(() => route.meta.talentApiScope === 'recruitment')
@@ -383,8 +364,8 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(fetchData);o
 </script>
 
 <style scoped>
-.card-header,.header-actions,.resource-nav,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.resource-nav{gap:6px;margin:-4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--el-border-color-lighter)}.resource-nav__item{margin-left:0!important;border:1px solid transparent!important;border-radius:var(--el-border-radius-base);color:var(--el-text-color-regular);font-weight:500;transition:color .2s ease,background-color .2s ease,border-color .2s ease,box-shadow .2s ease}.resource-nav__item:hover{border-color:var(--el-color-primary-light-8)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important}.resource-nav__item.is-current{border-color:var(--el-color-primary-light-7)!important;background:var(--el-color-primary-light-9)!important;color:var(--el-color-primary-dark-2)!important;font-weight:600;box-shadow:inset 0 -2px 0 var(--el-color-primary)}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}:deep(.talent-editor-dialog){display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
-@media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.resource-nav{align-items:flex-start;overflow-x:auto}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}}
+.card-header,.header-actions,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}:deep(.talent-editor-dialog){display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+@media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}}
 </style>
 
 <style>

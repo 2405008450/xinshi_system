@@ -135,7 +135,7 @@ export function getDefaultRoute() {
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'
   if (canViewTalentResourceLibrary()) {
-    if (hasPermission(['talents:read', 'translators:read'])) return '/resource-management/talents'
+    if (hasPermission(['talents:read', 'translators:read'])) return '/resource-management/talent-overview'
     if (hasPermission('recruitment_talents:read')) return '/resource-management/recruitment-talents'
   }
   if (hasPermission('finance:read')) return '/finance'

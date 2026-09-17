@@ -168,13 +168,19 @@ const routes = [
       {
         path: 'resource-management',
         component: () => import('../views/resource/ResourceManagement.vue'),
-        redirect: '/resource-management/talents',
+        redirect: '/resource-management/talent-overview',
         meta: {
           title: '资源管理',
           permissions: ['talents:read', 'translators:read', 'recruitment_talents:read'],
           roles: TALENT_RESOURCE_VIEW_ROLES
         },
         children: [
+          {
+            path: 'talent-overview',
+            name: 'TalentOverview',
+            component: () => import('../views/resource/TalentOverview.vue'),
+            meta: { title: '人才概览', permissions: ['talents:read', 'translators:read'] }
+          },
           {
             path: 'talents',
             name: 'Talents',

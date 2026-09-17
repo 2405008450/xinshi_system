@@ -233,7 +233,7 @@ const showConsultations = computed(() => hasPermission('consultations:read'))
 const showResourceManagement = computed(() => canViewTalentResourceLibrary())
 const resourceManagementPath = computed(() => (
   hasPermission(['talents:read', 'translators:read'])
-    ? '/resource-management/talents'
+    ? '/resource-management/talent-overview'
     : '/resource-management/recruitment-talents'
 ))
 const showResourceRequests = computed(() => canViewProjects.value)
