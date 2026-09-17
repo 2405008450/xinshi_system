@@ -253,6 +253,41 @@ class InterpretationProject(Base):
         return "；".join(value for value in values if value) or None
 
 
+class InterpretationProjectStatusHistory(Base):
+    """口译项目状态节点及节点下的具体进度。"""
+
+    __tablename__ = "interpretation_project_status_history"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="interpretation_project_status_history_pkey"),
+        ForeignKeyConstraint(
+            ["project_id"], ["interpretation_project.id"], ondelete="CASCADE",
+            name="fk_interpretation_status_history_project",
+        ),
+        ForeignKeyConstraint(
+            ["changed_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_interpretation_status_history_user",
+        ),
+        Index(
+            "ix_interpretation_status_history_timeline",
+            "project_id", text("effective_on DESC"), text("changed_at DESC"),
+        ),
+        Index("ix_interpretation_status_history_status_date", "to_status", "effective_on"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    from_status: Mapped[Optional[str]] = mapped_column(String(50))
+    to_status: Mapped[str] = mapped_column(String(50), nullable=False)
+    effective_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False)
+    changed_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    change_note: Mapped[Optional[str]] = mapped_column(Text)
+
+
 class InterpretationProjectTimeRange(Base):
     __tablename__ = "interpretation_project_time_range"
     __table_args__ = (

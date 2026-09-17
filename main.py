@@ -50,6 +50,7 @@ from routers import users, roles, translation_projects, interpretation_projects,
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
+    InterpretationProjectStatusHistory,
     InterpretationProjectDirectionExtraLanguage,
     InterpretationProjectInterpreter,
     InterpretationProjectLanguageDirection,
@@ -702,6 +703,24 @@ def migrate_annotation_follow_up_to_status_history():
         """))
 
 
+def ensure_interpretation_status_history_seed():
+    """为升级前已有口译项目补齐首条状态履历。"""
+    required = {"interpretation_project", "interpretation_project_status_history"}
+    if not required.issubset(set(inspect(engine).get_table_names())):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO interpretation_project_status_history
+                (project_id, from_status, to_status, effective_on, changed_by, changed_at)
+            SELECT p.id, NULL, p.project_status, p.created_at, p.created_by, p.created_at
+            FROM interpretation_project p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM interpretation_project_status_history h
+                WHERE h.project_id = p.id
+            )
+        """))
+
+
 def ensure_annotation_status_history_constraints():
     """扩展标注项目状态后，同步刷新既有状态履历表的检查约束。"""
     if "annotation_project_status_history" not in inspect(engine).get_table_names():
@@ -1349,7 +1368,7 @@ def ensure_multitype_workbench_schema():
             INSERT INTO project_workbench_responsibility (interpretation_project_id, role_code)
             SELECT p.id, r.role_code FROM interpretation_project p
             CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
-            WHERE p.project_status IN ('initial_follow_up', 'in_progress') ON CONFLICT DO NOTHING
+            WHERE p.project_status IN ('initial_follow_up', 'deal_pending_execution', 'in_progress') ON CONFLICT DO NOTHING
         """))
         conn.execute(text("""
             INSERT INTO project_workbench_responsibility (annotation_project_id, role_code)
@@ -1520,6 +1539,8 @@ def run_runtime_migrations():
     InterpretationLanguage.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_language_columns()
     InterpretationProject.__table__.create(bind=engine, checkfirst=True)
+    InterpretationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
+    ensure_interpretation_status_history_seed()
     InterpretationProjectTimeRange.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectLanguageDirection.__table__.create(bind=engine, checkfirst=True)
     InterpretationProjectDirectionExtraLanguage.__table__.create(bind=engine, checkfirst=True)

@@ -18,6 +18,7 @@ from interpretation_schemas import (
     InterpretationProjectCreate,
     InterpretationProjectDetailResponse,
     InterpretationProjectListResponse,
+    InterpretationProjectStatusHistoryResponse,
     InterpretationProjectStatusUpdate,
     InterpretationProjectUpdate,
 )
@@ -27,6 +28,7 @@ from interpretation_service import (
     delete_interpretation_project,
     get_interpretation_project,
     get_interpretation_projects,
+    list_interpretation_project_status_history,
     preview_interpretation_project_name,
     update_interpretation_project,
     update_interpretation_project_status,
@@ -310,6 +312,16 @@ def create_project(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get(
+    "/{project_id}/status-history",
+    response_model=List[InterpretationProjectStatusHistoryResponse],
+)
+def read_project_status_history(project_id: UUID, db: Session = Depends(get_db)):
+    if not db.get(InterpretationProject, project_id):
+        raise HTTPException(status_code=404, detail="口译项目不存在")
+    return list_interpretation_project_status_history(db, project_id)
+
+
 @router.get("/{project_id}", response_model=InterpretationProjectDetailResponse)
 def read_project(project_id: UUID, db: Session = Depends(get_db)):
     project = get_interpretation_project(db, project_id)
@@ -326,9 +338,10 @@ def update_project(
     project_id: UUID,
     payload: InterpretationProjectUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
-        project = update_interpretation_project(db, project_id, payload)
+        project = update_interpretation_project(db, project_id, payload, current_user.id)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
@@ -367,8 +380,21 @@ def update_project_status(
     project_id: UUID,
     payload: InterpretationProjectStatusUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
-    project = update_interpretation_project_status(db, project_id, payload.project_status)
+    try:
+        project = update_interpretation_project_status(
+            db,
+            project_id,
+            payload.project_status,
+            payload.effective_on,
+            payload.change_note,
+            current_user.id,
+            payload.progress_only,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not project:
         raise HTTPException(status_code=404, detail="口译项目不存在")
     return project

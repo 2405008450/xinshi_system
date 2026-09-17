@@ -205,11 +205,13 @@
           <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
-          <el-dropdown
-            v-if="column.key === 'projectStatus' && canWrite"
-            trigger="click"
-            :disabled="projectStatusSavingIds.has(row.id)"
-            @command="(command) => changeProjectStatus(row, command)"
+          <el-button
+            v-if="column.key === 'projectStatus'"
+            type="primary"
+            link
+            class="project-progress-link"
+            :loading="projectStatusSavingIds.has(row.id)"
+            @click.stop="openProgress(row)"
           >
             <el-tag
               :type="statusType(row.projectStatus)"
@@ -218,25 +220,9 @@
               :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
             >
               <span class="status-switch-text">{{ statusLabel(row.projectStatus) }}</span>
-              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
+              <el-icon class="status-switch-caret"><EditPen /></el-icon>
             </el-tag>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="item in statusOptions"
-                  :key="item.value"
-                  :command="item.value"
-                  :disabled="item.value === row.projectStatus || projectStatusSavingIds.has(row.id)"
-                >
-                  <span class="status-option-row">
-                    <el-tag :type="statusType(item.value)" size="small" effect="plain">{{ item.label }}</el-tag>
-                    <el-icon v-if="item.value === row.projectStatus" class="status-current-icon"><Check /></el-icon>
-                  </span>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)" size="small">{{ statusLabel(row.projectStatus) }}</el-tag>
+          </el-button>
           <el-popover
             v-else-if="column.key === 'clientShortName' && row.clientShortName"
             trigger="click"
@@ -307,7 +293,7 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
-          <span v-else-if="column.key === 'projectName'" class="project-name-ellipsis" :title="textValue(row.projectName)">{{ textValue(row.projectName) }}</span>
+          <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis" :title="textValue(row.projectName)" @click.stop="openProgress(row)">{{ textValue(row.projectName) }}</el-button>
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
       </el-table-column>
@@ -333,6 +319,99 @@
       @size-change="fetchData"
       @current-change="fetchData"
     />
+
+    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="interpretation-progress-dialog" @closed="resetProgressDialog">
+      <template #header>
+        <div class="progress-dialog-heading">
+          <span class="progress-dialog-title">项目进度</span>
+          <div class="progress-dialog-project">
+            <span class="progress-dialog-project__item" @mousedown.stop>
+              <span class="progress-dialog-project__label">订单号</span>
+              <span class="progress-dialog-project__order-no">{{ textValue(activeProgressProject?.orderNo) }}</span>
+            </span>
+            <span class="progress-dialog-project__separator" aria-hidden="true" />
+            <span class="progress-dialog-project__item progress-dialog-project__item--name" @mousedown.stop>
+              <span class="progress-dialog-project__label">项目名称</span>
+              <span class="progress-dialog-project__name" :title="textValue(activeProgressProject?.projectName)">{{ textValue(activeProgressProject?.projectName) }}</span>
+            </span>
+          </div>
+        </div>
+      </template>
+      <section v-if="canWrite" ref="progressEntryPanelRef" class="progress-entry-panel">
+        <div class="progress-entry-panel__header">
+          <div class="progress-entry-panel__title">
+            录入进度节点
+            <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
+          </div>
+          <div class="progress-entry-mode">
+            <span class="progress-entry-mode__label">记录类型</span>
+            <el-radio-group v-model="statusEntryMode" size="small" @change="handleStatusEntryModeChange">
+              <el-radio-button value="progress">补充进度</el-radio-button>
+              <el-radio-button value="status">切换状态</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
+        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="76px" size="small" class="progress-entry-form">
+          <el-row :gutter="14">
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
+                <el-select v-model="statusForm.projectStatus" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
+                  <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="statusEntryMode === 'status' && item.value === activeProgressProject?.projectStatus" />
+                </el-select>
+                <div v-if="statusEntryMode === 'progress'" class="progress-status-hint">仅展示项目已经流转到的状态，也可在下方流程节点直接点击“补充进度”</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="statusEntryMode === 'progress' ? '节点时间' : '生效时间'" prop="effectiveOn">
+                <el-date-picker v-model="statusForm.effectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
+            <div class="progress-note-control">
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '填写该时间节点的具体进展' : '填写本次项目状态变化的原因或说明'" />
+              <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
+            </div>
+          </el-form-item>
+        </AppForm>
+      </section>
+      <el-divider content-position="left">项目进度记录</el-divider>
+      <el-timeline v-loading="progressLoading" class="progress-timeline progress-timeline--grouped">
+        <el-timeline-item v-for="group in progressGroups" :key="group.key" placement="top" class="progress-stage-item" :class="{ 'is-progress-target': selectedProgressStageKey === group.key }">
+          <template #dot><span class="progress-stage-dot" /></template>
+          <div class="progress-stage-heading">
+            <div class="progress-stage-title">
+              <b>{{ statusLabel(group.status) }}</b>
+              <el-tag v-if="group.isCurrent" size="small" type="primary" effect="plain">当前状态</el-tag>
+              <el-button v-if="canWrite" type="primary" link size="small" class="progress-stage-add" @click="selectProgressStage(group)">补充进度</el-button>
+            </div>
+            <div class="progress-stage-meta">
+              <span>{{ formatDateTime(group.effectiveOn) }}</span>
+              <span v-if="group.synthetic">历史进度归档</span>
+              <span v-else-if="group.fromStatus">由“{{ statusLabel(group.fromStatus) }}”变更</span>
+              <span v-else>创建项目</span>
+              <span>{{ group.changedByName || '系统' }}</span>
+            </div>
+          </div>
+          <div v-if="group.children.length" class="progress-child-list">
+            <div v-for="child in group.children" :key="child.key" class="progress-child-item">
+              <span class="progress-child-dot" />
+              <div class="progress-child-content">
+                <div class="progress-child-note">{{ child.changeNote }}</div>
+                <div class="progress-child-meta">
+                  <span>{{ formatDateTime(child.effectiveOn) }}</span>
+                  <span>{{ child.changedByName || '系统' }}</span>
+                  <el-tag size="small" effect="plain">{{ child.kind === 'status-note' ? '变更说明' : '具体进度' }}</el-tag>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="progress-stage-empty">暂无具体进度</div>
+        </el-timeline-item>
+      </el-timeline>
+      <el-empty v-if="!progressLoading && !progressGroups.length" description="暂无项目进度记录" :image-size="80" />
+      <template #footer><el-button @click="progressVisible = false">关闭</el-button></template>
+    </DraggableFormDialog>
 
     <DraggableFormDialog
       v-model="dialogVisible"
@@ -589,7 +668,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CaretBottom, Check, MagicStick, Plus } from '@element-plus/icons-vue'
+import { EditPen, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
@@ -626,6 +705,7 @@ import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { groupProjectProgressRows } from '@/utils/annotationProgress'
 
 const canWrite = hasPermission('projects:write')
 const mailComposerVisible = ref(false)
@@ -636,6 +716,17 @@ const submitLoading = ref(false)
 let submitLocked = false
 const projectCreateIdempotencyKey = ref('')
 const projectStatusSavingIds = ref(new Set())
+const progressVisible = ref(false)
+const progressLoading = ref(false)
+const statusSubmitting = ref(false)
+const activeProgressProject = ref(null)
+const progressRows = ref([])
+const statusFormRef = ref(null)
+const progressEntryPanelRef = ref(null)
+const progressNoteInputRef = ref(null)
+const statusEntryMode = ref('progress')
+const selectedProgressStageKey = ref('')
+const statusForm = reactive({ projectStatus: '', effectiveOn: '', changeNote: '' })
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
 const dialogVisible = ref(false)
@@ -698,6 +789,7 @@ const projectTypeOptions = [
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value, item.label]))
 const statusOptions = [
   { value: 'initial_follow_up', label: '初步跟进中' },
+  { value: 'deal_pending_execution', label: '已成交待执行' },
   { value: 'in_progress', label: '进行中' },
   { value: 'cancelled', label: '已取消' },
   { value: 'partially_cancelled', label: '已部分取消' },
@@ -705,6 +797,26 @@ const statusOptions = [
   { value: 'settled', label: '已结款' },
 ]
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value, item.label]))
+const progressGroups = computed(() => groupProjectProgressRows(progressRows.value, activeProgressProject.value?.projectStatus))
+const progressStatusOptions = computed(() => {
+  const reached = new Set(progressGroups.value.map((group) => group.status))
+  if (activeProgressProject.value?.projectStatus) reached.add(activeProgressProject.value.projectStatus)
+  return statusOptions.filter((item) => reached.has(item.value))
+})
+const availableEntryStatusOptions = computed(() => statusEntryMode.value === 'progress' ? progressStatusOptions.value : statusOptions)
+const statusRules = {
+  projectStatus: [
+    { required: true, message: '请选择项目状态', trigger: 'change' },
+    { validator: (_rule, value, callback) => statusEntryMode.value === 'status' && value === activeProgressProject.value?.projectStatus ? callback(new Error('新状态不能与当前状态相同')) : callback(), trigger: 'change' },
+  ],
+  effectiveOn: [{ required: true, message: '请选择节点时间', trigger: 'change' }],
+  changeNote: [{ validator: (_rule, value, callback) => {
+    const note = String(value || '').trim()
+    if (!note) return callback(new Error(statusEntryMode.value === 'progress' ? '请填写具体进度' : '请填写变更说明'))
+    const maxLength = statusEntryMode.value === 'progress' ? 10000 : 500
+    return note.length <= maxLength ? callback() : callback(new Error(`${statusEntryMode.value === 'progress' ? '具体进度' : '变更说明'}不能超过 ${maxLength} 字`))
+  }, trigger: ['blur', 'change'] }],
+}
 const ratingOptions = [
   { value: 'very_satisfied', label: '非常满意' },
   { value: 'satisfied', label: '满意' },
@@ -902,7 +1014,7 @@ const selectableLanguages = computed(() => languages.value.filter(
 ))
 
 const statusLabel = (value) => statusMap[value] || value || '-'
-const statusType = (value) => ({ initial_follow_up: 'warning', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
+const statusType = (value) => ({ initial_follow_up: 'warning', deal_pending_execution: 'primary', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
 const internalRolesText = (row) => {
   const labels = { project_manager: '项目经理', project_specialist: '项目专员', project_assistant: '项目助理' }
@@ -1342,19 +1454,96 @@ const setProjectStatusSaving = (id, saving) => {
   else next.delete(id)
   projectStatusSavingIds.value = next
 }
-const changeProjectStatus = async (row, value) => {
-  if (!value || value === row.projectStatus) return
-  setProjectStatusSaving(row.id, true)
+const padDatePart = (value) => String(value).padStart(2, '0')
+const localDateTimeValue = (value = new Date()) => (
+  `${value.getFullYear()}-${padDatePart(value.getMonth() + 1)}-${padDatePart(value.getDate())} ${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}:00`
+)
+const resetProgressDialog = () => {
+  activeProgressProject.value = null
+  progressRows.value = []
+  selectedProgressStageKey.value = ''
+  statusEntryMode.value = 'progress'
+  Object.assign(statusForm, { projectStatus: '', effectiveOn: '', changeNote: '' })
+  statusFormRef.value?.clearValidate()
+}
+const handleStatusEntryModeChange = (mode) => {
+  selectedProgressStageKey.value = ''
+  Object.assign(statusForm, {
+    projectStatus: mode === 'progress' ? (activeProgressProject.value?.projectStatus || '') : '',
+    effectiveOn: localDateTimeValue(),
+    changeNote: '',
+  })
+  statusFormRef.value?.clearValidate()
+}
+const handleProgressStatusSelect = () => {
+  if (statusEntryMode.value === 'progress') selectedProgressStageKey.value = ''
+}
+const selectProgressStage = async (group) => {
+  statusEntryMode.value = 'progress'
+  selectedProgressStageKey.value = group.key
+  Object.assign(statusForm, { projectStatus: group.status, effectiveOn: localDateTimeValue(), changeNote: '' })
+  statusFormRef.value?.clearValidate()
+  await nextTick()
+  progressEntryPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  progressNoteInputRef.value?.focus?.()
+}
+const loadProgressHistory = async (projectId) => {
+  const history = await projectApi.getInterpretationProjectStatusHistory(projectId)
+  progressRows.value = Array.isArray(history) ? history : []
+}
+const openProgress = async (row) => {
+  activeProgressProject.value = row
+  progressRows.value = []
+  statusEntryMode.value = 'progress'
+  selectedProgressStageKey.value = ''
+  Object.assign(statusForm, { projectStatus: row.projectStatus || '', effectiveOn: localDateTimeValue(), changeNote: '' })
+  progressVisible.value = true
+  progressLoading.value = true
+  await nextTick()
+  statusFormRef.value?.clearValidate()
   try {
-    const updated = await projectApi.updateInterpretationProjectStatus(row.id, value)
-    Object.assign(row, updated)
-    detailCache[row.id] = updated
-    ElMessage.success('项目状态已更新')
-    if (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
+    const [detail] = await Promise.all([loadDetail(row.id), loadProgressHistory(row.id)])
+    if (detail) {
+      activeProgressProject.value = detail
+      statusForm.projectStatus = detail.projectStatus || statusForm.projectStatus
+    }
   } catch (error) {
-    ElMessage.error(error?.detail || '项目状态更新失败')
+    ElMessage.error(error?.detail || '进度记录加载失败')
   } finally {
-    setProjectStatusSaving(row.id, false)
+    progressLoading.value = false
+  }
+}
+const confirmStatusChange = async () => {
+  const project = activeProgressProject.value
+  if (!project) return
+  const valid = await statusFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  const progressOnly = statusEntryMode.value === 'progress'
+  const selectedStatus = statusForm.projectStatus
+  statusSubmitting.value = true
+  setProjectStatusSaving(project.id, true)
+  try {
+    const updated = await projectApi.updateInterpretationProjectStatus(project.id, {
+      ...statusForm,
+      changeNote: statusForm.changeNote.trim(),
+      progressOnly,
+    })
+    const row = tableData.value.find((item) => item.id === project.id)
+    if (row) Object.assign(row, updated)
+    activeProgressProject.value = updated
+    detailCache[project.id] = updated
+    await loadProgressHistory(project.id)
+    statusForm.projectStatus = progressOnly ? selectedStatus : updated.projectStatus
+    statusForm.changeNote = ''
+    await nextTick()
+    statusFormRef.value?.clearValidate()
+    ElMessage.success(progressOnly ? '具体进度已添加' : '项目状态已更新')
+    if (!progressOnly && searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
+  } catch (error) {
+    ElMessage.error(error?.detail || (progressOnly ? '添加具体进度失败' : '项目状态更新失败'))
+  } finally {
+    statusSubmitting.value = false
+    setProjectStatusSaving(project.id, false)
   }
 }
 const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate(); clearFieldSearch() }
@@ -1451,6 +1640,42 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .interpreter-requirement-group { margin: 4px 0 16px; padding: 14px 14px 0; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-light); }
 .requirement-group-title { margin-bottom: 12px; color: var(--el-text-color-regular); font-weight: 600; }
 .repeat-title { margin-bottom: 8px; color: var(--el-text-color-regular); font-weight: 600; }
+.project-progress-link { height: auto; padding: 0; }
+.progress-dialog-heading { display: flex; min-width: 0; align-items: baseline; gap: 16px; padding-right: 36px; }
+.progress-dialog-title { flex: none; color: var(--el-text-color-primary); font-size: 18px; font-weight: 600; }
+.progress-dialog-project { display: flex; min-width: 0; align-items: baseline; gap: 10px; color: var(--el-text-color-secondary); font-size: 12px; }
+.progress-dialog-project__item { display: inline-flex; min-width: 0; align-items: baseline; gap: 5px; cursor: text; user-select: text; }
+.progress-dialog-project__item--name { flex: 1; }
+.progress-dialog-project__label { flex: none; color: var(--el-text-color-placeholder); }
+.progress-dialog-project__order-no { color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
+.progress-dialog-project__name { min-width: 0; overflow: hidden; color: var(--el-text-color-regular); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.progress-dialog-project__separator { width: 1px; height: 12px; flex: none; background: var(--el-border-color); }
+.progress-entry-panel { padding: 12px 14px 4px; border: 1px solid var(--el-color-primary-light-7); border-radius: 8px; background: var(--el-color-primary-light-9); scroll-margin-top: 16px; }
+.progress-entry-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.progress-entry-panel__title { min-width: 0; color: var(--el-text-color-primary); font-weight: 600; white-space: nowrap; }
+.progress-entry-panel__selection { color: var(--el-color-primary); }
+.progress-entry-mode { display: flex; flex: none; align-items: center; gap: 8px; }
+.progress-entry-mode__label { color: var(--el-text-color-secondary); font-size: 12px; }
+.progress-entry-form :deep(.el-form-item) { margin-bottom: 10px; }
+.progress-status-hint { width: 100%; margin-top: 3px; color: var(--el-text-color-secondary); font-size: 11px; line-height: 1.35; }
+.progress-note-control { display: flex; width: 100%; align-items: flex-end; gap: 10px; }
+.progress-note-control .el-textarea { min-width: 0; flex: 1; }
+.progress-note-control .el-button { flex: none; }
+.progress-timeline { padding: 4px 0 0 8px; }
+.progress-stage-item { padding-bottom: 24px; }
+.progress-stage-item.is-progress-target .progress-stage-heading { margin-left: -8px; padding-left: 8px; border-radius: 6px; background: var(--el-color-primary-light-9); }
+.progress-stage-dot { display: block; width: 16px; height: 16px; border: 3px solid var(--el-color-primary-light-5); border-radius: 50%; background: var(--el-color-primary); }
+.progress-stage-heading { padding: 1px 0 10px; transition: background-color .15s ease; }
+.progress-stage-title { display: flex; align-items: center; gap: 8px; font-size: 16px; line-height: 1.5; }
+.progress-stage-add { margin-left: auto; }
+.progress-stage-meta, .progress-child-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--el-text-color-secondary); font-size: 12px; }
+.progress-stage-meta { margin-top: 4px; }
+.progress-child-list { margin: 2px 0 0 10px; padding-left: 20px; border-left: 1px dashed var(--el-border-color); }
+.progress-child-item { position: relative; padding: 8px 0 8px 8px; }
+.progress-child-dot { position: absolute; top: 15px; left: -25px; width: 8px; height: 8px; border: 2px solid var(--el-color-primary-light-5); border-radius: 50%; background: #fff; }
+.progress-child-note { color: var(--el-text-color-primary); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.progress-child-meta { margin-top: 5px; }
+.progress-stage-empty { margin: 2px 0 0 18px; color: var(--el-text-color-placeholder); font-size: 12px; }
 .status-switch-tag.el-tag { display: inline-flex; min-width: 92px; max-width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; cursor: pointer; user-select: none; vertical-align: middle; transition: opacity .15s ease; }
 .status-switch-tag :deep(.el-tag__content) { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; line-height: 1; }
 .status-switch-text { line-height: 1; }
@@ -1490,6 +1715,11 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
 .interpretation-editor-dialog .el-dialog__footer { flex: 0 0 auto; }
 .interpretation-editor-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; padding-top: 12px; }
 .interpretation-editor-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.04); }
+.interpretation-progress-dialog { display: flex; max-height: 90vh; flex-direction: column; overflow: hidden; }
+.interpretation-progress-dialog .el-dialog__header,
+.interpretation-progress-dialog .el-dialog__footer { flex: none; }
+.interpretation-progress-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
+.interpretation-progress-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.04); }
 .language-manager-dialog { display: flex; max-height: 84vh; flex-direction: column; overflow: hidden; }
 .language-manager-dialog .el-dialog__header,
 .language-manager-dialog .el-dialog__footer { flex: 0 0 auto; }
@@ -1499,5 +1729,13 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); 
   .interpretation-card .search-form .el-input, .interpretation-card .search-form .el-select { width: 100% !important; }
   .location-panel__header { align-items: flex-start; flex-direction: column; }
   .location-panel__header .el-button { width: 100%; }
+  .progress-dialog-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .progress-dialog-project { width: 100%; align-items: flex-start; flex-direction: column; gap: 3px; }
+  .progress-dialog-project__separator { display: none; }
+  .progress-dialog-project__name { white-space: normal; word-break: break-word; }
+  .progress-entry-panel__header { align-items: flex-start; flex-direction: column; }
+  .progress-entry-mode { width: 100%; justify-content: space-between; }
+  .progress-note-control { align-items: stretch; flex-direction: column; }
+  .progress-note-control .el-button { align-self: flex-end; }
 }
 </style>

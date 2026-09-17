@@ -936,8 +936,16 @@
               <div class="intake-list-field">
                 <div class="intake-list-header intake-list-header--field intake-list-header--actions-only"><el-button link type="primary" @click="addIntakeTimeRange">增加时段</el-button></div>
                 <div v-for="(item,index) in form.project_intake.time_ranges" :key="index" class="intake-inline-row">
-                  <StableDateTimePicker v-model="item.scheduled_start" placeholder="开始时间" />
-                  <StableDateTimePicker v-model="item.scheduled_end" placeholder="结束时间" />
+                  <StableDateTimePicker
+                    :model-value="item.scheduled_start"
+                    placeholder="开始时间"
+                    @update:model-value="(value) => handleInterpretationTimeRangeChange(index, 'scheduled_start', value)"
+                  />
+                  <StableDateTimePicker
+                    :model-value="item.scheduled_end"
+                    placeholder="结束时间"
+                    @update:model-value="(value) => handleInterpretationTimeRangeChange(index, 'scheduled_end', value)"
+                  />
                   <el-button
                     link
                     type="danger"
@@ -1354,6 +1362,10 @@ import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
+import {
+  interpretationDirectionsError,
+  interpretationTimeRangesError,
+} from '@/utils/consultationIntakeValidation'
 import InlineTextField from '@/components/common/InlineTextField.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import { hasPermission } from '@/utils/permission'
@@ -1950,19 +1962,8 @@ const validateInterpretationDirections = (_rule, value, callback) => {
     callback()
     return
   }
-  if (!Array.isArray(value) || !value.length) {
-    callback(new Error('请选择口译方向'))
-    return
-  }
-  if (value.some((item) => !item?.source_language_id || !item?.target_language_id)) {
-    callback(new Error('请选择完整的口译方向'))
-    return
-  }
-  if (value.some((item) => !Number.isInteger(item?.required_count) || item.required_count < 1)) {
-    callback(new Error('请为每个口译方向填写大于等于 1 的需求人数'))
-    return
-  }
-  callback()
+  const message = interpretationDirectionsError(value)
+  callback(message ? new Error(message) : undefined)
 }
 
 const validateWhen = (match, validator) => (_rule, value, callback) => {
@@ -1978,15 +1979,16 @@ const requireIntakeArray = (message) => (_rule, value, callback) => {
   callback(new Error(message))
 }
 const validateInterpretationTimeRanges = (_rule, value, callback) => {
-  if (!Array.isArray(value) || !value.length) {
-    callback(new Error('请至少保留一个预定时段'))
-    return
-  }
-  if (value.some((item) => !item?.scheduled_start || !item?.scheduled_end)) {
-    callback(new Error('请填写完整的预定时段'))
-    return
-  }
-  callback()
+  const message = interpretationTimeRangesError(value)
+  callback(message ? new Error(message) : undefined)
+}
+const handleInterpretationTimeRangeChange = (index, field, value) => {
+  const timeRange = form.project_intake.time_ranges?.[index]
+  if (!timeRange) return
+  timeRange[field] = value
+  nextTick(() => {
+    formRef.value?.validateField('project_intake.time_ranges').catch(() => {})
+  })
 }
 const validateAnnotationLanguages = (_rule, value, callback) => {
   if (!Array.isArray(value) || !value.length) {

@@ -179,19 +179,15 @@
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
-          <div class="action-buttons">
-            <el-button type="primary" link @click="openProjectChat(row)">沟通</el-button>
-            <ProjectListRowActions
-              v-if="canWrite || canViewAccounts"
-              :editable="canWrite"
-              :show-start-request="canWrite"
-              :start-request-label="resourceRequestActionLabel(row.id)"
-              :extra-actions="accountSheetActions"
-              @edit="handleEdit(row)"
-              @start-request="startResourceRequest(row)"
-              @extra-command="(command) => handleProjectExtraAction(command, row)"
-            />
-          </div>
+          <ProjectListRowActions
+            :editable="canWrite"
+            :show-start-request="canWrite"
+            :start-request-label="resourceRequestActionLabel(row.id)"
+            :extra-actions="projectExtraActions"
+            @edit="handleEdit(row)"
+            @start-request="startResourceRequest(row)"
+            @extra-command="(command) => handleProjectExtraAction(command, row)"
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -559,10 +555,18 @@ const openProjectChat = (row) => openChat({
   title: row.projectName || '未命名标注项目',
   subtitle: row.orderNo || '',
 })
-const accountSheetActions = canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []
+const projectExtraActions = [
+  { command: 'project-chat', label: '沟通' },
+  ...(canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []),
+]
 const handleProjectExtraAction = (command, row) => {
-  if (command !== 'account-sheet') return
-  router.push({ name: 'AnnotationProjectDetails', query: { section: 'accounts', projectId: row.id, view: 'project' } })
+  if (command === 'project-chat') {
+    openProjectChat(row)
+    return
+  }
+  if (command === 'account-sheet') {
+    router.push({ name: 'AnnotationProjectDetails', query: { section: 'accounts', projectId: row.id, view: 'project' } })
+  }
 }
 const highlightedProjectId = ref('')
 const managerTransferVisible = ref(false)

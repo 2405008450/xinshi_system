@@ -355,8 +355,7 @@
               v-model="row.wordCountMatrix"
               entity-type="project"
               :entity-id="row.id"
-              :read-only="row.wordCountMatrixSource === 'suborder_aggregate'"
-              :title="row.wordCountMatrixSource === 'suborder_aggregate' ? `项目字数统计（来自 ${row.wordCountSubOrderCount} 个子订单）` : '项目字数统计'"
+              title="项目字数统计"
               @saved="fetchData"
             >
               <template #reference>
@@ -581,13 +580,11 @@
                             v-model="form.wordCountMatrix"
                             entity-type="project"
                             :entity-id="form.id"
-                            :read-only="form.wordCountMatrixSource === 'suborder_aggregate'"
                             title="项目字数统计"
                             @saved="handleProjectWordCountSaved"
                           >
                             <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
                           </WordCountMatrixPopover>
-                          <el-tag v-if="form.wordCountMatrixSource === 'suborder_aggregate'" type="info" size="small">来自 {{ form.wordCountSubOrderCount }} 个子订单</el-tag>
                         </div>
                       </el-form-item>
                     </el-col>
@@ -1710,8 +1707,6 @@ const requiredTextValidator = (message) => (_rule, value, callback) => {
   callback()
 }
 const validateWordCountMatrix = (_rule, value, callback) => {
-  // 母订单字数由子订单汇总时为只读字段，不应阻断其他项（例如项目路径）的保存。
-  if (form.wordCountMatrixSource === 'suborder_aggregate') return callback()
   const hasWordCount = Object.values(value || {}).some((dimension) => (
     Object.values(dimension || {}).some((item) => (
       item !== null && item !== undefined && item !== '' && Number.isFinite(Number(item))
@@ -2601,7 +2596,6 @@ const handleSubmit = async (sendAfterSave = false) => {
     const payloadSource = { ...form }
     delete payloadSource.wordCountMatrixSource
     delete payloadSource.wordCountSubOrderCount
-    if (form.wordCountMatrixSource === 'suborder_aggregate') delete payloadSource.wordCountMatrix
     const payload = cleanPayload(payloadSource)
     const isCreate = dialogTitle.value === '新增项目'
     let savedProject

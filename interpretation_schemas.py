@@ -23,7 +23,7 @@ PROJECT_TYPE_LABELS = {
     "online_simultaneous": "线上同传口译",
 }
 PROJECT_STATUSES = {
-    "initial_follow_up", "in_progress", "cancelled",
+    "initial_follow_up", "deal_pending_execution", "in_progress", "cancelled",
     "partially_cancelled", "ended", "settled",
 }
 RATING_VALUES = {
@@ -276,6 +276,9 @@ class InterpretationProjectUpdate(InterpretationProjectWrite):
 
 class InterpretationProjectStatusUpdate(BaseModel):
     project_status: str
+    effective_on: datetime = Field(default_factory=datetime.now)
+    change_note: Optional[str] = Field(default=None, max_length=10000)
+    progress_only: bool = False
 
     @field_validator("project_status")
     @classmethod
@@ -283,6 +286,31 @@ class InterpretationProjectStatusUpdate(BaseModel):
         if value not in PROJECT_STATUSES:
             raise ValueError("不支持的口译项目状态")
         return value
+
+    @field_validator("change_note", mode="before")
+    @classmethod
+    def normalize_note(cls, value):
+        return _nullable_text(value)
+
+    @model_validator(mode="after")
+    def validate_note(self):
+        if self.progress_only and not self.change_note:
+            raise ValueError("请填写具体进度")
+        if not self.progress_only and self.change_note and len(self.change_note) > 500:
+            raise ValueError("变更说明不能超过 500 字")
+        return self
+
+
+class InterpretationProjectStatusHistoryResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    from_status: Optional[str] = None
+    to_status: str
+    effective_on: datetime
+    changed_at: datetime
+    changed_by: Optional[UUID] = None
+    changed_by_name: Optional[str] = None
+    change_note: Optional[str] = None
 
 
 class InterpretationProjectListResponse(BaseModel):

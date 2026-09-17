@@ -159,6 +159,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
+  canViewTalentResourceLibrary,
   hasPermission
 } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
@@ -229,11 +230,7 @@ const canViewAnnotation = computed(() => hasPermission([
 const canViewManuscript = computed(() => canViewManuscriptArrangements())
 const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
-const showResourceManagement = computed(() => hasPermission([
-  'talents:read',
-  'translators:read',
-  'recruitment_talents:read'
-]))
+const showResourceManagement = computed(() => canViewTalentResourceLibrary())
 const resourceManagementPath = computed(() => (
   hasPermission(['talents:read', 'translators:read'])
     ? '/resource-management/talents'

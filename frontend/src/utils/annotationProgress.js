@@ -1,6 +1,6 @@
 const progressTimestamp = (row) => `${row.effectiveOn || ''}|${row.changedAt || ''}`
 
-export const groupAnnotationProgressRows = (rows = [], currentStatus = '') => {
+export const groupProjectProgressRows = (rows = [], currentStatus = '') => {
   const statusRows = rows.filter((row) => row.fromStatus !== row.toStatus)
   const groups = statusRows.map((row) => ({
     key: `stage:${row.id}`,
@@ -55,3 +55,5 @@ export const groupAnnotationProgressRows = (rows = [], currentStatus = '') => {
   if (currentGroup) currentGroup.isCurrent = true
   return groups
 }
+
+export const groupAnnotationProgressRows = groupProjectProgressRows

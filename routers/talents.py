@@ -32,7 +32,7 @@ from resource_service import (
     update_talent_name,
     update_talent_status,
 )
-from routers.auth import require_module_access
+from routers.auth import require_any_role, require_module_access
 from resource_models import ResourcePerson
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
@@ -41,16 +41,22 @@ from pagination_schemas import PageResponse, resolve_page_total
 router = APIRouter(
     prefix="/talents",
     tags=["talents"],
-    dependencies=[Depends(require_module_access("talents:read", "talents:write"))],
+    dependencies=[
+        Depends(require_module_access("talents:read", "talents:write")),
+        Depends(require_any_role("项目助理")),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 recruitment_router = APIRouter(
     prefix="/recruitment-talents",
     tags=["recruitment_talents"],
-    dependencies=[Depends(require_module_access(
-        "recruitment_talents:read", "recruitment_talents:write"
-    ))],
+    dependencies=[
+        Depends(require_module_access(
+            "recruitment_talents:read", "recruitment_talents:write"
+        )),
+        Depends(require_any_role("项目助理")),
+    ],
 )
 
 TALENT_FILTER_FIELDS = {

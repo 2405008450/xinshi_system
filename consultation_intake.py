@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from annotation_models import AnnotationProjectAssignee, AnnotationProjectLanguageItem, AnnotationProjectPriceItem
@@ -49,6 +50,38 @@ SCALAR_FIELDS = {
     ),
 }
 
+PROJECT_TYPE_LABELS = {
+    "translation": "笔译项目",
+    "interpretation": "口译项目",
+    "annotation": "标注项目",
+    "recruitment": "招聘项目",
+}
+
+INTAKE_FIELD_LABELS = {
+    "project_types": "项目类型",
+    "time_ranges": "预定时段",
+    "language_directions": "口译方向",
+    "language_items": "语言范围",
+    "price_items": "价格信息",
+    "employment_start": "履职开始日期",
+    "employment_end": "履职结束日期",
+    "word_count_matrix": "字数统计",
+}
+
+
+def _friendly_intake_validation_error(project_type: str, exc: ValidationError) -> ValueError:
+    """把 Pydantic 的技术性错误转换为可直接展示给业务人员的中文提示。"""
+    messages = []
+    for item in exc.errors():
+        message = str(item.get("msg") or "").removeprefix("Value error, ").strip()
+        if not any("\u4e00" <= char <= "\u9fff" for char in message):
+            field = str((item.get("loc") or [""])[0])
+            message = f"{INTAKE_FIELD_LABELS.get(field, '售前信息')}格式不正确"
+        if message and message not in messages:
+            messages.append(message)
+    project_label = PROJECT_TYPE_LABELS.get(project_type, "项目")
+    return ValueError(f"{project_label}信息有误：{'；'.join(messages) or '请检查售前信息'}")
+
 
 def normalize_legacy_interpretation_intake(intake: Optional[dict]) -> dict:
     """安全升级旧版“多个方向 + 一个总人数”，不猜测无法确定的拆分。"""
@@ -83,23 +116,26 @@ def normalize_legacy_interpretation_intake(intake: Optional[dict]) -> dict:
 
 def validated_intake(project_type: str, intake: Optional[dict]) -> dict:
     data = dict(intake or {})
-    # JSONB 与邮件预览都需要可 json.dumps 的结构；mode="json" 会把 date/datetime/UUID 转成字符串。
-    if project_type == "interpretation":
-        data = normalize_legacy_interpretation_intake(data)
-        return InterpretationProjectUpdate(**data).model_dump(mode="json", exclude={"interpreter_assignments", "expected_updated_at"})
-    if project_type == "annotation":
-        return AnnotationProjectUpdate(**data).model_dump(mode="json", exclude={"assignees", "expected_updated_at"})
-    if project_type == "recruitment":
-        return RecruitmentProjectUpdate(**data).model_dump(mode="json", exclude={"expected_updated_at"})
-    if project_type == "translation":
-        # 前端日期选择器清空后会提交空字符串。咨询表的 JSONB 可以保存该值，
-        # 但确认建项时不能把空字符串写入项目表的 timestamp 字段。
-        if "customer_deadline_time" in data and not str(data["customer_deadline_time"] or "").strip():
-            data["customer_deadline_time"] = None
-        if "word_count_matrix" in data:
-            data["word_count_matrix"] = WordCountCreateMatrix.model_validate(data["word_count_matrix"]).model_dump(mode="json")
-        return {key: value for key, value in data.items() if key in {*SCALAR_FIELDS[project_type], "word_count_matrix"}}
-    raise ValueError("不支持的项目类型")
+    try:
+        # JSONB 与邮件预览都需要可 json.dumps 的结构；mode="json" 会把 date/datetime/UUID 转成字符串。
+        if project_type == "interpretation":
+            data = normalize_legacy_interpretation_intake(data)
+            return InterpretationProjectUpdate(**data).model_dump(mode="json", exclude={"interpreter_assignments", "expected_updated_at"})
+        if project_type == "annotation":
+            return AnnotationProjectUpdate(**data).model_dump(mode="json", exclude={"assignees", "expected_updated_at"})
+        if project_type == "recruitment":
+            return RecruitmentProjectUpdate(**data).model_dump(mode="json", exclude={"expected_updated_at"})
+        if project_type == "translation":
+            # 前端日期选择器清空后会提交空字符串。咨询表的 JSONB 可以保存该值，
+            # 但确认建项时不能把空字符串写入项目表的 timestamp 字段。
+            if "customer_deadline_time" in data and not str(data["customer_deadline_time"] or "").strip():
+                data["customer_deadline_time"] = None
+            if "word_count_matrix" in data:
+                data["word_count_matrix"] = WordCountCreateMatrix.model_validate(data["word_count_matrix"]).model_dump(mode="json")
+            return {key: value for key, value in data.items() if key in {*SCALAR_FIELDS[project_type], "word_count_matrix"}}
+        raise ValueError("不支持的项目类型")
+    except ValidationError as exc:
+        raise _friendly_intake_validation_error(project_type, exc) from exc
 
 
 def apply_intake(

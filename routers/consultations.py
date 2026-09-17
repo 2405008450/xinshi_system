@@ -286,6 +286,19 @@ def validate_consultation_required_fields(payload, existing=None) -> None:
 
     validate_simple_consultation(payload, existing)
 
+    # 咨询保存阶段就校验显式提交的售前数据，避免无效口译时段等数据直到确认建项时才暴露。
+    if "project_intake" not in payload.model_fields_set:
+        return
+    project_type = (
+        "interpretation" if is_interpretation_type(consultation_type) else
+        "translation" if is_translation_type(consultation_type) else
+        "annotation" if is_annotation_type(consultation_type) else
+        "recruitment" if is_recruitment_type(consultation_type) else
+        None
+    )
+    if project_type:
+        validated_intake(project_type, _consultation_value(payload, "project_intake", existing) or {})
+
 
 def _confirmation_project_type(value: Optional[str]) -> str:
     if is_simple_consultation_type(value):

@@ -1196,19 +1196,9 @@ def _attach_word_count_matrices(
     for project in project_map.values():
         children = list(getattr(project, "sub_orders", []) or [])
         project.word_count_sub_order_count = len(children)
-        project.word_count_matrix_source = "suborder_aggregate" if children else "project"
-        if not children:
-            continue
-        aggregate = empty_matrix()
-        for dimension in dimensions:
-            for metric_type in metric_types:
-                values = [
-                    child.word_count_matrix[dimension][metric_type]
-                    for child in children
-                    if child.word_count_matrix[dimension][metric_type] is not None
-                ]
-                aggregate[dimension][metric_type] = sum(values) if values else None
-        project.word_count_matrix = aggregate
+        # 母订单与子订单的业务口径可能不同（例如母订单统计字数，子订单仅统计排版份数）。
+        # 因此即使存在子订单，母订单也继续展示并维护自身的字数矩阵，不再自动汇总覆盖。
+        project.word_count_matrix_source = "project"
 
     _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
 

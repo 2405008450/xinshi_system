@@ -26,6 +26,7 @@ from workflow_models import ProjectWorkbenchResponsibility
         ("translation", "client_feedback", False),
         ("translation", "feedback_sent_to_client", False),
         ("interpretation", "initial_follow_up", True),
+        ("interpretation", "deal_pending_execution", True),
         ("interpretation", "ended", False),
         ("annotation", "trial_submitted", True),
         ("annotation", "sent_to_client", False),

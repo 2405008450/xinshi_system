@@ -3,6 +3,7 @@ import {
   canAccessRoute,
   getDefaultRoute,
   MANUSCRIPT_VIEW_ROLES,
+  TALENT_RESOURCE_VIEW_ROLES,
   setStoredAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
@@ -170,7 +171,8 @@ const routes = [
         redirect: '/resource-management/talents',
         meta: {
           title: '资源管理',
-          permissions: ['talents:read', 'translators:read', 'recruitment_talents:read']
+          permissions: ['talents:read', 'translators:read', 'recruitment_talents:read'],
+          roles: TALENT_RESOURCE_VIEW_ROLES
         },
         children: [
           {

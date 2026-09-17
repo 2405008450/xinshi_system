@@ -52,6 +52,38 @@ def test_translation_empty_customer_deadline_is_normalized_before_project_write(
     assert db.flush_count == 1
 
 
+def test_interpretation_invalid_time_range_returns_business_friendly_error():
+    with pytest.raises(ValueError, match="口译项目信息有误：预定结束时间不能早于预定开始时间"):
+        validated_intake("interpretation", {
+            "time_ranges": [{
+                "scheduled_start": "2026-10-21T00:00:00",
+                "scheduled_end": "2026-09-27T00:00:00",
+            }],
+        })
+
+
+def test_consultation_save_rejects_invalid_interpretation_time_range():
+    payload = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_time=datetime(2026, 9, 16, 10, 0),
+        consultation_method="phone",
+        client_source="老客户",
+        source_keyword="续单",
+        consultation_description="现场陪同口译",
+        consultation_type="口译项目",
+        status="following",
+        project_intake={
+            "time_ranges": [{
+                "scheduled_start": "2026-10-21T00:00:00",
+                "scheduled_end": "2026-09-27T00:00:00",
+            }],
+        },
+    )
+
+    with pytest.raises(ValueError, match="预定结束时间不能早于预定开始时间"):
+        validate_consultation_required_fields(payload)
+
+
 def test_translation_subject_uses_prefix_and_skips_empty_fields():
     parts, subject, missing = _build_subject_preview(
         project_type="translation",

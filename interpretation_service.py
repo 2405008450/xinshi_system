@@ -18,6 +18,7 @@ import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作�
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
+    InterpretationProjectStatusHistory,
     InterpretationProjectDirectionExtraLanguage,
     InterpretationProjectInterpreter,
     InterpretationProjectLanguageDirection,
@@ -30,7 +31,7 @@ from interpretation_schemas import (
     InterpretationProjectUpdate,
 )
 from language_catalog import LANGUAGE_VARIANTS
-from models import Client, Consultation, SubClient, TranslationProject, Translator
+from models import AppUser, Client, Consultation, SubClient, TranslationProject, Translator
 from field_filtering import apply_scalar_specs
 
 
@@ -495,6 +496,13 @@ def create_interpretation_project(
     )
     db.add(project)
     db.flush()
+    db.add(InterpretationProjectStatusHistory(
+        project_id=project.id,
+        from_status=None,
+        to_status=project.project_status,
+        effective_on=datetime.now(),
+        changed_by=created_by,
+    ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
     validate_assignment_map(db, assignments)
@@ -510,7 +518,8 @@ def create_interpretation_project(
 
 
 def update_interpretation_project(
-    db: Session, project_id: UUID, payload: InterpretationProjectUpdate
+    db: Session, project_id: UUID, payload: InterpretationProjectUpdate,
+    changed_by: Optional[UUID] = None,
 ) -> Optional[InterpretationProject]:
     project = get_interpretation_project(db, project_id)
     if not project:
@@ -521,8 +530,17 @@ def update_interpretation_project(
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
+    previous_status = project.project_status
     for key, value in data.items():
         setattr(project, key, value)
+    if project.project_status != previous_status:
+        db.add(InterpretationProjectStatusHistory(
+            project_id=project.id,
+            from_status=previous_status,
+            to_status=project.project_status,
+            effective_on=datetime.now(),
+            changed_by=changed_by,
+        ))
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
     validate_assignment_map(db, assignments)
@@ -534,19 +552,70 @@ def update_interpretation_project(
 
 
 def update_interpretation_project_status(
-    db: Session, project_id: UUID, project_status: str
+    db: Session,
+    project_id: UUID,
+    project_status: str,
+    effective_on: Optional[datetime] = None,
+    change_note: Optional[str] = None,
+    changed_by: Optional[UUID] = None,
+    progress_only: bool = False,
 ) -> Optional[InterpretationProject]:
     project = get_interpretation_project(db, project_id)
     if not project:
         return None
-    if project.project_status == project_status:
+    if progress_only and project_status != project.project_status:
+        reached_status = db.query(InterpretationProjectStatusHistory.id).filter(
+            InterpretationProjectStatusHistory.project_id == project.id,
+            InterpretationProjectStatusHistory.to_status == project_status,
+        ).first()
+        if reached_status is None:
+            raise ValueError("只能为项目已经流转到的状态补充具体进度")
+    if not progress_only and project.project_status == project_status and not change_note:
         return project
-    project.project_status = project_status
+    previous_status = project.project_status
+    if not progress_only:
+        project.project_status = project_status
     project.updated_at = datetime.now()
-    from project_workbench_service import ensure_active_project_responsibilities
-    ensure_active_project_responsibilities(db, 'interpretation', project.id, project_status)
+    db.add(InterpretationProjectStatusHistory(
+        project_id=project.id,
+        from_status=project_status if progress_only else previous_status,
+        to_status=project_status,
+        effective_on=effective_on or datetime.now(),
+        changed_by=changed_by,
+        change_note=change_note,
+    ))
+    if not progress_only:
+        from project_workbench_service import ensure_active_project_responsibilities
+        ensure_active_project_responsibilities(db, 'interpretation', project.id, project_status)
     db.commit()
     return get_interpretation_project(db, project.id)
+
+
+def list_interpretation_project_status_history(db: Session, project_id: UUID) -> list[dict]:
+    rows = (
+        db.query(InterpretationProjectStatusHistory)
+        .filter(InterpretationProjectStatusHistory.project_id == project_id)
+        .order_by(
+            InterpretationProjectStatusHistory.effective_on.desc(),
+            InterpretationProjectStatusHistory.changed_at.desc(),
+        )
+        .all()
+    )
+    users = {row.changed_by: db.get(AppUser, row.changed_by) for row in rows if row.changed_by}
+    return [{
+        "id": row.id,
+        "project_id": row.project_id,
+        "from_status": row.from_status,
+        "to_status": row.to_status,
+        "effective_on": row.effective_on,
+        "changed_at": row.changed_at,
+        "changed_by": row.changed_by,
+        "changed_by_name": (
+            getattr(users.get(row.changed_by), "full_name", None)
+            or getattr(users.get(row.changed_by), "username", None)
+        ),
+        "change_note": row.change_note,
+    } for row in rows]
 
 
 def delete_interpretation_project(

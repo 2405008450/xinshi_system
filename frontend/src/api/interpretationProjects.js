@@ -57,8 +57,16 @@ export const updateInterpretationProjectTextField = (id, field, value, expectedU
   }).then((res) => convertKeys(res, toCamelCase))
 )
 
-export const updateInterpretationProjectStatus = (id, projectStatus) => (
-  api.patch(`/projects/interpretation/${id}/status`, { project_status: projectStatus })
+export const updateInterpretationProjectStatus = (id, data) => (
+  api.patch(
+    `/projects/interpretation/${id}/status`,
+    typeof data === 'string' ? { project_status: data } : convertKeys(data, toSnakeCase)
+  )
+    .then((res) => convertKeys(res, toCamelCase))
+)
+
+export const getInterpretationProjectStatusHistory = (id) => (
+  api.get(`/projects/interpretation/${id}/status-history`)
     .then((res) => convertKeys(res, toCamelCase))
 )
 

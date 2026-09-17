@@ -12,7 +12,9 @@ const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', im
 
 test('项目沟通 Dock 全局挂载并支持多窗、最小化和关闭', () => {
   assert.match(layout, /<ProjectChatDock\s*\/>/)
-  assert.match(annotationPage, /@click="openProjectChat\(row\)">沟通<\/el-button>/)
+  assert.match(annotationPage, /\{ command: 'project-chat', label: '沟通' \}/)
+  assert.match(annotationPage, /if \(command === 'project-chat'\)[\s\S]*openProjectChat\(row\)/)
+  assert.doesNotMatch(annotationPage, /@click="openProjectChat\(row\)">沟通<\/el-button>/)
   assert.match(annotationPage, /projectType:\s*'annotation'/)
   assert.match(dock, /<Teleport to="body">/)
   assert.match(dock, /v-show="!chatWindow\.minimized"/)

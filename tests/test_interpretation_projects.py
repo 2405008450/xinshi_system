@@ -5,12 +5,14 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+import interpretation_service
 import workflow_models  # noqa: F401  注册 TranslationProject 使用的关系模型
 from interpretation_models import (
     InterpretationLanguage,
     InterpretationProject,
     InterpretationProjectDirectionExtraLanguage,
     InterpretationProjectLanguageDirection,
+    InterpretationProjectStatusHistory,
 )
 from interpretation_schemas import (
     PROJECT_TYPE_LABELS,
@@ -275,8 +277,73 @@ def test_interpreter_requirements_and_translator_level_validation():
 
 def test_inline_project_status_validation():
     assert InterpretationProjectStatusUpdate(project_status="in_progress").project_status == "in_progress"
+    assert (
+        InterpretationProjectStatusUpdate(project_status="deal_pending_execution").project_status
+        == "deal_pending_execution"
+    )
     with pytest.raises(ValueError, match="不支持的口译项目状态"):
         InterpretationProjectStatusUpdate(project_status="unknown")
+
+
+def test_progress_record_requires_note_and_accepts_node_time():
+    with pytest.raises(ValueError, match="请填写具体进度"):
+        InterpretationProjectStatusUpdate(
+            project_status="in_progress",
+            progress_only=True,
+            change_note="   ",
+        )
+
+    payload = InterpretationProjectStatusUpdate(
+        project_status="deal_pending_execution",
+        effective_on=datetime(2026, 9, 16, 14, 30),
+        progress_only=True,
+        change_note="客户已确认，等待现场执行",
+    )
+    assert payload.change_note == "客户已确认，等待现场执行"
+    assert payload.effective_on == datetime(2026, 9, 16, 14, 30)
+
+
+class StatusUpdateDb:
+    def __init__(self):
+        self.added = []
+        self.committed = False
+
+    def add(self, row):
+        self.added.append(row)
+
+    def commit(self):
+        self.committed = True
+
+
+def test_status_change_creates_timeline_record(monkeypatch):
+    project = SimpleNamespace(id=uuid4(), project_status="initial_follow_up", updated_at=None)
+    db = StatusUpdateDb()
+    changed_by = uuid4()
+    effective_on = datetime(2026, 9, 16, 15, 0)
+    monkeypatch.setattr(interpretation_service, "get_interpretation_project", lambda *_args: project)
+    monkeypatch.setattr(
+        "project_workbench_service.ensure_active_project_responsibilities",
+        lambda *_args, **_kwargs: [],
+    )
+
+    updated = interpretation_service.update_interpretation_project_status(
+        db,
+        project.id,
+        "deal_pending_execution",
+        effective_on,
+        "客户已确认报价",
+        changed_by,
+    )
+
+    history = next(row for row in db.added if isinstance(row, InterpretationProjectStatusHistory))
+    assert updated is project
+    assert project.project_status == "deal_pending_execution"
+    assert history.from_status == "initial_follow_up"
+    assert history.to_status == "deal_pending_execution"
+    assert history.effective_on == effective_on
+    assert history.change_note == "客户已确认报价"
+    assert history.changed_by == changed_by
+    assert db.committed is True
 
 
 class LanguageUpdateQuery:

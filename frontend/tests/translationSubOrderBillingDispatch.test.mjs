@@ -13,13 +13,13 @@ test('子订单新增与批量创建不再复制母订单字数', () => {
   assert.match(batchDialog, /wordCountMatrix: createEmptyWordCountMatrix\(\)/)
 })
 
-test('母订单汇总字数在列表和编辑弹窗中均为只读', () => {
+test('母订单与子订单字数保持独立维护，母订单始终可以手动编辑', () => {
   const source = read('src/views/project/translation/ProjectDetails.vue')
 
-  assert.match(source, /:read-only="row\.wordCountMatrixSource === 'suborder_aggregate'"/)
-  assert.match(source, /:read-only="form\.wordCountMatrixSource === 'suborder_aggregate'"/)
-  assert.match(source, /来自 \{\{ form\.wordCountSubOrderCount \}\} 个子订单/)
-  assert.match(source, /validateWordCountMatrix[\s\S]*?form\.wordCountMatrixSource === 'suborder_aggregate'[\s\S]*?return callback\(\)/)
+  assert.doesNotMatch(source, /:read-only="(?:row|form)\.wordCountMatrixSource/)
+  assert.doesNotMatch(source, /来自 \{\{ form\.wordCountSubOrderCount \}\} 个子订单/)
+  assert.doesNotMatch(source, /delete payloadSource\.wordCountMatrix\b/)
+  assert.match(source, /<WordCountMatrixPopover[\s\S]*?entity-type="project"[\s\S]*?title="项目字数统计"/)
 })
 
 test('母子订单通用收费编辑器按客户字数计算税价并按币种汇总', () => {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   canAccessRoute,
   canViewManuscriptArrangements,
+  canViewTalentResourceLibrary,
   getDefaultRoute,
   hasPermission,
   setStoredAccess,
@@ -54,9 +55,23 @@ test('稿件安排同时校验项目读取权限和指定角色', () => {
   assert.equal(canViewManuscriptArrangements(), false)
 })
 
-test('仅有招聘人才读取权限时默认进入可访问的资源页', () => {
+test('人才资源库要求项目助理角色与读取权限同时满足', () => {
   setAccess(['招聘'], ['recruitment_talents:read'])
+  assert.equal(canViewTalentResourceLibrary(), false)
+  assert.equal(canAccessRoute({
+    meta: { permissions: ['recruitment_talents:read'], roles: ['项目助理'] },
+  }), false)
+  assert.equal(getDefaultRoute(), '/pending-modules')
+
+  setAccess(['项目助理'], ['recruitment_talents:read'])
+  assert.equal(canViewTalentResourceLibrary(), true)
   assert.equal(getDefaultRoute(), '/resource-management/recruitment-talents')
+
+  setAccess(['超级管理员'], [])
+  assert.equal(canViewTalentResourceLibrary(), true)
+  assert.equal(canAccessRoute({
+    meta: { permissions: ['talents:read'], roles: ['项目助理'] },
+  }), true)
 })
 
 test('会话权限同步后依赖权限的导航状态立即更新', () => {

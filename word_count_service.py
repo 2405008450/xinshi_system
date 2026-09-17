@@ -90,17 +90,9 @@ def get_word_count_matrix(
     sub_order_count = 0
     metrics = _entity_metric_query(db, entity_type, entity_id).all()
     if entity_type == "project":
-        child_ids = [
-            row[0] for row in db.query(TranslationSubOrder.id).filter(
-                TranslationSubOrder.parent_project_id == entity_id
-            ).all()
-        ]
-        sub_order_count = len(child_ids)
-        if child_ids:
-            source = "suborder_aggregate"
-            metrics = db.query(WordCountMetric).filter(
-                WordCountMetric.sub_order_id.in_(child_ids)
-            ).all()
+        sub_order_count = db.query(TranslationSubOrder.id).filter(
+            TranslationSubOrder.parent_project_id == entity_id
+        ).count()
     for metric in metrics:
         if metric.dimension in entity_values and metric.metric_type in METRIC_TYPES:
             current = entity_values[metric.dimension][metric.metric_type]
@@ -194,13 +186,6 @@ def patch_word_count_matrix(
     dispatch_id: Optional[UUID] = None,
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
-    if entity_type == "project" and db.query(TranslationSubOrder.id).filter(
-        TranslationSubOrder.parent_project_id == entity_id
-    ).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="母订单字数由子订单自动汇总，请编辑具体子订单",
-        )
     allowed_arrangements = {
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }

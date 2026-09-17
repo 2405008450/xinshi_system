@@ -26,6 +26,7 @@ export const PROJECT_STATUS_OPTIONS = {
   ],
   interpretation: [
     { value: 'initial_follow_up', label: '初步跟进中' },
+    { value: 'deal_pending_execution', label: '已成交待执行' },
     { value: 'in_progress', label: '进行中' },
     { value: 'cancelled', label: '已取消' },
     { value: 'partially_cancelled', label: '已部分取消' },
@@ -84,6 +85,7 @@ const PROJECT_STATUS_TYPES = {
   paused: 'warning',
   actively_abandoned: 'danger',
   initial_follow_up: 'warning',
+  deal_pending_execution: 'primary',
   in_progress: 'primary',
   ended: 'success',
   settled: 'success',
