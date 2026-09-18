@@ -15,6 +15,22 @@ CREATE TABLE IF NOT EXISTS annotation_arrangement_task_type (
 CREATE INDEX IF NOT EXISTS ix_annotation_arrangement_task_type_active
     ON annotation_arrangement_task_type (is_active);
 
+CREATE TABLE IF NOT EXISTS annotation_project_arrangement_scope (
+    project_id UUID PRIMARY KEY REFERENCES annotation_project(id) ON DELETE CASCADE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    membership_note VARCHAR(1000),
+    created_by UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_annotation_arrangement_scope_active
+    ON annotation_project_arrangement_scope (is_active);
+
+ALTER TABLE annotation_project_arrangement_scope
+    ADD COLUMN IF NOT EXISTS membership_note VARCHAR(1000);
+
 CREATE TABLE IF NOT EXISTS annotation_project_arrangement_task (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES annotation_project(id) ON DELETE CASCADE,
@@ -32,6 +48,14 @@ CREATE INDEX IF NOT EXISTS ix_annotation_arrangement_task_project_date
     ON annotation_project_arrangement_task (project_id, execution_date);
 CREATE INDEX IF NOT EXISTS ix_annotation_arrangement_task_assignee_date
     ON annotation_project_arrangement_task (assignee_id, execution_date);
+
+-- 已经产生过安排任务的项目必须继续出现在安排池中；重复执行不会恢复被主动移出的项目。
+INSERT INTO annotation_project_arrangement_scope (
+    project_id, is_active, created_at, updated_at
+)
+SELECT DISTINCT project_id, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM annotation_project_arrangement_task
+ON CONFLICT (project_id) DO NOTHING;
 
 ALTER TABLE annotation_project_status_history
     ADD COLUMN IF NOT EXISTS entry_kind VARCHAR(20),

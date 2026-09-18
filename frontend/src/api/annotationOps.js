@@ -62,7 +62,16 @@ export const getProjectArrangementContext = (projectIds, config = {}) => api.get
   '/annotation-ops/project-arrangements/context',
   { ...config, params: { project_id: projectIds }, paramsSerializer: { indexes: null } }
 ).then((res) => convert(res, camel))
+export const getProjectArrangementOverview = (params = {}, config = {}) => get(
+  '/annotation-ops/project-arrangements/overview', params, config
+)
+export const getProjectArrangementWorkloads = (params = {}, config = {}) => get(
+  '/annotation-ops/project-arrangements/workloads', params, config
+)
 export const saveProjectArrangements = (data) => put('/annotation-ops/project-arrangements/batch', data)
+export const setProjectArrangementMembership = (projectId, data) => put(
+  `/annotation-ops/project-arrangements/projects/${projectId}/membership`, data
+)
 export const createArrangementTaskType = (data) => post('/annotation-ops/project-arrangement-task-types', data)
 export const updateArrangementTaskType = (id, data) => put(`/annotation-ops/project-arrangement-task-types/${id}`, data)
 export const setArrangementTaskTypeState = (id, data) => patch(`/annotation-ops/project-arrangement-task-types/${id}/state`, data)

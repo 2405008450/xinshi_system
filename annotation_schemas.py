@@ -396,7 +396,14 @@ class AnnotationProjectPriorityUpdate(BaseModel):
 
 class AnnotationProjectManagersUpdate(BaseModel):
     client_manager_id: Optional[UUID] = None
+    project_manager_ids: Optional[list[UUID]] = None
+    # 兼容旧版客户端；新客户端统一提交 project_manager_ids。
     project_manager_id: Optional[UUID] = None
+
+    @field_validator("project_manager_ids")
+    @classmethod
+    def deduplicate_project_managers(cls, values):
+        return list(dict.fromkeys(values)) if values is not None else None
 
 
 class AnnotationProjectListResponse(BaseModel):
@@ -432,6 +439,9 @@ class AnnotationProjectListResponse(BaseModel):
     language_items_display: Optional[str] = None
     customer_price_summary: Optional[str] = None
     assignee_summary: Optional[str] = None
+    arrangement_included: bool = False
+    arrangement_membership_updated_at: Optional[datetime] = None
+    arrangement_membership_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

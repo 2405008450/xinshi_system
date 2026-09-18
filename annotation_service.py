@@ -69,6 +69,38 @@ class AnnotationOrderNoConflict(ValueError):
     """标注订单号已经被当前或历史项目占用。"""
 
 
+def _project_manager_ids(responsibilities) -> list[UUID]:
+    """按责任表顺序返回项目经理，过滤角色池占位行并去重。"""
+    return list(dict.fromkeys(
+        item.assignee_id
+        for item in (responsibilities or [])
+        if item.role_code == "project_manager" and item.assignee_id is not None
+    ))
+
+
+def _record_project_manager_changes(
+    db: Session, *, project, previous_ids: list[UUID], current_ids: list[UUID],
+    change_mode: str, actor_user_id: Optional[UUID], reason: str,
+) -> None:
+    """多人负责人按新增/移除分别留痕，避免把无关的两个人记录成一次替换。"""
+    previous_set = set(previous_ids)
+    current_set = set(current_ids)
+    for manager_id in previous_ids:
+        if manager_id not in current_set:
+            record_annotation_manager_change(
+                db, project=project, manager_role="project_manager",
+                previous_manager_id=manager_id, new_manager_id=None,
+                change_mode=change_mode, actor_user_id=actor_user_id, reason=reason,
+            )
+    for manager_id in current_ids:
+        if manager_id not in previous_set:
+            record_annotation_manager_change(
+                db, project=project, manager_role="project_manager",
+                previous_manager_id=None, new_manager_id=manager_id,
+                change_mode=change_mode, actor_user_id=actor_user_id, reason=reason,
+            )
+
+
 def _lock_annotation_order_numbers(db: Session) -> None:
     bind = db.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":
@@ -168,6 +200,7 @@ def _project_options():
         .joinedload(AnnotationProjectPriceItem.target_language),
         selectinload(AnnotationProject.workbench_responsibilities)
         .joinedload(workflow_models.ProjectWorkbenchResponsibility.assignee),
+        joinedload(AnnotationProject.arrangement_scope),
     )
 
 
@@ -639,11 +672,7 @@ def update_annotation_project(
         return None
     assert_fresh(project, payload.expected_updated_at)
     previous_client_manager_id = project.client_manager_id
-    previous_project_manager_id = next((
-        item.assignee_id
-        for item in project.workbench_responsibilities
-        if item.role_code == "project_manager"
-    ), None)
+    previous_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
@@ -675,10 +704,10 @@ def update_annotation_project(
     responsibility_rows = ensure_active_project_responsibilities(
         db, 'annotation', project.id, project.project_status, assignments,
     )
-    current_project_manager_id = next((
-        item.assignee_id for item in responsibility_rows
-        if item.role_code == "project_manager"
-    ), previous_project_manager_id)
+    current_project_manager_ids = (
+        _project_manager_ids(responsibility_rows)
+        if responsibility_rows else previous_project_manager_ids
+    )
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
     record_annotation_manager_change(
@@ -691,14 +720,11 @@ def update_annotation_project(
         actor_user_id=changed_by,
         reason="编辑标注项目时修改负责人",
     )
-    record_annotation_manager_change(
-        db,
-        project=project,
-        manager_role="project_manager",
-        previous_manager_id=previous_project_manager_id,
-        new_manager_id=current_project_manager_id,
-        change_mode="project_edit",
-        actor_user_id=changed_by,
+    _record_project_manager_changes(
+        db, project=project,
+        previous_ids=previous_project_manager_ids,
+        current_ids=current_project_manager_ids,
+        change_mode="project_edit", actor_user_id=changed_by,
         reason="编辑标注项目时修改负责人",
     )
     db.commit()
@@ -825,7 +851,7 @@ def update_annotation_project_managers(
     db: Session,
     project_id: UUID,
     client_manager_id: Optional[UUID],
-    project_manager_id: Optional[UUID],
+    project_manager_ids: list[UUID] | UUID | None,
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     """更新标注项目的客户经理和项目经理用户关联。"""
@@ -847,13 +873,14 @@ def update_annotation_project_managers(
         validate_assignment_map,
     )
 
-    current_project_manager_id = next((
-        item.assignee_id
-        for item in project.workbench_responsibilities
-        if item.role_code == "project_manager"
-    ), None)
-    assignments = {"project_manager": project_manager_id}
-    if project_manager_id != current_project_manager_id:
+    current_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
+    submitted_manager_ids = (
+        project_manager_ids if isinstance(project_manager_ids, list)
+        else ([project_manager_ids] if project_manager_ids else [])
+    )
+    normalized_project_manager_ids = list(dict.fromkeys(submitted_manager_ids))
+    assignments = {"project_manager": normalized_project_manager_ids}
+    if normalized_project_manager_ids != current_project_manager_ids:
         validate_assignment_map(db, assignments)
     project.client_manager_id = client_manager_id
     ensure_project_responsibilities(db, "annotation", project.id, assignments)
@@ -868,14 +895,11 @@ def update_annotation_project_managers(
         actor_user_id=changed_by,
         reason="标注项目列表直接修改负责人",
     )
-    record_annotation_manager_change(
-        db,
-        project=project,
-        manager_role="project_manager",
-        previous_manager_id=current_project_manager_id,
-        new_manager_id=project_manager_id,
-        change_mode="inline_edit",
-        actor_user_id=changed_by,
+    _record_project_manager_changes(
+        db, project=project,
+        previous_ids=current_project_manager_ids,
+        current_ids=normalized_project_manager_ids,
+        change_mode="inline_edit", actor_user_id=changed_by,
         reason="标注项目列表直接修改负责人",
     )
     db.commit()

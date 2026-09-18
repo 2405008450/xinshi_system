@@ -32,8 +32,10 @@ from annotation_ops_schemas import (
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
     ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
     ArrangementAssigneeResponse, ArrangementBatchWrite, ArrangementContextResponse,
-    ArrangementTaskResponse, ArrangementTaskTypeResponse, ArrangementTaskTypeStateWrite,
+    ArrangementMembershipResponse, ArrangementMembershipWrite,
+    ArrangementOverviewResponse, ArrangementTaskResponse, ArrangementTaskTypeResponse, ArrangementTaskTypeStateWrite,
     ArrangementTaskTypeWrite,
+    ArrangementWorkloadResponse,
 )
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
@@ -41,7 +43,8 @@ from annotation_ops_service import (
     get_account_person_profile, list_account_assignments, list_accounts, list_annotator_occupancy, list_annotation_workflow, list_person_accounts,
     list_platforms, list_recent_status_history, list_status_history, list_trials, release_account, release_all_person_accounts,
     search_status_history,
-    create_arrangement_task_type, get_arrangement_context, save_arrangement_batch,
+    create_arrangement_task_type, get_arrangement_context, get_arrangement_overview,
+    get_arrangement_workloads, save_arrangement_batch, set_arrangement_membership,
     set_arrangement_task_type_state, update_arrangement_task_type, update_progress_history,
     reveal_credential, reveal_credentials_batch, save_account, save_annotation_workflow, save_assignee_rate, save_platform, save_trial,
 )
@@ -49,7 +52,7 @@ from database import get_db
 from models import AppUser
 from pagination_schemas import PageResponse
 from permission_service import user_has_permission
-from routers.auth import get_current_user, require_any_permission, require_module_access
+from routers.auth import get_current_user, require_any_permission, require_module_access, require_super_admin
 
 
 def _can_reveal_accounts(db: Session, user: AppUser) -> bool:
@@ -388,6 +391,83 @@ def arrangement_context(
     return _run(db, lambda: get_arrangement_context(db, project_id))
 
 
+@project_router.get(
+    "/project-arrangements/overview", response_model=ArrangementOverviewResponse,
+)
+def arrangement_overview(
+    execution_date: date,
+    arrangement_status: str = Query("all", pattern="^(all|arranged|unarranged)$"),
+    keyword: Optional[str] = Query(None, max_length=100),
+    project_status: Optional[str] = None,
+    client_id: Optional[UUID] = None,
+    project_type: Optional[str] = Query(None, max_length=50),
+    project_manager_id: Optional[UUID] = None,
+    client_manager_id: Optional[UUID] = None,
+    task_type_id: Optional[UUID] = None,
+    assignee_id: Optional[UUID] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    sort: str = Query(
+        "order_no_desc",
+        pattern="^(order_no_asc|order_no_desc|project_name_asc|task_count_desc)$",
+    ),
+    db: Session = Depends(get_db),
+):
+    return get_arrangement_overview(
+        db,
+        execution_date=execution_date,
+        arrangement_status=arrangement_status,
+        keyword=keyword,
+        project_status=project_status,
+        client_id=client_id,
+        project_type=project_type,
+        project_manager_id=project_manager_id,
+        client_manager_id=client_manager_id,
+        task_type_id=task_type_id,
+        assignee_id=assignee_id,
+        skip=skip,
+        limit=limit,
+        sort=sort,
+    )
+
+
+@project_router.get(
+    "/project-arrangements/workloads", response_model=ArrangementWorkloadResponse,
+)
+def arrangement_workloads(
+    execution_date: date,
+    keyword: Optional[str] = Query(None, max_length=100),
+    load_state: str = Query("all", pattern="^(all|assigned|unassigned)$"),
+    project_keyword: Optional[str] = Query(None, max_length=100),
+    project_status: Optional[str] = None,
+    client_id: Optional[UUID] = None,
+    project_type: Optional[str] = Query(None, max_length=50),
+    project_manager_id: Optional[UUID] = None,
+    client_manager_id: Optional[UUID] = None,
+    task_type_id: Optional[UUID] = None,
+    assignee_id: Optional[UUID] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return get_arrangement_workloads(
+        db,
+        execution_date=execution_date,
+        keyword=keyword,
+        load_state=load_state,
+        project_keyword=project_keyword,
+        project_status=project_status,
+        client_id=client_id,
+        project_type=project_type,
+        project_manager_id=project_manager_id,
+        client_manager_id=client_manager_id,
+        task_type_id=task_type_id,
+        assignee_id=assignee_id,
+        skip=skip,
+        limit=limit,
+    )
+
+
 @project_router.put(
     "/project-arrangements/batch", response_model=List[ArrangementTaskResponse],
     dependencies=[Depends(require_any_permission("projects:write"))],
@@ -398,6 +478,22 @@ def save_project_arrangements(
     user: AppUser = Depends(get_current_user),
 ):
     return _run(db, lambda: save_arrangement_batch(db, payload, user.id))
+
+
+@project_router.put(
+    "/project-arrangements/projects/{project_id}/membership",
+    response_model=ArrangementMembershipResponse,
+)
+def update_project_arrangement_membership(
+    project_id: UUID,
+    payload: ArrangementMembershipWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(require_super_admin),
+):
+    return _run(
+        db,
+        lambda: set_arrangement_membership(db, project_id, payload, user.id),
+    )
 
 
 @project_router.post(

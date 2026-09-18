@@ -2,15 +2,17 @@
   <DraggableFormDialog
     :model-value="modelValue"
     :title="dialogTitle"
-    width="min(960px, calc(100vw - 32px))"
+    width="min(1180px, calc(100vw - 32px))"
     top="5vh"
     append-to-body
     destroy-on-close
     class="annotation-manager-transfer-dialog"
     @update:model-value="$emit('update:modelValue', $event)"
     @closed="resetDialog"
-    @open="loadOptions"
+    @open="handleDialogOpen"
   >
+    <el-tabs v-model="activeTab" class="manager-transfer-tabs" @tab-change="handleTabChange">
+      <el-tab-pane label="交接操作" name="transfer">
     <el-alert
       :title="alertTitle"
       type="warning"
@@ -131,10 +133,16 @@
         <el-table-column prop="language_pair" label="语言方向" min-width="140" show-overflow-tooltip />
       </el-table>
     </div>
+      </el-tab-pane>
+      <el-tab-pane label="变更记录" name="history" lazy>
+        <AnnotationManagerChangeLogDialog ref="changeLogRef" />
+      </el-tab-pane>
+    </el-tabs>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
+      <el-button @click="$emit('update:modelValue', false)">{{ activeTab === 'transfer' ? '取消' : '关闭' }}</el-button>
       <el-button
+        v-if="activeTab === 'transfer'"
         type="danger"
         :loading="submitting"
         :disabled="!selectedProjects.length"
@@ -159,6 +167,7 @@ import {
 } from '@/api/workflow'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { getProjectStatusLabel } from '@/utils/projectStatus'
+import AnnotationManagerChangeLogDialog from './AnnotationManagerChangeLogDialog.vue'
 
 defineProps({
   modelValue: { type: Boolean, default: false },
@@ -167,6 +176,8 @@ defineProps({
 const emit = defineEmits(['update:modelValue', 'transferred'])
 const formRef = ref(null)
 const previewTableRef = ref(null)
+const changeLogRef = ref(null)
+const activeTab = ref('transfer')
 const optionsLoading = ref(false)
 const previewLoading = ref(false)
 const submitting = ref(false)
@@ -183,7 +194,9 @@ const isClientManagerTransfer = computed(() => selectedManagerType.value === 'cl
 const managerLabel = computed(() => isClientManagerTransfer.value ? '客户经理' : '项目经理')
 const sourceLabel = computed(() => `原${managerLabel.value}`)
 const targetLabel = computed(() => `新${managerLabel.value}`)
-const dialogTitle = computed(() => `${managerLabel.value}离职交接`)
+const dialogTitle = computed(() => activeTab.value === 'history'
+  ? '标注项目负责人交接'
+  : `${managerLabel.value}离职交接`)
 const alertTitle = computed(() => (
   `该操作由超级管理员直接生效，无需接收人确认；只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
 ))
@@ -208,6 +221,15 @@ const sourceManagerLabel = manager => `${managerName(manager)}${manager.is_activ
 const targetManagerLabel = manager => manager.is_on_leave
   ? `${managerName(manager)}（${manager.assignment_disabled_reason || '正在请假'}）`
   : managerName(manager)
+
+function handleDialogOpen() {
+  if (activeTab.value === 'history') changeLogRef.value?.load()
+  else loadOptions()
+}
+
+function handleTabChange(tabName) {
+  if (tabName === 'history') nextTick(() => changeLogRef.value?.load())
+}
 
 async function loadOptions() {
   const currentRequestId = ++optionsRequestId
@@ -320,6 +342,7 @@ function resetDialog() {
   optionsRequestId += 1
   previewRequestId += 1
   selectedManagerType.value = 'project_manager'
+  activeTab.value = 'transfer'
   Object.assign(form, { sourceManagerId: '', targetManagerId: '', reason: '' })
   sourceManagers.value = []
   targetManagers.value = []
@@ -355,6 +378,9 @@ function resetDialog() {
 }
 .manager-transfer-form {
   margin-top: 18px;
+}
+.manager-transfer-tabs > .el-tabs__content {
+  overflow: visible;
 }
 .manager-transfer-preview__header,
 .manager-transfer-preview__actions,

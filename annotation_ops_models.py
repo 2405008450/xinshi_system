@@ -103,6 +103,44 @@ class AnnotationArrangementTaskType(Base):
     )
 
 
+class AnnotationProjectArrangementScope(Base):
+    """标注项目是否进入公司共享的项目安排池。"""
+
+    __tablename__ = "annotation_project_arrangement_scope"
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", name="annotation_project_arrangement_scope_pkey"),
+        ForeignKeyConstraint(
+            ["project_id"], ["annotation_project.id"], ondelete="CASCADE",
+            name="fk_annotation_arrangement_scope_project",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_scope_creator",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_scope_updater",
+        ),
+        Index("ix_annotation_arrangement_scope_active", "is_active"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("TRUE")
+    )
+    membership_note: Mapped[Optional[str]] = mapped_column(String(1000))
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    project = relationship("AnnotationProject", back_populates="arrangement_scope")
+
+
 class AnnotationProjectArrangementTask(Base):
     __tablename__ = "annotation_project_arrangement_task"
     __table_args__ = (

@@ -1,14 +1,5 @@
 <template>
-  <DraggableFormDialog
-    :model-value="modelValue"
-    title="标注项目负责人变更记录"
-    width="min(1180px, calc(100vw - 32px))"
-    top="5vh"
-    class="annotation-manager-change-log-dialog"
-    @update:model-value="emit('update:modelValue', $event)"
-    @open="load"
-    @closed="cancelRequest"
-  >
+  <div class="annotation-manager-change-log-panel">
     <AppForm :inline="true" class="manager-log-filters">
       <el-form-item label="关键词">
         <el-input
@@ -75,8 +66,7 @@
         @size-change="handlePageSizeChange"
       />
     </div>
-    <template #footer><el-button @click="emit('update:modelValue', false)">关闭</el-button></template>
-  </DraggableFormDialog>
+  </div>
 </template>
 
 <script setup>
@@ -84,11 +74,8 @@ import { onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAnnotationManagerChangeLogs } from '@/api/annotationProjects'
 import AppForm from '@/components/common/AppForm.vue'
-import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
-defineProps({ modelValue: { type: Boolean, default: false } })
-const emit = defineEmits(['update:modelValue'])
 const rows = ref([])
 const loading = ref(false)
 const filters = reactive({ keyword: '', managerRole: '', changeMode: '', changedRange: [] })
@@ -138,14 +125,13 @@ const reset = () => {
 }
 const handlePageSizeChange = () => { pagination.page = 1; load() }
 
+defineExpose({ load })
+
 onBeforeUnmount(() => { clearTimeout(debounceTimer); cancelRequest() })
 </script>
 
 <style>
-.annotation-manager-change-log-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}
-.annotation-manager-change-log-dialog .el-dialog__header,.annotation-manager-change-log-dialog .el-dialog__footer{flex:0 0 auto}
-.annotation-manager-change-log-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}
-.annotation-manager-change-log-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
+.annotation-manager-change-log-panel{min-width:0;padding-top:4px}
 .manager-log-filters{display:flex;align-items:flex-end;gap:0;flex-wrap:wrap}
 .manager-log-keyword{width:270px}.manager-log-short-filter{width:140px}.manager-log-date-filter{width:340px}
 .manager-log-pagination{display:flex;justify-content:flex-end;margin-top:16px}

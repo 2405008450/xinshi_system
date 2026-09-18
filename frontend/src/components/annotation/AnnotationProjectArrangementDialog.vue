@@ -243,6 +243,7 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   initialProject: { type: Object, default: null },
+  defaultExecutionDate: { type: String, default: '' },
   canWrite: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -402,7 +403,10 @@ async function removeProject(project) {
 }
 
 function addTask(project) {
-  project.tasks.push(normalizeTask({ projectId:project.id, executionDate:tomorrowString(), taskTypeId:'', assigneeId:'', taskContent:'' }))
+  const executionDate = /^\d{4}-\d{2}-\d{2}$/.test(props.defaultExecutionDate)
+    ? props.defaultExecutionDate
+    : tomorrowString()
+  project.tasks.push(normalizeTask({ projectId:project.id, executionDate, taskTypeId:'', assigneeId:'', taskContent:'' }))
 }
 function removeTask(project, task) {
   if (task.id) deletedItems.value.push({ id:task.id, expectedUpdatedAt:task.expectedUpdatedAt, projectId:project.id })

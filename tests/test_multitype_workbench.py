@@ -120,6 +120,14 @@ def test_assignment_payload_and_generic_work_entry_contract():
         "project_manager": manager_id,
         "project_specialist": None,
     }
+    second_manager_id = uuid4()
+    multiple_assignments = assignment_map_from_payload([
+        {"role_code": "project_manager", "assignee_id": manager_id},
+        {"role_code": "project_manager", "assignee_id": second_manager_id},
+    ])
+    assert multiple_assignments == {
+        "project_manager": [manager_id, second_manager_id],
+    }
     entry = WorkEntryCreate(
         work_date=date(2026, 8, 25),
         project_responsibility_id=uuid4(),
@@ -137,9 +145,11 @@ def test_assignment_payload_and_generic_work_entry_contract():
 
 def test_responsibility_model_constraints_and_routes():
     constraint_names = {item.name for item in ProjectWorkbenchResponsibility.__table__.constraints}
+    index_names = {item.name for item in ProjectWorkbenchResponsibility.__table__.indexes}
     assert "ck_workbench_resp_exactly_one_project" in constraint_names
     assert "uq_workbench_resp_interpretation_role" in constraint_names
-    assert "uq_workbench_resp_annotation_role" in constraint_names
+    assert "uq_workbench_resp_annotation_single_role" in index_names
+    assert "uq_workbench_resp_annotation_manager" in index_names
     assert "uq_workbench_resp_recruitment_role" in constraint_names
     assert PROJECT_DETAIL_ROUTES == {
         "translation": "TranslationProjectDetails",

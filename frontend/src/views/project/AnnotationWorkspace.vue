@@ -3,6 +3,7 @@
     <el-card v-show="!(focusMode && activeSection === 'accounts')" class="workspace-navigation" shadow="never">
       <el-tabs v-model="activeSection" @tab-change="handleSectionChange">
         <el-tab-pane v-if="canViewProjects" label="标注项目管理" name="projects" />
+        <el-tab-pane v-if="canViewProjects" label="项目安排" name="arrangements" />
         <el-tab-pane v-if="canViewProjects" label="项目对比" name="comparisons" />
         <el-tab-pane v-if="canViewAccounts" label="标注员账号" name="accounts" />
         <el-tab-pane v-if="canViewProjects" label="试标流程" name="trials" />
@@ -29,13 +30,14 @@ const focusMode = ref(false)
 const canViewProjects = computed(() => hasPermission('projects:read'))
 const canViewAccounts = computed(() => hasPermission(['annotation_accounts:read', 'annotation_accounts:write']))
 const availableSections = computed(() => new Set([
-  ...(canViewProjects.value ? ['projects', 'comparisons', 'trials', 'workflow', 'notices'] : []),
+  ...(canViewProjects.value ? ['projects', 'arrangements', 'comparisons', 'trials', 'workflow', 'notices'] : []),
   ...(canViewAccounts.value ? ['accounts'] : []),
 ]))
 const defaultSection = () => canViewProjects.value ? 'projects' : 'accounts'
 
 const componentMap = {
   projects: defineAsyncComponent(() => import('./AnnotationProjects.vue')),
+  arrangements: defineAsyncComponent(() => import('./AnnotationArrangementOverview.vue')),
   comparisons: defineAsyncComponent(() => import('./AnnotationComparisons.vue')),
   accounts: defineAsyncComponent(() => import('./AnnotationAccounts.vue')),
   trials: defineAsyncComponent(() => import('./AnnotationTrials.vue')),

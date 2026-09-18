@@ -541,7 +541,9 @@ def update_project_managers(
             db,
             project_id,
             payload.client_manager_id,
-            payload.project_manager_id,
+            payload.project_manager_ids
+            if payload.project_manager_ids is not None
+            else ([payload.project_manager_id] if payload.project_manager_id else []),
             current_user.id,
         )
     except ValueError as exc:

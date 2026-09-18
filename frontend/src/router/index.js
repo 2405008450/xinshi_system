@@ -106,6 +106,13 @@ const routes = [
         }
       },
       {
+        path: 'annotation-arrangements',
+        redirect: to => ({
+          name: 'AnnotationProjectDetails',
+          query: { ...to.query, section: 'arrangements' }
+        })
+      },
+      {
         path: 'annotation-accounts',
         name: 'AnnotationAccounts',
         redirect: to => ({

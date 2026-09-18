@@ -82,7 +82,7 @@ def ensure_project_responsibilities(
     db: Session,
     project_type: str,
     project_id: UUID,
-    assignments: Optional[dict[str, Optional[UUID]]] = None,
+    assignments: Optional[dict[str, Optional[UUID] | list[UUID]]] = None,
 ) -> list[ProjectWorkbenchResponsibility]:
     """幂等补齐三个内部角色；传 assignments 时同步负责人。"""
     project = get_project(db, project_type, project_id)
@@ -92,10 +92,46 @@ def ensure_project_responsibilities(
     rows = db.query(ProjectWorkbenchResponsibility).filter(
         getattr(ProjectWorkbenchResponsibility, fk_name) == project_id
     ).all()
-    by_role = {row.role_code: row for row in rows}
+    by_role: dict[str, list[ProjectWorkbenchResponsibility]] = {}
+    for row in rows:
+        by_role.setdefault(row.role_code, []).append(row)
     now = datetime.datetime.utcnow()
     for role_code in RESPONSIBILITY_ROLE_CODES:
-        row = by_role.get(role_code)
+        role_rows = by_role.get(role_code, [])
+        if project_type == 'annotation' and role_code == 'project_manager' and assignments is not None and role_code in assignments:
+            raw_ids = assignments[role_code]
+            manager_ids = raw_ids if isinstance(raw_ids, list) else ([raw_ids] if raw_ids else [])
+            manager_ids = list(dict.fromkeys(manager_ids))
+            existing_by_assignee = {row.assignee_id: row for row in role_rows}
+            kept_rows = []
+            for manager_id in manager_ids:
+                row = existing_by_assignee.get(manager_id)
+                if row is None:
+                    row = ProjectWorkbenchResponsibility(
+                        **{fk_name: project_id}, role_code=role_code,
+                        assignee_id=manager_id, created_at=now, updated_at=now,
+                    )
+                    db.add(row)
+                    rows.append(row)
+                kept_rows.append(row)
+            if not kept_rows:
+                row = existing_by_assignee.get(None)
+                if row is None:
+                    row = ProjectWorkbenchResponsibility(
+                        **{fk_name: project_id}, role_code=role_code,
+                        created_at=now, updated_at=now,
+                    )
+                    db.add(row)
+                    rows.append(row)
+                kept_rows.append(row)
+            for stale_row in role_rows:
+                if stale_row not in kept_rows:
+                    db.delete(stale_row)
+                    if stale_row in rows:
+                        rows.remove(stale_row)
+            by_role[role_code] = kept_rows
+            continue
+        row = role_rows[0] if role_rows else None
         if not row:
             row = ProjectWorkbenchResponsibility(
                 **{fk_name: project_id},
@@ -105,7 +141,7 @@ def ensure_project_responsibilities(
             )
             db.add(row)
             rows.append(row)
-            by_role[role_code] = row
+            by_role[role_code] = [row]
         if assignments is not None and role_code in assignments:
             row.assignee_id = assignments[role_code]
             row.updated_at = now
@@ -207,50 +243,63 @@ def role_assignments_for_project(db: Session, project_type: str, project_id: UUI
     rows = db.query(ProjectWorkbenchResponsibility).options(
         joinedload(ProjectWorkbenchResponsibility.assignee)
     ).filter(getattr(ProjectWorkbenchResponsibility, fk_name) == project_id).all()
-    by_role = {row.role_code: row for row in rows}
+    by_role: dict[str, list[ProjectWorkbenchResponsibility]] = {}
+    for row in rows:
+        by_role.setdefault(row.role_code, []).append(row)
     result = []
     for role_code in RESPONSIBILITY_ROLE_CODES:
-        row = by_role.get(role_code)
-        user = row.assignee if row else None
-        result.append({
-            'role_code': role_code,
-            'role_name': PROJECT_ROLE_NAME_BY_CODE[role_code],
-            'assignee_id': row.assignee_id if row else None,
-            'assignee_name': (user.full_name or user.username) if user else None,
-            'assignment_type': 'direct' if row and row.assignee_id else 'role_pool',
-        })
+        role_rows = by_role.get(role_code) or [None]
+        for row in role_rows:
+            user = row.assignee if row else None
+            result.append({
+                'role_code': role_code,
+                'role_name': PROJECT_ROLE_NAME_BY_CODE[role_code],
+                'assignee_id': row.assignee_id if row else None,
+                'assignee_name': (user.full_name or user.username) if user else None,
+                'assignment_type': 'direct' if row and row.assignee_id else 'role_pool',
+            })
     return result
 
 
-def assignment_map_from_payload(values: Optional[Iterable]) -> Optional[dict[str, Optional[UUID]]]:
+def assignment_map_from_payload(values: Optional[Iterable]) -> Optional[dict[str, Optional[UUID] | list[UUID]]]:
     if values is None:
         return None
-    result: dict[str, Optional[UUID]] = {}
+    result: dict[str, Optional[UUID] | list[UUID]] = {}
     for item in values:
         data = item.model_dump() if hasattr(item, 'model_dump') else dict(item)
         role_code = data.get('role_code')
         if role_code not in RESPONSIBILITY_ROLE_CODES:
             raise ValueError('不支持的内部项目角色')
-        result[role_code] = data.get('assignee_id')
+        assignee_id = data.get('assignee_id')
+        if role_code == 'project_manager' and role_code in result:
+            previous = result[role_code]
+            collected = previous if isinstance(previous, list) else ([previous] if previous else [])
+            if assignee_id and assignee_id not in collected:
+                collected.append(assignee_id)
+            result[role_code] = collected
+        else:
+            result[role_code] = assignee_id
     return result
 
 
-def validate_assignment_map(db: Session, assignments: Optional[dict[str, Optional[UUID]]]) -> None:
+def validate_assignment_map(db: Session, assignments: Optional[dict[str, Optional[UUID] | list[UUID]]]) -> None:
     if assignments is None:
         return
     from crud import get_user_roles_with_role_names
     from leave_service import ensure_user_assignable
-    for role_code, user_id in assignments.items():
+    for role_code, raw_user_ids in assignments.items():
         if role_code not in RESPONSIBILITY_ROLE_CODES:
             raise ValueError('不支持的内部项目角色')
-        if user_id is None:
-            continue
-        user = db.query(AppUser).filter(AppUser.id == user_id, AppUser.is_active == True).first()
-        if not user:
-            raise ValueError('所选内部负责人不存在或已停用')
-        if PROJECT_ROLE_NAME_BY_CODE[role_code] not in set(get_user_roles_with_role_names(db, user_id)):
-            raise ValueError(f'所选用户不具备{PROJECT_ROLE_NAME_BY_CODE[role_code]}角色')
-        ensure_user_assignable(db, user_id)
+        user_ids = raw_user_ids if isinstance(raw_user_ids, list) else [raw_user_ids]
+        for user_id in user_ids:
+            if user_id is None:
+                continue
+            user = db.query(AppUser).filter(AppUser.id == user_id, AppUser.is_active == True).first()
+            if not user:
+                raise ValueError('所选内部负责人不存在或已停用')
+            if PROJECT_ROLE_NAME_BY_CODE[role_code] not in set(get_user_roles_with_role_names(db, user_id)):
+                raise ValueError(f'所选用户不具备{PROJECT_ROLE_NAME_BY_CODE[role_code]}角色')
+            ensure_user_assignable(db, user_id)
 
 
 def _responsibility_project_type(row: ProjectWorkbenchResponsibility) -> str:

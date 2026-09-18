@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from annotation_schemas import AnnotationProjectListResponse
+
 
 class PlatformWrite(BaseModel):
     client_id: Optional[UUID] = None
@@ -470,6 +472,27 @@ class ArrangementBatchWrite(BaseModel):
     deleted_items: list[ArrangementTaskDelete] = Field(default_factory=list, max_length=1000)
 
 
+class ArrangementMembershipWrite(BaseModel):
+    included: bool
+    membership_note: Optional[str] = Field(default=None, max_length=1000)
+    expected_updated_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_membership_note(self):
+        self.membership_note = (self.membership_note or "").strip() or None
+        if self.included and not self.membership_note:
+            raise ValueError("加入项目安排时请填写备注")
+        return self
+
+
+class ArrangementMembershipResponse(BaseModel):
+    project_id: UUID
+    included: bool
+    membership_note: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ArrangementTaskResponse(BaseModel):
     id: UUID
     project_id: UUID
@@ -504,6 +527,56 @@ class ArrangementContextResponse(BaseModel):
     projects: list[ArrangementProjectResponse]
     task_types: list[ArrangementTaskTypeResponse]
     assignees: list[ArrangementAssigneeResponse]
+
+
+class ArrangementOverviewSummary(BaseModel):
+    project_total: int = 0
+    arranged_project_count: int = 0
+    unarranged_project_count: int = 0
+    task_count: int = 0
+    assignee_count: int = 0
+
+
+class ArrangementOverviewProjectResponse(AnnotationProjectListResponse):
+    client_name: Optional[str] = None
+    project_manager_id: Optional[UUID] = None
+    project_manager_name: Optional[str] = None
+    arrangement_scope_state: str
+    arrangement_status: str
+    task_count: int = 0
+    assignee_names: list[str] = Field(default_factory=list)
+    tasks: list[ArrangementTaskResponse] = Field(default_factory=list)
+
+
+class ArrangementOverviewResponse(BaseModel):
+    items: list[ArrangementOverviewProjectResponse]
+    total: int = 0
+    summary: ArrangementOverviewSummary
+    task_types: list[ArrangementTaskTypeResponse] = Field(default_factory=list)
+    assignees: list[ArrangementAssigneeResponse] = Field(default_factory=list)
+
+
+class ArrangementWorkloadTaskResponse(ArrangementTaskResponse):
+    order_no: str
+    project_name: Optional[str] = None
+    client_name: Optional[str] = None
+    project_status: str
+
+
+class ArrangementWorkloadItemResponse(BaseModel):
+    assignee_id: UUID
+    assignee_name: str
+    department: Optional[str] = None
+    priority_group: str
+    task_count: int = 0
+    project_count: int = 0
+    project_names: list[str] = Field(default_factory=list)
+    tasks: list[ArrangementWorkloadTaskResponse] = Field(default_factory=list)
+
+
+class ArrangementWorkloadResponse(BaseModel):
+    items: list[ArrangementWorkloadItemResponse]
+    total: int = 0
 
 
 class CustomFieldWrite(BaseModel):

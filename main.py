@@ -128,6 +128,7 @@ from annotation_ops_models import (
     AnnotationPlatformAccount,
     AnnotationProjectStatusHistory,
     AnnotationArrangementTaskType,
+    AnnotationProjectArrangementScope,
     AnnotationProjectArrangementTask,
     AnnotationTrialRecord,
 )
@@ -749,7 +750,21 @@ def migrate_annotation_follow_up_to_status_history():
 def ensure_annotation_arrangement_schema():
     """补齐项目安排表与可编辑具体进度元数据。"""
     AnnotationArrangementTaskType.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectArrangementScope.__table__.create(bind=engine, checkfirst=True)
     AnnotationProjectArrangementTask.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE annotation_project_arrangement_scope "
+            "ADD COLUMN IF NOT EXISTS membership_note VARCHAR(1000)"
+        ))
+        conn.execute(text("""
+            INSERT INTO annotation_project_arrangement_scope (
+                project_id, is_active, created_at, updated_at
+            )
+            SELECT DISTINCT project_id, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            FROM annotation_project_arrangement_task
+            ON CONFLICT (project_id) DO NOTHING
+        """))
     if "annotation_project_status_history" not in inspect(engine).get_table_names():
         return
     with engine.begin() as conn:
@@ -1344,6 +1359,23 @@ def ensure_multitype_workbench_schema():
         return
     ProjectWorkbenchResponsibility.__table__.create(bind=engine, checkfirst=True)
     with engine.begin() as conn:
+        conn.execute(text("""
+            ALTER TABLE project_workbench_responsibility
+                DROP CONSTRAINT IF EXISTS uq_workbench_resp_annotation_role
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_workbench_resp_annotation_single_role
+            ON project_workbench_responsibility (annotation_project_id, role_code)
+            WHERE annotation_project_id IS NOT NULL
+              AND role_code <> 'project_manager'
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_workbench_resp_annotation_manager
+            ON project_workbench_responsibility (annotation_project_id, role_code, assignee_id)
+            WHERE annotation_project_id IS NOT NULL
+              AND role_code = 'project_manager'
+              AND assignee_id IS NOT NULL
+        """))
         if "workflow_handover_item" in tables:
             conn.execute(text("ALTER TABLE workflow_handover_item ADD COLUMN IF NOT EXISTS project_responsibility_id UUID"))
             conn.execute(text("ALTER TABLE workflow_handover_item ALTER COLUMN workflow_instance_id DROP NOT NULL"))

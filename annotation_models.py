@@ -165,6 +165,12 @@ class AnnotationProject(Base):
         back_populates="annotation_project",
         cascade="all, delete-orphan",
     )
+    arrangement_scope = relationship(
+        "AnnotationProjectArrangementScope",
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     chat_messages = relationship(
         "ChatProjectMessage",
         back_populates="annotation_project",
@@ -172,23 +178,40 @@ class AnnotationProject(Base):
     )
 
     @property
+    def arrangement_included(self) -> bool:
+        return bool(self.arrangement_scope and self.arrangement_scope.is_active)
+
+    @property
+    def arrangement_membership_updated_at(self):
+        return self.arrangement_scope.updated_at if self.arrangement_scope else None
+
+    @property
+    def arrangement_membership_note(self):
+        return self.arrangement_scope.membership_note if self.arrangement_scope else None
+
+    @property
     def role_assignments(self) -> list[dict]:
         from project_roles import PROJECT_ROLE_DEFINITIONS
-        by_role = {item.role_code: item for item in (self.workbench_responsibilities or [])}
-        return [
-            {
+        by_role: dict[str, list] = {}
+        for item in self.workbench_responsibilities or []:
+            by_role.setdefault(item.role_code, []).append(item)
+        result = []
+        for definition in PROJECT_ROLE_DEFINITIONS:
+            if definition["role_code"] not in {"project_manager", "project_specialist", "project_assistant"}:
+                continue
+            rows = by_role.get(definition["role_code"]) or [None]
+            for row in rows:
+                result.append({
                 "role_code": definition["role_code"],
                 "role_name": definition["role_name"],
-                "assignee_id": by_role.get(definition["role_code"]).assignee_id if by_role.get(definition["role_code"]) else None,
+                "assignee_id": row.assignee_id if row else None,
                 "assignee_name": (
-                    (by_role[definition["role_code"]].assignee.full_name or by_role[definition["role_code"]].assignee.username)
-                    if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee else None
+                    (row.assignee.full_name or row.assignee.username)
+                    if row and row.assignee else None
                 ),
-                "assignment_type": "direct" if by_role.get(definition["role_code"]) and by_role[definition["role_code"]].assignee_id else "role_pool",
-            }
-            for definition in PROJECT_ROLE_DEFINITIONS
-            if definition["role_code"] in {"project_manager", "project_specialist", "project_assistant"}
-        ]
+                "assignment_type": "direct" if row and row.assignee_id else "role_pool",
+                })
+        return result
 
     @property
     def selected_client(self):

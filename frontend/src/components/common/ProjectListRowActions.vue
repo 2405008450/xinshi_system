@@ -1,6 +1,6 @@
 <template>
   <div class="project-list-row-actions">
-    <PrimaryEditButton v-if="editable" @click="$emit('edit', $event)" />
+    <PrimaryEditButton v-if="editable && !editInMore" @click="$emit('edit', $event)" />
     <el-dropdown v-if="hasMoreActions" trigger="click" placement="bottom-end" @command="handleCommand">
       <el-button
         class="more-action-button"
@@ -14,6 +14,7 @@
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
+          <el-dropdown-item v-if="editable && editInMore" command="edit">编辑</el-dropdown-item>
           <el-dropdown-item v-if="showStartRequest" command="start-request">{{ startRequestLabel }}</el-dropdown-item>
           <el-dropdown-item
             v-for="item in extraActions"
@@ -39,13 +40,19 @@ const props = defineProps({
   showStartRequest: { type: Boolean, default: true },
   startRequestLabel: { type: String, default: '发起需求' },
   extraActions: { type: Array, default: () => [] },
+  editInMore: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['edit', 'start-request', 'extra-command'])
-const hasMoreActions = computed(() => props.showStartRequest || props.extraActions.length > 0)
+const hasMoreActions = computed(() => (
+  (props.editable && props.editInMore)
+  || props.showStartRequest
+  || props.extraActions.length > 0
+))
 
 const handleCommand = (command) => {
-  if (command === 'start-request') emit('start-request')
+  if (command === 'edit') emit('edit')
+  else if (command === 'start-request') emit('start-request')
   else emit('extra-command', command)
 }
 </script>

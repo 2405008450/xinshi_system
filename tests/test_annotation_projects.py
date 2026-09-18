@@ -155,6 +155,7 @@ def test_annotation_project_create_accepts_ai_evaluation_type():
 def test_annotation_project_manager_update_accepts_user_relations_and_clearing():
     client_manager_id = uuid4()
     project_manager_id = uuid4()
+    second_project_manager_id = uuid4()
 
     payload = AnnotationProjectManagersUpdate(
         client_manager_id=client_manager_id,
@@ -162,6 +163,10 @@ def test_annotation_project_manager_update_accepts_user_relations_and_clearing()
     )
     assert payload.client_manager_id == client_manager_id
     assert payload.project_manager_id == project_manager_id
+    multiple_payload = AnnotationProjectManagersUpdate(
+        project_manager_ids=[project_manager_id, second_project_manager_id, project_manager_id],
+    )
+    assert multiple_payload.project_manager_ids == [project_manager_id, second_project_manager_id]
     assert AnnotationProjectManagersUpdate().project_manager_id is None
 
 
@@ -206,8 +211,8 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
 
     assert result is project
     assert assignments_seen == [
-        ("validate", {"project_manager": project_manager_id}),
-        ("annotation", project_id, {"project_manager": project_manager_id}),
+        ("validate", {"project_manager": [project_manager_id]}),
+        ("annotation", project_id, {"project_manager": [project_manager_id]}),
     ]
     logs = [row for row in db.added if isinstance(row, AnnotationManagerChangeLog)]
     assert len(logs) == 1

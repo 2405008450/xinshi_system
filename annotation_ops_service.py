@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 
@@ -18,10 +18,12 @@ from annotation_models import AnnotationProject, AnnotationProjectAssignee, Anno
 from annotation_ops_models import (
     AnnotationAccountAssignment, AnnotationAccountAssignmentLanguage,
     AnnotationAccountPasswordHistory, AnnotationAssigneeRate,
-    AnnotationArrangementTaskType, AnnotationProjectArrangementTask,
+    AnnotationArrangementTaskType, AnnotationProjectArrangementScope,
+    AnnotationProjectArrangementTask,
     AnnotationCredentialAccessLog, AnnotationPlatform, AnnotationPlatformAccount,
     AnnotationProjectStatusHistory, AnnotationTrialRecord,
 )
+from annotation_schemas import AnnotationProjectListResponse
 from concurrency import assert_fresh
 from models import AppUser, Client, Role, SubClient, UserRole
 from resource_models import ResourceAnnotationLanguageSkill, ResourceCapability, ResourcePerson
@@ -1260,6 +1262,421 @@ def get_arrangement_context(db: Session, project_ids: list[UUID]) -> dict:
     }
 
 
+ARRANGEMENT_INACTIVE_PROJECT_STATUSES = {
+    "consultation_no_result",
+    "resource_sourcing_cancelled",
+    "cancelled",
+    "actively_abandoned",
+    "ended",
+}
+
+
+def _arrangement_client_name(project: AnnotationProject) -> str | None:
+    selected = project.sub_client or project.client
+    return (selected.client_short_name or selected.client_name) if selected else None
+
+
+def _arrangement_project_manager(project: AnnotationProject):
+    return next((
+        item.assignee for item in (project.workbench_responsibilities or [])
+        if item.role_code == "project_manager" and item.assignee
+    ), None)
+
+
+def _arrangement_project_query(
+    db: Session,
+    *,
+    keyword: str | None = None,
+    project_status: str | None = None,
+    client_id: UUID | None = None,
+    project_type: str | None = None,
+    project_manager_id: UUID | None = None,
+    client_manager_id: UUID | None = None,
+    include_inactive: bool = False,
+):
+    query = db.query(AnnotationProject).outerjoin(
+        Client, Client.id == AnnotationProject.client_id,
+    ).outerjoin(
+        SubClient, SubClient.id == AnnotationProject.sub_client_id,
+    )
+    if project_status:
+        query = query.filter(AnnotationProject.project_status == project_status)
+    elif not include_inactive:
+        query = query.filter(
+            AnnotationProject.project_status.notin_(ARRANGEMENT_INACTIVE_PROJECT_STATUSES)
+        )
+    if keyword and keyword.strip():
+        pattern = f"%{_escape_like_keyword(keyword.strip())}%"
+        query = query.filter(or_(
+            AnnotationProject.order_no.ilike(pattern, escape="\\"),
+            AnnotationProject.project_name.ilike(pattern, escape="\\"),
+            Client.client_name.ilike(pattern, escape="\\"),
+            Client.client_short_name.ilike(pattern, escape="\\"),
+            SubClient.client_name.ilike(pattern, escape="\\"),
+            SubClient.client_short_name.ilike(pattern, escape="\\"),
+        ))
+    if client_id:
+        query = query.filter(AnnotationProject.client_id == client_id)
+    if project_type:
+        query = query.filter(AnnotationProject.project_types.contains([project_type]))
+    if client_manager_id:
+        query = query.filter(AnnotationProject.client_manager_id == client_manager_id)
+    if project_manager_id:
+        query = query.filter(AnnotationProject.workbench_responsibilities.any(and_(
+            ProjectWorkbenchResponsibility.role_code == "project_manager",
+            ProjectWorkbenchResponsibility.assignee_id == project_manager_id,
+        )))
+    return query
+
+
+def _arrangement_task_conditions(
+    execution_date: date,
+    task_type_id: UUID | None = None,
+    assignee_id: UUID | None = None,
+):
+    conditions = [AnnotationProjectArrangementTask.execution_date == execution_date]
+    if task_type_id:
+        conditions.append(AnnotationProjectArrangementTask.task_type_id == task_type_id)
+    if assignee_id:
+        conditions.append(AnnotationProjectArrangementTask.assignee_id == assignee_id)
+    return conditions
+
+
+def _arrangement_project_dict(
+    project: AnnotationProject,
+    tasks: list[dict],
+    *,
+    scope_state: str = "included",
+) -> dict:
+    project_manager = _arrangement_project_manager(project)
+    client_manager = project.client_manager
+    result = AnnotationProjectListResponse.model_validate(project).model_dump()
+    result.update({
+        "client_name": _arrangement_client_name(project),
+        "client_manager_name": (
+            (client_manager.full_name or client_manager.username) if client_manager else None
+        ),
+        "project_manager_id": project_manager.id if project_manager else None,
+        "project_manager_name": (
+            (project_manager.full_name or project_manager.username) if project_manager else None
+        ),
+        "arrangement_scope_state": scope_state,
+        "arrangement_status": "arranged" if tasks else "unarranged",
+        "task_count": len(tasks),
+        "assignee_names": list(dict.fromkeys(task["assignee_name"] for task in tasks)),
+        "tasks": tasks,
+    })
+    return result
+
+
+def _arrangement_membership_dict(row: AnnotationProjectArrangementScope) -> dict:
+    return {
+        "project_id": row.project_id,
+        "included": row.is_active,
+        "membership_note": row.membership_note,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def set_arrangement_membership(
+    db: Session,
+    project_id: UUID,
+    payload,
+    user_id: UUID,
+) -> dict:
+    if not db.get(AnnotationProject, project_id):
+        raise ValueError("标注项目不存在或已被删除")
+    row = db.get(AnnotationProjectArrangementScope, project_id)
+    now = datetime.now()
+    if row:
+        if row.is_active == payload.included:
+            return _arrangement_membership_dict(row)
+        assert_fresh(row, payload.expected_updated_at)
+        row.is_active = payload.included
+        if payload.included:
+            row.membership_note = payload.membership_note
+        row.updated_by = user_id
+        row.updated_at = now
+    else:
+        row = AnnotationProjectArrangementScope(
+            project_id=project_id,
+            is_active=payload.included,
+            membership_note=payload.membership_note if payload.included else None,
+            created_by=user_id,
+            updated_by=user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _arrangement_membership_dict(row)
+
+
+def get_arrangement_overview(
+    db: Session,
+    *,
+    execution_date: date,
+    arrangement_status: str = "all",
+    keyword: str | None = None,
+    project_status: str | None = None,
+    client_id: UUID | None = None,
+    project_type: str | None = None,
+    project_manager_id: UUID | None = None,
+    client_manager_id: UUID | None = None,
+    task_type_id: UUID | None = None,
+    assignee_id: UUID | None = None,
+    skip: int = 0,
+    limit: int = 20,
+    sort: str = "order_no_desc",
+) -> dict:
+    task_conditions = _arrangement_task_conditions(
+        execution_date, task_type_id, assignee_id,
+    )
+    matching_project_ids = db.query(
+        AnnotationProjectArrangementTask.project_id,
+    ).filter(*task_conditions).distinct()
+    any_date_project_ids = db.query(
+        AnnotationProjectArrangementTask.project_id,
+    ).filter(
+        AnnotationProjectArrangementTask.execution_date == execution_date,
+    ).distinct()
+    active_scope_project_ids = db.query(
+        AnnotationProjectArrangementScope.project_id,
+    ).filter(
+        AnnotationProjectArrangementScope.is_active.is_(True),
+    )
+    base_query = _arrangement_project_query(
+        db,
+        keyword=keyword,
+        project_status=project_status,
+        client_id=client_id,
+        project_type=project_type,
+        project_manager_id=project_manager_id,
+        client_manager_id=client_manager_id,
+        include_inactive=True,
+    ).filter(or_(
+        AnnotationProject.id.in_(active_scope_project_ids),
+        AnnotationProject.id.in_(any_date_project_ids),
+    ))
+    if not project_status:
+        base_query = base_query.filter(or_(
+            AnnotationProject.project_status.notin_(ARRANGEMENT_INACTIVE_PROJECT_STATUSES),
+            AnnotationProject.id.in_(any_date_project_ids),
+        ))
+    if task_type_id or assignee_id:
+        base_query = base_query.filter(AnnotationProject.id.in_(matching_project_ids))
+
+    summary_query = base_query.distinct()
+    project_total = summary_query.count()
+    arranged_project_count = summary_query.filter(
+        AnnotationProject.id.in_(any_date_project_ids)
+    ).count()
+    summary_project_ids = summary_query.with_entities(AnnotationProject.id).subquery()
+    task_summary_query = db.query(AnnotationProjectArrangementTask).filter(
+        AnnotationProjectArrangementTask.project_id.in_(select(summary_project_ids.c.id)),
+        *task_conditions,
+    )
+    summary = {
+        "project_total": project_total,
+        "arranged_project_count": arranged_project_count,
+        "unarranged_project_count": max(project_total - arranged_project_count, 0),
+        "task_count": task_summary_query.count(),
+        "assignee_count": task_summary_query.with_entities(
+            func.count(func.distinct(AnnotationProjectArrangementTask.assignee_id))
+        ).scalar() or 0,
+    }
+
+    list_query = base_query.distinct().options(
+        joinedload(AnnotationProject.client),
+        joinedload(AnnotationProject.sub_client),
+        joinedload(AnnotationProject.client_manager),
+        joinedload(AnnotationProject.workbench_responsibilities).joinedload(
+            ProjectWorkbenchResponsibility.assignee
+        ),
+        joinedload(AnnotationProject.arrangement_scope),
+        selectinload(AnnotationProject.language_items),
+        selectinload(AnnotationProject.price_items),
+        selectinload(AnnotationProject.assignees).joinedload(AnnotationProjectAssignee.person),
+    )
+    if arrangement_status == "arranged":
+        list_query = list_query.filter(AnnotationProject.id.in_(any_date_project_ids))
+    elif arrangement_status == "unarranged":
+        list_query = list_query.filter(~AnnotationProject.id.in_(any_date_project_ids))
+    total = list_query.count()
+    task_count_expression = db.query(func.count(AnnotationProjectArrangementTask.id)).filter(
+        AnnotationProjectArrangementTask.project_id == AnnotationProject.id,
+        *task_conditions,
+    ).correlate(AnnotationProject).scalar_subquery()
+    order_by = {
+        "order_no_asc": (AnnotationProject.order_no.asc(),),
+        "order_no_desc": (AnnotationProject.order_no.desc(),),
+        "project_name_asc": (AnnotationProject.project_name.asc().nullslast(), AnnotationProject.order_no.desc()),
+        "task_count_desc": (task_count_expression.desc(), AnnotationProject.order_no.desc()),
+    }[sort]
+    projects = list_query.order_by(*order_by).offset(skip).limit(limit).all()
+    project_ids = [project.id for project in projects]
+    task_rows = db.query(AnnotationProjectArrangementTask).options(
+        joinedload(AnnotationProjectArrangementTask.task_type),
+        joinedload(AnnotationProjectArrangementTask.assignee),
+    ).filter(
+        AnnotationProjectArrangementTask.project_id.in_(project_ids),
+        *task_conditions,
+    ).order_by(
+        AnnotationProjectArrangementTask.created_at.asc(),
+    ).all() if project_ids else []
+    tasks_by_project: dict[UUID, list[dict]] = {project_id: [] for project_id in project_ids}
+    for task in task_rows:
+        tasks_by_project[task.project_id].append(_arrangement_task_dict(task))
+    return {
+        "items": [
+            _arrangement_project_dict(
+                project,
+                tasks_by_project[project.id],
+                scope_state=(
+                    "included" if project.arrangement_included else "history_only"
+                ),
+            )
+            for project in projects
+        ],
+        "total": total,
+        "summary": summary,
+        "task_types": list_arrangement_task_types(db),
+        "assignees": _arrangement_assignees(db),
+    }
+
+
+def get_arrangement_workloads(
+    db: Session,
+    *,
+    execution_date: date,
+    keyword: str | None = None,
+    load_state: str = "all",
+    project_keyword: str | None = None,
+    project_status: str | None = None,
+    client_id: UUID | None = None,
+    project_type: str | None = None,
+    project_manager_id: UUID | None = None,
+    client_manager_id: UUID | None = None,
+    task_type_id: UUID | None = None,
+    assignee_id: UUID | None = None,
+    skip: int = 0,
+    limit: int = 20,
+) -> dict:
+    date_project_ids = db.query(
+        AnnotationProjectArrangementTask.project_id,
+    ).filter(
+        AnnotationProjectArrangementTask.execution_date == execution_date,
+    ).distinct()
+    active_scope_project_ids = db.query(
+        AnnotationProjectArrangementScope.project_id,
+    ).filter(
+        AnnotationProjectArrangementScope.is_active.is_(True),
+    )
+    project_query = _arrangement_project_query(
+        db,
+        keyword=project_keyword,
+        project_status=project_status,
+        client_id=client_id,
+        project_type=project_type,
+        project_manager_id=project_manager_id,
+        client_manager_id=client_manager_id,
+        include_inactive=True,
+    ).filter(or_(
+        AnnotationProject.id.in_(active_scope_project_ids),
+        AnnotationProject.id.in_(date_project_ids),
+    ))
+    if not project_status:
+        project_query = project_query.filter(or_(
+            AnnotationProject.project_status.notin_(ARRANGEMENT_INACTIVE_PROJECT_STATUSES),
+            AnnotationProject.id.in_(date_project_ids),
+        ))
+    project_ids = project_query.with_entities(AnnotationProject.id).distinct().subquery()
+    task_conditions = _arrangement_task_conditions(execution_date, task_type_id, assignee_id)
+    aggregate_rows = db.query(
+        AnnotationProjectArrangementTask.assignee_id,
+        func.count(AnnotationProjectArrangementTask.id),
+        func.count(func.distinct(AnnotationProjectArrangementTask.project_id)),
+    ).filter(
+        AnnotationProjectArrangementTask.project_id.in_(select(project_ids.c.id)),
+        *task_conditions,
+    ).group_by(AnnotationProjectArrangementTask.assignee_id).all()
+    counts = {
+        assignee_id: (int(task_count), int(project_count))
+        for assignee_id, task_count, project_count in aggregate_rows
+    }
+    normalized_keyword = (keyword or "").strip().casefold()
+    assignees = []
+    for assignee in _arrangement_assignees(db):
+        if assignee_id and assignee["id"] != assignee_id:
+            continue
+        if normalized_keyword and normalized_keyword not in " ".join(filter(None, (
+            assignee["display_name"], assignee.get("department"),
+        ))).casefold():
+            continue
+        task_count, project_count = counts.get(assignee["id"], (0, 0))
+        if load_state == "assigned" and not task_count:
+            continue
+        if load_state == "unassigned" and task_count:
+            continue
+        assignees.append({
+            "assignee_id": assignee["id"],
+            "assignee_name": assignee["display_name"],
+            "department": assignee.get("department"),
+            "priority_group": assignee["priority_group"],
+            "task_count": task_count,
+            "project_count": project_count,
+            "project_names": [],
+            "tasks": [],
+        })
+    priority = {"project_manager": 0, "hr": 1, "other": 2}
+    assignees.sort(key=lambda item: (
+        -item["task_count"], priority[item["priority_group"]], item["assignee_name"].casefold(),
+    ))
+    total = len(assignees)
+    items = assignees[skip:skip + limit]
+    assignee_ids = [item["assignee_id"] for item in items]
+    task_rows = db.query(AnnotationProjectArrangementTask).options(
+        joinedload(AnnotationProjectArrangementTask.task_type),
+        joinedload(AnnotationProjectArrangementTask.assignee),
+    ).join(
+        AnnotationProject, AnnotationProject.id == AnnotationProjectArrangementTask.project_id,
+    ).options(
+        joinedload(AnnotationProjectArrangementTask.assignee),
+    ).filter(
+        AnnotationProjectArrangementTask.assignee_id.in_(assignee_ids),
+        AnnotationProjectArrangementTask.project_id.in_(select(project_ids.c.id)),
+        *task_conditions,
+    ).order_by(
+        AnnotationProjectArrangementTask.created_at.asc(),
+    ).all() if assignee_ids else []
+    task_map: dict[UUID, list[dict]] = {assignee_id: [] for assignee_id in assignee_ids}
+    project_name_map: dict[UUID, list[str]] = {assignee_id: [] for assignee_id in assignee_ids}
+    task_project_ids = list({task.project_id for task in task_rows})
+    projects = db.query(AnnotationProject).options(
+        joinedload(AnnotationProject.client),
+        joinedload(AnnotationProject.sub_client),
+    ).filter(AnnotationProject.id.in_(task_project_ids)).all() if task_project_ids else []
+    projects_by_id = {project.id: project for project in projects}
+    for task in task_rows:
+        project = projects_by_id[task.project_id]
+        task_map[task.assignee_id].append({
+            **_arrangement_task_dict(task),
+            "order_no": project.order_no,
+            "project_name": project.project_name,
+            "client_name": _arrangement_client_name(project),
+            "project_status": project.project_status,
+        })
+        project_label = project.project_name or project.order_no
+        if project_label not in project_name_map[task.assignee_id]:
+            project_name_map[task.assignee_id].append(project_label)
+    for item in items:
+        item["tasks"] = task_map[item["assignee_id"]]
+        item["project_names"] = project_name_map[item["assignee_id"]]
+    return {"items": items, "total": total}
+
+
 def save_arrangement_batch(db: Session, payload, user_id: UUID) -> list[dict]:
     item_ids = [item.id for item in payload.items if item.id]
     deleted_ids = [item.id for item in payload.deleted_items]
@@ -1284,6 +1701,18 @@ def save_arrangement_batch(db: Session, payload, user_id: UUID) -> list[dict]:
     } if project_ids else set()
     if existing_project_ids != project_ids:
         raise ValueError("所选标注项目不存在或已被删除")
+
+    new_project_ids = {item.project_id for item in payload.items if not item.id}
+    active_scope_project_ids = {
+        project_id for (project_id,) in db.query(
+            AnnotationProjectArrangementScope.project_id,
+        ).filter(
+            AnnotationProjectArrangementScope.project_id.in_(new_project_ids),
+            AnnotationProjectArrangementScope.is_active.is_(True),
+        ).all()
+    } if new_project_ids else set()
+    if active_scope_project_ids != new_project_ids:
+        raise ValueError("项目尚未加入安排池，不能新增安排任务")
 
     task_type_ids = {item.task_type_id for item in payload.items}
     task_types = {
