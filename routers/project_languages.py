@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
 from interpretation_models import InterpretationLanguage, InterpretationLanguageAlias
@@ -15,6 +15,7 @@ from interpretation_schemas import InterpretationLanguageCreate, InterpretationL
 from language_catalog import get_searchable_language_variants, normalize_language_search_text
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission
+from talent_overview_service import resolve_overview_for_language, resolve_overview_for_text
 
 
 router = APIRouter(
@@ -136,6 +137,30 @@ def create_language(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="该语种已存在")
+    overview_row, _ = resolve_overview_for_text(payload.label)
+    if overview_row:
+        candidates = (
+            db.query(InterpretationLanguage)
+            .options(selectinload(InterpretationLanguage.aliases))
+            .filter(InterpretationLanguage.is_active.is_(True))
+            .all()
+        )
+        mapped = next((
+            language for language in candidates
+            if (
+                language.talent_overview_key == overview_row["overview_key"]
+                or (resolve_overview_for_language(language)[0] or {}).get("overview_key")
+                == overview_row["overview_key"]
+            )
+        ), None)
+        if mapped:
+            raise HTTPException(status_code=409, detail={
+                "code": "language_alias_conflict",
+                "message": f"该名称对应已有规范语种“{overview_row['language']}”，请直接选择已有语种",
+                "canonical_label": overview_row["language"],
+                "existing_language_id": str(mapped.id),
+                "existing_language_label": mapped.label,
+            })
     language = InterpretationLanguage(
         **payload.model_dump(), is_custom=True, created_by=current_user.id
     )

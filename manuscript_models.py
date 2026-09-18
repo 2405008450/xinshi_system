@@ -146,11 +146,22 @@ class ManuscriptArrangement(Base):
             ondelete="SET NULL",
             name="fk_manuscript_arrangement_creator",
         ),
+        ForeignKeyConstraint(
+            ["reassigned_from_arrangement_id"],
+            ["manuscript_arrangement.id"],
+            ondelete="SET NULL",
+            name="fk_manuscript_arrangement_reassigned_from",
+        ),
+        ForeignKeyConstraint(
+            ["reassigned_by"],
+            ["app_user.id"],
+            ondelete="SET NULL",
+            name="fk_manuscript_arrangement_reassigned_by",
+        ),
         PrimaryKeyConstraint("id", name="manuscript_arrangement_pkey"),
         UniqueConstraint(
-            "dispatch_id",
-            "translator_id",
-            name="uq_manuscript_arrangement_dispatch_translator",
+            "reassigned_from_arrangement_id",
+            name="uq_manuscript_arrangement_reassigned_from",
         ),
         CheckConstraint(
             "entity_type IN ('project', 'suborder')",
@@ -173,6 +184,14 @@ class ManuscriptArrangement(Base):
             "ix_manuscript_arrangement_translator_status",
             "translator_id",
             "status",
+        ),
+        Index(
+            "uq_manuscript_arrangement_active_dispatch_translator",
+            "dispatch_id",
+            "translator_id",
+            unique=True,
+            postgresql_where=text("status <> 'cancelled'"),
+            sqlite_where=text("status <> 'cancelled'"),
         ),
     )
 
@@ -235,6 +254,11 @@ class ManuscriptArrangement(Base):
     delivery_mode: Mapped[Optional[str]] = mapped_column(String(20))
     smtp_message_id: Mapped[Optional[str]] = mapped_column(String(255))
     send_error: Mapped[Optional[str]] = mapped_column(Text)
+    reassigned_from_arrangement_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    reassignment_reason: Mapped[Optional[str]] = mapped_column(String(500))
+    reassigned_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    reassigned_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    reassigned_by_name: Mapped[Optional[str]] = mapped_column(String(255))
 
     dispatch: Mapped[Optional[ManuscriptDispatch]] = relationship(
         "ManuscriptDispatch",

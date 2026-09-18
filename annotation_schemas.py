@@ -42,6 +42,7 @@ ANNOTATION_PROJECT_STATUSES = {
     "partially_cancelled",
     "paused",
     "actively_abandoned",
+    "ended",
 }
 ANNOTATION_PROJECT_PRIORITIES = {"low", "medium", "high"}
 ANNOTATION_ORDER_NO_PATTERN = re.compile(r"^AP-[A-Z0-9][A-Z0-9._-]*$")

@@ -50,6 +50,11 @@ from inline_text_update import (
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access, require_permission
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
+from talent_overview_schemas import (
+    TalentLanguageReserveLookupRequest,
+    TalentLanguageReserveLookupResponse,
+)
+from talent_overview_service import lookup_language_reserves
 
 
 router = APIRouter(
@@ -81,6 +86,18 @@ ANNOTATION_FILTER_FIELDS = {
     "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at",
     "latest_progress_effective_on",
 }
+
+
+@router.post(
+    "/language-reserves/lookup",
+    response_model=TalentLanguageReserveLookupResponse,
+)
+def read_annotation_language_reserves(
+    payload: TalentLanguageReserveLookupRequest,
+    db: Session = Depends(get_db),
+):
+    """按当前页语种 ID 批量返回人才概览非去重合计。"""
+    return {"items": lookup_language_reserves(db, payload.language_ids)}
 
 
 def _field_filters(raw: Optional[str], db: Session):

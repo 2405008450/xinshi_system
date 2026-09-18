@@ -43,6 +43,8 @@ from talent_attachment_service import (
     delete_talent_attachment,
     save_talent_attachment,
 )
+from talent_overview_schemas import TalentOverviewResponse
+from talent_overview_service import get_talent_overview
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
 
@@ -76,6 +78,12 @@ TALENT_FILTER_FIELDS = {
     "employment_status", "highest_education", "language_skills", "certificate_received",
     "overall_rating", "first_contact_date", "updated_at", "duplicate_review_required",
 }
+
+
+@router.get("/overview", response_model=TalentOverviewResponse)
+def read_talent_overview():
+    """返回人才概览统一快照；访问权限沿用人才资源库。"""
+    return get_talent_overview()
 
 
 def _field_filters(raw: Optional[str]):

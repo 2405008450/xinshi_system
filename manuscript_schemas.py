@@ -288,6 +288,21 @@ class ManuscriptDispatchUpdate(ManuscriptDispatchCreate):
     expected_updated_at: Optional[datetime] = None
 
 
+class ManuscriptReassignmentCreate(BaseModel):
+    expected_updated_at: datetime
+    reason: str = Field(min_length=1, max_length=500)
+    replacement: ManuscriptAssignmentInput
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            raise ValueError("请填写改派原因")
+        return value
+
+
 class ManuscriptArrangementCreate(BaseModel):
     """旧单译员创建接口，内部会转换为单译员批次。"""
 
@@ -404,6 +419,15 @@ class ManuscriptArrangementResponse(BaseModel):
     delivery_mode: Optional[str] = None
     smtp_message_id: Optional[str] = None
     send_error: Optional[str] = None
+    reassigned_from_arrangement_id: Optional[UUID] = None
+    reassigned_from_translator_name: Optional[str] = None
+    reassigned_to_arrangement_id: Optional[UUID] = None
+    reassigned_to_translator_name: Optional[str] = None
+    reassigned_to_reason: Optional[str] = None
+    reassignment_reason: Optional[str] = None
+    reassigned_at: Optional[datetime] = None
+    reassigned_by: Optional[UUID] = None
+    reassigned_by_name: Optional[str] = None
     milestones: list[ManuscriptMilestoneResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -441,6 +465,11 @@ class ManuscriptBatchSendResponse(BaseModel):
     sent_count: int = 0
     failed_count: int = 0
     skipped_count: int = 0
+
+
+class ManuscriptReassignmentResponse(BaseModel):
+    dispatch: ManuscriptDispatchResponse
+    replacement_arrangement_id: UUID
 
 
 class ManuscriptMailPreview(BaseModel):

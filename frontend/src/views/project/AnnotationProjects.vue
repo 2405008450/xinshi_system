@@ -165,6 +165,20 @@
               </el-descriptions>
             </div>
           </el-popover>
+          <div
+            v-else-if="column.key === 'languageItemsDisplay' && row.languageItems?.length"
+            class="annotation-language-reserve-cell"
+          >
+            <template v-for="(languageItem, languageIndex) in row.languageItems" :key="languageItem.id">
+              <span v-if="languageIndex" class="language-item-separator">；</span>
+              <LanguageTalentReservePopover
+                :language-item="languageItem"
+                :reserves="languageReserveById"
+                :loading="languageReserveLoading"
+                :error="languageReserveError"
+              />
+            </template>
+          </div>
           <el-tooltip
             v-else-if="column.type === 'datetime'"
             :content="formatDateTime(row[column.key])"
@@ -522,6 +536,7 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
+import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -578,7 +593,7 @@ const projectTypeOptions = [
 ].map(([value,label]) => ({ value,label }))
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value,item.label]))
 const statusOptions = [
-  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_submitted','试标已提交'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],
+  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_submitted','试标已提交'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],['ended','已结束'],
 ].map(([value,label]) => ({ value,label }))
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value,item.label]))
 const priorityOptions = [
@@ -596,7 +611,7 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection,clickHint:'点击语言方向查看人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -635,6 +650,7 @@ const orderNoRules={
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([]), projectManagerOptions=ref([])
+const languageReserveById=reactive({}), languageReserveLoading=ref(false), languageReserveError=ref('')
 const projectStatusSavingIds=ref(new Set())
 const prioritySavingIds=ref(new Set())
 const managerSavingIds=ref(new Set())
@@ -648,7 +664,7 @@ const progressStatusOptions=computed(()=>{const reached=new Set(progressGroups.v
 const availableEntryStatusOptions=computed(()=>statusEntryMode.value==='progress'?progressStatusOptions.value:statusOptions)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
-let requestController, requestId=0, searchTimer
+let requestController, requestId=0, languageReserveRequestId=0, searchTimer
 let autoNameTimer
 const nameManuallyEdited=ref(false)
 
@@ -732,7 +748,7 @@ const managerOptions=(columnKey)=>columnKey==='clientManagerName'?activeUsers.va
 const compactDateTime=(value)=>{if(!value)return '-';const date=new Date(String(value).replace(' ','T'));if(Number.isNaN(date.getTime()))return String(value);const monthDay=`${date.getMonth()+1}/${date.getDate()}`;return date.getFullYear()===new Date().getFullYear()?monthDay:`${date.getFullYear()}/${monthDay}`}
 const projectTypesText=(values)=>Array.isArray(values)&&values.length?values.map((value)=>projectTypeMap[value]||value).join('；'):'-'
 const statusLabel=(value)=>statusMap[value]||value||'-'
-const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_submitted:'primary',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger'}[value]||'info')
+const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_submitted:'primary',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger',ended:'success'}[value]||'info')
 const priorityLabel=(value)=>priorityMap[value]||'-'
 const priorityType=(value)=>({high:'danger',medium:'warning',low:'info'}[value]||'info')
 const languageName=(id)=>languages.value.find((item)=>item.id===id)?.label||''
@@ -741,7 +757,9 @@ const buildGeneratedProjectName=()=>{const labels=form.languageItems.map(languag
 const detailRow=(row)=>detailCache[row.id]||row
 
 const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value),sort:listSort.value}}
-const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];pagination.total=page?.total||0}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
+const pageLanguageIds=(rows)=>[...new Set((rows||[]).flatMap((row)=>(row.languageItems||[]).flatMap((item)=>[item.sourceLanguageId,item.targetLanguageId])).filter(Boolean))]
+const loadPageLanguageReserves=async(rows)=>{const ids=pageLanguageIds(rows);const current=++languageReserveRequestId;languageReserveLoading.value=Boolean(ids.length);languageReserveError.value='';for(const key of Object.keys(languageReserveById))delete languageReserveById[key];if(!ids.length)return;try{const result=await annotationApi.lookupAnnotationLanguageReserves(ids);if(current!==languageReserveRequestId)return;for(const item of result?.items||[])languageReserveById[item.languageId]=item}catch(error){if(current!==languageReserveRequestId)return;languageReserveError.value=error?.detail||'请稍后重试'}finally{if(current===languageReserveRequestId)languageReserveLoading.value=false}}
+const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];pagination.total=page?.total||0;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
 const toggleProgressSort=()=>{listSort.value=progressSortActive.value?'order_no_desc':'latest_progress_desc';handleSearch()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
@@ -772,7 +790,7 @@ const clearSelectedClient=()=>{form.clientId='';form.subClientId='';form.clientS
 const addLanguageItem=()=>form.languageItems.push(emptyLanguageItem())
 const addPriceItem=()=>form.priceItems.push({projectType:'',languageKey:'',amount:null,currency:'',unit:'',remarks:''})
 const addAssignee=()=>form.assignees.push({id:null,personId:'',assignmentRole:'annotator',languageItemId:null,audioDurationValue:null,audioDurationUnit:null,customValues:{},assignmentStatus:'assigned',qualityScore:'',evaluationNote:'',rate:{id:null,amount:null,currency:'',unit:'',qualityAmount:null,qualityUnit:null,remarks:''}})
-const addLanguage=async()=>{try{const {value}=await ElMessageBox.prompt('请输入要新增的语种或方言名称','新增共享语种',{inputPlaceholder:'例如：粤语',inputValidator:(text)=>!!text?.trim()||'语种名称不能为空'});const created=await createProjectLanguage(value.trim());languages.value.push(created);ElMessage.success('语种已新增并标记为“新”')}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'新增语种失败')}}
+const addLanguage=async()=>{try{const {value}=await ElMessageBox.prompt('请输入要新增的语种或方言名称','新增共享语种',{inputPlaceholder:'例如：粤语',inputValidator:(text)=>!!text?.trim()||'语种名称不能为空'});const created=await createProjectLanguage(value.trim());languages.value.push(created);ElMessage.success('语种已新增并标记为“新”')}catch(error){if(error==='cancel'||error==='close')return;const detail=error?.rawDetail;if(detail?.code==='language_alias_conflict')return ElMessage.warning(detail.message||`请直接选择已有语种“${detail.existing_language_label||detail.canonical_label}”`);ElMessage.error(error.detail||'新增语种失败')}}
 const normalizedLanguageItems=()=>form.languageItems.filter((item)=>item.sourceLanguageId).map((item)=>({id:item.id||null,sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.mode==='direction'?(item.targetLanguageId||null):null}))
 const splitLanguageKey=(key)=>{if(!key)return {sourceLanguageId:null,targetLanguageId:null};const [source,target]=key.split(':');return {sourceLanguageId:source||null,targetLanguageId:target||null}}
 const validateLanguageItems=()=>{if(!form.languageItems.length)throw new Error('请至少添加一个语种方向');for(const item of form.languageItems){if(!item.sourceLanguageId)throw new Error('每个语言项都必须选择语种');if(item.mode==='direction'&&!item.targetLanguageId)throw new Error('翻译方向必须选择目标语种');if(item.targetLanguageId===item.sourceLanguageId)throw new Error('语言方向的两个语种不能相同')}const keys=normalizedLanguageItems().map((item)=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)throw new Error('同一语言或语言方向不能重复')}
@@ -809,7 +827,7 @@ watch(()=>[form.clientShortName,[...form.projectTypes],form.languageItems.map((i
 
 onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
 watch(()=>[route.query.projectId,route.query.openEditor,route.query.tab],([projectId,openEditor,tab],[previousProjectId,previousOpenEditor,previousTab])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
-onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);requestController?.abort()})
+onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);requestController?.abort();languageReserveRequestId+=1})
 </script>
 
 <style scoped>
@@ -826,9 +844,10 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 .annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}
 .annotation-key-fields__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.annotation-key-fields__header h3{margin-bottom:0}.annotation-key-fields__header p{margin:3px 0 0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}
 .annotation-language-form-item :deep(.el-form-item__content),.annotation-language-panel{width:100%}.annotation-language-panel .section-title-row h3{font-size:15px}
-@media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
+.annotation-language-reserve-cell{display:flex;align-items:baseline;flex-wrap:wrap;line-height:1.45}.language-item-separator{color:var(--el-text-color-secondary)}
+@media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.annotation-table :deep(.el-table-fixed-column--left),.annotation-table :deep(.el-table-fixed-column--right){position:static!important;z-index:auto!important;right:auto!important;left:auto!important}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
 </style>
 
 <style>
-.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 </style>

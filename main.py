@@ -385,9 +385,10 @@ ANNOTATION_PROJECT_COLUMN_STATEMENTS = (
           AND pg_get_constraintdef(oid) LIKE '%paused%'
           AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
           AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
+          AND pg_get_constraintdef(oid) LIKE '%ended%'
       ) THEN
         ALTER TABLE annotation_project DROP CONSTRAINT IF EXISTS ck_annotation_project_status;
-        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled','paused','actively_abandoned'));
+        ALTER TABLE annotation_project ADD CONSTRAINT ck_annotation_project_status CHECK(project_status IN ('initial_consultation','consultation_no_result','resource_sourcing','resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted','trial_passed','trial_failed','trial_partially_passed','project_in_progress','sent_to_client','client_feedback','cancelled','partially_cancelled','paused','actively_abandoned','ended'));
       END IF;
     END $$
     """,
@@ -468,6 +469,7 @@ INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS = (
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS short_name_zh VARCHAR(50)",
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS short_name_en VARCHAR(50)",
     "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS language_type VARCHAR(30) NOT NULL DEFAULT 'language'",
+    "ALTER TABLE interpretation_language ADD COLUMN IF NOT EXISTS talent_overview_key VARCHAR(64)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_interpretation_language_code ON interpretation_language(code) WHERE code IS NOT NULL",
     """
     DO $$
@@ -486,6 +488,7 @@ INTERPRETATION_LANGUAGE_COLUMN_STATEMENTS = (
     $$
     """,
     "CREATE INDEX IF NOT EXISTS ix_interpretation_language_active ON interpretation_language(is_active)",
+    "CREATE INDEX IF NOT EXISTS ix_interpretation_language_talent_overview_key ON interpretation_language(talent_overview_key) WHERE talent_overview_key IS NOT NULL",
 )
 RECRUITMENT_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE recruitment_project ADD COLUMN IF NOT EXISTS position_title VARCHAR(255)",
@@ -766,7 +769,7 @@ def ensure_annotation_status_history_constraints():
         "'resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted',"
         "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
         "'sent_to_client','client_feedback','cancelled','partially_cancelled',"
-        "'paused','actively_abandoned'"
+        "'paused','actively_abandoned','ended'"
     )
     with engine.begin() as conn:
         conn.execute(text(f"""
@@ -777,6 +780,7 @@ def ensure_annotation_status_history_constraints():
                   AND pg_get_constraintdef(oid) LIKE '%paused%'
                   AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
                   AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
+                  AND pg_get_constraintdef(oid) LIKE '%ended%'
               ) THEN
                 ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_from;
                 ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_from
@@ -788,6 +792,7 @@ def ensure_annotation_status_history_constraints():
                   AND pg_get_constraintdef(oid) LIKE '%paused%'
                   AND pg_get_constraintdef(oid) LIKE '%actively_abandoned%'
                   AND pg_get_constraintdef(oid) LIKE '%trial_submitted%'
+                  AND pg_get_constraintdef(oid) LIKE '%ended%'
               ) THEN
                 ALTER TABLE annotation_project_status_history DROP CONSTRAINT IF EXISTS ck_annotation_status_history_to;
                 ALTER TABLE annotation_project_status_history ADD CONSTRAINT ck_annotation_status_history_to

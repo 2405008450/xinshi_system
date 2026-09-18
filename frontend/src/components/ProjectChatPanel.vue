@@ -467,16 +467,7 @@
               @hide="handleMentionPopoverHide"
             >
               <template #reference>
-                <el-button
-                  class="chat-composer__at"
-                  :type="composer.mentionedUserIds.length ? 'primary' : 'default'"
-                  plain
-                  aria-label="@提醒用户"
-                  title="@提醒用户"
-                  @click="handleMentionButtonClick"
-                >
-                  @
-                </el-button>
+                <span class="chat-composer__mention-anchor" aria-hidden="true" />
               </template>
               <div @keydown.esc.capture.stop.prevent="handleMentionEscape">
                 <el-select
@@ -1022,10 +1013,6 @@ const resetAutomaticMentionTrigger = () => {
 
 const closeMentionPopover = () => {
   mentionPopoverVisible.value = false
-  resetAutomaticMentionTrigger()
-}
-
-const handleMentionButtonClick = () => {
   resetAutomaticMentionTrigger()
 }
 
@@ -2146,6 +2133,7 @@ onBeforeUnmount(() => {
 }
 
 .chat-composer__input-row {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -2161,12 +2149,13 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
-.chat-composer__at {
-  width: 34px;
+.chat-composer__mention-anchor {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1px;
   height: 34px;
-  padding: 0;
-  font-size: 15px;
-  font-weight: 600;
+  pointer-events: none;
 }
 
 @media (max-width: 720px) {

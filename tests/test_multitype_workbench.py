@@ -31,6 +31,7 @@ from workflow_models import ProjectWorkbenchResponsibility
         ("annotation", "trial_submitted", True),
         ("annotation", "sent_to_client", False),
         ("annotation", "client_feedback", False),
+        ("annotation", "ended", False),
         ("recruitment", "probation", True),
         ("recruitment", "full_time_dispatch", True),
         ("recruitment", "cancelled", False),

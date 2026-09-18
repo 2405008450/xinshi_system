@@ -17,7 +17,8 @@
 
     <el-table
       :data="tableRows"
-      row-key="language"
+      v-loading="loading"
+      row-key="overviewKey"
       border
       stripe
       show-summary
@@ -31,7 +32,7 @@
       </el-table-column>
 
       <el-table-column
-        v-for="group in TALENT_OVERVIEW_COLUMN_GROUPS"
+        v-for="group in columnGroups"
         :key="group.key"
         :label="group.label"
         header-align="center"
@@ -57,37 +58,54 @@
 </template>
 
 <script setup>
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getTalentOverview } from '@/api/talents'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import {
-  TALENT_OVERVIEW_COLUMNS,
-  TALENT_OVERVIEW_COLUMN_GROUPS,
-  TALENT_OVERVIEW_ROWS,
-} from '@/data/talentOverview'
-import {
-  calculateTalentColumnTotals,
-  calculateTalentGrandTotal,
-  calculateTalentRowTotal,
   formatTalentCount,
 } from '@/utils/talentOverview'
 
-const tableRows = TALENT_OVERVIEW_ROWS.map(row => ({
-  ...row,
-  rowTotal: calculateTalentRowTotal(row),
-}))
-const columnTotals = calculateTalentColumnTotals(tableRows)
-const grandTotal = calculateTalentGrandTotal(tableRows)
+const loading = ref(false)
+const tableRows = ref([])
+const overviewColumns = ref([])
+const columnTotals = ref({})
+const grandTotal = ref(0)
+const groupLabels = { sheet: '人才资料表', wecom: '企业微信' }
+const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label]) => ({
+  key,
+  label,
+  columns: overviewColumns.value.filter(column => column.group === key),
+})))
+
+async function fetchOverview() {
+  loading.value = true
+  try {
+    const result = await getTalentOverview()
+    overviewColumns.value = result.columns || []
+    tableRows.value = result.rows || []
+    columnTotals.value = result.columnTotals || {}
+    grandTotal.value = result.grandTotal || 0
+  } catch (error) {
+    ElMessage.error(error?.detail || '人才概览加载失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 function summaryMethod({ columns }) {
   return columns.map(column => {
     if (column.property === 'language') return '合计'
     if (column.property === 'updatedAt') return ''
-    if (column.property === 'rowTotal') return formatTalentCount(grandTotal)
+    if (column.property === 'rowTotal') return formatTalentCount(grandTotal.value)
     const key = column.property?.replace(/^counts\./, '')
-    return key && TALENT_OVERVIEW_COLUMNS.some(item => item.key === key)
-      ? formatTalentCount(columnTotals[key])
+    return key && overviewColumns.value.some(item => item.key === key)
+      ? formatTalentCount(columnTotals.value[key])
       : ''
   })
 }
+
+onMounted(fetchOverview)
 </script>
 
 <style scoped>

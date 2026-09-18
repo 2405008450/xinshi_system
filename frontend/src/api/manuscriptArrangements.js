@@ -63,6 +63,12 @@ export const sendManuscriptAssignment = (dispatchId, arrangementId, attachment =
     attachmentRequestConfig
   )
 
+export const reassignManuscriptAssignment = (dispatchId, arrangementId, data) =>
+  api.post(
+    `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/reassign`,
+    data
+  )
+
 export const getManuscriptMailPreview = (dispatchId, arrangementId) =>
   api.get(
     `/manuscript-arrangements/batches/${dispatchId}/arrangements/${arrangementId}/mail-preview`

@@ -126,7 +126,7 @@ const STATUS_LABELS = {
   resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_submitted: '试标已提交',
   trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过',
   project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈',
-  cancelled: '已取消', partially_cancelled: '已部分取消', paused: '暂停', actively_abandoned: '主动放弃',
+  cancelled: '已取消', partially_cancelled: '已部分取消', paused: '暂停', actively_abandoned: '主动放弃', ended: '已结束',
 }
 const filters = reactive({ keyword: '', dateRange: defaultProgressSearchRange() })
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
@@ -152,7 +152,7 @@ const statusType = (value) => ({
   resource_sourcing_cancelled: 'danger', trial_preparation: 'warning', trial_in_progress: 'warning', trial_submitted: 'primary',
   trial_passed: 'success', trial_failed: 'danger', trial_partially_passed: 'warning', project_in_progress: 'primary',
   sent_to_client: 'success', client_feedback: 'warning', cancelled: 'danger', partially_cancelled: 'warning',
-  paused: 'warning', actively_abandoned: 'danger',
+  paused: 'warning', actively_abandoned: 'danger', ended: 'success',
 }[value] || 'info')
 const highlight = (content) => splitKeywordMatches(content, filters.keyword)
 

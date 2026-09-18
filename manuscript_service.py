@@ -44,6 +44,7 @@ from manuscript_schemas import (
     ManuscriptDispatchUpdate,
     ManuscriptMailPathsUpdate,
     ManuscriptQuickTranslatorCreate,
+    ManuscriptReassignmentCreate,
     ManuscriptSelectedFileInput,
     ManuscriptSelectedFilesUpdate,
     ManuscriptSettlementUpdate,
@@ -65,6 +66,7 @@ from word_count_service import (
     entity_matrix_values,
     replace_arrangement_values,
 )
+from word_count_schemas import WordCountValues
 from workflow_models import WorkflowInstance
 
 
@@ -76,6 +78,12 @@ MANUSCRIPT_MANAGED_ORDER_STATUSES = {
     ORDER_STATUS_SENT_TO_TRANSLATOR,
 }
 PENDING_ORDER_STATUSES = ("", "pending", "pending_confirmation")
+TERMINAL_REASSIGNMENT_ORDER_STATUSES = {
+    "completed",
+    "cancelled",
+    "terminated",
+    "partially_cancelled",
+}
 WORD_COUNT_LABELS = {
     "words": "字数",
     "characters_no_spaces": "字符数（不计空格）",
@@ -406,7 +414,67 @@ def _load_dispatch(
     )
     if dispatch is not None:
         attach_arrangement_matrices(db, list(dispatch.arrangements))
+        _attach_reassignment_metadata(db, list(dispatch.arrangements))
     return dispatch
+
+
+def _attach_reassignment_metadata(
+    db: Session,
+    arrangements: list[ManuscriptArrangement],
+) -> None:
+    """附加改派链两端的展示字段，不改变持久化模型。"""
+    if not arrangements:
+        return
+    by_id = {item.id: item for item in arrangements}
+    for item in arrangements:
+        item.reassigned_from_translator_name = None
+        item.reassigned_to_arrangement_id = None
+        item.reassigned_to_translator_name = None
+        item.reassigned_to_reason = None
+
+    source_ids = {
+        item.reassigned_from_arrangement_id
+        for item in arrangements
+        if item.reassigned_from_arrangement_id
+    }
+    missing_source_ids = source_ids.difference(by_id)
+    if missing_source_ids:
+        for source in (
+            db.query(ManuscriptArrangement)
+            .filter(ManuscriptArrangement.id.in_(missing_source_ids))
+            .all()
+        ):
+            by_id[source.id] = source
+
+    arrangement_ids = {item.id for item in arrangements}
+    replacements = [
+        item for item in arrangements if item.reassigned_from_arrangement_id
+    ]
+    missing_replacements = (
+        db.query(ManuscriptArrangement)
+        .filter(
+            ManuscriptArrangement.reassigned_from_arrangement_id.in_(
+                arrangement_ids
+            )
+        )
+        .all()
+    )
+    replacements.extend(
+        item
+        for item in missing_replacements
+        if item.id not in {row.id for row in replacements}
+    )
+    for replacement in replacements:
+        source = by_id.get(replacement.reassigned_from_arrangement_id)
+        if source is not None:
+            source.reassigned_to_arrangement_id = replacement.id
+            source.reassigned_to_translator_name = replacement.translator_name_snapshot
+            source.reassigned_to_reason = replacement.reassignment_reason
+        if replacement.id in arrangement_ids:
+            origin = by_id.get(replacement.reassigned_from_arrangement_id)
+            replacement.reassigned_from_translator_name = (
+                origin.translator_name_snapshot if origin else None
+            )
 
 
 def _load_entity(
@@ -825,6 +893,8 @@ def _create_arrangement_line(
     )
     if not translator:
         raise LookupError("译员不存在")
+    if translator.status == "inactive":
+        raise ValueError("已停用的译员不能安排稿件")
     from resource_service import translator_has_capability
     if not translator_has_capability(db, assignment.translator_id, "written_translation"):
         raise ValueError("所选人员已停用或不具备有效的笔译能力")
@@ -1367,6 +1437,10 @@ def list_dispatches(
         db,
         [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
     )
+    _attach_reassignment_metadata(
+        db,
+        [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
+    )
     _attach_dispatch_responsibilities(db, rows, current_user)
     return rows
 
@@ -1419,6 +1493,7 @@ def list_arrangements(
         .all()
     )
     attach_arrangement_matrices(db, rows)
+    _attach_reassignment_metadata(db, rows)
     return rows
 
 
@@ -1437,6 +1512,7 @@ def get_arrangement(
     )
     if arrangement is not None:
         attach_arrangement_matrices(db, [arrangement])
+        _attach_reassignment_metadata(db, [arrangement])
     return arrangement
 
 
@@ -1750,7 +1826,7 @@ def cancel_dispatch(
     dispatch = _load_dispatch(db, dispatch_id)
     if not dispatch:
         return None
-    if any(item.status == "sent" for item in dispatch.arrangements):
+    if any(item.sent_at is not None for item in dispatch.arrangements):
         raise ValueError("包含已发送明细的批次不能整体取消")
     project, sub_order = _load_entity(
         db,
@@ -1782,6 +1858,132 @@ def cancel_dispatch(
         _set_order_status(project, sub_order, rollback_status)
     db.commit()
     return _load_dispatch_for_actor(db, dispatch.id, current_user)
+
+
+def reassign_arrangement(
+    db: Session,
+    dispatch_id: UUID,
+    arrangement_id: UUID,
+    payload: ManuscriptReassignmentCreate,
+    current_user: AppUser,
+) -> tuple[ManuscriptDispatch, UUID]:
+    """保留原派稿审计记录，在同一批次内创建待发送的替代译员明细。"""
+    dispatch = (
+        db.query(ManuscriptDispatch)
+        .filter(ManuscriptDispatch.id == dispatch_id)
+        .with_for_update()
+        .first()
+    )
+    if not dispatch:
+        raise LookupError("派稿批次不存在")
+    source = (
+        db.query(ManuscriptArrangement)
+        .filter(
+            ManuscriptArrangement.id == arrangement_id,
+            ManuscriptArrangement.dispatch_id == dispatch_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not source:
+        raise LookupError("译员派稿明细不存在")
+    assert_fresh(source, payload.expected_updated_at)
+    if dispatch.status == "cancelled" or dispatch.confirmed_at is None:
+        raise ValueError("只有已确认且未取消的派稿批次可以改派")
+    if source.status not in {"ready", "failed", "sent"}:
+        raise ValueError("只有待发送、发送失败或已发送的译员明细可以改派")
+    already_reassigned = (
+        db.query(ManuscriptArrangement.id)
+        .filter(
+            ManuscriptArrangement.reassigned_from_arrangement_id == source.id
+        )
+        .first()
+    )
+    if already_reassigned:
+        raise ValueError("该译员明细已经改派，请刷新后查看最新记录")
+
+    project, sub_order = _load_entity(
+        db,
+        source.entity_type,
+        source.translation_project_id,
+        source.sub_order_id,
+    )
+    _ensure_can_manage_manuscript(db, project, sub_order, current_user)
+    current_order_status = str(_get_order_status(project, sub_order) or "").strip()
+    if current_order_status in TERMINAL_REASSIGNMENT_ORDER_STATUSES:
+        raise ValueError("已完成、已取消或已终止的订单不能改派")
+
+    new_translator_id = payload.replacement.translator_id
+    if new_translator_id == source.translator_id:
+        raise ValueError("新译员不能与原译员相同")
+    active_duplicate = (
+        db.query(ManuscriptArrangement.id)
+        .filter(
+            ManuscriptArrangement.dispatch_id == dispatch.id,
+            ManuscriptArrangement.translator_id == new_translator_id,
+            ManuscriptArrangement.status != "cancelled",
+        )
+        .first()
+    )
+    if active_duplicate:
+        raise ValueError("该译员已在当前批次的有效安排中")
+
+    replacement_input = payload.replacement.model_copy(
+        update={
+            "actual": WordCountValues(),
+            "email_subject": None,
+            "email_body": None,
+        }
+    )
+    values = _entity_values(
+        project,
+        sub_order,
+        dispatch_path=_get_project_dispatch_path(db, project.id),
+    )
+    _validate_deadline_warning(
+        replacement_input,
+        values["customer_deadline_time"],
+    )
+    replacement = _create_arrangement_line(
+        db,
+        dispatch,
+        replacement_input,
+        current_user,
+        values,
+    )
+    now = datetime.datetime.now()
+    replacement.status = "ready"
+    replacement.reassigned_from_arrangement_id = source.id
+    replacement.reassignment_reason = payload.reason
+    replacement.reassigned_at = now
+    replacement.reassigned_by = current_user.id
+    replacement.reassigned_by_name = current_user.full_name or current_user.username
+    replacement.updated_at = now
+
+    source.status = "cancelled"
+    source.updated_at = now
+    dispatch.arrangements.append(replacement)
+    dispatch.updated_at = now
+    db.flush()
+    replace_arrangement_values(
+        db,
+        replacement.id,
+        "planned",
+        replacement_input.planned,
+        updated_by=current_user.id,
+    )
+    replace_arrangement_values(
+        db,
+        replacement.id,
+        "actual",
+        WordCountValues(),
+        updated_by=current_user.id,
+    )
+    db.flush()
+    _sync_dispatch_status(dispatch)
+    _sync_order_status(db, project, sub_order)
+    db.commit()
+    return _load_dispatch_for_actor(db, dispatch.id, current_user), replacement.id
 
 
 def create_arrangement(

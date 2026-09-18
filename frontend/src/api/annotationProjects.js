@@ -34,6 +34,12 @@ export const getAnnotationProject = (id, config = {}) => (
   api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const lookupAnnotationLanguageReserves = (languageIds) => (
+  api.post('/projects/annotation/language-reserves/lookup', {
+    language_ids: [...new Set(languageIds)].filter(Boolean),
+  }).then((res) => convertKeys(res, toCamelCase))
+)
+
 export const createAnnotationProject = async (data, idempotencyKey) => {
   const payload = convertKeys(data, toSnakeCase)
   const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)

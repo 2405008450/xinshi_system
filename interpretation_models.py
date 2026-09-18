@@ -53,6 +53,7 @@ class InterpretationLanguage(Base):
     language_type: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default=text("'language'")
     )
+    talent_overview_key: Mapped[Optional[str]] = mapped_column(String(64))
     is_custom: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )

@@ -51,6 +51,7 @@ export const PROJECT_STATUS_OPTIONS = {
     { value: 'partially_cancelled', label: '已部分取消' },
     { value: 'paused', label: '暂停' },
     { value: 'actively_abandoned', label: '主动放弃' },
+    { value: 'ended', label: '已结束' },
   ],
   recruitment: [
     { value: 'pending_setup', label: '新建待立项' },

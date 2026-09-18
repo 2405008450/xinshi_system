@@ -412,6 +412,7 @@ class InterpretationLanguageResponse(BaseModel):
     short_name_zh: Optional[str] = None
     short_name_en: Optional[str] = None
     language_type: str = "language"
+    talent_overview_key: Optional[str] = None
     is_custom: bool
     is_active: bool = True
     created_by: Optional[UUID] = None

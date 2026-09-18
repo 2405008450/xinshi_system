@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { countTalentNames, getTalentDisplayName } from '../src/utils/talentNames.js'
 
 const source = readFileSync(new URL('../src/views/resource/TalentPool.vue', import.meta.url), 'utf8')
 const detailSource = readFileSync(new URL('../src/views/resource/components/TalentDetailContent.vue', import.meta.url), 'utf8')
@@ -35,4 +36,22 @@ test('人才详情按分类展示且不依赖悬浮才能访问', () => {
 test('人才长表单每次打开时恢复到顶部', () => {
   assert.match(source, /@open="onEditorOpened"/)
   assert.match(source, /scrollBody\.scrollTop=0/)
+})
+
+test('人才列表姓名按中文名、英文名、昵称、其他名字顺序只显示一个', () => {
+  assert.equal(getTalentDisplayName({
+    chineseName: ' 张三 ', englishName: 'San Zhang', nickname: '小张', otherNames: ['Zhang San'], fullName: '旧名称',
+  }), '张三')
+  assert.equal(getTalentDisplayName({ englishName: 'San Zhang', nickname: '小张' }), 'San Zhang')
+  assert.equal(getTalentDisplayName({ nickname: '小张', otherNames: ['Zhang San'] }), '小张')
+  assert.equal(getTalentDisplayName({ otherNames: ['Zhang San'], fullName: '旧名称' }), 'Zhang San')
+  assert.equal(getTalentDisplayName({ fullName: '兼容旧姓名' }), '兼容旧姓名')
+})
+
+test('姓名区域支持展开收起并要求四类姓名至少填写一项', () => {
+  assert.equal(countTalentNames({ chineseName: '', englishName: '', nickname: '', otherNames: [] }), 0)
+  assert.equal(countTalentNames({ englishName: 'San Zhang', otherNames: ['Zhang San'] }), 2)
+  assert.match(source, /nameFieldsExpanded/)
+  assert.match(source, /prop="nameGroup"/)
+  assert.match(source, /至少填写一项/)
 })

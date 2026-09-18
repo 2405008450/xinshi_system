@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import {
-  TALENT_OVERVIEW_COLUMNS,
-  TALENT_OVERVIEW_ROWS,
-} from '../src/data/talentOverview.js'
 import { TALENT_RESOURCE_VIEWS } from '../src/config/talentResourceViews.js'
 import {
   calculateTalentColumnTotals,
@@ -12,6 +9,13 @@ import {
   calculateTalentRowTotal,
   formatTalentCount,
 } from '../src/utils/talentOverview.js'
+
+const overviewData = JSON.parse(readFileSync(
+  new URL('../../data/talent_overview.json', import.meta.url),
+  'utf8',
+))
+const TALENT_OVERVIEW_COLUMNS = overviewData.columns
+const TALENT_OVERVIEW_ROWS = overviewData.rows
 
 test('人才概览保留 132 行和 14 个来源列，并规范明确的简称', () => {
   assert.equal(TALENT_OVERVIEW_ROWS.length, 132)
@@ -21,6 +25,10 @@ test('人才概览保留 132 行和 14 个来源列，并规范明确的简称',
   assert.ok(TALENT_OVERVIEW_ROWS.some(row => row.language === '中文（繁体·台湾）'))
   assert.ok(TALENT_OVERVIEW_ROWS.some(row => row.language === '班巴拉语'))
   assert.ok(TALENT_OVERVIEW_ROWS.some(row => row.language === '达里语'))
+  const zulu = TALENT_OVERVIEW_ROWS.find(row => row.overview_key === 'lang-zu')
+  const afrikaans = TALENT_OVERVIEW_ROWS.find(row => row.overview_key === 'lang-af')
+  assert.ok(zulu.aliases.includes('南非zulu语'))
+  assert.ok(afrikaans.aliases.includes('afrikaans'))
 })
 
 test('人才概览列合计和总计与源表一致', () => {

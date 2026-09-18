@@ -22,7 +22,7 @@ STATUS_VALUES_SQL = (
     "'resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted',"
     "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
     "'sent_to_client','client_feedback','cancelled','partially_cancelled',"
-    "'paused','actively_abandoned'"
+    "'paused','actively_abandoned','ended'"
 )
 
 

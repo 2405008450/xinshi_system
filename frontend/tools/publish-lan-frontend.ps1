@@ -88,16 +88,18 @@ try {
     New-Item -ItemType Directory -Path $liveDistPath -Force | Out-Null
 
     # 先发布所有带哈希资源，让旧入口和新入口引用的文件在切换期间同时可用。
-    Get-ChildItem -LiteralPath $stagingPath -File -Recurse |
-        Where-Object { $_.FullName -ne $stagedIndexPath } |
-        ForEach-Object {
-            $sourcePath = $_.FullName
-            $relativePath = $sourcePath.Substring($stagingPath.Length + 1)
-            $destinationPath = Join-Path $liveDistPath $relativePath
-            $destinationDirectory = Split-Path -Parent $destinationPath
-            [System.IO.Directory]::CreateDirectory($destinationDirectory) | Out-Null
-            [System.IO.File]::Copy($sourcePath, $destinationPath, $true)
-        }
+    # Windows PowerShell 逐文件复制大量 JS 时在服务器上出现过漏项，统一交给 Robocopy 校验退出码。
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & robocopy.exe $stagingPath $liveDistPath /E /XF index.html /R:2 /W:1 /NFL /NDL /NJH /NJS /NP
+        $robocopyExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($robocopyExitCode -ge 8) {
+        throw "Frontend asset copy failed with Robocopy exit code $robocopyExitCode."
+    }
 
     $indexHtml = Get-Content -LiteralPath $stagedIndexPath -Raw -Encoding UTF8
     $entryAssetMatches = [regex]::Matches($indexHtml, '(?:src|href)="/?(assets/[^"?]+)')
@@ -149,3 +151,5 @@ try {
         Remove-Item -LiteralPath $resolvedStagingPath -Recurse -Force
     }
 }
+
+exit 0

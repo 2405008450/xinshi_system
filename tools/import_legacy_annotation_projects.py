@@ -69,7 +69,7 @@ STATUS_MAP = {
     "试标已提交": "trial_submitted",
     "试标完：跟进结果": "client_feedback",
     "待确认": "initial_consultation",
-    "已结束": "client_feedback",
+    "已结束": "ended",
     "已验收开票": "client_feedback",
     "已付款": "client_feedback",
     "暂结束": "partially_cancelled",

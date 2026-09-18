@@ -31,6 +31,8 @@ from manuscript_schemas import (
     ManuscriptMailPathsUpdate,
     ManuscriptMailStatus,
     ManuscriptQuickTranslatorCreate,
+    ManuscriptReassignmentCreate,
+    ManuscriptReassignmentResponse,
     ManuscriptSelectedFilesUpdate,
     ManuscriptTranslatorItem,
     ManuscriptSettlementUpdate,
@@ -48,6 +50,7 @@ from manuscript_service import (
     list_arrangements,
     list_dispatches,
     list_dispatch_files,
+    reassign_arrangement,
     send_arrangement,
     send_dispatch,
     update_arrangement,
@@ -405,6 +408,34 @@ async def send_dispatch_arrangement_endpoint(
     except Exception as exc:
         _raise_business_error(exc)
     return arrangement
+
+
+@router.post(
+    "/batches/{dispatch_id}/arrangements/{arrangement_id}/reassign",
+    response_model=ManuscriptReassignmentResponse,
+)
+def reassign_dispatch_arrangement_endpoint(
+    dispatch_id: UUID,
+    arrangement_id: UUID,
+    payload: ManuscriptReassignmentCreate,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    try:
+        dispatch, replacement_arrangement_id = reassign_arrangement(
+            db,
+            dispatch_id,
+            arrangement_id,
+            payload,
+            current_user,
+        )
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+    return {
+        "dispatch": dispatch,
+        "replacement_arrangement_id": replacement_arrangement_id,
+    }
 
 
 @router.get(
