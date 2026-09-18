@@ -246,7 +246,7 @@
                 {{ dispatchStatusMeta(selectedProjectDispatch.status).label }}
               </el-tag>
               <el-button
-                v-if="canWrite && canManageSelectedProject && selectedProjectDispatch?.status === 'ready'"
+                v-if="canWrite && canManageSelectedProject && selectedProjectDispatch?.status === 'ready' && !dispatchHasSentHistory(selectedProjectDispatch)"
                 type="warning"
                 link
                 size="small"
@@ -568,6 +568,14 @@
                         @click="sendActiveWorkbenchAssignment"
                       >
                         预览并发送
+                      </el-button>
+                      <el-button
+                        v-if="activeExistingArrangement && ['ready', 'failed', 'sent'].includes(activeExistingArrangement.status) && !activeExistingArrangement.reassigned_to_arrangement_id"
+                        type="warning"
+                        link
+                        @click="openReassignDialog(selectedProjectDispatch, activeExistingArrangement)"
+                      >
+                        改派
                       </el-button>
                       <el-button
                         v-if="['ready', 'partially_sent'].includes(selectedProjectDispatch.status)"
@@ -961,8 +969,8 @@
               <el-table :data="row.arrangements || []" border size="small">
                 <el-table-column label="状态" width="82">
                   <template #default="{ row: item }">
-                    <el-tag :type="assignmentStatusMeta(item.status).type" size="small">
-                      {{ assignmentStatusMeta(item.status).label }}
+                    <el-tag :type="assignmentStatusMeta(item.status, item).type" size="small">
+                      {{ assignmentStatusMeta(item.status, item).label }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -1014,8 +1022,15 @@
                     {{ item.completion_remarks || '-' }}
                   </template>
                 </el-table-column>
-                <el-table-column v-if="canWrite" label="操作" width="230" fixed="right">
+                <el-table-column v-if="canWrite" label="操作" width="300" fixed="right">
                   <template #default="{ row: item }">
+                    <div v-if="item.reassigned_to_translator_name" class="reassignment-history">
+                      改派至 {{ item.reassigned_to_translator_name }}
+                      <span v-if="item.reassigned_to_reason">（{{ item.reassigned_to_reason }}）</span>
+                    </div>
+                    <div v-else-if="item.reassigned_from_translator_name" class="reassignment-history">
+                      由 {{ item.reassigned_from_translator_name }} 改派
+                    </div>
                     <template v-if="canManageDispatch(row)">
                       <el-button
                       v-if="['ready', 'failed'].includes(item.status)"
@@ -1036,6 +1051,15 @@
                       @click="openSettlementDialog(row, item)"
                       >
                         结算
+                      </el-button>
+                      <el-button
+                        v-if="['ready', 'failed', 'sent'].includes(item.status) && !item.reassigned_to_arrangement_id"
+                        type="warning"
+                        link
+                        size="small"
+                        @click="openReassignDialog(row, item)"
+                      >
+                        改派
                       </el-button>
                       <el-button
                       v-if="row.status === 'cancelled' && item.status === 'cancelled'"
@@ -1163,7 +1187,7 @@
               批量发送
             </el-button>
             <el-button
-              v-if="row.status === 'ready'"
+              v-if="row.status === 'ready' && !dispatchHasSentHistory(row)"
               type="warning"
               link
               size="small"
@@ -1577,6 +1601,153 @@
       </template>
     </DraggableFormDialog>
 
+    <DraggableFormDialog
+      v-model="reassignDialogVisible"
+      title="改派译员"
+      width="min(920px, calc(100vw - 32px))"
+      top="5vh"
+      class="long-form-dialog"
+      destroy-on-close
+      :close-on-click-modal="!reassignSaving"
+      :close-on-press-escape="!reassignSaving"
+      :show-close="!reassignSaving"
+    >
+      <el-alert
+        title="改派会保留原译员的派稿和发送记录，不会自动向原译员发送取消通知；请按实际情况另行联系。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="reassign-tip"
+      />
+      <AppForm
+        ref="reassignFormRef"
+        :model="reassignForm"
+        :rules="reassignRules"
+        label-width="140px"
+      >
+        <el-descriptions :column="2" border size="small" class="dialog-summary">
+          <el-descriptions-item label="订单号">{{ reassignDispatch?.order_no_snapshot || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="原译员">{{ reassignForm.source_translator_name || '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <el-form-item label="新译员" prop="replacement.translator_id">
+          <el-select
+            v-model="reassignForm.replacement.translator_id"
+            filterable
+            style="width: 100%"
+            placeholder="请选择接替译员"
+            @change="handleReassignTranslatorChange"
+          >
+            <el-option
+              v-for="translator in reassignAvailableTranslators"
+              :key="translator.id"
+              :value="translator.id"
+              :label="`${translator.translator_name} · ${cooperationLabel(translator)} · ${translator.languages || '语种未填'}`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="改派原因" prop="reason">
+          <el-input
+            v-model="reassignForm.reason"
+            type="textarea"
+            :rows="2"
+            maxlength="500"
+            show-word-limit
+            placeholder="请简要说明改派原因"
+          />
+        </el-form-item>
+
+        <el-divider content-position="left">新译员安排</el-divider>
+        <el-form-item label="字数与结算" required>
+          <div class="dialog-word-count-summary">
+            <span>{{ assignmentWordSummary(reassignForm.replacement) }}</span>
+            <WordCountMatrixPopover
+              :model-value="reassignProject?.word_count_matrix || {}"
+              :entity-type="matrixEntityType(reassignDispatch || {})"
+              :entity-id="matrixEntityId(reassignDispatch || {})"
+              local
+              :translators="[reassignForm.replacement]"
+              title="新译员字数统计"
+              @update:translators="handleReassignMatrixUpdate"
+            >
+              <template #reference><el-button type="primary" link>调整字数</el-button></template>
+            </WordCountMatrixPopover>
+          </div>
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="结账方式" required>
+              <el-input v-model="reassignForm.replacement.settlement_method" maxlength="100" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="计价方式">
+              <el-input v-model="reassignForm.replacement.translator_pricing_method" maxlength="100" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="译员总价">
+              <el-input-number v-model="reassignForm.replacement.translator_total_price" :min="0" :precision="2" :controls="false" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="译员单价">
+          <el-input-number v-model="reassignForm.replacement.translator_unit_price" :min="0" :precision="4" :controls="false" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="需翻译部分">
+          <el-input v-model="reassignForm.replacement.translation_scope" type="textarea" :rows="2" maxlength="5000" />
+        </el-form-item>
+        <el-form-item label="派稿文件">
+          <ManuscriptFileSelector
+            :project-id="reassignDispatch?.translation_project_id"
+            :file-name="reassignProject?.file_name || ''"
+            :model-value="reassignForm.replacement.selected_files"
+            :disabled="!reassignProject?.dispatch_path"
+            @update:model-value="updateReassignSelectedFiles"
+          />
+        </el-form-item>
+        <div class="milestone-editor">
+          <div class="subsection-header">
+            <strong>译员交稿_预定时间</strong>
+            <el-button type="primary" link @click="addMilestone(reassignForm.replacement)">增加阶段节点</el-button>
+          </div>
+          <el-row
+            v-for="(milestone, index) in reassignForm.replacement.milestones"
+            :key="`reassign-${index}`"
+            :gutter="12"
+            class="milestone-row"
+          >
+            <el-col :xs="24" :sm="5">
+              <el-select v-model="milestone.milestone_type" :disabled="milestone.milestone_type === 'final'" style="width: 100%">
+                <el-option label="阶段" value="phase" />
+                <el-option label="全稿" value="final" />
+              </el-select>
+            </el-col>
+            <el-col :xs="24" :sm="6"><el-input v-model="milestone.name" maxlength="100" /></el-col>
+            <el-col :xs="24" :sm="11">
+              <el-date-picker
+                v-model="milestone.planned_at"
+                type="datetime"
+                value-format="YYYY-MM-DDTHH:mm:ss"
+                format="YYYY-MM-DD HH:mm"
+                time-format="HH:mm"
+                style="width: 100%"
+              />
+            </el-col>
+            <el-col :xs="24" :sm="2">
+              <el-button v-if="milestone.milestone_type !== 'final'" type="danger" link @click="removeMilestone(reassignForm.replacement, index)">删除</el-button>
+            </el-col>
+          </el-row>
+        </div>
+        <el-form-item label="派稿补充要求">
+          <el-input v-model="reassignForm.replacement.remarks" type="textarea" :rows="2" maxlength="5000" />
+        </el-form-item>
+      </AppForm>
+      <template #footer>
+        <el-button :disabled="reassignSaving" @click="reassignDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="reassignSaving" @click="saveReassignment">确认改派并预览邮件</el-button>
+      </template>
+    </DraggableFormDialog>
+
     <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
       <AppForm :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
@@ -1724,6 +1895,7 @@ import {
   getManuscriptMailPreview,
   getManuscriptMailStatus,
   quickCreateManuscriptTranslator,
+  reassignManuscriptAssignment,
   sendManuscriptAssignment,
   sendManuscriptDispatch,
   updateManuscriptDispatch,
@@ -1754,6 +1926,7 @@ const contextLoading = ref(false)
 const recordsLoading = ref(false)
 const saving = ref(false)
 const settlementSaving = ref(false)
+const reassignSaving = ref(false)
 const completionRemarksSavingId = ref('')
 const completionRemarkDrafts = reactive({})
 const sendingId = ref('')
@@ -1771,6 +1944,7 @@ const projectKeyword = ref('')
 const dispatchKeyword = ref('')
 const dispatchDialogVisible = ref(false)
 const settlementDialogVisible = ref(false)
+const reassignDialogVisible = ref(false)
 const selectedTranslatorIds = ref([])
 const activeArrangementTranslatorId = ref('')
 const workbenchStage = ref('arrange')
@@ -2302,6 +2476,61 @@ watch(
   { immediate: true }
 )
 
+const reassignFormRef = ref(null)
+const createEmptyReassignForm = () => ({
+  dispatch_id: '',
+  arrangement_id: '',
+  expected_updated_at: '',
+  source_translator_id: '',
+  source_translator_name: '',
+  reason: '',
+  replacement: {
+    translator_id: '',
+    translator_name: '',
+    planned: createEmptyWordCountValues(),
+    actual: createEmptyWordCountValues(),
+    translation_scope: '',
+    settlement_method: DEFAULT_SETTLEMENT_METHOD,
+    custom_settlement_method: '',
+    translator_pricing_method: '',
+    translator_unit_price: null,
+    translator_total_price: null,
+    email_subject: '',
+    email_body: '',
+    remarks: '',
+    file_selection_mode: 'selected',
+    selected_files: [],
+    milestones: []
+  }
+})
+const reassignForm = reactive(createEmptyReassignForm())
+const reassignRules = {
+  'replacement.translator_id': [
+    { required: true, message: '请选择新译员', trigger: 'change' }
+  ],
+  reason: [
+    { required: true, message: '请填写改派原因', trigger: 'blur' }
+  ]
+}
+const reassignDispatch = computed(() => (
+  dispatches.value.find((item) => item.id === reassignForm.dispatch_id) || null
+))
+const reassignProject = computed(() => (
+  activeProjects.value.find(
+    (item) => projectIdentity(item) === projectIdentity(reassignDispatch.value)
+  ) || selectedProject.value
+))
+const reassignAvailableTranslators = computed(() => {
+  const activeIds = new Set(
+    (reassignDispatch.value?.arrangements || [])
+      .filter((item) => item.status !== 'cancelled' && item.id !== reassignForm.arrangement_id)
+      .map((item) => item.translator_id)
+  )
+  return translators.value.filter(
+    (item) => item.id !== reassignForm.source_translator_id && !activeIds.has(item.id)
+  )
+})
+
 const settlementForm = reactive({
   dispatch_id: '',
   arrangement_id: '',
@@ -2552,7 +2781,10 @@ function dispatchStatusMeta(status) {
   return map[status] || { label: status || '未知', type: 'info' }
 }
 
-function assignmentStatusMeta(status) {
+function assignmentStatusMeta(status, assignment = null) {
+  if (assignment?.reassigned_to_arrangement_id) {
+    return { label: '已改派', type: 'info' }
+  }
   const map = {
     draft: { label: '草稿', type: 'info' },
     ready: { label: '待发送', type: 'warning' },
@@ -3043,6 +3275,10 @@ function activeAssignments(dispatch) {
   return (dispatch.arrangements || []).filter((item) => item.status !== 'cancelled')
 }
 
+function dispatchHasSentHistory(dispatch) {
+  return (dispatch?.arrangements || []).some((item) => Boolean(item.sent_at))
+}
+
 function isDispatchExpanded(row) {
   return expandedDispatchIds.value.has(row.id)
 }
@@ -3100,7 +3336,10 @@ function hydrateDispatchForm(row, { asNew = false } = {}) {
   dispatchForm.file_name = selectedProject.value?.file_name || ''
   dispatchForm.remarks = row.remarks || ''
   dispatchForm.updated_at = asNew ? null : (row.updated_at || null)
-  dispatchForm.arrangements = (row.arrangements || []).map((item) => ({
+  const sourceArrangements = asNew
+    ? (row.arrangements || [])
+    : (row.arrangements || []).filter((item) => item.status !== 'cancelled')
+  dispatchForm.arrangements = sourceArrangements.map((item) => ({
     id: item.id,
     translator_id: item.translator_id,
     translator_name: item.translator_name_snapshot,
@@ -3486,7 +3725,7 @@ async function withdrawAndEdit(row) {
   if (withdrawingBatchId.value) return
   if (
     row.status !== 'ready' ||
-    (row.arrangements || []).some((item) => item.status === 'sent')
+    dispatchHasSentHistory(row)
   ) {
     ElMessage.warning('只有尚未发送给译员的已确认批次可以撤回编辑')
     return
@@ -3512,6 +3751,174 @@ async function withdrawAndEdit(row) {
     ElMessage.error(error.detail || '撤回稿件安排失败')
   } finally {
     withdrawingBatchId.value = ''
+  }
+}
+
+function resetReassignForm() {
+  Object.assign(reassignForm, createEmptyReassignForm())
+  reassignFormRef.value?.clearValidate()
+}
+
+function openReassignDialog(dispatch, assignment) {
+  if (!ensureCanManage(dispatch)) return
+  if (!['ready', 'failed', 'sent'].includes(assignment?.status)) {
+    ElMessage.warning('只有待发送、发送失败或已发送的译员明细可以改派')
+    return
+  }
+  if (assignment.reassigned_to_arrangement_id) {
+    ElMessage.warning('该译员明细已经改派')
+    return
+  }
+  resetReassignForm()
+  Object.assign(reassignForm, {
+    dispatch_id: dispatch.id,
+    arrangement_id: assignment.id,
+    expected_updated_at: assignment.updated_at,
+    source_translator_id: assignment.translator_id,
+    source_translator_name: assignment.translator_name_snapshot,
+    reason: '',
+    replacement: {
+      translator_id: '',
+      translator_name: '',
+      planned: normalizeWordCountValues(assignment.planned),
+      actual: createEmptyWordCountValues(),
+      translation_scope: assignment.translation_scope || '',
+      settlement_method: settlementInputValue(assignment) || DEFAULT_SETTLEMENT_METHOD,
+      custom_settlement_method: '',
+      translator_pricing_method: assignment.translator_pricing_method || '',
+      translator_unit_price:
+        assignment.translator_unit_price === null ? null : Number(assignment.translator_unit_price),
+      translator_total_price:
+        assignment.translator_total_price === null ? null : Number(assignment.translator_total_price),
+      email_subject: '',
+      email_body: '',
+      remarks: assignment.remarks || '',
+      file_selection_mode: assignment.file_selection_mode || 'legacy_all',
+      selected_files: (assignment.selected_files || []).map((file) => ({
+        relative_path: file.relative_path
+      })),
+      milestones: normalizeAssignmentMilestones(assignment.milestones)
+    }
+  })
+  reassignDialogVisible.value = true
+}
+
+function handleReassignTranslatorChange(translatorId) {
+  reassignForm.replacement.translator_name =
+    translatorById(translatorId)?.translator_name || ''
+}
+
+function handleReassignMatrixUpdate(items) {
+  const updated = Array.isArray(items) ? items[0] : null
+  if (!updated) return
+  reassignForm.replacement.planned = normalizeWordCountValues(updated.planned)
+}
+
+function updateReassignSelectedFiles(files) {
+  reassignForm.replacement.selected_files = files
+  reassignForm.replacement.file_selection_mode = 'selected'
+}
+
+function validateReassignment() {
+  const assignment = reassignForm.replacement
+  if (!hasWordCountValue(assignment.planned)) {
+    return '字数与结算至少需要填写一个计量数值'
+  }
+  if (!String(assignment.settlement_method || '').trim()) {
+    return '请填写新译员结账方式'
+  }
+  const finalMilestone = assignment.milestones.find(
+    (item) => item.milestone_type === 'final'
+  )
+  if (!finalMilestone?.planned_at) return '请填写新译员全稿预定时间'
+  const dated = assignment.milestones
+    .filter((item) => item.planned_at)
+    .sort((a, b) => a.sequence_no - b.sequence_no)
+  for (let index = 1; index < dated.length; index += 1) {
+    if (new Date(dated[index - 1].planned_at) > new Date(dated[index].planned_at)) {
+      return '新译员交稿节点时间必须按顺序递增'
+    }
+  }
+  return ''
+}
+
+async function saveReassignment() {
+  try {
+    await reassignFormRef.value?.validate()
+  } catch {
+    return
+  }
+  const validationMessage = validateReassignment()
+  if (validationMessage) {
+    ElMessage.warning(validationMessage)
+    return
+  }
+  const assignment = reassignForm.replacement
+  reassignSaving.value = true
+  try {
+    const response = await reassignManuscriptAssignment(
+      reassignForm.dispatch_id,
+      reassignForm.arrangement_id,
+      {
+        expected_updated_at: reassignForm.expected_updated_at,
+        reason: reassignForm.reason.trim(),
+        replacement: {
+          translator_id: assignment.translator_id,
+          planned: assignment.planned,
+          actual: createEmptyWordCountValues(),
+          translation_scope: assignment.translation_scope || null,
+          settlement_method: String(assignment.settlement_method || '').trim(),
+          custom_settlement_method: null,
+          translator_pricing_method:
+            String(assignment.translator_pricing_method || '').trim() || null,
+          translator_unit_price: assignment.translator_unit_price,
+          translator_total_price: assignment.translator_total_price,
+          email_subject: null,
+          email_body: null,
+          remarks: assignment.remarks || null,
+          file_selection_mode: assignment.file_selection_mode || 'legacy_all',
+          selected_files: (assignment.selected_files || []).map((file) => ({
+            relative_path: file.relative_path
+          })),
+          milestones: assignment.milestones.map((milestone, index) => ({
+            milestone_type: milestone.milestone_type,
+            name: milestone.name || (
+              milestone.milestone_type === 'final'
+                ? '译员交稿_全稿预定时间'
+                : `译员交稿_预定时间${index + 1}`
+            ),
+            sequence_no: index + 1,
+            planned_at: milestone.planned_at || null
+          }))
+        }
+      }
+    )
+    reassignDialogVisible.value = false
+    await Promise.all([loadContext(), loadDispatches()])
+    const dispatch = dispatches.value.find((item) => item.id === reassignForm.dispatch_id)
+      || response.dispatch
+    const replacementId = response.replacement_arrangement_id
+    const replacement = dispatch?.arrangements?.find((item) => item.id === replacementId)
+    if (!dispatch || !replacement) {
+      ElMessage.success('改派成功，请在派稿记录中继续发送')
+      return
+    }
+    const matchedProject = activeProjects.value.find(
+      (item) => projectIdentity(item) === projectIdentity(dispatch)
+    )
+    if (matchedProject) selectedProject.value = matchedProject
+    selectedDispatchId.value = dispatch.id
+    creatingNewBatch.value = false
+    hydrateDispatchForm(dispatch)
+    activeArrangementTranslatorId.value = replacement.translator_id
+    workbenchStage.value = 'send'
+    ElMessage.success('改派成功，原记录已保留，请确认邮件后发送给新译员')
+    await nextTick()
+    await openMailPreviewDialog(dispatch, replacement)
+  } catch (error) {
+    ElMessage.error(error.detail || '改派失败')
+  } finally {
+    reassignSaving.value = false
   }
 }
 
@@ -4176,7 +4583,8 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-:deep(.mail-send-preview-dialog) {
+:deep(.mail-send-preview-dialog),
+:deep(.long-form-dialog) {
   display: flex;
   max-height: 90vh;
   flex-direction: column;
@@ -4184,17 +4592,21 @@ onBeforeUnmount(() => {
 }
 
 :deep(.mail-send-preview-dialog .el-dialog__header),
-:deep(.mail-send-preview-dialog .el-dialog__footer) {
+:deep(.mail-send-preview-dialog .el-dialog__footer),
+:deep(.long-form-dialog .el-dialog__header),
+:deep(.long-form-dialog .el-dialog__footer) {
   flex: none;
 }
 
-:deep(.mail-send-preview-dialog .el-dialog__body) {
+:deep(.mail-send-preview-dialog .el-dialog__body),
+:deep(.long-form-dialog .el-dialog__body) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
 
-:deep(.mail-send-preview-dialog .el-dialog__footer) {
+:deep(.mail-send-preview-dialog .el-dialog__footer),
+:deep(.long-form-dialog .el-dialog__footer) {
   border-top: 1px solid var(--el-border-color);
   background: var(--el-fill-color-lighter);
 }
@@ -4310,6 +4722,18 @@ onBeforeUnmount(() => {
 
 .quick-translator-tip {
   margin-bottom: 18px;
+}
+
+.reassign-tip {
+  margin-bottom: 16px;
+}
+
+.reassignment-history {
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .mail-body-input {
