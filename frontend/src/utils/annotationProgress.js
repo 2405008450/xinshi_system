@@ -1,7 +1,10 @@
 const progressTimestamp = (row) => `${row.effectiveOn || ''}|${row.changedAt || ''}`
 
 export const groupProjectProgressRows = (rows = [], currentStatus = '') => {
-  const statusRows = rows.filter((row) => row.fromStatus !== row.toStatus)
+  const isProgressRow = (row) => row.entryKind
+    ? row.entryKind === 'progress'
+    : row.fromStatus === row.toStatus
+  const statusRows = rows.filter((row) => !isProgressRow(row))
   const groups = statusRows.map((row) => ({
     key: `stage:${row.id}`,
     id: row.id,
@@ -17,7 +20,7 @@ export const groupProjectProgressRows = (rows = [], currentStatus = '') => {
   }))
   const syntheticByStatus = new Map()
 
-  rows.filter((row) => row.fromStatus === row.toStatus).forEach((row) => {
+  rows.filter(isProgressRow).forEach((row) => {
     const candidates = groups
       .filter((group) => group.status === row.toStatus && String(group.effectiveOn || '') <= String(row.effectiveOn || ''))
       .sort((left, right) => progressTimestamp(right).localeCompare(progressTimestamp(left)))

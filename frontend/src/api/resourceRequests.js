@@ -15,6 +15,11 @@ export const getResourceRequestSourceOptions = (sourceType, params = {}, config 
 export const getResourceRequestSourcePrefill = (sourceType, sourceProjectId) => api.get('/resource-requests/source-prefill', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
 export const getResourceRequestBySource = (sourceType, sourceProjectId) => api.get('/resource-requests/source-request', { params: { source_type: sourceType, source_project_id: sourceProjectId } }).then((res) => convert(res, camel))
 export const getResourceRequestSourceStatuses = (sourceType) => api.get('/resource-requests/source-statuses', { params: { source_type: sourceType } })
+export const getResourceRequestDailyNotes = (params = {}) => api.get('/resource-requests/daily-notes', { params }).then((res) => convert(res, camel))
+export const saveResourceRequestDailyNote = (noteDate, contentJson, expectedUpdatedAt) => api.put(`/resource-requests/daily-notes/${noteDate}`, {
+  content_json: contentJson,
+  expected_updated_at: expectedUpdatedAt,
+}).then((res) => convert(res, camel))
 export const getResourceRequest = (id) => api.get(`/resource-requests/${id}`).then((res) => convert(res, camel))
 export const createResourceRequest = async (data, idempotencyKey) => {
   const payload = convert(data, snake)

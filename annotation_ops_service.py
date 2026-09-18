@@ -18,10 +18,12 @@ from annotation_models import AnnotationProject, AnnotationProjectAssignee, Anno
 from annotation_ops_models import (
     AnnotationAccountAssignment, AnnotationAccountAssignmentLanguage,
     AnnotationAccountPasswordHistory, AnnotationAssigneeRate,
+    AnnotationArrangementTaskType, AnnotationProjectArrangementTask,
     AnnotationCredentialAccessLog, AnnotationPlatform, AnnotationPlatformAccount,
     AnnotationProjectStatusHistory, AnnotationTrialRecord,
 )
-from models import AppUser, Client, SubClient
+from concurrency import assert_fresh
+from models import AppUser, Client, Role, SubClient, UserRole
 from resource_models import ResourceAnnotationLanguageSkill, ResourceCapability, ResourcePerson
 from workflow_models import ProjectWorkbenchResponsibility
 
@@ -1089,7 +1091,258 @@ def list_status_history(db: Session, project_id: UUID):
         "to_status": row.to_status, "effective_on": row.effective_on, "changed_at": row.changed_at,
         "changed_by": row.changed_by, "changed_by_name": getattr(users.get(row.changed_by), "full_name", None) or getattr(users.get(row.changed_by), "username", None),
         "change_note": row.change_note,
+        "entry_kind": getattr(row, "entry_kind", None) or ("progress" if row.from_status == row.to_status else "status"),
+        "updated_at": getattr(row, "updated_at", None) or row.changed_at,
+        "updated_by": getattr(row, "updated_by", None),
     } for row in rows]
+
+
+def update_progress_history(db: Session, history_id: UUID, payload, user_id: UUID):
+    row = db.get(AnnotationProjectStatusHistory, history_id)
+    if not row:
+        return None
+    entry_kind = getattr(row, "entry_kind", None) or (
+        "progress" if row.from_status == row.to_status else "status"
+    )
+    if entry_kind != "progress":
+        raise ValueError("状态流转记录不可在项目安排中修改")
+    assert_fresh(row, payload.expected_updated_at)
+    row.effective_on = payload.effective_on
+    row.change_note = payload.change_note
+    row.entry_kind = "progress"
+    row.updated_by = user_id
+    row.updated_at = datetime.now()
+    db.commit()
+    return list_status_history(db, row.project_id)
+
+
+def _normalized_task_type_name(value: str) -> str:
+    return " ".join(value.strip().split()).casefold()
+
+
+def list_arrangement_task_types(db: Session):
+    return db.query(AnnotationArrangementTaskType).order_by(
+        AnnotationArrangementTaskType.is_active.desc(),
+        AnnotationArrangementTaskType.name.asc(),
+    ).all()
+
+
+def create_arrangement_task_type(db: Session, payload, user_id: UUID):
+    normalized = _normalized_task_type_name(payload.name)
+    if db.query(AnnotationArrangementTaskType.id).filter(
+        AnnotationArrangementTaskType.normalized_name == normalized,
+    ).first():
+        raise ValueError("任务类型已存在")
+    now = datetime.now()
+    row = AnnotationArrangementTaskType(
+        name=payload.name,
+        normalized_name=normalized,
+        is_active=True,
+        created_by=user_id,
+        updated_by=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_arrangement_task_type(db: Session, task_type_id: UUID, payload, user_id: UUID):
+    row = db.get(AnnotationArrangementTaskType, task_type_id)
+    if not row:
+        return None
+    assert_fresh(row, payload.expected_updated_at)
+    normalized = _normalized_task_type_name(payload.name)
+    duplicate = db.query(AnnotationArrangementTaskType.id).filter(
+        AnnotationArrangementTaskType.normalized_name == normalized,
+        AnnotationArrangementTaskType.id != row.id,
+    ).first()
+    if duplicate:
+        raise ValueError("任务类型已存在")
+    row.name = payload.name
+    row.normalized_name = normalized
+    row.updated_by = user_id
+    row.updated_at = datetime.now()
+    db.commit()
+    return row
+
+
+def set_arrangement_task_type_state(db: Session, task_type_id: UUID, payload, user_id: UUID):
+    row = db.get(AnnotationArrangementTaskType, task_type_id)
+    if not row:
+        return None
+    assert_fresh(row, payload.expected_updated_at)
+    row.is_active = payload.is_active
+    row.updated_by = user_id
+    row.updated_at = datetime.now()
+    db.commit()
+    return row
+
+
+def _arrangement_task_dict(row: AnnotationProjectArrangementTask) -> dict:
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "execution_date": row.execution_date,
+        "task_type_id": row.task_type_id,
+        "task_type_name": row.task_type.name,
+        "assignee_id": row.assignee_id,
+        "assignee_name": row.assignee.full_name or row.assignee.username,
+        "task_content": row.task_content,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _arrangement_assignees(db: Session) -> list[dict]:
+    users = db.query(AppUser).filter(AppUser.is_active.is_(True)).all()
+    manager_ids = {
+        user_id for (user_id,) in db.query(UserRole.user_id).join(
+            Role, Role.id == UserRole.role_id
+        ).filter(Role.role_name == "项目经理").all()
+    }
+
+    def group(user):
+        if user.id in manager_ids:
+            return "project_manager"
+        if (user.department or "").strip() == "HR部":
+            return "hr"
+        return "other"
+
+    priority = {"project_manager": 0, "hr": 1, "other": 2}
+    users.sort(key=lambda user: (
+        priority[group(user)],
+        (user.full_name or user.username).casefold(),
+    ))
+    return [{
+        "id": user.id,
+        "display_name": user.full_name or user.username,
+        "department": user.department,
+        "priority_group": group(user),
+    } for user in users]
+
+
+def get_arrangement_context(db: Session, project_ids: list[UUID]) -> dict:
+    unique_ids = list(dict.fromkeys(project_ids))
+    projects = db.query(AnnotationProject).options(
+        joinedload(AnnotationProject.client),
+        joinedload(AnnotationProject.sub_client),
+    ).filter(AnnotationProject.id.in_(unique_ids)).all() if unique_ids else []
+    project_map = {row.id: row for row in projects}
+    if len(project_map) != len(unique_ids):
+        raise ValueError("所选标注项目不存在或已被删除")
+    task_rows = db.query(AnnotationProjectArrangementTask).options(
+        joinedload(AnnotationProjectArrangementTask.task_type),
+        joinedload(AnnotationProjectArrangementTask.assignee),
+    ).filter(
+        AnnotationProjectArrangementTask.project_id.in_(unique_ids)
+    ).order_by(
+        AnnotationProjectArrangementTask.execution_date.asc(),
+        AnnotationProjectArrangementTask.created_at.asc(),
+    ).all() if unique_ids else []
+    tasks_by_project: dict[UUID, list[dict]] = {project_id: [] for project_id in unique_ids}
+    for row in task_rows:
+        tasks_by_project[row.project_id].append(_arrangement_task_dict(row))
+    return {
+        "projects": [{
+            "id": project.id,
+            "order_no": project.order_no,
+            "client_name": project.client_short_name or project.client_full_name,
+            "project_name": project.project_name,
+            "task_description": project.task_description,
+            "project_status": project.project_status,
+            "tasks": tasks_by_project[project.id],
+        } for project in (project_map[project_id] for project_id in unique_ids)],
+        "task_types": list_arrangement_task_types(db),
+        "assignees": _arrangement_assignees(db),
+    }
+
+
+def save_arrangement_batch(db: Session, payload, user_id: UUID) -> list[dict]:
+    item_ids = [item.id for item in payload.items if item.id]
+    deleted_ids = [item.id for item in payload.deleted_items]
+    if len(item_ids) != len(set(item_ids)) or len(deleted_ids) != len(set(deleted_ids)):
+        raise ValueError("项目安排中存在重复记录")
+    if set(item_ids) & set(deleted_ids):
+        raise ValueError("同一项目安排不能同时保存和删除")
+
+    existing_rows = {
+        row.id: row for row in db.query(AnnotationProjectArrangementTask).filter(
+            AnnotationProjectArrangementTask.id.in_([*item_ids, *deleted_ids])
+        ).all()
+    } if item_ids or deleted_ids else {}
+    if len(existing_rows) != len(set([*item_ids, *deleted_ids])):
+        raise ValueError("项目安排记录不存在或已被删除")
+
+    project_ids = {item.project_id for item in payload.items}
+    existing_project_ids = {
+        project_id for (project_id,) in db.query(AnnotationProject.id).filter(
+            AnnotationProject.id.in_(project_ids)
+        ).all()
+    } if project_ids else set()
+    if existing_project_ids != project_ids:
+        raise ValueError("所选标注项目不存在或已被删除")
+
+    task_type_ids = {item.task_type_id for item in payload.items}
+    task_types = {
+        row.id: row for row in db.query(AnnotationArrangementTaskType).filter(
+            AnnotationArrangementTaskType.id.in_(task_type_ids)
+        ).all()
+    } if task_type_ids else {}
+    if set(task_types) != task_type_ids:
+        raise ValueError("所选任务类型不存在")
+
+    assignee_ids = {item.assignee_id for item in payload.items}
+    active_assignees = {
+        user_id_value for (user_id_value,) in db.query(AppUser.id).filter(
+            AppUser.id.in_(assignee_ids), AppUser.is_active.is_(True)
+        ).all()
+    } if assignee_ids else set()
+    if active_assignees != assignee_ids:
+        raise ValueError("执行人不存在或已停用")
+
+    now = datetime.now()
+    saved_ids: list[UUID] = []
+    for item in payload.items:
+        row = existing_rows.get(item.id) if item.id else None
+        if row:
+            if row.project_id != item.project_id:
+                raise ValueError("项目安排与标注项目不匹配")
+            assert_fresh(row, item.expected_updated_at)
+            if row.task_type_id != item.task_type_id and not task_types[item.task_type_id].is_active:
+                raise ValueError("停用的任务类型不能用于新安排")
+        else:
+            if not task_types[item.task_type_id].is_active:
+                raise ValueError("停用的任务类型不能用于新安排")
+            row = AnnotationProjectArrangementTask(
+                project_id=item.project_id,
+                created_by=user_id,
+                created_at=now,
+            )
+            db.add(row)
+        row.execution_date = item.execution_date
+        row.task_type_id = item.task_type_id
+        row.assignee_id = item.assignee_id
+        row.task_content = item.task_content
+        row.updated_by = user_id
+        row.updated_at = now
+        db.flush()
+        saved_ids.append(row.id)
+
+    for deleted in payload.deleted_items:
+        row = existing_rows[deleted.id]
+        assert_fresh(row, deleted.expected_updated_at)
+        db.delete(row)
+
+    db.commit()
+    rows = db.query(AnnotationProjectArrangementTask).options(
+        joinedload(AnnotationProjectArrangementTask.task_type),
+        joinedload(AnnotationProjectArrangementTask.assignee),
+    ).filter(AnnotationProjectArrangementTask.id.in_(saved_ids)).all() if saved_ids else []
+    row_map = {row.id: row for row in rows}
+    return [_arrangement_task_dict(row_map[row_id]) for row_id in saved_ids]
 
 
 def _escape_like_keyword(value: str) -> str:
@@ -1113,6 +1366,9 @@ def _status_history_search_query(db: Session):
             AnnotationProjectStatusHistory.changed_at.label("changed_at"),
             AnnotationProjectStatusHistory.changed_by.label("changed_by"),
             AnnotationProjectStatusHistory.change_note.label("change_note"),
+            AnnotationProjectStatusHistory.entry_kind.label("entry_kind"),
+            AnnotationProjectStatusHistory.updated_at.label("updated_at"),
+            AnnotationProjectStatusHistory.updated_by.label("updated_by"),
             AnnotationProject.order_no.label("project_order_no"),
             AnnotationProject.project_name.label("project_name"),
             AnnotationProject.project_status.label("project_current_status"),
@@ -1155,12 +1411,15 @@ def _status_history_search_items(rows):
         "changed_by": row.changed_by,
         "changed_by_name": row.changed_by_name,
         "change_note": row.change_note,
+        "entry_kind": getattr(row, "entry_kind", None) or ("progress" if row.from_status == row.to_status else "status"),
+        "updated_at": getattr(row, "updated_at", None) or row.changed_at,
+        "updated_by": getattr(row, "updated_by", None),
         "project_order_no": row.project_order_no,
         "project_name": row.project_name,
         "project_current_status": row.project_current_status,
         "client_manager_name": row.client_manager_name,
         "project_manager_name": row.project_manager_name,
-        "record_type": "progress" if row.from_status == row.to_status else "status_change",
+        "record_type": "progress" if (getattr(row, "entry_kind", None) or ("progress" if row.from_status == row.to_status else "status")) == "progress" else "status_change",
     } for row in rows]
 
 

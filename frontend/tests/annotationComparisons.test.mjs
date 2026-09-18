@@ -26,6 +26,15 @@ test('比较区采用横向矩阵并复用项目详情组件', () => {
   assert.match(detail, /annotationApi\.getAnnotationProject\(props\.projectId\)/)
 })
 
+test('新增和编辑比较组时可悬停查看候选项目详情', () => {
+  assert.match(page, /trigger="hover" placement="top" title="项目详情"/)
+  assert.doesNotMatch(page, /悬停查看项目详情/)
+  assert.match(page, /comparison-project-option-detail-popover/)
+  assert.match(detail, /:trigger="trigger"/)
+  assert.match(detail, /:show-after="showAfter"/)
+  assert.match(detail, /:popper-class="popperClass"/)
+})
+
 test('比较说明只在组级区域展示', () => {
   assert.match(page, /class="comparison-description"/)
   assert.doesNotMatch(page, /key:'description',label:'比较说明'/)

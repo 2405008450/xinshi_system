@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from annotation_models import AnnotationProject
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from models import Client, SubClient, TranslationProject
 from recruitment_models import RecruitmentProject
 from resource_request_models import (
+    ResourceRequestDailyNote,
     ResourceRequest,
     ResourceRequestItem,
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
 )
+from concurrency import assert_fresh
 
 
 SOURCE_MODELS = {
@@ -597,6 +599,80 @@ def update_resource_progress(db: Session, request_id: UUID, payload, user_id: Op
 
 def list_progress_logs(db: Session, request_id: UUID):
     return db.query(ResourceRequestProgressLog).filter(ResourceRequestProgressLog.request_id == request_id).order_by(ResourceRequestProgressLog.changed_at.desc()).all()
+
+
+def _daily_note_dict(row: ResourceRequestDailyNote) -> dict:
+    editor = row.editor
+    return {
+        "id": row.id,
+        "note_date": row.note_date,
+        "content_json": row.content_json,
+        "updated_by": row.updated_by,
+        "updated_by_name": (
+            editor.full_name or editor.username if editor else None
+        ),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def list_resource_request_daily_notes(
+    db: Session, *, skip: int = 0, limit: int = 100
+) -> list[dict]:
+    """按说明日期倒序返回资源需求公共说明。"""
+    rows = (
+        db.query(ResourceRequestDailyNote)
+        .options(joinedload(ResourceRequestDailyNote.editor))
+        .order_by(
+            ResourceRequestDailyNote.note_date.desc(),
+            ResourceRequestDailyNote.updated_at.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [_daily_note_dict(row) for row in rows]
+
+
+def get_resource_request_daily_note(
+    db: Session, note_date: date
+) -> Optional[dict]:
+    row = (
+        db.query(ResourceRequestDailyNote)
+        .options(joinedload(ResourceRequestDailyNote.editor))
+        .filter(ResourceRequestDailyNote.note_date == note_date)
+        .first()
+    )
+    return _daily_note_dict(row) if row else None
+
+
+def save_resource_request_daily_note(
+    db: Session, note_date: date, payload, user_id: UUID
+) -> dict:
+    """同一天只保留一条说明；更新时使用 updated_at 防止互相覆盖。"""
+    row = (
+        db.query(ResourceRequestDailyNote)
+        .filter(ResourceRequestDailyNote.note_date == note_date)
+        .with_for_update()
+        .first()
+    )
+    now = datetime.now()
+    if row:
+        assert_fresh(row, payload.expected_updated_at)
+        row.content_json = payload.content_json
+        row.updated_by = user_id
+        row.updated_at = now
+    else:
+        row = ResourceRequestDailyNote(
+            note_date=note_date,
+            content_json=payload.content_json,
+            updated_by=user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    db.commit()
+    return get_resource_request_daily_note(db, note_date)
 
 
 def delete_resource_request(db: Session, request_id: UUID) -> bool:

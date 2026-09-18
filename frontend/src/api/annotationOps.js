@@ -11,6 +11,7 @@ const convert = (value, keyFn) => Array.isArray(value)
 const get = (url, params, config = {}) => api.get(url, { ...config, params: convert(params, snake) }).then((res) => convert(res, camel))
 const post = (url, data) => api.post(url, convert(data, snake)).then((res) => convert(res, camel))
 const put = (url, data) => api.put(url, convert(data, snake)).then((res) => convert(res, camel))
+const patch = (url, data) => api.patch(url, convert(data, snake)).then((res) => convert(res, camel))
 
 export const getPlatforms = (clientId, params = {}, config = {}) => get('/annotation-ops/platforms', { client_id: clientId || undefined, ...params }, config)
 export const createPlatform = (data) => post('/annotation-ops/platforms', data)
@@ -56,6 +57,15 @@ export const deleteAnnotationWorkflow = (projectId, assigneeId) => api.delete(`/
 export const getStatusHistory = (projectId) => get(`/annotation-ops/projects/${projectId}/status-history`)
 export const getRecentStatusHistory = (params = {}, config = {}) => get('/annotation-ops/status-history/recent', params, config)
 export const searchStatusHistory = (params, config = {}) => get('/annotation-ops/status-history/search', params, config)
+export const updateStatusHistoryProgress = (id, data) => patch(`/annotation-ops/status-history/${id}/progress`, data)
+export const getProjectArrangementContext = (projectIds, config = {}) => api.get(
+  '/annotation-ops/project-arrangements/context',
+  { ...config, params: { project_id: projectIds }, paramsSerializer: { indexes: null } }
+).then((res) => convert(res, camel))
+export const saveProjectArrangements = (data) => put('/annotation-ops/project-arrangements/batch', data)
+export const createArrangementTaskType = (data) => post('/annotation-ops/project-arrangement-task-types', data)
+export const updateArrangementTaskType = (id, data) => put(`/annotation-ops/project-arrangement-task-types/${id}`, data)
+export const setArrangementTaskTypeState = (id, data) => patch(`/annotation-ops/project-arrangement-task-types/${id}/state`, data)
 export const getCustomFields = (tableCode, projectId = null, includeInactive = false) => get('/annotation-ops/custom-fields', { table_code: tableCode, project_id: projectId || undefined, include_inactive: includeInactive })
 export const createCustomField = (data) => post('/annotation-ops/custom-fields', data)
 export const updateCustomField = (id, data) => put(`/annotation-ops/custom-fields/${id}`, data)

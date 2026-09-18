@@ -8,6 +8,7 @@
             <p>统一跟踪标注、招聘、口译、笔译及其他资源请求</p>
           </div>
           <div class="header-actions">
+            <el-button v-if="!deleteMode" @click="notesDialogVisible = true">需求说明</el-button>
             <TableColumnSettings
               v-model="selectedColumnKeys"
               :columns="tableColumns"
@@ -229,6 +230,8 @@
       <AppForm label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></AppForm>
       <template #footer><el-button @click="progressDialog = false">取消</el-button><el-button type="primary" @click="saveProgress">保存进度</el-button></template>
     </DraggableFormDialog>
+
+    <ResourceRequestDailyNotesDialog v-model="notesDialogVisible" :can-edit="canWrite" />
   </div>
 </template>
 
@@ -249,6 +252,7 @@ import InlineTextField from '@/components/common/InlineTextField.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import ResourceRequestDailyNotesDialog from '@/views/resource/components/ResourceRequestDailyNotesDialog.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -311,6 +315,7 @@ const prefillLoading = ref(false)
 const advancedVisible = ref(false)
 const dialogVisible = ref(false)
 const progressDialog = ref(false)
+const notesDialogVisible = ref(false)
 const saving = ref(false)
 const sending = ref(false)
 const cancelling = ref(false)

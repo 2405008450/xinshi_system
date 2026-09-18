@@ -1,6 +1,6 @@
 """资源需求管理 API。"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -11,13 +11,23 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AppUser
 from resource_request_models import ResourceRequest, ResourceRequestItem
-from resource_request_schemas import ResourceProgressLogResponse, ResourceProgressUpdate, ResourceRequestResponse, ResourceRequestSourcePrefillResponse, ResourceRequestWrite
+from resource_request_schemas import (
+    ResourceProgressLogResponse,
+    ResourceProgressUpdate,
+    ResourceRequestDailyNoteResponse,
+    ResourceRequestDailyNoteWrite,
+    ResourceRequestResponse,
+    ResourceRequestSourcePrefillResponse,
+    ResourceRequestWrite,
+)
 from resource_request_service import (
     cancel_resource_request, count_resource_requests, create_resource_request, delete_resource_request,
     get_resource_request, get_resource_request_by_source, get_resource_request_source_prefill,
-    list_progress_logs, list_resource_request_source_statuses, list_resource_requests,
+    list_progress_logs, list_resource_request_daily_notes,
+    list_resource_request_source_statuses, list_resource_requests,
     list_source_project_options,
-    send_resource_request, update_resource_progress, update_resource_request,
+    save_resource_request_daily_note, send_resource_request,
+    update_resource_progress, update_resource_request,
 )
 from routers.auth import get_current_user, require_any_permission, require_module_access
 from concurrency import assert_fresh
@@ -139,6 +149,36 @@ def read_source_statuses(source_type: str, db: Session = Depends(get_db)):
         return list_resource_request_source_statuses(db, source_type)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.get("/daily-notes", response_model=List[ResourceRequestDailyNoteResponse])
+def read_daily_notes(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    return list_resource_request_daily_notes(db, skip=skip, limit=limit)
+
+
+@router.put(
+    "/daily-notes/{note_date}",
+    response_model=ResourceRequestDailyNoteResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def save_daily_note(
+    note_date: date,
+    payload: ResourceRequestDailyNoteWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    try:
+        return save_resource_request_daily_note(db, note_date, payload, user.id)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该日期的需求说明刚刚被其他人创建，请刷新后再编辑",
+        ) from exc
 
 
 @router.post("/", response_model=ResourceRequestResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])

@@ -31,6 +31,8 @@ from annotation_models import (
     AnnotationProjectPriceItem,
 )
 from annotation_schemas import (
+    ANNOTATION_PROJECT_PRIORITY_LABELS,
+    ANNOTATION_PROJECT_STATUS_LABELS,
     ANNOTATION_PROJECT_TYPE_LABELS,
     AnnotationNamePreviewRequest,
     AnnotationProjectCreate,
@@ -217,6 +219,18 @@ def _annotation_project_ordering(sort, latest_effective_on, latest_changed_at):
     )
 
 
+def _keyword_enum_values(keyword: str, labels: dict[str, str]) -> tuple[str, ...]:
+    """按内部值或界面中文名称匹配枚举，供基础字段关键词检索使用。"""
+    normalized = keyword.strip().casefold()
+    if not normalized:
+        return ()
+    return tuple(
+        value
+        for value, label in labels.items()
+        if normalized in value.casefold() or normalized in label.casefold()
+    )
+
+
 def _apply_filters(
     query,
     *,
@@ -241,18 +255,41 @@ def _apply_filters(
     field_filters=None,
 ):
     if keyword and keyword.strip():
-        pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
+        normalized_keyword = keyword.strip()
+        pattern = f"%{normalized_keyword}%"
+        project_type_values = _keyword_enum_values(
+            normalized_keyword, ANNOTATION_PROJECT_TYPE_LABELS,
+        )
+        status_values = _keyword_enum_values(
+            normalized_keyword, ANNOTATION_PROJECT_STATUS_LABELS,
+        )
+        priority_values = _keyword_enum_values(
+            normalized_keyword, ANNOTATION_PROJECT_PRIORITY_LABELS,
+        )
+        keyword_conditions = [
             AnnotationProject.order_no.ilike(pattern),
             AnnotationProject.project_name.ilike(pattern),
-            AnnotationProject.task_description.ilike(pattern),
             AnnotationProject.customer_order_no.ilike(pattern),
             AnnotationProject.contact_name.ilike(pattern),
+            AnnotationProject.language_region.ilike(pattern),
+            AnnotationProject.project_status.ilike(pattern),
+            AnnotationProject.priority.ilike(pattern),
+            Client.client_code.ilike(pattern),
             Client.client_name.ilike(pattern),
             Client.client_short_name.ilike(pattern),
+            SubClient.sub_client_code.ilike(pattern),
             SubClient.client_name.ilike(pattern),
             SubClient.client_short_name.ilike(pattern),
-        ))
+        ]
+        keyword_conditions.extend(
+            AnnotationProject.project_types.contains([value])
+            for value in project_type_values
+        )
+        if status_values:
+            keyword_conditions.append(AnnotationProject.project_status.in_(status_values))
+        if priority_values:
+            keyword_conditions.append(AnnotationProject.priority.in_(priority_values))
+        query = query.filter(or_(*keyword_conditions))
     if project_status:
         query = query.filter(AnnotationProject.project_status == project_status)
     if project_type:
@@ -576,6 +613,7 @@ def create_annotation_project(
         to_status=project.project_status,
         effective_on=project.status_effective_on,
         changed_by=created_by,
+        entry_kind="status",
     ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
@@ -622,6 +660,7 @@ def update_annotation_project(
             to_status=project.project_status,
             effective_on=project.status_effective_on,
             changed_by=changed_by,
+            entry_kind="status",
         ))
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
@@ -724,6 +763,7 @@ def update_annotation_project_status(
         effective_on=effective_on,
         changed_by=changed_by,
         change_note=change_note,
+        entry_kind="progress" if progress_only else "status",
     ))
     if not progress_only:
         from project_workbench_service import ensure_active_project_responsibilities

@@ -20,7 +20,7 @@
           <el-form-item label="关键词" class="project-list-keyword-filter">
             <el-input
               v-model="searchForm.keyword"
-              placeholder="订单号、项目名称、客户名称或客户单号"
+              placeholder="订单号、项目名称、类型/状态、客户/联系人等"
               clearable
               @input="handleTextSearch"
               @keyup.enter="handleSearch"
@@ -144,6 +144,9 @@
             <el-option v-for="item in managerOptions(column.key)" :key="item.id" :label="userLabel(item)" :value="item.id" :disabled="column.key === 'projectManagerName' && (item.isOnLeave || item.is_on_leave)" />
           </el-select>
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis business-clickable-cell" :title="textValue(row.projectName)" @click.stop="openProgress(row)">{{ textValue(row.projectName) }}</el-button>
+          <el-tooltip v-else-if="column.key === 'taskDescription'" :content="textValue(row.taskDescription)" placement="top" :disabled="!row.taskDescription">
+            <el-button type="primary" link class="project-name-ellipsis business-clickable-cell" @click.stop="openArrangement(row)">{{ textValue(row.taskDescription) }}</el-button>
+          </el-tooltip>
           <span v-else-if="column.key === 'projectTypes'">{{ projectTypesText(row.projectTypes) }}</span>
           <span v-else-if="column.key === 'projectManagerName'">{{ roleAssignmentName(row, 'project_manager') }}</span>
           <el-popover
@@ -213,6 +216,12 @@
       v-model="progressSearchVisible"
       @open-context="queueProgressSearchContext"
       @closed="openQueuedProgressContext"
+    />
+
+    <AnnotationProjectArrangementDialog
+      v-model="arrangementVisible"
+      :initial-project="arrangementProject"
+      :can-write="canWrite"
     />
 
     <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" @closed="resetProgressDialog">
@@ -535,6 +544,7 @@ import InternalProjectRolesForm from '@/components/common/InternalProjectRolesFo
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
+import AnnotationProjectArrangementDialog from '@/components/annotation/AnnotationProjectArrangementDialog.vue'
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
 import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
@@ -611,7 +621,7 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection,clickHint:'点击语言方向查看人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection,clickHint:'点击语言方向查看人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -619,11 +629,13 @@ const visibleProjectCustomFields = computed(()=>projectCustomFields.value.filter
 const customTableColumns = computed(()=>visibleProjectCustomFields.value.map((field)=>({key:`custom:${field.id}`,label:field.fieldLabel,minWidth:field.dataType==='text'||field.dataType==='url'?160:110,customField:field})))
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
 const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
-const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns('annotation-details-v6',tableColumns,defaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
+const arrangementVisible=ref(false), arrangementProject=ref(null)
+const openArrangement=(row)=>{arrangementProject.value=row;arrangementVisible.value=true}
 const listSort=ref('order_no_desc')
 const progressSortActive=computed(()=>listSort.value==='latest_progress_desc')
 let submitLocked=false

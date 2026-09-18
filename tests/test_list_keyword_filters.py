@@ -7,7 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from annotation_models import AnnotationProject
-from annotation_service import _apply_filters as apply_annotation_filters
+from annotation_service import (
+    _apply_filters as apply_annotation_filters,
+    _keyword_enum_values,
+)
+from annotation_schemas import (
+    ANNOTATION_PROJECT_PRIORITY_LABELS,
+    ANNOTATION_PROJECT_STATUS_LABELS,
+    ANNOTATION_PROJECT_TYPE_LABELS,
+)
 from crud import _apply_consultation_filters, _apply_translation_project_filters
 from interpretation_models import InterpretationProject
 from interpretation_service import _apply_filters as apply_interpretation_filters
@@ -121,7 +129,60 @@ def test_interpretation_keyword_preserves_task_description_and_new_exact_filters
     assert "interpretation_project_language_direction.target_language_id" in sql
 
 
-def test_annotation_keyword_preserves_task_and_contact_fields_with_advanced_and():
+def test_annotation_keyword_uses_basic_fields_and_excludes_long_fields():
+    sql = _sql(apply_annotation_filters(
+        _base_query(AnnotationProject),
+        keyword="唯一关键字",
+    ))
+    _assert_keyword_columns(sql, "annotation_project", (
+        "annotation_project.contact_name",
+        "annotation_project.language_region",
+        "annotation_project.project_status",
+        "annotation_project.priority",
+        "client.client_code",
+        "sub_client.sub_client_code",
+    ))
+    for excluded_column in (
+        "annotation_project.task_description",
+        "annotation_project.potential_demand",
+        "annotation_project.email_subject_preview",
+        "annotation_project.project_path",
+        "annotation_project.quotation_path",
+        "annotation_project.contract_path",
+        "annotation_project.custom_values",
+        "annotation_project.task_dispatched_at",
+        "annotation_project.task_submitted_at",
+        "annotation_project.created_at",
+        "annotation_project.updated_at",
+    ):
+        assert excluded_column not in sql
+
+
+def test_annotation_keyword_matches_enum_codes_by_display_label():
+    assert _keyword_enum_values("音频标注", ANNOTATION_PROJECT_TYPE_LABELS) == (
+        "audio_annotation",
+    )
+    assert _keyword_enum_values("项目进行中", ANNOTATION_PROJECT_STATUS_LABELS) == (
+        "project_in_progress",
+    )
+    assert _keyword_enum_values("高", ANNOTATION_PROJECT_PRIORITY_LABELS) == ("high",)
+
+    status_sql = _sql(apply_annotation_filters(
+        _base_query(AnnotationProject),
+        keyword="项目进行中",
+    ))
+    assert "annotation_project.project_status in ('project_in_progress')" in status_sql
+
+    project_type_statement = apply_annotation_filters(
+        _base_query(AnnotationProject),
+        keyword="音频标注",
+    )
+    compiled = project_type_statement.compile(dialect=postgresql.dialect())
+    assert "annotation_project.project_types @>" in str(compiled).lower()
+    assert ["audio_annotation"] in compiled.params.values()
+
+
+def test_annotation_keyword_and_advanced_filters_share_one_and_query():
     sql = _sql(apply_annotation_filters(
         _base_query(AnnotationProject),
         keyword="唯一关键字",
@@ -131,10 +192,7 @@ def test_annotation_keyword_preserves_task_and_contact_fields_with_advanced_and(
         created_date_start=date(2026, 8, 1),
         created_date_end=date(2026, 8, 31),
     ))
-    _assert_keyword_columns(sql, "annotation_project", (
-        "annotation_project.task_description",
-        "annotation_project.contact_name",
-    ))
+    assert "annotation_project.order_no" in sql
     assert "annotation_project.client_manager_id" in sql
     assert "annotation_project.created_at" in sql
 

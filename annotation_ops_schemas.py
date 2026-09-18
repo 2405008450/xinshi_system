@@ -387,6 +387,23 @@ class StatusHistoryResponse(BaseModel):
     changed_by: Optional[UUID] = None
     changed_by_name: Optional[str] = None
     change_note: Optional[str] = None
+    entry_kind: str = "status"
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[UUID] = None
+
+
+class StatusHistoryProgressUpdate(BaseModel):
+    effective_on: datetime
+    change_note: str = Field(min_length=1, max_length=10000)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("change_note")
+    @classmethod
+    def normalize_change_note(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("请填写具体进度")
+        return normalized
 
 
 class StatusHistorySearchItemResponse(StatusHistoryResponse):
@@ -396,6 +413,97 @@ class StatusHistorySearchItemResponse(StatusHistoryResponse):
     client_manager_name: Optional[str] = None
     project_manager_name: Optional[str] = None
     record_type: str
+
+
+class ArrangementTaskTypeWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("请填写任务类型")
+        return normalized
+
+
+class ArrangementTaskTypeStateWrite(BaseModel):
+    is_active: bool
+    expected_updated_at: Optional[datetime] = None
+
+
+class ArrangementTaskTypeResponse(BaseModel):
+    id: UUID
+    name: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArrangementTaskWrite(BaseModel):
+    id: Optional[UUID] = None
+    project_id: UUID
+    execution_date: date
+    task_type_id: UUID
+    assignee_id: UUID
+    task_content: str = Field(min_length=1, max_length=10000)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("task_content")
+    @classmethod
+    def normalize_task_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("请填写任务内容")
+        return normalized
+
+
+class ArrangementTaskDelete(BaseModel):
+    id: UUID
+    expected_updated_at: Optional[datetime] = None
+
+
+class ArrangementBatchWrite(BaseModel):
+    items: list[ArrangementTaskWrite] = Field(default_factory=list, max_length=1000)
+    deleted_items: list[ArrangementTaskDelete] = Field(default_factory=list, max_length=1000)
+
+
+class ArrangementTaskResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    execution_date: date
+    task_type_id: UUID
+    task_type_name: str
+    assignee_id: UUID
+    assignee_name: str
+    task_content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ArrangementProjectResponse(BaseModel):
+    id: UUID
+    order_no: str
+    client_name: Optional[str] = None
+    project_name: Optional[str] = None
+    task_description: Optional[str] = None
+    project_status: str
+    tasks: list[ArrangementTaskResponse] = Field(default_factory=list)
+
+
+class ArrangementAssigneeResponse(BaseModel):
+    id: UUID
+    display_name: str
+    department: Optional[str] = None
+    priority_group: str
+
+
+class ArrangementContextResponse(BaseModel):
+    projects: list[ArrangementProjectResponse]
+    task_types: list[ArrangementTaskTypeResponse]
+    assignees: list[ArrangementAssigneeResponse]
 
 
 class CustomFieldWrite(BaseModel):

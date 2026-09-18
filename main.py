@@ -127,6 +127,8 @@ from annotation_ops_models import (
     AnnotationPlatform,
     AnnotationPlatformAccount,
     AnnotationProjectStatusHistory,
+    AnnotationArrangementTaskType,
+    AnnotationProjectArrangementTask,
     AnnotationTrialRecord,
 )
 from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
@@ -134,6 +136,7 @@ from mail_inline_image_models import MailInlineImage, MailInlineImageBinding
 from mail_inline_image_service import cleanup_orphan_inline_images
 from resource_request_models import (
     ResourceRequest,
+    ResourceRequestDailyNote,
     ResourceRequestItem,
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
@@ -739,6 +742,59 @@ def migrate_annotation_follow_up_to_status_history():
             WHERE table_code = 'project'
               AND btrim(field_label) = '跟进状态'
               AND is_active = TRUE
+        """))
+
+
+def ensure_annotation_arrangement_schema():
+    """补齐项目安排表与可编辑具体进度元数据。"""
+    AnnotationArrangementTaskType.__table__.create(bind=engine, checkfirst=True)
+    AnnotationProjectArrangementTask.__table__.create(bind=engine, checkfirst=True)
+    if "annotation_project_status_history" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE annotation_project_status_history "
+            "ADD COLUMN IF NOT EXISTS entry_kind VARCHAR(20)"
+        ))
+        conn.execute(text(
+            "ALTER TABLE annotation_project_status_history "
+            "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"
+        ))
+        conn.execute(text(
+            "ALTER TABLE annotation_project_status_history "
+            "ADD COLUMN IF NOT EXISTS updated_by UUID"
+        ))
+        conn.execute(text("""
+            UPDATE annotation_project_status_history
+            SET entry_kind = CASE WHEN from_status = to_status THEN 'progress' ELSE 'status' END
+            WHERE entry_kind IS NULL
+        """))
+        conn.execute(text("""
+            UPDATE annotation_project_status_history
+            SET updated_at = changed_at
+            WHERE updated_at IS NULL
+        """))
+        conn.execute(text(
+            "ALTER TABLE annotation_project_status_history "
+            "ALTER COLUMN entry_kind SET DEFAULT 'status', "
+            "ALTER COLUMN entry_kind SET NOT NULL, "
+            "ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP, "
+            "ALTER COLUMN updated_at SET NOT NULL"
+        ))
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_annotation_status_history_entry_kind') THEN
+                    ALTER TABLE annotation_project_status_history
+                    ADD CONSTRAINT ck_annotation_status_history_entry_kind
+                    CHECK (entry_kind IN ('status', 'progress'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_annotation_status_history_updated_by') THEN
+                    ALTER TABLE annotation_project_status_history
+                    ADD CONSTRAINT fk_annotation_status_history_updated_by
+                    FOREIGN KEY (updated_by) REFERENCES app_user(id) ON DELETE SET NULL;
+                END IF;
+            END $$
         """))
 
 
@@ -1612,6 +1668,7 @@ def run_runtime_migrations():
     AnnotationProjectComparisonMember.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_assignee_columns()
     AnnotationProjectStatusHistory.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_arrangement_schema()
     ensure_annotation_status_history_constraints()
     ensure_annotation_status_history_seed()
     AnnotationNoticeSection.__table__.create(bind=engine, checkfirst=True)
@@ -1692,6 +1749,7 @@ def run_runtime_migrations():
     ResourceRequestItem.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestItemExtraLanguage.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestProgressLog.__table__.create(bind=engine, checkfirst=True)
+    ResourceRequestDailyNote.__table__.create(bind=engine, checkfirst=True)
     ensure_resource_request_lifecycle_columns()
     ensure_project_idempotency_columns()
     ensure_resource_request_view()

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from annotation_notice_schemas import validate_tiptap_document
 
 
 class ResourceRequestItemWrite(BaseModel):
@@ -152,3 +154,34 @@ class ResourceProgressLogResponse(BaseModel):
     changed_by: Optional[UUID] = None
     changed_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class ResourceRequestDailyNoteWrite(BaseModel):
+    content_json: dict
+    expected_updated_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        try:
+            self.content_json = validate_tiptap_document(self.content_json)
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("须知", "需求说明")) from exc
+
+        def contains_text(node) -> bool:
+            return bool(node.get("text", "").strip()) or any(
+                contains_text(child) for child in node.get("content", [])
+            )
+
+        if not contains_text(self.content_json):
+            raise ValueError("需求说明内容不能为空")
+        return self
+
+
+class ResourceRequestDailyNoteResponse(BaseModel):
+    id: UUID
+    note_date: date
+    content_json: dict
+    updated_by: Optional[UUID] = None
+    updated_by_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime

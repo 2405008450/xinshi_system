@@ -30,7 +30,10 @@ from annotation_ops_schemas import (
     AssigneeRateResponse, AssigneeRateWrite, CredentialBatchRevealItem, CredentialBatchRevealRequest,
     CredentialRevealRequest, CredentialRevealResponse,
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
-    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, TrialResponse, TrialWrite,
+    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
+    ArrangementAssigneeResponse, ArrangementBatchWrite, ArrangementContextResponse,
+    ArrangementTaskResponse, ArrangementTaskTypeResponse, ArrangementTaskTypeStateWrite,
+    ArrangementTaskTypeWrite,
 )
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
@@ -38,6 +41,8 @@ from annotation_ops_service import (
     get_account_person_profile, list_account_assignments, list_accounts, list_annotator_occupancy, list_annotation_workflow, list_person_accounts,
     list_platforms, list_recent_status_history, list_status_history, list_trials, release_account, release_all_person_accounts,
     search_status_history,
+    create_arrangement_task_type, get_arrangement_context, save_arrangement_batch,
+    set_arrangement_task_type_state, update_arrangement_task_type, update_progress_history,
     reveal_credential, reveal_credentials_batch, save_account, save_annotation_workflow, save_assignee_rate, save_platform, save_trial,
 )
 from database import get_db
@@ -357,6 +362,87 @@ def remove_workflow_row(project_id: UUID, assignee_id: UUID, db: Session = Depen
 @project_router.get("/projects/{project_id}/status-history", response_model=List[StatusHistoryResponse])
 def status_history(project_id: UUID, db: Session = Depends(get_db)):
     return list_status_history(db, project_id)
+
+
+@project_router.patch(
+    "/status-history/{history_id}/progress", response_model=List[StatusHistoryResponse],
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def edit_progress_history(
+    history_id: UUID,
+    payload: StatusHistoryProgressUpdate,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    rows = _run(db, lambda: update_progress_history(db, history_id, payload, user.id))
+    if rows is None:
+        raise HTTPException(404, "项目进度记录不存在")
+    return rows
+
+
+@project_router.get("/project-arrangements/context", response_model=ArrangementContextResponse)
+def arrangement_context(
+    project_id: List[UUID] = Query(..., min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+):
+    return _run(db, lambda: get_arrangement_context(db, project_id))
+
+
+@project_router.put(
+    "/project-arrangements/batch", response_model=List[ArrangementTaskResponse],
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def save_project_arrangements(
+    payload: ArrangementBatchWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    return _run(db, lambda: save_arrangement_batch(db, payload, user.id))
+
+
+@project_router.post(
+    "/project-arrangement-task-types", response_model=ArrangementTaskTypeResponse,
+    status_code=201, dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def create_project_arrangement_task_type(
+    payload: ArrangementTaskTypeWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    return _run(db, lambda: create_arrangement_task_type(db, payload, user.id))
+
+
+@project_router.put(
+    "/project-arrangement-task-types/{task_type_id}", response_model=ArrangementTaskTypeResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def edit_project_arrangement_task_type(
+    task_type_id: UUID,
+    payload: ArrangementTaskTypeWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    row = _run(db, lambda: update_arrangement_task_type(db, task_type_id, payload, user.id))
+    if row is None:
+        raise HTTPException(404, "任务类型不存在")
+    return row
+
+
+@project_router.patch(
+    "/project-arrangement-task-types/{task_type_id}/state",
+    response_model=ArrangementTaskTypeResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def set_project_arrangement_task_type_state(
+    task_type_id: UUID,
+    payload: ArrangementTaskTypeStateWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    row = _run(db, lambda: set_arrangement_task_type_state(db, task_type_id, payload, user.id))
+    if row is None:
+        raise HTTPException(404, "任务类型不存在")
+    return row
 
 
 @project_router.get("/status-history/recent", response_model=PageResponse[StatusHistorySearchItemResponse])

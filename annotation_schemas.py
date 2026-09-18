@@ -24,27 +24,33 @@ ANNOTATION_PROJECT_TYPE_LABELS = {
     "translation": "翻译",
     "ai_evaluation": "ai评测",
 }
-ANNOTATION_PROJECT_STATUSES = {
-    "initial_consultation",
-    "consultation_no_result",
-    "resource_sourcing",
-    "resource_sourcing_cancelled",
-    "trial_preparation",
-    "trial_in_progress",
-    "trial_submitted",
-    "trial_passed",
-    "trial_failed",
-    "trial_partially_passed",
-    "project_in_progress",
-    "sent_to_client",
-    "client_feedback",
-    "cancelled",
-    "partially_cancelled",
-    "paused",
-    "actively_abandoned",
-    "ended",
+ANNOTATION_PROJECT_STATUS_LABELS = {
+    "initial_consultation": "初步咨询",
+    "consultation_no_result": "初步咨询后无结果",
+    "resource_sourcing": "资源开拓",
+    "resource_sourcing_cancelled": "取消资源开拓",
+    "trial_preparation": "试标准备",
+    "trial_in_progress": "试标中",
+    "trial_submitted": "试标已提交",
+    "trial_passed": "试标通过",
+    "trial_failed": "试标未通过",
+    "trial_partially_passed": "部分试标通过",
+    "project_in_progress": "项目进行中",
+    "sent_to_client": "已发客户",
+    "client_feedback": "客户反馈",
+    "cancelled": "已取消",
+    "partially_cancelled": "已部分取消",
+    "paused": "暂停",
+    "actively_abandoned": "主动放弃",
+    "ended": "已结束",
 }
-ANNOTATION_PROJECT_PRIORITIES = {"low", "medium", "high"}
+ANNOTATION_PROJECT_PRIORITY_LABELS = {
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+}
+ANNOTATION_PROJECT_STATUSES = set(ANNOTATION_PROJECT_STATUS_LABELS)
+ANNOTATION_PROJECT_PRIORITIES = set(ANNOTATION_PROJECT_PRIORITY_LABELS)
 ANNOTATION_ORDER_NO_PATTERN = re.compile(r"^AP-[A-Z0-9][A-Z0-9._-]*$")
 CURRENCY_SYMBOLS = {
     "CNY": "￥",

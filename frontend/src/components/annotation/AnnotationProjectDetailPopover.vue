@@ -1,10 +1,12 @@
 <template>
   <el-popover
-    trigger="click"
-    placement="left"
+    :trigger="trigger"
+    :placement="placement"
     :width="760"
-    :title="`${displayRow.orderNo || '标注项目'} 详情`"
-    popper-class="annotation-detail-popover"
+    :title="popoverTitle"
+    :show-after="showAfter"
+    :hide-after="hideAfter"
+    :popper-class="popperClass"
     @show="load"
     @hide="cancelInlineEdit"
   >
@@ -80,13 +82,25 @@ import InlineTextField from '@/components/common/InlineTextField.vue'
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
-const props = defineProps({ projectId: { type: [String, Number], required: true }, summary: { type: Object, default: () => ({}) }, editable: { type: Boolean, default: false }, referenceText: { type: String, default: '' } })
+const props = defineProps({
+  projectId: { type: [String, Number], required: true },
+  summary: { type: Object, default: () => ({}) },
+  editable: { type: Boolean, default: false },
+  referenceText: { type: String, default: '' },
+  trigger: { type: String, default: 'click' },
+  placement: { type: String, default: 'left' },
+  title: { type: String, default: '' },
+  showAfter: { type: Number, default: 0 },
+  hideAfter: { type: Number, default: 200 },
+  popperClass: { type: String, default: 'annotation-detail-popover' },
+})
 const emit = defineEmits(['updated'])
 const detail = ref(null), history = ref([]), loading = ref(false)
 const { fields: customFields, load: loadCustomFields } = useAnnotationCustomFields('project')
 const mergedLabels = new Set(['项目经理', '跟进状态'])
 const visibleCustomFields = computed(() => customFields.value.filter((field) => !mergedLabels.has(field.fieldLabel?.trim())))
 const displayRow = computed(() => detail.value || props.summary || {})
+const popoverTitle = computed(() => props.title || `${displayRow.value.orderNo || '标注项目'} 详情`)
 const projectTypeMap = { audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测' }
 const statusMap = { initial_consultation:'初步咨询',consultation_no_result:'初步咨询后无结果',resource_sourcing:'资源开拓',resource_sourcing_cancelled:'取消资源开拓',trial_preparation:'试标准备',trial_in_progress:'试标中',trial_submitted:'试标已提交',trial_passed:'试标通过',trial_failed:'试标未通过',trial_partially_passed:'部分试标通过',project_in_progress:'项目进行中',sent_to_client:'已发客户',client_feedback:'客户反馈',cancelled:'已取消',partially_cancelled:'已部分取消',paused:'暂停',actively_abandoned:'主动放弃',ended:'已结束' }
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)

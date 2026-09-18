@@ -60,7 +60,15 @@
         <el-form-item label="比较说明" prop="description"><el-input v-model="form.description" type="textarea" :rows="5" maxlength="5000" show-word-limit placeholder="请说明比较目的、项目之间的联系或讨论结论" /></el-form-item>
         <el-form-item label="比较项目" prop="projectIds">
           <el-select v-model="form.projectIds" multiple filterable remote reserve-keyword :remote-method="searchProjects" :loading="projectLoading" value-key="id" placeholder="按订单号或项目名称搜索，选择 2～10 个项目" style="width:100%" @change="syncSelectedOptions">
-            <el-option v-for="item in mergedProjectOptions" :key="item.id" :label="projectOptionLabel(item)" :value="item.id" />
+            <el-option v-for="item in mergedProjectOptions" :key="item.id" :label="projectOptionLabel(item)" :value="item.id">
+              <AnnotationProjectDetailPopover :project-id="item.id" :summary="item" trigger="hover" placement="top" title="项目详情" :show-after="300" :hide-after="100" popper-class="annotation-detail-popover comparison-project-option-detail-popover">
+                <template #reference>
+                  <div class="comparison-project-option">
+                    <span class="comparison-project-option__label">{{ projectOptionLabel(item) }}</span>
+                  </div>
+                </template>
+              </AnnotationProjectDetailPopover>
+            </el-option>
           </el-select>
           <div class="project-selection-hint">已选择 {{ form.projectIds.length }} 个；选择顺序即横向对比顺序。</div>
         </el-form-item>
@@ -140,10 +148,13 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(projectTimer);listCo
 .comparison-matrix th,.comparison-matrix td { min-width:220px; padding:10px 12px; border-right:1px solid var(--el-border-color-lighter); border-bottom:1px solid var(--el-border-color-lighter); text-align:left; vertical-align:top; white-space:pre-wrap; word-break:break-word; }
 .comparison-matrix thead th { background:var(--el-fill-color-light); }
 .comparison-matrix .comparison-matrix__field { position:sticky; left:0; z-index:2; min-width:150px; width:150px; background:var(--el-fill-color-light); }
+.comparison-project-option { min-width:0; }
+.comparison-project-option__label { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .project-selection-hint { margin-top:6px; color:var(--el-text-color-secondary); font-size:12px; }
 :global(.comparison-dialog) { max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
 :global(.comparison-dialog .el-dialog__header),:global(.comparison-dialog .el-dialog__footer) { flex:none; }
 :global(.comparison-dialog .el-dialog__body) { flex:1; min-height:0; overflow-y:auto; }
 :global(.comparison-dialog .el-dialog__footer) { border-top:1px solid var(--el-border-color-lighter); background:var(--el-fill-color-lighter); }
+:global(.comparison-project-option-detail-popover .annotation-project-detail__content) { max-height:min(400px, calc(100vh - 120px)); }
 @media (max-width:700px) { .comparison-header { align-items:flex-start; flex-direction:column; } .comparison-header__hint { display:block; margin:4px 0 0; } .comparison-search { align-items:stretch; flex-direction:column; } }
 </style>

@@ -7,7 +7,7 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import (
-    CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint,
+    CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint,
     SmallInteger, String, Text, UniqueConstraint, Uuid, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -184,3 +184,35 @@ class ResourceRequestProgressLog(Base):
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     request = relationship("ResourceRequest", back_populates="progress_logs")
+
+
+class ResourceRequestDailyNote(Base):
+    """资源需求模块按业务日期维护的公共说明。"""
+
+    __tablename__ = "resource_request_daily_note"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="resource_request_daily_note_pkey"),
+        UniqueConstraint("note_date", name="uq_resource_request_daily_note_date"),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_resource_request_daily_note_updated_by",
+        ),
+        Index("ix_resource_request_daily_note_date", text("note_date DESC")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    note_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    editor: Mapped[Optional["AppUser"]] = relationship(
+        "AppUser", foreign_keys=[updated_by]
+    )

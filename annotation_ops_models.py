@@ -32,8 +32,10 @@ class AnnotationProjectStatusHistory(Base):
         PrimaryKeyConstraint("id", name="annotation_project_status_history_pkey"),
         ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_status_history_project"),
         ForeignKeyConstraint(["changed_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_status_history_user"),
+        ForeignKeyConstraint(["updated_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_status_history_updated_by"),
         CheckConstraint(f"from_status IS NULL OR from_status IN ({STATUS_VALUES_SQL})", name="ck_annotation_status_history_from"),
         CheckConstraint(f"to_status IN ({STATUS_VALUES_SQL})", name="ck_annotation_status_history_to"),
+        CheckConstraint("entry_kind IN ('status','progress')", name="ck_annotation_status_history_entry_kind"),
         Index("ix_annotation_status_history_timeline", "project_id", text("effective_on DESC"), text("changed_at DESC")),
         Index("ix_annotation_status_history_status_date", "to_status", "effective_on"),
         Index(
@@ -56,6 +58,104 @@ class AnnotationProjectStatusHistory(Base):
     changed_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     change_note: Mapped[Optional[str]] = mapped_column(Text)
+    entry_kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'status'")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+
+class AnnotationArrangementTaskType(Base):
+    __tablename__ = "annotation_arrangement_task_type"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_arrangement_task_type_pkey"),
+        ForeignKeyConstraint(
+            ["created_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_task_type_creator",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_task_type_updater",
+        ),
+        UniqueConstraint(
+            "normalized_name", name="uq_annotation_arrangement_task_type_normalized"
+        ),
+        Index("ix_annotation_arrangement_task_type_active", "is_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("TRUE")
+    )
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+
+class AnnotationProjectArrangementTask(Base):
+    __tablename__ = "annotation_project_arrangement_task"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_project_arrangement_task_pkey"),
+        ForeignKeyConstraint(
+            ["project_id"], ["annotation_project.id"], ondelete="CASCADE",
+            name="fk_annotation_arrangement_task_project",
+        ),
+        ForeignKeyConstraint(
+            ["task_type_id"], ["annotation_arrangement_task_type.id"], ondelete="RESTRICT",
+            name="fk_annotation_arrangement_task_type",
+        ),
+        ForeignKeyConstraint(
+            ["assignee_id"], ["app_user.id"], ondelete="RESTRICT",
+            name="fk_annotation_arrangement_task_assignee",
+        ),
+        ForeignKeyConstraint(
+            ["created_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_task_creator",
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_task_updater",
+        ),
+        Index(
+            "ix_annotation_arrangement_task_project_date",
+            "project_id", "execution_date",
+        ),
+        Index(
+            "ix_annotation_arrangement_task_assignee_date",
+            "assignee_id", "execution_date",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    execution_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    task_type_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    assignee_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    task_content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    task_type = relationship("AnnotationArrangementTaskType")
+    assignee = relationship("AppUser", foreign_keys=[assignee_id])
 
 
 class AnnotationPlatform(Base):
