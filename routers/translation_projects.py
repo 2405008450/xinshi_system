@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError, DatabaseError
 from database import get_db
 from crud import (
     count_translation_projects, get_translation_project, get_translation_project_by_no, get_translation_projects,
-    create_translation_project, update_translation_project, delete_translation_project
+    create_translation_project, update_translation_project, delete_translation_project, get_client
 )
 from schemas import TranslationProjectCreate, TranslationProjectUpdate, TranslationProjectResponse
 from utils import generate_order_no
@@ -365,13 +365,14 @@ def export_projects(
 
 @router.get("/reconciliation-export")
 def export_reconciliation(
-    time_field: Literal[
+    time_field: Optional[Literal[
         "customer_reception_time",
         "customer_deadline_time",
         "created_at",
-    ],
-    date_start: date,
-    date_end: date,
+    ]] = None,
+    date_start: Optional[date] = None,
+    date_end: Optional[date] = None,
+    client_id: Optional[UUID] = None,
     keyword: Optional[str] = None,
     sort: Optional[Literal[
         "order_no_desc",
@@ -382,13 +383,23 @@ def export_reconciliation(
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """按项目时间范围导出当前筛选命中的内部对账清单。"""
-    filters = _export_field_filters(
-        field_filters,
-        time_field=time_field,
-        date_start=date_start,
-        date_end=date_end,
-    )
+    """按项目时间范围或单个母客户导出内部对账清单。"""
+    client = None
+    if client_id:
+        client = get_client(db, client_id)
+        if client is None:
+            raise HTTPException(status_code=404, detail="客户不存在")
+        filters = dict(_field_filters(field_filters))
+        filters["client_id"] = {"op": "eq", "value": str(client_id)}
+    else:
+        if time_field is None or date_start is None or date_end is None:
+            raise HTTPException(status_code=422, detail="请选择完整的时间口径和时间范围")
+        filters = _export_field_filters(
+            field_filters,
+            time_field=time_field,
+            date_start=date_start,
+            date_end=date_end,
+        )
     try:
         content = create_translation_reconciliation_export(
             db,
@@ -401,9 +412,18 @@ def export_reconciliation(
     except TranslationExportLimitError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    time_label = TIME_FIELD_LABELS[time_field]
-    filename = f"笔译项目对账单_{time_label}_{date_start.isoformat()}_至_{date_end.isoformat()}.xlsx"
-    ascii_filename = f"translation-reconciliation-{date_start.isoformat()}-{date_end.isoformat()}.xlsx"
+    if client is not None:
+        client_label = client.client_short_name or client.client_name or client.client_code
+        safe_client_label = "".join(
+            "_" if char in '\\/:*?"<>|' else char
+            for char in client_label
+        )
+        filename = f"笔译项目对账单_客户_{safe_client_label}.xlsx"
+        ascii_filename = f"translation-reconciliation-client-{client_id}.xlsx"
+    else:
+        time_label = TIME_FIELD_LABELS[time_field]
+        filename = f"笔译项目对账单_{time_label}_{date_start.isoformat()}_至_{date_end.isoformat()}.xlsx"
+        ascii_filename = f"translation-reconciliation-{date_start.isoformat()}-{date_end.isoformat()}.xlsx"
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

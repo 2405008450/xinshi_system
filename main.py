@@ -148,6 +148,7 @@ from annotation_comparison_models import (
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
+from annotation_manager_change_models import AnnotationManagerChangeLog
 from project_order_no_models import ProjectOrderNoReservation
 from routers import business_mails, mail_inline_images, project_audits
 
@@ -1629,6 +1630,7 @@ def run_runtime_migrations():
     TranslatorSchedule.__table__.create(bind=engine, checkfirst=True)
     ensure_role_permission_table()
     ProjectOperationAudit.__table__.create(bind=engine, checkfirst=True)
+    AnnotationManagerChangeLog.__table__.create(bind=engine, checkfirst=True)
     ensure_personal_task_permissions()
     ensure_talent_permission_compatibility()
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)
@@ -1695,6 +1697,44 @@ def run_runtime_migrations():
     ensure_multitype_workbench_schema()
     WorkflowHandoverItem.__table__.create(bind=engine, checkfirst=True)
     ProjectManagerHandoverItem.__table__.create(bind=engine, checkfirst=True)
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO annotation_manager_change_log (
+                source_request_id, project_id, order_no, project_name, manager_role,
+                previous_manager_id, previous_manager_name, new_manager_id, new_manager_name,
+                change_mode, reason, actor_user_id, actor_username_snapshot,
+                actor_name_snapshot, changed_at
+            )
+            SELECT
+                request.id,
+                project.id,
+                project.order_no,
+                project.project_name,
+                request.manager_role,
+                item.expected_manager_id,
+                COALESCE(NULLIF(previous_user.full_name, ''), previous_user.username),
+                request.target_manager_id,
+                COALESCE(NULLIF(target_user.full_name, ''), target_user.username),
+                'direct_transfer',
+                request.reason,
+                request.requester_id,
+                actor.username,
+                COALESCE(NULLIF(actor.full_name, ''), actor.username),
+                COALESCE(request.decided_at, request.created_at, CURRENT_TIMESTAMP)
+            FROM project_manager_handover_request AS request
+            JOIN project_manager_handover_item AS item ON item.request_id = request.id
+            LEFT JOIN project_workbench_responsibility AS responsibility
+                ON responsibility.id = item.project_responsibility_id
+            JOIN annotation_project AS project
+                ON project.id = COALESCE(item.annotation_project_id, responsibility.annotation_project_id)
+            LEFT JOIN app_user AS previous_user ON previous_user.id = item.expected_manager_id
+            LEFT JOIN app_user AS target_user ON target_user.id = request.target_manager_id
+            LEFT JOIN app_user AS actor ON actor.id = request.requester_id
+            WHERE request.handover_mode = 'admin_direct'
+              AND request.status = 'accepted'
+              AND request.manager_role IN ('client_manager', 'project_manager')
+            ON CONFLICT (source_request_id, project_id, manager_role) DO NOTHING
+        """))
     WorkEntry.__table__.create(bind=engine, checkfirst=True)
     MailRecipientGroup.__table__.create(bind=engine, checkfirst=True)
     MailRecipientGroupMember.__table__.create(bind=engine, checkfirst=True)

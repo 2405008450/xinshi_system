@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 import annotation_ops_models  # noqa: F401
 import project_workbench_service
 import workflow_crud
+from annotation_manager_change_models import AnnotationManagerChangeLog
 from project_workbench_service import TRANSLATION_INACTIVE_STATUSES
 from workflow_models import ProjectManagerHandoverItem, ProjectManagerHandoverRequest
 
@@ -283,6 +284,12 @@ def test_admin_direct_transfer_accepts_inactive_source_and_preserves_other_field
     assert request.items[0].expected_manager_id == source.id
     assert pending.status == "rejected"
     assert notifications == [SimpleNamespace(recipient_user_id=target.id)]
+    logs = [item for item in db.added if isinstance(item, AnnotationManagerChangeLog)]
+    assert len(logs) == 1
+    assert logs[0].manager_role == "project_manager"
+    assert logs[0].previous_manager_id == source.id
+    assert logs[0].new_manager_id == target.id
+    assert logs[0].reason == "项目经理离职"
     assert db.committed is True
 
 
@@ -429,6 +436,12 @@ def test_admin_direct_client_manager_transfer_preserves_project_manager(monkeypa
     assert request.items[0].expected_manager_id == source.id
     assert pending.status == "rejected"
     assert notifications == [SimpleNamespace(recipient_user_id=target.id)]
+    logs = [item for item in db.added if isinstance(item, AnnotationManagerChangeLog)]
+    assert len(logs) == 1
+    assert logs[0].manager_role == "client_manager"
+    assert logs[0].previous_manager_id == source.id
+    assert logs[0].new_manager_id == target.id
+    assert logs[0].reason == "客户经理离职"
     assert db.committed is True
 
 

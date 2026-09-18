@@ -5,6 +5,7 @@
         <span>标注项目管理</span>
         <div class="header-actions">
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
+          <el-button @click="managerChangeLogVisible = true">负责人变更记录</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
           <el-button v-if="canDirectTransferManager && !deleteMode" @click="managerTransferVisible = true">交接</el-button>
@@ -509,6 +510,7 @@
       v-model="managerTransferVisible"
       @transferred="fetchData"
     />
+    <AnnotationManagerChangeLogDialog v-model="managerChangeLogVisible" />
   </el-card>
 </template>
 
@@ -546,6 +548,7 @@ import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationPr
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
 import AnnotationProjectArrangementDialog from '@/components/annotation/AnnotationProjectArrangementDialog.vue'
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
+import AnnotationManagerChangeLogDialog from '@/components/annotation/AnnotationManagerChangeLogDialog.vue'
 import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
@@ -595,6 +598,7 @@ const handleProjectExtraAction = (command, row) => {
 }
 const highlightedProjectId = ref('')
 const managerTransferVisible = ref(false)
+const managerChangeLogVisible = ref(false)
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')

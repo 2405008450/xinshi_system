@@ -82,6 +82,19 @@
           </div>
         </template>
       </el-table-column>
+      <el-table-column label="译员回稿时间" min-width="210">
+        <template #header>
+          <ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况及价格" />
+        </template>
+        <template #default="{ row }">
+          <TranslatorCompletionPopover
+            :translators="row.assignedTranslators"
+            :status="row.status"
+            :editable="canWriteProjects"
+            :save="(completions) => saveSubOrderTranslatorCompletions(row, completions)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" min-width="120">
         <template #default="{ row }">
           <el-tag :type="getStatusType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
@@ -126,6 +139,19 @@
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="译员ID"><el-input v-model="subOrderForm.translatorId" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="译员分配时间"><el-date-picker v-model="subOrderForm.translatorAssignmentTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="24">
+            <el-form-item label="译员回稿时间">
+              <TranslatorCompletionPopover
+                :translators="subOrderForm.assignedTranslators"
+                :status="subOrderForm.status"
+                :editable="canWriteProjects"
+                placement="bottom-start"
+                :save="(completions) => saveSubOrderTranslatorCompletions(subOrderForm, completions)"
+              />
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="8"><el-form-item label="译员交付进度"><el-input v-model="subOrderForm.translatorDeliveryProgress" /></el-form-item></el-col>
@@ -183,8 +209,10 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
+import TranslatorCompletionPopover from './components/TranslatorCompletionPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
+import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
 import { hasPermission } from '@/utils/permission'
 
 const route = useRoute()
@@ -202,7 +230,7 @@ const subOrderTableRef = ref(null)
 const subOrders = ref([])
 const inlinePendingCount = computed(() => inlineChanges.value.size)
 const project = reactive({ id: '', orderNo: '', projectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'pending_confirmation', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorAssignmentTime: '', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '' })
-const createSubOrderForm = () => ({ id: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
+const createSubOrderForm = () => ({ id: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
 const subOrderForm = reactive(createSubOrderForm())
 const projectStatusOptions = [
   { label: '待确认', value: 'pending_confirmation' }, { label: '已确认', value: 'confirmed' },
@@ -217,11 +245,21 @@ const projectStatusOptions = [
 const priorityOptions = ['低', '中', '高', '紧急']
 const subOrderRules = { subProjectName: [{ required: true, message: '请输入文件名称', trigger: 'blur' }] }
 const NULLABLE_FIELDS = ['subProjectName', 'fileTypeSecondary', 'languagePair', 'priority', 'customerDeadlineTime', 'sentToClientTime', 'clientFeedback', 'translatorId', 'translatorAssignmentTime', 'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress', 'layoutProgress', 'consolidationProgress', 'networkFilePath', 'remarks']
+const formatTranslatorReturnTimes = (items) => {
+  if (!Array.isArray(items) || !items.length) return '-'
+  const values = items.map((item) => {
+    const time = item.translatorReturnTime || item.translator_return_time
+    if (!time) return ''
+    const name = item.translatorName || item.translator_name || '译员'
+    return `${name}：${formatBusinessDateTime(time)}`
+  }).filter(Boolean)
+  return values.length ? values.join('；') : '-'
+}
 const subOrderDetailItems = [
   { label: '子订单号', key: 'subOrderNo' }, { label: '文件名称', key: 'subProjectName' },
   { label: '状态', key: 'status', type: 'status' }, { label: '文件二级类型', key: 'fileTypeSecondary' }, { label: '翻译方向', key: 'languagePair' }, { label: '优先级', key: 'priority' },
   { label: '字数统计', key: 'wordCountMatrix', formatter: formatWordCountMatrix }, { label: '客户交稿时间', key: 'customerDeadlineTime' }, { label: '发客户时间', key: 'sentToClientTime' }, { label: '客户反馈', key: 'clientFeedback', span: 2 },
-  { label: '译员分配时间', key: 'translatorAssignmentTime' },
+  { label: '译员分配时间', key: 'translatorAssignmentTime' }, { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' }, { label: '审校前QC', key: 'preReviewQcProgress' }, { label: '审校1', key: 'review1Progress' }, { label: '审校2', key: 'review2Progress' },
   { label: '审校后QC', key: 'postReviewQcProgress' }, { label: '排版进度', key: 'layoutProgress' }, { label: '整合进度', key: 'consolidationProgress' }, { label: '网络文件路径', key: 'networkFilePath', span: 2 },
   { label: '备注', key: 'remarks', span: 2 }, { label: '创建时间', key: 'createdAt' }, { label: '更新时间', key: 'updatedAt' }
@@ -263,6 +301,12 @@ const handleInlineSubOrderSaved = (row, updated) => {
   next.delete(String(updated.id))
   inlineChanges.value = next
   Object.assign(row, updated)
+}
+const saveSubOrderTranslatorCompletions = async (row, completions) => {
+  const updated = await updateSubOrder(row.id, { assignedTranslatorCompletions: completions })
+  handleInlineSubOrderSaved(row, updated)
+  if (String(subOrderForm.id) === String(row.id)) assignReactive(subOrderForm, { ...createSubOrderForm(), ...updated })
+  return updated
 }
 const saveAllInlineNames = async () => {
   const pending = [...inlineChanges.value.values()]

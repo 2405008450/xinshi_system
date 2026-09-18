@@ -8,6 +8,7 @@ import pytest
 import annotation_service
 import workflow_models  # noqa: F401
 from annotation_models import AnnotationProject, AnnotationProjectPriceItem
+from annotation_manager_change_models import AnnotationManagerChangeLog
 from annotation_ops_models import AnnotationAccountAssignment, AnnotationCustomFieldImage
 from annotation_schemas import (
     AnnotationProjectCreate,
@@ -176,8 +177,16 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
     assignments_seen = []
 
     class ManagerDb:
+        def __init__(self):
+            self.added = []
+
+        def add(self, row):
+            self.added.append(row)
+
         def commit(self):
             pass
+
+    db = ManagerDb()
 
     monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
     monkeypatch.setattr(
@@ -192,7 +201,7 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
     )
 
     result = annotation_service.update_annotation_project_managers(
-        ManagerDb(), project_id, None, project_manager_id,
+        db, project_id, None, project_manager_id, uuid4(),
     )
 
     assert result is project
@@ -200,6 +209,12 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
         ("validate", {"project_manager": project_manager_id}),
         ("annotation", project_id, {"project_manager": project_manager_id}),
     ]
+    logs = [row for row in db.added if isinstance(row, AnnotationManagerChangeLog)]
+    assert len(logs) == 1
+    assert logs[0].manager_role == "project_manager"
+    assert logs[0].previous_manager_id is None
+    assert logs[0].new_manager_id == project_manager_id
+    assert logs[0].change_mode == "inline_edit"
 
 
 def test_customer_price_summary_shows_amount_only():

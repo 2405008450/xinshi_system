@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
   TRANSLATION_EXPORT_TYPES,
+  buildTranslationClientReconciliationParams,
   buildTranslationExportFilename,
   buildTranslationExportParams,
 } from '../src/utils/translationProjectExport.js'
@@ -36,6 +37,14 @@ test('导出参数继承现有筛选并覆盖同一时间口径', () => {
 })
 
 
+test('按客户导出只提交精确客户 ID', () => {
+  assert.deepEqual(
+    buildTranslationClientReconciliationParams('ca7588de-20a4-456f-a767-040a74a622c1'),
+    { client_id: 'ca7588de-20a4-456f-a767-040a74a622c1' },
+  )
+})
+
+
 test('导出文件名包含时间口径和日期范围', () => {
   assert.equal(
     buildTranslationExportFilename('created_at', ['2026-09-01', '2026-09-30']),
@@ -57,10 +66,19 @@ test('导出文件名包含时间口径和日期范围', () => {
     ),
     '笔译项目译员对账单_客户交稿时间_2026-09-01_至_2026-09-30.xlsx',
   )
+  assert.equal(
+    buildTranslationExportFilename(
+      '',
+      [],
+      TRANSLATION_EXPORT_TYPES.CLIENT_RECONCILIATION,
+      '客户/A',
+    ),
+    '笔译项目对账单_客户_客户_A.xlsx',
+  )
 })
 
 
-test('笔译项目页通过统一入口提供三种导出选项', () => {
+test('笔译项目页通过统一入口提供四种导出选项', () => {
   const page = fs.readFileSync(
     new URL('../src/views/project/translation/ProjectDetails.vue', import.meta.url),
     'utf8',
@@ -69,7 +87,8 @@ test('笔译项目页通过统一入口提供三种导出选项', () => {
 
   assert.match(page, /<el-dropdown[\s\S]*?@command="openExportDialog"/)
   assert.match(page, /<el-dropdown-item command="projects">导出项目 Excel<\/el-dropdown-item>/)
-  assert.match(page, /<el-dropdown-item command="reconciliation">导出客户对账单<\/el-dropdown-item>/)
+  assert.match(page, /<el-dropdown-item command="reconciliation">按时间导出客户对账单<\/el-dropdown-item>/)
+  assert.match(page, /<el-dropdown-item command="client_reconciliation">按客户导出客户对账单<\/el-dropdown-item>/)
   assert.match(page, /<el-dropdown-item command="translator_reconciliation">导出译员对账单<\/el-dropdown-item>/)
   assert.match(page, /TRANSLATOR_RECONCILIATION/)
   assert.match(page, /exportTranslationTranslatorReconciliation/)

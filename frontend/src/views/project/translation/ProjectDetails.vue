@@ -17,7 +17,8 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="projects">导出项目 Excel</el-dropdown-item>
-                <el-dropdown-item command="reconciliation">导出客户对账单</el-dropdown-item>
+                <el-dropdown-item command="reconciliation">按时间导出客户对账单</el-dropdown-item>
+                <el-dropdown-item command="client_reconciliation">按客户导出客户对账单</el-dropdown-item>
                 <el-dropdown-item command="translator_reconciliation">导出译员对账单</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -413,7 +414,26 @@
         label-width="110px"
         @submit.prevent
       >
-        <el-form-item label="时间口径" prop="timeField">
+        <el-form-item v-if="isClientReconciliationExport" label="母客户" prop="clientId">
+          <el-select
+            v-model="exportForm.clientId"
+            filterable
+            remote
+            clearable
+            :remote-method="loadExportClientOptions"
+            :loading="clientOptionsLoading"
+            placeholder="输入客户名称或编号搜索"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in clientOptions"
+              :key="item.id"
+              :label="formatClientOptionLabel(item)"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else label="时间口径" prop="timeField">
           <el-select v-model="exportForm.timeField" style="width: 100%">
             <el-option
               v-for="item in TRANSLATION_EXPORT_TIME_OPTIONS"
@@ -423,7 +443,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="时间范围" prop="dateRange">
+        <el-form-item v-if="!isClientReconciliationExport" label="时间范围" prop="dateRange">
           <el-date-picker
             v-model="exportForm.dateRange"
             type="daterange"
@@ -1109,7 +1129,7 @@ import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vu
 import CustomerChargeEditor from './components/CustomerChargeEditor.vue'
 import { hasPermission } from '@/utils/permission'
 import { buildAutoProjectName, isAutoProjectName } from '@/utils/projectNaming'
-import { getClient, getClients } from '@/api/clients'
+import { getClient, getClientOptions, getClients } from '@/api/clients'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
@@ -1162,6 +1182,7 @@ import {
   DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
   TRANSLATION_EXPORT_TYPES,
   TRANSLATION_EXPORT_TIME_OPTIONS,
+  buildTranslationClientReconciliationParams,
   buildTranslationExportFilename,
   buildTranslationExportParams,
 } from '@/utils/translationProjectExport'
@@ -1392,11 +1413,22 @@ const exportFormRef = ref(null)
 const exportForm = reactive({
   timeField: DEFAULT_TRANSLATION_EXPORT_TIME_FIELD,
   dateRange: [],
+  clientId: '',
 })
-const exportRules = {
-  timeField: [{ required: true, message: '请选择时间口径', trigger: 'change' }],
-  dateRange: [{ type: 'array', required: true, len: 2, message: '请选择完整的时间范围', trigger: 'change' }],
-}
+const clientOptions = ref([])
+const clientOptionsLoading = ref(false)
+let clientOptionsRequestSequence = 0
+const isClientReconciliationExport = computed(
+  () => exportType.value === TRANSLATION_EXPORT_TYPES.CLIENT_RECONCILIATION,
+)
+const exportRules = computed(() => (isClientReconciliationExport.value
+  ? {
+      clientId: [{ required: true, message: '请选择一个母客户', trigger: 'change' }],
+    }
+  : {
+      timeField: [{ required: true, message: '请选择时间口径', trigger: 'change' }],
+      dateRange: [{ type: 'array', required: true, len: 2, message: '请选择完整的时间范围', trigger: 'change' }],
+    }))
 const exportModeMeta = computed(() => ({
   [TRANSLATION_EXPORT_TYPES.PROJECTS]: {
     title: '导出笔译项目',
@@ -1413,6 +1445,14 @@ const exportModeMeta = computed(() => ({
     request: exportTranslationReconciliation,
     success: '客户对账单导出成功',
     failure: '导出笔译项目客户对账单失败',
+  },
+  [TRANSLATION_EXPORT_TYPES.CLIENT_RECONCILIATION]: {
+    title: '按客户导出笔译项目对账单',
+    action: '导出客户对账单',
+    hint: '按所选母客户精确匹配，导出该客户的全部对账记录；不受当前列表筛选和时间范围限制。',
+    request: exportTranslationReconciliation,
+    success: '客户对账单导出成功',
+    failure: '按客户导出笔译项目对账单失败',
   },
   [TRANSLATION_EXPORT_TYPES.TRANSLATOR_RECONCILIATION]: {
     title: '导出笔译项目译员对账单',
@@ -2033,12 +2073,36 @@ const buildFilterParams = () => ({
 const resetExportForm = () => {
   exportForm.timeField = DEFAULT_TRANSLATION_EXPORT_TIME_FIELD
   exportForm.dateRange = []
+  exportForm.clientId = ''
   exportFormRef.value?.clearValidate()
 }
+const formatClientOptionLabel = (client) => {
+  const name = client.client_short_name || client.client_name || '未命名客户'
+  return client.client_code ? `${name}（${client.client_code}）` : name
+}
+const loadExportClientOptions = async (keyword = '') => {
+  const sequence = ++clientOptionsRequestSequence
+  clientOptionsLoading.value = true
+  try {
+    const rows = await getClientOptions({ keyword: String(keyword || '').trim() || undefined, limit: 50 })
+    if (sequence === clientOptionsRequestSequence) {
+      clientOptions.value = Array.isArray(rows) ? rows : []
+    }
+  } catch {
+    if (sequence === clientOptionsRequestSequence) clientOptions.value = []
+  } finally {
+    if (sequence === clientOptionsRequestSequence) clientOptionsLoading.value = false
+  }
+}
+const selectedExportClientLabel = computed(() => {
+  const client = clientOptions.value.find((item) => String(item.id) === String(exportForm.clientId))
+  return client?.client_short_name || client?.client_name || client?.client_code || '客户'
+})
 const openExportDialog = (type = TRANSLATION_EXPORT_TYPES.PROJECTS) => {
   exportType.value = type
   resetExportForm()
   exportDialogVisible.value = true
+  if (isClientReconciliationExport.value) loadExportClientOptions()
 }
 const handleExport = async () => {
   if (!exportFormRef.value || exporting.value) return
@@ -2046,7 +2110,9 @@ const handleExport = async () => {
   if (!valid) return
   exporting.value = true
   try {
-    const params = buildTranslationExportParams(buildFilterParams(), exportForm, sortMode.value)
+    const params = isClientReconciliationExport.value
+      ? buildTranslationClientReconciliationParams(exportForm.clientId)
+      : buildTranslationExportParams(buildFilterParams(), exportForm, sortMode.value)
     const blob = await exportModeMeta.value.request(params)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -2055,6 +2121,7 @@ const handleExport = async () => {
       exportForm.timeField,
       exportForm.dateRange,
       exportType.value,
+      selectedExportClientLabel.value,
     )
     document.body.appendChild(link)
     link.click()

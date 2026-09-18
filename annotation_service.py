@@ -12,6 +12,7 @@ from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String
 from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
+from annotation_manager_change_service import record_annotation_manager_change
 from annotation_custom_field_image_service import delete_custom_field_image_files
 
 from concurrency import VERSION_FIELD, assert_fresh
@@ -637,6 +638,12 @@ def update_annotation_project(
     if not project:
         return None
     assert_fresh(project, payload.expected_updated_at)
+    previous_client_manager_id = project.client_manager_id
+    previous_project_manager_id = next((
+        item.assignee_id
+        for item in project.workbench_responsibilities
+        if item.role_code == "project_manager"
+    ), None)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
@@ -665,9 +672,35 @@ def update_annotation_project(
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
     validate_assignment_map(db, assignments)
-    ensure_active_project_responsibilities(db, 'annotation', project.id, project.project_status, assignments)
+    responsibility_rows = ensure_active_project_responsibilities(
+        db, 'annotation', project.id, project.project_status, assignments,
+    )
+    current_project_manager_id = next((
+        item.assignee_id for item in responsibility_rows
+        if item.role_code == "project_manager"
+    ), previous_project_manager_id)
     _sync_nested(db, project, payload)
     project.updated_at = datetime.now()
+    record_annotation_manager_change(
+        db,
+        project=project,
+        manager_role="client_manager",
+        previous_manager_id=previous_client_manager_id,
+        new_manager_id=project.client_manager_id,
+        change_mode="project_edit",
+        actor_user_id=changed_by,
+        reason="编辑标注项目时修改负责人",
+    )
+    record_annotation_manager_change(
+        db,
+        project=project,
+        manager_role="project_manager",
+        previous_manager_id=previous_project_manager_id,
+        new_manager_id=current_project_manager_id,
+        change_mode="project_edit",
+        actor_user_id=changed_by,
+        reason="编辑标注项目时修改负责人",
+    )
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -793,11 +826,13 @@ def update_annotation_project_managers(
     project_id: UUID,
     client_manager_id: Optional[UUID],
     project_manager_id: Optional[UUID],
+    changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     """更新标注项目的客户经理和项目经理用户关联。"""
     project = get_annotation_project(db, project_id)
     if not project:
         return None
+    previous_client_manager_id = project.client_manager_id
 
     if client_manager_id and client_manager_id != project.client_manager_id:
         client_manager = db.query(AppUser).filter(
@@ -823,6 +858,26 @@ def update_annotation_project_managers(
     project.client_manager_id = client_manager_id
     ensure_project_responsibilities(db, "annotation", project.id, assignments)
     project.updated_at = datetime.now()
+    record_annotation_manager_change(
+        db,
+        project=project,
+        manager_role="client_manager",
+        previous_manager_id=previous_client_manager_id,
+        new_manager_id=client_manager_id,
+        change_mode="inline_edit",
+        actor_user_id=changed_by,
+        reason="标注项目列表直接修改负责人",
+    )
+    record_annotation_manager_change(
+        db,
+        project=project,
+        manager_role="project_manager",
+        previous_manager_id=current_project_manager_id,
+        new_manager_id=project_manager_id,
+        change_mode="inline_edit",
+        actor_user_id=changed_by,
+        reason="标注项目列表直接修改负责人",
+    )
     db.commit()
     return get_annotation_project(db, project.id)
 

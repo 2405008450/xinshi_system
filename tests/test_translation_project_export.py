@@ -589,6 +589,56 @@ def test_reconciliation_route_returns_xlsx_headers(monkeypatch):
     assert "filename*=UTF-8''" in disposition
 
 
+def test_reconciliation_route_supports_exact_client_export(monkeypatch):
+    client_id = uuid4()
+    captured = {}
+    monkeypatch.setattr(
+        translation_router,
+        "get_client",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            client_short_name="测试/客户",
+            client_name="测试客户有限公司",
+            client_code="C001",
+        ),
+    )
+
+    def fake_export(_db, **kwargs):
+        captured.update(kwargs)
+        return b"xlsx-content"
+
+    monkeypatch.setattr(
+        translation_router,
+        "create_translation_reconciliation_export",
+        fake_export,
+    )
+    response = translation_router.export_reconciliation(
+        client_id=client_id,
+        keyword=None,
+        sort=None,
+        field_filters=None,
+        db=object(),
+    )
+
+    assert captured["field_filters"] == {
+        "client_id": {"op": "eq", "value": str(client_id)},
+    }
+    disposition = response.headers["content-disposition"]
+    assert f"translation-reconciliation-client-{client_id}.xlsx" in disposition
+    assert "%E6%B5%8B%E8%AF%95_%E5%AE%A2%E6%88%B7" in disposition
+
+
+def test_reconciliation_route_requires_time_range_without_client():
+    with pytest.raises(HTTPException) as exc_info:
+        translation_router.export_reconciliation(
+            keyword=None,
+            sort=None,
+            field_filters=None,
+            db=object(),
+        )
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "请选择完整的时间口径和时间范围"
+
+
 def test_translator_reconciliation_route_returns_xlsx_headers(monkeypatch):
     monkeypatch.setattr(
         translation_router,

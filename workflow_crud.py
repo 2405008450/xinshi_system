@@ -1552,7 +1552,22 @@ def direct_transfer_annotation_manager(
         for row in rows
     ]
     db.add(request)
+    flush = getattr(db, 'flush', None)
+    if callable(flush):
+        flush()
     for row in rows:
+        from annotation_manager_change_service import record_annotation_manager_change
+        record_annotation_manager_change(
+            db,
+            project=row.project,
+            manager_role='project_manager',
+            previous_manager_id=source_manager_id,
+            new_manager_id=target_manager_id,
+            change_mode='direct_transfer',
+            actor_user_id=operator.id,
+            reason=normalized_reason,
+            source_request_id=request.id,
+        )
         row.assignee_id = target_manager_id
         row.updated_at = now
 
@@ -1679,7 +1694,22 @@ def direct_transfer_annotation_client_manager(
         for project in projects
     ]
     db.add(request)
+    flush = getattr(db, 'flush', None)
+    if callable(flush):
+        flush()
     for project in projects:
+        from annotation_manager_change_service import record_annotation_manager_change
+        record_annotation_manager_change(
+            db,
+            project=project,
+            manager_role='client_manager',
+            previous_manager_id=source_manager_id,
+            new_manager_id=target_manager_id,
+            change_mode='direct_transfer',
+            actor_user_id=operator.id,
+            reason=normalized_reason,
+            source_request_id=request.id,
+        )
         project.client_manager_id = target_manager_id
         project.updated_at = now
 

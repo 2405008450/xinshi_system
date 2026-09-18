@@ -1802,6 +1802,7 @@ def _apply_translation_project_filters(
             query = query.filter(field <= datetime.combine(end_value, time.max))
     field_filters = field_filters or {}
     query = apply_scalar_specs(query, field_filters, {
+        "client_id": (TranslationProject.client_id, "uuid"),
         "order_no": (TranslationProject.order_no, "string"),
         "project_name": (TranslationProject.project_name, "string"),
         "source_file_name": (TranslationProject.source_file_name, "string"),

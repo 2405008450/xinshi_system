@@ -13,8 +13,13 @@ test('具体任务列默认展示并作为项目安排入口', () => {
   assert.match(page, /<AnnotationProjectArrangementDialog/)
 })
 
-test('项目安排支持多项目、多任务和固定底部保存', () => {
-  assert.match(dialog, /v-for="project in sortedProjects"/)
+test('项目安排以左侧项目、右侧任务的对应行展示多个项目', () => {
+  assert.match(dialog, /v-for="\(project, projectIndex\) in sortedProjects"/)
+  assert.match(dialog, /class="project-arrangement-row"/)
+  assert.match(dialog, /class="project-summary-panel"/)
+  assert.match(dialog, /class="project-arrangement-panel"/)
+  assert.match(dialog, /项目 \{\{ projectIndex \+ 1 \}\}/)
+  assert.doesNotMatch(dialog, /<el-collapse/)
   assert.match(dialog, /v-for="group in assigneeGroups"/)
   assert.match(dialog, /新增任务/)
   assert.match(dialog, /保存全部/)

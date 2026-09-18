@@ -64,29 +64,67 @@
     </div>
 
     <AppForm ref="formRef" :model="formModel" label-position="top" class="arrangement-form">
-      <el-collapse v-model="expandedProjects" class="project-collapse">
-        <el-collapse-item v-for="project in sortedProjects" :key="project.id" :name="project.id">
-          <template #title>
-            <div class="project-heading" @click.stop="toggleProject(project.id)">
-              <div class="project-heading__identity">
-                <strong>{{ project.orderNo }}</strong>
-                <span :title="textValue(project.projectName)">{{ textValue(project.projectName) }}</span>
-              </div>
-              <div class="project-heading__meta">
-                <span><em>客户</em>{{ textValue(project.clientName) }}</span>
-                <el-tooltip :content="textValue(project.taskDescription)" placement="top" :disabled="!project.taskDescription">
-                  <span class="project-task-summary"><em>具体任务</em>{{ textValue(project.taskDescription) }}</span>
-                </el-tooltip>
-                <el-button type="primary" link @click.stop="toggleProgress(project)">
-                  <el-tag :type="statusType(project.projectStatus)" size="small">{{ statusLabel(project.projectStatus) }}</el-tag>
-                </el-button>
-                <el-tag effect="plain" size="small">{{ project.tasks.length }} 条安排</el-tag>
-                <el-button v-if="formModel.projects.length > 1" type="danger" link size="small" @click.stop="removeProject(project)">移出</el-button>
-              </div>
+      <div class="project-arrangement-list">
+        <article v-for="(project, projectIndex) in sortedProjects" :key="project.id" class="project-arrangement-row">
+          <aside class="project-summary-panel">
+            <div class="project-sequence">项目 {{ projectIndex + 1 }}</div>
+            <div class="project-identity">
+              <strong :title="textValue(project.orderNo)">{{ textValue(project.orderNo) }}</strong>
+              <span :title="textValue(project.projectName)">{{ textValue(project.projectName) }}</span>
             </div>
-          </template>
+            <dl class="project-summary-list">
+              <div>
+                <dt>客户名称</dt>
+                <dd :title="textValue(project.clientName)">{{ textValue(project.clientName) }}</dd>
+              </div>
+              <div>
+                <dt>具体任务</dt>
+                <dd>
+                  <el-tooltip :content="textValue(project.taskDescription)" placement="top" :disabled="!project.taskDescription">
+                    <span class="project-task-summary">{{ textValue(project.taskDescription) }}</span>
+                  </el-tooltip>
+                </dd>
+              </div>
+              <div>
+                <dt>项目进度</dt>
+                <dd>
+                  <el-button class="project-status-button" type="primary" link @click="toggleProgress(project)">
+                    <el-tag :type="statusType(project.projectStatus)" size="small">{{ statusLabel(project.projectStatus) }}</el-tag>
+                  </el-button>
+                </dd>
+              </div>
+              <div>
+                <dt>任务数量</dt>
+                <dd>{{ project.tasks.length }} 条安排</dd>
+              </div>
+            </dl>
+            <el-button
+              v-if="formModel.projects.length > 1"
+              class="remove-project-button"
+              type="danger"
+              link
+              size="small"
+              @click="removeProject(project)"
+            >
+              移出本次窗口
+            </el-button>
+          </aside>
 
-          <section v-if="progressOpenIds.has(project.id)" class="inline-progress-panel">
+          <section class="project-arrangement-panel">
+            <header class="project-arrangement-header">
+              <div>
+                <strong>任务与安排</strong>
+                <span>为该项目维护一条或多条执行任务</span>
+              </div>
+              <div class="project-arrangement-actions">
+                <el-button type="primary" link size="small" @click="toggleProgress(project)">
+                  {{ progressOpenIds.has(project.id) ? '收起具体进度' : '查看具体进度' }}
+                </el-button>
+                <el-button v-if="canWrite" type="primary" plain size="small" @click="addTask(project)">新增任务</el-button>
+              </div>
+            </header>
+
+            <section v-if="progressOpenIds.has(project.id)" class="inline-progress-panel">
             <div class="inline-progress-header">
               <strong>具体进度</strong>
               <span>只允许补充或编辑具体进度，不在此切换项目状态</span>
@@ -127,12 +165,9 @@
                 <el-button type="primary" size="small" :loading="progressSavingIds.has(project.id)" @click="saveProgress(project)">保存具体进度</el-button>
               </div>
             </AppForm>
-          </section>
+            </section>
 
-          <div class="project-task-actions">
-            <el-button v-if="canWrite" type="primary" plain size="small" @click="addTask(project)">新增任务</el-button>
-          </div>
-          <el-table :data="project.tasks" border size="small" class="arrangement-task-table">
+            <el-table :data="project.tasks" border size="small" class="arrangement-task-table">
             <el-table-column prop="executionDate" label="执行日期" width="170" sortable :sort-method="compareExecutionDate">
               <template #default="{ row: task }">
                 <el-form-item :prop="taskFormProp(project, task, 'executionDate')" :rules="requiredRule('请选择执行日期', 'change')">
@@ -178,10 +213,12 @@
             <el-table-column v-if="canWrite" label="操作" width="76" fixed="right" align="center">
               <template #default="{ row: task }"><el-button type="danger" link size="small" @click="removeTask(project, task)">删除</el-button></template>
             </el-table-column>
-          </el-table>
-          <el-empty v-if="!project.tasks.length" description="暂无项目安排，点击“新增任务”开始安排" :image-size="56" />
-        </el-collapse-item>
-      </el-collapse>
+            </el-table>
+            <el-empty v-if="!project.tasks.length" description="暂无项目安排，点击“新增任务”开始安排" :image-size="56" />
+          </section>
+        </article>
+        <el-empty v-if="!formModel.projects.length" description="暂无已选项目" :image-size="72" />
+      </div>
     </AppForm>
 
     <template #footer>
@@ -212,7 +249,6 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const formRef = ref(null)
 const formModel = reactive({ projects: [] })
-const expandedProjects = ref([])
 const taskTypes = ref([])
 const assignees = ref([])
 const deletedItems = ref([])
@@ -305,7 +341,6 @@ async function loadContext(projectIds) {
   for (const project of context.projects || []) {
     if (!formModel.projects.some(item => item.id === project.id)) formModel.projects.push(normalizeProject(project))
   }
-  expandedProjects.value = [...new Set([...expandedProjects.value, ...projectIds])]
 }
 
 async function initialize() {
@@ -320,7 +355,6 @@ async function initialize() {
 
 function resetState() {
   formModel.projects.splice(0)
-  expandedProjects.value = []
   taskTypes.value = []
   assignees.value = []
   deletedItems.value = []
@@ -331,12 +365,6 @@ function resetState() {
   progressOpenIds.value = new Set()
   for (const key of Object.keys(progressRows)) delete progressRows[key]
   for (const key of Object.keys(progressEditors)) delete progressEditors[key]
-}
-
-function toggleProject(projectId) {
-  expandedProjects.value = expandedProjects.value.includes(projectId)
-    ? expandedProjects.value.filter(id => id !== projectId)
-    : [...expandedProjects.value, projectId]
 }
 
 async function searchProjects(keyword = '') {
@@ -370,7 +398,6 @@ async function removeProject(project) {
     try { await ElMessageBox.confirm('该项目存在未保存修改，移出后将丢失这些修改，是否继续？', '移出项目', { type:'warning' }) } catch { return }
   }
   formModel.projects.splice(formModel.projects.findIndex(item => item.id === project.id), 1)
-  expandedProjects.value = expandedProjects.value.filter(id => id !== project.id)
   deletedItems.value = deletedItems.value.filter(item => item.projectId !== project.id)
 }
 
@@ -513,7 +540,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); searchController?.abort() })
 </script>
 
 <style scoped>
-.arrangement-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}.project-search{width:min(620px,70vw)}.project-sort-select{width:190px}.toolbar-summary{margin-left:auto;color:var(--el-text-color-secondary);font-size:13px}.project-collapse{border-top:0}.project-heading{display:flex;flex:1;min-width:0;align-items:center;justify-content:space-between;gap:18px;padding-right:10px}.project-heading__identity{display:flex;gap:10px;min-width:260px}.project-heading__identity span{max-width:310px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-heading__meta{display:flex;align-items:center;gap:12px;min-width:0}.project-heading__meta span{display:flex;gap:5px;min-width:0}.project-heading__meta em{font-style:normal;color:var(--el-text-color-secondary);white-space:nowrap}.project-task-summary{max-width:310px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-task-actions{display:flex;justify-content:flex-end;margin:0 0 8px}.arrangement-task-table :deep(.el-form-item){margin:7px 0}.inline-progress-panel{margin:0 0 14px;padding:12px;border:1px solid var(--el-border-color-light);border-radius:6px;background:var(--el-fill-color-lighter)}.inline-progress-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}.inline-progress-header span{color:var(--el-text-color-secondary);font-size:12px}.progress-groups{display:grid;gap:8px}.progress-group{padding:8px 10px;background:var(--el-bg-color);border-radius:5px}.progress-group__title{display:flex;align-items:center;gap:8px}.progress-items{margin-top:6px}.progress-item{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px dashed var(--el-border-color-lighter);white-space:pre-wrap}.progress-time{margin-right:8px;color:var(--el-text-color-secondary)}.muted{color:var(--el-text-color-placeholder);font-size:12px}.progress-editor{margin-top:12px;padding:12px;background:var(--el-bg-color);border-radius:5px}.progress-editor__actions{display:flex;justify-content:flex-end;gap:8px}.task-type-create{display:flex;gap:8px;margin-bottom:10px}.task-type-list{max-height:330px;overflow-y:auto}.task-type-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--el-border-color-lighter)}.task-type-row>span,.task-type-row>.el-input{flex:1}.task-type-actions{display:flex;white-space:nowrap}.is-inactive{text-decoration:line-through;color:var(--el-text-color-placeholder)}
+.arrangement-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px}.project-search{width:min(620px,70vw)}.project-sort-select{width:190px}.toolbar-summary{margin-left:auto;color:var(--el-text-color-secondary);font-size:13px}.project-arrangement-list{display:grid;gap:16px}.project-arrangement-row{display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);align-items:start;gap:16px;padding:16px;border:1px solid var(--el-border-color-light);border-radius:10px;background:var(--el-fill-color-extra-light)}.project-summary-panel{position:sticky;top:0;align-self:start;min-width:0;padding:16px;border:1px solid var(--el-border-color-light);border-radius:8px;background:var(--el-bg-color);box-shadow:var(--el-box-shadow-lighter)}.project-sequence{margin-bottom:10px;color:var(--el-color-primary);font-size:13px;font-weight:600}.project-identity{display:grid;gap:5px;padding-bottom:13px;border-bottom:1px solid var(--el-border-color-lighter)}.project-identity strong,.project-identity span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-identity strong{font-size:15px}.project-identity span{color:var(--el-text-color-regular)}.project-summary-list{display:grid;gap:12px;margin:14px 0 0}.project-summary-list>div{display:grid;gap:4px;min-width:0}.project-summary-list dt{color:var(--el-text-color-secondary);font-size:12px}.project-summary-list dd{min-width:0;margin:0;color:var(--el-text-color-primary);font-size:13px}.project-summary-list dd[title]{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-task-summary{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-status-button{height:auto;padding:0}.remove-project-button{margin-top:12px}.project-arrangement-panel{min-width:0;padding:16px;border:1px solid var(--el-border-color-light);border-radius:8px;background:var(--el-bg-color)}.project-arrangement-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.project-arrangement-header>div:first-child{display:grid;gap:3px}.project-arrangement-header span{color:var(--el-text-color-secondary);font-size:12px}.project-arrangement-actions{display:flex;align-items:center;gap:8px;white-space:nowrap}.arrangement-task-table :deep(.el-form-item){margin:7px 0}.inline-progress-panel{margin:0 0 14px;padding:12px;border:1px solid var(--el-border-color-light);border-radius:6px;background:var(--el-fill-color-lighter)}.inline-progress-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}.inline-progress-header span{color:var(--el-text-color-secondary);font-size:12px}.progress-groups{display:grid;gap:8px}.progress-group{padding:8px 10px;background:var(--el-bg-color);border-radius:5px}.progress-group__title{display:flex;align-items:center;gap:8px}.progress-items{margin-top:6px}.progress-item{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px dashed var(--el-border-color-lighter);white-space:pre-wrap}.progress-time{margin-right:8px;color:var(--el-text-color-secondary)}.muted{color:var(--el-text-color-placeholder);font-size:12px}.progress-editor{margin-top:12px;padding:12px;background:var(--el-bg-color);border-radius:5px}.progress-editor__actions{display:flex;justify-content:flex-end;gap:8px}.task-type-create{display:flex;gap:8px;margin-bottom:10px}.task-type-list{max-height:330px;overflow-y:auto}.task-type-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--el-border-color-lighter)}.task-type-row>span,.task-type-row>.el-input{flex:1}.task-type-actions{display:flex;white-space:nowrap}.is-inactive{text-decoration:line-through;color:var(--el-text-color-placeholder)}
 :global(.annotation-arrangement-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.annotation-arrangement-dialog .el-dialog__header),:global(.annotation-arrangement-dialog .el-dialog__footer){flex:none}:global(.annotation-arrangement-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.annotation-arrangement-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
-@media(max-width:900px){.arrangement-toolbar,.project-heading,.project-heading__meta{align-items:flex-start;flex-direction:column}.project-search,.project-sort-select{width:100%}.toolbar-summary{margin-left:0}.project-heading__identity{min-width:0}.project-task-summary{max-width:70vw}}
+@media(max-width:900px){.arrangement-toolbar{align-items:stretch;flex-direction:column}.project-search,.project-sort-select{width:100%}.toolbar-summary{margin-left:0}.project-arrangement-row{grid-template-columns:minmax(0,1fr);padding:10px}.project-summary-panel{position:static}.project-arrangement-header{align-items:flex-start;flex-direction:column}.project-arrangement-actions{justify-content:space-between;width:100%}.project-task-summary{max-width:calc(100vw - 100px)}}
 </style>

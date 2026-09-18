@@ -37,6 +37,8 @@ from annotation_service import (
 )
 from database import get_db
 from annotation_models import AnnotationProject
+from annotation_manager_change_schemas import AnnotationManagerChangeLogListResponse
+from annotation_manager_change_service import list_annotation_manager_changes
 from annotation_ops_models import AnnotationCustomFieldDefinition
 from pagination_schemas import PageResponse, resolve_page_total
 from annotation_custom_field_service import validate_custom_values
@@ -98,6 +100,35 @@ def read_annotation_language_reserves(
 ):
     """按当前页语种 ID 批量返回人才概览非去重合计。"""
     return {"items": lookup_language_reserves(db, payload.language_ids)}
+
+
+@router.get(
+    "/manager-change-logs",
+    response_model=AnnotationManagerChangeLogListResponse,
+)
+def read_manager_change_logs(
+    keyword: Optional[str] = Query(default=None, max_length=200),
+    manager_role: Optional[str] = Query(default=None, pattern="^(client_manager|project_manager)$"),
+    change_mode: Optional[str] = Query(default=None, pattern="^(direct_transfer|inline_edit|project_edit)$"),
+    project_id: Optional[UUID] = None,
+    changed_from: Optional[datetime] = None,
+    changed_to: Optional[datetime] = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = list_annotation_manager_changes(
+        db,
+        keyword=keyword,
+        manager_role=manager_role,
+        change_mode=change_mode,
+        project_id=project_id,
+        changed_from=changed_from,
+        changed_to=changed_to,
+        skip=skip,
+        limit=limit,
+    )
+    return {"items": rows, "total": total}
 
 
 def _field_filters(raw: Optional[str], db: Session):
@@ -503,6 +534,7 @@ def update_project_managers(
     project_id: UUID,
     payload: AnnotationProjectManagersUpdate,
     db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
 ):
     try:
         project = update_annotation_project_managers(
@@ -510,6 +542,7 @@ def update_project_managers(
             project_id,
             payload.client_manager_id,
             payload.project_manager_id,
+            current_user.id,
         )
     except ValueError as exc:
         db.rollback()
