@@ -213,13 +213,13 @@ class DirectTransferDb:
         return None
 
 
-def test_admin_direct_transfer_accepts_inactive_source_and_preserves_other_fields(monkeypatch):
+def test_admin_direct_transfer_accepts_all_project_statuses_and_preserves_other_fields(monkeypatch):
     operator = SimpleNamespace(id=uuid4(), username="admin", full_name="管理员")
     source = SimpleNamespace(id=uuid4(), username="former", full_name="离职经理", is_active=False)
     target = SimpleNamespace(id=uuid4(), username="target", full_name="接收经理", is_active=True)
     project = SimpleNamespace(
         id=uuid4(),
-        project_status="project_in_progress",
+        project_status="paused",
         client_manager_id=uuid4(),
         workbench_responsibilities=["保持其他角色"],
     )
@@ -326,7 +326,7 @@ def test_admin_direct_transfer_rejects_concurrent_manager_change(monkeypatch):
     assert db.committed is False
 
 
-def test_direct_transfer_preview_only_returns_active_annotation_projects(monkeypatch):
+def test_direct_transfer_preview_returns_all_annotation_project_statuses(monkeypatch):
     source = SimpleNamespace(id=uuid4(), username="former", full_name="离职经理", is_active=False)
     active_project = SimpleNamespace(
         id=uuid4(), order_no="AP-260908-001", project_status="project_in_progress"
@@ -362,9 +362,12 @@ def test_direct_transfer_preview_only_returns_active_annotation_projects(monkeyp
 
     preview = workflow_crud.preview_annotation_manager_direct_transfer(db, source.id)
 
-    assert preview["project_count"] == 1
-    assert preview["status_counts"] == {"project_in_progress": 1}
-    assert [item["project_id"] for item in preview["projects"]] == [active_project.id]
+    assert preview["project_count"] == 2
+    assert preview["status_counts"] == {"project_in_progress": 1, "sent_to_client": 1}
+    assert [item["project_id"] for item in preview["projects"]] == [
+        active_project.id,
+        ended_project.id,
+    ]
 
 
 def test_admin_direct_client_manager_transfer_preserves_project_manager(monkeypatch):
@@ -374,7 +377,7 @@ def test_admin_direct_client_manager_transfer_preserves_project_manager(monkeypa
     project_manager_id = uuid4()
     project = SimpleNamespace(
         id=uuid4(),
-        project_status="project_in_progress",
+        project_status="ended",
         client_manager_id=source.id,
         workbench_responsibilities=[
             SimpleNamespace(role_code="project_manager", assignee_id=project_manager_id),
@@ -478,7 +481,7 @@ def test_admin_direct_client_manager_transfer_rejects_concurrent_change(monkeypa
     assert db.committed is False
 
 
-def test_client_manager_transfer_preview_only_returns_active_projects(monkeypatch):
+def test_client_manager_transfer_preview_returns_all_project_statuses(monkeypatch):
     source = SimpleNamespace(id=uuid4(), username="former_sales", full_name="离职客户经理", is_active=False)
     active_project = SimpleNamespace(
         id=uuid4(), order_no="AP-260908-011", project_name="活跃项目",
@@ -501,6 +504,9 @@ def test_client_manager_transfer_preview_only_returns_active_projects(monkeypatc
 
     preview = workflow_crud.preview_annotation_client_manager_direct_transfer(db, source.id)
 
-    assert preview["project_count"] == 1
-    assert preview["status_counts"] == {"project_in_progress": 1}
-    assert [item["project_id"] for item in preview["projects"]] == [active_project.id]
+    assert preview["project_count"] == 2
+    assert preview["status_counts"] == {"project_in_progress": 1, "sent_to_client": 1}
+    assert [item["project_id"] for item in preview["projects"]] == [
+        active_project.id,
+        ended_project.id,
+    ]

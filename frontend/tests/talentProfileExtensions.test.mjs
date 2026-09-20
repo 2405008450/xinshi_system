@@ -5,6 +5,7 @@ import { countTalentNames, getTalentDisplayName } from '../src/utils/talentNames
 
 const source = readFileSync(new URL('../src/views/resource/TalentPool.vue', import.meta.url), 'utf8')
 const detailSource = readFileSync(new URL('../src/views/resource/components/TalentDetailContent.vue', import.meta.url), 'utf8')
+const fieldSearchSource = readFileSync(new URL('../src/composables/useDialogFieldSearch.js', import.meta.url), 'utf8')
 
 test('人才列表提供四类摘要入口和独立详情列', () => {
   for (const key of ['basicSummary', 'regionSummary', 'educationSummary', 'languageSummary']) {
@@ -18,12 +19,13 @@ test('人才编辑表单包含结构化姓名、职业、学历、语言、证�
   for (const field of [
     'chineseName', 'englishName', 'nickname', 'wechat', 'whatsapp', 'employmentStatus',
     'birthYearMonth', 'educationExperiences', 'languageSkills', 'certificates',
-    'annotationExperience', 'interpretationExperience', 'translationExperience',
+    'annotationExperience', 'interpretationExperience', 'translationExperience', 'otherExperience',
   ]) {
     assert.match(source, new RegExp(`form\\.${field}`))
   }
   assert.match(source, /queueAttachment\('photo'/)
   assert.match(source, /queueAttachment\('audio'/)
+  assert.match(detailSource, /label="其他经验"/)
 })
 
 test('人才详情按分类展示且不依赖悬浮才能访问', () => {
@@ -58,6 +60,17 @@ test('人才综合表现支持结构化录入、详情弹窗和高级评分筛�
   assert.match(detailSource, /音频标注表现/)
   assert.match(detailSource, /非音频标注表现/)
   assert.match(detailSource, /采集表现/)
+})
+
+test('新增工作经验和综合表现字段进入表单字段搜索索引', () => {
+  assert.match(source, /label="其他经验"/)
+  assert.match(source, /data-dialog-field-search-group/)
+  assert.match(source, /data-dialog-field-search-group-title>总体评价/)
+  assert.match(source, /data-dialog-field-search-group-title>配合度/)
+  assert.match(source, /data-dialog-field-search-group-title>守时度/)
+  assert.match(source, /data-dialog-field-search-group-title>{{ item\.label }}/)
+  assert.match(fieldSearchSource, /\[data-dialog-field-search-group\]/)
+  assert.match(fieldSearchSource, /\[data-dialog-field-search-group-title\]/)
 })
 
 test('总体评价加入默认列并迁移旧默认组合', () => {

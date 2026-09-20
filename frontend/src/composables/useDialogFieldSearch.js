@@ -19,9 +19,13 @@ const sectionName = (formItem) => {
 }
 
 const groupName = (formItem) => {
-  const group = formItem.closest('.repeat-card, .price-card, .interpreter-requirement-group')
+  const group = formItem.closest(
+    '.repeat-card, .price-card, .interpreter-requirement-group, [data-dialog-field-search-group]',
+  )
   if (!group) return ''
-  const heading = group.querySelector('.repeat-title, .requirement-group-title')
+  const heading = group.querySelector(
+    '.repeat-title, .requirement-group-title, [data-dialog-field-search-group-title]',
+  )
   return directText(heading) || heading?.textContent?.trim() || ''
 }
 

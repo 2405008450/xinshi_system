@@ -214,6 +214,7 @@ class ResourcePersonWrite(BaseModel):
     annotation_experience: Optional[str] = None
     interpretation_experience: Optional[str] = None
     translation_experience: Optional[str] = None
+    other_experience: Optional[str] = None
     overall_score: Optional[int] = Field(default=None, ge=1, le=10)
     overall_rating: Optional[str] = None
     cooperation_level: Optional[PerformanceLevel] = None
@@ -247,7 +248,7 @@ class ResourcePersonWrite(BaseModel):
         "other_contact", "wechat", "whatsapp", "skype", "line", "resume_path", "gender",
         "native_place", "residence_address", "height", "appearance", "nationality", "ethnicity",
         "employment_detail", "student_stage", "student_grade_override", "annotation_experience",
-        "interpretation_experience", "translation_experience", "overall_rating",
+        "interpretation_experience", "translation_experience", "other_experience", "overall_rating",
         "cooperation_note", "punctuality_note", "audio_annotation_evaluation",
         "non_audio_annotation_evaluation", "collection_evaluation", "remarks", mode="before",
     )
@@ -382,8 +383,57 @@ class TalentProjectHistoryResponse(BaseModel):
     project_name: Optional[str] = None
     order_no: Optional[str] = None
     role: Optional[str] = None
+    roles: list[str] = Field(default_factory=list)
+    participation_sources: list[str] = Field(default_factory=list)
     status: Optional[str] = None
     participated_at: Optional[datetime] = None
+    trial_count: int = 0
+    performance_available: bool = False
+
+
+class TalentProjectSituationResponse(BaseModel):
+    total: int = 0
+    primary: Optional[TalentProjectHistoryResponse] = None
+
+
+class TalentProjectCustomFieldResponse(BaseModel):
+    id: UUID
+    field_label: str
+    data_type: str
+    sequence_no: int
+
+
+class TalentAnnotationTrialPerformanceResponse(BaseModel):
+    id: UUID
+    round_no: int
+    trial_status: str
+    trial_result: Optional[str] = None
+    willingness_text: Optional[str] = None
+    result_note: Optional[str] = None
+    custom_values: dict = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class TalentAnnotationAssignmentPerformanceResponse(BaseModel):
+    id: UUID
+    assignment_role: str
+    assignment_status: str
+    language_label: Optional[str] = None
+    quality_score: Optional[str] = None
+    evaluation_note: Optional[str] = None
+    custom_values: dict = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class TalentAnnotationProjectPerformanceResponse(BaseModel):
+    person_id: UUID
+    project: TalentProjectHistoryResponse
+    trial_fields: list[TalentProjectCustomFieldResponse] = Field(default_factory=list)
+    assignment_fields: list[TalentProjectCustomFieldResponse] = Field(default_factory=list)
+    trials: list[TalentAnnotationTrialPerformanceResponse] = Field(default_factory=list)
+    assignments: list[TalentAnnotationAssignmentPerformanceResponse] = Field(default_factory=list)
 
 
 class ResourcePersonListResponse(BaseModel):
@@ -424,6 +474,7 @@ class ResourcePersonListResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     contact_restricted: bool = False
+    project_situation: TalentProjectSituationResponse = Field(default_factory=TalentProjectSituationResponse)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -465,6 +516,7 @@ class ResourcePersonDetailResponse(ResourcePersonListResponse):
     annotation_experience: Optional[str] = None
     interpretation_experience: Optional[str] = None
     translation_experience: Optional[str] = None
+    other_experience: Optional[str] = None
     cooperation_level: Optional[PerformanceLevel] = None
     cooperation_note: Optional[str] = None
     punctuality_level: Optional[PerformanceLevel] = None

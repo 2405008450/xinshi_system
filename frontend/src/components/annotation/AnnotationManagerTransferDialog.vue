@@ -89,8 +89,8 @@
     <div class="manager-transfer-preview">
       <div class="manager-transfer-preview__header">
         <div>
-          <strong>活跃标注项目预览</strong>
-          <span class="manager-transfer-preview__hint">服务端加载全部项目，不受当前列表分页影响</span>
+          <strong>标注项目预览</strong>
+          <span class="manager-transfer-preview__hint">服务端加载该负责人名下全部状态的项目，不受当前列表分页影响</span>
         </div>
         <div class="manager-transfer-preview__actions">
           <span>共 {{ previewProjects.length }} 个，已选择 {{ selectedProjects.length }} 个</span>
@@ -120,7 +120,7 @@
         @selection-change="selectedProjects = $event"
       >
         <template #empty>
-          <span>{{ form.sourceManagerId ? `该${managerLabel}暂无可交接的活跃标注项目` : `请先选择${sourceLabel}` }}</span>
+          <span>{{ form.sourceManagerId ? `该${managerLabel}暂无可交接的标注项目` : `请先选择${sourceLabel}` }}</span>
         </template>
         <el-table-column type="selection" width="48" />
         <el-table-column type="index" label="序号" width="60" align="center" />
@@ -198,7 +198,7 @@ const dialogTitle = computed(() => activeTab.value === 'history'
   ? '标注项目负责人交接'
   : `${managerLabel.value}离职交接`)
 const alertTitle = computed(() => (
-  `该操作由超级管理员直接生效，无需接收人确认；只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
+  `该操作由超级管理员直接生效，无需接收人确认；可交接全部状态的标注项目，只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
 ))
 const rules = computed(() => ({
   sourceManagerId: [{ required: true, message: `请选择${sourceLabel.value}`, trigger: 'change' }],
@@ -217,7 +217,7 @@ const availableTargetManagers = computed(() => (
 const statusEntries = computed(() => Object.entries(statusCounts.value).map(([status, count]) => ({ status, count })))
 const statusLabel = status => getProjectStatusLabel('annotation', status)
 const managerName = manager => manager.full_name || manager.username
-const sourceManagerLabel = manager => `${managerName(manager)}${manager.is_active ? '' : '（已停用）'} · ${manager.project_count} 个活跃项目`
+const sourceManagerLabel = manager => `${managerName(manager)}${manager.is_active ? '' : '（已停用）'} · ${manager.project_count} 个项目`
 const targetManagerLabel = manager => manager.is_on_leave
   ? `${managerName(manager)}（${manager.assignment_disabled_reason || '正在请假'}）`
   : managerName(manager)

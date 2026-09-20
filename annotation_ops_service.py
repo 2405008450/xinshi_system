@@ -848,7 +848,10 @@ def _trial_dict(db: Session, row: AnnotationTrialRecord) -> dict:
     }
 
 
-def _trial_query(db: Session, project_id: UUID | None = None, keyword: str | None = None, trial_status: str | None = None):
+def _trial_query(
+    db: Session, project_id: UUID | None = None, keyword: str | None = None,
+    trial_status: str | None = None, person_id: UUID | None = None,
+):
     query = (
         db.query(AnnotationTrialRecord)
         .join(ResourcePerson, ResourcePerson.id == AnnotationTrialRecord.person_id)
@@ -869,16 +872,18 @@ def _trial_query(db: Session, project_id: UUID | None = None, keyword: str | Non
         ))
     if trial_status:
         query = query.filter(AnnotationTrialRecord.trial_status == trial_status)
+    if person_id:
+        query = query.filter(AnnotationTrialRecord.person_id == person_id)
     return query
 
 
-def list_trials(db: Session, project_id: UUID | None = None, skip: int = 0, limit: int = 100, keyword: str | None = None, trial_status: str | None = None):
-    rows = _trial_query(db, project_id, keyword, trial_status).order_by(AnnotationTrialRecord.updated_at.desc(), AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).offset(skip).limit(limit).all()
+def list_trials(db: Session, project_id: UUID | None = None, skip: int = 0, limit: int = 100, keyword: str | None = None, trial_status: str | None = None, person_id: UUID | None = None):
+    rows = _trial_query(db, project_id, keyword, trial_status, person_id).order_by(AnnotationTrialRecord.updated_at.desc(), AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).offset(skip).limit(limit).all()
     return [_trial_dict(db, row) for row in rows]
 
 
-def count_trials(db: Session, project_id: UUID | None = None, keyword: str | None = None, trial_status: str | None = None) -> int:
-    return _trial_query(db, project_id, keyword, trial_status).count()
+def count_trials(db: Session, project_id: UUID | None = None, keyword: str | None = None, trial_status: str | None = None, person_id: UUID | None = None) -> int:
+    return _trial_query(db, project_id, keyword, trial_status, person_id).count()
 
 
 def save_trial(db: Session, payload, created_by: UUID | None, trial_id: UUID | None = None):

@@ -576,6 +576,7 @@ RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS annotation_experience TEXT",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS interpretation_experience TEXT",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS translation_experience TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS other_experience TEXT",
     "UPDATE resource_person SET birth_year_month=to_char(birth_date, 'YYYY-MM') WHERE birth_year_month IS NULL AND birth_date IS NOT NULL",
     "UPDATE resource_person SET chinese_name=full_name WHERE chinese_name IS NULL AND full_name ~ '[一-龥]'",
     "UPDATE resource_person SET english_name=full_name WHERE english_name IS NULL AND chinese_name IS NULL",

@@ -18,6 +18,7 @@ from resource_schemas import (
     ResourcePersonNameUpdate,
     ResourcePersonStatusUpdate,
     ResourcePersonUpdate,
+    TalentAnnotationProjectPerformanceResponse,
     TalentAttachmentResponse,
     TalentProjectHistoryResponse,
 )
@@ -29,7 +30,10 @@ from resource_service import (
     delete_talent,
     find_duplicate_talents,
     get_talent,
+    get_talent_annotation_project_performance,
     get_talent_project_history,
+    get_talent_project_history_page,
+    get_talent_project_situations,
     get_talents,
     update_recruitment_talent,
     update_talent,
@@ -39,6 +43,7 @@ from resource_service import (
 from routers.auth import (
     get_current_user,
     require_any_permission,
+    require_module_access,
     require_permission,
     require_super_admin,
 )
@@ -179,13 +184,16 @@ def read_talents(
         _field_filters(field_filters, allow_contact_filters=contacts_visible),
         contacts_visible,
     ))
-    return [
-        serialize_with_contact_access(
+    situations = get_talent_project_situations(db, [person.id for person in people])
+    result = []
+    for person in people:
+        item = serialize_with_contact_access(
             person, ResourcePersonListResponse, RESOURCE_CONTACT_FIELDS,
             contacts_visible=contacts_visible,
         )
-        for person in people
-    ]
+        item["project_situation"] = situations.get(person.id, {"total": 0, "primary": None})
+        result.append(item)
+    return result
 
 
 @router.get("/count", deprecated=True)
@@ -237,16 +245,16 @@ def read_talent_page(
     total = resolve_page_total(
         items, skip, lambda: count_talents(db, **filters),
     )
-    return {
-        "items": [
-            serialize_with_contact_access(
+    situations = get_talent_project_situations(db, [person.id for person in items])
+    serialized_items = []
+    for person in items:
+        item = serialize_with_contact_access(
                 person, ResourcePersonListResponse, RESOURCE_CONTACT_FIELDS,
                 contacts_visible=contacts_visible,
             )
-            for person in items
-        ],
-        "total": total,
-    }
+        item["project_situation"] = situations.get(person.id, {"total": 0, "primary": None})
+        serialized_items.append(item)
+    return {"items": serialized_items, "total": total}
 
 
 @router.get(
@@ -354,6 +362,45 @@ def read_talent_projects(person_id: UUID, db: Session = Depends(get_db)):
     if not db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first():
         raise HTTPException(status_code=404, detail="人才档案不存在")
     return get_talent_project_history(db, person_id)
+
+
+@router.get(
+    "/{person_id}/projects/page",
+    response_model=PageResponse[TalentProjectHistoryResponse],
+)
+def read_talent_project_page(
+    person_id: UUID,
+    keyword: Optional[str] = Query(default=None, max_length=200),
+    project_type: Optional[str] = Query(
+        default=None, pattern="^(translation|interpretation|annotation|recruitment)$",
+    ),
+    project_status: Optional[str] = Query(default=None, max_length=50),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    if not db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first():
+        raise HTTPException(status_code=404, detail="人才档案不存在")
+    return get_talent_project_history_page(
+        db, person_id, keyword=keyword, project_type=project_type,
+        status=project_status, skip=skip, limit=limit,
+    )
+
+
+@router.get(
+    "/{person_id}/projects/annotation/{project_id}/performance",
+    response_model=TalentAnnotationProjectPerformanceResponse,
+    dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
+)
+def read_talent_annotation_project_performance(
+    person_id: UUID, project_id: UUID, db: Session = Depends(get_db),
+):
+    if not db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first():
+        raise HTTPException(status_code=404, detail="人才档案不存在")
+    result = get_talent_annotation_project_performance(db, person_id, project_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="该人才未参与此标注项目")
+    return result
 
 
 @router.post(

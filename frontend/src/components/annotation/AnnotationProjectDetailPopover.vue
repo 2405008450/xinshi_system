@@ -7,6 +7,7 @@
     :show-after="showAfter"
     :hide-after="hideAfter"
     :popper-class="popperClass"
+    :teleported="teleported"
     @show="load"
     @hide="cancelInlineEdit"
   >
@@ -93,6 +94,7 @@ const props = defineProps({
   showAfter: { type: Number, default: 0 },
   hideAfter: { type: Number, default: 200 },
   popperClass: { type: String, default: 'annotation-detail-popover' },
+  teleported: { type: Boolean, default: true },
 })
 const emit = defineEmits(['updated'])
 const detail = ref(null), history = ref([]), loading = ref(false)

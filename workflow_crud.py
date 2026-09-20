@@ -1308,7 +1308,7 @@ def _annotation_client_manager_project_query(
 
 
 def get_annotation_manager_transfer_sources(db: Session) -> list[dict]:
-    """返回仍负责活跃标注项目的经理，保留已停用用户供离职交接选择。"""
+    """返回仍负责标注项目的经理，交接范围不受工作台活跃状态限制。"""
     from project_workbench_service import _load_responsibilities
 
     rows = _load_responsibilities(db).filter(
@@ -1319,7 +1319,7 @@ def get_annotation_manager_transfer_sources(db: Session) -> list[dict]:
     counts: dict[UUID, int] = {}
     users: dict[UUID, AppUser] = {}
     for row in rows:
-        if not row.project or not is_active_project('annotation', row.project.project_status):
+        if not row.project:
             continue
         counts[row.assignee_id] = counts.get(row.assignee_id, 0) + 1
         if row.assignee:
@@ -1346,7 +1346,7 @@ def preview_annotation_manager_direct_transfer(
     db: Session,
     source_manager_id: UUID,
 ) -> dict:
-    """预览原经理名下全部处于工作台活跃范围的标注项目。"""
+    """预览原经理名下全部标注项目，不复用工作台活跃状态范围。"""
     source = db.query(AppUser).filter(AppUser.id == source_manager_id).first()
     if not source:
         raise LookupError('原项目经理不存在')
@@ -1354,7 +1354,7 @@ def preview_annotation_manager_direct_transfer(
         row for row in _annotation_manager_responsibility_query(
             db, source_manager_id
         ).all()
-        if row.project and is_active_project('annotation', row.project.project_status)
+        if row.project
     ]
     from project_workbench_service import serialize_responsibility
 
@@ -1377,15 +1377,13 @@ def preview_annotation_manager_direct_transfer(
 
 
 def get_annotation_client_manager_transfer_sources(db: Session) -> list[dict]:
-    """返回仍负责活跃标注项目的客户经理，包括已停用账号。"""
+    """返回仍负责标注项目的客户经理，包括已停用账号和全部项目状态。"""
     projects = db.query(AnnotationProject).options(
         joinedload(AnnotationProject.client_manager),
     ).filter(AnnotationProject.client_manager_id.is_not(None)).all()
     counts: dict[UUID, int] = {}
     users: dict[UUID, AppUser] = {}
     for project in projects:
-        if not is_active_project('annotation', project.project_status):
-            continue
         counts[project.client_manager_id] = counts.get(project.client_manager_id, 0) + 1
         if project.client_manager:
             users[project.client_manager_id] = project.client_manager
@@ -1442,16 +1440,11 @@ def preview_annotation_client_manager_direct_transfer(
     db: Session,
     source_manager_id: UUID,
 ) -> dict:
-    """预览原客户经理名下全部处于工作台活跃范围的标注项目。"""
+    """预览原客户经理名下全部标注项目，不复用工作台活跃状态范围。"""
     source = db.query(AppUser).filter(AppUser.id == source_manager_id).first()
     if not source:
         raise LookupError('原客户经理不存在')
-    projects = [
-        project for project in _annotation_client_manager_project_query(
-            db, source_manager_id
-        ).all()
-        if is_active_project('annotation', project.project_status)
-    ]
+    projects = _annotation_client_manager_project_query(db, source_manager_id).all()
     serialized = [_serialize_annotation_client_manager_project(project) for project in projects]
     status_counts: dict[str, int] = {}
     for project in projects:
@@ -1507,11 +1500,8 @@ def direct_transfer_annotation_manager(
     ).all()
     if len(rows) != len(unique_project_ids):
         raise LookupError('部分项目的项目经理归属已变化，请刷新预览后重试')
-    if any(
-        not row.project or not is_active_project('annotation', row.project.project_status)
-        for row in rows
-    ):
-        raise LookupError('部分项目已离开工作台活跃范围，请刷新预览后重试')
+    if any(not row.project for row in rows):
+        raise LookupError('部分项目已不存在，请刷新预览后重试')
 
     responsibility_ids = [row.id for row in rows]
     pending_requests = (
@@ -1649,12 +1639,6 @@ def direct_transfer_annotation_client_manager(
     ).all()
     if len(projects) != len(unique_project_ids):
         raise LookupError('部分项目的客户经理归属已变化，请刷新预览后重试')
-    if any(
-        not is_active_project('annotation', project.project_status)
-        for project in projects
-    ):
-        raise LookupError('部分项目已离开工作台活跃范围，请刷新预览后重试')
-
     pending_requests = (
         db.query(ProjectManagerHandoverRequest)
         .join(

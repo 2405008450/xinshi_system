@@ -1,14 +1,25 @@
-from datetime import date
+from datetime import date, datetime
 from uuid import uuid4
 from types import SimpleNamespace
 
 import pytest
 
+from annotation_models import AnnotationProjectAssignee
+from annotation_ops_models import AnnotationTrialRecord
 from annotation_schemas import AnnotationProjectCreate
 from recruitment_schemas import RecruitmentCandidateCreate
-from resource_schemas import ResourcePersonCreate, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate, ResourcePersonUpdate, TalentOptionResponse
+from resource_schemas import ResourcePersonCreate, ResourcePersonDetailResponse, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate, ResourcePersonUpdate, TalentOptionResponse
 from resource_models import ResourcePerson
-from resource_service import _sync_annotation_language_skills, _talent_ordering, extract_contact_identifiers, normalize_email, normalize_phone, update_recruitment_talent
+from resource_service import (
+    _merge_talent_project_history_event,
+    _sync_annotation_language_skills,
+    _talent_ordering,
+    extract_contact_identifiers,
+    get_talent_project_history_page,
+    normalize_email,
+    normalize_phone,
+    update_recruitment_talent,
+)
 from routers.talents import _field_filters
 from routers.talent_options import ASSIGNABLE_TALENT_STATUSES, read_talent_options
 
@@ -72,6 +83,99 @@ def test_talent_performance_fields_accept_structured_values_and_preserve_legacy_
     assert payload.overall_rating == "原综合评价作为具体评价保留"
     assert payload.cooperation_level == "high"
     assert payload.collection_score == 10
+
+
+def test_talent_other_experience_is_optional_and_normalized():
+    payload = ResourcePersonCreate(
+        full_name="其他经验人才",
+        other_experience="  具备录音棚统筹经验  ",
+    )
+    blank_payload = ResourcePersonCreate(
+        full_name="无其他经验人才",
+        other_experience="   ",
+    )
+
+    assert payload.other_experience == "具备录音棚统筹经验"
+    assert blank_payload.other_experience is None
+    assert "other_experience" in ResourcePersonDetailResponse.model_fields
+
+
+def test_project_history_merges_trial_and_formal_assignment_into_one_project():
+    person_id, project_id = uuid4(), uuid4()
+    histories = {person_id: {}}
+    older = datetime(2026, 9, 1, 9, 0)
+    newer = datetime(2026, 9, 3, 10, 0)
+
+    _merge_talent_project_history_event(
+        histories, person_id, ("annotation", project_id),
+        project_type="annotation", project_id=project_id,
+        project_name="语音标注项目", order_no="AP-001", role="标注员",
+        source="formal_assignment", status="project_in_progress",
+        participated_at=older,
+    )
+    for role, participated_at in [("试标/试采", older), ("试标/试采", newer)]:
+        _merge_talent_project_history_event(
+            histories, person_id, ("annotation", project_id),
+            project_type="annotation", project_id=project_id,
+            project_name="语音标注项目", order_no="AP-001", role=role,
+            source="trial", status="trial_passed",
+            participated_at=participated_at, trial_increment=1,
+        )
+
+    item = histories[person_id][("annotation", project_id)]
+    assert item["roles"] == ["标注员", "试标/试采"]
+    assert item["participation_sources"] == ["formal_assignment", "trial"]
+    assert item["trial_count"] == 2
+    assert item["participated_at"] == newer
+    assert item["performance_available"] is True
+
+
+def test_project_history_trial_only_is_a_real_participation():
+    person_id, project_id = uuid4(), uuid4()
+    histories = {person_id: {}}
+
+    _merge_talent_project_history_event(
+        histories, person_id, ("annotation", project_id),
+        project_type="annotation", project_id=project_id,
+        project_name="仅试标项目", order_no="AP-TRIAL", role="试标/试采",
+        source="trial", status="trial_in_progress",
+        participated_at=datetime(2026, 9, 5, 8, 0), trial_increment=1,
+    )
+
+    assert list(histories[person_id].values())[0]["trial_count"] == 1
+    assert list(histories[person_id].values())[0]["participation_sources"] == ["trial"]
+
+
+def test_project_history_page_filters_and_paginates(monkeypatch):
+    person_id = uuid4()
+    rows = [
+        {"project_type":"annotation", "project_name":"音频采集", "order_no":"AP-002", "role":"试标/试采", "status":"trial_in_progress"},
+        {"project_type":"translation", "project_name":"合同翻译", "order_no":"TP-001", "role":"译员", "status":"completed"},
+    ]
+    monkeypatch.setattr("resource_service.get_talent_project_history", lambda *_args: rows)
+
+    result = get_talent_project_history_page(
+        object(), person_id, keyword="音频", project_type="annotation",
+        status="trial_in_progress", skip=0, limit=1,
+    )
+
+    assert result == {"items": [rows[0]], "total": 1}
+
+
+def test_talent_list_response_has_empty_project_situation_by_default():
+    assert ResourcePersonListResponse.model_fields["project_situation"].default_factory().total == 0
+
+
+@pytest.mark.parametrize("model", [AnnotationProjectAssignee, AnnotationTrialRecord])
+def test_annotation_participation_tables_keep_person_and_project_foreign_keys(model):
+    targets = {
+        element.target_fullname
+        for constraint in model.__table__.foreign_key_constraints
+        for element in constraint.elements
+    }
+
+    assert "resource_person.id" in targets
+    assert "annotation_project.id" in targets
 
 
 @pytest.mark.parametrize("field", [

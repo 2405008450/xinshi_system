@@ -33,6 +33,12 @@ export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/statu
 export const deleteTalent = (id) => api.delete(`/talents/${id}`)
 export const checkTalentDuplicates = (params) => api.get('/talents/duplicates', { params }).then(fromApi)
 export const getTalentProjects = (id) => api.get(`/talents/${id}/projects`).then(fromApi)
+export const getTalentProjectPage = (id, params = {}, config = {}) => api.get(
+  `/talents/${id}/projects/page`, { ...config, params: toApi(params) },
+).then(fromApi)
+export const getTalentAnnotationProjectPerformance = (personId, projectId, config = {}) => api.get(
+  `/talents/${personId}/projects/annotation/${projectId}/performance`, config,
+).then(fromApi)
 export const uploadTalentAttachment = (id, category, file, certificateId = null) => {
   const form = new FormData()
   form.append('category', category)

@@ -365,88 +365,311 @@ def count_talents(db: Session, **filters) -> int:
     return _talent_query(db, **filters).count()
 
 
-def get_talent_project_history(db: Session, person_id: UUID) -> list[dict]:
-    """汇总人才在各业务项目中的真实关联，不接受手工维护。"""
+def _project_history_sort_value(item: dict) -> datetime:
+    value = item.get("participated_at")
+    if value is None:
+        return datetime.min
+    return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) else value
+
+
+def _merge_talent_project_history_event(
+    histories: dict[UUID, dict[tuple, dict]], person_id: UUID, key: tuple, *,
+    project_type: str, project_id: UUID | None, project_name: str | None,
+    order_no: str | None, role: str | None, source: str, status: str | None,
+    participated_at: datetime | None, trial_increment: int = 0,
+) -> None:
+    """把一条真实业务参与记录合并到人员的逻辑项目中。"""
+    if person_id not in histories:
+        return
+    current = histories[person_id].get(key)
+    if current is None:
+        current = {
+            "project_type": project_type,
+            "project_id": project_id,
+            "project_name": project_name,
+            "order_no": order_no,
+            "role": role,
+            "roles": [],
+            "participation_sources": [],
+            "status": status,
+            "participated_at": participated_at,
+            "trial_count": 0,
+            "performance_available": project_type == "annotation",
+        }
+        histories[person_id][key] = current
+    if role and role not in current["roles"]:
+        current["roles"].append(role)
+    if source not in current["participation_sources"]:
+        current["participation_sources"].append(source)
+    current["trial_count"] += trial_increment
+    if project_name and not current.get("project_name"):
+        current["project_name"] = project_name
+    if order_no and not current.get("order_no"):
+        current["order_no"] = order_no
+    if status:
+        current["status"] = status
+    if participated_at and (
+        not current.get("participated_at")
+        or _project_history_sort_value({"participated_at": participated_at})
+        > _project_history_sort_value(current)
+    ):
+        current["participated_at"] = participated_at
+
+
+def get_talent_project_histories(
+    db: Session, person_ids: Sequence[UUID],
+) -> dict[UUID, list[dict]]:
+    """批量汇总人才真实参与的业务项目，避免人才列表出现逐行查询。"""
     from annotation_models import AnnotationProject, AnnotationProjectAssignee
+    from annotation_ops_models import AnnotationTrialRecord
     from interpretation_models import InterpretationProject, InterpretationProjectInterpreter
     from manuscript_models import ManuscriptArrangement
     from models import TranslationProject, TranslationSubOrder, Translator
     from recruitment_models import RecruitmentCandidate, RecruitmentProject
 
-    translator_ids = {
-        value for (value,) in db.query(Translator.id).filter(or_(
-            Translator.resource_person_id == person_id,
-            Translator.id == person_id,
-        )).all()
-    }
-    result: list[dict] = []
+    requested_ids = list(dict.fromkeys(person_ids))
+    histories: dict[UUID, dict[tuple, dict]] = {person_id: {} for person_id in requested_ids}
+    if not requested_ids:
+        return {}
+
+    def add(
+        person_id: UUID, key: tuple, *, project_type: str, project_id: UUID | None,
+        project_name: str | None, order_no: str | None, role: str | None,
+        source: str, status: str | None, participated_at: datetime | None,
+        trial_increment: int = 0,
+    ) -> None:
+        _merge_talent_project_history_event(
+            histories, person_id, key, project_type=project_type,
+            project_id=project_id, project_name=project_name, order_no=order_no,
+            role=role, source=source, status=status,
+            participated_at=participated_at, trial_increment=trial_increment,
+        )
+
+    translator_to_people: dict[UUID, set[UUID]] = {}
+    translator_rows = db.query(Translator.id, Translator.resource_person_id).filter(or_(
+        Translator.resource_person_id.in_(requested_ids),
+        Translator.id.in_(requested_ids),
+    )).all()
+    for translator_id, resource_person_id in translator_rows:
+        person_id = resource_person_id if resource_person_id in histories else translator_id
+        if person_id in histories:
+            translator_to_people.setdefault(translator_id, set()).add(person_id)
+    translator_ids = list(translator_to_people)
     if translator_ids:
         for project in db.query(TranslationProject).filter(
             TranslationProject.translator_id.in_(translator_ids)
         ).all():
-            result.append({
-                "project_type": "translation", "project_id": project.id,
-                "project_name": project.project_name, "order_no": project.order_no,
-                "role": "译员", "status": project.project_status,
-                "participated_at": project.created_at,
-            })
+            for person_id in translator_to_people.get(project.translator_id, ()):
+                add(
+                    person_id, ("translation", project.id, project.order_no),
+                    project_type="translation", project_id=project.id,
+                    project_name=project.project_name, order_no=project.order_no,
+                    role="译员", source="project_assignment", status=project.project_status,
+                    participated_at=project.created_at,
+                )
         for sub_order in db.query(TranslationSubOrder).filter(
             TranslationSubOrder.translator_id.in_(translator_ids)
         ).all():
-            result.append({
-                "project_type": "translation", "project_id": sub_order.parent_project_id,
-                "project_name": sub_order.sub_project_name, "order_no": sub_order.sub_order_no,
-                "role": "译员", "status": getattr(sub_order, "status", None),
-                "participated_at": sub_order.created_at,
-            })
+            for person_id in translator_to_people.get(sub_order.translator_id, ()):
+                add(
+                    person_id, ("translation", sub_order.parent_project_id, sub_order.sub_order_no),
+                    project_type="translation", project_id=sub_order.parent_project_id,
+                    project_name=sub_order.sub_project_name, order_no=sub_order.sub_order_no,
+                    role="译员", source="suborder_assignment",
+                    status=getattr(sub_order, "status", None), participated_at=sub_order.created_at,
+                )
         for assignment in db.query(ManuscriptArrangement).filter(
             ManuscriptArrangement.translator_id.in_(translator_ids)
         ).all():
-            result.append({
-                "project_type": "translation", "project_id": assignment.translation_project_id,
-                "project_name": assignment.project_name_snapshot,
-                "order_no": assignment.order_no_snapshot, "role": "稿件译员",
-                "status": assignment.status,
-                "participated_at": assignment.created_at,
-            })
+            for person_id in translator_to_people.get(assignment.translator_id, ()):
+                add(
+                    person_id,
+                    ("translation", assignment.translation_project_id, assignment.order_no_snapshot),
+                    project_type="translation", project_id=assignment.translation_project_id,
+                    project_name=assignment.project_name_snapshot,
+                    order_no=assignment.order_no_snapshot, role="稿件译员",
+                    source="manuscript_assignment", status=assignment.status,
+                    participated_at=assignment.created_at,
+                )
         for assignment, project in db.query(
             InterpretationProjectInterpreter, InterpretationProject,
         ).join(
-            InterpretationProject, InterpretationProject.id == InterpretationProjectInterpreter.project_id,
+            InterpretationProject,
+            InterpretationProject.id == InterpretationProjectInterpreter.project_id,
         ).filter(InterpretationProjectInterpreter.translator_id.in_(translator_ids)).all():
-            result.append({
-                "project_type": "interpretation", "project_id": project.id,
-                "project_name": project.project_name, "order_no": project.order_no,
-                "role": "口译员", "status": project.project_status,
-                "participated_at": project.created_at,
-            })
+            for person_id in translator_to_people.get(assignment.translator_id, ()):
+                add(
+                    person_id, ("interpretation", project.id),
+                    project_type="interpretation", project_id=project.id,
+                    project_name=project.project_name, order_no=project.order_no,
+                    role="口译员", source="project_assignment", status=project.project_status,
+                    participated_at=getattr(assignment, "created_at", None) or project.created_at,
+                )
+
     for assignment, project in db.query(
         AnnotationProjectAssignee, AnnotationProject,
-    ).join(AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id).filter(
-        AnnotationProjectAssignee.person_id == person_id,
-    ).all():
-        result.append({
-            "project_type": "annotation", "project_id": project.id,
-            "project_name": project.project_name, "order_no": project.order_no,
-            "role": assignment.assignment_role, "status": project.project_status,
-            "participated_at": assignment.created_at,
-        })
+    ).join(
+        AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id,
+    ).filter(AnnotationProjectAssignee.person_id.in_(requested_ids)).all():
+        add(
+            assignment.person_id, ("annotation", project.id),
+            project_type="annotation", project_id=project.id,
+            project_name=project.project_name, order_no=project.order_no,
+            role=assignment.assignment_role, source="formal_assignment",
+            status=project.project_status, participated_at=assignment.created_at,
+        )
+    for trial, project in db.query(
+        AnnotationTrialRecord, AnnotationProject,
+    ).join(
+        AnnotationProject, AnnotationProject.id == AnnotationTrialRecord.project_id,
+    ).filter(AnnotationTrialRecord.person_id.in_(requested_ids)).all():
+        add(
+            trial.person_id, ("annotation", project.id),
+            project_type="annotation", project_id=project.id,
+            project_name=project.project_name, order_no=project.order_no,
+            role="试标/试采", source="trial", status=project.project_status,
+            participated_at=trial.created_at, trial_increment=1,
+        )
     for candidate, project in db.query(
         RecruitmentCandidate, RecruitmentProject,
-    ).join(RecruitmentProject, RecruitmentProject.id == RecruitmentCandidate.project_id).filter(
-        RecruitmentCandidate.person_id == person_id,
-    ).all():
-        result.append({
-            "project_type": "recruitment", "project_id": project.id,
-            "project_name": project.project_name, "order_no": project.order_no,
-            "role": "招聘候选人", "status": candidate.stage or project.project_status,
-            "participated_at": candidate.created_at,
-        })
-    unique = {}
-    for item in result:
-        key = (item["project_type"], item.get("project_id"), item.get("order_no"), item.get("role"))
-        unique[key] = item
-    return sorted(unique.values(), key=lambda item: item.get("participated_at") or datetime.min, reverse=True)
+    ).join(
+        RecruitmentProject, RecruitmentProject.id == RecruitmentCandidate.project_id,
+    ).filter(RecruitmentCandidate.person_id.in_(requested_ids)).all():
+        add(
+            candidate.person_id, ("recruitment", project.id),
+            project_type="recruitment", project_id=project.id,
+            project_name=project.project_name, order_no=project.order_no,
+            role="招聘候选人", source="candidate", status=candidate.stage or project.project_status,
+            participated_at=candidate.created_at,
+        )
+
+    result: dict[UUID, list[dict]] = {}
+    for person_id, items in histories.items():
+        rows = list(items.values())
+        for item in rows:
+            item["role"] = "、".join(item["roles"]) or None
+        result[person_id] = sorted(rows, key=_project_history_sort_value, reverse=True)
+    return result
+
+
+def get_talent_project_history(db: Session, person_id: UUID) -> list[dict]:
+    """汇总单个人才在各业务项目中的真实关联，不接受手工维护。"""
+    return get_talent_project_histories(db, [person_id]).get(person_id, [])
+
+
+def get_talent_project_situations(
+    db: Session, person_ids: Sequence[UUID],
+) -> dict[UUID, dict]:
+    histories = get_talent_project_histories(db, person_ids)
+    return {
+        person_id: {"total": len(rows), "primary": rows[0] if rows else None}
+        for person_id, rows in histories.items()
+    }
+
+
+def get_talent_project_history_page(
+    db: Session, person_id: UUID, *, keyword: str | None = None,
+    project_type: str | None = None, status: str | None = None,
+    skip: int = 0, limit: int = 20,
+) -> dict:
+    rows = get_talent_project_history(db, person_id)
+    normalized_keyword = (keyword or "").strip().casefold()
+    if normalized_keyword:
+        rows = [item for item in rows if any(
+            normalized_keyword in str(value or "").casefold()
+            for value in (item.get("project_name"), item.get("order_no"), item.get("role"))
+        )]
+    if project_type:
+        rows = [item for item in rows if item.get("project_type") == project_type]
+    if status:
+        rows = [item for item in rows if item.get("status") == status]
+    return {"items": rows[skip:skip + limit], "total": len(rows)}
+
+
+def get_talent_annotation_project_performance(
+    db: Session, person_id: UUID, project_id: UUID,
+) -> dict | None:
+    """返回指定标注项目内某个人才的试标与正式安排表现。"""
+    from annotation_models import (
+        AnnotationProject, AnnotationProjectAssignee, AnnotationProjectLanguageItem,
+    )
+    from annotation_ops_models import AnnotationCustomFieldDefinition, AnnotationTrialRecord
+
+    project = db.get(AnnotationProject, project_id)
+    if not project:
+        return None
+    trials = db.query(AnnotationTrialRecord).filter(
+        AnnotationTrialRecord.project_id == project_id,
+        AnnotationTrialRecord.person_id == person_id,
+    ).order_by(AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).all()
+    assignments = db.query(AnnotationProjectAssignee).options(
+        joinedload(AnnotationProjectAssignee.language_item).joinedload(
+            AnnotationProjectLanguageItem.source_language
+        ),
+        joinedload(AnnotationProjectAssignee.language_item).joinedload(
+            AnnotationProjectLanguageItem.target_language
+        ),
+    ).filter(
+        AnnotationProjectAssignee.project_id == project_id,
+        AnnotationProjectAssignee.person_id == person_id,
+    ).order_by(AnnotationProjectAssignee.sequence_no).all()
+    if not trials and not assignments:
+        return None
+    definitions = db.query(AnnotationCustomFieldDefinition).filter(
+        AnnotationCustomFieldDefinition.project_id == project_id,
+        AnnotationCustomFieldDefinition.table_code.in_(("trial", "assignment")),
+    ).order_by(
+        AnnotationCustomFieldDefinition.table_code,
+        AnnotationCustomFieldDefinition.sequence_no,
+    ).all()
+    roles: list[str] = []
+    sources: list[str] = []
+    for value in [*(item.assignment_role for item in assignments), *("试标/试采" for _ in trials)]:
+        if value and value not in roles:
+            roles.append(value)
+    if assignments:
+        sources.append("formal_assignment")
+    if trials:
+        sources.append("trial")
+    timestamps = [
+        item.created_at for item in [*trials, *assignments] if item.created_at is not None
+    ]
+    project_summary = {
+        "project_type": "annotation", "project_id": project.id,
+        "project_name": project.project_name, "order_no": project.order_no,
+        "role": "、".join(roles) or None, "roles": roles,
+        "participation_sources": sources, "status": project.project_status,
+        "participated_at": max(timestamps) if timestamps else project.created_at,
+        "trial_count": len(trials), "performance_available": True,
+    }
+    field_rows = lambda table_code: [
+        {
+            "id": item.id, "field_label": item.field_label,
+            "data_type": item.data_type, "sequence_no": item.sequence_no,
+        }
+        for item in definitions if item.table_code == table_code
+    ]
+    return {
+        "person_id": person_id,
+        "project": project_summary,
+        "trial_fields": field_rows("trial"),
+        "assignment_fields": field_rows("assignment"),
+        "trials": [{
+            "id": item.id, "round_no": item.round_no,
+            "trial_status": item.trial_status, "trial_result": item.trial_result,
+            "willingness_text": item.willingness_text, "result_note": item.result_note,
+            "custom_values": item.custom_values or {}, "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        } for item in trials],
+        "assignments": [{
+            "id": item.id, "assignment_role": item.assignment_role,
+            "assignment_status": item.assignment_status,
+            "language_label": item.language_item.display if item.language_item else None,
+            "quality_score": item.quality_score, "evaluation_note": item.evaluation_note,
+            "custom_values": item.custom_values or {}, "created_at": item.created_at,
+            "updated_at": item.updated_at,
+        } for item in assignments],
+    }
 
 
 def find_duplicate_talents(

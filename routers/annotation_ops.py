@@ -290,13 +290,13 @@ def release_all(person_id: UUID, payload: AccountReleaseWrite, db: Session = Dep
 
 
 @project_router.get("/trials", response_model=List[TrialResponse])
-def trials(project_id: Optional[UUID] = None, skip: int = 0, limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
-    return list_trials(db, project_id, skip, limit, keyword, trial_status)
+def trials(project_id: Optional[UUID] = None, person_id: Optional[UUID] = None, skip: int = 0, limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
+    return list_trials(db, project_id, skip, limit, keyword, trial_status, person_id)
 
 
 @project_router.get("/trials/count")
-def trials_count(project_id: Optional[UUID] = None, keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
-    return {"total": count_trials(db, project_id, keyword, trial_status)}
+def trials_count(project_id: Optional[UUID] = None, person_id: Optional[UUID] = None, keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
+    return {"total": count_trials(db, project_id, keyword, trial_status, person_id)}
 
 
 @project_router.post("/trials", response_model=TrialResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])

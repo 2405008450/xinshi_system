@@ -83,6 +83,7 @@
         <el-descriptions-item label="标注类经验"><div class="pre-wrap">{{ show(detail.annotationExperience) }}</div></el-descriptions-item>
         <el-descriptions-item label="口译经验"><div class="pre-wrap">{{ show(detail.interpretationExperience) }}</div></el-descriptions-item>
         <el-descriptions-item label="笔译经验"><div class="pre-wrap">{{ show(detail.translationExperience) }}</div></el-descriptions-item>
+        <el-descriptions-item label="其他经验"><div class="pre-wrap">{{ show(detail.otherExperience) }}</div></el-descriptions-item>
       </el-descriptions>
     </section>
 

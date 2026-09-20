@@ -127,6 +127,7 @@ class ResourcePerson(Base):
     annotation_experience: Mapped[Optional[str]] = mapped_column(Text)
     interpretation_experience: Mapped[Optional[str]] = mapped_column(Text)
     translation_experience: Mapped[Optional[str]] = mapped_column(Text)
+    other_experience: Mapped[Optional[str]] = mapped_column(Text)
     overall_score: Mapped[Optional[int]] = mapped_column(Integer)
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
     cooperation_level: Mapped[Optional[str]] = mapped_column(String(20))

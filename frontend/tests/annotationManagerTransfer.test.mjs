@@ -31,6 +31,8 @@ test('标注项目页仅向超级管理员展示一个交接入口', () => {
 
 test('离职交接支持服务端预览、逐项排除和强确认', () => {
   assert.match(dialogSource, /previewAnnotationManagerTransferAPI/)
+  assert.match(dialogSource, /该负责人名下全部状态的项目/)
+  assert.doesNotMatch(dialogSource, /活跃标注项目预览/)
   assert.match(dialogSource, /@selection-change="selectedProjects = \$event"/)
   assert.match(dialogSource, /inputValidator: value => String\(value \|\| ''\)\.trim\(\) === '交接'/)
   assert.match(dialogSource, /project_ids: selectedProjects\.value\.map/)
