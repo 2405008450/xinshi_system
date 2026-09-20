@@ -15,7 +15,7 @@ from interpretation_schemas import InterpretationLanguageCreate, InterpretationL
 from language_catalog import get_searchable_language_variants, normalize_language_search_text
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission
-from talent_overview_service import resolve_overview_for_language, resolve_overview_for_text
+from talent_overview_service import get_talent_overview, resolve_overview_for_language, resolve_overview_for_text
 
 
 router = APIRouter(
@@ -137,7 +137,8 @@ def create_language(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="该语种已存在")
-    overview_row, _ = resolve_overview_for_text(payload.label)
+    overview_data = get_talent_overview(db)
+    overview_row, _ = resolve_overview_for_text(payload.label, data=overview_data)
     if overview_row:
         candidates = (
             db.query(InterpretationLanguage)
@@ -149,7 +150,7 @@ def create_language(
             language for language in candidates
             if (
                 language.talent_overview_key == overview_row["overview_key"]
-                or (resolve_overview_for_language(language)[0] or {}).get("overview_key")
+                or (resolve_overview_for_language(language, data=overview_data)[0] or {}).get("overview_key")
                 == overview_row["overview_key"]
             )
         ), None)

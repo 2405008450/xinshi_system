@@ -17,6 +17,22 @@ export const getTalents = (params, config = {}) => api.get('/talents/', { ...con
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalentOverview = () => api.get('/talents/overview').then(fromApi)
+export const saveTalentOverview = (data) => api.put('/talents/overview', {
+  expected_revision: data.expectedRevision,
+  columns: data.columns.map(column => ({
+    key: column.key,
+    label: column.label,
+    group: column.group,
+    width: column.width,
+  })),
+  rows: data.rows.map(row => ({
+    overview_key: row.overviewKey,
+    language: row.language,
+    updated_at: row.updatedAt || null,
+    // counts 的键是服务端认可的动态列标识，不参与 snake_case 转换。
+    counts: Object.fromEntries(Object.entries(row.counts || {})),
+  })),
+}).then(fromApi)
 export const getTalent = (id) => api.get(`/talents/${id}`).then(fromApi)
 export const createTalent = async (data) => {
   const payload = toApi(data)

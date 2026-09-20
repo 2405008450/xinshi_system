@@ -24,6 +24,7 @@
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="人才编号">{{ show(detail.resourceCode) }}</el-descriptions-item>
         <el-descriptions-item label="档案状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
+        <el-descriptions-item v-if="showAnnotationWillingness" label="标注意愿">{{ performanceLevelLabel(detail.annotationWillingness) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ show(detail.gender) }}</el-descriptions-item>
         <el-descriptions-item label="年龄">{{ detail.currentAge == null ? '-' : `${detail.currentAge}岁` }}</el-descriptions-item>
         <el-descriptions-item label="出生年月">{{ show(detail.birthYearMonth || detail.birthDate) }}</el-descriptions-item>
@@ -133,6 +134,7 @@ const props = defineProps({
   section: { type: String, default: 'all' },
   projects: { type: Array, default: () => [] },
   showPerformance: { type: Boolean, default: true },
+  showAnnotationWillingness: { type: Boolean, default: true },
 })
 
 const contactRestricted = computed(() => props.detail.contactRestricted === true)

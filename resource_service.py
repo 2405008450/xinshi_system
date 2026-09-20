@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import String, and_, cast, func, inspect, or_, text
+from sqlalchemy import String, and_, cast, func, inspect, or_, select, text, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -41,6 +41,17 @@ TALENT_PERFORMANCE_FIELDS = {
     "punctuality_level", "punctuality_note", "audio_annotation_score",
     "audio_annotation_evaluation", "non_audio_annotation_score",
     "non_audio_annotation_evaluation", "collection_score", "collection_evaluation",
+}
+TALENT_MANAGED_FIELDS = TALENT_PERFORMANCE_FIELDS | {"annotation_willingness"}
+
+EDUCATION_LABELS = {
+    "high_school_or_below": "高中及以下",
+    "secondary_vocational": "中专/职高",
+    "associate": "专科",
+    "bachelor": "本科",
+    "master": "硕士研究生",
+    "doctor": "博士研究生",
+    "other": "其他",
 }
 
 
@@ -180,6 +191,89 @@ def delete_talent(db: Session, person_id: UUID) -> bool:
     return True
 
 
+def _education_summary_condition(keyword: str):
+    pattern = f"%{keyword}%"
+    normalized = keyword.casefold()
+    matching_levels = [
+        value for value, label in EDUCATION_LABELS.items()
+        if normalized in value.casefold() or normalized in label.casefold()
+    ]
+    highest_education_conditions = [ResourcePerson.highest_education.ilike(pattern)]
+    if matching_levels:
+        highest_education_conditions.append(ResourcePerson.highest_education.in_(matching_levels))
+    return or_(
+        *highest_education_conditions,
+        ResourcePerson.education_experiences.any(or_(
+            ResourceEducationExperience.institution.ilike(pattern),
+            ResourceEducationExperience.major.ilike(pattern),
+            ResourceEducationExperience.minor_major.ilike(pattern),
+        )),
+    )
+
+
+def _project_situation_condition(keyword: str):
+    """在分页前按真实项目关联匹配项目名称或订单号。"""
+    from annotation_models import AnnotationProject, AnnotationProjectAssignee
+    from annotation_ops_models import AnnotationTrialRecord
+    from interpretation_models import InterpretationProject, InterpretationProjectInterpreter
+    from manuscript_models import ManuscriptArrangement
+    from models import TranslationProject, TranslationSubOrder, Translator
+    from recruitment_models import RecruitmentCandidate, RecruitmentProject
+
+    pattern = f"%{keyword}%"
+    linked_person_id = func.coalesce(Translator.resource_person_id, Translator.id).label("person_id")
+    project_people = union_all(
+        select(linked_person_id).select_from(TranslationProject).join(
+            Translator, Translator.id == TranslationProject.translator_id,
+        ).where(or_(
+            TranslationProject.project_name.ilike(pattern),
+            TranslationProject.order_no.ilike(pattern),
+        )),
+        select(linked_person_id).select_from(TranslationSubOrder).join(
+            Translator, Translator.id == TranslationSubOrder.translator_id,
+        ).where(or_(
+            TranslationSubOrder.sub_project_name.ilike(pattern),
+            TranslationSubOrder.sub_order_no.ilike(pattern),
+        )),
+        select(linked_person_id).select_from(ManuscriptArrangement).join(
+            Translator, Translator.id == ManuscriptArrangement.translator_id,
+        ).where(or_(
+            ManuscriptArrangement.project_name_snapshot.ilike(pattern),
+            ManuscriptArrangement.order_no_snapshot.ilike(pattern),
+        )),
+        select(linked_person_id).select_from(InterpretationProjectInterpreter).join(
+            Translator, Translator.id == InterpretationProjectInterpreter.translator_id,
+        ).join(
+            InterpretationProject,
+            InterpretationProject.id == InterpretationProjectInterpreter.project_id,
+        ).where(or_(
+            InterpretationProject.project_name.ilike(pattern),
+            InterpretationProject.order_no.ilike(pattern),
+        )),
+        select(AnnotationProjectAssignee.person_id.label("person_id")).join(
+            AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id,
+        ).where(or_(
+            AnnotationProject.project_name.ilike(pattern),
+            AnnotationProject.order_no.ilike(pattern),
+        )),
+        select(AnnotationTrialRecord.person_id.label("person_id")).join(
+            AnnotationProject, AnnotationProject.id == AnnotationTrialRecord.project_id,
+        ).where(or_(
+            AnnotationProject.project_name.ilike(pattern),
+            AnnotationProject.order_no.ilike(pattern),
+        )),
+        select(RecruitmentCandidate.person_id.label("person_id")).join(
+            RecruitmentProject, RecruitmentProject.id == RecruitmentCandidate.project_id,
+        ).where(or_(
+            RecruitmentProject.project_name.ilike(pattern),
+            RecruitmentProject.order_no.ilike(pattern),
+        )),
+    ).subquery("talent_project_people")
+    return select(project_people.c.person_id).where(
+        project_people.c.person_id == ResourcePerson.id
+    ).exists()
+
+
 def _talent_query(
     db: Session,
     *,
@@ -252,6 +346,7 @@ def _talent_query(
         "native_place": (ResourcePerson.native_place, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
+        "annotation_willingness": (ResourcePerson.annotation_willingness, "string"),
         "overall_score": (ResourcePerson.overall_score, "number"),
         "overall_rating": (ResourcePerson.overall_rating, "string"),
         "audio_annotation_score": (ResourcePerson.audio_annotation_score, "number"),
@@ -321,6 +416,30 @@ def _talent_query(
             query = query.filter(ResourcePerson.certificates.any(
                 ResourceCertificate.material_received == bool(descriptor.get("value"))
             ))
+        elif field == "region_summary":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(
+                ResourcePerson.native_place.ilike(pattern),
+                ResourcePerson.residence_address.ilike(pattern),
+            ))
+        elif field == "education_summary":
+            value = str(descriptor.get("value") or "").strip()
+            query = query.filter(_education_summary_condition(value))
+        elif field == "language_summary":
+            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
+            query = query.filter(or_(
+                ResourcePerson.language_skills.any(
+                    ResourceLanguageSkill.language.has(InterpretationLanguage.label.ilike(pattern))
+                ),
+                ResourcePerson.certificates.any(or_(
+                    ResourceCertificate.name.ilike(pattern),
+                    ResourceCertificate.issuer.ilike(pattern),
+                    ResourceCertificate.language.has(InterpretationLanguage.label.ilike(pattern)),
+                )),
+            ))
+        elif field == "project_situation":
+            value = str(descriptor.get("value") or "").strip()
+            query = query.filter(_project_situation_condition(value))
     return query.distinct()
 
 
@@ -362,7 +481,7 @@ def get_talents(
 
 
 def count_talents(db: Session, **filters) -> int:
-    return _talent_query(db, **filters).count()
+    return _talent_query(db, **filters).with_entities(ResourcePerson.id).count()
 
 
 def _project_history_sort_value(item: dict) -> datetime:
@@ -1019,7 +1138,7 @@ def update_recruitment_talent(
         "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
-        *TALENT_PERFORMANCE_FIELDS,
+        *TALENT_MANAGED_FIELDS,
     })
     for key, value in data.items():
         setattr(person, key, value)

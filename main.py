@@ -152,6 +152,7 @@ from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
 from annotation_manager_change_models import AnnotationManagerChangeLog
 from project_order_no_models import ProjectOrderNoReservation
+from talent_overview_models import TalentOverviewSnapshot
 from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
@@ -577,6 +578,7 @@ RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS interpretation_experience TEXT",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS translation_experience TEXT",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS other_experience TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS annotation_willingness VARCHAR(20)",
     "UPDATE resource_person SET birth_year_month=to_char(birth_date, 'YYYY-MM') WHERE birth_year_month IS NULL AND birth_date IS NOT NULL",
     "UPDATE resource_person SET chinese_name=full_name WHERE chinese_name IS NULL AND full_name ~ '[一-龥]'",
     "UPDATE resource_person SET english_name=full_name WHERE english_name IS NULL AND chinese_name IS NULL",
@@ -1014,12 +1016,31 @@ def ensure_resource_compat_columns():
 
 
 def ensure_resource_person_profile_columns():
-    """补齐人才主档的姓名、联系方式、职业与教育摘要字段。"""
+    """补齐人才主档的姓名、联系方式、职业、教育摘要与标注意愿字段。"""
     if "resource_person" not in inspect(engine).get_table_names():
         return
     with engine.begin() as conn:
         for statement in RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS:
             conn.execute(text(statement))
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_resource_person_annotation_willingness'
+                ) THEN
+                    ALTER TABLE resource_person
+                        ADD CONSTRAINT ck_resource_person_annotation_willingness
+                        CHECK (
+                            annotation_willingness IS NULL
+                            OR annotation_willingness IN ('high', 'medium', 'low')
+                        );
+                END IF;
+            END $$;
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_resource_person_annotation_willingness "
+            "ON resource_person (annotation_willingness)"
+        ))
 
 
 def ensure_resource_person_performance_columns():
@@ -1727,6 +1748,7 @@ def run_runtime_migrations():
     ensure_personal_task_permissions()
     ensure_talent_permission_compatibility()
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)
+    TalentOverviewSnapshot.__table__.create(bind=engine, checkfirst=True)
     ensure_resource_person_profile_columns()
     ensure_resource_person_performance_columns()
     ResourceCapability.__table__.create(bind=engine, checkfirst=True)

@@ -96,6 +96,7 @@ class RecordingTranslationDb:
         (interpretation_field_filters, {"scheduled_date": {"op": "between", "from": "2026-08-01", "to": "2026-08-31"}}),
         (recruitment_field_filters, {"candidate_count": {"op": "between", "min": 1, "max": 5}}),
         (talent_field_filters, {"duplicate_review_required": {"op": "eq", "value": True}}),
+        (talent_field_filters, {"project_situation": {"op": "contains", "value": "TP-2609"}}),
         (request_field_filters, {"languages": {"op": "in", "value": ["00000000-0000-0000-0000-000000000001"]}}),
         (request_field_filters, {"demand_status": {"op": "in", "value": ["confirmed", "cancelled"]}}),
     ],
@@ -130,6 +131,15 @@ def test_parse_field_filters_rejects_malformed_json_and_empty_in_values():
     with pytest.raises(HTTPException) as empty_values:
         parse_field_filters(encoded({"status": {"op": "in", "value": []}}))
     assert empty_values.value.status_code == 422
+
+
+def test_talent_contact_filters_remain_super_admin_only():
+    payload = {"primary_phone": {"op": "contains", "value": "138"}}
+
+    assert talent_field_filters(encoded(payload), allow_contact_filters=True) == payload
+    with pytest.raises(HTTPException) as exc_info:
+        talent_field_filters(encoded(payload), allow_contact_filters=False)
+    assert exc_info.value.status_code == 403
 
 
 def test_translation_parent_and_sub_client_filters_are_independent():
@@ -360,5 +370,33 @@ def test_client_and_talent_field_filters_compile_to_related_record_predicates():
         "duplicate_review_required": {"op": "eq", "value": False},
     }))
     assert "resource_capability.capability_type in" in talent_sql
+    assert "written_translation" in talent_sql
+    assert "interpretation" in talent_sql
     assert "resource_career_profile.years_experience >=" in talent_sql
     assert "duplicate_review_required = false" in talent_sql
+
+
+def test_talent_summary_filters_compile_to_aggregate_and_project_predicates():
+    talent_sql = compiled_sql(_talent_query(Session(), field_filters={
+        "region_summary": {"op": "contains", "value": "上海"},
+        "education_summary": {"op": "contains", "value": "本科"},
+        "language_summary": {"op": "contains", "value": "英语"},
+        "project_situation": {"op": "contains", "value": "TP-2609"},
+    }))
+
+    assert "resource_person.native_place ilike" in talent_sql
+    assert "resource_person.residence_address ilike" in talent_sql
+    assert "resource_person.highest_education in ('bachelor')" in talent_sql
+    assert "resource_education_experience.institution ilike" in talent_sql
+    assert "resource_education_experience.major ilike" in talent_sql
+    assert "interpretation_language.label ilike" in talent_sql
+    assert "resource_certificate.name ilike" in talent_sql
+    assert "resource_certificate.issuer ilike" in talent_sql
+    for table in [
+        "translation_project", "translation_sub_order", "manuscript_arrangement",
+        "interpretation_project_interpreter", "annotation_project_assignee",
+        "annotation_trial_record", "recruitment_candidate",
+    ]:
+        assert table in talent_sql
+    assert "exists" in talent_sql
+    assert "union all" in talent_sql

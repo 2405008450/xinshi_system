@@ -193,6 +193,18 @@ def test_talent_performance_levels_reject_unknown_values():
         ResourcePersonCreate(full_name="等级错误", cooperation_level="very_high")
 
 
+def test_annotation_willingness_accepts_low_medium_high_only():
+    for value in ("low", "medium", "high"):
+        payload = ResourcePersonCreate(full_name="标注意愿人才", annotation_willingness=value)
+        assert payload.annotation_willingness == value
+
+    with pytest.raises(ValueError):
+        ResourcePersonCreate(full_name="标注意愿错误", annotation_willingness="unknown")
+
+    assert "annotation_willingness" in ResourcePersonListResponse.model_fields
+    assert "annotation_willingness" in ResourcePersonDetailResponse.model_fields
+
+
 def test_talent_performance_filters_are_numeric_ranges():
     filters = _field_filters(
         '{"overall_score":{"op":"between","min":7,"max":10},'

@@ -215,6 +215,7 @@ class ResourcePersonWrite(BaseModel):
     interpretation_experience: Optional[str] = None
     translation_experience: Optional[str] = None
     other_experience: Optional[str] = None
+    annotation_willingness: Optional[PerformanceLevel] = None
     overall_score: Optional[int] = Field(default=None, ge=1, le=10)
     overall_rating: Optional[str] = None
     cooperation_level: Optional[PerformanceLevel] = None
@@ -468,6 +469,7 @@ class ResourcePersonListResponse(BaseModel):
     dialects: list[str] = Field(default_factory=list)
     dialect_regions: list[str] = Field(default_factory=list)
     nationality: Optional[str] = None
+    annotation_willingness: Optional[PerformanceLevel] = None
     overall_score: Optional[int] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None

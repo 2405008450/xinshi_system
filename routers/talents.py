@@ -53,8 +53,8 @@ from talent_attachment_service import (
     delete_talent_attachment,
     save_talent_attachment,
 )
-from talent_overview_schemas import TalentOverviewResponse
-from talent_overview_service import get_talent_overview
+from talent_overview_schemas import TalentOverviewResponse, TalentOverviewWrite
+from talent_overview_service import get_talent_overview, save_talent_overview
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
 from talent_privacy import (
@@ -90,9 +90,10 @@ recruitment_write_dependencies = [Depends(require_permission(
 TALENT_FILTER_FIELDS = {
     "resource_code", "full_name", "capability_types", "language_directions",
     "annotation_language_directions", "industries", "job_titles", "years_experience",
-    "status", "cooperation_type", "primary_phone", "primary_email", "gender", "age",
+    "status", "cooperation_type", "annotation_willingness", "primary_phone", "primary_email", "gender", "age",
     "native_place", "residence_address", "dialects", "dialect_regions", "nationality",
     "employment_status", "highest_education", "language_skills", "certificate_received",
+    "region_summary", "education_summary", "language_summary", "project_situation",
     "overall_score", "overall_rating", "audio_annotation_score",
     "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
     "duplicate_review_required",
@@ -105,9 +106,27 @@ TALENT_SORT_PATTERN = (
 
 
 @router.get("/overview", response_model=TalentOverviewResponse)
-def read_talent_overview():
+def read_talent_overview(db: Session = Depends(get_db)):
     """返回人才概览统一快照；访问权限沿用人才资源库。"""
-    return get_talent_overview()
+    return get_talent_overview(db)
+
+
+@router.put(
+    "/overview",
+    response_model=TalentOverviewResponse,
+    dependencies=talent_write_dependencies,
+)
+def update_talent_overview(
+    payload: TalentOverviewWrite,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """原子保存人才概览整表，防止旧草稿覆盖其他用户的修改。"""
+    try:
+        return save_talent_overview(db, payload, current_user.id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
@@ -122,7 +141,10 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
         "years_experience", "age", "overall_score", "audio_annotation_score",
         "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
     }
-    enums = {"capability_types", "status", "cooperation_type", "employment_status", "highest_education"}
+    enums = {
+        "capability_types", "status", "cooperation_type", "annotation_willingness",
+        "employment_status", "highest_education",
+    }
     booleans = {"duplicate_review_required", "certificate_received"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
     return value
@@ -556,6 +578,7 @@ def create_recruitment_talent_endpoint(
         "interpretation_profile": None,
         "annotation_profile": None,
         "annotation_language_skills": [],
+        "annotation_willingness": None,
         "overall_score": None,
         "overall_rating": None,
         "cooperation_level": None,

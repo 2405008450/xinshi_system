@@ -83,6 +83,8 @@
             :summary="row.projectSituation"
           />
           <div v-else-if="column.key === 'capabilityTypes'" class="tag-list"><el-tag v-for="item in row.capabilityTypes" :key="item" size="small">{{ capabilityLabel(item) }}</el-tag><span v-if="!row.capabilityTypes?.length">-</span></div>
+          <el-tag v-else-if="column.key === 'annotationWillingness' && row.annotationWillingness" :type="annotationWillingnessType(row.annotationWillingness)" size="small">{{ annotationWillingnessLabel(row.annotationWillingness) }}</el-tag>
+          <span v-else-if="column.key === 'annotationWillingness'">-</span>
           <el-dropdown
             v-else-if="column.key === 'status' && canWrite"
             trigger="click"
@@ -125,7 +127,7 @@
         <template #default="{ row }">
           <el-popover trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} 详情`" popper-class="talent-detail-popper" @show="loadFullDetail(row)">
             <template #reference><el-button type="primary" link @click.stop>查看详情</el-button></template>
-            <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" :projects="projectCache[row.id] || []" :show-performance="!isRecruitmentPool" />
+            <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" :projects="projectCache[row.id] || []" :show-performance="!isRecruitmentPool" :show-annotation-willingness="!isRecruitmentPool" />
           </el-popover>
         </template>
       </el-table-column>
@@ -166,7 +168,7 @@
             </div>
           </el-collapse-transition>
           <div v-if="!nameFieldsExpanded" class="name-collapsed-summary">当前显示名：{{ preferredFormName || '尚未填写' }}<span v-if="filledNameCount">（已填写 {{ filledNameCount }} 项）</span></div>
-          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="档案状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="档案状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col v-if="!isRecruitmentPool" :xs="24" :md="8"><el-form-item label="标注意愿"><el-select v-model="form.annotationWillingness" clearable placeholder="请选择低、中或高" style="width:100%"><el-option v-for="item in willingnessOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
           <el-form-item v-if="!isRecruitmentPool" label="专业能力" prop="capabilityTypes"><el-checkbox-group v-model="form.capabilityTypes"><el-checkbox value="written_translation">笔译</el-checkbox><el-checkbox value="interpretation">口译</el-checkbox><el-checkbox value="annotation">标注</el-checkbox></el-checkbox-group></el-form-item>
         </div>
         <div v-if="canViewContacts" class="form-section"><h3>联系方式</h3>
@@ -335,6 +337,7 @@ const educationLevelOptions=[{value:'associate',label:'专科'},{value:'bachelor
 const languageRoleOptions=[{value:'native',label:'母语'},{value:'foreign',label:'外语'},{value:'dialect_ethnic',label:'方言/民族语言'}]
 const proficiencyOptions=[{value:'very_familiar',label:'非常熟悉'},{value:'familiar',label:'熟悉'},{value:'basic',label:'基础交流'},{value:'listening_mainly',label:'听懂为主'},{value:'listening_only',label:'仅能听懂'}]
 const performanceLevelOptions=[{value:'high',label:'高'},{value:'medium',label:'中'},{value:'low',label:'低'}]
+const willingnessOptions=[{value:'low',label:'低'},{value:'medium',label:'中'},{value:'high',label:'高'}]
 const performanceScoreEditors=[
   {label:'音频标注表现',scoreKey:'audioAnnotationScore',evaluationKey:'audioAnnotationEvaluation'},
   {label:'非音频标注表现',scoreKey:'nonAudioAnnotationScore',evaluationKey:'nonAudioAnnotationEvaluation'},
@@ -348,6 +351,8 @@ const performanceSortOptions=[
 ]
 const statusLabel = value => statusOptions.find(item => item.value === value)?.label || value || '-'
 const statusType = value => ({active:'success',standby:'info',inactive:'danger'}[value] || 'info')
+const annotationWillingnessLabel = value => willingnessOptions.find(item => item.value === value)?.label || value || '-'
+const annotationWillingnessType = value => ({high:'success',medium:'warning',low:'info'}[value] || 'info')
 const display = value => value === null || value === undefined || value === '' ? '-' : Array.isArray(value) ? (value.join('、') || '-') : value
 const ageOf = value => {if(!value)return '-';const birth=new Date(`${value}T00:00:00`);if(Number.isNaN(birth.getTime()))return '-';const now=new Date();let age=now.getFullYear()-birth.getFullYear();if(now.getMonth()<birth.getMonth()||(now.getMonth()===birth.getMonth()&&now.getDate()<birth.getDate()))age--;return age>=0?`${age}岁`:'-'}
 const formatDateTime = value => {
@@ -358,7 +363,7 @@ const formatDateTime = value => {
   return `${date.getFullYear()}年${pad(date.getMonth()+1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 const tableDisplay = (column, row) => {
-  if (column.key === 'basicSummary') return [row.gender, row.currentAge == null ? '' : `${row.currentAge}岁`].filter(Boolean).join(' · ') || '-'
+  if (column.key === 'employmentStatus') return employmentOptions.find(item => item.value === row.employmentStatus)?.label || display(row.employmentStatus)
   if (column.key === 'regionSummary') return row.residenceAddress || '-'
   if (column.key === 'educationSummary') return row.educationSummary || '-'
   if (column.key === 'languageSummary') return row.languageSummary || '-'
@@ -373,20 +378,23 @@ const overallPerformanceSummary = row => {
   const summary = evaluation.length > 24 ? `${evaluation.slice(0,24)}…` : evaluation
   return [score, summary].filter(Boolean).join(' · ') || '-'
 }
-const summarySectionMap={basicSummary:'basic',regionSummary:'region',educationSummary:'education',languageSummary:'language'}
+const summarySectionMap={regionSummary:'region',educationSummary:'education',languageSummary:'language'}
 const summarySection=key=>summarySectionMap[key]||''
-const summaryHover=(key,row)=>({basicSummary:[row.nationality,row.employmentStatus].filter(Boolean).join(' · '),regionSummary:row.nativePlace,educationSummary:row.highestEducation,languageSummary:row.languageSummary}[key]||'点击查看详情')
+const summaryHover=(key,row)=>({regionSummary:row.nativePlace,educationSummary:row.highestEducation,languageSummary:row.languageSummary}[key]||'点击查看详情')
 
 const ProfileDescription = defineComponent({props:{profile:Object,type:String},setup(props){const items=computed(()=>{const p=props.profile||{};if(props.type==='written')return [['语种方向',p.languages],['翻译方向',p.direction],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['默认优先级',p.defaultPriority],['日产接单数',p.dailyAcceptCount],['时速',p.hourlySpeed],['日产能',p.dailyWordCapacity],['可用时段',p.availableTimeSlot],['排班备注',p.scheduleRemarks],['云编辑',p.canCloudEdit===true?'支持':p.canCloudEdit===false?'不支持':'-'],['审校',p.canRevision===true?'支持':p.canRevision===false?'不支持':'-']];if(props.type==='interpretation')return [['语种方向',p.languages],['翻译方向',p.direction],['口译等级',p.interpretationLevel],['口译方式',(p.interpretationModes||[]).map(v=>v==='simultaneous'?'同传':'交传').join('、')],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['评价概述',p.evaluationSummary]];if(props.type==='annotation')return [['任务类型',p.taskTypes],['数据模态',p.dataModalities],['工具经验',p.tools],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['日产能',p.dailyCapacity],['备注',p.remarks]];return [['行业',p.industries],['职能',p.functions],['岗位',p.jobTitles],['工作年限',p.yearsExperience],['期望地点',p.preferredLocations],['期望薪资',p.expectedSalary],['职业概述',p.summary]]});return()=>h(ElDescriptions,{column:2,border:true,size:'small'},()=>items.value.map(([label,value])=>h(ElDescriptionsItem,{label},()=>display(value))))}})
 
 const tableColumns=[
   {key:'resourceCode',label:'人才编号',width:130},
   {key:'fullName',label:'姓名',width:100,tooltip:false,clickHint:'点击姓名查看人才详情'},
-  {key:'basicSummary',label:'基本信息',width:130,tooltip:false,clickHint:'点击查看全部基本信息'},
+  {key:'gender',label:'性别',width:80},
+  {key:'nationality',label:'国籍',width:100},
+  {key:'employmentStatus',label:'职业状态',width:110},
   {key:'regionSummary',label:'区域信息',width:150,tooltip:false,clickHint:'点击查看成长地与目前所在地'},
   {key:'educationSummary',label:'学历信息',width:190,tooltip:false,clickHint:'点击查看完整学历经历'},
   {key:'languageSummary',label:'语言与证书',width:190,tooltip:false,clickHint:'点击查看语言与证书'},
   {key:'capabilityTypes',label:'专业能力',width:130,tooltip:false},
+  {key:'annotationWillingness',label:'标注意愿',width:100,tooltip:false,talentManaged:true},
   {key:'languageDirections',label:'语种方向',width:180},
   {key:'annotationLanguageDirections',label:'标注语言方向',width:200},
   {key:'industries',label:'行业',width:150},
@@ -396,13 +404,11 @@ const tableColumns=[
   {key:'cooperationType',label:'合作形式',width:100},
   {key:'primaryPhone',label:'主要电话',width:140},
   {key:'primaryEmail',label:'主要邮箱',width:200},
-  {key:'gender',label:'性别',width:80},
   {key:'age',label:'年龄',width:80},
   {key:'nativePlace',label:'籍贯',width:150},
   {key:'residenceAddress',label:'现居地址',width:180},
   {key:'dialects',label:'掌握方言',width:180},
   {key:'dialectRegions',label:'方言区域',width:180},
-  {key:'nationality',label:'国籍',width:100},
   {key:'overallRating',label:'总体评价',width:240,tooltip:false,performance:true},
   {key:'projectSituation',label:'项目情况',width:220,tooltip:false},
   {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
@@ -410,27 +416,34 @@ const tableColumns=[
   {key:'duplicateReviewRequired',label:'核重状态',width:100}
 ]
 const legacyDefaultColumnKeys=[
+  ['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'],
+  ['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'],
   ['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired'],
   ['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','status','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 ]
-const defaultColumnKeys=['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired']
+const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired']
 const contactColumnKeys=new Set(['primaryPhone','primaryEmail'])
 const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
-const settingsColumns=computed(()=>tableColumns.filter(item=>!isRecruitmentPool.value||!item.performance))
+const availableToCurrentPool=item=>!isRecruitmentPool.value||(!item.performance&&!item.talentManaged)
+const settingsColumns=computed(()=>tableColumns.filter(availableToCurrentPool))
 const settingsVisibleColumnKeys=computed({
   get:()=>visibleColumnKeys.value.filter(key=>settingsColumns.value.some(item=>item.key===key)),
   set:value=>{const hidden=visibleColumnKeys.value.filter(key=>!settingsColumns.value.some(item=>item.key===key));visibleColumnKeys.value=[...value,...hidden]},
 })
-const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)&&(!isRecruitmentPool.value||!item.performance)))
+const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)&&availableToCurrentPool(item)))
 const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const projectCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false);const statusSavingIds=ref(new Set())
 const talentTableRef=ref(null)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:talentTableRef,pagination,deleteRow:(row)=>talentClient.value.delete(row.id),getLabel:(row)=>row.fullName||row.resourceCode||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id];delete projectCache[row.id]},entityName:'人才档案'})
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
 const talentFilterFields=[
   {key:'resourceCode',label:'人才编号',type:'text'},{key:'fullName',label:'姓名',type:'text'},
+  {key:'regionSummary',label:'区域信息',type:'text',placeholder:'筛选籍贯或现居地址'},
+  {key:'educationSummary',label:'学历信息',type:'text',placeholder:'筛选最高学历、院校或专业'},
+  {key:'languageSummary',label:'语言与证书',type:'text',placeholder:'筛选语言、证书或颁发机构'},
   {key:'capabilityTypes',label:'专业能力',type:'select',options:Object.entries(capabilityLabels).map(([value,label])=>({value,label}))},
+  {key:'annotationWillingness',label:'标注意愿',type:'select',options:willingnessOptions,talentManaged:true},
   {key:'languageDirections',label:'语种方向',type:'text'},{key:'annotationLanguageDirections',label:'标注语言方向',type:'text'},
   {key:'industries',label:'行业',type:'text'},{key:'jobTitles',label:'岗位',type:'text'},
   {key:'yearsExperience',label:'工作年限',type:'number-range',wide:true,min:0},
@@ -441,6 +454,8 @@ const talentFilterFields=[
   {key:'nativePlace',label:'籍贯',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
   {key:'nationality',label:'国籍',type:'text'},
+  {key:'overallRating',label:'总体评价',type:'text',performance:true},
+  {key:'projectSituation',label:'项目情况',type:'text',placeholder:'筛选项目名称或订单号'},
   {key:'overallScore',label:'总体评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
   {key:'audioAnnotationScore',label:'音频标注评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
   {key:'nonAudioAnnotationScore',label:'非音频标注评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
@@ -450,10 +465,10 @@ const talentFilterFields=[
   {key:'duplicateReviewRequired',label:'核重状态',type:'boolean'},
 ].filter(item=>canViewContacts.value||!contactColumnKeys.has(item.key))
 Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})
-const talentAdvancedFilterFields=computed(()=>talentFilterFields.filter((item)=>item.key!=='status'&&(!item.performance||!isRecruitmentPool.value)))
-const activeTalentFilterFields=computed(()=>talentFilterFields.filter(item=>!item.performance||!isRecruitmentPool.value))
+const talentAdvancedFilterFields=computed(()=>talentFilterFields.filter((item)=>item.key!=='status'&&availableToCurrentPool(item)))
+const activeTalentFilterFields=computed(()=>talentFilterFields.filter(availableToCurrentPool))
 const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterFields.value))
-const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?talentFilterFields.find((item)=>item.key===key&&!item.performance)||null:null
+const headerFilterDefinition=(key)=>talentFilterFields.find((item)=>item.key===key&&availableToCurrentPool(item))||null
 const performanceSortField=ref('')
 const performanceSortDirection=ref('desc')
 let timer=null;let controller=null;let sequence=0
@@ -487,7 +502,7 @@ const emptyForm=()=>({
   contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
   resumePath:'',gender:'',birthDate:null,birthYearMonth:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
   nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
-  annotationExperience:'',interpretationExperience:'',translationExperience:'',otherExperience:'',educationExperiences:[],languageSkills:[],certificates:[],attachments:[],
+  annotationExperience:'',interpretationExperience:'',translationExperience:'',otherExperience:'',annotationWillingness:null,educationExperiences:[],languageSkills:[],certificates:[],attachments:[],
   overallScore:null,overallRating:'',cooperationLevel:null,cooperationNote:'',punctualityLevel:null,punctualityNote:'',
   audioAnnotationScore:null,audioAnnotationEvaluation:'',nonAudioAnnotationScore:null,nonAudioAnnotationEvaluation:'',collectionScore:null,collectionEvaluation:'',
   firstContactDate:null,remarks:'',status:'standby',capabilityTypes:capabilityType.value?[capabilityType.value]:[],
@@ -531,7 +546,7 @@ const cleanInterpretationProfile=p=>p?{...p,languages:blankToNull(p.languages),d
 const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore),remarks:blankToNull(p.remarks)}:null
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
 const contactPayloadKeys=['contactInfo','primaryPhone','secondaryPhone','primaryEmail','secondaryEmail','otherContact','wechat','whatsapp','skype','line']
-const performancePayloadKeys=['overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
+const talentManagedPayloadKeys=['annotationWillingness','overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
 function resetForm(){Object.assign(form,emptyForm());nameFieldsExpanded.value=true;queuedAttachments.photo=[];queuedAttachments.audio=[];formRef.value?.clearValidate();clearFieldSearch()}async function onEditorOpened(){await nextTick();const scrollBody=editorBodyRef.value?.closest('.el-dialog__body');if(scrollBody)scrollBody.scrollTop=0}function onEditorClosed(){pauseDraft();resetForm()}async function openCreate(){resetForm();nameFieldsExpanded.value=true;const chinese=languages.value.find(item=>item.code==='zh-CN');if(chinese)form.languageSkills.push({id:null,_key:recordKey(),languageId:chinese.id,role:'native',priority:1,proficiency:'very_familiar',remarks:'',sortOrder:0});editorTitle.value='新增人才';editorVisible.value=true;await beginDraft('create')}
 function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
 async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
@@ -547,7 +562,7 @@ const payload=(allowDuplicate=false)=>{
     dialects:form.dialects||[],dialectRegions:form.dialectRegions||[],height:form.height||null,appearance:form.appearance||null,nationality:form.nationality||null,ethnicity:form.ethnicity||null,
     employmentStatus:form.employmentStatus||null,employmentDetail:form.employmentDetail||null,studentStage:form.studentStage||null,enrollmentYear:form.enrollmentYear,
     programDurationYears:form.programDurationYears,studentGradeOverride:form.studentGradeOverride||null,highestEducation:form.highestEducation||null,
-    annotationExperience:form.annotationExperience||null,interpretationExperience:form.interpretationExperience||null,translationExperience:form.translationExperience||null,otherExperience:form.otherExperience||null,
+    annotationExperience:form.annotationExperience||null,interpretationExperience:form.interpretationExperience||null,translationExperience:form.translationExperience||null,otherExperience:form.otherExperience||null,annotationWillingness:form.annotationWillingness||null,
     educationExperiences:form.educationExperiences.map((item,index)=>({...cleanChild(item),sortOrder:index})),
     languageSkills:form.languageSkills.filter(item=>item.languageId).map((item,index)=>({...cleanChild(item),sortOrder:index})),
     certificates:form.certificates.filter(item=>item.name?.trim()).map((item,index)=>({...cleanChild(item),sortOrder:index})),
@@ -564,7 +579,7 @@ const payload=(allowDuplicate=false)=>{
     careerProfile:cleanCareerProfile(form.careerProfile),
   }
   if(!canViewContacts.value)contactPayloadKeys.forEach(key=>delete result[key])
-  if(isRecruitmentPool.value)performancePayloadKeys.forEach(key=>delete result[key])
+  if(isRecruitmentPool.value)talentManagedPayloadKeys.forEach(key=>delete result[key])
   return result
 }
 async function savePayload(allowDuplicate=false){const client=talentClient.value;return form.id?client.update(form.id,payload(allowDuplicate)):client.create(payload(allowDuplicate))}

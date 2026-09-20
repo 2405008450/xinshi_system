@@ -4,11 +4,14 @@ from uuid import uuid4
 from routers.annotation_projects import router as annotation_router
 from routers.talents import router as talent_router
 from talent_overview_service import (
+    _prepare_saved_payload,
     get_talent_overview,
     lookup_language_reserves,
     resolve_overview_for_language,
     resolve_overview_for_text,
 )
+from talent_overview_models import TalentOverviewSnapshot
+from talent_overview_schemas import TalentOverviewWrite
 
 
 def language(label, *, overview_key=None, aliases=None):
@@ -41,13 +44,16 @@ class FakeLanguageQuery:
     def all(self):
         return self.rows
 
+    def first(self):
+        return self.rows[0] if self.rows else None
+
 
 class FakeDb:
     def __init__(self, rows):
         self.rows = rows
 
-    def query(self, *_args):
-        return FakeLanguageQuery(self.rows)
+    def query(self, model, *_args):
+        return FakeLanguageQuery([] if model is TalentOverviewSnapshot else self.rows)
 
 
 def test_talent_overview_preserves_snapshot_totals_and_nulls():
@@ -111,5 +117,65 @@ def test_overview_and_annotation_lookup_routes_are_separate():
         if route.path == "/projects/annotation/language-reserves/lookup"
         and route.methods == {"POST"}
     )
+    update_route = next(
+        route for route in talent_router.routes
+        if route.path == "/talents/overview" and route.methods == {"PUT"}
+    )
     assert overview_route.dependant.dependencies
+    assert len(update_route.dependant.dependencies) > len(overview_route.dependant.dependencies)
     assert lookup_route.dependant.dependencies
+
+
+def test_editable_snapshot_adds_column_and_row_and_recalculates_totals():
+    previous = get_talent_overview()
+    column_key = "col-00000000-0000-4000-8000-000000000001"
+    row_key = "row-00000000-0000-4000-8000-000000000001"
+    columns = [
+        {key: item[key] for key in ("key", "label", "group", "width")}
+        for item in previous["columns"]
+    ]
+    columns.append({"key": column_key, "label": "新增企微", "group": "wecom", "width": 120})
+    rows = [{
+        "overview_key": row["overview_key"],
+        "language": row["language"],
+        "updated_at": row.get("updated_at"),
+        "counts": {**row["counts"], column_key: None},
+    } for row in previous["rows"]]
+    rows.append({
+        "overview_key": row_key,
+        "language": "测试语种",
+        "updated_at": "2026-09-20",
+        "counts": {**{item["key"]: None for item in previous["columns"]}, column_key: 7},
+    })
+
+    saved = _prepare_saved_payload(previous, TalentOverviewWrite(
+        expected_revision=1, columns=columns, rows=rows,
+    ))
+
+    assert saved["rows"][-1]["row_total"] == 7
+    assert saved["column_totals"][column_key] == 7
+    assert saved["grand_total"] == previous["grand_total"] + 7
+
+
+def test_renaming_language_keeps_old_name_as_hidden_alias():
+    previous = get_talent_overview()
+    columns = [
+        {key: item[key] for key in ("key", "label", "group", "width")}
+        for item in previous["columns"]
+    ]
+    rows = [{
+        "overview_key": row["overview_key"],
+        "language": "英文" if row["language"] == "英语" else row["language"],
+        "updated_at": row.get("updated_at"),
+        "counts": row["counts"],
+    } for row in previous["rows"]]
+
+    saved = _prepare_saved_payload(previous, TalentOverviewWrite(
+        expected_revision=1, columns=columns, rows=rows,
+    ))
+    renamed = next(row for row in saved["rows"] if row["overview_key"] == "overview-001")
+    old_match, match_type = resolve_overview_for_text("英语", data=saved)
+
+    assert "英语" in renamed["aliases"]
+    assert old_match["language"] == "英文"
+    assert match_type == "alias"

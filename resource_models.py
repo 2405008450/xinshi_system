@@ -48,6 +48,7 @@ class ResourcePerson(Base):
         Index("ix_resource_person_primary_phone", "primary_phone"),
         Index("ix_resource_person_primary_email", "primary_email"),
         Index("ix_resource_person_status", "status"),
+        Index("ix_resource_person_annotation_willingness", "annotation_willingness"),
         Index("ix_resource_person_overall_score", "overall_score"),
         Index("ix_resource_person_audio_annotation_score", "audio_annotation_score"),
         Index("ix_resource_person_non_audio_annotation_score", "non_audio_annotation_score"),
@@ -67,6 +68,10 @@ class ResourcePerson(Base):
         CheckConstraint(
             "collection_score IS NULL OR collection_score BETWEEN 1 AND 10",
             name="ck_resource_person_collection_score",
+        ),
+        CheckConstraint(
+            "annotation_willingness IS NULL OR annotation_willingness IN ('high', 'medium', 'low')",
+            name="ck_resource_person_annotation_willingness",
         ),
         CheckConstraint(
             "cooperation_level IS NULL OR cooperation_level IN ('high', 'medium', 'low')",
@@ -128,6 +133,7 @@ class ResourcePerson(Base):
     interpretation_experience: Mapped[Optional[str]] = mapped_column(Text)
     translation_experience: Mapped[Optional[str]] = mapped_column(Text)
     other_experience: Mapped[Optional[str]] = mapped_column(Text)
+    annotation_willingness: Mapped[Optional[str]] = mapped_column(String(20))
     overall_score: Mapped[Optional[int]] = mapped_column(Integer)
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
     cooperation_level: Mapped[Optional[str]] = mapped_column(String(20))
