@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from annotation_schemas import AnnotationProjectListResponse
+from annotation_notice_schemas import validate_tiptap_document
 
 
 class PlatformWrite(BaseModel):
@@ -577,6 +578,37 @@ class ArrangementWorkloadItemResponse(BaseModel):
 class ArrangementWorkloadResponse(BaseModel):
     items: list[ArrangementWorkloadItemResponse]
     total: int = 0
+
+
+class ArrangementDailyNoteWrite(BaseModel):
+    content_json: dict
+    expected_updated_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        try:
+            self.content_json = validate_tiptap_document(self.content_json)
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("须知", "今日安排")) from exc
+
+        def contains_text(node) -> bool:
+            return bool(node.get("text", "").strip()) or any(
+                contains_text(child) for child in node.get("content", [])
+            )
+
+        if not contains_text(self.content_json):
+            raise ValueError("今日安排内容不能为空")
+        return self
+
+
+class ArrangementDailyNoteResponse(BaseModel):
+    id: UUID
+    note_date: date
+    content_json: dict
+    updated_by: Optional[UUID] = None
+    updated_by_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class CustomFieldWrite(BaseModel):

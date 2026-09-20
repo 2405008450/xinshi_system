@@ -231,11 +231,7 @@ const canViewManuscript = computed(() => canViewManuscriptArrangements())
 const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
 const showResourceManagement = computed(() => canViewTalentResourceLibrary())
-const resourceManagementPath = computed(() => (
-  hasPermission(['talents:read', 'translators:read'])
-    ? '/resource-management/talent-overview'
-    : '/resource-management/recruitment-talents'
-))
+const resourceManagementPath = '/resource-management/talent-overview'
 const showResourceRequests = computed(() => canViewProjects.value)
 const showBusinessGroup = computed(() => (
   showConsultations.value || canViewProjects.value || canViewAnnotation.value
@@ -289,7 +285,7 @@ const resolveActiveMenu = (path) => {
   if (path === '/annotation' || path.startsWith('/annotation-')) return '/annotation-details'
   if (path === '/recruitment' || path.startsWith('/recruitment-details')) return '/recruitment-details'
   if (path === '/resource-management' || path.startsWith('/resource-management/')) {
-    return resourceManagementPath.value
+    return resourceManagementPath
   }
   return path
 }

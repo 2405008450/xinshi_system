@@ -130,6 +130,7 @@ from annotation_ops_models import (
     AnnotationArrangementTaskType,
     AnnotationProjectArrangementScope,
     AnnotationProjectArrangementTask,
+    AnnotationArrangementDailyNote,
     AnnotationTrialRecord,
 )
 from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
@@ -580,6 +581,20 @@ RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
     "UPDATE resource_person SET english_name=full_name WHERE english_name IS NULL AND chinese_name IS NULL",
 )
 
+RESOURCE_PERSON_PERFORMANCE_COLUMN_STATEMENTS = (
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS overall_score INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS cooperation_level VARCHAR(20)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS cooperation_note TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS punctuality_level VARCHAR(20)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS punctuality_note TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS audio_annotation_score INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS audio_annotation_evaluation TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS non_audio_annotation_score INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS non_audio_annotation_evaluation TEXT",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS collection_score INTEGER",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS collection_evaluation TEXT",
+)
+
 
 def ensure_project_file_path_columns():
     inspector = inspect(engine)
@@ -1004,6 +1019,51 @@ def ensure_resource_person_profile_columns():
     with engine.begin() as conn:
         for statement in RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS:
             conn.execute(text(statement))
+
+
+def ensure_resource_person_performance_columns():
+    """补齐人才综合表现字段、约束与评分索引。"""
+    if "resource_person" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        for statement in RESOURCE_PERSON_PERFORMANCE_COLUMN_STATEMENTS:
+            conn.execute(text(statement))
+        conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_overall_score') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_overall_score
+                        CHECK (overall_score IS NULL OR overall_score BETWEEN 1 AND 10);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_audio_annotation_score') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_audio_annotation_score
+                        CHECK (audio_annotation_score IS NULL OR audio_annotation_score BETWEEN 1 AND 10);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_non_audio_annotation_score') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_non_audio_annotation_score
+                        CHECK (non_audio_annotation_score IS NULL OR non_audio_annotation_score BETWEEN 1 AND 10);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_collection_score') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_collection_score
+                        CHECK (collection_score IS NULL OR collection_score BETWEEN 1 AND 10);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_cooperation_level') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_cooperation_level
+                        CHECK (cooperation_level IS NULL OR cooperation_level IN ('high', 'medium', 'low'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_person_punctuality_level') THEN
+                    ALTER TABLE resource_person ADD CONSTRAINT ck_resource_person_punctuality_level
+                        CHECK (punctuality_level IS NULL OR punctuality_level IN ('high', 'medium', 'low'));
+                END IF;
+            END $$;
+        """))
+        for column in (
+            "overall_score", "audio_annotation_score",
+            "non_audio_annotation_score", "collection_score",
+        ):
+            conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS ix_resource_person_{column} "
+                f"ON resource_person ({column})"
+            ))
 
 
 def ensure_resource_request_lifecycle_columns():
@@ -1667,6 +1727,7 @@ def run_runtime_migrations():
     ensure_talent_permission_compatibility()
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)
     ensure_resource_person_profile_columns()
+    ensure_resource_person_performance_columns()
     ResourceCapability.__table__.create(bind=engine, checkfirst=True)
     WrittenTranslationProfile.__table__.create(bind=engine, checkfirst=True)
     InterpretationProfile.__table__.create(bind=engine, checkfirst=True)
@@ -1822,6 +1883,7 @@ def run_runtime_migrations():
     ResourceRequestItemExtraLanguage.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestProgressLog.__table__.create(bind=engine, checkfirst=True)
     ResourceRequestDailyNote.__table__.create(bind=engine, checkfirst=True)
+    AnnotationArrangementDailyNote.__table__.create(bind=engine, checkfirst=True)
     ensure_resource_request_lifecycle_columns()
     ensure_project_idempotency_columns()
     ensure_resource_request_view()

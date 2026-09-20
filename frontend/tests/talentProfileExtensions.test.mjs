@@ -38,6 +38,34 @@ test('人才长表单每次打开时恢复到顶部', () => {
   assert.match(source, /scrollBody\.scrollTop=0/)
 })
 
+test('人才综合表现支持结构化录入、详情弹窗和高级评分筛选排序', () => {
+  for (const field of [
+    'overallScore', 'overallRating', 'cooperationLevel', 'cooperationNote',
+    'punctualityLevel', 'punctualityNote', 'audioAnnotationScore',
+    'audioAnnotationEvaluation', 'nonAudioAnnotationScore',
+    'nonAudioAnnotationEvaluation', 'collectionScore', 'collectionEvaluation',
+  ]) {
+    assert.match(source, new RegExp(`form\\.${field}|${field}:form\\.${field}`))
+  }
+  for (const filter of ['overallScore', 'audioAnnotationScore', 'nonAudioAnnotationScore', 'collectionScore']) {
+    assert.match(source, new RegExp(`key:'${filter}'.*type:'number-range'`))
+  }
+  assert.match(source, /section="performance"/)
+  assert.match(source, /performanceSortField/)
+  assert.match(source, /v-if="!isRecruitmentPool" class="form-section performance-form-section"/)
+  assert.match(source, /:show-performance="!isRecruitmentPool"/)
+  assert.match(detailSource, /shows\('performance'\)/)
+  assert.match(detailSource, /音频标注表现/)
+  assert.match(detailSource, /非音频标注表现/)
+  assert.match(detailSource, /采集表现/)
+})
+
+test('总体评价加入默认列并迁移旧默认组合', () => {
+  assert.match(source, /defaultColumnKeys=\[[^\]]*'overallRating'/)
+  assert.match(source, /legacyDefaultColumnKeys=\[\s*\[\s*'fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired'/)
+  assert.match(source, /overallPerformanceSummary/)
+})
+
 test('人才列表姓名按中文名、英文名、昵称、其他名字顺序只显示一个', () => {
   assert.equal(getTalentDisplayName({
     chineseName: ' 张三 ', englishName: 'San Zhang', nickname: '小张', otherNames: ['Zhang San'], fullName: '旧名称',

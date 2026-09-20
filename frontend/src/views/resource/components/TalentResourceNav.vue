@@ -15,16 +15,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { TALENT_RESOURCE_VIEWS } from '@/config/talentResourceViews'
-import { hasPermission } from '@/utils/permission'
 
 const route = useRoute()
 const router = useRouter()
-const visibleViews = computed(() => (
-  TALENT_RESOURCE_VIEWS.filter(item => hasPermission(item.permissions))
-))
+const visibleViews = TALENT_RESOURCE_VIEWS
 </script>
 
 <style scoped>

@@ -1784,6 +1784,24 @@ def _status_history_search_query(db: Session):
     client_manager_user = aliased(AppUser)
     project_manager_user = aliased(AppUser)
     project_manager_assignment = aliased(ProjectWorkbenchResponsibility)
+    project_manager_display_name = func.coalesce(
+        func.nullif(func.btrim(project_manager_user.full_name), ""),
+        project_manager_user.username,
+    )
+    # 标注项目允许配置多位项目经理，责任表与进度记录是一对多关系。
+    # 通过相关子查询聚合负责人，避免直接联表导致一条进度被放大为多行。
+    project_manager_names = (
+        select(func.string_agg(func.distinct(project_manager_display_name), "、"))
+        .select_from(project_manager_assignment)
+        .join(project_manager_user, project_manager_user.id == project_manager_assignment.assignee_id)
+        .where(
+            project_manager_assignment.annotation_project_id == AnnotationProject.id,
+            project_manager_assignment.role_code == "project_manager",
+            project_manager_assignment.assignee_id.isnot(None),
+        )
+        .correlate(AnnotationProject)
+        .scalar_subquery()
+    )
 
     return (
         db.query(
@@ -1809,23 +1827,12 @@ def _status_history_search_query(db: Session):
                 func.nullif(func.btrim(client_manager_user.full_name), ""),
                 client_manager_user.username,
             ).label("client_manager_name"),
-            func.coalesce(
-                func.nullif(func.btrim(project_manager_user.full_name), ""),
-                project_manager_user.username,
-            ).label("project_manager_name"),
+            project_manager_names.label("project_manager_name"),
             func.count(AnnotationProjectStatusHistory.id).over().label("page_total"),
         )
         .join(AnnotationProject, AnnotationProject.id == AnnotationProjectStatusHistory.project_id)
         .outerjoin(changed_by_user, changed_by_user.id == AnnotationProjectStatusHistory.changed_by)
         .outerjoin(client_manager_user, client_manager_user.id == AnnotationProject.client_manager_id)
-        .outerjoin(
-            project_manager_assignment,
-            and_(
-                project_manager_assignment.annotation_project_id == AnnotationProject.id,
-                project_manager_assignment.role_code == "project_manager",
-            ),
-        )
-        .outerjoin(project_manager_user, project_manager_user.id == project_manager_assignment.assignee_id)
     )
 
 

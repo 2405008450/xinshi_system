@@ -87,7 +87,7 @@ ROUTER_CASES = (
     (client_router, "create_client_endpoint", "create_client", "get_client", "plain"),
     (client_router, "create_sub_client_endpoint", "create_sub_client", "get_sub_client", "sub_client"),
     (contact_router, "create_client_contact_endpoint", "create_client_contact", "get_client_contact", "plain"),
-    (talent_router, "create_talent_endpoint", "create_talent", "get_talent", "plain"),
+    (talent_router, "create_talent_endpoint", "create_talent", "get_talent", "talent"),
     (sub_order_router, "create_sub_order_endpoint", "create_sub_order", "get_sub_order", "user"),
 )
 
@@ -129,6 +129,8 @@ def _invoke_endpoint(module, endpoint_name, style, db):
         return endpoint(payload, db, SimpleNamespace(id="user-id"), "same-key-123")
     if style == "sub_client":
         return endpoint("parent-id", payload, db, "same-key-123")
+    if style == "talent":
+        return endpoint(payload, db, "same-key-123", SimpleNamespace(id="user-id"))
     return endpoint(payload, db, "same-key-123")
 
 
@@ -177,6 +179,9 @@ def test_create_endpoint_replays_existing_record(
         module, service_name,
         lambda *_args, **_kwargs: pytest.fail("已有幂等记录时不应再次调用创建服务"),
     )
+    if style == "talent":
+        monkeypatch.setattr(module, "can_view_talent_contacts", lambda *_args: True)
+        monkeypatch.setattr(module, "serialize_with_contact_access", lambda value, *_args, **_kwargs: value)
 
     result = _invoke_endpoint(module, endpoint_name, style, db)
 
@@ -196,6 +201,9 @@ def test_create_endpoint_replays_winner_after_unique_conflict(
         raise IntegrityError("INSERT", {}, Exception("unique idempotency key"))
 
     monkeypatch.setattr(module, service_name, raise_unique_conflict)
+    if style == "talent":
+        monkeypatch.setattr(module, "can_view_talent_contacts", lambda *_args: True)
+        monkeypatch.setattr(module, "serialize_with_contact_access", lambda value, *_args, **_kwargs: value)
 
     result = _invoke_endpoint(module, endpoint_name, style, db)
 

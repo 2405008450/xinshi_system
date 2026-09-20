@@ -22,6 +22,7 @@ EmploymentStatus = Literal["student", "employed", "freelance", "seeking", "retir
 LanguageRole = Literal["native", "foreign", "dialect_ethnic"]
 LanguageProficiency = Literal["very_familiar", "familiar", "basic", "listening_mainly", "listening_only"]
 CertificateType = Literal["language", "other"]
+PerformanceLevel = Literal["high", "medium", "low"]
 
 
 def _clean_text(value):
@@ -213,7 +214,18 @@ class ResourcePersonWrite(BaseModel):
     annotation_experience: Optional[str] = None
     interpretation_experience: Optional[str] = None
     translation_experience: Optional[str] = None
+    overall_score: Optional[int] = Field(default=None, ge=1, le=10)
     overall_rating: Optional[str] = None
+    cooperation_level: Optional[PerformanceLevel] = None
+    cooperation_note: Optional[str] = None
+    punctuality_level: Optional[PerformanceLevel] = None
+    punctuality_note: Optional[str] = None
+    audio_annotation_score: Optional[int] = Field(default=None, ge=1, le=10)
+    audio_annotation_evaluation: Optional[str] = None
+    non_audio_annotation_score: Optional[int] = Field(default=None, ge=1, le=10)
+    non_audio_annotation_evaluation: Optional[str] = None
+    collection_score: Optional[int] = Field(default=None, ge=1, le=10)
+    collection_evaluation: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
     status: ResourceStatus = "standby"
@@ -235,7 +247,9 @@ class ResourcePersonWrite(BaseModel):
         "other_contact", "wechat", "whatsapp", "skype", "line", "resume_path", "gender",
         "native_place", "residence_address", "height", "appearance", "nationality", "ethnicity",
         "employment_detail", "student_stage", "student_grade_override", "annotation_experience",
-        "interpretation_experience", "translation_experience", "overall_rating", "remarks", mode="before",
+        "interpretation_experience", "translation_experience", "overall_rating",
+        "cooperation_note", "punctuality_note", "audio_annotation_evaluation",
+        "non_audio_annotation_evaluation", "collection_evaluation", "remarks", mode="before",
     )
     @classmethod
     def normalize_text(cls, value):
@@ -404,10 +418,12 @@ class ResourcePersonListResponse(BaseModel):
     dialects: list[str] = Field(default_factory=list)
     dialect_regions: list[str] = Field(default_factory=list)
     nationality: Optional[str] = None
+    overall_score: Optional[int] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    contact_restricted: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -449,6 +465,16 @@ class ResourcePersonDetailResponse(ResourcePersonListResponse):
     annotation_experience: Optional[str] = None
     interpretation_experience: Optional[str] = None
     translation_experience: Optional[str] = None
+    cooperation_level: Optional[PerformanceLevel] = None
+    cooperation_note: Optional[str] = None
+    punctuality_level: Optional[PerformanceLevel] = None
+    punctuality_note: Optional[str] = None
+    audio_annotation_score: Optional[int] = None
+    audio_annotation_evaluation: Optional[str] = None
+    non_audio_annotation_score: Optional[int] = None
+    non_audio_annotation_evaluation: Optional[str] = None
+    collection_score: Optional[int] = None
+    collection_evaluation: Optional[str] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
@@ -471,6 +497,7 @@ class DuplicateCandidateResponse(BaseModel):
     primary_phone: Optional[str] = None
     primary_email: Optional[str] = None
     match_fields: list[str] = Field(default_factory=list)
+    contact_restricted: bool = False
 
 
 class DuplicateCheckResponse(BaseModel):

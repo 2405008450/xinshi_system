@@ -24,9 +24,6 @@ const storedAccessRevision = ref(0)
 
 /** 可查看“稿件安排”的普通角色；超级管理员由 canAccessRoute 单独放行。 */
 export const MANUSCRIPT_VIEW_ROLES = [ROLE_PROJECT_MANAGER, ROLE_PROJECT_ASSISTANT]
-/** 可访问“人才资源库”的普通角色；超级管理员始终放行。 */
-export const TALENT_RESOURCE_VIEW_ROLES = [ROLE_PROJECT_ASSISTANT]
-
 /**
  * 从 localStorage 读取当前用户角色列表
  * @returns {string[]}
@@ -92,17 +89,9 @@ export function canViewManuscriptArrangements(userRoles, userPermissions) {
   )
 }
 
-/** 是否允许访问“人才资源库”；角色门槛优先于可配置的细粒度权限。 */
-export function canViewTalentResourceLibrary(userRoles, userPermissions) {
-  const roles = userRoles ?? getStoredRoles()
-  return isSuperAdmin(roles) || (
-    hasRole(TALENT_RESOURCE_VIEW_ROLES, roles) &&
-    hasPermission([
-      'talents:read',
-      'translators:read',
-      'recruitment_talents:read',
-    ], userPermissions)
-  )
+/** 人才资源库对所有已登录用户开放；登录态由全局路由守卫负责。 */
+export function canViewTalentResourceLibrary() {
+  return true
 }
 
 /**
@@ -134,12 +123,8 @@ export function getDefaultRoute() {
   if (hasPermission('consultations:read')) return '/consultations'
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'
-  if (canViewTalentResourceLibrary()) {
-    if (hasPermission(['talents:read', 'translators:read'])) return '/resource-management/talent-overview'
-    if (hasPermission('recruitment_talents:read')) return '/resource-management/recruitment-talents'
-  }
   if (hasPermission('finance:read')) return '/finance'
-  return '/pending-modules'
+  return '/resource-management/talent-overview'
 }
 
 /**

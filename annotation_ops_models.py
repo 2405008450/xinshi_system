@@ -484,3 +484,35 @@ class AnnotationCustomFieldDefinition(Base):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+class AnnotationArrangementDailyNote(Base):
+    """标注项目安排按业务日期维护的团队共享说明。"""
+
+    __tablename__ = "annotation_arrangement_daily_note"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_arrangement_daily_note_pkey"),
+        UniqueConstraint("note_date", name="uq_annotation_arrangement_daily_note_date"),
+        ForeignKeyConstraint(
+            ["updated_by"], ["app_user.id"], ondelete="SET NULL",
+            name="fk_annotation_arrangement_daily_note_updated_by",
+        ),
+        Index("ix_annotation_arrangement_daily_note_date", text("note_date DESC")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    note_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    editor: Mapped[Optional["AppUser"]] = relationship(
+        "AppUser", foreign_keys=[updated_by]
+    )

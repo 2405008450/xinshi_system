@@ -9,20 +9,45 @@ from crud import (
     create_translator, update_translator, delete_translator
 )
 from schemas import TranslatorCreate, TranslatorUpdate, TranslatorResponse
-from routers.auth import require_any_role, require_module_access
+from routers.auth import get_current_user, require_permission
+from talent_privacy import (
+    LEGACY_TRANSLATOR_CONTACT_FIELDS,
+    can_view_talent_contacts,
+    has_contact_values,
+    preserve_contact_fields,
+    serialize_with_contact_access,
+)
 
 router = APIRouter(
     prefix="/translators",
     tags=["translators"],
-    dependencies=[
-        Depends(require_module_access("translators:read", "translators:write")),
-        Depends(require_any_role("项目助理")),
-    ],
+    dependencies=[Depends(get_current_user)],
 )
+translator_write_dependencies = [Depends(require_permission("translators:write"))]
 
-@router.post("/", response_model=TranslatorResponse, status_code=status.HTTP_201_CREATED)
-def create_translator_endpoint(translator: TranslatorCreate, db: Session = Depends(get_db)):
-    return create_translator(db=db, translator=translator)
+@router.post(
+    "/", response_model=TranslatorResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=translator_write_dependencies,
+)
+def create_translator_endpoint(
+    translator: TranslatorCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if not contacts_visible and has_contact_values(
+        translator, LEGACY_TRANSLATOR_CONTACT_FIELDS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有超级管理员可以录入译员联系方式",
+        )
+    created = create_translator(db=db, translator=translator)
+    return serialize_with_contact_access(
+        created, TranslatorResponse, LEGACY_TRANSLATOR_CONTACT_FIELDS,
+        contacts_visible=contacts_visible,
+    )
 
 @router.get("/", response_model=List[TranslatorResponse])
 def read_translators(
@@ -50,9 +75,16 @@ def read_translators(
     daily_word_capacity_max: Optional[int] = Query(None, ge=0),
     stale_only: bool = Query(False),
     stale_days: int = Query(4, ge=1, le=30),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    return get_translators(
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if contact_keyword and not contacts_visible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="联系方式搜索仅超级管理员可用",
+        )
+    translators = get_translators(
         db,
         skip=skip,
         limit=limit,
@@ -79,6 +111,13 @@ def read_translators(
         stale_only=stale_only,
         stale_days=stale_days,
     )
+    return [
+        serialize_with_contact_access(
+            item, TranslatorResponse, LEGACY_TRANSLATOR_CONTACT_FIELDS,
+            contacts_visible=contacts_visible,
+        )
+        for item in translators
+    ]
 
 @router.get("/count")
 def read_translator_count(
@@ -104,8 +143,14 @@ def read_translator_count(
     daily_word_capacity_max: Optional[int] = Query(None, ge=0),
     stale_only: bool = Query(False),
     stale_days: int = Query(4, ge=1, le=30),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    if contact_keyword and not can_view_talent_contacts(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="联系方式搜索仅超级管理员可用",
+        )
     return {
         "total": count_translators(
             db,
@@ -135,20 +180,51 @@ def read_translator_count(
     }
 
 @router.get("/{translator_id}", response_model=TranslatorResponse)
-def read_translator(translator_id: UUID, db: Session = Depends(get_db)):
+def read_translator(
+    translator_id: UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     db_translator = get_translator(db, translator_id=translator_id)
     if not db_translator:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在")
-    return db_translator
+    return serialize_with_contact_access(
+        db_translator, TranslatorResponse, LEGACY_TRANSLATOR_CONTACT_FIELDS,
+        contacts_visible=can_view_talent_contacts(db, current_user),
+    )
 
-@router.put("/{translator_id}", response_model=TranslatorResponse)
-def update_translator_endpoint(translator_id: UUID, translator_update: TranslatorUpdate, db: Session = Depends(get_db)):
+@router.put(
+    "/{translator_id}", response_model=TranslatorResponse,
+    dependencies=translator_write_dependencies,
+)
+def update_translator_endpoint(
+    translator_id: UUID,
+    translator_update: TranslatorUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if not contacts_visible:
+        existing = get_translator(db, translator_id=translator_id)
+        if not existing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在"
+            )
+        translator_update = preserve_contact_fields(
+            translator_update, existing, LEGACY_TRANSLATOR_CONTACT_FIELDS
+        )
     db_translator = update_translator(db, translator_id=translator_id, translator_update=translator_update)
     if not db_translator:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="译员不存在")
-    return db_translator
+    return serialize_with_contact_access(
+        db_translator, TranslatorResponse, LEGACY_TRANSLATOR_CONTACT_FIELDS,
+        contacts_visible=contacts_visible,
+    )
 
-@router.delete("/{translator_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{translator_id}", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=translator_write_dependencies,
+)
 def delete_translator_endpoint(translator_id: UUID, db: Session = Depends(get_db)):
     success = delete_translator(db, translator_id=translator_id)
     if not success:

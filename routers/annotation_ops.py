@@ -32,10 +32,14 @@ from annotation_ops_schemas import (
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
     ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
     ArrangementAssigneeResponse, ArrangementBatchWrite, ArrangementContextResponse,
+    ArrangementDailyNoteResponse, ArrangementDailyNoteWrite,
     ArrangementMembershipResponse, ArrangementMembershipWrite,
     ArrangementOverviewResponse, ArrangementTaskResponse, ArrangementTaskTypeResponse, ArrangementTaskTypeStateWrite,
     ArrangementTaskTypeWrite,
     ArrangementWorkloadResponse,
+)
+from annotation_arrangement_note_service import (
+    get_arrangement_daily_note, save_arrangement_daily_note,
 )
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
@@ -466,6 +470,35 @@ def arrangement_workloads(
         skip=skip,
         limit=limit,
     )
+
+
+@project_router.get(
+    "/project-arrangements/daily-notes/{note_date}",
+    response_model=Optional[ArrangementDailyNoteResponse],
+)
+def arrangement_daily_note(note_date: date, db: Session = Depends(get_db)):
+    return get_arrangement_daily_note(db, note_date)
+
+
+@project_router.put(
+    "/project-arrangements/daily-notes/{note_date}",
+    response_model=ArrangementDailyNoteResponse,
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_arrangement_daily_note(
+    note_date: date,
+    payload: ArrangementDailyNoteWrite,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    try:
+        return save_arrangement_daily_note(db, note_date, payload, user.id)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="今日安排刚刚被其他人创建，请刷新后再编辑",
+        ) from exc
 
 
 @project_router.put(

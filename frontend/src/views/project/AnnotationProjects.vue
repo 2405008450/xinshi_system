@@ -197,28 +197,20 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="150" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right" align="center">
         <template #default="{ row }">
           <div class="annotation-row-actions">
-            <el-button
-              v-if="canManageArrangementPool && !row.arrangementIncluded"
-              type="primary"
-              link
-              :loading="arrangementMembershipSavingIds.has(row.id)"
-              @click="setArrangementMembership(row, true)"
-            >加入安排</el-button>
-            <template v-else-if="row.arrangementIncluded">
+            <span class="arrangement-status-slot">
               <el-tooltip
+                v-if="row.arrangementIncluded"
                 :content="row.arrangementMembershipNote ? `已加入安排池：${row.arrangementMembershipNote}` : '已加入安排池'"
                 placement="top"
               >
                 <el-icon class="arrangement-included-indicator" aria-label="已加入安排池"><Check /></el-icon>
               </el-tooltip>
-              <el-button v-if="canWrite" type="primary" link @click="openArrangement(row)">安排</el-button>
-            </template>
+            </span>
             <ProjectListRowActions
               :editable="canWrite"
-              edit-in-more
               :show-start-request="canWrite"
               :start-request-label="resourceRequestActionLabel(row.id)"
               :extra-actions="projectRowExtraActions(row)"
@@ -609,12 +601,26 @@ const projectExtraActions = [
   ...(canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []),
 ]
 const projectRowExtraActions = (row) => [
+  ...(canManageArrangementPool && !row.arrangementIncluded
+    ? [{ command: 'arrangement-add', label: '加入安排', disabled: arrangementMembershipSavingIds.value.has(row.id) }]
+    : []),
+  ...(canWrite && row.arrangementIncluded
+    ? [{ command: 'arrangement-open', label: '安排' }]
+    : []),
   ...projectExtraActions,
   ...(canManageArrangementPool && row.arrangementIncluded
-    ? [{ command: 'arrangement-remove', label: '移出安排' }]
+    ? [{ command: 'arrangement-remove', label: '移出安排', disabled: arrangementMembershipSavingIds.value.has(row.id) }]
     : []),
 ]
 const handleProjectExtraAction = (command, row) => {
+  if (command === 'arrangement-add') {
+    setArrangementMembership(row, true)
+    return
+  }
+  if (command === 'arrangement-open') {
+    openArrangement(row)
+    return
+  }
   if (command === 'arrangement-remove') {
     setArrangementMembership(row, false)
     return
@@ -920,7 +926,8 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 .progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
 .progress-chat-source{margin:-2px 0 10px;padding:7px 10px;border:1px solid var(--el-color-primary-light-7);border-radius:6px;color:var(--el-color-primary-dark-2);background:rgba(255,255,255,.72);font-size:12px;line-height:1.5}
 .inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}
-.annotation-row-actions{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.annotation-row-actions{display:inline-grid;grid-template-columns:16px 78px;align-items:center;justify-content:center;gap:6px;width:100px;white-space:nowrap}
+.arrangement-status-slot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:24px}
 .arrangement-included-indicator{color:var(--el-color-success);font-size:16px}
 .card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 .annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}

@@ -55,26 +55,22 @@ test('稿件安排同时校验项目读取权限和指定角色', () => {
   assert.equal(canViewManuscriptArrangements(), false)
 })
 
-test('人才资源库要求项目助理角色与读取权限同时满足', () => {
+test('人才资源库对所有已登录角色开放', () => {
   setAccess(['招聘'], ['recruitment_talents:read'])
-  assert.equal(canViewTalentResourceLibrary(), false)
-  assert.equal(canAccessRoute({
-    meta: { permissions: ['recruitment_talents:read'], roles: ['项目助理'] },
-  }), false)
-  assert.equal(getDefaultRoute(), '/pending-modules')
-
-  setAccess(['项目助理'], ['recruitment_talents:read'])
   assert.equal(canViewTalentResourceLibrary(), true)
-  assert.equal(getDefaultRoute(), '/resource-management/recruitment-talents')
+  assert.equal(canAccessRoute({
+    meta: { roles: ['*'] },
+  }), true)
+  assert.equal(getDefaultRoute(), '/resource-management/talent-overview')
 
-  setAccess(['项目助理'], ['talents:read'])
+  setAccess(['项目专员'], [])
   assert.equal(canViewTalentResourceLibrary(), true)
   assert.equal(getDefaultRoute(), '/resource-management/talent-overview')
 
   setAccess(['超级管理员'], [])
   assert.equal(canViewTalentResourceLibrary(), true)
   assert.equal(canAccessRoute({
-    meta: { permissions: ['talents:read'], roles: ['项目助理'] },
+    meta: { roles: ['*'] },
   }), true)
 })
 

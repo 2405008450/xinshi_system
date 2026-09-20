@@ -8,7 +8,12 @@ from fastapi import HTTPException
 from sqlalchemy.dialects import postgresql
 
 import recruitment_models  # noqa: F401  确保工作台关联模型在 SQLAlchemy 配置前完成注册。
-from annotation_ops_service import _escape_like_keyword, list_recent_status_history, search_status_history
+from annotation_ops_service import (
+    _escape_like_keyword,
+    _status_history_search_query,
+    list_recent_status_history,
+    search_status_history,
+)
 from routers.annotation_ops import project_router, recent_status_history, status_history_search
 
 
@@ -63,8 +68,10 @@ class RecordingQuery:
 class RecordingDb:
     def __init__(self, rows, scalar_total=0):
         self.query_instance = RecordingQuery(rows, scalar_total)
+        self.query_columns = ()
 
-    def query(self, *_columns):
+    def query(self, *columns):
+        self.query_columns = columns
         return self.query_instance
 
 
@@ -90,6 +97,18 @@ def history_row(*, from_status, to_status, note, total=2):
 
 def test_progress_search_escapes_like_wildcards_as_literal_text():
     assert _escape_like_keyword(r"完成_50%\待确认") == r"完成\_50\%\\待确认"
+
+
+def test_progress_search_aggregates_project_managers_without_expanding_history_rows():
+    db = RecordingDb([])
+
+    _status_history_search_query(db)
+
+    query_columns_sql = " ".join(_sql(column) for column in db.query_columns)
+    assert "string_agg" in query_columns_sql
+    assert "distinct" in query_columns_sql
+    assert "annotation_project_id = annotation_project.id" in query_columns_sql
+    assert "assignee_id is not null" in query_columns_sql
 
 
 def test_progress_search_filters_body_and_node_date_and_maps_record_types():

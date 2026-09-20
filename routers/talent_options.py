@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from resource_schemas import CapabilityType, TalentOptionResponse
 from resource_service import get_talents
-from routers.auth import require_module_access
+from routers.auth import get_current_user, require_module_access
+from talent_privacy import can_view_talent_contacts
 
 
 router = APIRouter(
@@ -29,6 +30,7 @@ def read_talent_options(
     keyword: str | None = None,
     limit: int = Query(500, ge=1, le=500),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     return get_talents(
         db,
@@ -37,4 +39,5 @@ def read_talent_options(
         statuses=ASSIGNABLE_TALENT_STATUSES,
         capability_type=capability_type,
         capability_status="active",
+        include_contact_search=can_view_talent_contacts(db, current_user),
     )

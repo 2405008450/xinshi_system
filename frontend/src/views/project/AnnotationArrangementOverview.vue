@@ -249,6 +249,10 @@
             @size-change="workloadPageSizeChanged"
           />
         </el-tab-pane>
+
+        <el-tab-pane label="今日安排" name="today" lazy>
+          <AnnotationDailyArrangement :can-edit="canWrite" />
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -276,6 +280,7 @@ import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import AnnotationProjectArrangementQuickDialog from '@/components/annotation/AnnotationProjectArrangementQuickDialog.vue'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
+import AnnotationDailyArrangement from '@/components/annotation/AnnotationDailyArrangement.vue'
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { getProjectStatusLabel, getProjectStatusOptions, getProjectStatusType } from '@/utils/projectStatus'

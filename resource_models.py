@@ -48,6 +48,34 @@ class ResourcePerson(Base):
         Index("ix_resource_person_primary_phone", "primary_phone"),
         Index("ix_resource_person_primary_email", "primary_email"),
         Index("ix_resource_person_status", "status"),
+        Index("ix_resource_person_overall_score", "overall_score"),
+        Index("ix_resource_person_audio_annotation_score", "audio_annotation_score"),
+        Index("ix_resource_person_non_audio_annotation_score", "non_audio_annotation_score"),
+        Index("ix_resource_person_collection_score", "collection_score"),
+        CheckConstraint(
+            "overall_score IS NULL OR overall_score BETWEEN 1 AND 10",
+            name="ck_resource_person_overall_score",
+        ),
+        CheckConstraint(
+            "audio_annotation_score IS NULL OR audio_annotation_score BETWEEN 1 AND 10",
+            name="ck_resource_person_audio_annotation_score",
+        ),
+        CheckConstraint(
+            "non_audio_annotation_score IS NULL OR non_audio_annotation_score BETWEEN 1 AND 10",
+            name="ck_resource_person_non_audio_annotation_score",
+        ),
+        CheckConstraint(
+            "collection_score IS NULL OR collection_score BETWEEN 1 AND 10",
+            name="ck_resource_person_collection_score",
+        ),
+        CheckConstraint(
+            "cooperation_level IS NULL OR cooperation_level IN ('high', 'medium', 'low')",
+            name="ck_resource_person_cooperation_level",
+        ),
+        CheckConstraint(
+            "punctuality_level IS NULL OR punctuality_level IN ('high', 'medium', 'low')",
+            name="ck_resource_person_punctuality_level",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -99,7 +127,18 @@ class ResourcePerson(Base):
     annotation_experience: Mapped[Optional[str]] = mapped_column(Text)
     interpretation_experience: Mapped[Optional[str]] = mapped_column(Text)
     translation_experience: Mapped[Optional[str]] = mapped_column(Text)
+    overall_score: Mapped[Optional[int]] = mapped_column(Integer)
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
+    cooperation_level: Mapped[Optional[str]] = mapped_column(String(20))
+    cooperation_note: Mapped[Optional[str]] = mapped_column(Text)
+    punctuality_level: Mapped[Optional[str]] = mapped_column(String(20))
+    punctuality_note: Mapped[Optional[str]] = mapped_column(Text)
+    audio_annotation_score: Mapped[Optional[int]] = mapped_column(Integer)
+    audio_annotation_evaluation: Mapped[Optional[str]] = mapped_column(Text)
+    non_audio_annotation_score: Mapped[Optional[int]] = mapped_column(Integer)
+    non_audio_annotation_evaluation: Mapped[Optional[str]] = mapped_column(Text)
+    collection_score: Mapped[Optional[int]] = mapped_column(Integer)
+    collection_evaluation: Mapped[Optional[str]] = mapped_column(Text)
     first_contact_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(

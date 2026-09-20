@@ -3,7 +3,6 @@ import {
   canAccessRoute,
   getDefaultRoute,
   MANUSCRIPT_VIEW_ROLES,
-  TALENT_RESOURCE_VIEW_ROLES,
   setStoredAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
@@ -178,45 +177,44 @@ const routes = [
         redirect: '/resource-management/talent-overview',
         meta: {
           title: '资源管理',
-          permissions: ['talents:read', 'translators:read', 'recruitment_talents:read'],
-          roles: TALENT_RESOURCE_VIEW_ROLES
+          roles: ['*']
         },
         children: [
           {
             path: 'talent-overview',
             name: 'TalentOverview',
             component: () => import('../views/resource/TalentOverview.vue'),
-            meta: { title: '人才概览', permissions: ['talents:read', 'translators:read'] }
+            meta: { title: '人才概览', roles: ['*'] }
           },
           {
             path: 'talents',
             name: 'Talents',
             component: () => import('../views/resource/TalentPool.vue'),
-            meta: { title: '人才总库', permissions: ['talents:read', 'translators:read'] }
+            meta: { title: '人才总库', roles: ['*'] }
           },
           {
             path: 'translators',
             name: 'Translators',
             component: () => import('../views/resource/TalentPool.vue'),
-            meta: { title: '笔译资源', capabilityType: 'written_translation', permissions: ['talents:read', 'translators:read'] }
+            meta: { title: '笔译资源', capabilityType: 'written_translation', roles: ['*'] }
           },
           {
             path: 'interpreters',
             name: 'Interpreters',
             component: () => import('../views/resource/TalentPool.vue'),
-            meta: { title: '口译资源', capabilityType: 'interpretation', permissions: ['talents:read', 'translators:read'] }
+            meta: { title: '口译资源', capabilityType: 'interpretation', roles: ['*'] }
           },
           {
             path: 'annotators',
             name: 'Annotators',
             component: () => import('../views/resource/TalentPool.vue'),
-            meta: { title: '标注员', capabilityType: 'annotation', permissions: ['talents:read', 'translators:read'] }
+            meta: { title: '标注员', capabilityType: 'annotation', roles: ['*'] }
           },
           {
             path: 'recruitment-talents',
             name: 'RecruitmentTalents',
             component: () => import('../views/resource/TalentPool.vue'),
-            meta: { title: '招聘人才库', talentApiScope: 'recruitment', permissions: ['recruitment_talents:read'] }
+            meta: { title: '招聘人才库', talentApiScope: 'recruitment', roles: ['*'] }
           },
           {
             path: 'suppliers',

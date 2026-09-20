@@ -36,7 +36,12 @@ from resource_service import (
     update_talent_name,
     update_talent_status,
 )
-from routers.auth import get_current_user, require_any_role, require_module_access
+from routers.auth import (
+    get_current_user,
+    require_any_permission,
+    require_permission,
+    require_super_admin,
+)
 from resource_models import ResourcePerson, ResourcePersonAttachment
 from talent_attachment_service import (
     attachment_path,
@@ -47,28 +52,35 @@ from talent_overview_schemas import TalentOverviewResponse
 from talent_overview_service import get_talent_overview
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
+from talent_privacy import (
+    RESOURCE_CONTACT_FIELDS,
+    can_view_talent_contacts,
+    has_contact_values,
+    preserve_contact_fields,
+    redact_contact_mapping,
+    serialize_with_contact_access,
+)
 
 
 router = APIRouter(
     prefix="/talents",
     tags=["talents"],
-    dependencies=[
-        Depends(require_module_access("talents:read", "talents:write")),
-        Depends(require_any_role("项目助理")),
-    ],
+    dependencies=[Depends(get_current_user)],
 )
 logger = logging.getLogger(__name__)
 
 recruitment_router = APIRouter(
     prefix="/recruitment-talents",
     tags=["recruitment_talents"],
-    dependencies=[
-        Depends(require_module_access(
-            "recruitment_talents:read", "recruitment_talents:write"
-        )),
-        Depends(require_any_role("项目助理")),
-    ],
+    dependencies=[Depends(get_current_user)],
 )
+
+talent_write_dependencies = [Depends(require_any_permission(
+    "talents:write", "translators:write",
+))]
+recruitment_write_dependencies = [Depends(require_permission(
+    "recruitment_talents:write"
+))]
 
 TALENT_FILTER_FIELDS = {
     "resource_code", "full_name", "capability_types", "language_directions",
@@ -76,8 +88,15 @@ TALENT_FILTER_FIELDS = {
     "status", "cooperation_type", "primary_phone", "primary_email", "gender", "age",
     "native_place", "residence_address", "dialects", "dialect_regions", "nationality",
     "employment_status", "highest_education", "language_skills", "certificate_received",
-    "overall_rating", "first_contact_date", "updated_at", "duplicate_review_required",
+    "overall_score", "overall_rating", "audio_annotation_score",
+    "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
+    "duplicate_review_required",
 }
+
+TALENT_SORT_PATTERN = (
+    "^(updated_desc|overall_score_(asc|desc)|audio_annotation_score_(asc|desc)|"
+    "non_audio_annotation_score_(asc|desc)|collection_score_(asc|desc))$"
+)
 
 
 @router.get("/overview", response_model=TalentOverviewResponse)
@@ -86,10 +105,18 @@ def read_talent_overview():
     return get_talent_overview()
 
 
-def _field_filters(raw: Optional[str]):
+def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TALENT_FILTER_FIELDS)
-    ranges = {"years_experience", "age", "first_contact_date", "updated_at"}
+    if not allow_contact_filters and {"primary_phone", "primary_email"} & value.keys():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="联系方式筛选仅超级管理员可用",
+        )
+    ranges = {
+        "years_experience", "age", "overall_score", "audio_annotation_score",
+        "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
+    }
     enums = {"capability_types", "status", "cooperation_type", "employment_status", "highest_education"}
     booleans = {"duplicate_review_required", "certificate_received"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
@@ -99,6 +126,7 @@ def _field_filters(raw: Optional[str]):
 def _filters(
     keyword=None, status=None, capability_type=None, capability_status=None,
     cooperation_type=None, industry_keyword=None, review_required=None, field_filters=None,
+    include_contact_search=True,
 ):
     return dict(
         keyword=keyword,
@@ -109,7 +137,23 @@ def _filters(
         industry_keyword=industry_keyword,
         review_required=review_required,
         field_filters=field_filters,
+        include_contact_search=include_contact_search,
     )
+
+
+def _duplicate_error_detail(exc: TalentDuplicateError, *, contacts_visible: bool):
+    return {
+        "code": "duplicate_talent",
+        "message": str(exc),
+        "duplicates": [
+            redact_contact_mapping(
+                item,
+                ("primary_phone", "primary_email"),
+                contacts_visible=contacts_visible,
+            )
+            for item in exc.duplicates
+        ],
+    }
 
 
 @router.get("/", response_model=List[ResourcePersonListResponse], deprecated=True)
@@ -124,12 +168,24 @@ def read_talents(
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
     field_filters: Optional[str] = Query(None),
+    sort: str = Query("updated_desc", pattern=TALENT_SORT_PATTERN),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    return get_talents(db, skip=skip, limit=limit, **_filters(
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    people = get_talents(db, skip=skip, limit=limit, sort=sort, **_filters(
         keyword, status, capability_type, capability_status, cooperation_type,
-        industry_keyword, review_required, _field_filters(field_filters),
+        industry_keyword, review_required,
+        _field_filters(field_filters, allow_contact_filters=contacts_visible),
+        contacts_visible,
     ))
+    return [
+        serialize_with_contact_access(
+            person, ResourcePersonListResponse, RESOURCE_CONTACT_FIELDS,
+            contacts_visible=contacts_visible,
+        )
+        for person in people
+    ]
 
 
 @router.get("/count", deprecated=True)
@@ -143,10 +199,14 @@ def read_talent_count(
     review_required: Optional[bool] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    contacts_visible = can_view_talent_contacts(db, current_user)
     return {"total": count_talents(db, **_filters(
         keyword, status, capability_type, capability_status, cooperation_type,
-        industry_keyword, review_required, _field_filters(field_filters),
+        industry_keyword, review_required,
+        _field_filters(field_filters, allow_contact_filters=contacts_visible),
+        contacts_visible,
     ))}
 
 
@@ -162,50 +222,88 @@ def read_talent_page(
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
     field_filters: Optional[str] = Query(None),
+    sort: str = Query("updated_desc", pattern=TALENT_SORT_PATTERN),
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    contacts_visible = can_view_talent_contacts(db, current_user)
     filters = _filters(
         keyword, status, capability_type, capability_status,
         cooperation_type, industry_keyword, review_required,
-        _field_filters(field_filters),
+        _field_filters(field_filters, allow_contact_filters=contacts_visible),
+        contacts_visible,
     )
-    items = get_talents(db, skip=skip, limit=limit, **filters)
+    items = get_talents(db, skip=skip, limit=limit, sort=sort, **filters)
+    total = resolve_page_total(
+        items, skip, lambda: count_talents(db, **filters),
+    )
     return {
-        "items": items,
-        "total": resolve_page_total(
-            items, skip, lambda: count_talents(db, **filters),
-        ),
+        "items": [
+            serialize_with_contact_access(
+                person, ResourcePersonListResponse, RESOURCE_CONTACT_FIELDS,
+                contacts_visible=contacts_visible,
+            )
+            for person in items
+        ],
+        "total": total,
     }
 
 
-@router.get("/duplicates", response_model=DuplicateCheckResponse)
+@router.get(
+    "/duplicates",
+    response_model=DuplicateCheckResponse,
+    dependencies=[Depends(require_super_admin)],
+)
 def check_duplicates(
     phone: Optional[str] = None,
     email: Optional[str] = None,
     exclude_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
 ):
-    return {"duplicates": find_duplicate_talents(
-        db, phone=phone, email=email, exclude_id=exclude_id
-    )}
+    return {"duplicates": [
+        redact_contact_mapping(
+            item, ("primary_phone", "primary_email"), contacts_visible=True,
+        )
+        for item in find_duplicate_talents(
+            db, phone=phone, email=email, exclude_id=exclude_id
+        )
+    ]}
 
 
-@router.post("/", response_model=ResourcePersonDetailResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=ResourcePersonDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=talent_write_dependencies,
+)
 def create_talent_endpoint(
     payload: ResourcePersonCreate,
     db: Session = Depends(get_db),
     idempotency_key: Optional[str] = Header(
         default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
     ),
+    current_user=Depends(get_current_user),
 ):
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if not contacts_visible and has_contact_values(payload, RESOURCE_CONTACT_FIELDS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有超级管理员可以录入人才联系方式",
+        )
     if idempotency_key:
         existing = db.query(ResourcePerson).filter(
             ResourcePerson.idempotency_key == idempotency_key
         ).first()
         if existing:
-            return get_talent(db, existing.id)
+            return serialize_with_contact_access(
+                get_talent(db, existing.id), ResourcePersonDetailResponse,
+                RESOURCE_CONTACT_FIELDS, contacts_visible=contacts_visible,
+            )
     try:
-        return create_talent(db, payload, idempotency_key=idempotency_key)
+        person = create_talent(db, payload, idempotency_key=idempotency_key)
+        return serialize_with_contact_access(
+            person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+            contacts_visible=contacts_visible,
+        )
     except TalentDuplicateError as exc:
         db.rollback()
         if idempotency_key:
@@ -213,10 +311,14 @@ def create_talent_endpoint(
                 ResourcePerson.idempotency_key == idempotency_key
             ).first()
             if existing:
-                return get_talent(db, existing.id)
-        raise HTTPException(status_code=409, detail={
-            "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
-        })
+                return serialize_with_contact_access(
+                    get_talent(db, existing.id), ResourcePersonDetailResponse,
+                    RESOURCE_CONTACT_FIELDS, contacts_visible=contacts_visible,
+                )
+        raise HTTPException(
+            status_code=409,
+            detail=_duplicate_error_detail(exc, contacts_visible=contacts_visible),
+        )
     except IntegrityError:
         db.rollback()
         if idempotency_key:
@@ -224,17 +326,27 @@ def create_talent_endpoint(
                 ResourcePerson.idempotency_key == idempotency_key
             ).first()
             if existing:
-                return get_talent(db, existing.id)
+                return serialize_with_contact_access(
+                    get_talent(db, existing.id), ResourcePersonDetailResponse,
+                    RESOURCE_CONTACT_FIELDS, contacts_visible=contacts_visible,
+                )
         logger.exception("创建人才档案时触发数据库约束")
         raise HTTPException(status_code=400, detail="人才档案数据不符合保存要求，请检查后重试")
 
 
 @router.get("/{person_id}", response_model=ResourcePersonDetailResponse)
-def read_talent(person_id: UUID, db: Session = Depends(get_db)):
+def read_talent(
+    person_id: UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     person = get_talent(db, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return person
+    return serialize_with_contact_access(
+        person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+        contacts_visible=can_view_talent_contacts(db, current_user),
+    )
 
 
 @router.get("/{person_id}/projects", response_model=List[TalentProjectHistoryResponse])
@@ -247,6 +359,7 @@ def read_talent_projects(person_id: UUID, db: Session = Depends(get_db)):
 @router.post(
     "/{person_id}/attachments", response_model=TalentAttachmentResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=talent_write_dependencies,
 )
 async def upload_talent_attachment(
     person_id: UUID,
@@ -283,7 +396,11 @@ def download_talent_attachment(
     return FileResponse(path, media_type=row.content_type, filename=row.original_name)
 
 
-@router.delete("/{person_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{person_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=talent_write_dependencies,
+)
 def remove_talent_attachment(
     person_id: UUID, attachment_id: UUID, db: Session = Depends(get_db),
 ):
@@ -291,43 +408,85 @@ def remove_talent_attachment(
         raise HTTPException(status_code=404, detail="人才附件不存在")
 
 
-@router.put("/{person_id}", response_model=ResourcePersonDetailResponse)
+@router.put(
+    "/{person_id}", response_model=ResourcePersonDetailResponse,
+    dependencies=talent_write_dependencies,
+)
 def update_talent_endpoint(
-    person_id: UUID, payload: ResourcePersonUpdate, db: Session = Depends(get_db)
+    person_id: UUID,
+    payload: ResourcePersonUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if not contacts_visible:
+        existing = get_talent(db, person_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="人才档案不存在")
+        payload = preserve_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
     try:
-        person = update_talent(db, person_id, payload)
+        person = update_talent(
+            db,
+            person_id,
+            payload,
+            check_contact_duplicates=contacts_visible,
+        )
     except TalentDuplicateError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail={
-            "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
-        })
+        raise HTTPException(
+            status_code=409,
+            detail=_duplicate_error_detail(exc, contacts_visible=contacts_visible),
+        )
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return person
+    return serialize_with_contact_access(
+        person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+        contacts_visible=contacts_visible,
+    )
 
 
-@router.patch("/{person_id}/name", response_model=ResourcePersonDetailResponse)
+@router.patch(
+    "/{person_id}/name", response_model=ResourcePersonDetailResponse,
+    dependencies=talent_write_dependencies,
+)
 def update_talent_name_endpoint(
-    person_id: UUID, payload: ResourcePersonNameUpdate, db: Session = Depends(get_db)
+    person_id: UUID,
+    payload: ResourcePersonNameUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     person = update_talent_name(db, person_id, payload.full_name)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return person
+    return serialize_with_contact_access(
+        person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+        contacts_visible=can_view_talent_contacts(db, current_user),
+    )
 
 
-@router.patch("/{person_id}/status", response_model=ResourcePersonDetailResponse)
+@router.patch(
+    "/{person_id}/status", response_model=ResourcePersonDetailResponse,
+    dependencies=talent_write_dependencies,
+)
 def update_talent_status_endpoint(
-    person_id: UUID, payload: ResourcePersonStatusUpdate, db: Session = Depends(get_db)
+    person_id: UUID,
+    payload: ResourcePersonStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     person = update_talent_status(db, person_id, payload.status)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return person
+    return serialize_with_contact_access(
+        person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+        contacts_visible=can_view_talent_contacts(db, current_user),
+    )
 
 
-@router.delete("/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{person_id}", status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=talent_write_dependencies,
+)
 def delete_talent_endpoint(person_id: UUID, db: Session = Depends(get_db)):
     try:
         deleted = delete_talent(db, person_id)
@@ -339,7 +498,9 @@ def delete_talent_endpoint(person_id: UUID, db: Session = Depends(get_db)):
 
 
 def create_recruitment_talent_endpoint(
-    payload: ResourcePersonCreate, db: Session = Depends(get_db)
+    payload: ResourcePersonCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """招聘人才权限可新建主档与职业档案，不能借此授予专业项目能力。"""
     safe_payload = payload.model_copy(update={
@@ -348,26 +509,56 @@ def create_recruitment_talent_endpoint(
         "interpretation_profile": None,
         "annotation_profile": None,
         "annotation_language_skills": [],
+        "overall_score": None,
+        "overall_rating": None,
+        "cooperation_level": None,
+        "cooperation_note": None,
+        "punctuality_level": None,
+        "punctuality_note": None,
+        "audio_annotation_score": None,
+        "audio_annotation_evaluation": None,
+        "non_audio_annotation_score": None,
+        "non_audio_annotation_evaluation": None,
+        "collection_score": None,
+        "collection_evaluation": None,
     })
-    return create_talent_endpoint(safe_payload, db)
+    return create_talent_endpoint(
+        safe_payload, db=db, current_user=current_user, idempotency_key=None,
+    )
 
 
 def update_recruitment_talent_endpoint(
     person_id: UUID,
     payload: ResourcePersonUpdate,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     """招聘端编辑时保留原专业能力，能力只能由人才总库权限管理。"""
+    contacts_visible = can_view_talent_contacts(db, current_user)
+    if not contacts_visible:
+        existing = get_talent(db, person_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="人才档案不存在")
+        payload = preserve_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
     try:
-        person = update_recruitment_talent(db, person_id, payload)
+        person = update_recruitment_talent(
+            db,
+            person_id,
+            payload,
+            check_contact_duplicates=contacts_visible,
+        )
     except TalentDuplicateError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail={
-            "code": "duplicate_talent", "message": str(exc), "duplicates": exc.duplicates,
-        })
+        raise HTTPException(
+            status_code=409,
+            detail=_duplicate_error_detail(exc, contacts_visible=contacts_visible),
+        )
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return person
+    return serialize_with_contact_access(
+        person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
+        contacts_visible=contacts_visible,
+    )
 
 
 # 招聘人才库复用同一份人员主档，但使用独立权限边界。
@@ -376,11 +567,14 @@ recruitment_router.add_api_route(
 )
 recruitment_router.add_api_route("/count", read_talent_count, methods=["GET"])
 recruitment_router.add_api_route(
-    "/duplicates", check_duplicates, methods=["GET"], response_model=DuplicateCheckResponse
+    "/duplicates", check_duplicates, methods=["GET"],
+    response_model=DuplicateCheckResponse,
+    dependencies=[Depends(require_super_admin)],
 )
 recruitment_router.add_api_route(
     "/", create_recruitment_talent_endpoint, methods=["POST"],
     response_model=ResourcePersonDetailResponse, status_code=status.HTTP_201_CREATED,
+    dependencies=recruitment_write_dependencies,
 )
 recruitment_router.add_api_route(
     "/{person_id}", read_talent, methods=["GET"], response_model=ResourcePersonDetailResponse
@@ -392,12 +586,15 @@ recruitment_router.add_api_route(
 recruitment_router.add_api_route(
     "/{person_id}", update_recruitment_talent_endpoint, methods=["PUT"],
     response_model=ResourcePersonDetailResponse,
+    dependencies=recruitment_write_dependencies,
 )
 recruitment_router.add_api_route(
     "/{person_id}/status", update_talent_status_endpoint, methods=["PATCH"],
     response_model=ResourcePersonDetailResponse,
+    dependencies=recruitment_write_dependencies,
 )
 recruitment_router.add_api_route(
     "/{person_id}", delete_talent_endpoint, methods=["DELETE"],
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=recruitment_write_dependencies,
 )

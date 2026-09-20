@@ -7,15 +7,15 @@
         <el-descriptions-item label="英文姓名">{{ show(detail.englishName) }}</el-descriptions-item>
         <el-descriptions-item label="昵称">{{ show(detail.nickname) }}</el-descriptions-item>
         <el-descriptions-item label="其他名字">{{ show(detail.otherNames) }}</el-descriptions-item>
-        <el-descriptions-item label="手机">{{ show(detail.primaryPhone) }}</el-descriptions-item>
-        <el-descriptions-item label="备用电话">{{ show(detail.secondaryPhone) }}</el-descriptions-item>
-        <el-descriptions-item label="微信">{{ show(detail.wechat) }}</el-descriptions-item>
-        <el-descriptions-item label="WhatsApp">{{ show(detail.whatsapp) }}</el-descriptions-item>
-        <el-descriptions-item label="邮箱">{{ show(detail.primaryEmail) }}</el-descriptions-item>
-        <el-descriptions-item label="备用邮箱">{{ show(detail.secondaryEmail) }}</el-descriptions-item>
-        <el-descriptions-item label="Skype">{{ show(detail.skype) }}</el-descriptions-item>
-        <el-descriptions-item label="Line">{{ show(detail.line) }}</el-descriptions-item>
-        <el-descriptions-item label="其他联系方式" :span="2">{{ show(detail.otherContact || detail.contactInfo) }}</el-descriptions-item>
+        <el-descriptions-item label="手机"><SensitiveContactValue :value="detail.primaryPhone" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="备用电话"><SensitiveContactValue :value="detail.secondaryPhone" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="微信"><SensitiveContactValue :value="detail.wechat" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="WhatsApp"><SensitiveContactValue :value="detail.whatsapp" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="邮箱"><SensitiveContactValue :value="detail.primaryEmail" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="备用邮箱"><SensitiveContactValue :value="detail.secondaryEmail" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="Skype"><SensitiveContactValue :value="detail.skype" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="Line"><SensitiveContactValue :value="detail.line" :restricted="contactRestricted" /></el-descriptions-item>
+        <el-descriptions-item label="其他联系方式" :span="2"><SensitiveContactValue :value="detail.otherContact || detail.contactInfo" :restricted="contactRestricted" /></el-descriptions-item>
       </el-descriptions>
     </section>
 
@@ -86,6 +86,18 @@
       </el-descriptions>
     </section>
 
+    <section v-if="showPerformance && shows('performance')">
+      <h4>综合表现</h4>
+      <el-descriptions :column="2" border size="small">
+        <el-descriptions-item label="总体评价" :span="2"><div class="pre-wrap">{{ scoreAndEvaluation(detail.overallScore, detail.overallRating) }}</div></el-descriptions-item>
+        <el-descriptions-item label="配合度"><div class="pre-wrap">{{ levelAndNote(detail.cooperationLevel, detail.cooperationNote) }}</div></el-descriptions-item>
+        <el-descriptions-item label="守时度"><div class="pre-wrap">{{ levelAndNote(detail.punctualityLevel, detail.punctualityNote) }}</div></el-descriptions-item>
+        <el-descriptions-item label="音频标注表现" :span="2"><div class="pre-wrap">{{ scoreAndEvaluation(detail.audioAnnotationScore, detail.audioAnnotationEvaluation) }}</div></el-descriptions-item>
+        <el-descriptions-item label="非音频标注表现" :span="2"><div class="pre-wrap">{{ scoreAndEvaluation(detail.nonAudioAnnotationScore, detail.nonAudioAnnotationEvaluation) }}</div></el-descriptions-item>
+        <el-descriptions-item label="采集表现" :span="2"><div class="pre-wrap">{{ scoreAndEvaluation(detail.collectionScore, detail.collectionEvaluation) }}</div></el-descriptions-item>
+      </el-descriptions>
+    </section>
+
     <section v-if="section === 'all'">
       <h4>专业能力与评价</h4>
       <el-descriptions :column="2" border size="small">
@@ -94,7 +106,6 @@
         <el-descriptions-item label="笔译语种">{{ show(detail.writtenProfile?.languages) }}</el-descriptions-item>
         <el-descriptions-item label="口译语种">{{ show(detail.interpretationProfile?.languages) }}</el-descriptions-item>
         <el-descriptions-item label="标注语言" :span="2">{{ show((detail.annotationLanguageSkills || []).map(item => item.display)) }}</el-descriptions-item>
-        <el-descriptions-item label="综合评价" :span="2"><div class="pre-wrap">{{ show(detail.overallRating) }}</div></el-descriptions-item>
         <el-descriptions-item label="备注" :span="2"><div class="pre-wrap">{{ show(detail.remarks) }}</div></el-descriptions-item>
       </el-descriptions>
     </section>
@@ -113,17 +124,26 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
+
 const props = defineProps({
   detail: { type: Object, default: () => ({}) },
   section: { type: String, default: 'all' },
   projects: { type: Array, default: () => [] },
+  showPerformance: { type: Boolean, default: true },
 })
+
+const contactRestricted = computed(() => props.detail.contactRestricted === true)
 
 const shows = (section) => props.section === 'all' || props.section === section
 const show = (value) => value === null || value === undefined || value === ''
   ? '-'
   : Array.isArray(value) ? (value.join('、') || '-') : value
 const join = (...values) => values.filter(Boolean).join(' · ') || '-'
+const performanceLevelLabel = value => ({ high: '高', medium: '中', low: '低' }[value] || '')
+const scoreAndEvaluation = (score, evaluation) => [score == null ? '' : `${score}分`, String(evaluation || '').trim()].filter(Boolean).join(' · ') || '-'
+const levelAndNote = (level, note) => [performanceLevelLabel(level), String(note || '').trim()].filter(Boolean).join(' · ') || '-'
 const statusLabel = value => ({ active: '活跃', standby: '备用', inactive: '停用' }[value] || show(value))
 const employmentLabel = value => ({ student: '在校学生', employed: '在职', freelance: '自由职业', seeking: '待业/求职中', retired: '已退休', other: '其他' }[value] || show(value))
 const educationLabel = value => ({ high_school_or_below: '高中及以下', secondary_vocational: '中专/职高', associate: '专科', bachelor: '本科', master: '硕士研究生', doctor: '博士研究生', other: '其他' }[value] || show(value))

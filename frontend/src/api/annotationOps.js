@@ -68,6 +68,12 @@ export const getProjectArrangementOverview = (params = {}, config = {}) => get(
 export const getProjectArrangementWorkloads = (params = {}, config = {}) => get(
   '/annotation-ops/project-arrangements/workloads', params, config
 )
+export const getArrangementDailyNote = (noteDate) => get(
+  `/annotation-ops/project-arrangements/daily-notes/${noteDate}`
+)
+export const saveArrangementDailyNote = (noteDate, data) => put(
+  `/annotation-ops/project-arrangements/daily-notes/${noteDate}`, data
+)
 export const saveProjectArrangements = (data) => put('/annotation-ops/project-arrangements/batch', data)
 export const setProjectArrangementMembership = (projectId, data) => put(
   `/annotation-ops/project-arrangements/projects/${projectId}/membership`, data

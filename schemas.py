@@ -513,6 +513,7 @@ class TranslatorResponse(TranslatorFieldsBase):
     id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    contact_restricted: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

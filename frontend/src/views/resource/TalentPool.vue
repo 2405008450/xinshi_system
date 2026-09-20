@@ -7,7 +7,7 @@
           <span class="page-subtitle">人员基础资料统一维护，专业能力按需启用</span>
         </div>
         <div class="header-actions">
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+          <TableColumnSettings v-model="settingsVisibleColumnKeys" :columns="settingsColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openCreate">新增人才</el-button>
         </div>
@@ -19,7 +19,7 @@
     <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
-          <el-input v-model="search.keyword" clearable placeholder="姓名、编号、电话或邮箱" @input="handleTextInput" @keyup.enter="searchNow" />
+          <el-input v-model="search.keyword" clearable :placeholder="canViewContacts ? '姓名、编号、电话或邮箱' : '姓名或编号'" @input="handleTextInput" @keyup.enter="searchNow" />
         </el-form-item>
         <el-form-item label="状态" class="project-list-status-filter">
           <el-select v-model="search.status" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" @change="searchNow">
@@ -32,6 +32,21 @@
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="talent-advanced-popper" @clear="clearAdvanced" @reset="resetSearch">
           <CompactFilterGrid :fields="talentAdvancedFilterFields" :model="search" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" />
+          <div v-if="!isRecruitmentPool" class="performance-sort-controls">
+            <label>
+              <span>评分排序字段</span>
+              <el-select v-model="performanceSortField" clearable placeholder="默认按最近更新" size="small" @change="handlePerformanceSortChange">
+                <el-option v-for="item in performanceSortOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
+            </label>
+            <label>
+              <span>排序方式</span>
+              <el-select v-model="performanceSortDirection" :disabled="!performanceSortField" size="small" @change="handlePerformanceSortChange">
+                <el-option label="从高到低" value="desc" />
+                <el-option label="从低到高" value="asc" />
+              </el-select>
+            </label>
+          </div>
         </AdvancedFilterPopover>
       </el-form-item>
     </AppForm>
@@ -56,6 +71,10 @@
           <el-popover v-else-if="summarySection(column.key)" trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} ${column.label}`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
             <template #reference><el-button type="primary" link class="business-clickable-cell" :title="summaryHover(column.key,row)" @click.stop>{{ tableDisplay(column,row) }}</el-button></template>
             <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" :section="summarySection(column.key)" />
+          </el-popover>
+          <el-popover v-else-if="column.key === 'overallRating'" trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} 综合表现`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
+            <template #reference><el-button type="primary" link class="business-clickable-cell performance-summary-cell" title="点击查看完整综合表现" @click.stop>{{ overallPerformanceSummary(row) }}</el-button></template>
+            <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" section="performance" />
           </el-popover>
           <div v-else-if="column.key === 'capabilityTypes'" class="tag-list"><el-tag v-for="item in row.capabilityTypes" :key="item" size="small">{{ capabilityLabel(item) }}</el-tag><span v-if="!row.capabilityTypes?.length">-</span></div>
           <el-dropdown
@@ -92,6 +111,7 @@
           <el-tag v-else-if="column.key === 'status'" :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
           <el-tag v-else-if="column.key === 'duplicateReviewRequired' && row.duplicateReviewRequired" type="warning" size="small">待核重</el-tag>
           <span v-else-if="column.key === 'duplicateReviewRequired'">-</span>
+          <SensitiveContactValue v-else-if="contactColumnKeys.has(column.key)" :value="row[column.key]" :restricted="row.contactRestricted === true" />
           <span v-else>{{ tableDisplay(column, row) }}</span>
         </template>
       </el-table-column>
@@ -99,7 +119,7 @@
         <template #default="{ row }">
           <el-popover trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} 详情`" popper-class="talent-detail-popper" @show="loadFullDetail(row)">
             <template #reference><el-button type="primary" link @click.stop>查看详情</el-button></template>
-            <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" :projects="projectCache[row.id] || []" />
+            <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" :projects="projectCache[row.id] || []" :show-performance="!isRecruitmentPool" />
           </el-popover>
         </template>
       </el-table-column>
@@ -142,7 +162,7 @@
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="档案状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
           <el-form-item v-if="!isRecruitmentPool" label="专业能力" prop="capabilityTypes"><el-checkbox-group v-model="form.capabilityTypes"><el-checkbox value="written_translation">笔译</el-checkbox><el-checkbox value="interpretation">口译</el-checkbox><el-checkbox value="annotation">标注</el-checkbox></el-checkbox-group></el-form-item>
         </div>
-        <div class="form-section"><h3>联系方式</h3>
+        <div v-if="canViewContacts" class="form-section"><h3>联系方式</h3>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="手机"><el-input v-model="form.primaryPhone" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="备用电话"><el-input v-model="form.secondaryPhone" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="微信"><el-input v-model="form.wechat" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="邮箱"><el-input v-model="form.primaryEmail" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="备用邮箱"><el-input v-model="form.secondaryEmail" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="WhatsApp"><el-input v-model="form.whatsapp" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="Skype"><el-input v-model="form.skype" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="Line"><el-input v-model="form.line" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="其他"><el-input v-model="form.otherContact" /></el-form-item></el-col></el-row>
@@ -176,6 +196,35 @@
         </div>
 
         <div class="form-section"><h3>工作经验</h3><el-form-item label="标注类经验"><el-input v-model="form.annotationExperience" type="textarea" :rows="2" /></el-form-item><el-form-item label="口译经验"><el-input v-model="form.interpretationExperience" type="textarea" :rows="2" /></el-form-item><el-form-item label="笔译经验"><el-input v-model="form.translationExperience" type="textarea" :rows="2" /></el-form-item></div>
+        <div v-if="!isRecruitmentPool" class="form-section performance-form-section">
+          <h3>综合表现</h3>
+          <div class="performance-form-item">
+            <h4>总体评价</h4>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="6"><el-form-item label="总体评分"><el-input-number v-model="form.overallScore" :min="1" :max="10" :step="1" :precision="0" controls-position="right" placeholder="1-10分" style="width:100%" /></el-form-item></el-col>
+              <el-col :xs="24" :md="18"><el-form-item label="具体评价"><el-input v-model="form.overallRating" type="textarea" :rows="2" /></el-form-item></el-col>
+            </el-row>
+          </div>
+          <div class="performance-form-grid">
+            <div class="performance-form-item">
+              <h4>配合度</h4>
+              <el-form-item label="等级"><el-select v-model="form.cooperationLevel" clearable placeholder="高/中/低" style="width:100%"><el-option v-for="item in performanceLevelOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+              <el-form-item label="说明"><el-input v-model="form.cooperationNote" type="textarea" :rows="2" /></el-form-item>
+            </div>
+            <div class="performance-form-item">
+              <h4>守时度</h4>
+              <el-form-item label="等级"><el-select v-model="form.punctualityLevel" clearable placeholder="高/中/低" style="width:100%"><el-option v-for="item in performanceLevelOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+              <el-form-item label="说明"><el-input v-model="form.punctualityNote" type="textarea" :rows="2" /></el-form-item>
+            </div>
+          </div>
+          <div class="performance-form-grid">
+            <div v-for="item in performanceScoreEditors" :key="item.scoreKey" class="performance-form-item">
+              <h4>{{ item.label }}</h4>
+              <el-form-item label="总体评分"><el-input-number v-model="form[item.scoreKey]" :min="1" :max="10" :step="1" :precision="0" controls-position="right" placeholder="1-10分" style="width:100%" /></el-form-item>
+              <el-form-item label="具体评价"><el-input v-model="form[item.evaluationKey]" type="textarea" :rows="2" /></el-form-item>
+            </div>
+          </div>
+        </div>
         <div v-if="!isRecruitmentPool && hasCapability('written_translation')" class="form-section"><h3>笔译能力</h3>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="语种方向"><el-input v-model="form.writtenProfile.languages" placeholder="例如：中英、中日" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="翻译方向"><el-input v-model="form.writtenProfile.direction" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="质量评分"><el-input v-model="form.writtenProfile.qualityScore" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="领域技能"><el-select v-model="form.writtenProfile.domainSkills" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="默认优先级"><el-input-number v-model="form.writtenProfile.defaultPriority" :min="0" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="日产接单数"><el-input-number v-model="form.writtenProfile.dailyAcceptCount" :min="0" style="width:100%" /></el-form-item></el-col></el-row>
@@ -200,7 +249,7 @@
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="照片"><el-upload :auto-upload="false" multiple accept=".jpg,.jpeg,.png,.webp" :on-change="file=>queueAttachment('photo',file)" :on-remove="file=>unqueueAttachment('photo',file)"><el-button>选择照片</el-button><template #tip><div class="el-upload__tip">JPG、PNG、WebP，单个不超过10MB</div></template></el-upload></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="音频"><el-upload :auto-upload="false" multiple accept=".mp3,.wav,.m4a,.aac,.ogg" :on-change="file=>queueAttachment('audio',file)" :on-remove="file=>unqueueAttachment('audio',file)"><el-button>选择音频</el-button><template #tip><div class="el-upload__tip">MP3、WAV、M4A、AAC、OGG，单个不超过100MB</div></template></el-upload></el-form-item></el-col></el-row>
           <div v-if="form.attachments?.length" class="attachment-list"><el-tag v-for="item in form.attachments" :key="item.id" closable @close="removeSavedAttachment(item)">{{ item.category==='photo'?'照片':'音频' }}：{{ item.originalName }}</el-tag></div>
         </div>
-        <div class="form-section"><h3>其他资料</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="简历路径"><el-input v-model="form.resumePath" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="首次联系"><el-date-picker v-model="form.firstContactDate" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="兼容联系方式"><el-input v-model="form.contactInfo" /></el-form-item></el-col></el-row><el-form-item label="综合评价"><el-input v-model="form.overallRating" type="textarea" :rows="2" /></el-form-item><el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="2" /></el-form-item></div>
+        <div class="form-section"><h3>其他资料</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="简历路径"><el-input v-model="form.resumePath" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="首次联系"><el-date-picker v-model="form.firstContactDate" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col v-if="canViewContacts" :xs="24" :md="8"><el-form-item label="兼容联系方式"><el-input v-model="form.contactInfo" /></el-form-item></el-col></el-row><el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="2" /></el-form-item></div>
         </AppForm>
       </div>
       <template #footer><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">保存</el-button></template>
@@ -226,6 +275,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import TalentDetailContent from '@/views/resource/components/TalentDetailContent.vue'
 import { getProjectLanguages, searchProjectLanguages } from '@/api/projectLanguages'
@@ -233,7 +283,7 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
-import { hasPermission } from '@/utils/permission'
+import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { countTalentNames, getTalentDisplayName } from '@/utils/talentNames'
 
@@ -241,6 +291,7 @@ const route = useRoute()
 const pageTitle = computed(() => route.meta.title || '人才总库')
 const capabilityType = computed(() => route.meta.capabilityType || '')
 const isRecruitmentPool = computed(() => route.meta.talentApiScope === 'recruitment')
+const canViewContacts = computed(() => isSuperAdmin())
 const canWrite = computed(() => isRecruitmentPool.value
   ? hasPermission(['recruitment_talents:write'])
   : hasPermission(['talents:write','translators:write']))
@@ -275,6 +326,18 @@ const educationOptions=[{value:'high_school_or_below',label:'高中及以下'},{
 const educationLevelOptions=[{value:'associate',label:'专科'},{value:'bachelor',label:'本科'},{value:'second_degree',label:'第二学位'},{value:'master',label:'硕士'},{value:'doctor',label:'博士'}]
 const languageRoleOptions=[{value:'native',label:'母语'},{value:'foreign',label:'外语'},{value:'dialect_ethnic',label:'方言/民族语言'}]
 const proficiencyOptions=[{value:'very_familiar',label:'非常熟悉'},{value:'familiar',label:'熟悉'},{value:'basic',label:'基础交流'},{value:'listening_mainly',label:'听懂为主'},{value:'listening_only',label:'仅能听懂'}]
+const performanceLevelOptions=[{value:'high',label:'高'},{value:'medium',label:'中'},{value:'low',label:'低'}]
+const performanceScoreEditors=[
+  {label:'音频标注表现',scoreKey:'audioAnnotationScore',evaluationKey:'audioAnnotationEvaluation'},
+  {label:'非音频标注表现',scoreKey:'nonAudioAnnotationScore',evaluationKey:'nonAudioAnnotationEvaluation'},
+  {label:'采集表现',scoreKey:'collectionScore',evaluationKey:'collectionEvaluation'},
+]
+const performanceSortOptions=[
+  {value:'overall_score',label:'总体评分'},
+  {value:'audio_annotation_score',label:'音频标注评分'},
+  {value:'non_audio_annotation_score',label:'非音频标注评分'},
+  {value:'collection_score',label:'采集评分'},
+]
 const statusLabel = value => statusOptions.find(item => item.value === value)?.label || value || '-'
 const statusType = value => ({active:'success',standby:'info',inactive:'danger'}[value] || 'info')
 const display = value => value === null || value === undefined || value === '' ? '-' : Array.isArray(value) ? (value.join('、') || '-') : value
@@ -295,6 +358,12 @@ const tableDisplay = (column, row) => {
   if (column.key === 'yearsExperience') return row.yearsExperience === null || row.yearsExperience === undefined ? '-' : `${row.yearsExperience}年`
   if (column.type === 'datetime') return formatDateTime(row[column.key])
   return display(row[column.key])
+}
+const overallPerformanceSummary = row => {
+  const score = row.overallScore == null ? '' : `${row.overallScore}分`
+  const evaluation = String(row.overallRating || '').trim()
+  const summary = evaluation.length > 24 ? `${evaluation.slice(0,24)}…` : evaluation
+  return [score, summary].filter(Boolean).join(' · ') || '-'
 }
 const summarySectionMap={basicSummary:'basic',regionSummary:'region',educationSummary:'education',languageSummary:'language'}
 const summarySection=key=>summarySectionMap[key]||''
@@ -326,18 +395,25 @@ const tableColumns=[
   {key:'dialects',label:'掌握方言',width:180},
   {key:'dialectRegions',label:'方言区域',width:180},
   {key:'nationality',label:'国籍',width:100},
-  {key:'overallRating',label:'综合评级',width:120},
+  {key:'overallRating',label:'总体评价',width:240,tooltip:false,performance:true},
   {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
   {key:'updatedAt',label:'最近更新',width:170,type:'datetime'},
   {key:'duplicateReviewRequired',label:'核重状态',width:100}
 ]
 const legacyDefaultColumnKeys=[
+  ['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 ]
-const defaultColumnKeys=['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired']
+const defaultColumnKeys=['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','status','duplicateReviewRequired']
+const contactColumnKeys=new Set(['primaryPhone','primaryEmail'])
 const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
-const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)))
+const settingsColumns=computed(()=>tableColumns.filter(item=>!isRecruitmentPool.value||!item.performance))
+const settingsVisibleColumnKeys=computed({
+  get:()=>visibleColumnKeys.value.filter(key=>settingsColumns.value.some(item=>item.key===key)),
+  set:value=>{const hidden=visibleColumnKeys.value.filter(key=>!settingsColumns.value.some(item=>item.key===key));visibleColumnKeys.value=[...value,...hidden]},
+})
+const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)&&(!isRecruitmentPool.value||!item.performance)))
 const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const projectCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false);const statusSavingIds=ref(new Set())
 const talentTableRef=ref(null)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:talentTableRef,pagination,deleteRow:(row)=>talentClient.value.delete(row.id),getLabel:(row)=>row.fullName||row.resourceCode||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'人才档案'})
@@ -354,19 +430,26 @@ const talentFilterFields=[
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
   {key:'nativePlace',label:'籍贯',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
-  {key:'nationality',label:'国籍',type:'text'},{key:'overallRating',label:'综合评级',type:'text'},
+  {key:'nationality',label:'国籍',type:'text'},
+  {key:'overallScore',label:'总体评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
+  {key:'audioAnnotationScore',label:'音频标注评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
+  {key:'nonAudioAnnotationScore',label:'非音频标注评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
+  {key:'collectionScore',label:'采集评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
   {key:'languageSkills',label:'语言能力',type:'text'},{key:'certificateReceived',label:'证书已收到',type:'boolean'},
   {key:'firstContactDate',label:'首次联系时间',type:'date-range',wide:true},{key:'updatedAt',label:'最近更新',type:'date-range',wide:true},
   {key:'duplicateReviewRequired',label:'核重状态',type:'boolean'},
-]
+].filter(item=>canViewContacts.value||!contactColumnKeys.has(item.key))
 Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})
-const talentAdvancedFilterFields=talentFilterFields.filter((item)=>item.key!=='status')
-const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterFields))
-const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?talentFilterFields.find((item)=>item.key===key)||null:null
+const talentAdvancedFilterFields=computed(()=>talentFilterFields.filter((item)=>item.key!=='status'&&(!item.performance||!isRecruitmentPool.value)))
+const activeTalentFilterFields=computed(()=>talentFilterFields.filter(item=>!item.performance||!isRecruitmentPool.value))
+const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterFields.value))
+const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?talentFilterFields.find((item)=>item.key===key&&!item.performance)||null:null
+const performanceSortField=ref('')
+const performanceSortDirection=ref('desc')
 let timer=null;let controller=null;let sequence=0
-const params=()=>({keyword:search.keyword.trim()||undefined,capability_type:capabilityType.value||undefined,field_filters:serializeFieldFilters(search,talentFilterFields)})
+const params=()=>({keyword:search.keyword.trim()||undefined,capability_type:capabilityType.value||undefined,field_filters:serializeFieldFilters(search,activeTalentFilterFields.value),sort:!isRecruitmentPool.value&&performanceSortField.value?`${performanceSortField.value}_${performanceSortDirection.value}`:undefined})
 async function fetchData(){controller?.abort();controller=new AbortController();const current=++sequence;loading.value=true;try{const filters=params();const client=talentClient.value;const listParams={...filters,skip:(pagination.page-1)*pagination.limit,limit:pagination.limit};if(client.page){const page=await client.page(listParams,{signal:controller.signal});if(current!==sequence)return;rows.value=page?.items||[];pagination.total=page?.total||0}else{const [list,count]=await Promise.all([client.list(listParams,{signal:controller.signal}),client.count(filters,{signal:controller.signal})]);if(current!==sequence)return;rows.value=list||[];pagination.total=count?.total||0}}catch(error){if(error.code!=='ERR_CANCELED'&&current===sequence)ElMessage.error(error.detail||'网络异常，人才列表未刷新，请检查网络后重试')}finally{if(current===sequence)loading.value=false}}
-function searchNow(){exitDeleteMode();clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function updateConfiguredFilter(key,value){search[key]=value}function handleConfiguredTextInput(value){handleTextInput(value)}function resetSearch(){search.keyword='';resetFilterModel(search,talentFilterFields);searchNow()}function clearAdvanced(){resetFilterModel(search,talentAdvancedFilterFields);searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
+function searchNow(){exitDeleteMode();clearTimeout(timer);pagination.page=1;fetchData()}function handleTextInput(value){clearTimeout(timer);if(!value?.trim())return searchNow();timer=setTimeout(searchNow,400)}function updateConfiguredFilter(key,value){search[key]=value}function handleConfiguredTextInput(value){handleTextInput(value)}function handlePerformanceSortChange(){if(!performanceSortField.value)performanceSortDirection.value='desc';searchNow()}function resetSearch(){search.keyword='';performanceSortField.value='';performanceSortDirection.value='desc';resetFilterModel(search,talentFilterFields);searchNow()}function clearAdvanced(){resetFilterModel(search,talentAdvancedFilterFields.value);searchNow()}function handleSizeChange(){pagination.page=1;fetchData()}
 async function loadDetail(id,force=false){if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{detailCache[id]=await talentClient.value.detail(id);return detailCache[id]}catch(error){ElMessage.error(error.detail||'加载人才详情失败')}finally{detailLoadingId.value=null}}
 const detailFor=row=>detailCache[row.id]||row
 async function loadFullDetail(row){await loadDetail(row.id);if(projectCache[row.id])return;try{projectCache[row.id]=await talentClient.value.projects(row.id)}catch{projectCache[row.id]=[]}}
@@ -389,7 +472,20 @@ const birthDateFromAge=(age,currentBirthDate)=>{
 }
 const handleBirthDateChange=value=>{form.age=calculateAge(value)}
 const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?null:birthDateFromAge(value,form.birthDate)}
-const emptyForm=()=>({id:null,resourceCode:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',resumePath:'',gender:'',birthDate:null,birthYearMonth:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,annotationExperience:'',interpretationExperience:'',translationExperience:'',educationExperiences:[],languageSkills:[],certificates:[],attachments:[],overallRating:'',firstContactDate:null,remarks:'',status:'standby',capabilityTypes:capabilityType.value?[capabilityType.value]:[],writtenProfile:{languages:'',direction:'',domainSkills:[],qualityScore:'',defaultPriority:0,dailyAcceptCount:null,hourlySpeed:null,dailyWordCapacity:null,canCloudEdit:null,canRevision:null,availableTimeSlot:'',scheduleRemarks:''},interpretationProfile:{languages:'',direction:'',interpretationLevel:null,interpretationModes:[],domainSkills:[],qualityScore:'',evaluationSummary:''},annotationProfile:{taskTypes:[],dataModalities:[],tools:[],domainSkills:[],qualityScore:'',dailyCapacity:null,remarks:''},annotationLanguageSkills:[],careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''}})
+const emptyForm=()=>({
+  id:null,resourceCode:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
+  contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
+  resumePath:'',gender:'',birthDate:null,birthYearMonth:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
+  nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
+  annotationExperience:'',interpretationExperience:'',translationExperience:'',educationExperiences:[],languageSkills:[],certificates:[],attachments:[],
+  overallScore:null,overallRating:'',cooperationLevel:null,cooperationNote:'',punctualityLevel:null,punctualityNote:'',
+  audioAnnotationScore:null,audioAnnotationEvaluation:'',nonAudioAnnotationScore:null,nonAudioAnnotationEvaluation:'',collectionScore:null,collectionEvaluation:'',
+  firstContactDate:null,remarks:'',status:'standby',capabilityTypes:capabilityType.value?[capabilityType.value]:[],
+  writtenProfile:{languages:'',direction:'',domainSkills:[],qualityScore:'',defaultPriority:0,dailyAcceptCount:null,hourlySpeed:null,dailyWordCapacity:null,canCloudEdit:null,canRevision:null,availableTimeSlot:'',scheduleRemarks:''},
+  interpretationProfile:{languages:'',direction:'',interpretationLevel:null,interpretationModes:[],domainSkills:[],qualityScore:'',evaluationSummary:''},
+  annotationProfile:{taskTypes:[],dataModalities:[],tools:[],domainSkills:[],qualityScore:'',dailyCapacity:null,remarks:''},annotationLanguageSkills:[],
+  careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''},
+})
 const form=reactive(emptyForm());const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const nameFieldsExpanded=ref(true)
 const preferredFormName=computed(()=>getTalentDisplayName(form,''));const filledNameCount=computed(()=>countTalentNames(form))
 const validateNameGroup=(_rule,_value,callback)=>filledNameCount.value?callback():callback(new Error('中文姓名、英文姓名、昵称或其他名字至少填写一项'))
@@ -424,11 +520,43 @@ const cleanWrittenProfile=p=>p?{...p,languages:blankToNull(p.languages),directio
 const cleanInterpretationProfile=p=>p?{...p,languages:blankToNull(p.languages),direction:blankToNull(p.direction),interpretationLevel:blankToNull(p.interpretationLevel),qualityScore:blankToNull(p.qualityScore),evaluationSummary:blankToNull(p.evaluationSummary)}:null
 const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore),remarks:blankToNull(p.remarks)}:null
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
+const contactPayloadKeys=['contactInfo','primaryPhone','secondaryPhone','primaryEmail','secondaryEmail','otherContact','wechat','whatsapp','skype','line']
+const performancePayloadKeys=['overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
 function resetForm(){Object.assign(form,emptyForm());nameFieldsExpanded.value=true;queuedAttachments.photo=[];queuedAttachments.audio=[];formRef.value?.clearValidate();clearFieldSearch()}async function onEditorOpened(){await nextTick();const scrollBody=editorBodyRef.value?.closest('.el-dialog__body');if(scrollBody)scrollBody.scrollTop=0}function onEditorClosed(){pauseDraft();resetForm()}async function openCreate(){resetForm();nameFieldsExpanded.value=true;const chinese=languages.value.find(item=>item.code==='zh-CN');if(chinese)form.languageSkills.push({id:null,_key:recordKey(),languageId:chinese.id,role:'native',priority:1,proficiency:'very_familiar',remarks:'',sortOrder:0});editorTitle.value='新增人才';editorVisible.value=true;await beginDraft('create')}
 function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
 async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
-const payload=(allowDuplicate=false)=>({resourceCode:form.resourceCode||null,fullName:[form.chineseName,form.englishName,form.nickname,...(form.otherNames||[]),form.fullName].find(value=>String(value||'').trim())||'',chineseName:form.chineseName||null,englishName:form.englishName||null,nickname:form.nickname||null,otherNames:form.otherNames||[],cooperationType:form.cooperationType||null,contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,otherContact:form.otherContact||null,wechat:form.wechat||null,whatsapp:form.whatsapp||null,skype:form.skype||null,line:form.line||null,resumePath:form.resumePath||null,gender:form.gender||null,birthDate:blankToNull(form.birthDate),birthYearMonth:blankToNull(form.birthYearMonth),nativePlace:form.nativePlace||null,residenceAddress:form.residenceAddress||null,dialects:form.dialects||[],dialectRegions:form.dialectRegions||[],height:form.height||null,appearance:form.appearance||null,nationality:form.nationality||null,ethnicity:form.ethnicity||null,employmentStatus:form.employmentStatus||null,employmentDetail:form.employmentDetail||null,studentStage:form.studentStage||null,enrollmentYear:form.enrollmentYear,programDurationYears:form.programDurationYears,studentGradeOverride:form.studentGradeOverride||null,highestEducation:form.highestEducation||null,annotationExperience:form.annotationExperience||null,interpretationExperience:form.interpretationExperience||null,translationExperience:form.translationExperience||null,educationExperiences:form.educationExperiences.map((item,index)=>({...cleanChild(item),sortOrder:index})),languageSkills:form.languageSkills.filter(item=>item.languageId).map((item,index)=>({...cleanChild(item),sortOrder:index})),certificates:form.certificates.filter(item=>item.name?.trim()).map((item,index)=>({...cleanChild(item),sortOrder:index})),overallRating:form.overallRating||null,firstContactDate:blankToNull(form.firstContactDate),remarks:form.remarks||null,status:form.status,allowDuplicate,capabilities:form.capabilityTypes.map(capabilityType=>({capabilityType,status:'active'})),writtenProfile:hasCapability('written_translation')?cleanWrittenProfile(form.writtenProfile):null,interpretationProfile:hasCapability('interpretation')?cleanInterpretationProfile(form.interpretationProfile):null,annotationProfile:hasCapability('annotation')?cleanAnnotationProfile(form.annotationProfile):null,annotationLanguageSkills:hasCapability('annotation')?form.annotationLanguageSkills.map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})):[],careerProfile:cleanCareerProfile(form.careerProfile)})
+const payload=(allowDuplicate=false)=>{
+  const result={
+    resourceCode:form.resourceCode||null,
+    fullName:[form.chineseName,form.englishName,form.nickname,...(form.otherNames||[]),form.fullName].find(value=>String(value||'').trim())||'',
+    chineseName:form.chineseName||null,englishName:form.englishName||null,nickname:form.nickname||null,otherNames:form.otherNames||[],cooperationType:form.cooperationType||null,
+    contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,
+    otherContact:form.otherContact||null,wechat:form.wechat||null,whatsapp:form.whatsapp||null,skype:form.skype||null,line:form.line||null,resumePath:form.resumePath||null,
+    gender:form.gender||null,birthDate:blankToNull(form.birthDate),birthYearMonth:blankToNull(form.birthYearMonth),nativePlace:form.nativePlace||null,residenceAddress:form.residenceAddress||null,
+    dialects:form.dialects||[],dialectRegions:form.dialectRegions||[],height:form.height||null,appearance:form.appearance||null,nationality:form.nationality||null,ethnicity:form.ethnicity||null,
+    employmentStatus:form.employmentStatus||null,employmentDetail:form.employmentDetail||null,studentStage:form.studentStage||null,enrollmentYear:form.enrollmentYear,
+    programDurationYears:form.programDurationYears,studentGradeOverride:form.studentGradeOverride||null,highestEducation:form.highestEducation||null,
+    annotationExperience:form.annotationExperience||null,interpretationExperience:form.interpretationExperience||null,translationExperience:form.translationExperience||null,
+    educationExperiences:form.educationExperiences.map((item,index)=>({...cleanChild(item),sortOrder:index})),
+    languageSkills:form.languageSkills.filter(item=>item.languageId).map((item,index)=>({...cleanChild(item),sortOrder:index})),
+    certificates:form.certificates.filter(item=>item.name?.trim()).map((item,index)=>({...cleanChild(item),sortOrder:index})),
+    overallScore:form.overallScore,overallRating:form.overallRating||null,cooperationLevel:form.cooperationLevel||null,cooperationNote:form.cooperationNote||null,
+    punctualityLevel:form.punctualityLevel||null,punctualityNote:form.punctualityNote||null,audioAnnotationScore:form.audioAnnotationScore,
+    audioAnnotationEvaluation:form.audioAnnotationEvaluation||null,nonAudioAnnotationScore:form.nonAudioAnnotationScore,
+    nonAudioAnnotationEvaluation:form.nonAudioAnnotationEvaluation||null,collectionScore:form.collectionScore,collectionEvaluation:form.collectionEvaluation||null,
+    firstContactDate:blankToNull(form.firstContactDate),remarks:form.remarks||null,status:form.status,allowDuplicate,
+    capabilities:form.capabilityTypes.map(capabilityType=>({capabilityType,status:'active'})),
+    writtenProfile:hasCapability('written_translation')?cleanWrittenProfile(form.writtenProfile):null,
+    interpretationProfile:hasCapability('interpretation')?cleanInterpretationProfile(form.interpretationProfile):null,
+    annotationProfile:hasCapability('annotation')?cleanAnnotationProfile(form.annotationProfile):null,
+    annotationLanguageSkills:hasCapability('annotation')?form.annotationLanguageSkills.map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})):[],
+    careerProfile:cleanCareerProfile(form.careerProfile),
+  }
+  if(!canViewContacts.value)contactPayloadKeys.forEach(key=>delete result[key])
+  if(isRecruitmentPool.value)performancePayloadKeys.forEach(key=>delete result[key])
+  return result
+}
 async function savePayload(allowDuplicate=false){const client=talentClient.value;return form.id?client.update(form.id,payload(allowDuplicate)):client.create(payload(allowDuplicate))}
 async function flushQueuedAttachments(personId){for(const category of ['photo','audio']){for(const item of queuedAttachments[category])await talentApi.uploadTalentAttachment(personId,category,item.raw);queuedAttachments[category]=[]}}
 async function removeSavedAttachment(item){try{await ElMessageBox.confirm(`确认删除附件“${item.originalName}”？`,'删除附件',{type:'warning'});await talentApi.deleteTalentAttachment(form.id,item.id);form.attachments=form.attachments.filter(value=>value.id!==item.id);delete detailCache[form.id];ElMessage.success('附件已删除')}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除附件失败')}}
@@ -444,8 +572,8 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{co
 </script>
 
 <style scoped>
-.card-header,.header-actions,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.form-section-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.form-section-header h3{margin-bottom:4px}.section-hint{color:var(--el-text-color-secondary);font-size:12px}.required-mark{color:var(--el-color-danger)}.name-collapsed-summary{margin-bottom:16px;padding:10px 12px;border-radius:6px;background:var(--el-fill-color-light);color:var(--el-text-color-regular)}.sub-record{margin:12px 0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-extra-light)}.attachment-list{display:flex;gap:8px;flex-wrap:wrap}:deep(.talent-editor-dialog){display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
-@media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}}
+.card-header,.header-actions,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.performance-sort-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--el-border-color-lighter)}.performance-sort-controls label{display:grid;gap:3px;color:var(--el-text-color-secondary);font-size:12px}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}.form-section{margin-bottom:18px;padding:14px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 14px;font-size:15px}.form-section-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.form-section-header h3{margin-bottom:4px}.section-hint{color:var(--el-text-color-secondary);font-size:12px}.required-mark{color:var(--el-color-danger)}.name-collapsed-summary{margin-bottom:16px;padding:10px 12px;border-radius:6px;background:var(--el-fill-color-light);color:var(--el-text-color-regular)}.sub-record{margin:12px 0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-extra-light)}.performance-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.performance-form-grid+.performance-form-grid{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:12px}.performance-form-item{padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-extra-light)}.performance-form-item h4{margin:0 0 12px;font-size:14px}.performance-form-item :deep(.el-form-item:last-child){margin-bottom:0}.performance-summary-cell{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attachment-list{display:flex;gap:8px;flex-wrap:wrap}:deep(.talent-editor-dialog){display:flex;max-height:90vh;flex-direction:column;overflow:hidden}:deep(.talent-editor-dialog .el-dialog__header),:deep(.talent-editor-dialog .el-dialog__footer){flex:0 0 auto}:deep(.talent-editor-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:deep(.talent-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+@media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}.performance-sort-controls,.performance-form-grid,.performance-form-grid+.performance-form-grid{grid-template-columns:1fr}}
 </style>
 
 <style>

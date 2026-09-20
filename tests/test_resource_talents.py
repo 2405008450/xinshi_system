@@ -6,9 +6,10 @@ import pytest
 
 from annotation_schemas import AnnotationProjectCreate
 from recruitment_schemas import RecruitmentCandidateCreate
-from resource_schemas import ResourcePersonCreate, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate, TalentOptionResponse
+from resource_schemas import ResourcePersonCreate, ResourcePersonListResponse, ResourcePersonNameUpdate, ResourcePersonStatusUpdate, ResourcePersonUpdate, TalentOptionResponse
 from resource_models import ResourcePerson
-from resource_service import _sync_annotation_language_skills, extract_contact_identifiers, normalize_email, normalize_phone
+from resource_service import _sync_annotation_language_skills, _talent_ordering, extract_contact_identifiers, normalize_email, normalize_phone, update_recruitment_talent
+from routers.talents import _field_filters
 from routers.talent_options import ASSIGNABLE_TALENT_STATUSES, read_talent_options
 
 
@@ -52,6 +53,87 @@ def test_person_locale_profile_fields_are_typed_and_default_to_lists():
     assert payload.dialects == ["闽南语"]
     assert payload.dialect_regions == ["泉州石狮"]
     assert ResourcePersonListResponse.model_fields["dialects"].default_factory() == []
+
+
+def test_talent_performance_fields_accept_structured_values_and_preserve_legacy_evaluation():
+    payload = ResourcePersonCreate(
+        full_name="综合表现人才",
+        overall_score=9,
+        overall_rating="原综合评价作为具体评价保留",
+        cooperation_level="high",
+        cooperation_note="沟通顺畅",
+        punctuality_level="medium",
+        audio_annotation_score=8,
+        non_audio_annotation_score=7,
+        collection_score=10,
+    )
+
+    assert payload.overall_score == 9
+    assert payload.overall_rating == "原综合评价作为具体评价保留"
+    assert payload.cooperation_level == "high"
+    assert payload.collection_score == 10
+
+
+@pytest.mark.parametrize("field", [
+    "overall_score", "audio_annotation_score",
+    "non_audio_annotation_score", "collection_score",
+])
+@pytest.mark.parametrize("value", [0, 11, 8.5])
+def test_talent_performance_scores_require_integers_from_one_to_ten(field, value):
+    with pytest.raises(ValueError):
+        ResourcePersonCreate(full_name="评分越界", **{field: value})
+
+
+def test_talent_performance_levels_reject_unknown_values():
+    with pytest.raises(ValueError):
+        ResourcePersonCreate(full_name="等级错误", cooperation_level="very_high")
+
+
+def test_talent_performance_filters_are_numeric_ranges():
+    filters = _field_filters(
+        '{"overall_score":{"op":"between","min":7,"max":10},'
+        '"audio_annotation_score":{"op":"between","min":6,"max":9}}'
+    )
+
+    assert filters["overall_score"]["min"] == 7
+    assert filters["audio_annotation_score"]["max"] == 9
+
+
+def test_talent_performance_sort_keeps_nulls_last_and_stable_ties():
+    ordering = _talent_ordering("overall_score_asc")
+
+    assert "overall_score ASC NULLS LAST" in str(ordering[0])
+    assert "updated_at DESC" in str(ordering[1])
+    assert "id DESC" in str(ordering[2])
+
+
+def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
+    person = SimpleNamespace(
+        id=uuid4(), full_name="招聘人才", chinese_name="招聘人才", english_name=None,
+        nickname=None, other_names=[], overall_score=9, overall_rating="保留评价",
+        cooperation_level="high", cooperation_note="保留说明", punctuality_level="medium",
+        punctuality_note="守时说明", audio_annotation_score=8,
+        audio_annotation_evaluation="音频评价", non_audio_annotation_score=7,
+        non_audio_annotation_evaluation="非音频评价", collection_score=10,
+        collection_evaluation="采集评价", career_profile=None,
+    )
+    payload = ResourcePersonUpdate(
+        full_name="招聘人才已编辑", overall_score=1, overall_rating="不应覆盖",
+        cooperation_level="low", remarks="招聘端允许修改的备注",
+    )
+    db = SimpleNamespace(flush=lambda: None, commit=lambda: None)
+    monkeypatch.setattr("resource_service.get_talent", lambda *_args: person)
+    monkeypatch.setattr("resource_service.find_duplicate_talents", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("resource_service._sync_owned_collections", lambda *_args: None)
+    monkeypatch.setattr("resource_service._sync_display_name", lambda *_args: None)
+    monkeypatch.setattr("resource_service._sync_legacy_translator", lambda *_args: None)
+
+    updated = update_recruitment_talent(db, person.id, payload)
+
+    assert updated.overall_score == 9
+    assert updated.overall_rating == "保留评价"
+    assert updated.cooperation_level == "high"
+    assert updated.remarks == "招聘端允许修改的备注"
 
 
 def test_annotation_language_skill_supports_single_dialect_and_bilingual_direction():
@@ -231,10 +313,18 @@ def test_project_talent_options_apply_assignable_status_filter(monkeypatch):
         return []
 
     monkeypatch.setattr("routers.talent_options.get_talents", fake_get_talents)
+    monkeypatch.setattr("routers.talent_options.can_view_talent_contacts", lambda *_args: False)
 
-    assert read_talent_options("annotation", keyword=None, limit=500, db=object()) == []
+    assert read_talent_options(
+        "annotation",
+        keyword=None,
+        limit=500,
+        db=object(),
+        current_user=SimpleNamespace(id="user-id"),
+    ) == []
     assert captured["statuses"] == ("active", "standby")
     assert captured["capability_status"] == "active"
+    assert captured["include_contact_search"] is False
 
 
 def test_inline_talent_status_update_skips_write_when_unchanged(monkeypatch):

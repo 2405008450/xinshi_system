@@ -36,6 +36,13 @@ PROFILE_FIELDS = {
     "career_profile": ResourceCareerProfile,
 }
 
+TALENT_PERFORMANCE_FIELDS = {
+    "overall_score", "overall_rating", "cooperation_level", "cooperation_note",
+    "punctuality_level", "punctuality_note", "audio_annotation_score",
+    "audio_annotation_evaluation", "non_audio_annotation_score",
+    "non_audio_annotation_evaluation", "collection_score", "collection_evaluation",
+}
+
 
 class TalentDuplicateError(ValueError):
     def __init__(self, duplicates: list[dict]):
@@ -185,6 +192,7 @@ def _talent_query(
     industry_keyword: Optional[str] = None,
     review_required: Optional[bool] = None,
     field_filters: Optional[dict] = None,
+    include_contact_search: bool = True,
 ):
     query = db.query(ResourcePerson)
     if capability_type:
@@ -195,21 +203,25 @@ def _talent_query(
         query = query.filter(ResourceCapability.status == (capability_status or "active"))
     if keyword:
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
+        keyword_columns = [
             ResourcePerson.resource_code.ilike(pattern),
             ResourcePerson.full_name.ilike(pattern),
             ResourcePerson.chinese_name.ilike(pattern),
             ResourcePerson.english_name.ilike(pattern),
             ResourcePerson.nickname.ilike(pattern),
             cast(ResourcePerson.other_names, String).ilike(pattern),
-            ResourcePerson.primary_phone.ilike(pattern),
-            ResourcePerson.primary_email.ilike(pattern),
-            ResourcePerson.wechat.ilike(pattern),
-            ResourcePerson.whatsapp.ilike(pattern),
-            ResourcePerson.skype.ilike(pattern),
-            ResourcePerson.line.ilike(pattern),
-            ResourcePerson.contact_info.ilike(pattern),
-        ))
+        ]
+        if include_contact_search:
+            keyword_columns.extend([
+                ResourcePerson.primary_phone.ilike(pattern),
+                ResourcePerson.primary_email.ilike(pattern),
+                ResourcePerson.wechat.ilike(pattern),
+                ResourcePerson.whatsapp.ilike(pattern),
+                ResourcePerson.skype.ilike(pattern),
+                ResourcePerson.line.ilike(pattern),
+                ResourcePerson.contact_info.ilike(pattern),
+            ])
+        query = query.filter(or_(*keyword_columns))
     if status:
         query = query.filter(ResourcePerson.status == status)
     elif statuses:
@@ -240,7 +252,11 @@ def _talent_query(
         "native_place": (ResourcePerson.native_place, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
+        "overall_score": (ResourcePerson.overall_score, "number"),
         "overall_rating": (ResourcePerson.overall_rating, "string"),
+        "audio_annotation_score": (ResourcePerson.audio_annotation_score, "number"),
+        "non_audio_annotation_score": (ResourcePerson.non_audio_annotation_score, "number"),
+        "collection_score": (ResourcePerson.collection_score, "number"),
         "first_contact_date": (ResourcePerson.first_contact_date, "datetime"),
         "updated_at": (ResourcePerson.updated_at, "datetime"),
         "duplicate_review_required": (ResourcePerson.duplicate_review_required, "boolean"),
@@ -308,12 +324,32 @@ def _talent_query(
     return query.distinct()
 
 
-def get_talents(db: Session, *, skip: int = 0, limit: int = 100, **filters) -> list[ResourcePerson]:
+def _talent_ordering(sort: str):
+    score_columns = {
+        "overall_score": ResourcePerson.overall_score,
+        "audio_annotation_score": ResourcePerson.audio_annotation_score,
+        "non_audio_annotation_score": ResourcePerson.non_audio_annotation_score,
+        "collection_score": ResourcePerson.collection_score,
+    }
+    if sort == "updated_desc":
+        return ResourcePerson.updated_at.desc(), ResourcePerson.id.desc()
+    field, _, direction = sort.rpartition("_")
+    column = score_columns.get(field)
+    if column is None or direction not in {"asc", "desc"}:
+        return ResourcePerson.updated_at.desc(), ResourcePerson.id.desc()
+    primary = column.asc().nullslast() if direction == "asc" else column.desc().nullslast()
+    return primary, ResourcePerson.updated_at.desc(), ResourcePerson.id.desc()
+
+
+def get_talents(
+    db: Session, *, skip: int = 0, limit: int = 100,
+    sort: str = "updated_desc", **filters,
+) -> list[ResourcePerson]:
     rows = (
         _talent_query(db, **filters)
         .add_columns(func.count(ResourcePerson.id).over().label("_page_total"))
         .options(*_person_options())
-        .order_by(ResourcePerson.updated_at.desc(), ResourcePerson.id.desc())
+        .order_by(*_talent_ordering(sort))
         .offset(skip)
         .limit(limit)
         .all()
@@ -705,14 +741,18 @@ def update_talent_status(
 
 
 def update_talent(
-    db: Session, person_id: UUID, payload: ResourcePersonUpdate
+    db: Session,
+    person_id: UUID,
+    payload: ResourcePersonUpdate,
+    *,
+    check_contact_duplicates: bool = True,
 ) -> Optional[ResourcePerson]:
     person = get_talent(db, person_id)
     if not person:
         return None
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
-    )
+    ) if check_contact_duplicates else []
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
@@ -737,7 +777,11 @@ def update_talent(
 
 
 def update_recruitment_talent(
-    db: Session, person_id: UUID, payload: ResourcePersonUpdate
+    db: Session,
+    person_id: UUID,
+    payload: ResourcePersonUpdate,
+    *,
+    check_contact_duplicates: bool = True,
 ) -> Optional[ResourcePerson]:
     """招聘端只更新人员主档与职业档案，不改写专业能力。"""
     person = get_talent(db, person_id)
@@ -745,13 +789,14 @@ def update_recruitment_talent(
         return None
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
-    )
+    ) if check_contact_duplicates else []
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
         "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
+        *TALENT_PERFORMANCE_FIELDS,
     })
     for key, value in data.items():
         setattr(person, key, value)
