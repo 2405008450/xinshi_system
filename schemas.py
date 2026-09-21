@@ -1491,12 +1491,19 @@ class ProjectChatMessageCreate(BaseModel):
 
 
 class AnnotationProjectChatMessageCreate(BaseModel):
-    """标注项目首版只接收纯文本，为以后扩展附件保留独立接口边界。"""
+    """标注沟通支持文字和图片附件，不接收富文本。"""
 
-    content: str = Field(min_length=1, max_length=10000)
+    content: str = Field(default='', max_length=10000)
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
     model_config = ConfigDict(extra='forbid')
+
+    @model_validator(mode='after')
+    def require_content_or_attachment(self):
+        if not self.content.strip() and not self.attachment_ids:
+            raise ValueError('消息内容和附件不能同时为空')
+        return self
 
 
 class ProjectChatAttachmentResponse(BaseModel):

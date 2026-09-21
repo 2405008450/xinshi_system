@@ -106,7 +106,7 @@ def test_existing_chat_acknowledgement_is_idempotent(monkeypatch):
     assert broadcasts == []
 
 
-def test_annotation_chat_request_has_no_rich_text_or_attachment_fields():
+def test_annotation_chat_request_accepts_images_but_not_rich_text():
     payload = AnnotationProjectChatMessageCreate(content="纯文本留言")
 
     assert payload.content == "纯文本留言"
@@ -114,7 +114,10 @@ def test_annotation_chat_request_has_no_rich_text_or_attachment_fields():
     with pytest.raises(Exception):
         AnnotationProjectChatMessageCreate(content="")
     with pytest.raises(Exception):
-        AnnotationProjectChatMessageCreate(content="纯文本", attachment_ids=[uuid4()])
+        AnnotationProjectChatMessageCreate(content="纯文本", content_json={})
+    assert AnnotationProjectChatMessageCreate(attachment_ids=[uuid4()]).content == ""
+    with pytest.raises(Exception):
+        AnnotationProjectChatMessageCreate(attachment_ids=[uuid4() for _ in range(10)])
 
 
 def test_chat_request_accepts_multiple_mentions_and_limits_twenty():
@@ -140,12 +143,14 @@ def test_mention_normalization_deduplicates_and_excludes_sender():
     assert result == [first_user_id, legacy_user_id]
 
 
-def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monkeypatch):
+@pytest.mark.parametrize("image_only", [False, True])
+def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monkeypatch, image_only):
     project_id = uuid4()
     sender = SimpleNamespace(id=uuid4(), full_name="发送人", username="sender")
     mentioned = SimpleNamespace(id=uuid4(), full_name="被提醒人", username="mentioned")
     project = SimpleNamespace(id=project_id, order_no="AP-260908-001", project_name="语音标注")
     saved = {}
+    attachment = SimpleNamespace(id=uuid4(), original_name="截图.png", content_type="image/png", file_size=12, created_at=None)
 
     class Query:
         def __init__(self, model):
@@ -161,6 +166,8 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
             return saved["message"]
 
         def all(self):
+            if self.model.__name__ == "ChatProjectAttachment":
+                return [attachment]
             return [mentioned] if self.model.__name__ == "AppUser" else []
 
     class FakeDb:
@@ -175,7 +182,13 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
                 saved["message"] = value
 
         def add_all(self, values):
+            values = list(values)
             saved.setdefault("related", []).extend(values)
+            for value in values:
+                if value.__class__.__name__ == "ChatProjectMessageAttachment":
+                    saved["message"].attachment_links = [value]
+                    from models import ChatProjectAttachment
+                    value.attachment = ChatProjectAttachment(**vars(attachment))
 
         def flush(self):
             saved["message"].id = uuid4()
@@ -206,20 +219,21 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
         FakeDb(),
         annotation_project_id=project_id,
         sender=sender,
-        content="  当前正在补充数据  ",
+        content="" if image_only else "  当前正在补充数据  ",
+        attachment_ids=[attachment.id, attachment.id] if image_only else [],
         mentioned_user_id=mentioned.id,
     )
 
     assert message.project_id is None
     assert message.annotation_project_id == project_id
-    assert message.content == "当前正在补充数据"
+    assert message.content == ("" if image_only else "当前正在补充数据")
     assert message.content_json is None
-    assert len(saved["related"]) == 1
-    assert saved["related"][0].mentioned_user_id == mentioned.id
+    assert len(saved["related"]) == (2 if image_only else 1)
+    assert saved["related"][-1].mentioned_user_id == mentioned.id
     assert notifications == [{
         "recipient_user_ids": [mentioned.id],
         "title": "标注项目沟通提醒",
-        "content": "发送人 在标注项目 AP-260908-001 / 语音标注 中 @了你：当前正在补充数据",
+        "content": "发送人 在标注项目 AP-260908-001 / 语音标注 中 @了你：" + ("[图片]" if image_only else "当前正在补充数据"),
         "notification_type": "annotation_project_chat_mention",
         "related_project_type": "annotation",
         "related_entity_id": project_id,
@@ -229,7 +243,8 @@ def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monke
     assert broadcast_messages[0][1]["type"] == "chat_message"
     assert broadcast_messages[0][1]["projectType"] == "annotation"
     assert broadcast_messages[0][1]["projectId"] == str(project_id)
-    assert broadcast_messages[0][1]["message"]["content"] == "当前正在补充数据"
+    assert broadcast_messages[0][1]["message"]["content"] == message.content
+    assert len(broadcast_messages[0][1]["message"]["attachments"]) == (1 if image_only else 0)
 
 
 def test_annotation_chat_rejects_blank_message():
@@ -237,7 +252,7 @@ def test_annotation_chat_rejects_blank_message():
     db = SimpleNamespace(get=lambda *_args: SimpleNamespace(id=project_id))
     sender = SimpleNamespace(id=uuid4(), full_name="发送人", username="sender")
 
-    with pytest.raises(ValueError, match="消息内容不能为空"):
+    with pytest.raises(ValueError, match="消息内容和附件不能同时为空"):
         project_chat_crud.create_annotation_project_chat_message(
             db,
             annotation_project_id=project_id,
@@ -266,3 +281,28 @@ def test_mention_creation_rejects_inactive_or_missing_user():
             sender,
             mentioned_user_ids=[missing_user_id],
         )
+
+
+@pytest.mark.parametrize('owned', [False, True])
+def test_annotation_images_reject_missing_or_other_users_attachments(owned):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from models import ChatProjectAttachment
+
+    engine = create_engine('sqlite://')
+    ChatProjectAttachment.__table__.create(engine)
+    sender = SimpleNamespace(id=uuid4(), full_name='发送人', username='sender')
+    attachment_id = uuid4()
+    with Session(engine) as session:
+        session.add(ChatProjectAttachment(
+            id=attachment_id, uploaded_by=sender.id if owned else uuid4(),
+            original_name='截图.png', storage_name='test.png', content_type='image/png', file_size=10,
+        ))
+        session.commit()
+        # 使用真实 SQL 查询验证归属过滤；失败必须发生在消息写入之前。
+        db = SimpleNamespace(get=lambda *_: SimpleNamespace(id=uuid4()), query=session.query)
+        with pytest.raises(ValueError, match='附件不存在或不属于当前用户'):
+            project_chat_crud.create_annotation_project_chat_message(
+                db, uuid4(), sender, '', attachment_ids=[uuid4() if owned else attachment_id],
+            )
+    engine.dispose()

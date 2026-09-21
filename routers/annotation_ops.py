@@ -30,7 +30,9 @@ from annotation_ops_schemas import (
     AssigneeRateResponse, AssigneeRateWrite, CredentialBatchRevealItem, CredentialBatchRevealRequest,
     CredentialRevealRequest, CredentialRevealResponse,
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
-    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressDelete, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
+    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressDelete, StatusHistoryProgressUpdate,
+    TrialFollowUpResponse, TrialFollowUpWrite, TrialResponse, TrialStrategyBatchWrite,
+    TrialStrategyResponse, TrialSummaryResponse, TrialWrite,
     ArrangementAssigneeResponse, ArrangementBatchWrite, ArrangementContextResponse,
     ArrangementDailyNoteResponse, ArrangementDailyNoteWrite,
     ArrangementMembershipResponse, ArrangementMembershipWrite,
@@ -44,13 +46,15 @@ from annotation_arrangement_note_service import (
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
     delete_account, delete_annotation_workflow, delete_assignee_rate, delete_platform, delete_trial,
-    get_account_person_profile, list_account_assignments, list_accounts, list_annotator_occupancy, list_annotation_workflow, list_person_accounts,
-    list_platforms, list_recent_status_history, list_status_history, list_trials, release_account, release_all_person_accounts,
+    get_account_person_profile, get_trial_summary, list_account_assignments, list_accounts, list_annotator_occupancy, list_annotation_workflow, list_person_accounts,
+    list_platforms, list_recent_status_history, list_status_history, list_trial_follow_ups,
+    list_trial_strategies, list_trials, release_account, release_all_person_accounts,
     search_status_history,
     create_arrangement_task_type, get_arrangement_context, get_arrangement_overview,
     get_arrangement_workloads, save_arrangement_batch, set_arrangement_membership,
     set_arrangement_task_type_state, update_arrangement_task_type, delete_progress_history, update_progress_history,
-    reveal_credential, reveal_credentials_batch, save_account, save_annotation_workflow, save_assignee_rate, save_platform, save_trial,
+    create_trial_follow_up, reveal_credential, reveal_credentials_batch, save_account,
+    save_annotation_workflow, save_assignee_rate, save_platform, save_trial, save_trial_strategies,
 )
 from database import get_db
 from models import AppUser
@@ -290,13 +294,37 @@ def release_all(person_id: UUID, payload: AccountReleaseWrite, db: Session = Dep
 
 
 @project_router.get("/trials", response_model=List[TrialResponse])
-def trials(project_id: Optional[UUID] = None, person_id: Optional[UUID] = None, skip: int = 0, limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
-    return list_trials(db, project_id, skip, limit, keyword, trial_status, person_id)
+def trials(
+    project_id: Optional[UUID] = None, person_id: Optional[UUID] = None,
+    language_item_id: Optional[UUID] = None, activity_type: Optional[str] = None,
+    duty_role: Optional[str] = None, candidate_stage: Optional[str] = None,
+    trial_result: Optional[str] = None, skip: int = 0,
+    limit: int = Query(100, ge=1, le=500), keyword: Optional[str] = None,
+    trial_status: Optional[str] = None, db: Session = Depends(get_db),
+):
+    return list_trials(
+        db, project_id, skip, limit, keyword, trial_status, person_id,
+        language_item_id, activity_type, duty_role, candidate_stage, trial_result,
+    )
 
 
 @project_router.get("/trials/count")
-def trials_count(project_id: Optional[UUID] = None, person_id: Optional[UUID] = None, keyword: Optional[str] = None, trial_status: Optional[str] = None, db: Session = Depends(get_db)):
-    return {"total": count_trials(db, project_id, keyword, trial_status, person_id)}
+def trials_count(
+    project_id: Optional[UUID] = None, person_id: Optional[UUID] = None,
+    language_item_id: Optional[UUID] = None, activity_type: Optional[str] = None,
+    duty_role: Optional[str] = None, candidate_stage: Optional[str] = None,
+    trial_result: Optional[str] = None, keyword: Optional[str] = None,
+    trial_status: Optional[str] = None, db: Session = Depends(get_db),
+):
+    return {"total": count_trials(
+        db, project_id, keyword, trial_status, person_id, language_item_id,
+        activity_type, duty_role, candidate_stage, trial_result,
+    )}
+
+
+@project_router.get("/projects/{project_id}/trial-summary", response_model=TrialSummaryResponse)
+def trial_summary(project_id: UUID, db: Session = Depends(get_db)):
+    return _run(db, lambda: get_trial_summary(db, project_id))
 
 
 @project_router.post("/trials", response_model=TrialResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
@@ -314,6 +342,44 @@ def edit_trial(trial_id: UUID, payload: TrialWrite, db: Session = Depends(get_db
 @project_router.delete("/trials/{trial_id}", status_code=204, dependencies=[Depends(require_any_permission("projects:write"))])
 def remove_trial(trial_id: UUID, db: Session = Depends(get_db)):
     if not delete_trial(db, trial_id): raise HTTPException(404, "试标记录不存在")
+
+
+@project_router.get(
+    "/projects/{project_id}/trial-strategies",
+    response_model=List[TrialStrategyResponse],
+)
+def trial_strategies(project_id: UUID, db: Session = Depends(get_db)):
+    return _run(db, lambda: list_trial_strategies(db, project_id))
+
+
+@project_router.put(
+    "/projects/{project_id}/trial-strategies",
+    response_model=List[TrialStrategyResponse],
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def update_trial_strategies(
+    project_id: UUID, payload: TrialStrategyBatchWrite,
+    db: Session = Depends(get_db), user: AppUser = Depends(get_current_user),
+):
+    return _run(db, lambda: save_trial_strategies(db, project_id, payload, user.id))
+
+
+@project_router.get(
+    "/trials/{trial_id}/follow-ups", response_model=List[TrialFollowUpResponse],
+)
+def trial_follow_ups(trial_id: UUID, db: Session = Depends(get_db)):
+    return _run(db, lambda: list_trial_follow_ups(db, trial_id))
+
+
+@project_router.post(
+    "/trials/{trial_id}/follow-ups", response_model=TrialFollowUpResponse,
+    status_code=201, dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def add_trial_follow_up(
+    trial_id: UUID, payload: TrialFollowUpWrite,
+    db: Session = Depends(get_db), user: AppUser = Depends(get_current_user),
+):
+    return _run(db, lambda: create_trial_follow_up(db, trial_id, payload, user.id))
 
 
 @project_router.put("/assignees/{assignee_id}/rate", response_model=AssigneeRateResponse, dependencies=[Depends(require_any_permission("projects:write"))])

@@ -96,7 +96,7 @@ def _serialize_message(
         for mention in mention_rows
     ]
     mention = mention_rows[0] if mention_rows else None
-    attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
+    attachment_links = getattr(message, 'attachment_links', None) or []
     acknowledgement_rows = sorted(
         getattr(message, 'acknowledgements', None) or [],
         key=lambda item: (item.created_at is None, item.created_at or datetime.min, str(item.id)),
@@ -257,6 +257,7 @@ def create_annotation_message_endpoint(
             annotation_project_id=project_id,
             sender=current_user,
             content=payload.content,
+            attachment_ids=payload.attachment_ids,
             mentioned_user_id=payload.mentioned_user_id,
             mentioned_user_ids=payload.mentioned_user_ids,
         )

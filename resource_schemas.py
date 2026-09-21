@@ -407,10 +407,27 @@ class TalentProjectCustomFieldResponse(BaseModel):
 class TalentAnnotationTrialPerformanceResponse(BaseModel):
     id: UUID
     round_no: int
+    activity_type: str = "trial"
+    duty_role: str = "executor"
+    candidate_stage: str = "backup"
+    language_label: Optional[str] = None
     trial_status: str
     trial_result: Optional[str] = None
+    willingness_level: Optional[PerformanceLevel] = None
     willingness_text: Optional[str] = None
+    quote_amount: Optional[Decimal] = None
+    quote_currency: Optional[str] = None
+    billing_unit: Optional[str] = None
+    started_at: Optional[datetime] = None
+    deadline_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
     result_note: Optional[str] = None
+    cooperation_level: Optional[PerformanceLevel] = None
+    cooperation_note: Optional[str] = None
+    punctuality_level: Optional[PerformanceLevel] = None
+    punctuality_note: Optional[str] = None
+    overall_score: Optional[int] = None
+    manager_comment: Optional[str] = None
     custom_values: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime

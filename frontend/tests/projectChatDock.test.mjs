@@ -137,7 +137,7 @@ test('会话模式输入区支持 @ 多选标签、Enter 发送与发送禁用',
   assert.match(chatPanel, /const handleComposerKeydown = \(event\) =>/)
   assert.match(chatPanel, /event\.key !== 'Enter' \|\| event\.shiftKey \|\| event\.isComposing/)
   assert.match(chatPanel, /Enter 发送，Shift\+Enter 换行/)
-  assert.match(chatPanel, /:disabled="sending \|\| \(!composer\.content\.trim\(\) && !composer\.attachments\.length\)"/)
+  assert.match(chatPanel, /:disabled="sending \|\| imagesBlocked \|\| \(!composer\.content\.trim\(\) && !pendingImages\.length\)"/)
   assert.match(chatPanel, /defineExpose\(\{ toggleFilters \}\)/)
 })
 

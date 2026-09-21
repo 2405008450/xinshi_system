@@ -455,10 +455,11 @@
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
           </div>
-          <div class="chat-composer__body">
+          <div class="chat-composer__body" @paste.capture="handleComposerPaste">
             <el-input
               v-if="textOnly"
               v-model="composer.content"
+              :disabled="sending"
               type="textarea"
               :autosize="compact ? { minRows: 2, maxRows: 4 } : false"
               :rows="compact ? undefined : 4"
@@ -469,6 +470,7 @@
             <RichTextComposer
               v-else
               v-model="composer.contentJson"
+              :disabled="sending"
               placeholder="输入项目沟通内容…"
               @update:plain-text="composer.content = $event"
             />
@@ -476,34 +478,18 @@
               <el-button
                 type="primary"
                 :loading="sending"
-                :disabled="!composer.content.trim() && !composer.attachments.length"
+                :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
                 @click="handleSend"
               >
                 发送消息
               </el-button>
             </div>
           </div>
-          <div v-if="!textOnly" class="composer-attachments">
-            <el-upload
-              :show-file-list="false"
-              :http-request="handleAttachmentUpload"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              multiple
-            >
-              <el-button :loading="uploading" :disabled="composer.attachments.length >= 9">添加图片</el-button>
-            </el-upload>
-            <el-tag
-              v-for="attachment in composer.attachments"
-              :key="attachment.id"
-              closable
-              @close="removeComposerAttachment(attachment.id)"
-            >
-              {{ attachment.originalName }}
-            </el-tag>
-          </div>
+          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending"
+            @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
 
-        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation">
+        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" @paste.capture="handleComposerPaste">
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
               v-for="userId in composer.mentionedUserIds"
@@ -550,6 +536,7 @@
               v-if="textOnly"
               ref="composerInputRef"
               v-model="composer.content"
+              :disabled="sending"
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 6 }"
               maxlength="10000"
@@ -562,37 +549,21 @@
             <RichTextComposer
               v-else
               v-model="composer.contentJson"
+              :disabled="sending"
               placeholder="输入项目沟通内容…"
               @update:plain-text="composer.content = $event"
             />
             <el-button
               type="primary"
               :loading="sending"
-              :disabled="sending || (!composer.content.trim() && !composer.attachments.length)"
+              :disabled="sending || imagesBlocked || (!composer.content.trim() && !pendingImages.length)"
               @click="handleSend"
             >
               发送
             </el-button>
           </div>
-          <div v-if="!textOnly" class="composer-attachments">
-            <el-upload
-              :show-file-list="false"
-              :http-request="handleAttachmentUpload"
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              multiple
-            >
-              <el-button :loading="uploading" :disabled="composer.attachments.length >= 9" size="small">添加图片</el-button>
-            </el-upload>
-            <el-tag
-              v-for="attachment in composer.attachments"
-              :key="attachment.id"
-              size="small"
-              closable
-              @close="removeComposerAttachment(attachment.id)"
-            >
-              {{ attachment.originalName }}
-            </el-tag>
-          </div>
+          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending"
+            @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
     </template>
     <Teleport to="body">
@@ -656,6 +627,8 @@ import {
   unfavoriteProjectChatMessage,
   uploadProjectChatAttachment
 } from '@/api/projectChat'
+import ChatImageAttachments from '@/components/chat/ChatImageAttachments.vue'
+import { createChatImageQueue } from '@/utils/chatImageQueue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
 
@@ -682,7 +655,33 @@ const chatListRef = ref(null)
 const composerInputRef = ref(null)
 const mentionSelectRef = ref(null)
 const sending = ref(false)
-const uploading = ref(false)
+const pendingImages = reactive([])
+const attachmentsEnabled = computed(() => !props.textOnly || props.projectType === 'annotation')
+const imagesBlocked = computed(() => pendingImages.some(item => item.status !== 'ready'))
+const imageQueue = createChatImageQueue(pendingImages, {
+  upload: uploadProjectChatAttachment,
+  createUrl: file => URL.createObjectURL(file),
+  revokeUrl: url => URL.revokeObjectURL(url),
+  warn: message => ElMessage.warning(message)
+})
+let composerGeneration = 0
+const clearComposerImages = () => {
+  composerGeneration++
+  imageQueue.clear()
+}
+const addComposerImages = files => {
+  if (!sending.value && attachmentsEnabled.value) imageQueue.add(files)
+}
+const handleComposerPaste = event => {
+  if (!attachmentsEnabled.value) return
+  const files = [...(event.clipboardData?.items || [])]
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile()).filter(Boolean)
+  if (!files.length) return
+  // 有文字时保留浏览器原生粘贴，确保光标位置、撤销与文字输入一致。
+  if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+  addComposerImages(files)
+}
 const userOptions = ref([])
 const messages = ref([])
 const favoriteSavingIds = ref(new Set())
@@ -708,11 +707,11 @@ const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favorit
 const composer = reactive({
   content: '',
   contentJson: { type: 'doc', content: [{ type: 'paragraph' }] },
-  mentionedUserIds: [],
-  attachments: []
+  mentionedUserIds: []
 })
 const attachmentUrls = reactive({})
 const attachmentObjectUrls = new Set()
+let attachmentUrlGeneration = 0
 const chatListMaxHeight = computed(() => {
   if (props.conversationMode) return undefined
   return props.drawerMode ? 'calc(100vh - 360px)' : '420px'
@@ -876,17 +875,20 @@ const clearPolling = () => {
 }
 
 const clearAttachmentUrls = () => {
+  attachmentUrlGeneration++
   attachmentObjectUrls.forEach(url => URL.revokeObjectURL(url))
   attachmentObjectUrls.clear()
   Object.keys(attachmentUrls).forEach(key => delete attachmentUrls[key])
 }
 
 const ensureAttachmentUrls = async (items) => {
+  const generation = attachmentUrlGeneration
   const attachments = items.flatMap(item => item.attachments || [])
   await Promise.all(attachments.map(async (attachment) => {
     if (attachmentUrls[attachment.id]) return
     try {
       const blob = await getProjectChatAttachmentBlob(attachment.id)
+      if (generation !== attachmentUrlGeneration || attachmentUrls[attachment.id]) return
       const url = URL.createObjectURL(blob)
       attachmentUrls[attachment.id] = url
       attachmentObjectUrls.add(url)
@@ -1146,7 +1148,7 @@ const handleMentionSelectionChange = (selectedUserIds) => {
 
 // Enter 发送、Shift+Enter 换行；中文输入法组词期间不触发发送。
 const handleComposerKeydown = (event) => {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing || composerIsComposing.value) return
   if (mentionPopoverVisible.value) {
     event.preventDefault()
     return
@@ -1179,7 +1181,7 @@ const resetChatState = () => {
   composer.content = ''
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserIds = []
-  composer.attachments = []
+  clearComposerImages()
   acknowledgementSavingIds.value = new Set()
   clearAttachmentUrls()
   clearPolling()
@@ -1333,25 +1335,28 @@ const handlePageChange = () => {
 }
 
 const handleSend = async () => {
-  if (!props.projectId || (!composer.content.trim() && !composer.attachments.length)) return
+  if (sending.value || imagesBlocked.value || !props.projectId || (!composer.content.trim() && !pendingImages.length)) return
+  const generation = composerGeneration
   sending.value = true
   try {
     const payload = props.textOnly
       ? {
           content: composer.content.trim(),
-          mentionedUserIds: composer.mentionedUserIds
+          mentionedUserIds: composer.mentionedUserIds,
+          ...(attachmentsEnabled.value ? { attachmentIds: pendingImages.map(item => item.attachment.id) } : {})
         }
       : {
           content: composer.content.trim(),
           contentJson: composer.contentJson,
           mentionedUserIds: composer.mentionedUserIds,
-          attachmentIds: composer.attachments.map(item => item.id)
+          attachmentIds: pendingImages.map(item => item.attachment.id)
         }
     await createProjectChatMessage(props.projectId, payload, props.projectType)
+    if (generation !== composerGeneration) return
     composer.content = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserIds = []
-    composer.attachments = []
+    clearComposerImages()
     closeMentionPopover()
     pagination.page = 1
     await loadMessages()
@@ -1449,26 +1454,6 @@ const handleFavoriteToggle = async (message) => {
   }
 }
 
-const handleAttachmentUpload = async ({ file }) => {
-  if (composer.attachments.length >= 9) {
-    ElMessage.warning('每条留言最多添加 9 张图片')
-    return
-  }
-  uploading.value = true
-  try {
-    const attachment = await uploadProjectChatAttachment(file)
-    composer.attachments.push(attachment)
-  } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, '图片上传失败'))
-  } finally {
-    uploading.value = false
-  }
-}
-
-const removeComposerAttachment = (attachmentId) => {
-  composer.attachments = composer.attachments.filter(item => item.id !== attachmentId)
-}
-
 const handleRealtimeChatMessage = async (payload) => {
   if (
     String(payload?.projectId || '') !== String(props.projectId || '')
@@ -1559,6 +1544,8 @@ watch(() => [props.projectId, props.projectType], async () => {
 
 watch(() => props.active, () => {
   if (!props.active) {
+    // 浮窗最小化保留草稿；真正关闭时由卸载清理。
+    if (!props.conversationMode) clearComposerImages()
     clearProgressSelection(true)
     closeProgressTextMenu()
     closeMentionPopover()
@@ -1594,6 +1581,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearComposerImages()
   unsubscribeChatMessage?.()
   unsubscribeChatAcknowledgement?.()
   unsubscribeSocketConnected?.()
@@ -1785,8 +1773,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   min-width: 0;
-  margin-top: 8px;
+  margin-top: 3px;
   transition: opacity 0.15s ease;
+}
+
+.chat-conversation-item .chat-acknowledgement-row {
+  margin-top: 0;
 }
 
 .chat-acknowledgement-row--own {
@@ -1807,18 +1799,19 @@ onBeforeUnmount(() => {
 
 .chat-acknowledgement-chip {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   max-width: min(280px, 100%);
-  min-height: 28px;
-  padding: 3px 10px;
+  min-height: 20px;
+  padding: 1px 6px;
   border: 1px solid var(--el-border-color-light);
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--el-fill-color-light);
   color: var(--el-text-color-regular);
   font: inherit;
-  font-size: 12px;
-  line-height: 20px;
+  font-size: 11px;
+  line-height: 16px;
   cursor: pointer;
 }
 

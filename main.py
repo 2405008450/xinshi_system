@@ -131,7 +131,9 @@ from annotation_ops_models import (
     AnnotationProjectArrangementScope,
     AnnotationProjectArrangementTask,
     AnnotationArrangementDailyNote,
+    AnnotationTrialFollowUp,
     AnnotationTrialRecord,
+    AnnotationTrialStrategy,
 )
 from annotation_custom_field_image_service import cleanup_orphan_custom_field_images
 from mail_inline_image_models import MailInlineImage, MailInlineImageBinding
@@ -890,6 +892,92 @@ def ensure_annotation_status_history_constraints():
               END IF;
             END $$
         """))
+
+
+def ensure_annotation_trial_schema():
+    """兼容未单独执行迁移的既有环境，补齐试标/试采工作台字段与约束。"""
+    if "annotation_trial_record" not in inspect(engine).get_table_names():
+        return
+    with engine.begin() as conn:
+        conn.execute(text("""
+            ALTER TABLE annotation_trial_record
+                ADD COLUMN IF NOT EXISTS language_item_id UUID,
+                ADD COLUMN IF NOT EXISTS activity_type VARCHAR(30) NOT NULL DEFAULT 'trial',
+                ADD COLUMN IF NOT EXISTS duty_role VARCHAR(30) NOT NULL DEFAULT 'executor',
+                ADD COLUMN IF NOT EXISTS candidate_stage VARCHAR(30) NOT NULL DEFAULT 'backup',
+                ADD COLUMN IF NOT EXISTS willingness_level VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS quote_amount NUMERIC(18, 6),
+                ADD COLUMN IF NOT EXISTS quote_currency VARCHAR(3),
+                ADD COLUMN IF NOT EXISTS billing_unit VARCHAR(30),
+                ADD COLUMN IF NOT EXISTS started_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS deadline_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS cooperation_level VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS cooperation_note TEXT,
+                ADD COLUMN IF NOT EXISTS punctuality_level VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS punctuality_note TEXT,
+                ADD COLUMN IF NOT EXISTS overall_score INTEGER,
+                ADD COLUMN IF NOT EXISTS manager_comment TEXT
+        """))
+        conn.execute(text("""
+            UPDATE annotation_trial_record
+            SET candidate_stage = CASE trial_status
+                WHEN 'in_progress' THEN 'in_progress'
+                WHEN 'submitted' THEN 'submitted'
+                WHEN 'reviewing' THEN 'submitted'
+                WHEN 'completed' THEN 'reviewed'
+                WHEN 'cancelled' THEN 'withdrawn'
+                ELSE 'backup'
+            END
+            WHERE candidate_stage = 'backup'
+              AND trial_status <> 'pending'
+        """))
+        conn.execute(text("""
+            ALTER TABLE annotation_trial_record DROP CONSTRAINT IF EXISTS uq_annotation_trial_person_round;
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_annotation_trial_language_item') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT fk_annotation_trial_language_item
+                    FOREIGN KEY(language_item_id) REFERENCES annotation_project_language_item(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_activity_type') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_activity_type CHECK(activity_type IN ('trial','collection'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_duty_role') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_duty_role CHECK(duty_role IN ('executor','quality_inspector'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_candidate_stage') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_candidate_stage CHECK(candidate_stage IN ('backup','contacted','pending_confirmation','confirmed','in_progress','submitted','reviewed','withdrawn'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_willingness') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_willingness CHECK(willingness_level IS NULL OR willingness_level IN ('high','medium','low'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_quote_amount') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_quote_amount CHECK(quote_amount IS NULL OR quote_amount > 0);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_billing_unit') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_billing_unit CHECK(billing_unit IS NULL OR billing_unit IN ('occurrence','item','work_hour','effective_hour'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_cooperation') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_cooperation CHECK(cooperation_level IS NULL OR cooperation_level IN ('high','medium','low'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_punctuality') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_punctuality CHECK(punctuality_level IS NULL OR punctuality_level IN ('high','medium','low'));
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_overall_score') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_overall_score CHECK(overall_score IS NULL OR overall_score BETWEEN 1 AND 10);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_annotation_trial_time_range') THEN
+                    ALTER TABLE annotation_trial_record ADD CONSTRAINT ck_annotation_trial_time_range CHECK(deadline_at IS NULL OR started_at IS NULL OR deadline_at >= started_at);
+                END IF;
+            END $$
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_annotation_trial_business_identity
+            ON annotation_trial_record(project_id, person_id, language_item_id, activity_type, duty_role, round_no)
+            NULLS NOT DISTINCT
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_annotation_trial_project_stage ON annotation_trial_record(project_id, candidate_stage)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_annotation_trial_language_item ON annotation_trial_record(language_item_id)"))
 
 
 def ensure_annotation_custom_field_scope_constraint():
@@ -1799,6 +1887,9 @@ def run_runtime_migrations():
     AnnotationAccountPasswordHistory.__table__.create(bind=engine, checkfirst=True)
     AnnotationCredentialAccessLog.__table__.create(bind=engine, checkfirst=True)
     AnnotationTrialRecord.__table__.create(bind=engine, checkfirst=True)
+    ensure_annotation_trial_schema()
+    AnnotationTrialStrategy.__table__.create(bind=engine, checkfirst=True)
+    AnnotationTrialFollowUp.__table__.create(bind=engine, checkfirst=True)
     AnnotationAssigneeRate.__table__.create(bind=engine, checkfirst=True)
     AnnotationCustomFieldDefinition.__table__.create(bind=engine, checkfirst=True)
     ensure_annotation_custom_field_scope_constraint()

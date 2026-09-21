@@ -32,13 +32,23 @@
             <div v-if="performance.trials?.length" class="performance-record-list">
               <div v-for="trial in performance.trials" :key="trial.id" class="performance-record">
                 <div class="performance-record__heading">
-                  <strong>第 {{ trial.roundNo }} 轮</strong>
+                  <strong>第 {{ trial.roundNo }} 轮 · {{ trialActivityLabel(trial.activityType) }}{{ trialDutyLabel(trial.dutyRole) }}</strong>
+                  <span v-if="trial.languageLabel" class="performance-record__secondary">{{ trial.languageLabel }}</span>
                   <el-tag size="small" :type="trialStatusType(trial.trialStatus)">{{ trialStatusLabel(trial.trialStatus) }}</el-tag>
                   <el-tag v-if="trial.trialResult" size="small" effect="plain">{{ trialResultLabel(trial.trialResult) }}</el-tag>
                 </div>
                 <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="人工意愿" :span="2">{{ trial.willingnessText || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="候选阶段">{{ trialStageLabel(trial.candidateStage) }}</el-descriptions-item>
+                  <el-descriptions-item label="意愿">{{ performanceLevelLabel(trial.willingnessLevel) }}</el-descriptions-item>
+                  <el-descriptions-item label="意愿说明" :span="2">{{ trial.willingnessText || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="开始时间">{{ formatDateTime(trial.startedAt) }}</el-descriptions-item>
+                  <el-descriptions-item label="截止时间">{{ formatDateTime(trial.deadlineAt) }}</el-descriptions-item>
+                  <el-descriptions-item label="实际提交时间">{{ formatDateTime(trial.submittedAt) }}</el-descriptions-item>
+                  <el-descriptions-item label="总体评分">{{ trial.overallScore || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="配合度">{{ performanceLevelLabel(trial.cooperationLevel) }}</el-descriptions-item>
+                  <el-descriptions-item label="守时度">{{ performanceLevelLabel(trial.punctualityLevel) }}</el-descriptions-item>
                   <el-descriptions-item label="结果评语" :span="2"><div class="pre-wrap">{{ trial.resultNote || '-' }}</div></el-descriptions-item>
+                  <el-descriptions-item label="项目经理评价" :span="2"><div class="pre-wrap">{{ trial.managerComment || '-' }}</div></el-descriptions-item>
                   <el-descriptions-item
                     v-for="field in performance.trialFields || []"
                     :key="field.id"
@@ -138,6 +148,10 @@ const assignmentStatusLabel = value => ({ assigned:'已安排', in_progress:'进
 const trialStatusLabel = value => ({ pending:'待开始', in_progress:'进行中', submitted:'已提交', reviewing:'评审中', completed:'已完成', cancelled:'已取消' }[value] || value || '-')
 const trialStatusType = value => ({ pending:'info', in_progress:'primary', submitted:'warning', reviewing:'warning', completed:'success', cancelled:'danger' }[value] || 'info')
 const trialResultLabel = value => ({ passed:'通过', failed:'未通过', partially_passed:'部分通过', withdrawn:'已退出' }[value] || value || '-')
+const trialActivityLabel = value => ({ trial:'试标', collection:'试采' }[value] || value || '')
+const trialDutyLabel = value => ({ executor:'员', quality_inspector:'质检员' }[value] || value || '')
+const trialStageLabel = value => ({ backup:'备选', contacted:'已联系', pending_confirmation:'待确认', confirmed:'已确认', in_progress:'进行中', submitted:'已提交', reviewed:'已评审', withdrawn:'已退出' }[value] || value || '-')
+const performanceLevelLabel = value => ({ high:'高', medium:'中', low:'低' }[value] || value || '-')
 const customValue = value => Array.isArray(value) ? (value.join('、') || '-') : value === true ? '是' : value === false ? '否' : value == null || value === '' ? '-' : value
 const formatDateTime = value => {
   if (!value) return '-'

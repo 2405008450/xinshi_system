@@ -404,30 +404,122 @@ class AnnotationTrialRecord(Base):
         PrimaryKeyConstraint("id", name="annotation_trial_record_pkey"),
         ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_trial_project"),
         ForeignKeyConstraint(["person_id"], ["resource_person.id"], ondelete="RESTRICT", name="fk_annotation_trial_person"),
+        ForeignKeyConstraint(["language_item_id"], ["annotation_project_language_item.id"], ondelete="SET NULL", name="fk_annotation_trial_language_item"),
         ForeignKeyConstraint(["platform_account_id"], ["annotation_platform_account.id"], ondelete="SET NULL", name="fk_annotation_trial_account"),
         ForeignKeyConstraint(["created_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_trial_creator"),
-        UniqueConstraint("project_id", "person_id", "round_no", name="uq_annotation_trial_person_round"),
         UniqueConstraint("project_id", "round_no", "sequence_no", name="uq_annotation_trial_sequence"),
         CheckConstraint("round_no > 0 AND sequence_no > 0", name="ck_annotation_trial_sequence"),
+        CheckConstraint("activity_type IN ('trial','collection')", name="ck_annotation_trial_activity_type"),
+        CheckConstraint("duty_role IN ('executor','quality_inspector')", name="ck_annotation_trial_duty_role"),
+        CheckConstraint(
+            "candidate_stage IN ('backup','contacted','pending_confirmation','confirmed','in_progress','submitted','reviewed','withdrawn')",
+            name="ck_annotation_trial_candidate_stage",
+        ),
+        CheckConstraint("willingness_level IS NULL OR willingness_level IN ('high','medium','low')", name="ck_annotation_trial_willingness"),
         CheckConstraint("trial_status IN ('pending','in_progress','submitted','reviewing','completed','cancelled')", name="ck_annotation_trial_status"),
         CheckConstraint("trial_result IS NULL OR trial_result IN ('passed','failed','partially_passed','withdrawn')", name="ck_annotation_trial_result"),
+        CheckConstraint("quote_amount IS NULL OR quote_amount > 0", name="ck_annotation_trial_quote_amount"),
+        CheckConstraint(
+            "billing_unit IS NULL OR billing_unit IN ('occurrence','item','work_hour','effective_hour')",
+            name="ck_annotation_trial_billing_unit",
+        ),
+        CheckConstraint("cooperation_level IS NULL OR cooperation_level IN ('high','medium','low')", name="ck_annotation_trial_cooperation"),
+        CheckConstraint("punctuality_level IS NULL OR punctuality_level IN ('high','medium','low')", name="ck_annotation_trial_punctuality"),
+        CheckConstraint("overall_score IS NULL OR overall_score BETWEEN 1 AND 10", name="ck_annotation_trial_overall_score"),
+        CheckConstraint("deadline_at IS NULL OR started_at IS NULL OR deadline_at >= started_at", name="ck_annotation_trial_time_range"),
+        Index(
+            "uq_annotation_trial_business_identity",
+            "project_id", "person_id", "language_item_id", "activity_type", "duty_role", "round_no",
+            unique=True, postgresql_nulls_not_distinct=True,
+        ),
         Index("ix_annotation_trial_project_status", "project_id", "trial_status"),
+        Index("ix_annotation_trial_project_stage", "project_id", "candidate_stage"),
+        Index("ix_annotation_trial_language_item", "language_item_id"),
         Index("ix_annotation_trial_person", "person_id"),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     person_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    language_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     platform_account_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     round_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    activity_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'trial'"))
+    duty_role: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'executor'"))
+    candidate_stage: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'backup'"))
+    willingness_level: Mapped[Optional[str]] = mapped_column(String(20))
     willingness_text: Mapped[Optional[str]] = mapped_column(Text)
+    quote_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6))
+    quote_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    billing_unit: Mapped[Optional[str]] = mapped_column(String(30))
+    started_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    deadline_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    submitted_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     trial_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'pending'"))
     trial_result: Mapped[Optional[str]] = mapped_column(String(30))
     result_note: Mapped[Optional[str]] = mapped_column(Text)
+    cooperation_level: Mapped[Optional[str]] = mapped_column(String(20))
+    cooperation_note: Mapped[Optional[str]] = mapped_column(Text)
+    punctuality_level: Mapped[Optional[str]] = mapped_column(String(20))
+    punctuality_note: Mapped[Optional[str]] = mapped_column(Text)
+    overall_score: Mapped[Optional[int]] = mapped_column(Integer)
+    manager_comment: Mapped[Optional[str]] = mapped_column(Text)
     custom_values: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    follow_ups = relationship(
+        "AnnotationTrialFollowUp", back_populates="trial", cascade="all, delete-orphan",
+        order_by="AnnotationTrialFollowUp.created_at",
+    )
+
+
+class AnnotationTrialStrategy(Base):
+    """项目语言方向的试标/试采人数策略。"""
+
+    __tablename__ = "annotation_trial_strategy"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_trial_strategy_pkey"),
+        ForeignKeyConstraint(["project_id"], ["annotation_project.id"], ondelete="CASCADE", name="fk_annotation_trial_strategy_project"),
+        ForeignKeyConstraint(["language_item_id"], ["annotation_project_language_item.id"], ondelete="CASCADE", name="fk_annotation_trial_strategy_language_item"),
+        ForeignKeyConstraint(["updated_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_trial_strategy_updater"),
+        UniqueConstraint("project_id", "language_item_id", name="uq_annotation_trial_strategy_language"),
+        CheckConstraint("planned_headcount > 0", name="ck_annotation_trial_strategy_headcount"),
+        CheckConstraint("conversion_rate > 0 AND conversion_rate <= 1", name="ck_annotation_trial_strategy_conversion"),
+        Index("ix_annotation_trial_strategy_project", "project_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    language_item_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    planned_headcount: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    conversion_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default=text("0.1000"))
+    strategy_note: Mapped[Optional[str]] = mapped_column(Text)
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+class AnnotationTrialFollowUp(Base):
+    """试标候选人的多人、多天跟进时间线。"""
+
+    __tablename__ = "annotation_trial_follow_up"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="annotation_trial_follow_up_pkey"),
+        ForeignKeyConstraint(["trial_id"], ["annotation_trial_record.id"], ondelete="CASCADE", name="fk_annotation_trial_follow_up_trial"),
+        ForeignKeyConstraint(["created_by"], ["app_user.id"], ondelete="SET NULL", name="fk_annotation_trial_follow_up_creator"),
+        CheckConstraint("follow_up_type IN ('contact','status','schedule','quote','result','other')", name="ck_annotation_trial_follow_up_type"),
+        Index("ix_annotation_trial_follow_up_timeline", "trial_id", text("created_at DESC")),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    trial_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    follow_up_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'other'"))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    next_follow_up_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    trial = relationship("AnnotationTrialRecord", back_populates="follow_ups")
 
 
 class AnnotationAssigneeRate(Base):

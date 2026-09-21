@@ -185,6 +185,7 @@
               />
             </template>
           </div>
+          <span v-else-if="column.key === 'taskSubmittedAt' && !row.taskSubmittedAt">待定</span>
           <el-tooltip
             v-else-if="column.type === 'datetime'"
             :content="formatDateTime(row[column.key])"
@@ -197,7 +198,7 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="150" fixed="right" align="center">
         <template #default="{ row }">
           <div class="annotation-row-actions">
             <span class="arrangement-status-slot">
@@ -211,6 +212,7 @@
             </span>
             <ProjectListRowActions
               :editable="canWrite"
+              edit-in-more
               :show-start-request="canWrite"
               :start-request-label="resourceRequestActionLabel(row.id)"
               :extra-actions="projectRowExtraActions(row)"
@@ -439,7 +441,12 @@
             </el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="任务派发时间" prop="taskDispatchedAt"><el-date-picker v-model="form.taskDispatchedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="任务提交时间" prop="taskSubmittedAt"><el-date-picker v-model="form.taskSubmittedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="任务提交时间" prop="taskSubmittedAt">
+                  <el-checkbox v-model="form.taskSubmittedAtPending" @change="onTaskSubmittedAtPendingChange">待定</el-checkbox>
+                  <el-date-picker v-if="!form.taskSubmittedAtPending" v-model="form.taskSubmittedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
+                </el-form-item>
+              </el-col>
             </el-row>
           </section>
 
@@ -629,6 +636,7 @@ const openProjectChat = (row) => openChat({
 })
 const projectExtraActions = [
   { command: 'project-chat', label: '沟通' },
+  { command: 'trial-workspace', label: '试标/试采管理' },
   ...(canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []),
 ]
 const projectRowExtraActions = (row) => [
@@ -658,6 +666,10 @@ const handleProjectExtraAction = (command, row) => {
   }
   if (command === 'project-chat') {
     openProjectChat(row)
+    return
+  }
+  if (command === 'trial-workspace') {
+    router.push({ name: 'AnnotationProjectDetails', query: { section: 'trials', projectId: row.id } })
     return
   }
   if (command === 'account-sheet') {
@@ -794,8 +806,12 @@ const today=()=>localDateValue()
 const localDateTimeValue=(value=new Date())=>`${localDateValue(value)} ${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}:00`
 const projectNameDate=()=>{const matched=String(form.orderNo||'').match(/^AP-(\d{2})(\d{2})(\d{2})-\d+$/);return matched?`20${matched[1]}-${matched[2]}-${matched[3]}`:today()}
 const emptyLanguageItem=()=>({mode:'single',sourceLanguageId:'',targetLanguageId:''})
-const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:localDateTimeValue(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
+const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:localDateTimeValue(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',taskSubmittedAtPending:false,clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
 const form=reactive(emptyForm())
+const onTaskSubmittedAtPendingChange=()=>{
+  if(form.taskSubmittedAtPending)form.taskSubmittedAt=''
+  formRef.value?.clearValidate('taskSubmittedAt')
+}
 const projectManagerIds=computed({
   get:()=>form.roleAssignments.filter((item)=>(item.roleCode||item.role_code)==='project_manager').map((item)=>item.assigneeId||item.assignee_id).filter(Boolean),
   set:(values)=>{const current=form.roleAssignments.filter((item)=>(item.roleCode||item.role_code)!=='project_manager');const managers=(values||[]).map((assigneeId)=>({roleCode:'project_manager',assigneeId}));form.roleAssignments=[...current,...(managers.length?managers:[{roleCode:'project_manager',assigneeId:null}])]},
@@ -812,7 +828,7 @@ const rules={
   clientShortName:[{validator:requiredTextValidator('请选择或输入客户简称'),trigger:['blur','change']}],
   languageItems:[{validator:validateRequiredLanguageItems,trigger:'change'}],
   taskDispatchedAt:[{required:true,message:'请选择任务派发时间',trigger:'change'}],
-  taskSubmittedAt:[{required:true,message:'请选择任务提交时间',trigger:'change'}],
+  taskSubmittedAt:[{required:true,validator:(_rule,value,callback)=>form.taskSubmittedAtPending||value?callback():callback(new Error('请选择任务提交时间或勾选待定')),trigger:'change'}],
   projectStatus:[{required:true,message:'请选择项目进度',trigger:'change'}],
 }
 const activeUsers=computed(()=>users.value.filter((item)=>item.is_active ?? item.isActive ?? true))
@@ -916,11 +932,11 @@ const addLanguage=async()=>{try{const {value}=await ElMessageBox.prompt('请输�
 const normalizedLanguageItems=()=>form.languageItems.filter((item)=>item.sourceLanguageId).map((item)=>({id:item.id||null,sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.mode==='direction'?(item.targetLanguageId||null):null}))
 const splitLanguageKey=(key)=>{if(!key)return {sourceLanguageId:null,targetLanguageId:null};const [source,target]=key.split(':');return {sourceLanguageId:source||null,targetLanguageId:target||null}}
 const validateLanguageItems=()=>{if(!form.languageItems.length)throw new Error('请至少添加一个语种方向');for(const item of form.languageItems){if(!item.sourceLanguageId)throw new Error('每个语言项都必须选择语种');if(item.mode==='direction'&&!item.targetLanguageId)throw new Error('翻译方向必须选择目标语种');if(item.targetLanguageId===item.sourceLanguageId)throw new Error('语言方向的两个语种不能相同')}const keys=normalizedLanguageItems().map((item)=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)throw new Error('同一语言或语言方向不能重复')}
-const validateFormData=()=>{validateLanguageItems();if(form.taskDispatchedAt&&form.taskSubmittedAt&&new Date(form.taskSubmittedAt)<new Date(form.taskDispatchedAt))throw new Error('任务提交时间不能早于任务派发时间');const languageKeys=new Set(currentLanguageOptions.value.map((item)=>item.key));for(const item of form.priceItems){if(item.projectType&&!form.projectTypes.includes(item.projectType))throw new Error('报价引用了当前项目未选择的项目类型');if(item.languageKey&&!languageKeys.has(item.languageKey))throw new Error('报价引用了当前项目未选择的语言项');if(!item.amount||item.amount<=0)throw new Error('报价金额必须大于零');if(!item.unit?.trim())throw new Error('报价必须填写计价单位')}for(const item of form.assignees){if(!item.personId)throw new Error('每条标注人员安排都必须选择人员')}const keys=form.assignees.map((item)=>`${item.personId}:${item.languageItemId||''}:${item.assignmentRole}`);if(new Set(keys).size!==keys.length)throw new Error('同一人员、语种与角色不能重复安排')}
-const buildPayload=()=>{validateFormData();return {projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,priority:form.priority,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAt||null,clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null}))}}
+const validateFormData=()=>{validateLanguageItems();if(!form.taskSubmittedAtPending&&form.taskDispatchedAt&&form.taskSubmittedAt&&new Date(form.taskSubmittedAt)<new Date(form.taskDispatchedAt))throw new Error('任务提交时间不能早于任务派发时间');const languageKeys=new Set(currentLanguageOptions.value.map((item)=>item.key));for(const item of form.priceItems){if(item.projectType&&!form.projectTypes.includes(item.projectType))throw new Error('报价引用了当前项目未选择的项目类型');if(item.languageKey&&!languageKeys.has(item.languageKey))throw new Error('报价引用了当前项目未选择的语言项');if(!item.amount||item.amount<=0)throw new Error('报价金额必须大于零');if(!item.unit?.trim())throw new Error('报价必须填写计价单位')}for(const item of form.assignees){if(!item.personId)throw new Error('每条标注人员安排都必须选择人员')}const keys=form.assignees.map((item)=>`${item.personId}:${item.languageItemId||''}:${item.assignmentRole}`);if(new Set(keys).size!==keys.length)throw new Error('同一人员、语种与角色不能重复安排')}
+const buildPayload=()=>{validateFormData();return {projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,priority:form.priority,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAtPending?null:(form.taskSubmittedAt||null),clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null}))}}
 const generateProjectName=async()=>{try{validateLanguageItems();const result=await annotationApi.previewAnnotationProjectName({clientShortName:form.clientShortName?.trim()||null,projectTypes:form.projectTypes,languageItems:normalizedLanguageItems(),nameDate:projectNameDate()});form.projectName=result.projectName;nameManuallyEdited.value=false;ElMessage.success('项目名称已生成，仍可手工修改')}catch(error){ElMessage.warning(getLocalizedErrorMessage(error,'无法生成项目名称'))}}
 const generateEmailSubject=()=>notifyEmailSubjectGenerated(form,ElMessage)
-const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:detail.statusEffectiveOn||localDateTimeValue(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:detail.taskDispatchedAt||'',taskSubmittedAt:detail.taskSubmittedAt||'',clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||''})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
+const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:detail.statusEffectiveOn||localDateTimeValue(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:detail.taskDispatchedAt||'',taskSubmittedAt:detail.taskSubmittedAt||'',taskSubmittedAtPending:!detail.taskSubmittedAt,clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||''})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
 const resetEditorScroll=async()=>{await nextTick();dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'auto'})}
 const handleAdd=async()=>{dialogTitle.value='新增标注项目';resetForm();annotationApi.resetAnnotationProjectIdempotency();nameManuallyEdited.value=false;dialogVisible.value=true;await resetEditorScroll();await beginDraft('create')}
 const handleEdit=async(row,useProvidedDetail=false)=>{const detail=useProvidedDetail?row:await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`编辑标注项目 · ${detail.orderNo}`;assignForm(detail);await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll();await beginDraft(`edit:${detail.id}`)}

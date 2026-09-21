@@ -49,7 +49,7 @@
           </div><span v-else>-</span>
         </el-descriptions-item>
         <el-descriptions-item label="任务派发时间">{{ formatDateTime(displayRow.taskDispatchedAt) }}</el-descriptions-item>
-        <el-descriptions-item label="任务提交时间">{{ formatDateTime(displayRow.taskSubmittedAt) }}</el-descriptions-item>
+        <el-descriptions-item label="任务提交时间">{{ displayRow.taskSubmittedAt ? formatDateTime(displayRow.taskSubmittedAt) : '待定' }}</el-descriptions-item>
         <el-descriptions-item label="客户经理">{{ textValue(displayRow.clientManagerName) }}</el-descriptions-item>
         <el-descriptions-item label="创建人">{{ textValue(displayRow.createdByName) }}</el-descriptions-item>
         <el-descriptions-item label="项目路径" :span="2"><InlineTextField :model-value="displayRow.projectPath" :editable="editable" label="项目路径" multiline :save-field="(value) => saveText('projectPath', value)" @conflict="load" /></el-descriptions-item>

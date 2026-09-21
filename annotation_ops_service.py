@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
@@ -21,7 +22,8 @@ from annotation_ops_models import (
     AnnotationArrangementTaskType, AnnotationProjectArrangementScope,
     AnnotationProjectArrangementTask,
     AnnotationCredentialAccessLog, AnnotationPlatform, AnnotationPlatformAccount,
-    AnnotationProjectStatusHistory, AnnotationTrialRecord,
+    AnnotationProjectStatusHistory, AnnotationTrialFollowUp, AnnotationTrialRecord,
+    AnnotationTrialStrategy,
 )
 from annotation_schemas import AnnotationProjectListResponse
 from concurrency import assert_fresh
@@ -784,7 +786,10 @@ def release_all_person_accounts(db: Session, person_id: UUID, payload):
     return len(rows)
 
 
-def _validate_trial_member(db: Session, project_id: UUID, person_id: UUID, account_id: UUID | None):
+def _validate_trial_member(
+    db: Session, project_id: UUID, person_id: UUID,
+    account_id: UUID | None = None, *, language_item_id: UUID | None = None,
+):
     project = db.get(AnnotationProject, project_id)
     if not project:
         raise ValueError("标注项目不存在")
@@ -797,23 +802,37 @@ def _validate_trial_member(db: Session, project_id: UUID, person_id: UUID, accou
     if not capability:
         raise ValueError("所选人员不是有效的标注员")
 
-    project_language_keys = {
-        (source_language_id, target_language_id)
-        for source_language_id, target_language_id in db.query(
+    project_language_items = db.query(
+        AnnotationProjectLanguageItem.id,
         AnnotationProjectLanguageItem.source_language_id,
         AnnotationProjectLanguageItem.target_language_id,
-        ).filter(AnnotationProjectLanguageItem.project_id == project_id).all()
-    }
-    if project_language_keys:
-        person_language_keys = {
-            (source_language_id, target_language_id)
-            for source_language_id, target_language_id in db.query(
-            ResourceAnnotationLanguageSkill.source_language_id,
-            ResourceAnnotationLanguageSkill.target_language_id,
-            ).filter(ResourceAnnotationLanguageSkill.person_id == person_id).all()
+    ).filter(
+        AnnotationProjectLanguageItem.project_id == project_id
+    ).all()
+    if project_language_items:
+        selected_language_items = project_language_items
+        if language_item_id is not None:
+            selected_language_items = [
+                item for item in project_language_items if item[0] == language_item_id
+            ]
+            if not selected_language_items:
+                raise ValueError("请选择当前项目的语言方向")
+        required_language_ids = {
+            value for item in selected_language_items for value in item[1:3]
+            if value is not None
         }
-        if project_language_keys.isdisjoint(person_language_keys):
-            raise ValueError("所选标注员的语言方向与项目语种不匹配")
+        person_language_ids = set()
+        person_language_rows = db.query(ResourceAnnotationLanguageSkill).filter(
+            ResourceAnnotationLanguageSkill.person_id == person_id
+        ).all()
+        for row in person_language_rows:
+            values = (
+                (row.source_language_id, row.target_language_id)
+                if hasattr(row, "source_language_id") else row[0:2]
+            )
+            person_language_ids.update(value for value in values if value is not None)
+        if required_language_ids.isdisjoint(person_language_ids):
+            raise ValueError("所选标注员语言方向与项目语种不匹配（需掌握其中任一语种）")
 
     if not account_id:
         return
@@ -833,9 +852,20 @@ def _trial_dict(db: Session, row: AnnotationTrialRecord) -> dict:
     project = db.get(AnnotationProject, row.project_id)
     account = db.get(AnnotationPlatformAccount, row.platform_account_id) if row.platform_account_id else None
     platform = db.get(AnnotationPlatform, account.platform_id) if account else None
+    language_item = db.get(AnnotationProjectLanguageItem, row.language_item_id) if row.language_item_id else None
+    latest_follow_up = db.query(AnnotationTrialFollowUp).filter(
+        AnnotationTrialFollowUp.trial_id == row.id
+    ).order_by(AnnotationTrialFollowUp.created_at.desc(), AnnotationTrialFollowUp.id.desc()).first()
+    latest_user = db.get(AppUser, latest_follow_up.created_by) if latest_follow_up and latest_follow_up.created_by else None
+    follow_up_count = db.query(func.count(AnnotationTrialFollowUp.id)).filter(
+        AnnotationTrialFollowUp.trial_id == row.id
+    ).scalar() or 0
     return {key: getattr(row, key) for key in (
-        "id", "project_id", "person_id", "platform_account_id", "round_no", "sequence_no",
-        "willingness_text", "trial_status", "trial_result", "result_note", "custom_values",
+        "id", "project_id", "person_id", "language_item_id", "platform_account_id", "round_no", "sequence_no",
+        "activity_type", "duty_role", "candidate_stage", "willingness_level", "willingness_text",
+        "quote_amount", "quote_currency", "billing_unit", "started_at", "deadline_at", "submitted_at",
+        "trial_status", "trial_result", "result_note", "cooperation_level", "cooperation_note",
+        "punctuality_level", "punctuality_note", "overall_score", "manager_comment", "custom_values",
         "created_by", "created_at", "updated_at"
     )} | {
         "person_name": getattr(person, "full_name", None),
@@ -846,12 +876,22 @@ def _trial_dict(db: Session, row: AnnotationTrialRecord) -> dict:
         "client_short_name": getattr(project, "client_short_name", None),
         "platform_name": getattr(platform, "platform_name", None),
         "platform_account_nickname": getattr(account, "nickname", None),
+        "language_display": getattr(language_item, "display", None),
+        "source_language_id": getattr(language_item, "source_language_id", None),
+        "target_language_id": getattr(language_item, "target_language_id", None),
+        "latest_follow_up_by_name": (latest_user.full_name or latest_user.username) if latest_user else None,
+        "latest_follow_up_at": getattr(latest_follow_up, "created_at", None),
+        "latest_follow_up_content": getattr(latest_follow_up, "content", None),
+        "follow_up_count": int(follow_up_count),
     }
 
 
 def _trial_query(
     db: Session, project_id: UUID | None = None, keyword: str | None = None,
     trial_status: str | None = None, person_id: UUID | None = None,
+    language_item_id: UUID | None = None, activity_type: str | None = None,
+    duty_role: str | None = None, candidate_stage: str | None = None,
+    trial_result: str | None = None,
 ):
     query = (
         db.query(AnnotationTrialRecord)
@@ -875,26 +915,101 @@ def _trial_query(
         query = query.filter(AnnotationTrialRecord.trial_status == trial_status)
     if person_id:
         query = query.filter(AnnotationTrialRecord.person_id == person_id)
+    if language_item_id:
+        query = query.filter(AnnotationTrialRecord.language_item_id == language_item_id)
+    if activity_type:
+        query = query.filter(AnnotationTrialRecord.activity_type == activity_type)
+    if duty_role:
+        query = query.filter(AnnotationTrialRecord.duty_role == duty_role)
+    if candidate_stage:
+        query = query.filter(AnnotationTrialRecord.candidate_stage == candidate_stage)
+    if trial_result:
+        query = query.filter(AnnotationTrialRecord.trial_result == trial_result)
     return query
 
 
-def list_trials(db: Session, project_id: UUID | None = None, skip: int = 0, limit: int = 100, keyword: str | None = None, trial_status: str | None = None, person_id: UUID | None = None):
-    rows = _trial_query(db, project_id, keyword, trial_status, person_id).order_by(AnnotationTrialRecord.updated_at.desc(), AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).offset(skip).limit(limit).all()
+def list_trials(
+    db: Session, project_id: UUID | None = None, skip: int = 0, limit: int = 100,
+    keyword: str | None = None, trial_status: str | None = None,
+    person_id: UUID | None = None, language_item_id: UUID | None = None,
+    activity_type: str | None = None, duty_role: str | None = None,
+    candidate_stage: str | None = None, trial_result: str | None = None,
+):
+    rows = _trial_query(
+        db, project_id, keyword, trial_status, person_id, language_item_id,
+        activity_type, duty_role, candidate_stage, trial_result,
+    ).order_by(AnnotationTrialRecord.updated_at.desc(), AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).offset(skip).limit(limit).all()
     return [_trial_dict(db, row) for row in rows]
 
 
-def count_trials(db: Session, project_id: UUID | None = None, keyword: str | None = None, trial_status: str | None = None, person_id: UUID | None = None) -> int:
-    return _trial_query(db, project_id, keyword, trial_status, person_id).count()
+def count_trials(
+    db: Session, project_id: UUID | None = None, keyword: str | None = None,
+    trial_status: str | None = None, person_id: UUID | None = None,
+    language_item_id: UUID | None = None, activity_type: str | None = None,
+    duty_role: str | None = None, candidate_stage: str | None = None,
+    trial_result: str | None = None,
+) -> int:
+    return _trial_query(
+        db, project_id, keyword, trial_status, person_id, language_item_id,
+        activity_type, duty_role, candidate_stage, trial_result,
+    ).count()
+
+
+def get_trial_summary(db: Session, project_id: UUID) -> dict:
+    if not db.get(AnnotationProject, project_id):
+        raise ValueError("标注项目不存在")
+    rows = db.query(AnnotationTrialRecord).filter(
+        AnnotationTrialRecord.project_id == project_id
+    ).all()
+    grouped: dict[UUID | None, dict] = {}
+    contacted_stages = {"contacted", "pending_confirmation", "confirmed", "in_progress", "submitted", "reviewed", "withdrawn"}
+    confirmed_stages = {"confirmed", "in_progress", "submitted", "reviewed"}
+    submitted_stages = {"submitted", "reviewed"}
+    for row in rows:
+        item = grouped.setdefault(row.language_item_id, {
+            "language_item_id": row.language_item_id,
+            "candidate_count": 0,
+            "contacted_count": 0,
+            "confirmed_count": 0,
+            "submitted_count": 0,
+            "passed_count": 0,
+        })
+        item["candidate_count"] += 1
+        item["contacted_count"] += int(row.candidate_stage in contacted_stages)
+        item["confirmed_count"] += int(row.candidate_stage in confirmed_stages)
+        item["submitted_count"] += int(row.candidate_stage in submitted_stages)
+        item["passed_count"] += int(row.trial_result == "passed")
+    return {"project_id": project_id, "total": len(rows), "items": list(grouped.values())}
 
 
 def save_trial(db: Session, payload, created_by: UUID | None, trial_id: UUID | None = None):
-    _validate_trial_member(db, payload.project_id, payload.person_id, payload.platform_account_id)
+    _validate_trial_member(
+        db, payload.project_id, payload.person_id,
+        payload.platform_account_id, language_item_id=payload.language_item_id,
+    )
     row = db.get(AnnotationTrialRecord, trial_id) if trial_id else AnnotationTrialRecord(project_id=payload.project_id, created_by=created_by)
     if trial_id and not row:
         return None
     if trial_id and row.project_id != payload.project_id:
         raise ValueError("试标记录创建后不能更换项目")
+    duplicate = db.query(AnnotationTrialRecord.id).filter(
+        AnnotationTrialRecord.project_id == payload.project_id,
+        AnnotationTrialRecord.person_id == payload.person_id,
+        AnnotationTrialRecord.language_item_id.is_(None) if payload.language_item_id is None else AnnotationTrialRecord.language_item_id == payload.language_item_id,
+        AnnotationTrialRecord.activity_type == payload.activity_type,
+        AnnotationTrialRecord.duty_role == payload.duty_role,
+        AnnotationTrialRecord.round_no == payload.round_no,
+        AnnotationTrialRecord.id != trial_id if trial_id else True,
+    ).first()
+    if duplicate:
+        raise ValueError("该人员在相同语言方向、业务类型、职责和轮次下已存在记录")
     data = payload.model_dump(exclude={"sequence_no", "custom_values"})
+    stage_status_map = {
+        "backup": "pending", "contacted": "pending", "pending_confirmation": "pending",
+        "confirmed": "pending", "in_progress": "in_progress", "submitted": "submitted",
+        "reviewed": "completed", "withdrawn": "cancelled",
+    }
+    data["trial_status"] = stage_status_map[payload.candidate_stage]
     for key, value in data.items():
         setattr(row, key, value)
     row.custom_values = validate_custom_values(
@@ -917,6 +1032,137 @@ def delete_trial(db: Session, trial_id: UUID) -> bool:
     db.delete(row)
     db.commit()
     return True
+
+
+def _strategy_dict(row: AnnotationTrialStrategy, language_item: AnnotationProjectLanguageItem | None = None) -> dict:
+    rate = float(row.conversion_rate)
+    return {
+        "id": row.id,
+        "project_id": row.project_id,
+        "language_item_id": row.language_item_id,
+        "planned_headcount": row.planned_headcount,
+        "conversion_rate": row.conversion_rate,
+        "strategy_note": row.strategy_note,
+        "language_display": language_item.display if language_item else None,
+        "suggested_contact_count": math.ceil(row.planned_headcount / rate),
+        "updated_by": row.updated_by,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def list_trial_strategies(db: Session, project_id: UUID) -> list[dict]:
+    project = db.get(AnnotationProject, project_id)
+    if not project:
+        raise ValueError("标注项目不存在")
+    language_items = db.query(AnnotationProjectLanguageItem).filter(
+        AnnotationProjectLanguageItem.project_id == project_id
+    ).order_by(AnnotationProjectLanguageItem.sequence_no).all()
+    existing = {
+        row.language_item_id: row for row in db.query(AnnotationTrialStrategy).filter(
+            AnnotationTrialStrategy.project_id == project_id
+        ).all()
+    }
+    result = []
+    for language_item in language_items:
+        row = existing.get(language_item.id)
+        if row is None:
+            result.append({
+                "id": None,
+                "project_id": project_id,
+                "language_item_id": language_item.id,
+                "planned_headcount": 1,
+                "conversion_rate": 0.1,
+                "strategy_note": None,
+                "language_display": language_item.display,
+                "suggested_contact_count": 10,
+                "updated_by": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            })
+        else:
+            result.append(_strategy_dict(row, language_item))
+    return result
+
+
+def save_trial_strategies(db: Session, project_id: UUID, payload, updated_by: UUID | None) -> list[dict]:
+    project = db.get(AnnotationProject, project_id)
+    if not project:
+        raise ValueError("标注项目不存在")
+    language_items = {
+        item.id: item for item in db.query(AnnotationProjectLanguageItem).filter(
+            AnnotationProjectLanguageItem.project_id == project_id
+        ).all()
+    }
+    payload_ids = {item.language_item_id for item in payload.items}
+    if not payload_ids.issubset(language_items):
+        raise ValueError("人数策略包含不属于当前项目的语言方向")
+    existing = {
+        row.language_item_id: row for row in db.query(AnnotationTrialStrategy).filter(
+            AnnotationTrialStrategy.project_id == project_id
+        ).all()
+    }
+    now = datetime.now()
+    for item in payload.items:
+        row = existing.get(item.language_item_id)
+        if row is None:
+            row = AnnotationTrialStrategy(
+                project_id=project_id, language_item_id=item.language_item_id,
+                created_at=now,
+            )
+            db.add(row)
+            existing[item.language_item_id] = row
+        row.planned_headcount = item.planned_headcount
+        row.conversion_rate = item.conversion_rate
+        row.strategy_note = (item.strategy_note or "").strip() or None
+        row.updated_by = updated_by
+        row.updated_at = now
+    db.commit()
+    rows = db.query(AnnotationTrialStrategy).filter(
+        AnnotationTrialStrategy.project_id == project_id
+    ).order_by(AnnotationTrialStrategy.language_item_id).all()
+    return [_strategy_dict(row, language_items.get(row.language_item_id)) for row in rows]
+
+
+def _follow_up_dict(db: Session, row: AnnotationTrialFollowUp) -> dict:
+    user = db.get(AppUser, row.created_by) if row.created_by else None
+    return {
+        "id": row.id,
+        "trial_id": row.trial_id,
+        "follow_up_type": row.follow_up_type,
+        "content": row.content,
+        "next_follow_up_at": row.next_follow_up_at,
+        "created_by": row.created_by,
+        "created_by_name": (user.full_name or user.username) if user else None,
+        "created_at": row.created_at,
+    }
+
+
+def list_trial_follow_ups(db: Session, trial_id: UUID) -> list[dict]:
+    if not db.get(AnnotationTrialRecord, trial_id):
+        raise ValueError("试标/试采记录不存在")
+    rows = db.query(AnnotationTrialFollowUp).filter(
+        AnnotationTrialFollowUp.trial_id == trial_id
+    ).order_by(AnnotationTrialFollowUp.created_at.desc(), AnnotationTrialFollowUp.id.desc()).all()
+    return [_follow_up_dict(db, row) for row in rows]
+
+
+def create_trial_follow_up(db: Session, trial_id: UUID, payload, created_by: UUID | None) -> dict:
+    trial = db.get(AnnotationTrialRecord, trial_id)
+    if not trial:
+        raise ValueError("试标/试采记录不存在")
+    row = AnnotationTrialFollowUp(
+        trial_id=trial_id,
+        follow_up_type=payload.follow_up_type,
+        content=payload.content,
+        next_follow_up_at=payload.next_follow_up_at,
+        created_by=created_by,
+    )
+    db.add(row)
+    trial.updated_at = datetime.now()
+    db.commit()
+    db.refresh(row)
+    return _follow_up_dict(db, row)
 
 
 def save_assignee_rate(db: Session, assignee_id: UUID, payload):

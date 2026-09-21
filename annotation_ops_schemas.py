@@ -252,14 +252,66 @@ class ReleaseAllResponse(BaseModel):
 class TrialWrite(BaseModel):
     project_id: UUID
     person_id: UUID
+    language_item_id: Optional[UUID] = None
     platform_account_id: Optional[UUID] = None
     round_no: int = Field(default=1, gt=0)
     sequence_no: Optional[int] = Field(default=None, gt=0)
+    activity_type: str = "trial"
+    duty_role: str = "executor"
+    candidate_stage: str = "backup"
+    willingness_level: Optional[str] = None
     willingness_text: Optional[str] = None
+    quote_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    quote_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    billing_unit: Optional[str] = None
+    started_at: Optional[datetime] = None
+    deadline_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
     trial_status: str = "pending"
     trial_result: Optional[str] = None
     result_note: Optional[str] = None
+    cooperation_level: Optional[str] = None
+    cooperation_note: Optional[str] = None
+    punctuality_level: Optional[str] = None
+    punctuality_note: Optional[str] = None
+    overall_score: Optional[int] = Field(default=None, ge=1, le=10)
+    manager_comment: Optional[str] = None
     custom_values: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("activity_type")
+    @classmethod
+    def validate_activity_type(cls, value):
+        if value not in {"trial", "collection"}:
+            raise ValueError("不支持的试标/试采类型")
+        return value
+
+    @field_validator("duty_role")
+    @classmethod
+    def validate_duty_role(cls, value):
+        if value not in {"executor", "quality_inspector"}:
+            raise ValueError("不支持的试标/试采职责")
+        return value
+
+    @field_validator("candidate_stage")
+    @classmethod
+    def validate_candidate_stage(cls, value):
+        if value not in {"backup", "contacted", "pending_confirmation", "confirmed", "in_progress", "submitted", "reviewed", "withdrawn"}:
+            raise ValueError("不支持的候选阶段")
+        return value
+
+    @field_validator("willingness_level", "cooperation_level", "punctuality_level")
+    @classmethod
+    def validate_level(cls, value):
+        if value is not None and value not in {"high", "medium", "low"}:
+            raise ValueError("等级仅支持高、中、低")
+        return value
+
+    @field_validator("billing_unit")
+    @classmethod
+    def validate_billing_unit(cls, value):
+        if value is not None and value not in {"occurrence", "item", "work_hour", "effective_hour"}:
+            raise ValueError("不支持的试标/试采计费单位")
+        return value
 
     @field_validator("trial_status")
     @classmethod
@@ -275,21 +327,103 @@ class TrialWrite(BaseModel):
             raise ValueError("不支持的试标结果")
         return value
 
+    @model_validator(mode="after")
+    def validate_trial_pairs(self):
+        if (self.quote_amount is None) != (self.billing_unit is None):
+            raise ValueError("报价金额和计费单位必须同时填写")
+        if self.deadline_at and self.started_at and self.deadline_at < self.started_at:
+            raise ValueError("截止时间不能早于开始时间")
+        if self.trial_result == "partially_passed" and not (self.result_note or "").strip():
+            raise ValueError("部分通过时请填写结果说明")
+        return self
+
 
 class TrialResponse(TrialWrite):
     id: UUID
     sequence_no: int
     person_name: Optional[str] = None
     resource_code: Optional[str] = None
+    language_display: Optional[str] = None
+    source_language_id: Optional[UUID] = None
+    target_language_id: Optional[UUID] = None
     project_order_no: Optional[str] = None
     project_name: Optional[str] = None
     project_status: Optional[str] = None
     client_short_name: Optional[str] = None
     platform_name: Optional[str] = None
     platform_account_nickname: Optional[str] = None
+    latest_follow_up_by_name: Optional[str] = None
+    latest_follow_up_at: Optional[datetime] = None
+    latest_follow_up_content: Optional[str] = None
+    follow_up_count: int = 0
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+
+
+class TrialStrategyWrite(BaseModel):
+    language_item_id: UUID
+    planned_headcount: int = Field(default=1, gt=0)
+    conversion_rate: Decimal = Field(default=Decimal("0.1"), gt=0, le=1, max_digits=5, decimal_places=4)
+    strategy_note: Optional[str] = None
+
+
+class TrialStrategyResponse(TrialStrategyWrite):
+    id: Optional[UUID] = None
+    project_id: UUID
+    language_display: Optional[str] = None
+    suggested_contact_count: int
+    updated_by: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TrialStrategyBatchWrite(BaseModel):
+    items: list[TrialStrategyWrite] = Field(default_factory=list, max_length=100)
+
+
+class TrialFollowUpWrite(BaseModel):
+    follow_up_type: str = "other"
+    content: str = Field(min_length=1, max_length=5000)
+    next_follow_up_at: Optional[datetime] = None
+
+    @field_validator("follow_up_type")
+    @classmethod
+    def validate_follow_up_type(cls, value):
+        if value not in {"contact", "status", "schedule", "quote", "result", "other"}:
+            raise ValueError("不支持的跟进类型")
+        return value
+
+    @field_validator("content")
+    @classmethod
+    def normalize_follow_up_content(cls, value):
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("请填写跟进内容")
+        return normalized
+
+
+class TrialFollowUpResponse(TrialFollowUpWrite):
+    id: UUID
+    trial_id: UUID
+    created_by: Optional[UUID] = None
+    created_by_name: Optional[str] = None
+    created_at: datetime
+
+
+class TrialLanguageSummaryResponse(BaseModel):
+    language_item_id: Optional[UUID] = None
+    candidate_count: int = 0
+    contacted_count: int = 0
+    confirmed_count: int = 0
+    submitted_count: int = 0
+    passed_count: int = 0
+
+
+class TrialSummaryResponse(BaseModel):
+    project_id: UUID
+    total: int = 0
+    items: list[TrialLanguageSummaryResponse] = Field(default_factory=list)
 
 
 class AssigneeRateWrite(BaseModel):

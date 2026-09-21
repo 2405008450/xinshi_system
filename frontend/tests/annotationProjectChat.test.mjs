@@ -19,11 +19,12 @@ test('标注项目进度弹窗提供纯文本项目沟通页签', () => {
   assert.match(annotationPage, /\scompact\s*\/>/)
 })
 
-test('纯文本模式不提交富文本或附件字段', () => {
+test('标注文字编辑模式支持独立图片附件', () => {
   assert.doesNotMatch(chatPanel, /^\s{6}<template>\s*$/m)
   assert.match(chatPanel, /props\.textOnly\s*\?\s*\{\s*content:/s)
   assert.match(chatPanel, /v-if="textOnly"[\s\S]*type="textarea"/)
-  assert.match(chatPanel, /v-if="!textOnly" class="composer-attachments"/)
+  assert.match(chatPanel, /<ChatImageAttachments v-if="attachmentsEnabled"/)
+  assert.match(chatPanel, /attachmentIds: pendingImages.map/)
   assert.match(chatApi, /\/project-chat\/annotation\/\$\{projectId\}/)
 })
 

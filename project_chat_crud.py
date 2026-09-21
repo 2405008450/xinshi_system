@@ -114,7 +114,7 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
         getattr(message, 'mentions', None) or [],
         key=lambda item: (item.created_at is None, item.created_at or dt.datetime.min, str(item.id)),
     )
-    attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
+    attachment_links = getattr(message, 'attachment_links', None) or []
     acknowledgements = sorted(
         getattr(message, 'acknowledgements', None) or [],
         key=lambda item: (item.created_at is None, item.created_at or dt.datetime.min, str(item.id)),
@@ -407,6 +407,7 @@ def list_annotation_project_chat_messages(
         .options(
             selectinload(ChatProjectMessage.mentions),
             selectinload(ChatProjectMessage.acknowledgements),
+            selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
         )
         .filter(ChatProjectMessage.annotation_project_id == annotation_project_id)
     )
@@ -836,15 +837,28 @@ def create_annotation_project_chat_message(
     content: str,
     mentioned_user_id: Optional[UUID] = None,
     mentioned_user_ids: Optional[list[UUID]] = None,
+    attachment_ids: Optional[list[UUID]] = None,
 ) -> ChatProjectMessage:
-    """保存标注项目纯文本留言；首版只有明确被提及的用户会收到提醒。"""
+    """保存标注项目文字及图片；只有明确被提及的用户会收到提醒。"""
     project = db.get(AnnotationProject, annotation_project_id)
     if project is None:
         raise ValueError('标注项目不存在')
 
     plain_content = (content or '').strip()
-    if not plain_content:
-        raise ValueError('消息内容不能为空')
+    attachment_ids = list(dict.fromkeys(attachment_ids or []))
+    if len(attachment_ids) > 9:
+        raise ValueError('每条留言最多添加 9 张图片')
+    if not plain_content and not attachment_ids:
+        raise ValueError('消息内容和附件不能同时为空')
+
+    attachments = []
+    if attachment_ids:
+        attachments = db.query(ChatProjectAttachment).filter(
+            ChatProjectAttachment.id.in_(attachment_ids),
+            ChatProjectAttachment.uploaded_by == sender.id,
+        ).all()
+        if len(attachments) != len(attachment_ids):
+            raise ValueError('附件不存在或不属于当前用户')
 
     message = ChatProjectMessage(
         annotation_project_id=annotation_project_id,
@@ -857,6 +871,10 @@ def create_annotation_project_chat_message(
     )
     db.add(message)
     db.flush()
+    db.add_all(
+        ChatProjectMessageAttachment(message_id=message.id, attachment_id=attachment.id)
+        for attachment in attachments
+    )
     mention_users = _create_chat_mentions(
         db,
         message,
@@ -871,6 +889,7 @@ def create_annotation_project_chat_message(
         .options(
             selectinload(ChatProjectMessage.mentions),
             selectinload(ChatProjectMessage.acknowledgements),
+            selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
         )
         .filter(ChatProjectMessage.id == message.id)
         .first()
@@ -879,7 +898,7 @@ def create_annotation_project_chat_message(
         raise ValueError('消息已创建，但读取消息失败')
 
     if mention_users:
-        preview = created.content.replace('\r', ' ').replace('\n', ' ').strip()
+        preview = created.content.replace('\r', ' ').replace('\n', ' ').strip() or '[图片]'
         if len(preview) > 60:
             preview = preview[:57] + '...'
         notifications = create_notifications_for_users(
