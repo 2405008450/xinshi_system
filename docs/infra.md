@@ -189,3 +189,14 @@ sudo docker-compose --env-file ../.env \
 Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Get-Item` 和一次只读枚举；
 只有验证成功才会启动后端。服务器重启后仍必须先建立 `Administrator` 交互式控制台会话，
 当前机器未配置自动登录；无人登录时交互式后端任务不会启动，也不得改用 Session 0 绕过此限制。
+
+## 沟通图片云端统一存储
+
+- `CHAT_STORAGE_MODE=local`（默认）：使用 `CHAT_UPLOAD_DIR`；云端保持该模式及现有 Docker 持久化卷。
+- `CHAT_STORAGE_MODE=remote`：局域网经 HTTPS 转发上传和读取，必须配置 `CHAT_REMOTE_ORIGIN=https://www.oa.xinshify.com.cn`。源站只能为 HTTPS origin，不含路径、查询参数或凭据。
+- 转发携带用户原登录凭证，不跟随重定向、不使用系统代理、不退回本地存储。切换前必须验证局域网签发的令牌能通过云端 `/api/auth/session`；签名配置统一后，原局域网登录可能需要重新登录。密钥由有权限的运维人员通过受保护渠道配置，禁止写入文档和提交。
+- `CHAT_UPLOADS_PAUSED=true` 可临时禁止本机附件上传（环境变量修改后需按对应环境规范重启）。日常必须为 `false`；维护不影响已有图片读取。
+- 两层云端 Nginx 的附件上传路径均设 `client_max_body_size 12m`，后端仍执行单张 10MB 限制。前端上传/读取超时 60 秒，远程连接超时 5 秒、读写超时 45 秒。
+- `tools/chat_image_inventory.py` 只读输出附件记录及文件大小/SHA-256。合并文件时保留 `storage_name` 和附件 ID；同名不同哈希禁止覆盖，复制后再次盘点。局域网原图作为迁移备份保留。
+- 云端前端可采用 `deploy/Dockerfile.frontend-prebuilt` 封装已在局域网构建和预算校验通过的 `dist/` 与 `nginx.conf`；构建上下文必须保留旧哈希资源，切换前为旧镜像加备份标签，切换后重新加载 HTTPS 网关以更新上游地址。
+- 回滚前端可使用旧镜像或旧入口文件；远程图片服务故障时禁止以自动恢复本地写入作为回滚方案，以免产生新的分散文件。

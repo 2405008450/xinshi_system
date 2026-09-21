@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from crud import get_translation_project, get_user_roles_with_role_names
 from database import get_db
 from annotation_models import AnnotationProject
 from models import AppUser, ChatProjectAttachment, ChatProjectMessage
+from chat_attachment_storage import remote_attachment_url, upload_remote_attachment, read_remote_attachment
 from project_chat_crud import (
     acknowledge_chat_message,
     create_annotation_project_chat_message,
@@ -325,10 +326,14 @@ def unacknowledge_message_endpoint(
 
 @router.post('/attachments', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_attachment_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    if os.getenv('CHAT_UPLOADS_PAUSED', '').lower() in ('1', 'true'):
+        raise HTTPException(503, '图片服务维护中，请稍后重试')
+    remote_url = remote_attachment_url()
     content_type = (file.content_type or '').lower()
     validator = IMAGE_SIGNATURES.get(content_type)
     if validator is None:
@@ -341,6 +346,12 @@ async def upload_attachment_endpoint(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='单张图片不能超过 10MB')
     if not validator(content):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='图片格式与文件内容不匹配')
+
+    if remote_url:
+        return await upload_remote_attachment(
+            remote_url, content, file.filename, content_type,
+            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'),
+        )
 
     storage_name = f'{uuid.uuid4().hex}{IMAGE_EXTENSIONS[content_type]}'
     destination = get_chat_upload_dir() / storage_name
@@ -370,11 +381,18 @@ async def upload_attachment_endpoint(
 
 
 @router.get('/attachments/{attachment_id}')
-def read_attachment_endpoint(
+async def read_attachment_endpoint(
     attachment_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    remote_url = remote_attachment_url()
+    if remote_url:
+        return await read_remote_attachment(
+            remote_url, attachment_id,
+            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'),
+        )
     attachment = db.query(ChatProjectAttachment).filter(ChatProjectAttachment.id == attachment_id).first()
     if attachment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='图片不存在')

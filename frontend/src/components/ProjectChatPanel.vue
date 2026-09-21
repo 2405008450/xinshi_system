@@ -177,17 +177,18 @@
                       <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
                       <RichTextContent v-else :document="item.message.contentJson" :fallback="item.message.content" />
                       <div v-if="item.message.attachments?.length" class="message-attachments">
-                        <a
-                          v-for="attachment in item.message.attachments"
-                          :key="attachment.id"
-                          :href="attachmentUrls[attachment.id] || undefined"
-                          target="_blank"
-                          rel="noopener"
-                          class="message-attachment"
-                        >
-                          <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
-                          <span>{{ attachment.originalName }}</span>
-                        </a>
+                        <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
+                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
+                            <img :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                            <span>{{ attachment.originalName }}</span>
+                          </a>
+                          <template v-else>
+                            <span>{{ attachment.originalName }}</span>
+                            <span role="status">{{ attachmentErrors[attachment.id] || '图片加载中…' }}</span>
+                            <el-button v-if="attachmentErrors[attachment.id]" size="small" link type="primary"
+                              @click.stop="retryAttachment(attachment)">重新加载图片</el-button>
+                          </template>
+                        </div>
                       </div>
                     </div>
                     <div class="chat-conversation-item__tools">
@@ -353,17 +354,18 @@
                 </div>
               </div>
               <div v-if="message.attachments?.length" class="message-attachments">
-                <a
-                  v-for="attachment in message.attachments"
-                  :key="attachment.id"
-                  :href="attachmentUrls[attachment.id] || undefined"
-                  target="_blank"
-                  rel="noopener"
-                  class="message-attachment"
-                >
-                  <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
-                  <span>{{ attachment.originalName }}</span>
-                </a>
+                <div v-for="attachment in message.attachments" :key="attachment.id" class="message-attachment">
+                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
+                            <img :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                            <span>{{ attachment.originalName }}</span>
+                          </a>
+                          <template v-else>
+                            <span>{{ attachment.originalName }}</span>
+                            <span role="status">{{ attachmentErrors[attachment.id] || '图片加载中…' }}</span>
+                            <el-button v-if="attachmentErrors[attachment.id]" size="small" link type="primary"
+                              @click.stop="retryAttachment(attachment)">重新加载图片</el-button>
+                          </template>
+                        </div>
               </div>
               <div
                 v-if="shouldShowAcknowledgement(message)"
@@ -710,6 +712,8 @@ const composer = reactive({
   mentionedUserIds: []
 })
 const attachmentUrls = reactive({})
+const attachmentErrors = reactive({})
+const attachmentLoading = new Set()
 const attachmentObjectUrls = new Set()
 let attachmentUrlGeneration = 0
 const chatListMaxHeight = computed(() => {
@@ -876,6 +880,8 @@ const clearPolling = () => {
 
 const clearAttachmentUrls = () => {
   attachmentUrlGeneration++
+  attachmentLoading.clear()
+  Object.keys(attachmentErrors).forEach(key => delete attachmentErrors[key])
   attachmentObjectUrls.forEach(url => URL.revokeObjectURL(url))
   attachmentObjectUrls.clear()
   Object.keys(attachmentUrls).forEach(key => delete attachmentUrls[key])
@@ -885,7 +891,8 @@ const ensureAttachmentUrls = async (items) => {
   const generation = attachmentUrlGeneration
   const attachments = items.flatMap(item => item.attachments || [])
   await Promise.all(attachments.map(async (attachment) => {
-    if (attachmentUrls[attachment.id]) return
+    if (attachmentUrls[attachment.id] || attachmentLoading.has(attachment.id) || attachmentErrors[attachment.id]) return
+    attachmentLoading.add(attachment.id)
     try {
       const blob = await getProjectChatAttachmentBlob(attachment.id)
       if (generation !== attachmentUrlGeneration || attachmentUrls[attachment.id]) return
@@ -893,9 +900,19 @@ const ensureAttachmentUrls = async (items) => {
       attachmentUrls[attachment.id] = url
       attachmentObjectUrls.add(url)
     } catch (error) {
-      console.error('加载留言图片失败', error)
+      if (generation === attachmentUrlGeneration) {
+        attachmentErrors[attachment.id] = error?.response?.status === 404
+          ? '图片文件暂未找到' : '图片加载失败，请重试'
+      }
+    } finally {
+      if (generation === attachmentUrlGeneration) attachmentLoading.delete(attachment.id)
     }
   }))
+}
+
+const retryAttachment = attachment => {
+  delete attachmentErrors[attachment.id]
+  return ensureAttachmentUrls([{ attachments: [attachment] }])
 }
 
 const buildMessageParams = (skip, limit) => ({
@@ -1965,6 +1982,8 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-decoration: none;
 }
+
+.message-attachment a { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; }
 
 .message-attachment img {
   width: 132px;

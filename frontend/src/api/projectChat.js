@@ -63,9 +63,10 @@ export const uploadProjectChatAttachment = (file) => {
   const formData = new FormData()
   formData.append('file', file)
   return api.post('/project-chat/attachments', formData, {
+    timeout: 60000,
     headers: { 'Content-Type': 'multipart/form-data' }
   }).then(res => convertKeys(res, toCamelCase))
 }
 
 export const getProjectChatAttachmentBlob = (attachmentId) =>
-  api.get(`/project-chat/attachments/${attachmentId}`, { responseType: 'blob' })
+  api.get(`/project-chat/attachments/${attachmentId}`, { responseType: 'blob', timeout: 60000 })
