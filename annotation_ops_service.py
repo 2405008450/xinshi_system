@@ -26,6 +26,7 @@ from annotation_ops_models import (
 from annotation_schemas import AnnotationProjectListResponse
 from concurrency import assert_fresh
 from models import AppUser, Client, Role, SubClient, UserRole
+from project_audit_service import record_project_operation
 from resource_models import ResourceAnnotationLanguageSkill, ResourceCapability, ResourcePerson
 from workflow_models import ProjectWorkbenchResponsibility
 
@@ -1121,6 +1122,49 @@ def update_progress_history(db: Session, history_id: UUID, payload, user_id: UUI
     row.updated_at = datetime.now()
     db.commit()
     return list_status_history(db, row.project_id)
+
+
+def delete_progress_history(db: Session, history_id: UUID, payload, user_id: UUID):
+    row = db.get(AnnotationProjectStatusHistory, history_id)
+    if not row:
+        return None
+    entry_kind = getattr(row, "entry_kind", None) or (
+        "progress" if row.from_status == row.to_status else "status"
+    )
+    if entry_kind != "progress":
+        raise ValueError("状态流转记录不可删除")
+    assert_fresh(row, payload.expected_updated_at)
+    project = db.get(AnnotationProject, row.project_id)
+    if not project:
+        return None
+
+    record_project_operation(
+        db,
+        project_type="annotation",
+        operation_type="progress_delete",
+        project=project,
+        actor_user_id=user_id,
+        operation_source="progress_record_delete",
+        change_reason=payload.reason,
+        snapshot_extra={
+            "deleted_progress_record": {
+                "id": row.id,
+                "from_status": row.from_status,
+                "to_status": row.to_status,
+                "effective_on": row.effective_on,
+                "changed_at": row.changed_at,
+                "changed_by": row.changed_by,
+                "change_note": row.change_note,
+                "entry_kind": entry_kind,
+                "updated_at": getattr(row, "updated_at", None),
+                "updated_by": getattr(row, "updated_by", None),
+            }
+        },
+    )
+    project_id = row.project_id
+    db.delete(row)
+    db.commit()
+    return list_status_history(db, project_id)
 
 
 def _normalized_task_type_name(value: str) -> str:

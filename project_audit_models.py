@@ -14,7 +14,7 @@ from models import Base
 
 
 PROJECT_AUDIT_TYPES = ("translation", "interpretation", "annotation", "recruitment")
-PROJECT_AUDIT_OPERATIONS = ("create", "delete", "order_no_change")
+PROJECT_AUDIT_OPERATIONS = ("create", "delete", "order_no_change", "progress_delete")
 
 
 class ProjectOperationAudit(Base):
@@ -30,7 +30,7 @@ class ProjectOperationAudit(Base):
             name="ck_project_operation_audit_type",
         ),
         CheckConstraint(
-            "operation_type IN ('create','delete','order_no_change')",
+            "operation_type IN ('create','delete','order_no_change','progress_delete')",
             name="ck_project_operation_audit_operation",
         ),
         Index("ix_project_operation_audit_order_time", "order_no", "occurred_at"),

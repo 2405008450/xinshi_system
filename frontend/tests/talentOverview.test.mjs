@@ -97,6 +97,8 @@ test('人才概览页面提供权限编辑、增行增列、整表保存和全�
   assert.match(page, /hasPermission\(\['talents:write', 'translators:write'\]\)/)
   assert.match(page, /新增列/)
   assert.match(page, /新增行/)
+  assert.match(page, /<el-button :icon="Plus" @click="addRow">新增行<\/el-button>/)
+  assert.match(page, /overviewTableRef\.value\?\.setScrollTop\?\.\(Number\.MAX_SAFE_INTEGER\)/)
   assert.match(page, /requestFullscreen\(\)/)
   assert.match(page, /document\.exitFullscreen\(\)/)
   assert.match(api, /api\.put\('\/talents\/overview'/)

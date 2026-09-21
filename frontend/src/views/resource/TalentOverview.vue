@@ -21,6 +21,7 @@
               {{ fullscreenActive ? '退出全屏' : '全屏显示' }}
             </el-button>
             <template v-if="editing">
+              <el-button :icon="Plus" @click="addRow">新增行</el-button>
               <el-button :icon="Plus" @click="openAddColumn">新增列</el-button>
               <el-button :disabled="saving" @click="cancelEditing">取消</el-button>
               <el-button type="primary" :loading="saving" :disabled="!isDirty" @click="saveOverview">
@@ -42,6 +43,7 @@
       </div>
 
       <el-table
+        ref="overviewTableRef"
         :data="filteredRows"
         v-loading="loading || saving"
         row-key="overviewKey"
@@ -262,6 +264,7 @@ import {
 } from '@/utils/talentOverview'
 
 const overviewPanelRef = ref(null)
+const overviewTableRef = ref(null)
 const loading = ref(false)
 const saving = ref(false)
 const editing = ref(false)
@@ -544,7 +547,14 @@ async function confirmAddColumn() {
   addColumnVisible.value = false
 }
 
-function addRow() {
+function clearOverviewFilters() {
+  filterValues.language = []
+  filterValues.updatedAt = []
+  filterValues.rowTotal = []
+  filterValues.counts = {}
+}
+
+async function addRow() {
   finishActiveEditor()
   const overviewKey = `row-${uuid()}`
   draftRows.value = appendTalentOverviewRow(draftRows.value, draftColumns.value, {
@@ -553,14 +563,17 @@ function addRow() {
     aliases: [],
     updatedAt: todayValue(),
   })
-  nextTick(() => activateEditor(
+  if (!filteredRows.value.some(row => row.overviewKey === overviewKey)) clearOverviewFilters()
+  await nextTick()
+  overviewTableRef.value?.setScrollTop?.(Number.MAX_SAFE_INTEGER)
+  activateEditor(
     `row:${overviewKey}:language`,
     '',
     value => {
       const row = draftRows.value.find(item => item.overviewKey === overviewKey)
       if (row) row.language = value
     },
-  ))
+  )
 }
 
 function summaryMethod({ columns }) {

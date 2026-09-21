@@ -409,6 +409,19 @@ class StatusHistoryProgressUpdate(BaseModel):
         return normalized
 
 
+class StatusHistoryProgressDelete(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("请填写删除原因")
+        return normalized
+
+
 class StatusHistorySearchItemResponse(StatusHistoryResponse):
     project_order_no: str
     project_name: Optional[str] = None

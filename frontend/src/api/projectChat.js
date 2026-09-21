@@ -51,6 +51,14 @@ export const unfavoriteProjectChatMessage = (messageId) => {
   return api.delete(`/project-chat/messages/${messageId}/favorite`).then(res => convertKeys(res, toCamelCase))
 }
 
+export const acknowledgeProjectChatMessage = (messageId) => {
+  return api.put(`/project-chat/messages/${messageId}/acknowledgement`).then(res => convertKeys(res, toCamelCase))
+}
+
+export const unacknowledgeProjectChatMessage = (messageId) => {
+  return api.delete(`/project-chat/messages/${messageId}/acknowledgement`).then(res => convertKeys(res, toCamelCase))
+}
+
 export const uploadProjectChatAttachment = (file) => {
   const formData = new FormData()
   formData.append('file', file)

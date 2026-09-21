@@ -7,7 +7,7 @@ import {
   focusFirstInvalidField,
 } from '../src/utils/formValidation.js'
 
-test('定位、滚动并聚焦第一个校验失败字段', () => {
+test('定位、滚动并聚焦第一个校验失败字段', async () => {
   const calls = []
   const control = {
     getAttribute: () => null,
@@ -27,19 +27,19 @@ test('定位、滚动并聚焦第一个校验失败字段', () => {
     },
   }
 
-  assert.equal(focusFirstInvalidField(form), true)
+  assert.equal(await focusFirstInvalidField(form), true)
   assert.deepEqual(calls, [
     ['scroll', { behavior: 'smooth', block: 'center', inline: 'nearest' }],
     ['focus', { preventScroll: true }],
   ])
 })
 
-test('表单没有错误字段时不滚动、不聚焦', () => {
+test('表单没有错误字段时不滚动、不聚焦', async () => {
   const form = { querySelector: () => null }
-  assert.equal(focusFirstInvalidField(form), false)
+  assert.equal(await focusFirstInvalidField(form), false)
 })
 
-test('错误项只有不可聚焦控件时仍完成滚动定位', () => {
+test('错误项只有不可聚焦控件时仍完成滚动定位', async () => {
   let scrolled = false
   const errorItem = {
     scrollIntoView: () => { scrolled = true },
@@ -47,7 +47,7 @@ test('错误项只有不可聚焦控件时仍完成滚动定位', () => {
   }
   const form = { querySelector: () => errorItem }
 
-  assert.equal(focusFirstInvalidField(form), true)
+  assert.equal(await focusFirstInvalidField(form), true)
   assert.equal(scrolled, true)
 })
 

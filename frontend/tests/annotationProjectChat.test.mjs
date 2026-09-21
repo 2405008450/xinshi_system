@@ -58,6 +58,19 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
   assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
 })
 
+test('标注和笔译聊天统一支持共享收到回执', () => {
+  assert.match(chatPanel, /shouldShowAcknowledgement\(item\.message\)/)
+  assert.match(chatPanel, /shouldShowAcknowledgement\(message\)/)
+  assert.match(chatPanel, /不能标记自己发送的消息|senderUserId/)
+  assert.match(chatPanel, /acknowledgementLabel/)
+  assert.match(chatPanel, /acknowledgementTooltip/)
+  assert.match(chatPanel, /已标记收到/)
+  assert.match(chatPanel, /chat_message_acknowledgement/)
+  assert.match(chatPanel, /syncAcknowledgementState\(existing, item\)/)
+  assert.match(chatApi, /put\(`\/project-chat\/messages\/\$\{messageId\}\/acknowledgement`\)/)
+  assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/acknowledgement`\)/)
+})
+
 test('标注聊天输入 @ 自动展开用户选择并保留原提醒链路', () => {
   assert.match(chatPanel, /props\.projectType === 'annotation' && props\.textOnly && props\.conversationMode/)
   assert.match(chatPanel, /ref="composerInputRef"[\s\S]*@input="handleComposerInput"/)

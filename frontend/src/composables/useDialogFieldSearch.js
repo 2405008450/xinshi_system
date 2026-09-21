@@ -1,11 +1,16 @@
 import { nextTick, onBeforeUnmount, ref } from 'vue'
+import {
+  focusFormTarget,
+  revealFormTarget,
+  scrollFormTarget,
+} from '@/utils/formNavigation'
 
 const normalize = (value) => String(value || '').toLocaleLowerCase().replace(/\s+/g, '')
 
 const directText = (element) => {
   if (!element) return ''
   return Array.from(element.childNodes)
-    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .filter((node) => node.nodeType === 3)
     .map((node) => node.textContent)
     .join('')
     .trim()
@@ -27,17 +32,6 @@ const groupName = (formItem) => {
     '.repeat-title, .requirement-group-title, [data-dialog-field-search-group-title]',
   )
   return directText(heading) || heading?.textContent?.trim() || ''
-}
-
-const findScrollableContainer = (start) => {
-  let current = start
-  while (current?.parentElement) {
-    const style = window.getComputedStyle(current)
-    if (/(auto|scroll)/.test(style.overflowY) && current.scrollHeight > current.clientHeight) return current
-    if (current.classList.contains('el-dialog')) break
-    current = current.parentElement
-  }
-  return start
 }
 
 export const useDialogFieldSearch = (editorBodyRef) => {
@@ -64,9 +58,19 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     if (!root) return []
     const occurrences = new Map()
     suggestionTargets = new Map()
-    return Array.from(root.querySelectorAll('.el-form-item')).flatMap((element, index) => {
+    const targets = Array.from(root.querySelectorAll(
+      '.el-form-item, [data-dialog-field-search-label]',
+    )).filter((element) => (
+      element.matches('.el-form-item')
+      || !element.closest('.el-form-item')
+    ))
+    return targets.flatMap((element, index) => {
       const labelElement = element.querySelector(':scope > .el-form-item__label, :scope > label.el-form-item__label')
-      const label = labelElement?.textContent?.trim().replace(/[：:]$/, '')
+      const label = (
+        element.dataset.dialogFieldSearchLabel
+        || labelElement?.textContent
+        || ''
+      ).trim().replace(/[：:]$/, '')
       if (!label) return []
       const section = sectionName(element)
       const group = groupName(element)
@@ -79,6 +83,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
         key,
         label: occurrence > 1 ? `${label} ${occurrence}` : label,
         searchLabel: label,
+        aliases: (element.dataset.dialogFieldSearchAliases || '').split(/[，,、|]/).map((value) => value.trim()).filter(Boolean),
         location: [section, group].filter(Boolean).join(' · '),
       }]
     })
@@ -86,11 +91,15 @@ export const useDialogFieldSearch = (editorBodyRef) => {
 
   const scoreField = (item, keyword) => {
     const label = normalize(item.searchLabel)
+    const aliases = (item.aliases || []).map(normalize)
     const location = normalize(item.location)
     if (label === keyword) return 0
-    if (label.startsWith(keyword)) return 1
-    if (label.includes(keyword)) return 2
-    if (location.includes(keyword)) return 3
+    if (aliases.some((value) => value === keyword)) return 1
+    if (label.startsWith(keyword)) return 2
+    if (aliases.some((value) => value.startsWith(keyword))) return 3
+    if (label.includes(keyword)) return 4
+    if (aliases.some((value) => value.includes(keyword))) return 5
+    if (location.includes(keyword)) return 6
     return Number.POSITIVE_INFINITY
   }
 
@@ -105,38 +114,29 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     callback(matches)
   }
 
-  const focusField = (target) => {
-    const focusTarget = target.querySelector([
-      'input:not([disabled]):not([readonly])',
-      'textarea:not([disabled]):not([readonly])',
-      'button:not([disabled])',
-      '[role="slider"]',
-      '[tabindex]:not([tabindex="-1"])',
-    ].join(', '))
-    if (!focusTarget?.focus) return
-    try { focusTarget.focus({ preventScroll: true }) } catch { focusTarget.focus() }
-  }
-
   const locateDialogField = async (item) => {
     let target = suggestionTargets.get(item?.key)
     if (!target?.isConnected) {
       collectFields()
       target = suggestionTargets.get(item?.key)
     }
-    if (!target) return
+    if (!target) return false
     fieldSearchRef.value?.blur?.()
     await nextTick()
-    const scrollContainer = findScrollableContainer(editorBodyRef.value)
-    const containerRect = scrollContainer.getBoundingClientRect()
-    const targetRect = target.getBoundingClientRect()
-    const targetTop = scrollContainer.scrollTop + targetRect.top - containerRect.top
-      - Math.max(0, (scrollContainer.clientHeight - targetRect.height) / 2)
-    scrollContainer.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+    await revealFormTarget(target)
+    scrollFormTarget(target, editorBodyRef.value)
     clearHighlight()
     target.classList.add('is-dialog-field-search-highlight')
     highlightedElement = target
-    focusField(target)
+    focusFormTarget(target)
     highlightTimer = window.setTimeout(clearHighlight, 1500)
+    return true
+  }
+
+  const locateDialogFieldByLabel = async (label, occurrence = 1) => {
+    const normalizedLabel = normalize(label)
+    const matches = collectFields().filter((item) => normalize(item.searchLabel).includes(normalizedLabel))
+    return await locateDialogField(matches[Math.max(0, occurrence - 1)])
   }
 
   onBeforeUnmount(clearHighlight)
@@ -146,6 +146,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     fieldSearchKeyword,
     fetchFieldSuggestions,
     locateDialogField,
+    locateDialogFieldByLabel,
     clearFieldSearch,
   }
 }

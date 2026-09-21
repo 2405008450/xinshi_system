@@ -24,7 +24,7 @@ const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
 
 const locateFirstError = async () => {
   await nextTick()
-  focusFirstInvalidField(innerFormRef.value?.$el, scrollOptions)
+  return await focusFirstInvalidField(innerFormRef.value?.$el, scrollOptions)
 }
 
 const validate = async (callback) => {

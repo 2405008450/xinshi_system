@@ -35,6 +35,7 @@ test('聊天与通知复用同一个实时连接并保留轮询兜底', () => {
   assert.match(notificationBell, /subscribe\('snapshot', handleSocketSnapshot\)/)
   assert.doesNotMatch(notificationBell, /const socket = ref/)
   assert.match(chatPanel, /subscribe\('chat_message', handleRealtimeChatMessage\)/)
+  assert.match(chatPanel, /subscribe\('chat_message_acknowledgement', handleRealtimeChatAcknowledgement\)/)
   assert.match(chatPanel, /subscribe\('connected', handleSocketConnected\)/)
   assert.match(chatPanel, /}, 60000\)/)
   assert.match(chatPanel, /if \(!props\.active \|\| !props\.projectId\) return/)

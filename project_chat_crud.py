@@ -14,6 +14,7 @@ from models import (
     ChatProjectEnabled,
     ChatProjectMention,
     ChatProjectMessage,
+    ChatProjectMessageAcknowledgement,
     ChatProjectMessageAttachment,
     ChatProjectMessageFavorite,
     TranslationProject,
@@ -114,6 +115,10 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
         key=lambda item: (item.created_at is None, item.created_at or dt.datetime.min, str(item.id)),
     )
     attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
+    acknowledgements = sorted(
+        getattr(message, 'acknowledgements', None) or [],
+        key=lambda item: (item.created_at is None, item.created_at or dt.datetime.min, str(item.id)),
+    )
     return {
         'id': str(message.id),
         'projectId': str(message.annotation_project_id if project_type == 'annotation' else message.project_id),
@@ -137,6 +142,16 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
         ],
         'isFavorited': False,
         'favoritedAt': None,
+        'acknowledgements': [
+            {
+                'userId': str(acknowledgement.user_id),
+                'userName': acknowledgement.user_name,
+                'acknowledgedAt': acknowledgement.created_at.isoformat() if acknowledgement.created_at else None,
+            }
+            for acknowledgement in acknowledgements
+        ],
+        'acknowledgementCount': len(acknowledgements),
+        'isAcknowledged': False,
         'attachments': [
             {
                 'id': str(link.attachment.id),
@@ -257,6 +272,39 @@ def _broadcast_chat_message(
     )
 
 
+def _broadcast_chat_acknowledgement(
+    db: Session,
+    message: ChatProjectMessage,
+    user: AppUser,
+    *,
+    acknowledged: bool,
+    acknowledged_at: Optional[dt.datetime] = None,
+) -> None:
+    project_type = 'annotation' if message.annotation_project_id else 'translation'
+    project_id = message.annotation_project_id or message.project_id
+    participants = _chat_participant_user_ids(
+        db,
+        annotation_project_id=project_id if project_type == 'annotation' else None,
+        project_id=project_id if project_type == 'translation' else None,
+    )
+    participants.add(user.id)
+    if message.sender_user_id:
+        participants.add(message.sender_user_id)
+    broadcast_to_users(
+        participants,
+        {
+            'type': 'chat_message_acknowledgement',
+            'projectType': project_type,
+            'projectId': str(project_id),
+            'messageId': str(message.id),
+            'userId': str(user.id),
+            'userName': user.full_name or user.username,
+            'acknowledged': acknowledged,
+            'acknowledgedAt': acknowledged_at.isoformat() if acknowledged_at else None,
+        },
+    )
+
+
 
 def get_project_chat_settings(db: Session, project_id: UUID) -> Optional[ChatProjectEnabled]:
     return db.query(ChatProjectEnabled).filter(ChatProjectEnabled.project_id == project_id).first()
@@ -309,6 +357,7 @@ def list_project_chat_messages(
         db.query(ChatProjectMessage)
         .options(
             selectinload(ChatProjectMessage.mentions),
+            selectinload(ChatProjectMessage.acknowledgements),
             selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
         )
         .filter(ChatProjectMessage.project_id == project_id)
@@ -355,7 +404,10 @@ def list_annotation_project_chat_messages(
 ) -> tuple[list[ChatProjectMessage], int]:
     query = (
         db.query(ChatProjectMessage)
-        .options(selectinload(ChatProjectMessage.mentions))
+        .options(
+            selectinload(ChatProjectMessage.mentions),
+            selectinload(ChatProjectMessage.acknowledgements),
+        )
         .filter(ChatProjectMessage.annotation_project_id == annotation_project_id)
     )
     if favorites_only:
@@ -502,6 +554,101 @@ def unfavorite_chat_message(db: Session, message_id: UUID, user_id: UUID) -> Non
     db.commit()
 
 
+def list_chat_message_acknowledgements(
+    db: Session,
+    message_id: UUID,
+) -> list[ChatProjectMessageAcknowledgement]:
+    return (
+        db.query(ChatProjectMessageAcknowledgement)
+        .filter(ChatProjectMessageAcknowledgement.message_id == message_id)
+        .order_by(
+            ChatProjectMessageAcknowledgement.created_at.asc(),
+            ChatProjectMessageAcknowledgement.id.asc(),
+        )
+        .all()
+    )
+
+
+def acknowledge_chat_message(
+    db: Session,
+    message: ChatProjectMessage,
+    user: AppUser,
+) -> tuple[ChatProjectMessageAcknowledgement, list[ChatProjectMessageAcknowledgement]]:
+    if message.message_type != 'user':
+        raise ValueError('系统消息无需标记收到')
+    if message.sender_user_id == user.id:
+        raise ValueError('不能标记自己发送的消息')
+
+    acknowledgement = (
+        db.query(ChatProjectMessageAcknowledgement)
+        .filter(
+            ChatProjectMessageAcknowledgement.message_id == message.id,
+            ChatProjectMessageAcknowledgement.user_id == user.id,
+        )
+        .first()
+    )
+    created = acknowledgement is None
+    if created:
+        acknowledgement = ChatProjectMessageAcknowledgement(
+            message_id=message.id,
+            user_id=user.id,
+            user_name=user.full_name or user.username,
+        )
+        db.add(acknowledgement)
+        try:
+            db.commit()
+            db.refresh(acknowledgement)
+        except IntegrityError:
+            db.rollback()
+            acknowledgement = (
+                db.query(ChatProjectMessageAcknowledgement)
+                .filter(
+                    ChatProjectMessageAcknowledgement.message_id == message.id,
+                    ChatProjectMessageAcknowledgement.user_id == user.id,
+                )
+                .first()
+            )
+            if acknowledgement is None:
+                raise
+            created = False
+
+    acknowledgements = list_chat_message_acknowledgements(db, message.id)
+    if created:
+        _broadcast_chat_acknowledgement(
+            db,
+            message,
+            user,
+            acknowledged=True,
+            acknowledged_at=acknowledgement.created_at,
+        )
+    return acknowledgement, acknowledgements
+
+
+def unacknowledge_chat_message(
+    db: Session,
+    message: ChatProjectMessage,
+    user: AppUser,
+) -> list[ChatProjectMessageAcknowledgement]:
+    if message.message_type != 'user':
+        raise ValueError('系统消息无需标记收到')
+    if message.sender_user_id == user.id:
+        raise ValueError('不能标记自己发送的消息')
+
+    acknowledgement = (
+        db.query(ChatProjectMessageAcknowledgement)
+        .filter(
+            ChatProjectMessageAcknowledgement.message_id == message.id,
+            ChatProjectMessageAcknowledgement.user_id == user.id,
+        )
+        .first()
+    )
+    if acknowledgement is not None:
+        db.delete(acknowledgement)
+        db.commit()
+        _broadcast_chat_acknowledgement(db, message, user, acknowledged=False)
+    return list_chat_message_acknowledgements(db, message.id)
+
+
 
 def _collect_stage_role_users(db: Session, stage_key: Optional[str]) -> list[UUID]:
     if not stage_key:
@@ -623,6 +770,7 @@ def create_project_chat_message(
             db.query(ChatProjectMessage)
             .options(
                 selectinload(ChatProjectMessage.mentions),
+                selectinload(ChatProjectMessage.acknowledgements),
                 selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
             )
             .filter(ChatProjectMessage.id == message.id)
@@ -720,7 +868,10 @@ def create_annotation_project_chat_message(
 
     created = (
         db.query(ChatProjectMessage)
-        .options(selectinload(ChatProjectMessage.mentions))
+        .options(
+            selectinload(ChatProjectMessage.mentions),
+            selectinload(ChatProjectMessage.acknowledgements),
+        )
         .filter(ChatProjectMessage.id == message.id)
         .first()
     )

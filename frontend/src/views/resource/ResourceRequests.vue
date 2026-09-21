@@ -145,7 +145,20 @@
     </el-card>
 
     <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @closed="onEditorClosed">
-      <AppForm ref="formRef" :model="form" :rules="formRules" :validate-on-rule-change="false" label-width="110px">
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="fieldSearchRef"
+          v-model="fieldSearchKeyword"
+          :title="form.id ? '编辑资源需求' : '新增资源需求'"
+          subtitle="搜索并快速定位资源需求字段"
+          :fetch-suggestions="fetchFieldSuggestions"
+          placeholder="搜索资源需求字段，如请求类别"
+          @select="locateDialogField"
+          @clear="clearFieldSearch"
+        />
+      </template>
+      <div ref="editorBodyRef">
+        <AppForm ref="formRef" :model="form" :rules="formRules" :validate-on-rule-change="false" label-width="110px">
         <div class="lifecycle-bar">
           <div>
             <span class="lifecycle-label">当前状态</span>
@@ -212,7 +225,8 @@
             <el-input v-model="item.requirementDetail" type="textarea" :rows="2" placeholder="该语种具体要求；完整需求默认放在第一条明细" style="margin-top: 10px" />
           </div>
         </section>
-      </AppForm>
+        </AppForm>
+      </div>
       <template #footer>
         <div class="editor-footer">
           <el-button v-if="form.demandStatus === 'confirmed'" type="danger" plain :loading="cancelling" @click="cancelDemand">取消需求</el-button>
@@ -246,6 +260,7 @@ import { getUserOptions } from '@/api/users'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import InlineTextField from '@/components/common/InlineTextField.vue'
@@ -255,6 +270,7 @@ import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHe
 import ResourceRequestDailyNotesDialog from '@/views/resource/components/ResourceRequestDailyNotesDialog.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDate, formatTimeMinute } from '@/utils/dateTime'
@@ -326,6 +342,14 @@ const detailLoading = ref('')
 const detailCache = reactive({})
 const showRequestDetail = ref(false)
 const formRef = ref(null)
+const editorBodyRef = ref(null)
+const {
+  fieldSearchRef,
+  fieldSearchKeyword,
+  fetchFieldSuggestions,
+  locateDialogField,
+  clearFieldSearch,
+} = useDialogFieldSearch(editorBodyRef)
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const tableRef = ref(null)
 const canWrite = hasPermission('projects:write')
@@ -588,7 +612,7 @@ const openEditor = async (row = null, source = null) => {
   lastAutoSavedAt.value = ''
   editorReady = true
 }
-const resetEditor = () => { formRef.value?.clearValidate(); Object.assign(form, emptyForm()); resetSourceInfo(); showRequestDetail.value = false }
+const resetEditor = () => { clearFieldSearch(); formRef.value?.clearValidate(); Object.assign(form, emptyForm()); resetSourceInfo(); showRequestDetail.value = false }
 const onEditorClosed = () => { editorReady = false; clearTimeout(autoSaveTimer); pauseDraft(); resetEditor() }
 const addItem = () => form.items.push({ id: null, languageIds: [null], requiredCount: null, requirementDetail: '' })
 
@@ -616,7 +640,6 @@ const payload = async () => {
   if (form.sourceType !== 'other') data[`${form.sourceType}ProjectId`] = form.sourceProjectId
   return data
 }
-const scrollToFirstError = () => requestAnimationFrame(() => document.querySelector('.resource-dialog .el-form-item.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
 let autoSaveTimer = null
 let editorReady = false
 let applyingSavedValue = false
@@ -719,7 +742,7 @@ const sendDemand = async () => {
   if (submitLocked) return
   submitLocked = true
   clearTimeout(autoSaveTimer)
-  try { await formRef.value?.validate() } catch { submitLocked = false; scrollToFirstError(); return }
+  try { await formRef.value?.validate() } catch { submitLocked = false; return }
   sending.value = true
   try {
     const saved = await persistDraft()

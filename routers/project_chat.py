@@ -13,6 +13,7 @@ from database import get_db
 from annotation_models import AnnotationProject
 from models import AppUser, ChatProjectAttachment, ChatProjectMessage
 from project_chat_crud import (
+    acknowledge_chat_message,
     create_annotation_project_chat_message,
     create_project_chat_message,
     favorite_chat_message,
@@ -21,11 +22,14 @@ from project_chat_crud import (
     list_annotation_project_chat_messages,
     list_project_chat_messages,
     set_project_chat_settings,
+    unacknowledge_chat_message,
     unfavorite_chat_message,
 )
 from routers.auth import get_current_user, require_module_access
 from schemas import (
     AnnotationProjectChatMessageCreate,
+    ProjectChatAcknowledgementItemResponse,
+    ProjectChatAcknowledgementResponse,
     ProjectChatMessageCreate,
     ProjectChatFavoriteResponse,
     ProjectChatMessageQueryResponse,
@@ -78,6 +82,7 @@ def _serialize_message(
     message,
     project_type: str = 'translation',
     favorited_at: datetime | None = None,
+    current_user_id: UUID | None = None,
 ) -> ProjectChatMessageResponse:
     mention_rows = sorted(
         getattr(message, 'mentions', None) or [],
@@ -92,6 +97,18 @@ def _serialize_message(
     ]
     mention = mention_rows[0] if mention_rows else None
     attachment_links = [] if project_type == 'annotation' else (getattr(message, 'attachment_links', None) or [])
+    acknowledgement_rows = sorted(
+        getattr(message, 'acknowledgements', None) or [],
+        key=lambda item: (item.created_at is None, item.created_at or datetime.min, str(item.id)),
+    )
+    acknowledgements = [
+        ProjectChatAcknowledgementItemResponse(
+            user_id=acknowledgement.user_id,
+            user_name=acknowledgement.user_name,
+            acknowledged_at=acknowledgement.created_at,
+        )
+        for acknowledgement in acknowledgement_rows
+    ]
     attachments = [
         ProjectChatAttachmentResponse(
             id=link.attachment.id,
@@ -120,7 +137,31 @@ def _serialize_message(
         mentions=mentions,
         is_favorited=favorited_at is not None,
         favorited_at=favorited_at,
+        acknowledgements=acknowledgements,
+        acknowledgement_count=len(acknowledgements),
+        is_acknowledged=any(item.user_id == current_user_id for item in acknowledgement_rows),
         attachments=attachments,
+    )
+
+
+def _serialize_acknowledgement_response(
+    message_id: UUID,
+    rows,
+    current_user_id: UUID,
+) -> ProjectChatAcknowledgementResponse:
+    acknowledgements = [
+        ProjectChatAcknowledgementItemResponse(
+            user_id=item.user_id,
+            user_name=item.user_name,
+            acknowledged_at=item.created_at,
+        )
+        for item in rows
+    ]
+    return ProjectChatAcknowledgementResponse(
+        message_id=message_id,
+        is_acknowledged=any(item.user_id == current_user_id for item in rows),
+        acknowledgement_count=len(acknowledgements),
+        acknowledgements=acknowledgements,
     )
 
 
@@ -192,7 +233,10 @@ def list_annotation_messages_endpoint(
     )
     favorite_times = get_chat_message_favorite_times(db, [item.id for item in items], current_user.id)
     return ProjectChatMessageQueryResponse(
-        items=[_serialize_message(item, 'annotation', favorite_times.get(item.id)) for item in items],
+        items=[
+            _serialize_message(item, 'annotation', favorite_times.get(item.id), current_user.id)
+            for item in items
+        ],
         total=total,
         enabled=True,
         can_manage=False,
@@ -219,7 +263,7 @@ def create_annotation_message_endpoint(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return _serialize_message(message, 'annotation')
+    return _serialize_message(message, 'annotation', current_user_id=current_user.id)
 
 
 @router.put('/messages/{message_id}/favorite', response_model=ProjectChatFavoriteResponse)
@@ -246,6 +290,36 @@ def unfavorite_message_endpoint(
     _require_visible_message(db, message_id)
     unfavorite_chat_message(db, message_id, current_user.id)
     return ProjectChatFavoriteResponse(message_id=message_id, is_favorited=False)
+
+
+@router.put('/messages/{message_id}/acknowledgement', response_model=ProjectChatAcknowledgementResponse)
+def acknowledge_message_endpoint(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    message = _require_visible_message(db, message_id)
+    try:
+        _, rows = acknowledge_chat_message(db, message, current_user)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _serialize_acknowledgement_response(message_id, rows, current_user.id)
+
+
+@router.delete('/messages/{message_id}/acknowledgement', response_model=ProjectChatAcknowledgementResponse)
+def unacknowledge_message_endpoint(
+    message_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    message = _require_visible_message(db, message_id)
+    try:
+        rows = unacknowledge_chat_message(db, message, current_user)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _serialize_acknowledgement_response(message_id, rows, current_user.id)
 
 
 @router.post('/attachments', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
@@ -366,7 +440,14 @@ def list_messages_endpoint(
     )
     favorite_times = get_chat_message_favorite_times(db, [item.id for item in items], current_user.id)
     return ProjectChatMessageQueryResponse(
-        items=[_serialize_message(item, favorited_at=favorite_times.get(item.id)) for item in items],
+        items=[
+            _serialize_message(
+                item,
+                favorited_at=favorite_times.get(item.id),
+                current_user_id=current_user.id,
+            )
+            for item in items
+        ],
         total=total,
         enabled=chat_enabled,
         can_manage=can_manage,
@@ -395,4 +476,4 @@ def create_message_endpoint(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return _serialize_message(message)
+    return _serialize_message(message, current_user_id=current_user.id)

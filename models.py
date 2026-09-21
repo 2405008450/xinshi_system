@@ -42,6 +42,11 @@ class AppUser(Base):
         back_populates='user',
         cascade='all, delete-orphan',
     )
+    chat_message_acknowledgements: Mapped[list['ChatProjectMessageAcknowledgement']] = relationship(
+        'ChatProjectMessageAcknowledgement',
+        back_populates='user',
+        cascade='all, delete-orphan',
+    )
     shift_templates: Mapped[list['EmployeeShiftTemplate']] = relationship(
         'EmployeeShiftTemplate',
         back_populates='user',
@@ -918,6 +923,11 @@ class ChatProjectMessage(Base):
         back_populates='message',
         cascade='all, delete-orphan',
     )
+    acknowledgements: Mapped[list['ChatProjectMessageAcknowledgement']] = relationship(
+        'ChatProjectMessageAcknowledgement',
+        back_populates='message',
+        cascade='all, delete-orphan',
+    )
     attachment_links: Mapped[list['ChatProjectMessageAttachment']] = relationship(
         'ChatProjectMessageAttachment',
         back_populates='message',
@@ -973,6 +983,45 @@ class ChatProjectMessageFavorite(Base):
 
     message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='favorites')
     user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_message_favorites')
+
+
+class ChatProjectMessageAcknowledgement(Base):
+    __tablename__ = 'chat_project_message_acknowledgement'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['message_id'],
+            ['chat_project_message.id'],
+            ondelete='CASCADE',
+            name='fk_chat_project_message_acknowledgement_message',
+        ),
+        ForeignKeyConstraint(
+            ['user_id'],
+            ['app_user.id'],
+            ondelete='CASCADE',
+            name='fk_chat_project_message_acknowledgement_user',
+        ),
+        PrimaryKeyConstraint('id', name='chat_project_message_acknowledgement_pkey'),
+        UniqueConstraint(
+            'message_id',
+            'user_id',
+            name='uq_chat_project_message_acknowledgement_message_user',
+        ),
+        Index(
+            'ix_chat_project_message_acknowledgement_message_created_at',
+            'message_id',
+            'created_at',
+        ),
+        Index('ix_chat_project_message_acknowledgement_user_id', 'user_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    user_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+    message: Mapped['ChatProjectMessage'] = relationship('ChatProjectMessage', back_populates='acknowledgements')
+    user: Mapped['AppUser'] = relationship('AppUser', back_populates='chat_message_acknowledgements')
 
 
 class ChatProjectAttachment(Base):

@@ -1417,8 +1417,6 @@ const handleSubmit = async (sendAfterSave = false) => {
   submitLocked = true
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) {
-    await nextTick()
-    dialogBodyRef.value?.querySelector('.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     submitLocked = false
     return
   }

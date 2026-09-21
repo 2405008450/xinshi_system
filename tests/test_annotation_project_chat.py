@@ -6,7 +6,7 @@ import pytest
 
 import annotation_ops_models  # noqa: F401  # 注册标注关联模型，供 SQLAlchemy 完成 mapper 配置
 import project_chat_crud
-from models import ChatProjectMessage, ChatProjectMessageFavorite
+from models import ChatProjectMessage, ChatProjectMessageAcknowledgement, ChatProjectMessageFavorite
 from schemas import AnnotationProjectChatMessageCreate, ProjectChatMessageCreate
 
 
@@ -27,6 +27,8 @@ def test_annotation_chat_routes_are_registered():
     assert "@router.post('/annotation/{project_id}/messages'" in source
     assert "@router.put('/messages/{message_id}/favorite'" in source
     assert "@router.delete('/messages/{message_id}/favorite'" in source
+    assert "@router.put('/messages/{message_id}/acknowledgement'" in source
+    assert "@router.delete('/messages/{message_id}/acknowledgement'" in source
 
 
 def test_chat_favorite_model_is_private_unique_and_cascades():
@@ -36,6 +38,72 @@ def test_chat_favorite_model_is_private_unique_and_cascades():
     assert "uq_chat_project_message_favorite_message_user" in constraint_names
     assert foreign_keys["fk_chat_project_message_favorite_message"].ondelete == "CASCADE"
     assert foreign_keys["fk_chat_project_message_favorite_user"].ondelete == "CASCADE"
+
+
+def test_chat_acknowledgement_model_is_unique_and_cascades():
+    constraint_names = {item.name for item in ChatProjectMessageAcknowledgement.__table__.constraints}
+    foreign_keys = {
+        item.name: item
+        for item in ChatProjectMessageAcknowledgement.__table__.foreign_key_constraints
+    }
+
+    assert "uq_chat_project_message_acknowledgement_message_user" in constraint_names
+    assert foreign_keys["fk_chat_project_message_acknowledgement_message"].ondelete == "CASCADE"
+    assert foreign_keys["fk_chat_project_message_acknowledgement_user"].ondelete == "CASCADE"
+    assert ChatProjectMessageAcknowledgement.__table__.c.user_name.nullable is False
+
+
+def test_chat_acknowledgement_rejects_own_and_system_messages_before_database_access():
+    user = SimpleNamespace(id=uuid4(), full_name="确认人", username="receiver")
+    own_message = SimpleNamespace(id=uuid4(), sender_user_id=user.id, message_type="user")
+    system_message = SimpleNamespace(id=uuid4(), sender_user_id=uuid4(), message_type="handover")
+
+    with pytest.raises(ValueError, match="不能标记自己发送的消息"):
+        project_chat_crud.acknowledge_chat_message(None, own_message, user)
+    with pytest.raises(ValueError, match="系统消息无需标记收到"):
+        project_chat_crud.acknowledge_chat_message(None, system_message, user)
+    with pytest.raises(ValueError, match="不能标记自己发送的消息"):
+        project_chat_crud.unacknowledge_chat_message(None, own_message, user)
+
+
+def test_existing_chat_acknowledgement_is_idempotent(monkeypatch):
+    message_id = uuid4()
+    user = SimpleNamespace(id=uuid4(), full_name="确认人", username="receiver")
+    message = SimpleNamespace(id=message_id, sender_user_id=uuid4(), message_type="user")
+    existing = SimpleNamespace(
+        id=uuid4(),
+        message_id=message_id,
+        user_id=user.id,
+        user_name=user.full_name,
+        created_at=None,
+    )
+
+    class Query:
+        def filter(self, *_args):
+            return self
+
+        def order_by(self, *_args):
+            return self
+
+        def first(self):
+            return existing
+
+        def all(self):
+            return [existing]
+
+    db = SimpleNamespace(query=lambda *_args: Query())
+    broadcasts = []
+    monkeypatch.setattr(
+        project_chat_crud,
+        "_broadcast_chat_acknowledgement",
+        lambda *_args, **_kwargs: broadcasts.append(True),
+    )
+
+    acknowledgement, rows = project_chat_crud.acknowledge_chat_message(db, message, user)
+
+    assert acknowledgement is existing
+    assert rows == [existing]
+    assert broadcasts == []
 
 
 def test_annotation_chat_request_has_no_rich_text_or_attachment_fields():

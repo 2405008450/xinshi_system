@@ -347,12 +347,25 @@
       top="5vh"
       @close="handleDialogClose"
     >
-      <AppForm
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="120px"
-      >
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="clientFieldSearchRef"
+          v-model="clientFieldSearchKeyword"
+          :title="dialogTitle"
+          subtitle="搜索并快速定位客户字段"
+          :fetch-suggestions="fetchClientFieldSuggestions"
+          placeholder="搜索客户字段，如客户负责人"
+          @select="locateClientField"
+          @clear="clearClientFieldSearch"
+        />
+      </template>
+      <div ref="clientEditorBodyRef">
+        <AppForm
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-width="120px"
+        >
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户编号" prop="client_code">
@@ -466,7 +479,8 @@
             </el-table-column>
           </el-table>
         </div>
-      </AppForm>
+        </AppForm>
+      </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit">确定</el-button>
@@ -484,7 +498,20 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
-      <AppForm ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="subClientFieldSearchRef"
+          v-model="subClientFieldSearchKeyword"
+          :title="subDialogTitle"
+          subtitle="搜索并快速定位子客户字段"
+          :fetch-suggestions="fetchSubClientFieldSuggestions"
+          placeholder="搜索子客户字段，如开始合作时间"
+          @select="locateSubClientField"
+          @clear="clearSubClientFieldSearch"
+        />
+      </template>
+      <div ref="subClientEditorBodyRef">
+        <AppForm ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="子客户编号" prop="sub_client_code">
@@ -543,7 +570,8 @@
             </el-form-item>
           </el-col>
         </el-row>
-      </AppForm>
+        </AppForm>
+      </div>
       <template #footer>
         <el-button @click="subDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="subSubmitLoading" @click="handleSubSubmit">确定</el-button>
@@ -562,11 +590,13 @@ import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDatetime } from '@/utils/dateTime'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
@@ -576,6 +606,14 @@ const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增客户')
 const formRef = ref(null)
+const clientEditorBodyRef = ref(null)
+const {
+  fieldSearchRef: clientFieldSearchRef,
+  fieldSearchKeyword: clientFieldSearchKeyword,
+  fetchFieldSuggestions: fetchClientFieldSuggestions,
+  locateDialogField: locateClientField,
+  clearFieldSearch: clearClientFieldSearch,
+} = useDialogFieldSearch(clientEditorBodyRef)
 const detailCache = reactive({})
 const detailLoadingId = ref(null)
 const currentUserId = localStorage.getItem('user_id') || null
@@ -653,6 +691,14 @@ const subDialogVisible = ref(false)
 const subDialogTitle = ref('新增子客户')
 const subSubmitLoading = ref(false)
 const subFormRef = ref(null)
+const subClientEditorBodyRef = ref(null)
+const {
+  fieldSearchRef: subClientFieldSearchRef,
+  fieldSearchKeyword: subClientFieldSearchKeyword,
+  fetchFieldSuggestions: fetchSubClientFieldSuggestions,
+  locateDialogField: locateSubClientField,
+  clearFieldSearch: clearSubClientFieldSearch,
+} = useDialogFieldSearch(subClientEditorBodyRef)
 
 const tableData = ref([])
 const clientTableRef = ref(null)
@@ -945,6 +991,7 @@ const handleSubmit = async () => {
 }
 
 const resetForm = () => {
+  clearClientFieldSearch()
   formRef.value?.resetFields()
   Object.assign(form, defaultClientForm())
   nextTick(() => formRef.value?.clearValidate())
@@ -1031,6 +1078,7 @@ const handleSubSubmit = async () => {
 }
 
 const resetSubForm = () => {
+  clearSubClientFieldSearch()
   subFormRef.value?.resetFields()
   Object.assign(subForm, {
     id: null,

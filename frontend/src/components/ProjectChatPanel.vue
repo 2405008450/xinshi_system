@@ -205,6 +205,37 @@
                       </el-tooltip>
                     </div>
                   </div>
+                  <div
+                    v-if="shouldShowAcknowledgement(item.message)"
+                    class="chat-acknowledgement-row"
+                    :class="{
+                      'chat-acknowledgement-row--own': item.isOwn,
+                      'chat-acknowledgement-row--empty': !messageAcknowledgements(item.message).length
+                    }"
+                  >
+                    <el-tooltip
+                      :content="acknowledgementTooltip(item.message)"
+                      placement="top"
+                      :disabled="!messageAcknowledgements(item.message).length"
+                    >
+                      <button
+                        v-if="canAcknowledgeMessage(item.message)"
+                        type="button"
+                        class="chat-acknowledgement-chip"
+                        :class="{ 'is-active': item.message.isAcknowledged }"
+                        :disabled="acknowledgementSavingIds.has(item.message.id)"
+                        :aria-label="item.message.isAcknowledged ? '取消收到' : '标记收到'"
+                        @click.stop="handleAcknowledgementToggle(item.message)"
+                      >
+                        <span aria-hidden="true">👌</span>
+                        <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(item.message) }}</span>
+                      </button>
+                      <span v-else class="chat-acknowledgement-chip chat-acknowledgement-chip--readonly">
+                        <span aria-hidden="true">👌</span>
+                        <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(item.message) }}</span>
+                      </span>
+                    </el-tooltip>
+                  </div>
                 </div>
               </div>
             </template>
@@ -333,6 +364,34 @@
                   <img v-if="attachmentUrls[attachment.id]" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
                   <span>{{ attachment.originalName }}</span>
                 </a>
+              </div>
+              <div
+                v-if="shouldShowAcknowledgement(message)"
+                class="chat-acknowledgement-row"
+                :class="{ 'chat-acknowledgement-row--empty': !messageAcknowledgements(message).length }"
+              >
+                <el-tooltip
+                  :content="acknowledgementTooltip(message)"
+                  placement="top"
+                  :disabled="!messageAcknowledgements(message).length"
+                >
+                  <button
+                    v-if="canAcknowledgeMessage(message)"
+                    type="button"
+                    class="chat-acknowledgement-chip"
+                    :class="{ 'is-active': message.isAcknowledged }"
+                    :disabled="acknowledgementSavingIds.has(message.id)"
+                    :aria-label="message.isAcknowledged ? '取消收到' : '标记收到'"
+                    @click.stop="handleAcknowledgementToggle(message)"
+                  >
+                    <span aria-hidden="true">👌</span>
+                    <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(message) }}</span>
+                  </button>
+                  <span v-else class="chat-acknowledgement-chip chat-acknowledgement-chip--readonly">
+                    <span aria-hidden="true">👌</span>
+                    <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(message) }}</span>
+                  </span>
+                </el-tooltip>
               </div>
             </div>
           </div>
@@ -586,12 +645,14 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
+  acknowledgeProjectChatMessage,
   createProjectChatMessage,
   favoriteProjectChatMessage,
   getProjectChatAttachmentBlob,
   getProjectChatMessages,
   getProjectChatSettings,
   updateProjectChatSettings,
+  unacknowledgeProjectChatMessage,
   unfavoriteProjectChatMessage,
   uploadProjectChatAttachment
 } from '@/api/projectChat'
@@ -625,6 +686,7 @@ const uploading = ref(false)
 const userOptions = ref([])
 const messages = ref([])
 const favoriteSavingIds = ref(new Set())
+const acknowledgementSavingIds = ref(new Set())
 const filterPopoverVisible = ref(false)
 const progressSelectionMode = ref(false)
 const selectedProgressMessageIds = ref(new Set())
@@ -673,6 +735,7 @@ const selectedProgressCharacterCount = computed(() => selectedProgressMessages.v
 const allProgressMessagesSelected = computed(() => eligibleProgressMessages.value.length > 0 && selectedProgressMessages.value.length === eligibleProgressMessages.value.length)
 let pollTimer = null
 let unsubscribeChatMessage = null
+let unsubscribeChatAcknowledgement = null
 let unsubscribeSocketConnected = null
 let newerMessageNoticeShown = false
 
@@ -925,8 +988,14 @@ const mergeLatestConversationMessages = async () => {
   try {
     const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
     settings.enabled = !!res?.enabled
+    const latestItems = Array.isArray(res?.items) ? res.items : []
+    const existingById = new Map(messages.value.map(item => [String(item.id), item]))
+    latestItems.forEach((item) => {
+      const existing = existingById.get(String(item.id))
+      if (existing) syncAcknowledgementState(existing, item)
+    })
     const existingIds = new Set(messages.value.map(item => String(item.id)))
-    const fresh = (Array.isArray(res?.items) ? res.items : [])
+    const fresh = latestItems
       .filter(item => !existingIds.has(String(item.id)))
       .reverse()
     pagination.total = Number(res?.total || pagination.total)
@@ -1111,6 +1180,7 @@ const resetChatState = () => {
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserIds = []
   composer.attachments = []
+  acknowledgementSavingIds.value = new Set()
   clearAttachmentUrls()
   clearPolling()
 }
@@ -1301,6 +1371,61 @@ const messageMentions = (message) => {
   return []
 }
 
+const messageAcknowledgements = message => (
+  Array.isArray(message?.acknowledgements) ? message.acknowledgements : []
+)
+
+const syncAcknowledgementState = (target, source) => {
+  const acknowledgements = messageAcknowledgements(source).map(item => ({ ...item }))
+  target.acknowledgements = acknowledgements
+  target.acknowledgementCount = acknowledgements.length
+  target.isAcknowledged = acknowledgements.some(item => String(item.userId) === currentUserId)
+}
+
+const canAcknowledgeMessage = message => (
+  message?.messageType === 'user'
+  && String(message?.senderUserId || '') !== currentUserId
+)
+
+const shouldShowAcknowledgement = message => (
+  message?.messageType === 'user'
+  && (canAcknowledgeMessage(message) || messageAcknowledgements(message).length > 0)
+)
+
+const acknowledgementLabel = message => {
+  const rows = messageAcknowledgements(message)
+  if (!rows.length) return '收到'
+  const names = rows.slice(0, 2).map(item => item.userName || '未知用户').join('、')
+  return rows.length > 2 ? `${names} +${rows.length - 2}` : names
+}
+
+const acknowledgementTooltip = message => {
+  const rows = messageAcknowledgements(message)
+  if (!rows.length) return '标记收到'
+  return rows
+    .map(item => `${item.userName || '未知用户'} · ${formatDateTime(item.acknowledgedAt)}`)
+    .join('；')
+}
+
+const handleAcknowledgementToggle = async (message) => {
+  if (!canAcknowledgeMessage(message) || acknowledgementSavingIds.value.has(message.id)) return
+  acknowledgementSavingIds.value = new Set([...acknowledgementSavingIds.value, message.id])
+  const nextAcknowledged = !message.isAcknowledged
+  try {
+    const res = nextAcknowledged
+      ? await acknowledgeProjectChatMessage(message.id)
+      : await unacknowledgeProjectChatMessage(message.id)
+    syncAcknowledgementState(message, res)
+    ElMessage.success(message.isAcknowledged ? '已标记收到' : '已取消收到')
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, nextAcknowledged ? '标记收到失败' : '取消收到失败'))
+  } finally {
+    const pending = new Set(acknowledgementSavingIds.value)
+    pending.delete(message.id)
+    acknowledgementSavingIds.value = pending
+  }
+}
+
 const handleFavoriteToggle = async (message) => {
   if (!message?.id || favoriteSavingIds.value.has(message.id)) return
   favoriteSavingIds.value = new Set([...favoriteSavingIds.value, message.id])
@@ -1379,6 +1504,36 @@ const handleRealtimeChatMessage = async (payload) => {
   chatListRef.value?.setScrollTop?.(0)
 }
 
+const handleRealtimeChatAcknowledgement = (payload) => {
+  if (
+    String(payload?.projectId || '') !== String(props.projectId || '')
+    || payload?.projectType !== props.projectType
+    || !payload?.messageId
+    || !payload?.userId
+  ) return
+
+  const message = messages.value.find(item => String(item.id) === String(payload.messageId))
+  if (!message) return
+  const userId = String(payload.userId)
+  const next = messageAcknowledgements(message)
+    .filter(item => String(item.userId) !== userId)
+  if (payload.acknowledged) {
+    next.push({
+      userId: payload.userId,
+      userName: payload.userName || '未知用户',
+      acknowledgedAt: payload.acknowledgedAt || null
+    })
+  }
+  next.sort((left, right) => {
+    const leftTime = new Date(left.acknowledgedAt || 0).getTime()
+    const rightTime = new Date(right.acknowledgedAt || 0).getTime()
+    return leftTime - rightTime || String(left.userId).localeCompare(String(right.userId))
+  })
+  message.acknowledgements = next
+  message.acknowledgementCount = next.length
+  message.isAcknowledged = next.some(item => String(item.userId) === currentUserId)
+}
+
 const handleSocketConnected = () => {
   if (!props.active || !props.projectId) return
   if (props.conversationMode) mergeLatestConversationMessages()
@@ -1429,6 +1584,7 @@ watch(() => props.canAddToProgress, canAdd => {
 onMounted(() => {
   ensureUsersLoaded()
   unsubscribeChatMessage = subscribe('chat_message', handleRealtimeChatMessage)
+  unsubscribeChatAcknowledgement = subscribe('chat_message_acknowledgement', handleRealtimeChatAcknowledgement)
   unsubscribeSocketConnected = subscribe('connected', handleSocketConnected)
   ensureConnected()
   document.addEventListener('mousedown', handleProgressTextMenuPointerDown)
@@ -1439,6 +1595,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   unsubscribeChatMessage?.()
+  unsubscribeChatAcknowledgement?.()
   unsubscribeSocketConnected?.()
   clearPolling()
   clearAttachmentUrls()
@@ -1622,6 +1779,72 @@ onBeforeUnmount(() => {
   word-break: break-word;
   color: var(--el-text-color-regular);
   line-height: 1.6;
+}
+
+.chat-acknowledgement-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-top: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.chat-acknowledgement-row--own {
+  justify-content: flex-end;
+}
+
+.chat-conversation-item .chat-acknowledgement-row--empty,
+.chat-message-card .chat-acknowledgement-row--empty {
+  opacity: 0;
+}
+
+.chat-conversation-item:hover .chat-acknowledgement-row--empty,
+.chat-conversation-item:focus-within .chat-acknowledgement-row--empty,
+.chat-message-card:hover .chat-acknowledgement-row--empty,
+.chat-message-card:focus-within .chat-acknowledgement-row--empty {
+  opacity: 1;
+}
+
+.chat-acknowledgement-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(280px, 100%);
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 14px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.chat-acknowledgement-chip:hover,
+.chat-acknowledgement-chip:focus-visible,
+.chat-acknowledgement-chip.is-active {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  outline: none;
+}
+
+.chat-acknowledgement-chip:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.chat-acknowledgement-chip--readonly {
+  cursor: default;
+}
+
+.chat-acknowledgement-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-selection-menu {
@@ -2158,7 +2381,18 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+@media (hover: none) {
+  .chat-conversation-item .chat-acknowledgement-row--empty,
+  .chat-message-card .chat-acknowledgement-row--empty {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 720px) {
+  .chat-acknowledgement-chip {
+    max-width: min(220px, 100%);
+  }
+
   .chat-batch-action-bar,
   .chat-batch-action-bar__summary {
     align-items: flex-start;

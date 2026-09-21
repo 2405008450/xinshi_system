@@ -35,6 +35,7 @@ def record_project_operation(
     operation_source: str,
     previous_order_no: Optional[str] = None,
     change_reason: Optional[str] = None,
+    snapshot_extra: Optional[dict] = None,
 ) -> ProjectOperationAudit:
     if project_type not in PROJECT_AUDIT_TYPES:
         raise ValueError("不支持的项目审计类型")
@@ -42,6 +43,10 @@ def record_project_operation(
         raise ValueError("不支持的项目审计操作")
 
     actor = db.get(AppUser, actor_user_id) if actor_user_id and hasattr(db, "get") else None
+    project_snapshot = _project_snapshot(project)
+    if snapshot_extra:
+        project_snapshot.update(jsonable_encoder(snapshot_extra))
+
     row = ProjectOperationAudit(
         project_type=project_type,
         project_id=project.id,
@@ -54,7 +59,7 @@ def record_project_operation(
         actor_name_snapshot=getattr(actor, "full_name", None),
         previous_order_no=previous_order_no,
         change_reason=change_reason,
-        project_snapshot=_project_snapshot(project),
+        project_snapshot=project_snapshot,
     )
     db.add(row)
     return row

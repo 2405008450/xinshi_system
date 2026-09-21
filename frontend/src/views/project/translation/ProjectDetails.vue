@@ -482,7 +482,7 @@
           v-model="fieldSearchKeyword"
           :title="dialogTitle"
           :fetch-suggestions="fetchFieldSuggestions"
-          @select="locateProjectField"
+          @select="locateDialogField"
           @clear="clearFieldSearch"
         />
       </template>
@@ -853,9 +853,15 @@
               </div>
             </el-tab-pane>
 
-            <el-tab-pane label="进度跟踪" name="progress" lazy>
+            <el-tab-pane label="进度跟踪" name="progress">
               <div class="progress-grid">
-                <div v-for="item in progressFieldConfigs" :key="item.key" class="progress-card" :data-field-key="item.key">
+                <div
+                  v-for="item in progressFieldConfigs"
+                  :key="item.key"
+                  class="progress-card"
+                  :data-field-key="item.key"
+                  :data-dialog-field-search-label="item.label"
+                >
                   <div class="progress-card__header">
                     <span>{{ item.label }}</span>
                     <strong>{{ formatProgressDisplay(form[item.key]) }}</strong>
@@ -1152,6 +1158,7 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import TranslatorCompletionPopover from './components/TranslatorCompletionPopover.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
@@ -1250,50 +1257,6 @@ const progressFieldConfigs = [
   { key: 'postReviewQcProgress', label: '审校后 QC' },
   { key: 'layoutProgress', label: '排版进度' },
   { key: 'consolidationProgress', label: '整合进度' }
-]
-const basicProjectFieldSearchItems = [
-  { key: 'projectName', label: '项目名称', aliases: ['项目名'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'sourceFileName', label: '母订单文件名称', aliases: ['文件名称', '文件名', '源文件名称', '原文件名称'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'emailSubjectPreview', label: '邮件主题预览', aliases: ['邮件标题'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'taskType', label: '任务类型', aliases: ['项目类型', '咨询类型'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'clientShortName', label: '母客户简称', aliases: ['客户名称', '客户', '母客户'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'subClientShortName', label: '子客户简称', aliases: ['子客户'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'clientCode', label: '母客户编号', aliases: ['客户编码'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'subClientCode', label: '子客户编号', aliases: ['子客户编码'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'customerOrderNo', label: '客户单号', aliases: ['客户订单号'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'serviceContent', label: '服务内容', aliases: ['服务'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'fileTypeSecondary', label: '文本类型', aliases: ['文件类型'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'languagePair', label: '翻译方向', aliases: ['语言对', '语言方向'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'wordCountSummary', label: '字数与预估', aliases: ['字数摘要', '客户提供字数', '内部核算字数', '统计口径', '预计译员字数'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'projectContractType', label: '合同类型', aliases: ['项目合同类型'], section: 'business', sectionLabel: '项目商务信息' },
-  { key: 'projectContractStatus', label: '合同状态', aliases: ['项目合同状态'], section: 'business', sectionLabel: '项目商务信息' },
-  { key: 'quotationRequired', label: '需提供报价单', aliases: ['报价单', '是否需要报价'], section: 'business', sectionLabel: '项目商务信息' },
-  { key: 'quotationStatus', label: '报价单状态', aliases: ['报价状态'], section: 'business', sectionLabel: '项目商务信息', requires: 'quotationRequired' },
-  { key: 'quotationPath', label: '报价单路径', aliases: ['报价文件', '报价路径'], section: 'business', sectionLabel: '项目商务信息', requires: 'quotationRequired' },
-  { key: 'customerRequirementProfessional', label: '客户专业要求', aliases: ['专业要求'], section: 'business', sectionLabel: '项目商务信息' },
-  { key: 'customerRequirementSpecial', label: '客户特殊要求', aliases: ['特殊要求'], section: 'business', sectionLabel: '项目商务信息' },
-  { key: 'priority', label: '优先级', aliases: ['紧急程度'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'projectStatus', label: '状态', aliases: ['项目状态', '业务状态'], section: 'project', sectionLabel: '项目与客户' },
-  { key: 'projectSpecialistId', label: '项目专员', aliases: ['项目专员负责人'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'projectAssistantId', label: '项目助理', aliases: ['项目助理负责人'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'layoutSpecialistId', label: '排版专员', aliases: ['排版负责人'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'clientFeedback', label: '客户反馈', aliases: ['反馈'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'customerReceptionTime', label: '客户接单时间', aliases: ['接单时间'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'customerDeadlineTime', label: '客户交稿时间', aliases: ['交稿时间', '截止时间'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'sentToClientTime', label: '发客户时间', aliases: ['发送客户时间'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'translatorReturnTime', label: '译员回稿时间', aliases: ['全稿预定时间', '译员交稿全稿预定时间'], section: 'execution', sectionLabel: '项目执行信息' },
-  { key: 'pmConfirmedBy', label: 'PM确认人 ID', aliases: ['PM确认人', '确认人'], section: 'execution', sectionLabel: '项目执行信息' },
-].map((item) => ({ ...item, tab: 'basic', tabLabel: '基础信息', location: `基础信息 · ${item.sectionLabel}` }))
-const progressFieldSearchItems = progressFieldConfigs.map((item) => ({
-  ...item,
-  aliases: [item.label.replaceAll(' ', '')],
-  tab: 'progress',
-  tabLabel: '进度跟踪',
-  location: '进度跟踪',
-}))
-const projectFieldSearchItems = [
-  ...basicProjectFieldSearchItems,
-  ...progressFieldSearchItems,
 ]
 const taskTypeOptions = [
   '笔译项目',
@@ -1489,8 +1452,13 @@ const dialogTitle = ref('新增项目')
 const subOrderDialogTitle = ref('新增子订单')
 const formRef = ref(null)
 const editorBodyRef = ref(null)
-const fieldSearchRef = ref(null)
-const fieldSearchKeyword = ref('')
+const {
+  fieldSearchRef,
+  fieldSearchKeyword,
+  fetchFieldSuggestions,
+  locateDialogField,
+  clearFieldSearch,
+} = useDialogFieldSearch(editorBodyRef)
 const subOrderFormRef = ref(null)
 const projectTableRef = ref(null)
 const projectFilesTabRef = ref(null)
@@ -2428,102 +2396,6 @@ const clearSearch = () => {
   searchForm.keyword = ''
   resetFilterModel(searchForm, translationFilterFields)
 }
-let highlightedFieldElement = null
-let fieldHighlightTimer = null
-const normalizeFieldSearchText = (value) => String(value || '').toLocaleLowerCase().replace(/\s+/g, '')
-const getFieldSearchScore = (item, keyword) => {
-  const label = normalizeFieldSearchText(item.label)
-  const aliases = (item.aliases || []).map(normalizeFieldSearchText)
-  if (label === keyword) return 0
-  if (aliases.some((value) => value === keyword)) return 1
-  if (label.startsWith(keyword)) return 2
-  if (aliases.some((value) => value.startsWith(keyword))) return 3
-  if (label.includes(keyword)) return 4
-  if (aliases.some((value) => value.includes(keyword))) return 5
-  return Number.POSITIVE_INFINITY
-}
-const fetchFieldSuggestions = (queryString, callback) => {
-  const keyword = normalizeFieldSearchText(queryString)
-  if (!keyword) {
-    callback([])
-    return
-  }
-  const matches = projectFieldSearchItems
-    .map((item, index) => ({ item, index, score: getFieldSearchScore(item, keyword) }))
-    .filter(({ score }) => Number.isFinite(score))
-    .sort((left, right) => left.score - right.score || left.index - right.index)
-    .map(({ item }) => item)
-  callback(matches)
-}
-const clearFieldSearchHighlight = () => {
-  if (fieldHighlightTimer) window.clearTimeout(fieldHighlightTimer)
-  fieldHighlightTimer = null
-  highlightedFieldElement?.classList.remove('is-field-search-highlight')
-  highlightedFieldElement = null
-}
-const clearFieldSearch = () => {
-  fieldSearchKeyword.value = ''
-  clearFieldSearchHighlight()
-}
-const waitForFieldLayout = (delay = 0) => new Promise((resolve) => {
-  window.setTimeout(() => {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))
-  }, delay)
-})
-const focusLocatedField = (target) => {
-  const focusTarget = target.querySelector([
-    'input:not([disabled])',
-    'textarea:not([disabled])',
-    'button:not([disabled])',
-    '[role="slider"]',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(', '))
-  if (!focusTarget || typeof focusTarget.focus !== 'function') return
-  try {
-    focusTarget.focus({ preventScroll: true })
-  } catch {
-    focusTarget.focus()
-  }
-}
-const locateProjectField = async (selectedItem) => {
-  if (!selectedItem?.key) return
-  const requiresUnavailableField = selectedItem.requires && !form[selectedItem.requires]
-  const targetItem = requiresUnavailableField
-    ? projectFieldSearchItems.find((item) => item.key === selectedItem.requires)
-    : selectedItem
-  if (!targetItem) return
-
-  fieldSearchRef.value?.blur?.()
-  projectDialogTab.value = targetItem.tab
-  const shouldExpandSection = targetItem.section && !projectBasicExpandedSections.value.includes(targetItem.section)
-  if (shouldExpandSection) {
-    projectBasicExpandedSections.value = [...projectBasicExpandedSections.value, targetItem.section]
-  }
-
-  await nextTick()
-  await waitForFieldLayout(shouldExpandSection ? 320 : 0)
-  const target = editorBodyRef.value?.querySelector(`[data-field-key="${targetItem.key}"]`)
-  if (!target) {
-    ElMessage.warning(`暂时无法定位“${selectedItem.label}”`)
-    return
-  }
-
-  clearFieldSearchHighlight()
-  const editorBody = editorBodyRef.value
-  const bodyRect = editorBody.getBoundingClientRect()
-  const targetRect = target.getBoundingClientRect()
-  const targetScrollTop = editorBody.scrollTop + targetRect.top - bodyRect.top
-    - Math.max(0, (editorBody.clientHeight - targetRect.height) / 2)
-  editorBody.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' })
-  target.classList.add('is-field-search-highlight')
-  highlightedFieldElement = target
-  focusLocatedField(target)
-  fieldHighlightTimer = window.setTimeout(clearFieldSearchHighlight, 1500)
-
-  if (requiresUnavailableField) {
-    ElMessage.info(`请先启用“${targetItem.label}”，再编辑“${selectedItem.label}”`)
-  }
-}
 const resetProjectForm = () => {
   subClientRequestId += 1
   assignReactive(form, createEmptyProjectForm)
@@ -2619,18 +2491,8 @@ const handleSubmit = async (sendAfterSave = false) => {
   // 先让按钮呈现忙碌状态，再执行整表与路径校验，避免点击后长时间没有反馈。
   await nextTick()
   syncProjectName()
-  const valid = await formRef.value.validate().catch((invalidFields) => {
-    if (invalidFields?.projectStatus) {
-      projectDialogTab.value = 'basic'
-      if (!projectBasicExpandedSections.value.includes('project')) {
-        projectBasicExpandedSections.value = [...projectBasicExpandedSections.value, 'project']
-      }
-    }
-    return false
-  })
+  const valid = await formRef.value.validate().catch(() => false)
   if (!valid) {
-    await nextTick()
-    editorBodyRef.value?.querySelector('.is-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     submitLoading.value = false
     submitLocked = false
     return
@@ -2833,7 +2695,6 @@ watch(
 )
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
-  clearFieldSearchHighlight()
   requestController?.abort()
 })
 </script>
@@ -2903,22 +2764,6 @@ onBeforeUnmount(() => {
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
 :global(.project-editor-dialog .el-dialog__body) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-:global(.is-field-search-highlight) {
-  outline: 2px solid var(--el-color-warning);
-  outline-offset: 3px;
-  border-radius: 6px;
-  background: var(--el-color-warning-light-8);
-  box-shadow: 0 0 0 6px rgb(230 162 60 / 18%);
-  animation: project-field-search-pulse 0.75s ease-in-out 2;
-  transition: background-color 0.2s ease, outline-color 0.2s ease, box-shadow 0.2s ease;
-}
-@keyframes project-field-search-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px rgb(230 162 60 / 16%); }
-  50% { box-shadow: 0 0 0 9px rgb(230 162 60 / 30%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  :global(.is-field-search-highlight) { animation: none; }
-}
 .editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 4px 0 0; scroll-behavior: smooth; }
 .project-editor-tabs > :deep(.el-tabs__header) {
   position: sticky;

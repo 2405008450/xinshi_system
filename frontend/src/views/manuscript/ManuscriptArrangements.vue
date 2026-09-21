@@ -1218,10 +1218,23 @@
     <DraggableFormDialog
       v-model="dispatchDialogVisible"
       :title="dispatchForm.id ? '编辑稿件安排草稿' : '新建稿件安排'"
-      width="1120px"
+      width="min(1120px, calc(100vw - 32px))"
       top="3vh"
       destroy-on-close
     >
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="dispatchFieldSearchRef"
+          v-model="dispatchFieldSearchKeyword"
+          :title="dispatchForm.id ? '编辑稿件安排草稿' : '新建稿件安排'"
+          subtitle="搜索并快速定位稿件安排字段"
+          :fetch-suggestions="fetchDispatchFieldSuggestions"
+          placeholder="搜索稿件安排字段，如译员结账方式"
+          @select="locateDispatchField"
+          @clear="clearDispatchFieldSearch"
+        />
+      </template>
+      <div ref="dispatchEditorBodyRef" class="dispatch-editor-body">
       <el-descriptions v-if="selectedProject" :column="4" border class="dialog-summary">
         <el-descriptions-item label="订单号">{{ selectedProject.order_no }}</el-descriptions-item>
         <el-descriptions-item label="项目">{{ selectedProject.sub_project_name || selectedProject.project_name }}</el-descriptions-item>
@@ -1234,7 +1247,7 @@
         <el-descriptions-item label="派稿文路径" :span="3">{{ selectedProject.dispatch_path || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <AppForm label-width="155px" class="dispatch-form">
+      <AppForm ref="dispatchFormRef" label-width="155px" class="dispatch-form">
         <el-form-item label="文件名称">
           <el-input
             v-model="dispatchForm.file_name"
@@ -1277,10 +1290,11 @@
           v-for="(assignment, assignmentIndex) in dispatchForm.arrangements"
           :key="assignment.translator_id"
           class="assignment-card"
+          data-dialog-field-search-group
         >
           <div class="assignment-card__header">
             <div>
-              <strong>{{ translatorById(assignment.translator_id)?.translator_name }}</strong>
+              <strong data-dialog-field-search-group-title>{{ translatorById(assignment.translator_id)?.translator_name }}</strong>
               <span class="muted-text">译员合作形式：</span>
               <el-tag size="small" effect="plain">{{ cooperationLabel(translatorById(assignment.translator_id) || {}) }}</el-tag>
               <span class="muted-text">{{ preferredEmail(translatorById(assignment.translator_id) || {}) || '缺少邮箱' }}</span>
@@ -1367,7 +1381,7 @@
             </div>
           </el-form-item>
 
-          <div class="milestone-editor">
+          <div class="milestone-editor" data-dialog-field-search-label="译员交稿_预定时间">
             <div class="subsection-header">
               <strong>译员交稿_预定时间</strong>
               <el-button type="primary" link @click="addMilestone(assignment)">增加阶段节点</el-button>
@@ -1441,6 +1455,7 @@
           <el-input v-model="dispatchForm.remarks" type="textarea" :rows="2" maxlength="5000" />
         </el-form-item>
       </AppForm>
+      </div>
 
       <template #footer>
         <el-button @click="dispatchDialogVisible = false">取消</el-button>
@@ -1906,10 +1921,12 @@ import {
 } from '@/api/manuscriptArrangements'
 import { hasPermission } from '@/utils/permission'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import ManuscriptFileSelector from './components/ManuscriptFileSelector.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
@@ -1943,6 +1960,16 @@ const selectedProject = ref(null)
 const projectKeyword = ref('')
 const dispatchKeyword = ref('')
 const dispatchDialogVisible = ref(false)
+const dispatchFormRef = ref(null)
+const dispatchEditorBodyRef = ref(null)
+const {
+  fieldSearchRef: dispatchFieldSearchRef,
+  fieldSearchKeyword: dispatchFieldSearchKeyword,
+  fetchFieldSuggestions: fetchDispatchFieldSuggestions,
+  locateDialogField: locateDispatchField,
+  locateDialogFieldByLabel: locateDispatchFieldByLabel,
+  clearFieldSearch: clearDispatchFieldSearch,
+} = useDialogFieldSearch(dispatchEditorBodyRef)
 const settlementDialogVisible = ref(false)
 const reassignDialogVisible = ref(false)
 const selectedTranslatorIds = ref([])
@@ -3317,6 +3344,7 @@ function sumField(dispatch, field, nullWhenEmpty = false) {
 }
 
 function resetDispatchForm() {
+  clearDispatchFieldSearch()
   selectedFilesDirtyIds.value = new Set()
   Object.assign(dispatchForm, {
     id: '',
@@ -3493,32 +3521,54 @@ function editCancelledInWorkbench(row, translatorId = '') {
 }
 
 function validateDispatchForm() {
-  if (!selectedProject.value) return '请选择订单'
-  if (!dispatchForm.arrangements.length) return '请至少选择一位译员'
-  if (
-    dispatchForm.arrangements.length > 1 &&
-    dispatchForm.arrangements.some((item) => !item.translation_scope.trim())
-  ) {
-    return '多人派稿时，每位译员都必须填写需翻译部分'
+  if (!selectedProject.value) return { message: '请选择订单' }
+  if (!dispatchForm.arrangements.length) {
+    return { message: '请至少选择一位译员', label: '选择译员' }
   }
-  for (const assignment of dispatchForm.arrangements) {
+  if (dispatchForm.arrangements.length > 1) {
+    const missingScopeIndex = dispatchForm.arrangements.findIndex((item) => !item.translation_scope.trim())
+    if (missingScopeIndex >= 0) {
+      return {
+        message: '多人派稿时，每位译员都必须填写需翻译部分',
+        label: '需翻译部分',
+        occurrence: missingScopeIndex + 1,
+      }
+    }
+  }
+  for (const [assignmentIndex, assignment] of dispatchForm.arrangements.entries()) {
     const translatorName = translatorById(assignment.translator_id)?.translator_name || '译员'
     if (!hasWordCountValue(assignment.planned)) {
-      return `${translatorName}：字数与结算至少需要填写一个字数数值`
+      return {
+        message: `${translatorName}：字数与结算至少需要填写一个字数数值`,
+        label: '字数与结算',
+        occurrence: assignmentIndex + 1,
+      }
     }
     const finalMilestone = assignment.milestones.find((item) => item.milestone_type === 'final')
     if (!finalMilestone?.planned_at) {
-      return `${translatorName}：请填写全稿预定时间`
+      return {
+        message: `${translatorName}：请填写全稿预定时间`,
+        label: '译员交稿_预定时间',
+        occurrence: assignmentIndex + 1,
+      }
     }
     if (!String(assignment.settlement_method || '').trim()) {
-      return `${translatorName}：请填写译员结账方式`
+      return {
+        message: `${translatorName}：请填写译员结账方式`,
+        label: '译员结账方式',
+        occurrence: assignmentIndex + 1,
+      }
     }
     const dated = assignment.milestones
       .filter((item) => item.planned_at)
       .sort((a, b) => a.sequence_no - b.sequence_no)
     for (let index = 1; index < dated.length; index += 1) {
       if (new Date(dated[index - 1].planned_at) > new Date(dated[index].planned_at)) {
-        return `${translatorById(assignment.translator_id)?.translator_name || '译员'}：交稿节点时间必须按顺序递增`
+        return {
+          message: `${translatorById(assignment.translator_id)?.translator_name || '译员'}：交稿节点时间必须按顺序递增`,
+          label: '译员交稿_预定时间',
+          occurrence: assignmentIndex + 1,
+        }
       }
     }
   }
@@ -3569,9 +3619,12 @@ function buildDispatchPayload() {
 
 async function saveDraft(shouldConfirm) {
   if (!ensureCanManage()) return
-  const errorMessage = validateDispatchForm()
-  if (errorMessage) {
-    ElMessage.warning(errorMessage)
+  const validationError = validateDispatchForm()
+  if (validationError) {
+    ElMessage.warning(validationError.message)
+    if (validationError.label) {
+      await locateDispatchFieldByLabel(validationError.label, validationError.occurrence)
+    }
     return
   }
   saving.value = true

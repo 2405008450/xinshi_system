@@ -1691,7 +1691,7 @@ def ensure_project_order_no_schema() -> None:
         conn.execute(text("""
             ALTER TABLE project_operation_audit
             ADD CONSTRAINT ck_project_operation_audit_operation
-            CHECK (operation_type IN ('create','delete','order_no_change'))
+            CHECK (operation_type IN ('create','delete','order_no_change','progress_delete'))
         """))
 
 

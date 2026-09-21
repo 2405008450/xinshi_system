@@ -58,6 +58,10 @@ export const getStatusHistory = (projectId) => get(`/annotation-ops/projects/${p
 export const getRecentStatusHistory = (params = {}, config = {}) => get('/annotation-ops/status-history/recent', params, config)
 export const searchStatusHistory = (params, config = {}) => get('/annotation-ops/status-history/search', params, config)
 export const updateStatusHistoryProgress = (id, data) => patch(`/annotation-ops/status-history/${id}/progress`, data)
+export const deleteStatusHistoryProgress = (id, data) => api.delete(
+  `/annotation-ops/status-history/${id}/progress`,
+  { data: convert(data, snake) }
+).then((res) => convert(res, camel))
 export const getProjectArrangementContext = (projectIds, config = {}) => api.get(
   '/annotation-ops/project-arrangements/context',
   { ...config, params: { project_id: projectIds }, paramsSerializer: { indexes: null } }

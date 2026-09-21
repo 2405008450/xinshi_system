@@ -30,7 +30,7 @@ from annotation_ops_schemas import (
     AssigneeRateResponse, AssigneeRateWrite, CredentialBatchRevealItem, CredentialBatchRevealRequest,
     CredentialRevealRequest, CredentialRevealResponse,
     CustomFieldImageResponse, CustomFieldResponse, CustomFieldWrite, PlatformResponse, PlatformWrite,
-    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
+    ReleaseAllResponse, StatusHistoryResponse, StatusHistorySearchItemResponse, StatusHistoryProgressDelete, StatusHistoryProgressUpdate, TrialResponse, TrialWrite,
     ArrangementAssigneeResponse, ArrangementBatchWrite, ArrangementContextResponse,
     ArrangementDailyNoteResponse, ArrangementDailyNoteWrite,
     ArrangementMembershipResponse, ArrangementMembershipWrite,
@@ -49,7 +49,7 @@ from annotation_ops_service import (
     search_status_history,
     create_arrangement_task_type, get_arrangement_context, get_arrangement_overview,
     get_arrangement_workloads, save_arrangement_batch, set_arrangement_membership,
-    set_arrangement_task_type_state, update_arrangement_task_type, update_progress_history,
+    set_arrangement_task_type_state, update_arrangement_task_type, delete_progress_history, update_progress_history,
     reveal_credential, reveal_credentials_batch, save_account, save_annotation_workflow, save_assignee_rate, save_platform, save_trial,
 )
 from database import get_db
@@ -382,6 +382,22 @@ def edit_progress_history(
     user: AppUser = Depends(get_current_user),
 ):
     rows = _run(db, lambda: update_progress_history(db, history_id, payload, user.id))
+    if rows is None:
+        raise HTTPException(404, "项目进度记录不存在")
+    return rows
+
+
+@project_router.delete(
+    "/status-history/{history_id}/progress", response_model=List[StatusHistoryResponse],
+    dependencies=[Depends(require_any_permission("projects:write"))],
+)
+def remove_progress_history(
+    history_id: UUID,
+    payload: StatusHistoryProgressDelete,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    rows = _run(db, lambda: delete_progress_history(db, history_id, payload, user.id))
     if rows is None:
         raise HTTPException(404, "项目进度记录不存在")
     return rows

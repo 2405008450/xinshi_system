@@ -4,7 +4,7 @@
       <div class="page-header">
         <div>
           <h2>项目操作审计</h2>
-          <p>永久保留四类项目的新增、删除和订单号修改记录，用于追溯订单号及操作人。</p>
+          <p>永久保留四类项目的关键操作记录，用于追溯项目数据、操作人及操作原因。</p>
         </div>
       </div>
     </template>
@@ -25,6 +25,7 @@
         <el-option label="新增" value="create" />
         <el-option label="删除" value="delete" />
         <el-option label="修改订单号" value="order_no_change" />
+        <el-option label="删除具体进度" value="progress_delete" />
       </el-select>
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
@@ -103,6 +104,7 @@
                 <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="原订单号">{{ row.previous_order_no || '-' }}</el-descriptions-item>
                 <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="新订单号">{{ row.order_no }}</el-descriptions-item>
                 <el-descriptions-item v-if="row.operation_type === 'order_no_change'" label="修改原因" :span="2">{{ row.change_reason || '-' }}</el-descriptions-item>
+                <el-descriptions-item v-if="row.operation_type === 'progress_delete'" label="删除原因" :span="2">{{ row.change_reason || '-' }}</el-descriptions-item>
               </el-descriptions>
               <h4>项目数据快照</h4>
               <el-descriptions :column="2" border size="small">
@@ -152,12 +154,14 @@ const sourceLabels = {
   consultation_confirmation: '咨询确认建项',
   legacy_import: '历史导入',
   project_order_no_change: '订单号修改',
+  progress_record_delete: '项目进度记录',
 }
 const fieldLabels = {
   id: '项目 ID', order_no: '订单号', project_name: '项目名称', project_status: '项目状态',
   consultation_id: '咨询 ID', client_id: '客户 ID', sub_client_id: '子客户 ID',
   customer_order_no: '客户单号', email_subject_preview: '邮件主题预览', created_by: '创建人 ID',
   created_at: '创建时间', updated_at: '更新时间', remarks: '备注', task_type: '任务类型',
+  deleted_progress_record: '被删具体进度',
 }
 
 const loading = ref(false)
@@ -171,8 +175,8 @@ let requestController
 let requestSequence = 0
 
 const projectTypeLabel = value => projectTypeOptions.find(item => item.value === value)?.label || value || '-'
-const operationLabel = value => ({create:'新增',delete:'删除',order_no_change:'修改订单号'}[value] || value || '-')
-const operationTagType = value => ({create:'success',delete:'danger',order_no_change:'warning'}[value] || 'info')
+const operationLabel = value => ({create:'新增',delete:'删除',order_no_change:'修改订单号',progress_delete:'删除具体进度'}[value] || value || '-')
+const operationTagType = value => ({create:'success',delete:'danger',order_no_change:'warning',progress_delete:'danger'}[value] || 'info')
 const sourceLabel = value => sourceLabels[value] || value || '-'
 const actorLabel = row => row.actor_name_snapshot || row.actor_username_snapshot || '未知用户'
 const indexMethod = index => (pagination.page - 1) * pagination.pageSize + index + 1

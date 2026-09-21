@@ -1518,6 +1518,19 @@ class ProjectChatFavoriteResponse(BaseModel):
     favorited_at: Optional[datetime] = None
 
 
+class ProjectChatAcknowledgementItemResponse(BaseModel):
+    user_id: UUID
+    user_name: str
+    acknowledged_at: Optional[datetime] = None
+
+
+class ProjectChatAcknowledgementResponse(BaseModel):
+    message_id: UUID
+    is_acknowledged: bool
+    acknowledgement_count: int = 0
+    acknowledgements: list[ProjectChatAcknowledgementItemResponse] = Field(default_factory=list)
+
+
 class ProjectChatMessageResponse(BaseModel):
     id: UUID
     project_id: UUID
@@ -1535,6 +1548,9 @@ class ProjectChatMessageResponse(BaseModel):
     mentions: list[ProjectChatMentionResponse] = Field(default_factory=list)
     is_favorited: bool = False
     favorited_at: Optional[datetime] = None
+    acknowledgements: list[ProjectChatAcknowledgementItemResponse] = Field(default_factory=list)
+    acknowledgement_count: int = 0
+    is_acknowledged: bool = False
     attachments: list[ProjectChatAttachmentResponse] = Field(default_factory=list)
 
 
