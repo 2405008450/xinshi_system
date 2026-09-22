@@ -253,6 +253,11 @@
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
+// 手动导入及 h() 渲染的组件不会自动补齐样式，必须显式声明依赖。
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/popover/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
 import { CircleClose, Plus } from '@element-plus/icons-vue'
 import * as api from '@/api/resourceRequests'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
