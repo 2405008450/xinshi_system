@@ -1510,14 +1510,16 @@ const translationFilterFields = [
   { key: 'serviceContent', label: '服务内容', type: 'select', options: serviceContentOptions },
   { key: 'taskType', label: '任务类型', type: 'select', options: taskTypeOptions },
   { key: 'clientShortName', label: '母客户简称', type: 'text' },
+  { key: 'clientName', label: '母客户全称', type: 'text' },
   { key: 'subClientShortName', label: '子客户简称', type: 'text' },
+  { key: 'subClientName', label: '子客户全称', type: 'text' },
   { key: 'clientCode', label: '母客户编号', type: 'text' },
   { key: 'subClientCode', label: '子客户编号', type: 'text' },
   { key: 'customerOrderNo', label: '客户单号', type: 'text' },
   { key: 'projectManagerId', label: '项目经理', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
-  { key: 'projectSpecialistName', label: '项目专员', type: 'text' },
-  { key: 'projectAssistantName', label: '项目助理', type: 'text' },
-  { key: 'layoutSpecialistName', label: '排版专员', type: 'text' },
+  { key: 'projectSpecialistId', apiKey: 'project_specialist_id', label: '项目专员', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
+  { key: 'projectAssistantId', apiKey: 'project_assistant_id', label: '项目助理', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
+  { key: 'layoutSpecialistId', apiKey: 'layout_specialist_id', label: '排版专员', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
   { key: 'clientManager', label: '母客户经理', type: 'text' },
   { key: 'managerContact', label: '母客户经理联系方式', type: 'text' },
   { key: 'projectStatus', label: '状态', type: 'select', options: projectStatusOptions },
@@ -1558,10 +1560,13 @@ const translationFilterFields = [
 Object.assign(searchForm, createFilterModel(translationFilterFields), { keyword: '' })
 const translationAdvancedFilterFields = translationFilterFields.filter((item) => item.key !== 'projectStatus')
 const advancedFilterCount = computed(() => countActiveFilters(searchForm, translationAdvancedFilterFields))
-const translationDefaultFilterKeys = new Set(['orderNo', 'projectName', 'clientShortName', 'projectManagerName', 'assignedTranslators', 'projectStatus', 'languagePair', 'wordCountMatrix', 'customerDeadlineTime', 'translatorReturnTime'])
-const translationHeaderFieldMap = { projectManagerName: 'projectManagerId' }
+const translationHeaderFieldMap = {
+  projectManagerName: 'projectManagerId',
+  projectSpecialistName: 'projectSpecialistId',
+  projectAssistantName: 'projectAssistantId',
+  layoutSpecialistName: 'layoutSpecialistId',
+}
 const headerFilterDefinition = (columnKey) => {
-  if (!translationDefaultFilterKeys.has(columnKey)) return null
   const fieldKey = translationHeaderFieldMap[columnKey] || columnKey
   return translationFilterFields.find((item) => item.key === fieldKey) || null
 }

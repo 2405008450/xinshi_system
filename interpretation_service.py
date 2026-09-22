@@ -384,6 +384,14 @@ def _apply_filters(
             query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
         elif field == "locations":
             query = query.filter(cast(InterpretationProject.locations, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+        elif field == "translator_codes":
+            keyword = str(descriptor.get("value") or "").strip()
+            if keyword:
+                query = query.filter(InterpretationProject.interpreter_assignments.any(
+                    InterpretationProjectInterpreter.translator.has(
+                        Translator.translator_code.ilike(f"%{keyword}%")
+                    )
+                ))
         elif field in {"scheduled_date", "language_id", "translator_id"}:
             if field == "scheduled_date":
                 start, end = descriptor.get("from"), descriptor.get("to")

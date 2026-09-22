@@ -49,7 +49,10 @@ def request_headers(authorization, forwarded):
 def check_response(response, expected):
     if response.status_code == expected:
         return
-    details = {401: '登录凭证无效或已过期', 403: '没有访问图片的权限',
+    # 本机已经校验用户登录；上游 401 表示服务间认证失败，不能让前端据此清除本机登录。
+    if response.status_code == 401:
+        raise HTTPException(502, '云端图片服务认证失败，请联系管理员检查两端登录配置')
+    details = {403: '没有访问图片的权限',
                404: '图片不存在或文件缺失', 413: '单张图片不能超过 10MB',
                415: '仅支持 JPEG、PNG、GIF、WebP 图片', 400: '图片请求无效'}
     raise HTTPException(response.status_code if response.status_code in details else 503,

@@ -111,6 +111,8 @@ class ResourcePerson(Base):
     birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
     birth_year_month: Mapped[Optional[str]] = mapped_column(String(7))
     native_place: Mapped[Optional[str]] = mapped_column(String(255))
+    registration_source: Mapped[Optional[str]] = mapped_column(String(255))
+    wechat_account: Mapped[Optional[str]] = mapped_column(String(100))
     residence_address: Mapped[Optional[str]] = mapped_column(String(500))
     dialects: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")

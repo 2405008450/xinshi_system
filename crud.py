@@ -1877,14 +1877,16 @@ def _apply_translation_project_filters(
 
     for field, descriptor in field_filters.items():
         if field in {
-            "client_short_name", "client_code", "client_manager", "manager_contact",
-            "sub_client_short_name", "sub_client_code",
+            "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
+            "sub_client_name", "sub_client_short_name", "sub_client_code",
         }:
             column = {
+                "client_name": Client.client_name,
                 "client_short_name": Client.client_short_name,
                 "client_code": Client.client_code,
                 "client_manager": Client.client_manager,
                 "manager_contact": Client.manager_contact,
+                "sub_client_name": SubClient.client_name,
                 "sub_client_short_name": SubClient.client_short_name,
                 "sub_client_code": SubClient.sub_client_code,
             }[field]
@@ -1942,6 +1944,18 @@ def _apply_translation_project_filters(
                     AppUser.full_name.ilike(f"%{keyword}%"), AppUser.username.ilike(f"%{keyword}%")
                 )),
             )))
+        elif field in {"project_specialist_id", "project_assistant_id", "layout_specialist_id"}:
+            role_code = {
+                "project_specialist_id": "project_specialist",
+                "project_assistant_id": "project_assistant",
+                "layout_specialist_id": "layout_specialist",
+            }[field]
+            assignee_ids = [UUID(str(value)) for value in descriptor.get("value") or []]
+            if assignee_ids:
+                query = query.filter(TranslationProject.project_role_assignments.any(and_(
+                    ProjectRoleAssignment.role_code == role_code,
+                    ProjectRoleAssignment.assignee_id.in_(assignee_ids),
+                )))
         elif field.startswith("project_file_"):
             file_column = {
                 "project_file_translation_domain_level1": ProjectFile.translation_domain_level1,
@@ -3032,6 +3046,7 @@ def _apply_consultation_filters(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ):
     if keyword and keyword.strip():
         keyword_pattern = f"%{keyword.strip()}%"
@@ -3081,6 +3096,56 @@ def _apply_consultation_filters(
         query = query.filter(Consultation.follow_up_person_id == follow_up_person_id)
     if follow_up_status and follow_up_status.strip():
         query = query.filter(Consultation.follow_up_status.ilike(f"%{follow_up_status.strip()}%"))
+    field_filters = field_filters or {}
+    query = apply_scalar_specs(query, field_filters, {
+        "consultation_code": (Consultation.consultation_code, "string"),
+        "status": (Consultation.status, "string"),
+        "consultation_time": (Consultation.consultation_time, "datetime"),
+        "client_source": (Consultation.client_source, "string"),
+        "source_keyword": (Consultation.source_keyword, "string"),
+        "handling_method": (Consultation.handling_method, "string"),
+        "customer_service_id": (Consultation.customer_service_id, "uuid"),
+        "sales_person_id": (Consultation.sales_person_id, "uuid"),
+        "editor_id": (Consultation.editor_id, "uuid"),
+        "follow_up_person_id": (Consultation.follow_up_person_id, "uuid"),
+        "follow_up_count": (Consultation.follow_up_count, "integer"),
+        "follow_up_time": (Consultation.follow_up_time, "datetime"),
+        "follow_up_status": (Consultation.follow_up_status, "string"),
+        "consultation_description": (Consultation.consultation_description, "string"),
+        "follow_up_remarks": (Consultation.follow_up_remarks, "string"),
+        "remarks": (Consultation.remarks, "string"),
+        "created_at": (Consultation.created_at, "datetime"),
+        "updated_at": (Consultation.updated_at, "datetime"),
+    })
+    for field, descriptor in field_filters.items():
+        if field in {"client_code", "client_name", "client_short_name"}:
+            column = {
+                "client_code": Client.client_code,
+                "client_name": Client.client_name,
+                "client_short_name": Client.client_short_name,
+            }[field]
+            keyword_value = str(descriptor.get("value") or "").strip()
+            if keyword_value:
+                query = query.filter(column.ilike(f"%{keyword_value}%"))
+        elif field == "consultation_type":
+            values = []
+            for value in descriptor.get("value") or []:
+                values.extend(CONSULTATION_TYPE_FILTER_ALIASES.get(str(value), (str(value),)))
+            if values:
+                query = query.filter(Consultation.consultation_type.in_(set(values)))
+        elif field == "consultation_method":
+            values = [str(value) for value in descriptor.get("value") or []]
+            if values:
+                regular_values = [value for value in values if value != "other"]
+                conditions = []
+                if regular_values:
+                    conditions.append(Consultation.consultation_method.in_(regular_values))
+                if "other" in values:
+                    conditions.append(or_(
+                        Consultation.consultation_method.notin_(["phone", "email", "online", "onsite"]),
+                        Consultation.consultation_method.is_(None),
+                    ))
+                query = query.filter(or_(*conditions))
     return query
 
 
@@ -3101,6 +3166,7 @@ def get_consultations(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ) -> List[Consultation]:
     query = db.query(
         Consultation,
@@ -3127,6 +3193,7 @@ def get_consultations(
         sales_person_id=sales_person_id,
         follow_up_person_id=follow_up_person_id,
         follow_up_status=follow_up_status,
+        field_filters=field_filters,
     )
 
     results = (
@@ -3158,6 +3225,7 @@ def count_consultations(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ) -> int:
     query = db.query(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id).outerjoin(
         SubClient, Consultation.sub_client_id == SubClient.id
@@ -3177,6 +3245,7 @@ def count_consultations(
         sales_person_id=sales_person_id,
         follow_up_person_id=follow_up_person_id,
         follow_up_status=follow_up_status,
+        field_filters=field_filters,
     )
     return query.count()
 

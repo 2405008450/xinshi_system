@@ -931,6 +931,7 @@ const interpretationFilterFields = [
   { key: 'interpreterAppearanceRequirement', label: '形象要求', type: 'text' },
   { key: 'interpreterDressRequirement', label: '着装要求', type: 'text' },
   { key: 'assignedInterpretersDisplay', apiKey: 'translator_id', label: '译员安排', type: 'select', options: () => translators.value.map((item) => ({ label: translatorOptionLabel(item), value: item.id })) },
+  { key: 'translatorCodes', label: '译员编号', type: 'text' },
   { key: 'clientRating', label: '客户评分', type: 'select', options: ratingOptions },
   { key: 'clientRatingNote', label: '评分说明', type: 'text' },
   { key: 'remarks', label: '备注', type: 'text' },
@@ -940,9 +941,13 @@ const interpretationFilterFields = [
 Object.assign(searchForm, createFilterModel(interpretationFilterFields), { keyword: '' })
 const interpretationAdvancedFilterFields = interpretationFilterFields.filter((item) => item.key !== 'projectStatus')
 const advancedCount = computed(() => countActiveFilters(searchForm, interpretationAdvancedFilterFields))
+const interpretationHeaderFieldMap = {
+  timeRanges: 'scheduledDateRange',
+  subClientContact: 'contactName',
+}
 const headerFilterDefinition = (key) => {
-  if (!defaultColumns.includes(key)) return null
-  return interpretationFilterFields.find((item) => item.key === key) || null
+  const fieldKey = interpretationHeaderFieldMap[key] || key
+  return interpretationFilterFields.find((item) => item.key === fieldKey) || null
 }
 
 const MAX_LOCATIONS = 4

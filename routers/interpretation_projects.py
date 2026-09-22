@@ -76,7 +76,7 @@ INTERPRETATION_FILTER_FIELDS = {
     "interpretation_domain", "interpretation_content", "required_interpreter_count",
     "required_interpreter_gender", "required_interpretation_level", "interpreter_special_requirements",
     "interpreter_height_requirement", "interpreter_appearance_requirement", "interpreter_dress_requirement",
-    "translator_id", "client_rating", "client_rating_note", "remarks", "created_at", "updated_at",
+    "translator_id", "translator_codes", "client_rating", "client_rating_note", "remarks", "created_at", "updated_at",
 }
 
 

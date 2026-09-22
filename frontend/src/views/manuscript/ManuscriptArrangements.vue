@@ -71,14 +71,18 @@
             @row-dblclick="selectProject"
           >
             <el-table-column type="index" label="序号" width="52" align="center" />
-            <el-table-column prop="order_no" label="订单号" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="order_no" label="订单号" min-width="130" show-overflow-tooltip>
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('orderNo')" :model-value="projectFilterModel.orderNo" @update:model-value="updateProjectFilter('orderNo', $event)" @text-input="onProjectKeywordInput" @change="loadContext" @enter="loadContext" @clear="loadContext" /></template>
+            </el-table-column>
             <el-table-column label="项目" min-width="180" show-overflow-tooltip>
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('projectSummary')" :model-value="projectFilterModel.projectSummary" @update:model-value="updateProjectFilter('projectSummary', $event)" @text-input="onProjectKeywordInput" @change="loadContext" @enter="loadContext" @clear="loadContext" /></template>
               <template #default="{ row }">
                 <div class="strong-text">{{ row.sub_project_name || row.project_name }}</div>
                 <small>{{ row.client_short_name || '未填写客户' }}</small>
               </template>
             </el-table-column>
             <el-table-column label="项目助理" width="116">
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('projectAssistantId')" :model-value="projectFilterModel.projectAssistantId" @update:model-value="updateProjectFilter('projectAssistantId', $event)" @change="loadContext" @clear="loadContext" /></template>
               <template #default="{ row }">
                 <el-tooltip :content="row.manuscript_access_reason || '项目助理责任信息'" placement="top">
                   <div class="project-assistant-cell">
@@ -96,7 +100,9 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip />
+            <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip>
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('languagePair')" :model-value="projectFilterModel.languagePair" @update:model-value="updateProjectFilter('languagePair', $event)" @text-input="onProjectKeywordInput" @change="loadContext" @enter="loadContext" @clear="loadContext" /></template>
+            </el-table-column>
             <el-table-column label="字数统计" width="126" min-width="116" header-align="left">
               <template #default="{ row }">
                 <div class="legacy-word-count-summary legacy-word-count-summary--compact">
@@ -129,6 +135,7 @@
               </template>
             </el-table-column>
             <el-table-column label="客户交稿时间" width="138" min-width="128">
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('customerDeadlineTime')" :model-value="projectFilterModel.customerDeadlineTime" @update:model-value="updateProjectFilter('customerDeadlineTime', $event)" @change="loadContext" @clear="loadContext" /></template>
               <template #default="{ row }">
                 <span
                   class="compact-deadline"
@@ -140,6 +147,7 @@
               </template>
             </el-table-column>
             <el-table-column label="状态" min-width="80">
+              <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('projectStatus')" :model-value="projectFilterModel.projectStatus" @update:model-value="updateProjectFilter('projectStatus', $event)" @change="loadContext" @clear="loadContext" /></template>
               <template #default="{ row }">
                 <el-tag :type="projectStatusType(row.project_status)" size="small">
                   {{ projectStatusLabel(row.project_status) }}
@@ -205,22 +213,34 @@
                 label="编号"
                 width="100"
                 show-overflow-tooltip
-              />
-              <el-table-column prop="translator_name" label="译员" width="100" show-overflow-tooltip />
+              >
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('translatorCode')" :model-value="translatorFilterModel.translatorCode" @update:model-value="updateTranslatorFilter('translatorCode', $event)" /></template>
+              </el-table-column>
+              <el-table-column prop="translator_name" label="译员" width="100" show-overflow-tooltip>
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('translatorName')" :model-value="translatorFilterModel.translatorName" @update:model-value="updateTranslatorFilter('translatorName', $event)" /></template>
+              </el-table-column>
               <el-table-column label="合作形式" width="92">
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('cooperationType')" :model-value="translatorFilterModel.cooperationType" @update:model-value="updateTranslatorFilter('cooperationType', $event)" /></template>
                 <template #default="{ row }">{{ cooperationLabel(row) }}</template>
               </el-table-column>
               <el-table-column label="可用时间" width="130" show-overflow-tooltip>
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('availableTimeSlot')" :model-value="translatorFilterModel.availableTimeSlot" @update:model-value="updateTranslatorFilter('availableTimeSlot', $event)" /></template>
                 <template #default="{ row }">{{ row.available_time_slot || '-' }}</template>
               </el-table-column>
               <el-table-column label="语种 / 能力" min-width="165" show-overflow-tooltip>
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('languageCapability')" :model-value="translatorFilterModel.languageCapability" @update:model-value="updateTranslatorFilter('languageCapability', $event)" /></template>
                 <template #default="{ row }">
                   <div>{{ row.languages || row.direction || '-' }}</div>
                   <small>{{ formatDomains(row.domain_skills) }}</small>
                 </template>
               </el-table-column>
               <el-table-column label="备注" min-width="140" show-overflow-tooltip>
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('remarks')" :model-value="translatorFilterModel.remarks" @update:model-value="updateTranslatorFilter('remarks', $event)" /></template>
                 <template #default="{ row }">{{ row.remarks || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="82">
+                <template #header><ConfiguredColumnHeaderFilter :definition="translatorHeaderFilter('status')" :model-value="translatorFilterModel.status" @update:model-value="updateTranslatorFilter('status', $event)" /></template>
+                <template #default="{ row }"><el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">{{ row.status === 'active' ? '活跃' : '备用' }}</el-tag></template>
               </el-table-column>
             </el-table>
           </div>
@@ -1079,6 +1099,7 @@
           </template>
         </el-table-column>
         <el-table-column label="订单号" width="145" show-overflow-tooltip>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('orderNo')" :model-value="dispatchFilterModel.orderNo" @update:model-value="updateDispatchFilter('orderNo', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
           <template #default="{ row }">
             <div class="dispatch-order-cell">
               <TableExpandButton
@@ -1093,15 +1114,23 @@
           </template>
         </el-table-column>
         <el-table-column label="批次状态" width="88">
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('status')" :model-value="dispatchFilterModel.status" @update:model-value="updateDispatchFilter('status', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
           <template #default="{ row }">
             <el-tag :type="dispatchStatusMeta(row.status).type" size="small">
               {{ dispatchStatusMeta(row.status).label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="project_name_snapshot" label="项目" min-width="230" show-overflow-tooltip />
+        <el-table-column prop="project_name_snapshot" label="项目" min-width="230" show-overflow-tooltip>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('projectName')" :model-value="dispatchFilterModel.projectName" @update:model-value="updateDispatchFilter('projectName', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
+        </el-table-column>
         <el-table-column label="译员" width="105" show-overflow-tooltip>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('translatorName')" :model-value="dispatchFilterModel.translatorName" @update:model-value="updateDispatchFilter('translatorName', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
           <template #default="{ row }">{{ translatorSummary(row) }}</template>
+        </el-table-column>
+        <el-table-column label="邮件投递" width="110" show-overflow-tooltip>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('deliveryStatus')" :model-value="dispatchFilterModel.deliveryStatus" @update:model-value="updateDispatchFilter('deliveryStatus', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #default="{ row }">{{ dispatchDeliverySummary(row) }}</template>
         </el-table-column>
         <el-table-column label="人数" width="55" align="center">
           <template #default="{ row }">{{ activeAssignments(row).length }}</template>
@@ -1122,6 +1151,7 @@
           </template>
         </el-table-column>
         <el-table-column label="任务完成情况" width="240">
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('completionStatus')" :model-value="dispatchFilterModel.completionStatus" @update:model-value="updateDispatchFilter('completionStatus', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
           <template #default="{ row }">
             <div class="dispatch-completion-cell">
               <div
@@ -1157,8 +1187,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="created_by_name" label="实际安排人" width="100" show-overflow-tooltip />
+        <el-table-column prop="created_by_name" label="实际安排人" width="100" show-overflow-tooltip>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdBy')" :model-value="dispatchFilterModel.createdBy" @update:model-value="updateDispatchFilter('createdBy', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+        </el-table-column>
         <el-table-column label="创建时间" width="140">
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdAt')" :model-value="dispatchFilterModel.createdAt" @update:model-value="updateDispatchFilter('createdAt', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
         <el-table-column v-if="canWrite" label="操作" width="200" fixed="right">
@@ -1924,6 +1957,7 @@ import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.v
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import ManuscriptFileSelector from './components/ManuscriptFileSelector.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -1936,6 +1970,7 @@ import {
   normalizeWordCountValues,
   sumWordCountValues
 } from '@/utils/wordCountMatrix'
+import { createFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const route = useRoute()
 const loading = ref(false)
@@ -1979,6 +2014,46 @@ const workspaceTranslatorTableRef = ref(null)
 const workspaceSelectedTranslators = ref([])
 const translatorKeyword = ref('')
 const translatorTab = ref('all')
+const projectAssistantOptionMap = ref(new Map())
+const dispatchCreatorOptionMap = ref(new Map())
+const projectAssistantOptions = computed(() => [...projectAssistantOptionMap.value.values()])
+const dispatchCreatorOptions = computed(() => [...dispatchCreatorOptionMap.value.values()])
+const projectFilterFields = [
+  { key: 'orderNo', apiKey: 'order_no', label: '订单号', type: 'text' },
+  { key: 'projectSummary', apiKey: 'project_summary', label: '项目/客户', type: 'text' },
+  { key: 'projectAssistantId', apiKey: 'project_assistant_id', label: '项目助理', type: 'select', options: () => projectAssistantOptions.value },
+  { key: 'languagePair', apiKey: 'language_pair', label: '语种', type: 'text' },
+  { key: 'customerDeadlineTime', apiKey: 'customer_deadline_time', label: '客户交稿时间', type: 'date-range', wide: true },
+  { key: 'projectStatus', apiKey: 'project_status', label: '项目状态', type: 'select', options: () => Object.entries(PROJECT_STATUS_LABELS).map(([value, label]) => ({ value, label })) },
+]
+const projectFilterModel = reactive(createFilterModel(projectFilterFields))
+const projectHeaderFilter = (key) => projectFilterFields.find((item) => item.key === key)
+const translatorFilterFields = [
+  { key: 'translatorCode', label: '编号', type: 'text' },
+  { key: 'translatorName', label: '译员', type: 'text' },
+  { key: 'cooperationType', label: '合作形式', type: 'select', options: ['全职', '兼职', '自由职业', '外包'] },
+  { key: 'availableTimeSlot', label: '可用时间', type: 'text' },
+  { key: 'languageCapability', label: '语种/能力', type: 'text' },
+  { key: 'status', label: '状态', type: 'select', options: [{ value: 'active', label: '活跃' }, { value: 'standby', label: '备用' }, { value: 'inactive', label: '停用' }] },
+  { key: 'remarks', label: '备注', type: 'text' },
+]
+const translatorFilterModel = reactive(createFilterModel(translatorFilterFields))
+const translatorHeaderFilter = (key) => translatorFilterFields.find((item) => item.key === key)
+const dispatchFilterFields = [
+  { key: 'orderNo', apiKey: 'order_no', label: '订单号', type: 'text' },
+  { key: 'status', label: '批次状态', type: 'select', options: [{ value: 'draft', label: '草稿' }, { value: 'ready', label: '已确认' }, { value: 'partially_sent', label: '部分发送' }, { value: 'sent', label: '已发送' }, { value: 'cancelled', label: '已取消' }] },
+  { key: 'projectName', apiKey: 'project_name', label: '项目', type: 'text' },
+  { key: 'translatorName', apiKey: 'translator_name', label: '译员', type: 'text' },
+  { key: 'deliveryStatus', apiKey: 'delivery_status', label: '邮件投递', type: 'select', options: [{ value: 'draft', label: '草稿' }, { value: 'ready', label: '待发送' }, { value: 'sent', label: '已发送' }, { value: 'failed', label: '发送失败' }, { value: 'cancelled', label: '已取消' }] },
+  { key: 'completionStatus', apiKey: 'completion_status', label: '任务完成情况', type: 'select', options: [{ value: 'completed', label: '已填写' }, { value: 'pending', label: '未填写' }] },
+  { key: 'createdBy', apiKey: 'created_by', label: '实际安排人', type: 'select', options: () => dispatchCreatorOptions.value },
+  { key: 'createdAt', apiKey: 'created_at', label: '创建时间', type: 'date-range', wide: true },
+]
+const dispatchFilterModel = reactive(createFilterModel(dispatchFilterFields))
+const dispatchHeaderFilter = (key) => dispatchFilterFields.find((item) => item.key === key)
+const updateProjectFilter = (key, value) => { projectFilterModel[key] = value }
+const updateTranslatorFilter = (key, value) => { translatorFilterModel[key] = value }
+const updateDispatchFilter = (key, value) => { dispatchFilterModel[key] = value }
 const showTranslatorCode = ref(false)
 const quickTranslatorDialogVisible = ref(false)
 const quickTranslatorSaving = ref(false)
@@ -2640,14 +2715,25 @@ const filteredTranslators = computed(() => {
     if (translatorTab.value !== 'all' && cooperationGroup(row) !== translatorTab.value) {
       return false
     }
-    if (!keyword) return true
-    return [
+    if (keyword && ![
       row.translator_name,
       row.translator_code,
       row.languages,
       row.direction,
       row.translation_type
-    ].some((value) => String(value || '').toLowerCase().includes(keyword))
+    ].some((value) => String(value || '').toLowerCase().includes(keyword))) return false
+    const textMatches = (key, values) => {
+      const filterValue = String(translatorFilterModel[key] || '').trim().toLowerCase()
+      return !filterValue || values.some((value) => String(value || '').toLowerCase().includes(filterValue))
+    }
+    if (!textMatches('translatorCode', [row.translator_code])) return false
+    if (!textMatches('translatorName', [row.translator_name])) return false
+    if (!textMatches('availableTimeSlot', [row.available_time_slot])) return false
+    if (!textMatches('languageCapability', [row.languages, row.direction, row.translation_type, formatDomains(row.domain_skills)])) return false
+    if (!textMatches('remarks', [row.remarks, row.schedule_remarks])) return false
+    if (translatorFilterModel.cooperationType.length && !translatorFilterModel.cooperationType.includes(cooperationGroup(row))) return false
+    if (translatorFilterModel.status.length && !translatorFilterModel.status.includes(String(row.status || 'standby'))) return false
+    return true
   })
 })
 
@@ -3322,6 +3408,11 @@ function toggleDispatchExpansion(row) {
 function translatorSummary(dispatch) {
   const names = activeAssignments(dispatch).map((item) => item.translator_name_snapshot)
   return names.length ? names.join('、') : '-'
+}
+
+function dispatchDeliverySummary(dispatch) {
+  const labels = [...new Set(activeAssignments(dispatch).map((item) => assignmentStatusMeta(item.status, item).label))]
+  return labels.length ? labels.join('、') : '-'
 }
 
 function pricingMethodSummary(dispatch) {
@@ -4103,6 +4194,7 @@ async function loadContext() {
   try {
     const response = await getManuscriptContext({
       keyword: projectKeyword.value.trim() || undefined,
+      project_field_filters: serializeFieldFilters(projectFilterModel, projectFilterFields),
       project_limit: 100
     }, { signal: contextController.signal })
     if (requestId !== contextRequestId) return
@@ -4110,6 +4202,11 @@ async function loadContext() {
       ? response.active_projects.items.filter(canShowInManuscriptArrangements)
       : []
     translators.value = Array.isArray(response?.translators) ? response.translators : []
+    const assistantOptions = new Map(projectAssistantOptionMap.value)
+    for (const item of activeProjects.value) {
+      if (item.project_assistant_id) assistantOptions.set(item.project_assistant_id, { value: item.project_assistant_id, label: item.project_assistant_name || '未命名用户' })
+    }
+    projectAssistantOptionMap.value = assistantOptions
     if (selectedProject.value) {
       const selectedIdentity = projectIdentity(selectedProject.value)
       selectedProject.value = activeProjects.value.find(
@@ -4132,10 +4229,16 @@ async function loadDispatches() {
   try {
     const response = await getManuscriptDispatches({
       limit: 500,
-      keyword: dispatchKeyword.value.trim() || undefined
+      keyword: dispatchKeyword.value.trim() || undefined,
+      field_filters: serializeFieldFilters(dispatchFilterModel, dispatchFilterFields),
     }, { signal: dispatchController.signal })
     if (requestId !== dispatchRequestId) return
     dispatches.value = Array.isArray(response) ? response : []
+    const creatorOptions = new Map(dispatchCreatorOptionMap.value)
+    for (const item of dispatches.value) {
+      if (item.created_by) creatorOptions.set(item.created_by, { value: item.created_by, label: item.created_by_name || '未命名用户' })
+    }
+    dispatchCreatorOptionMap.value = creatorOptions
     for (const dispatch of dispatches.value) {
       for (const assignment of dispatch.arrangements || []) {
         completionRemarkDrafts[assignment.id] = assignment.completion_remarks || ''

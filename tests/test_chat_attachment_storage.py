@@ -62,7 +62,7 @@ def test_upstream_failure_never_redirects_or_retries(monkeypatch, status):
     with pytest.raises(HTTPException) as error:
         asyncio.run(storage.upload_remote_attachment('https://cloud/api/project-chat/attachments',
                     b'png', 'test.png', 'image/png', 'Bearer test-token', None))
-    assert error.value.status_code == (status if status in {401, 403, 404, 413, 415} else 503)
+    assert error.value.status_code == (502 if status == 401 else status if status in {403, 404, 413, 415} else 503)
     assert len(requests) == 1
 
 
@@ -129,3 +129,18 @@ def test_upload_pause_prevents_forwarding(monkeypatch):
     monkeypatch.setenv('CHAT_UPLOADS_PAUSED', 'true')
     with pytest.raises(HTTPException, match='维护'):
         asyncio.run(project_chat.upload_attachment_endpoint(None, None, None, None))
+
+
+def test_remote_read_unauthorized_is_gateway_error_not_local_logout(monkeypatch):
+    mock_client(monkeypatch, lambda request: httpx.Response(401))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(storage.read_remote_attachment('https://cloud/api/project-chat/attachments',
+                                                  uuid4(), 'Bearer valid-local-token', None))
+    assert error.value.status_code == 502
+    assert '云端图片服务认证失败' in error.value.detail
+
+
+def test_missing_local_token_remains_unauthorized():
+    with pytest.raises(HTTPException) as error:
+        storage.request_headers(None, None)
+    assert error.value.status_code == 401

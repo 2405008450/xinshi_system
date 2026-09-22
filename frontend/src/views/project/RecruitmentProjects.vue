@@ -552,7 +552,7 @@ const recruitmentFilterFields=[
 Object.assign(searchForm,createFilterModel(recruitmentFilterFields),{keyword:''})
 const recruitmentAdvancedFilterFields=recruitmentFilterFields.filter((item)=>item.key!=='projectStatus')
 const advancedCount = computed(() => countActiveFilters(searchForm,recruitmentAdvancedFilterFields))
-const headerFilterDefinition=(key)=>defaultColumnKeys.includes(key)?recruitmentFilterFields.find((item)=>item.key===key)||null:null
+const headerFilterDefinition=(key)=>recruitmentFilterFields.find((item)=>item.key===key)||null
 let searchTimer = null; let controller = null; let sequence = 0
 const buildFilters = () => {
   return {

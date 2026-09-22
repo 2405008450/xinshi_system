@@ -91,7 +91,7 @@ TALENT_FILTER_FIELDS = {
     "resource_code", "full_name", "capability_types", "language_directions",
     "annotation_language_directions", "industries", "job_titles", "years_experience",
     "status", "cooperation_type", "annotation_willingness", "primary_phone", "primary_email", "gender", "age",
-    "native_place", "residence_address", "dialects", "dialect_regions", "nationality",
+    "native_place", "registration_source", "wechat_account", "residence_address", "dialects", "dialect_regions", "nationality",
     "employment_status", "highest_education", "language_skills", "certificate_received",
     "region_summary", "education_summary", "language_summary", "project_situation",
     "overall_score", "overall_rating", "audio_annotation_score",

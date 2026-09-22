@@ -961,6 +961,7 @@ def _get_active_manuscript_projects(
     limit: int,
     current_user: AppUser,
     keyword: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ) -> dict:
     """查询稿件安排页所需的进行中母订单和子订单。"""
     child_sub_order = aliased(TranslationSubOrder)
@@ -1063,6 +1064,58 @@ def _get_active_manuscript_projects(
                 AppUser.username.ilike(pattern),
             )
         )
+
+    field_filters = field_filters or {}
+    for field, descriptor in field_filters.items():
+        if field == "order_no":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                query = query.filter(effective_order_no.ilike(f"%{value}%"))
+        elif field == "project_summary":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                pattern = f"%{value}%"
+                query = query.filter(or_(
+                    TranslationProject.project_name.ilike(pattern),
+                    TranslationSubOrder.sub_project_name.ilike(pattern),
+                    Client.client_short_name.ilike(pattern),
+                ))
+        elif field == "project_assistant_id":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            if values:
+                query = query.filter(db.query(ProjectRoleAssignment.id).filter(
+                    ProjectRoleAssignment.translation_project_id == TranslationProject.id,
+                    ProjectRoleAssignment.role_code == "project_assistant",
+                    ProjectRoleAssignment.assignee_id.in_(values),
+                ).exists())
+        elif field == "language_pair":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                query = query.filter(func.coalesce(
+                    TranslationSubOrder.language_pair,
+                    TranslationProject.language_pair,
+                    "",
+                ).ilike(f"%{value}%"))
+        elif field == "customer_deadline_time":
+            start_value = descriptor.get("from")
+            end_value = descriptor.get("to")
+            if start_value:
+                query = query.filter(deadline >= datetime.datetime.combine(
+                    datetime.date.fromisoformat(str(start_value)), datetime.time.min,
+                ))
+            if end_value:
+                query = query.filter(deadline < datetime.datetime.combine(
+                    datetime.date.fromisoformat(str(end_value)) + datetime.timedelta(days=1),
+                    datetime.time.min,
+                ))
+        elif field == "project_status":
+            values = [str(value) for value in descriptor.get("value") or []]
+            if values:
+                query = query.filter(func.coalesce(
+                    TranslationSubOrder.status,
+                    TranslationProject.project_status,
+                    "",
+                ).in_(values))
 
     now = datetime.datetime.now()
     due_soon = now + datetime.timedelta(hours=24)
@@ -1202,12 +1255,14 @@ def get_arrangement_context(
     current_user: AppUser,
     keyword: Optional[str] = None,
     project_limit: int = 100,
+    project_field_filters: Optional[dict] = None,
 ) -> dict:
     active_projects = _get_active_manuscript_projects(
         db,
         limit=project_limit,
         current_user=current_user,
         keyword=keyword,
+        field_filters=project_field_filters,
     )
     project_ids = {
         item["translation_project_id"]
@@ -1381,6 +1436,7 @@ def list_dispatches(
     limit: int = 200,
     keyword: Optional[str] = None,
     status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
 ) -> list[ManuscriptDispatch]:
     query = (
         db.query(ManuscriptDispatch)
@@ -1427,6 +1483,56 @@ def list_dispatches(
                 ManuscriptDispatch.id.in_(matching_dispatch_ids),
             )
         )
+    field_filters = field_filters or {}
+    for field, descriptor in field_filters.items():
+        if field == "order_no":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                query = query.filter(ManuscriptDispatch.order_no_snapshot.ilike(f"%{value}%"))
+        elif field == "project_name":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                query = query.filter(ManuscriptDispatch.project_name_snapshot.ilike(f"%{value}%"))
+        elif field == "translator_name":
+            value = str(descriptor.get("value") or "").strip()
+            if value:
+                query = query.filter(ManuscriptDispatch.arrangements.any(
+                    ManuscriptArrangement.translator_name_snapshot.ilike(f"%{value}%")
+                ))
+        elif field == "status":
+            values = [str(value) for value in descriptor.get("value") or []]
+            if values:
+                query = query.filter(ManuscriptDispatch.status.in_(values))
+        elif field == "delivery_status":
+            values = [str(value) for value in descriptor.get("value") or []]
+            if values:
+                query = query.filter(ManuscriptDispatch.arrangements.any(
+                    ManuscriptArrangement.status.in_(values)
+                ))
+        elif field == "completion_status":
+            values = {str(value) for value in descriptor.get("value") or []}
+            if values and values != {"completed", "pending"}:
+                completed = func.length(func.trim(func.coalesce(
+                    ManuscriptArrangement.completion_remarks, "",
+                ))) > 0
+                condition = completed if "completed" in values else ~completed
+                query = query.filter(ManuscriptDispatch.arrangements.any(condition))
+        elif field == "created_by":
+            values = [UUID(str(value)) for value in descriptor.get("value") or []]
+            if values:
+                query = query.filter(ManuscriptDispatch.created_by.in_(values))
+        elif field == "created_at":
+            start_value = descriptor.get("from")
+            end_value = descriptor.get("to")
+            if start_value:
+                query = query.filter(ManuscriptDispatch.created_at >= datetime.datetime.combine(
+                    datetime.date.fromisoformat(str(start_value)), datetime.time.min,
+                ))
+            if end_value:
+                query = query.filter(ManuscriptDispatch.created_at < datetime.datetime.combine(
+                    datetime.date.fromisoformat(str(end_value)) + datetime.timedelta(days=1),
+                    datetime.time.min,
+                ))
     rows = (
         query.order_by(ManuscriptDispatch.created_at.desc())
         .offset(skip)

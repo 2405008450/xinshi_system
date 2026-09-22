@@ -428,8 +428,11 @@ const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumn
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
 const visibleColumns = computed(() => tableColumns.filter((column) => selectedColumnKeys.value.includes(column.key)))
 const advancedCount = computed(() => countActiveFilters(filterModel, advancedFilterFields))
-const headerFilterKeys = new Set(defaultColumnKeys)
-const headerFilterDefinition = (key) => headerFilterKeys.has(key) ? filterFields.find((item) => item.key === key) : null
+const resourceRequestHeaderFieldMap = { ownerName: 'ownerId' }
+const headerFilterDefinition = (key) => {
+  const fieldKey = resourceRequestHeaderFieldMap[key] || key
+  return filterFields.find((item) => item.key === fieldKey) || null
+}
 const availableProjects = computed(() => projects[form.sourceType] || [])
 const availableCategories = computed(() => form.sourceType === 'annotation' ? [{ value: 'annotation_trial', label: '标注试标' }, { value: 'annotation_formal', label: '标注正式' }] : [{ value: form.sourceType, label: sourceLabels[form.sourceType] }])
 const formRules = computed(() => ({

@@ -789,7 +789,7 @@ const advancedFilters = reactive(createDefaultAdvancedFilters())
 const advancedFilterVisible = ref(false)
 const clientAdvancedFilterFields=clientFilterFields.filter((item)=>!['client_name','client_status'].includes(item.key))
 const advancedFilterCount = computed(() => countActiveFilters(advancedFilters,clientAdvancedFilterFields))
-const headerFilterDefinition=(key)=>defaultVisibleColumnKeys.includes(key)?clientFilterFields.find((item)=>item.key===key)||null:null
+const headerFilterDefinition=(key)=>clientFilterFields.find((item)=>item.key===key)||null
 
 let searchTimer = null
 let clientsRequestController = null

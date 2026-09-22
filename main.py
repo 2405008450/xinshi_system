@@ -560,6 +560,8 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS file_selection_mode VARCHAR(20) NOT NULL DEFAULT 'legacy_all'",
 )
 RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS registration_source VARCHAR(255)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS wechat_account VARCHAR(100)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS chinese_name VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS english_name VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS nickname VARCHAR(255)",

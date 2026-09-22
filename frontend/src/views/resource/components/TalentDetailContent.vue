@@ -23,6 +23,8 @@
       <h4>基本信息</h4>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="人才编号">{{ show(detail.resourceCode) }}</el-descriptions-item>
+        <el-descriptions-item label="来源">{{ show(detail.registrationSource) }}</el-descriptions-item>
+        <el-descriptions-item label="所在微信">{{ show(detail.wechatAccount) }}</el-descriptions-item>
         <el-descriptions-item label="档案状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
         <el-descriptions-item v-if="showAnnotationWillingness" label="标注意愿">{{ performanceLevelLabel(detail.annotationWillingness) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ show(detail.gender) }}</el-descriptions-item>
@@ -67,6 +69,7 @@
           {{ item.languageLabel }}<span v-if="item.proficiency"> · {{ proficiencyLabel(item.proficiency) }}</span>
         </el-descriptions-item>
         <el-descriptions-item v-if="!detail.languageSkills?.length" label="语言">-</el-descriptions-item>
+        <el-descriptions-item v-if="detail.dialects?.length" label="方言/少数民族语原始登记" :span="2">{{ show(detail.dialects) }}</el-descriptions-item>
       </el-descriptions>
       <h4>证书信息</h4>
       <el-descriptions :column="2" border size="small">

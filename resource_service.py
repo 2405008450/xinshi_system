@@ -344,6 +344,8 @@ def _talent_query(
         "employment_status": (ResourcePerson.employment_status, "string"),
         "highest_education": (ResourcePerson.highest_education, "string"),
         "native_place": (ResourcePerson.native_place, "string"),
+        "registration_source": (ResourcePerson.registration_source, "string"),
+        "wechat_account": (ResourcePerson.wechat_account, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
         "annotation_willingness": (ResourcePerson.annotation_willingness, "string"),

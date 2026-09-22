@@ -177,6 +177,16 @@
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="Skype"><el-input v-model="form.skype" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="Line"><el-input v-model="form.line" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="其他"><el-input v-model="form.otherContact" /></el-form-item></el-col></el-row>
         </div>
         <div class="form-section"><h3>基本信息</h3>
+          <el-row :gutter="16"><el-col :xs="24" :md="12">
+            <el-form-item label="所在微信" prop="wechatAccount">
+              <el-select v-model="wechatAccountSelection" clearable filterable placeholder="请选择所在微信" style="width:100%">
+                <el-option v-for="item in wechatAccountOptions" :key="item" :label="item" :value="item" />
+                <el-option label="其他（自主添加）" value="__custom_wechat__" />
+              </el-select>
+              <el-input v-if="wechatAccountSelection==='__custom_wechat__'" v-model="form.wechatAccount" maxlength="100" show-word-limit placeholder="请输入其他微信名称" style="margin-top:8px" />
+            </el-form-item>
+          </el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="来源" prop="registrationSource"><el-input v-model="form.registrationSource" maxlength="255" placeholder="例如：2609资源整合行动" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="性别"><el-select v-model="form.gender" clearable filterable allow-create style="width:100%"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="出生年月"><el-date-picker v-model="form.birthYearMonth" type="month" value-format="YYYY-MM" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="年龄"><ReadonlyField :model-value="calculatedAge" source="auto" tooltip="根据出生年月自动计算" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="合作形式"><el-select v-model="form.cooperationType" clearable style="width:100%"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="国籍"><el-input v-model="form.nationality" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="民族"><el-input v-model="form.ethnicity" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="身高"><el-input v-model="form.height" placeholder="例如：175cm" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="容貌"><el-input v-model="form.appearance" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="职业状态"><el-select v-model="form.employmentStatus" clearable style="width:100%"><el-option v-for="item in employmentOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="16"><el-form-item label="具体说明"><el-input v-model="form.employmentDetail" /></el-form-item></el-col></el-row>
@@ -326,6 +336,7 @@ const talentClient = computed(() => isRecruitmentPool.value ? {
   delete: talentApi.deleteTalent
 })
 const cooperationOptions = ['全职','兼职','自由职业','外包']
+const wechatAccountOptions = ['HR1','HR2','HR3','HR4','HR5','HR6','HR1企微','HR2企微','HR3企微','HR4企微','HR5企微','HR6企微']
 const capabilityLabels = {written_translation:'笔译',interpretation:'口译',annotation:'标注'}
 const capabilityLabel = value => capabilityLabels[value] || value
 const capabilityText = values => values?.length ? values.map(capabilityLabel).join('、') : '-'
@@ -386,6 +397,8 @@ const ProfileDescription = defineComponent({props:{profile:Object,type:String},s
 
 const tableColumns=[
   {key:'resourceCode',label:'人才编号',width:130},
+  {key:'registrationSource',label:'来源',width:190},
+  {key:'wechatAccount',label:'所在微信',width:160},
   {key:'fullName',label:'姓名',width:100,tooltip:false,clickHint:'点击姓名查看人才详情'},
   {key:'gender',label:'性别',width:80},
   {key:'nationality',label:'国籍',width:100},
@@ -405,7 +418,7 @@ const tableColumns=[
   {key:'primaryPhone',label:'主要电话',width:140},
   {key:'primaryEmail',label:'主要邮箱',width:200},
   {key:'age',label:'年龄',width:80},
-  {key:'nativePlace',label:'籍贯',width:150},
+  {key:'nativePlace',label:'主要成长地',width:150},
   {key:'residenceAddress',label:'现居地址',width:180},
   {key:'dialects',label:'掌握方言',width:180},
   {key:'dialectRegions',label:'方言区域',width:180},
@@ -433,7 +446,7 @@ const settingsVisibleColumnKeys=computed({
   set:value=>{const hidden=visibleColumnKeys.value.filter(key=>!settingsColumns.value.some(item=>item.key===key));visibleColumnKeys.value=[...value,...hidden]},
 })
 const visibleColumns=computed(()=>tableColumns.filter(item=>isVisible(item.key)&&availableToCurrentPool(item)))
-const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const projectCache=reactive({});const pagination=reactive({page:1,limit:20,total:0});const advancedVisible=ref(false);const statusSavingIds=ref(new Set())
+const rows=ref([]);const loading=ref(false);const detailLoadingId=ref(null);const detailCache=reactive({});const projectCache=reactive({});const pagination=reactive({page:1,limit:10,total:0});const advancedVisible=ref(false);const statusSavingIds=ref(new Set())
 const talentTableRef=ref(null)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:talentTableRef,pagination,deleteRow:(row)=>talentClient.value.delete(row.id),getLabel:(row)=>row.fullName||row.resourceCode||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id];delete projectCache[row.id]},entityName:'人才档案'})
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
@@ -451,7 +464,9 @@ const talentFilterFields=[
   {key:'primaryPhone',label:'主要电话',type:'text'},{key:'primaryEmail',label:'主要邮箱',type:'text'},
   {key:'gender',label:'性别',type:'text'},{key:'age',label:'年龄',type:'number-range',wide:true,min:0,max:120},
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
-  {key:'nativePlace',label:'籍贯',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
+  {key:'registrationSource',label:'来源',type:'text'},
+  {key:'wechatAccount',label:'所在微信',type:'text'},
+  {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
   {key:'nationality',label:'国籍',type:'text'},
   {key:'overallRating',label:'总体评价',type:'text',performance:true},
@@ -498,7 +513,7 @@ const birthDateFromAge=(age,currentBirthDate)=>{
 const handleBirthDateChange=value=>{form.age=calculateAge(value)}
 const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?null:birthDateFromAge(value,form.birthDate)}
 const emptyForm=()=>({
-  id:null,resourceCode:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
+  id:null,resourceCode:'',registrationSource:'',wechatAccount:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
   contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
   resumePath:'',gender:'',birthDate:null,birthYearMonth:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
   nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
@@ -514,7 +529,8 @@ const emptyForm=()=>({
 const form=reactive(emptyForm());const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const nameFieldsExpanded=ref(true)
 const preferredFormName=computed(()=>getTalentDisplayName(form,''));const filledNameCount=computed(()=>countTalentNames(form))
 const validateNameGroup=(_rule,_value,callback)=>filledNameCount.value?callback():callback(new Error('中文姓名、英文姓名、昵称或其他名字至少填写一项'))
-const rules={nameGroup:[{validator:validateNameGroup,trigger:['blur','change']}],capabilityTypes:[{type:'array',required:true,min:1,message:'请至少选择一项专业能力',trigger:'change'}]};const hasCapability=type=>form.capabilityTypes.includes(type)
+// 导入的待核实档案可能尚未确认专业能力，编辑时允许保留空值。
+const rules=computed(()=>({wechatAccount:[{max:100,message:'所在微信最多填写100个字符',trigger:['blur','change']}],nameGroup:[{validator:validateNameGroup,trigger:['blur','change']}],capabilityTypes:[{type:'array',required:!form.id,min:form.id?0:1,message:'请至少选择一项专业能力',trigger:'change'}]}));const hasCapability=type=>form.capabilityTypes.includes(type)
 const validateNameGroupField=()=>nextTick(()=>formRef.value?.validateField('nameGroup').catch(()=>{}))
 const languages=ref([])
 const languageKeyword=ref('')
@@ -546,6 +562,16 @@ const cleanInterpretationProfile=p=>p?{...p,languages:blankToNull(p.languages),d
 const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore),remarks:blankToNull(p.remarks)}:null
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
 const contactPayloadKeys=['contactInfo','primaryPhone','secondaryPhone','primaryEmail','secondaryEmail','otherContact','wechat','whatsapp','skype','line']
+// 自定义模式只用于界面，接口始终保存实际账号名称。
+const customWechatAccount = ref(false)
+const wechatAccountSelection = computed({
+  get: () => customWechatAccount.value || (form.wechatAccount && !wechatAccountOptions.includes(form.wechatAccount)) ? '__custom_wechat__' : form.wechatAccount,
+  set: value => {
+    customWechatAccount.value = value === '__custom_wechat__'
+    form.wechatAccount = customWechatAccount.value ? '' : value
+  },
+})
+watch(editorVisible, () => { customWechatAccount.value = false })
 const talentManagedPayloadKeys=['annotationWillingness','overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
 function resetForm(){Object.assign(form,emptyForm());nameFieldsExpanded.value=true;queuedAttachments.photo=[];queuedAttachments.audio=[];formRef.value?.clearValidate();clearFieldSearch()}async function onEditorOpened(){await nextTick();const scrollBody=editorBodyRef.value?.closest('.el-dialog__body');if(scrollBody)scrollBody.scrollTop=0}function onEditorClosed(){pauseDraft();resetForm()}async function openCreate(){resetForm();nameFieldsExpanded.value=true;const chinese=languages.value.find(item=>item.code==='zh-CN');if(chinese)form.languageSkills.push({id:null,_key:recordKey(),languageId:chinese.id,role:'native',priority:1,proficiency:'very_familiar',remarks:'',sortOrder:0});editorTitle.value='新增人才';editorVisible.value=true;await beginDraft('create')}
 function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
@@ -554,6 +580,8 @@ const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>k
 const payload=(allowDuplicate=false)=>{
   const result={
     resourceCode:form.resourceCode||null,
+    registrationSource:form.registrationSource||null,
+    wechatAccount:form.wechatAccount?.trim()||null,
     fullName:[form.chineseName,form.englishName,form.nickname,...(form.otherNames||[]),form.fullName].find(value=>String(value||'').trim())||'',
     chineseName:form.chineseName||null,englishName:form.englishName||null,nickname:form.nickname||null,otherNames:form.otherNames||[],cooperationType:form.cooperationType||null,
     contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,

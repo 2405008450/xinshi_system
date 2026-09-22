@@ -41,7 +41,7 @@
         />
       </el-form-item>
       <el-form-item label="咨询状态">
-        <el-select v-model="searchForm.status" placeholder="全部" clearable style="width: 120px" @change="handleSearch">
+        <el-select v-model="searchForm.status" multiple collapse-tags collapse-tags-tooltip placeholder="全部" clearable style="width: 180px" @change="handleSearch">
           <el-option
             v-for="item in consultationStatusOptions"
             :key="item.value"
@@ -60,92 +60,14 @@
           @clear="clearAdvancedFilters"
           @reset="resetSearch"
         >
-          <AppForm :model="searchForm" label-position="top" class="advanced-filter-form">
-              <el-row :gutter="16">
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="咨询日期">
-                    <el-date-picker
-                      v-model="searchForm.consultation_date_range"
-                      type="daterange"
-                      range-separator="至"
-                      start-placeholder="开始日期"
-                      end-placeholder="结束日期"
-                      value-format="YYYY-MM-DD"
-                      unlink-panels
-                      @change="handleSearch"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="咨询方式">
-                    <el-select v-model="searchForm.consultation_method" placeholder="全部" clearable @change="handleSearch">
-                      <el-option
-                        v-for="item in consultationMethodOptions"
-                        :key="item.value"
-                        :label="item.label"
-                        :value="item.value"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="咨询类型">
-                    <el-select v-model="searchForm.consultation_type" placeholder="全部" clearable @change="handleSearch">
-                      <el-option
-                        v-for="item in consultationTypeOptions"
-                        :key="item"
-                        :label="item"
-                        :value="item"
-                        :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="客户来源">
-                    <el-input
-                      v-model="searchForm.client_source"
-                      placeholder="输入客户来源"
-                      clearable
-                      @input="handleDebouncedSearchInput"
-                      @keyup.enter="handleSearch"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="客服人员">
-                    <el-select v-model="searchForm.customer_service_id" placeholder="全部" clearable filterable @change="handleSearch">
-                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="销售人员">
-                    <el-select v-model="searchForm.sales_person_id" placeholder="全部" clearable filterable @change="handleSearch">
-                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="跟进人">
-                    <el-select v-model="searchForm.follow_up_person_id" placeholder="全部" clearable filterable @change="handleSearch">
-                      <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="跟进状态">
-                    <el-input
-                      v-model="searchForm.follow_up_status"
-                      placeholder="输入跟进状态"
-                      clearable
-                      @input="handleDebouncedSearchInput"
-                      @keyup.enter="handleSearch"
-                    />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-          </AppForm>
+          <CompactFilterGrid
+            :fields="consultationAdvancedFilterFields"
+            :model="searchForm"
+            @update="updateConsultationFilter"
+            @text-input="(_definition, value) => handleDebouncedSearchInput(value)"
+            @change="handleSearch"
+            @enter="handleSearch"
+          />
         </AdvancedFilterPopover>
       </el-form-item>
     </AppForm>
@@ -155,7 +77,17 @@
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
       <el-table-column prop="consultation_code" label="咨询编号" width="160">
         <template #header>
-          <ClickableColumnHeader label="咨询编号" hint="点击咨询编号查看咨询详情" />
+          <ConfiguredColumnHeaderFilter
+            :definition="headerFilterDefinition('consultation_code')"
+            :model-value="searchForm.consultation_code"
+            @update:model-value="updateConsultationFilter('consultation_code', $event)"
+            @text-input="handleDebouncedSearchInput"
+            @change="handleSearch"
+            @enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #label><ClickableColumnHeader label="咨询编号" hint="点击咨询编号查看咨询详情" /></template>
+          </ConfiguredColumnHeaderFilter>
         </template>
         <template #default="{ row }">
           <el-popover
@@ -291,8 +223,19 @@
         :show-overflow-tooltip="column.key !== 'status'"
       >
         <template #header>
-          <ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户信息" />
-          <span v-else>{{ column.label }}</span>
+          <ConfiguredColumnHeaderFilter
+            v-if="headerFilterDefinition(column.key)"
+            :definition="headerFilterDefinition(column.key)"
+            :model-value="searchForm[headerFilterDefinition(column.key).key]"
+            @update:model-value="updateConsultationFilter(headerFilterDefinition(column.key).key, $event)"
+            @text-input="handleDebouncedSearchInput"
+            @change="handleSearch"
+            @enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #label><ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户信息" /><span v-else>{{ column.label }}</span></template>
+          </ConfiguredColumnHeaderFilter>
+          <template v-else><ClickableColumnHeader v-if="column.key === 'client_short_name'" :label="column.label" hint="点击客户简称查看客户信息" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
           <el-popover
@@ -1346,6 +1289,8 @@ import * as consultationApi from '@/api/consultations'
 import * as mailApi from '@/api/businessMails'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
@@ -1372,6 +1317,7 @@ import { hasPermission } from '@/utils/permission'
 import { COMMON_SUBJECT_PREFIX_OPTIONS } from '@/utils/emailSubject'
 import { createEmptyWordCountMatrix, formatWordCountMatrix, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
+import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const router = useRouter()
 const loading = ref(false)
@@ -1549,33 +1495,40 @@ const confirmConsultationBatchDelete = async () => {
   await confirmBatchDelete()
 }
 
-const searchForm = reactive({
-  keyword: '',
-  status: '',
-  consultation_date_range: [],
-  consultation_method: '',
-  consultation_type: '',
-  client_source: '',
-  customer_service_id: '',
-  sales_person_id: '',
-  follow_up_person_id: '',
-  follow_up_status: '',
-})
-const advancedFilterVisible = ref(false)
-const advancedFilterFields = [
-  'consultation_date_range',
-  'consultation_method',
-  'consultation_type',
-  'client_source',
-  'customer_service_id',
-  'sales_person_id',
-  'follow_up_person_id',
-  'follow_up_status',
+const consultationFilterFields = [
+  { key: 'consultation_code', label: '咨询编号', type: 'text' },
+  { key: 'client_code', label: '客户编号', type: 'text' },
+  { key: 'client_name', label: '客户全称', type: 'text' },
+  { key: 'client_short_name', label: '客户简称', type: 'text' },
+  { key: 'status', label: '咨询状态', type: 'select', options: () => consultationStatusOptions },
+  { key: 'consultation_date_range', apiKey: 'consultation_time', label: '咨询时间', type: 'date-range', wide: true },
+  { key: 'consultation_method', label: '咨询方式', type: 'select', options: () => consultationMethodOptions },
+  { key: 'consultation_type', label: '咨询类型', type: 'select', options: () => consultationTypeOptions.map((value) => ({ value, label: value })) },
+  { key: 'client_source', label: '客户来源', type: 'text' },
+  { key: 'source_keyword', label: '来源关键词', type: 'text' },
+  { key: 'handling_method', label: '处理方式', type: 'text' },
+  { key: 'customer_service_id', label: '客服人员', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
+  { key: 'sales_person_id', label: '销售人员', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
+  { key: 'editor_id', label: '编辑人', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
+  { key: 'follow_up_person_id', label: '跟进人', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
+  { key: 'follow_up_count', label: '跟进次数', type: 'number-range', wide: true, min: 0 },
+  { key: 'follow_up_time', label: '跟进时间', type: 'date-range', wide: true },
+  { key: 'follow_up_status', label: '跟进状态', type: 'text' },
+  { key: 'consultation_description', label: '咨询描述', type: 'text', wide: true },
+  { key: 'follow_up_remarks', label: '跟进备注', type: 'text', wide: true },
+  { key: 'remarks', label: '备注', type: 'text', wide: true },
+  { key: 'created_at', label: '创建时间', type: 'date-range', wide: true },
+  { key: 'updated_at', label: '更新时间', type: 'date-range', wide: true },
 ]
-const advancedFilterCount = computed(() => advancedFilterFields.reduce((count, field) => {
-  const value = searchForm[field]
-  return count + (Array.isArray(value) ? Number(value.length > 0) : Number(!!value))
-}, 0))
+const searchForm = reactive({ keyword: '', ...createFilterModel(consultationFilterFields) })
+const advancedFilterVisible = ref(false)
+const consultationAdvancedFilterFields = consultationFilterFields.filter((field) => field.key !== 'status')
+const advancedFilterCount = computed(() => countActiveFilters(searchForm, consultationAdvancedFilterFields))
+const headerFilterDefinition = (key) => {
+  const fieldKey = key === 'consultation_time' ? 'consultation_date_range' : key
+  return consultationFilterFields.find((field) => field.key === fieldKey) || null
+}
+const updateConsultationFilter = (key, value) => { searchForm[key] = value }
 
 const handleSearch = () => {
   exitDeleteMode()
@@ -1604,25 +1557,13 @@ const handleDebouncedSearchInput = (value) => {
 }
 
 const resetSearch = () => {
-  Object.assign(searchForm, {
-    keyword: '',
-    status: '',
-    consultation_date_range: [],
-    consultation_method: '',
-    consultation_type: '',
-    client_source: '',
-    customer_service_id: '',
-    sales_person_id: '',
-    follow_up_person_id: '',
-    follow_up_status: '',
-  })
+  searchForm.keyword = ''
+  resetFilterModel(searchForm, consultationFilterFields)
   handleSearch()
 }
 
 const clearAdvancedFilters = () => {
-  advancedFilterFields.forEach((field) => {
-    searchForm[field] = field === 'consultation_date_range' ? [] : ''
-  })
+  resetFilterModel(searchForm, consultationAdvancedFilterFields)
   handleSearch()
 }
 
@@ -2334,19 +2275,9 @@ const handleLocateConsultationField = async (item) => {
 }
 
 const buildSearchFilters = () => {
-  const [consultationDateStart, consultationDateEnd] = searchForm.consultation_date_range || []
   return {
     keyword: searchForm.keyword?.trim() || undefined,
-    status: searchForm.status || undefined,
-    consultation_date_start: consultationDateStart || undefined,
-    consultation_date_end: consultationDateEnd || undefined,
-    consultation_method: searchForm.consultation_method || undefined,
-    consultation_type: searchForm.consultation_type || undefined,
-    client_source: searchForm.client_source?.trim() || undefined,
-    customer_service_id: searchForm.customer_service_id || undefined,
-    sales_person_id: searchForm.sales_person_id || undefined,
-    follow_up_person_id: searchForm.follow_up_person_id || undefined,
-    follow_up_status: searchForm.follow_up_status?.trim() || undefined,
+    field_filters: serializeFieldFilters(searchForm, consultationFilterFields),
   }
 }
 
@@ -2586,7 +2517,7 @@ const handleInlineStatusChange = async (row, newStatus) => {
     delete detailCache[row.id]
     ElMessage.success(`状态已切换为「${getStatusText(newStatus)}」`)
     // 列表若按状态筛选，切换后该行可能不再命中条件，重新拉取保持一致。
-    if (searchForm.status) fetchData()
+    if (searchForm.status?.length) fetchData()
 
     if (newStatus === CONFIRMED_CONSULTATION_STATUS) {
       if (isRecruitmentConsultationType(row.consultation_type)) {

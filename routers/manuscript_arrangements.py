@@ -62,6 +62,7 @@ from manuscript_service import (
 )
 from models import AppUser
 from routers.auth import get_current_user, require_any_role, require_module_access
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 
 router = APIRouter(
@@ -76,6 +77,37 @@ router = APIRouter(
 MAX_MANUSCRIPT_ATTACHMENT_BYTES = 50 * 1024 * 1024
 # 为 50MB 手动附件、正文图片和自动生成的共享文件压缩包预留总量空间。
 MAX_MANUSCRIPT_MAIL_CONTENT_BYTES = 75 * 1024 * 1024
+
+MANUSCRIPT_PROJECT_FILTER_FIELDS = {
+    "order_no", "project_summary", "project_assistant_id", "language_pair",
+    "customer_deadline_time", "project_status",
+}
+MANUSCRIPT_DISPATCH_FILTER_FIELDS = {
+    "order_no", "project_name", "translator_name", "status", "delivery_status",
+    "completion_status", "created_by", "created_at",
+}
+
+
+def _project_field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, MANUSCRIPT_PROJECT_FILTER_FIELDS)
+    enums = {"project_assistant_id", "project_status"}
+    ensure_filter_operators(value, {
+        field: ({"between"} if field == "customer_deadline_time" else {"in"} if field in enums else {"contains"})
+        for field in MANUSCRIPT_PROJECT_FILTER_FIELDS
+    })
+    return value
+
+
+def _dispatch_field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, MANUSCRIPT_DISPATCH_FILTER_FIELDS)
+    enums = {"status", "delivery_status", "completion_status", "created_by"}
+    ensure_filter_operators(value, {
+        field: ({"between"} if field == "created_at" else {"in"} if field in enums else {"contains"})
+        for field in MANUSCRIPT_DISPATCH_FILTER_FIELDS
+    })
+    return value
 
 
 @router.post(
@@ -196,6 +228,7 @@ def _raise_business_error(exc: Exception) -> None:
 @router.get("/context", response_model=ManuscriptArrangementContext)
 def read_context(
     keyword: Optional[str] = None,
+    project_field_filters: Optional[str] = Query(None),
     project_limit: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
@@ -204,6 +237,7 @@ def read_context(
         db,
         current_user=current_user,
         keyword=keyword,
+        project_field_filters=_project_field_filters(project_field_filters),
         project_limit=project_limit,
     )
 
@@ -243,6 +277,7 @@ def read_dispatches(
     limit: int = Query(200, ge=1, le=500),
     keyword: Optional[str] = None,
     dispatch_status: Optional[str] = Query(None, alias="status"),
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -253,6 +288,7 @@ def read_dispatches(
         limit=limit,
         keyword=keyword,
         status=dispatch_status,
+        field_filters=_dispatch_field_filters(field_filters),
     )
 
 

@@ -55,6 +55,7 @@ from inline_text_update import (
     apply_text_field_update,
     normalize_text_value,
 )
+from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 
 router = APIRouter(prefix="/consultations", tags=["consultations"], dependencies=[Depends(require_module_access("consultations:read", "consultations:write"))])
 
@@ -71,6 +72,32 @@ CONSULTATION_TEXT_FIELDS = {
     "follow_up_remarks": TextFieldRule(),
     "remarks": TextFieldRule(),
 }
+
+CONSULTATION_FILTER_FIELDS = {
+    "consultation_code", "client_code", "client_name", "client_short_name", "status",
+    "consultation_time", "consultation_method", "consultation_type", "client_source",
+    "source_keyword", "handling_method", "customer_service_id", "sales_person_id",
+    "editor_id", "follow_up_person_id", "follow_up_count", "follow_up_time",
+    "follow_up_status", "consultation_description", "follow_up_remarks", "remarks",
+    "created_at", "updated_at",
+}
+
+
+def _field_filters(raw: Optional[str]):
+    value = parse_field_filters(raw)
+    ensure_filter_fields(value, CONSULTATION_FILTER_FIELDS)
+    ranges = {
+        "consultation_time", "follow_up_count", "follow_up_time", "created_at", "updated_at",
+    }
+    enums = {
+        "status", "consultation_method", "consultation_type", "customer_service_id",
+        "sales_person_id", "editor_id", "follow_up_person_id",
+    }
+    ensure_filter_operators(value, {
+        field: ({"between"} if field in ranges else {"in"} if field in enums else {"contains"})
+        for field in CONSULTATION_FILTER_FIELDS
+    })
+    return value
 
 CONSULTATION_INTAKE_TEXT_FIELDS = {
     "translation": {
@@ -904,6 +931,7 @@ def read_consultation_count(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return {
@@ -922,6 +950,7 @@ def read_consultation_count(
             sales_person_id=sales_person_id,
             follow_up_person_id=follow_up_person_id,
             follow_up_status=follow_up_status,
+            field_filters=_field_filters(field_filters),
         )
     }
 
@@ -943,6 +972,7 @@ def read_consultation_page(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     filters = dict(
@@ -955,6 +985,7 @@ def read_consultation_page(
         customer_service_id=customer_service_id, sales_person_id=sales_person_id,
         follow_up_person_id=follow_up_person_id,
         follow_up_status=follow_up_status,
+        field_filters=_field_filters(field_filters),
     )
     items = get_consultations(db, skip=skip, limit=limit, **filters)
     return {
@@ -982,6 +1013,7 @@ def read_consultations(
     sales_person_id: Optional[UUID] = None,
     follow_up_person_id: Optional[UUID] = None,
     follow_up_status: Optional[str] = None,
+    field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     return get_consultations(
@@ -1001,6 +1033,7 @@ def read_consultations(
         sales_person_id=sales_person_id,
         follow_up_person_id=follow_up_person_id,
         follow_up_status=follow_up_status,
+        field_filters=_field_filters(field_filters),
     )
 
 

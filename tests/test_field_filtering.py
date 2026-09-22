@@ -13,22 +13,27 @@ from annotation_service import (
     _apply_filters as apply_annotation_filters,
     _latest_progress_expressions,
 )
-from crud import _apply_client_filters, _apply_translation_project_filters, get_translation_projects
+from crud import _apply_client_filters, _apply_consultation_filters, _apply_translation_project_filters, get_translation_projects
 from field_filtering import parse_field_filters
 from interpretation_models import InterpretationProject
 from interpretation_service import _apply_filters as apply_interpretation_filters
-from models import Client, SubClient, TranslationProject
+from models import Client, Consultation, SubClient, TranslationProject
 from recruitment_models import RecruitmentProject
 from recruitment_service import _apply_filters as apply_recruitment_filters
 from resource_service import _talent_query
 from resource_request_service import _view_filter_sql
 from routers.clients import _field_filters as client_field_filters
+from routers.consultations import _field_filters as consultation_field_filters
 from routers.annotation_projects import _field_filters as annotation_field_filters
 from routers.interpretation_projects import _field_filters as interpretation_field_filters
 from routers.recruitment_projects import _field_filters as recruitment_field_filters
 from routers.resource_requests import _field_filters as request_field_filters
 from routers.talents import _field_filters as talent_field_filters
 from routers.translation_projects import _field_filters as translation_field_filters
+from routers.manuscript_arrangements import (
+    _dispatch_field_filters as manuscript_dispatch_field_filters,
+    _project_field_filters as manuscript_project_field_filters,
+)
 
 
 def encoded(value):
@@ -99,6 +104,10 @@ class RecordingTranslationDb:
         (talent_field_filters, {"project_situation": {"op": "contains", "value": "TP-2609"}}),
         (request_field_filters, {"languages": {"op": "in", "value": ["00000000-0000-0000-0000-000000000001"]}}),
         (request_field_filters, {"demand_status": {"op": "in", "value": ["confirmed", "cancelled"]}}),
+        (consultation_field_filters, {"editor_id": {"op": "in", "value": ["00000000-0000-0000-0000-000000000001"]}}),
+        (consultation_field_filters, {"follow_up_count": {"op": "between", "min": 1, "max": 5}}),
+        (manuscript_project_field_filters, {"project_status": {"op": "in", "value": ["confirmed", "organized"]}}),
+        (manuscript_dispatch_field_filters, {"completion_status": {"op": "in", "value": ["pending"]}}),
     ],
 )
 def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):
@@ -115,6 +124,9 @@ def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):
         (recruitment_field_filters, {"candidate_count": {"op": "eq", "value": 2}}),
         (talent_field_filters, {"status": {"op": "contains", "value": "active"}}),
         (request_field_filters, {"requested_at": {"op": "eq", "value": "2026-08-30"}}),
+        (consultation_field_filters, {"follow_up_count": {"op": "contains", "value": "2"}}),
+        (manuscript_project_field_filters, {"customer_deadline_time": {"op": "contains", "value": "2026-09"}}),
+        (manuscript_dispatch_field_filters, {"unknown": {"op": "contains", "value": "x"}}),
     ],
 )
 def test_module_field_filter_contract_rejects_unknown_fields_and_wrong_operators(parser, payload):
@@ -155,6 +167,41 @@ def test_translation_parent_and_sub_client_filters_are_independent():
     assert "client.client_short_name" in parent_sql
     assert "sub_client.client_short_name" not in parent_sql.split("where", 1)[-1]
     assert "sub_client.client_short_name" in sub_sql
+
+
+def test_translation_parent_and_sub_client_full_name_filters_are_independent():
+    parent_sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={"client_name": {"op": "contains", "value": "母客户全称"}},
+    ))
+    sub_sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={"sub_client_name": {"op": "contains", "value": "子客户全称"}},
+    ))
+
+    assert "client.client_name ilike" in parent_sql
+    assert "sub_client.client_name ilike" in sub_sql
+
+
+def test_consultation_field_filters_compile_multi_select_ranges_and_client_text():
+    query = select(Consultation.id).outerjoin(Client, Consultation.client_id == Client.id).outerjoin(
+        SubClient, Consultation.sub_client_id == SubClient.id,
+    )
+    sql = compiled_sql(_apply_consultation_filters(
+        query,
+        field_filters={
+            "client_short_name": {"op": "contains", "value": "信实"},
+            "status": {"op": "in", "value": ["following", "emphasis"]},
+            "consultation_type": {"op": "in", "value": ["笔译项目", "口译项目"]},
+            "follow_up_count": {"op": "between", "min": 1, "max": 3},
+        },
+    ))
+
+    assert "client.client_short_name ilike" in sql
+    assert "consultation.status in" in sql
+    assert "translation" in sql and "interpretation" in sql
+    assert "consultation.follow_up_count >=" in sql
+    assert "consultation.follow_up_count <=" in sql
 
 
 def test_annotation_project_manager_filter_contract_accepts_multi_select():
@@ -252,6 +299,19 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
     assert "manuscript_arrangement.translator_name_snapshot" in translation_sql
     assert "word_count_metric" in translation_sql
 
+    translation_role_sql = compiled_sql(_apply_translation_project_filters(
+        project_query(TranslationProject),
+        field_filters={
+            "project_assistant_id": {
+                "op": "in",
+                "value": ["00000000-0000-0000-0000-000000000001"],
+            },
+        },
+    ))
+    assert "project_role_assignment" in translation_role_sql
+    assert "project_role_assignment.role_code = 'project_assistant'" in translation_role_sql
+    assert "project_role_assignment.assignee_id in" in translation_role_sql
+
 
     interpretation_sql = compiled_sql(apply_interpretation_filters(
         project_query(InterpretationProject),
@@ -263,6 +323,13 @@ def test_project_field_filters_compile_relations_aggregates_and_cross_field_and(
     assert "interpretation_project.project_types" in interpretation_sql
     assert "required_interpreter_count >=" in interpretation_sql
     assert " or " in interpretation_sql
+
+    interpreter_code_sql = compiled_sql(apply_interpretation_filters(
+        project_query(InterpretationProject),
+        field_filters={"translator_codes": {"op": "contains", "value": "TR-001"}},
+    ))
+    assert "interpretation_project_interpreter" in interpreter_code_sql
+    assert "translator.translator_code" in interpreter_code_sql
 
     annotation_sql = compiled_sql(apply_annotation_filters(
         project_query(AnnotationProject),

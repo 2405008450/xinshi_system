@@ -52,8 +52,8 @@ TRANSLATION_TEXT_FIELDS = {
 }
 
 TRANSLATION_FILTER_FIELDS = {
-    "order_no", "project_name", "source_file_name", "service_content", "task_type", "client_short_name",
-    "client_code", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
+    "order_no", "project_name", "source_file_name", "service_content", "task_type", "client_name", "client_short_name",
+    "client_code", "sub_client_name", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
     "manager_contact", "project_status", "file_type_secondary", "project_contract_type",
     "project_contract_status", "quotation_required", "quotation_status",
     "customer_requirement_professional", "customer_requirement_special", "language_pair",
@@ -64,6 +64,7 @@ TRANSLATION_FILTER_FIELDS = {
     "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress",
     "consolidation_progress", "client_feedback", "created_at", "updated_at",
     "project_specialist_name", "project_assistant_name", "layout_specialist_name",
+    "project_specialist_id", "project_assistant_id", "layout_specialist_id",
     "project_file_translation_domain_level1", "project_file_translation_domain_level2",
     "project_file_type_level1", "project_file_type_level2", "project_file_format",
     "project_file_attribute_level1", "project_file_attribute_level2",
@@ -75,7 +76,7 @@ def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TRANSLATION_FILTER_FIELDS)
     ranges = {"word_count", "customer_reception_time", "customer_deadline_time", "translator_return_time", "sent_to_client_time", "translator_assignment_time", "created_at", "updated_at", "translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}
-    enums = {"service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type"}
+    enums = {"service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type", "project_specialist_id", "project_assistant_id", "layout_specialist_id"}
     booleans = {"quotation_required"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TRANSLATION_FILTER_FIELDS})
     return value

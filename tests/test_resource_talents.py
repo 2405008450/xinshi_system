@@ -322,12 +322,14 @@ def test_annotation_language_skill_sync_reuses_unchanged_rows_and_applies_diff(m
     } == {(kept_source, None), (added_source, None)}
 
 
-def test_new_annotator_requires_annotation_language_skill():
-    with pytest.raises(ValueError, match="必须填写标注语言方向"):
-        ResourcePersonCreate(
-            full_name="缺少语种的标注员",
-            capabilities=[{"capability_type": "annotation"}],
-        )
+@pytest.mark.parametrize("language_fields", [{}, {"annotation_language_skills": []}])
+def test_new_annotator_allows_missing_annotation_language_skill(language_fields):
+    payload = ResourcePersonCreate(
+        full_name="缺少语种的标注员",
+        capabilities=[{"capability_type": "annotation"}],
+        **language_fields,
+    )
+    assert payload.annotation_language_skills == []
 
 
 def test_blank_optional_fields_coerce_to_none_instead_of_422():
