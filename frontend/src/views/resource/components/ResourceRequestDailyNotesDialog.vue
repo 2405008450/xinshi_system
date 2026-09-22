@@ -1,7 +1,8 @@
 <template>
   <DraggableFormDialog
     ref="dialogRef"
-    :model-value="modelValue"
+    :model-value="modelValue && !minimized"
+    :reset-on-open="!initialized"
     title="需求说明"
     width="min(560px, calc(100vw - 32px))"
     top="5vh"
@@ -16,15 +17,20 @@
     :z-index="windowZIndex"
     :close-on-click-modal="false"
     :before-close="beforeClose"
-    @update:model-value="emit('update:modelValue', $event)"
+    @update:model-value="handleVisibilityUpdate"
     @open="handleOpen"
   >
     <template #header="{ titleId, titleClass }">
       <div class="daily-note-window-heading">
         <span :id="titleId" :class="titleClass">需求说明</span>
-        <el-button size="small" :type="pinned ? 'primary' : 'default'" :aria-pressed="pinned" @mousedown.stop @click="togglePinned">
-          {{ pinned ? '解除固定' : '固定' }}
-        </el-button>
+        <div class="daily-note-window-actions" @mousedown.stop>
+          <el-button size="small" :type="pinned ? 'primary' : 'default'" :aria-pressed="pinned" @click="togglePinned">
+            {{ pinned ? '解除固定' : '固定' }}
+          </el-button>
+          <el-button link aria-label="最小化需求说明" title="最小化" @click="emit('minimize')">
+            <el-icon><Minus /></el-icon>
+          </el-button>
+        </div>
       </div>
     </template>
     <section v-if="canEdit" ref="editorSection" class="daily-note-editor">
@@ -104,8 +110,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox, useZIndex } from 'element-plus'
+import { Minus } from '@element-plus/icons-vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
@@ -116,10 +123,11 @@ import { formatDateTimeMinute } from '@/utils/dateTime'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   canEdit: { type: Boolean, default: false },
-  foregroundVersion: { type: Number, default: 0 },
+  minimized: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'minimize'])
 const dialogRef = ref(null)
+const initialized = ref(false)
 const pinned = ref(false)
 const { nextZIndex } = useZIndex()
 const windowZIndex = ref(nextZIndex())
@@ -129,17 +137,27 @@ function togglePinned() {
   if (pinned.value) windowZIndex.value = nextZIndex()
 }
 
-// 后方业务弹窗完成打开后再置顶，后续日期、颜色及确认浮层仍使用正常层级。
-watch(() => props.foregroundVersion, async () => {
-  await nextTick()
-  if (props.modelValue && pinned.value) windowZIndex.value = nextZIndex()
-})
+function handleDialogOpened(event) {
+  if (event.detail?.element?.classList.contains('resource-request-notes-dialog')) return
+  if (props.modelValue && !props.minimized && pinned.value) windowZIndex.value = nextZIndex()
+}
+
+function handleVisibilityUpdate(visible) {
+  // 最小化关闭的是底层浮层，业务窗口和草稿仍然保留。
+  if (!props.minimized) emit('update:modelValue', visible)
+}
 
 function handleViewportResize() {
   if (props.modelValue) dialogRef.value?.resetPosition()
 }
-onMounted(() => window.addEventListener('resize', handleViewportResize))
-onBeforeUnmount(() => window.removeEventListener('resize', handleViewportResize))
+onMounted(() => {
+  window.addEventListener('resize', handleViewportResize)
+  document.addEventListener('app-dialog-opened', handleDialogOpened)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleViewportResize)
+  document.removeEventListener('app-dialog-opened', handleDialogOpened)
+})
 
 const emptyDocument = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
 const cloneDocument = value => JSON.parse(JSON.stringify(value || emptyDocument()))
@@ -202,8 +220,10 @@ async function loadNotes() {
 }
 
 async function handleOpen() {
-  pinned.value = false
   windowZIndex.value = nextZIndex()
+  if (initialized.value) return
+  initialized.value = true
+  pinned.value = false
   setEditorDate(localDate())
   await loadNotes()
 }
@@ -268,6 +288,7 @@ const formatDateTime = value => formatDateTimeMinute(value) || '-'
 
 <style scoped>
 .daily-note-window-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.daily-note-window-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .daily-note-editor { padding-bottom: 24px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .daily-note-editor__heading,.daily-note-history__heading,.daily-note-card header,.daily-note-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .daily-note-editor__heading,.daily-note-history__heading { margin-bottom: 14px; }

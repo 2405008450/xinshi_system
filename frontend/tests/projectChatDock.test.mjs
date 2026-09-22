@@ -11,7 +11,7 @@ const notificationBell = readFileSync(new URL('../src/components/NotificationBel
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
 
 test('项目沟通 Dock 全局挂载并支持多窗、最小化和关闭', () => {
-  assert.match(layout, /<ProjectChatDock\s*\/>/)
+  assert.match(layout, /<ProjectChatDock(?:\s|>)/)
   assert.match(annotationPage, /\{ command: 'project-chat', label: '沟通' \}/)
   assert.match(annotationPage, /if \(command === 'project-chat'\)[\s\S]*openProjectChat\(row\)/)
   assert.doesNotMatch(annotationPage, /@click="openProjectChat\(row\)">沟通<\/el-button>/)

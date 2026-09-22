@@ -8,7 +8,7 @@
             <p>统一跟踪标注、招聘、口译、笔译及其他资源请求</p>
           </div>
           <div class="header-actions">
-            <el-button v-if="!deleteMode" @click="notesDialogVisible = true">需求说明</el-button>
+            <el-button v-if="!deleteMode" @click="openNotes">需求说明</el-button>
             <TableColumnSettings
               v-model="selectedColumnKeys"
               :columns="tableColumns"
@@ -144,7 +144,7 @@
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" layout="total, sizes, prev, pager, next" @change="fetchData" />
     </el-card>
 
-    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @opened="notesForegroundVersion++" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -240,12 +240,11 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))" @opened="notesForegroundVersion++">
+    <DraggableFormDialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))">
       <AppForm label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></AppForm>
       <template #footer><el-button @click="progressDialog = false">取消</el-button><el-button type="primary" @click="saveProgress">保存进度</el-button></template>
     </DraggableFormDialog>
 
-    <ResourceRequestDailyNotesDialog v-model="notesDialogVisible" :can-edit="canWrite" :foreground-version="notesForegroundVersion" />
   </div>
 </template>
 
@@ -272,7 +271,7 @@ import InlineTextField from '@/components/common/InlineTextField.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
-import ResourceRequestDailyNotesDialog from '@/views/resource/components/ResourceRequestDailyNotesDialog.vue'
+import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -336,8 +335,7 @@ const prefillLoading = ref(false)
 const advancedVisible = ref(false)
 const dialogVisible = ref(false)
 const progressDialog = ref(false)
-const notesDialogVisible = ref(false)
-const notesForegroundVersion = ref(0)
+const { openNotes } = useResourceNotesDock()
 const saving = ref(false)
 const sending = ref(false)
 const cancelling = ref(false)

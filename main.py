@@ -1849,6 +1849,8 @@ def run_runtime_migrations():
     duplicate_name_sql = (Path(__file__).parent / "data/migrations/20261012_talent_name_duplicate.sql").read_text(encoding="utf-8")
     with engine.begin() as conn:
         conn.execute(text(duplicate_name_sql.strip().removeprefix("BEGIN;").removesuffix("COMMIT;")))
+        normalized_name_sql = (Path(__file__).parent / "data/migrations/20261013_normalize_talent_duplicate_names.sql").read_text(encoding="utf-8")
+        conn.execute(text(normalized_name_sql.strip().removeprefix("BEGIN;").removesuffix("COMMIT;")))
     ResourceCapability.__table__.create(bind=engine, checkfirst=True)
     WrittenTranslationProfile.__table__.create(bind=engine, checkfirst=True)
     InterpretationProfile.__table__.create(bind=engine, checkfirst=True)

@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 
 defineOptions({
   name: 'DraggableFormDialog',
@@ -29,6 +29,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   draggable: { type: Boolean, default: true },
   nonModal: { type: Boolean, default: false },
+  resetOnOpen: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['update:modelValue', 'open'])
@@ -50,13 +51,23 @@ const handleModelValueUpdate = (value) => {
 }
 
 const handleOpen = async () => {
-  await resetPosition()
+  if (props.resetOnOpen) await resetPosition()
+  else await nextTick()
   if (props.nonModal) {
     const content = dialogRef.value?.dialogContentRef?.$el
     content?.closest('[role="dialog"]')?.setAttribute('aria-modal', 'false')
   }
   emit('open')
+  // 通知已固定的全局小窗调整层级；不干预下拉面板和确认框。
+  document.dispatchEvent(new CustomEvent('app-dialog-opened', {
+    detail: { element: dialogRef.value?.dialogContentRef?.$el },
+  }))
 }
+
+// 按需挂载的全局小窗初始即打开，Element Plus 此时不会触发 open 事件。
+onMounted(() => {
+  if (props.modelValue) handleOpen()
+})
 
 defineExpose({ resetPosition, handleClose })
 </script>

@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="state.windows.length" class="project-chat-dock" aria-label="项目沟通窗口">
+    <div v-if="state.windows.length || hasExtraTasks" class="project-chat-dock" aria-label="全局悬浮窗口">
       <section
         v-for="chatWindow in state.windows"
         v-show="!chatWindow.minimized"
@@ -54,7 +54,8 @@
         </div>
       </section>
 
-      <div v-if="state.windows.some(item => item.minimized)" class="project-chat-dock__taskbar">
+      <div v-if="state.windows.some(item => item.minimized) || hasExtraTasks" class="project-chat-dock__taskbar">
+        <div v-if="state.windows.some(item => item.minimized)" class="project-chat-dock__chat-tasks">
         <button
           v-for="chatWindow in state.windows.filter(item => item.minimized)"
           :key="chatWindow.key"
@@ -70,6 +71,8 @@
             {{ chatWindow.unread > 99 ? '99+' : chatWindow.unread }}
           </span>
         </button>
+        </div>
+        <slot name="tasks" />
       </div>
     </div>
   </Teleport>
@@ -80,6 +83,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { useProjectChatDock, PROJECT_CHAT_WINDOW_SIZE } from '@/composables/useProjectChatDock'
+
+defineProps({ hasExtraTasks: { type: Boolean, default: false } })
 
 const {
   state,
@@ -269,12 +274,20 @@ onBeforeUnmount(() => {
   max-width: calc(100vw - 32px);
   justify-content: flex-end;
   gap: 8px;
-  overflow-x: auto;
   pointer-events: auto;
 }
 
-.project-chat-task {
+.project-chat-dock__chat-tasks {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.project-chat-task,
+:slotted(.floating-dock-task) {
   display: inline-flex;
+  flex-shrink: 0;
   max-width: 280px;
   height: 38px;
   padding: 0 14px;

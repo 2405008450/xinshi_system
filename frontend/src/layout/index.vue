@@ -148,14 +148,29 @@
         </router-view>
       </el-main>
     </el-container>
-    <ProjectChatDock />
+    <ResourceRequestDailyNotesDialog
+      v-if="notesState.open"
+      :model-value="notesState.open"
+      :minimized="notesState.minimized"
+      :can-edit="canEditNotes"
+      @minimize="minimizeNotes"
+      @update:model-value="value => { if (!value) closeNotes() }"
+    />
+    <ProjectChatDock :has-extra-tasks="notesState.open && notesState.minimized">
+      <template #tasks>
+        <button v-if="notesState.open && notesState.minimized" type="button" class="floating-dock-task" title="恢复需求说明" aria-label="恢复需求说明" @click="openNotes">
+          <el-icon><Document /></el-icon>
+          <span>需求说明</span>
+        </button>
+      </template>
+    </ProjectChatDock>
   </el-container>
 </template>
 
 <script setup>
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
@@ -164,12 +179,17 @@ import {
 } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
+import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
+const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
+const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
+const canEditNotes = computed(() => hasPermission('projects:write'))
+onBeforeUnmount(closeNotes)
 const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
