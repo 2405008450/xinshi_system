@@ -4,10 +4,12 @@
     v-bind="$attrs"
     :model-value="modelValue"
     class="draggable-form-dialog"
-    draggable
+    :draggable="draggable"
     :overflow="false"
     @update:model-value="handleModelValueUpdate"
     @open="handleOpen"
+    @focusout.capture="handleFocusOut"
+    @keydown.capture="handleKeydown"
   >
     <template v-for="(_, slotName) in $slots" #[slotName]="slotProps">
       <slot :name="slotName" v-bind="slotProps" />
@@ -23,8 +25,10 @@ defineOptions({
   inheritAttrs: false,
 })
 
-defineProps({
+const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  draggable: { type: Boolean, default: true },
+  nonModal: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'open'])
@@ -33,12 +37,24 @@ const dialogRef = ref(null)
 const resetPosition = () => nextTick(() => dialogRef.value?.resetPosition?.())
 const handleClose = () => dialogRef.value?.handleClose?.()
 
+// 无模态小窗允许焦点离开；普通业务弹窗继续使用 Element Plus 的焦点锁定。
+const handleFocusOut = (event) => {
+  if (props.nonModal) event.stopImmediatePropagation()
+}
+const handleKeydown = (event) => {
+  if (props.nonModal && ['Tab', 'Escape'].includes(event.key)) event.stopImmediatePropagation()
+}
+
 const handleModelValueUpdate = (value) => {
   emit('update:modelValue', value)
 }
 
 const handleOpen = async () => {
   await resetPosition()
+  if (props.nonModal) {
+    const content = dialogRef.value?.dialogContentRef?.$el
+    content?.closest('[role="dialog"]')?.setAttribute('aria-modal', 'false')
+  }
   emit('open')
 }
 

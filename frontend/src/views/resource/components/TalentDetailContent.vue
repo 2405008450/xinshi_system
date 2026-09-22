@@ -42,6 +42,7 @@
     <section v-if="shows('region')">
       <h4>区域信息</h4>
       <el-descriptions :column="2" border size="small">
+        <el-descriptions-item label="籍贯">{{ show(detail.ancestralHome) }}</el-descriptions-item>
         <el-descriptions-item label="主要成长地">{{ show(detail.nativePlace) }}</el-descriptions-item>
         <el-descriptions-item label="目前所在地">{{ show(detail.residenceAddress) }}</el-descriptions-item>
       </el-descriptions>

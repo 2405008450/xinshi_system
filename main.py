@@ -560,6 +560,7 @@ MANUSCRIPT_ARRANGEMENT_COLUMN_STATEMENTS = (
     "ALTER TABLE manuscript_arrangement ADD COLUMN IF NOT EXISTS file_selection_mode VARCHAR(20) NOT NULL DEFAULT 'legacy_all'",
 )
 RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS ancestral_home VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS registration_source VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS wechat_account VARCHAR(100)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS chinese_name VARCHAR(255)",
@@ -1840,7 +1841,14 @@ def run_runtime_migrations():
     ResourcePerson.__table__.create(bind=engine, checkfirst=True)
     TalentOverviewSnapshot.__table__.create(bind=engine, checkfirst=True)
     ensure_resource_person_profile_columns()
+    # 显式迁移时安装自动编号并补齐历史空值，不在 API 启动时执行。
+    numbering_sql = (Path(__file__).parent / "data/migrations/20261011_auto_talent_resource_code.sql").read_text(encoding="utf-8")
+    with engine.begin() as conn:
+        conn.execute(text(numbering_sql.strip().removeprefix("BEGIN;").removesuffix("COMMIT;")))
     ensure_resource_person_performance_columns()
+    duplicate_name_sql = (Path(__file__).parent / "data/migrations/20261012_talent_name_duplicate.sql").read_text(encoding="utf-8")
+    with engine.begin() as conn:
+        conn.execute(text(duplicate_name_sql.strip().removeprefix("BEGIN;").removesuffix("COMMIT;")))
     ResourceCapability.__table__.create(bind=engine, checkfirst=True)
     WrittenTranslationProfile.__table__.create(bind=engine, checkfirst=True)
     InterpretationProfile.__table__.create(bind=engine, checkfirst=True)

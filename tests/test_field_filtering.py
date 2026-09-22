@@ -451,6 +451,7 @@ def test_talent_summary_filters_compile_to_aggregate_and_project_predicates():
         "project_situation": {"op": "contains", "value": "TP-2609"},
     }))
 
+    assert "resource_person.ancestral_home ilike" in talent_sql
     assert "resource_person.native_place ilike" in talent_sql
     assert "resource_person.residence_address ilike" in talent_sql
     assert "resource_person.highest_education in ('bachelor')" in talent_sql

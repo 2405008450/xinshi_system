@@ -14,6 +14,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKeyConstraint,
+    FetchedValue,
     Index,
     Integer,
     Numeric,
@@ -87,8 +88,13 @@ class ResourcePerson(Base):
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
-    resource_code: Mapped[Optional[str]] = mapped_column(String(50))
+    resource_code: Mapped[Optional[str]] = mapped_column(
+        String(50), server_default=FetchedValue(), server_onupdate=FetchedValue()
+    )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name_duplicate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), server_onupdate=FetchedValue()
+    )
     chinese_name: Mapped[Optional[str]] = mapped_column(String(255))
     english_name: Mapped[Optional[str]] = mapped_column(String(255))
     nickname: Mapped[Optional[str]] = mapped_column(String(255))
@@ -110,6 +116,7 @@ class ResourcePerson(Base):
     gender: Mapped[Optional[str]] = mapped_column(String(20))
     birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
     birth_year_month: Mapped[Optional[str]] = mapped_column(String(7))
+    ancestral_home: Mapped[Optional[str]] = mapped_column(String(255))
     native_place: Mapped[Optional[str]] = mapped_column(String(255))
     registration_source: Mapped[Optional[str]] = mapped_column(String(255))
     wechat_account: Mapped[Optional[str]] = mapped_column(String(100))

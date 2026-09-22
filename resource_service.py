@@ -274,6 +274,43 @@ def _project_situation_condition(keyword: str):
     ).exists()
 
 
+def _apply_talent_detail_filters(query, field_filters):
+    """同组明细条件放入一个 EXISTS，避免跨教育经历、语言或证书误匹配。"""
+    education_specs = {
+        "education_level": (ResourceEducationExperience.education_level, "string"),
+        "education_institution": (ResourceEducationExperience.institution, "string"),
+        "education_major": (ResourceEducationExperience.major, "string"),
+        "education_institution_category": (ResourceEducationExperience.institution_category, "string"),
+        "education_major_category": (ResourceEducationExperience.major_category, "string"),
+        "education_graduation_year": (ResourceEducationExperience.graduation_year, "integer"),
+        "education_minor_major": (ResourceEducationExperience.minor_major, "string"),
+        "education_degree_name": (ResourceEducationExperience.degree_name, "string"),
+    }
+    language_specs = {
+        "language_role": (ResourceLanguageSkill.role, "string"),
+        "language_proficiency": (ResourceLanguageSkill.proficiency, "string"),
+    }
+    certificate_specs = {
+        "certificate_type": (ResourceCertificate.certificate_type, "string"),
+        "certificate_name": (ResourceCertificate.name, "string"),
+        "certificate_issuer": (ResourceCertificate.issuer, "string"),
+        "certificate_received": (ResourceCertificate.material_received, "boolean"),
+    }
+    for model, relationship, specs, language_field in (
+        (ResourceEducationExperience, ResourcePerson.education_experiences, education_specs, None),
+        (ResourceLanguageSkill, ResourcePerson.language_skills, language_specs, "language_skills"),
+        (ResourceCertificate, ResourcePerson.certificates, certificate_specs, "certificate_language"),
+    ):
+        conditions = apply_scalar_specs(select(model.id), field_filters, specs)
+        if language_field in field_filters:
+            value = str(field_filters[language_field].get("value") or "").strip()
+            if value:
+                conditions = conditions.where(model.language.has(InterpretationLanguage.label.ilike(f"%{value}%")))
+        if conditions.whereclause is not None:
+            query = query.filter(relationship.any(conditions.whereclause))
+    return query
+
+
 def _talent_query(
     db: Session,
     *,
@@ -333,6 +370,7 @@ def _talent_query(
             ResourcePerson.capabilities.any(ResourceCapability.review_required == review_required),
         ))
     field_filters = field_filters or {}
+    query = _apply_talent_detail_filters(query, field_filters)
     query = apply_scalar_specs(query, field_filters, {
         "resource_code": (ResourcePerson.resource_code, "string"),
         "full_name": (ResourcePerson.full_name, "string"),
@@ -343,6 +381,7 @@ def _talent_query(
         "gender": (ResourcePerson.gender, "string"),
         "employment_status": (ResourcePerson.employment_status, "string"),
         "highest_education": (ResourcePerson.highest_education, "string"),
+        "ancestral_home": (ResourcePerson.ancestral_home, "string"),
         "native_place": (ResourcePerson.native_place, "string"),
         "registration_source": (ResourcePerson.registration_source, "string"),
         "wechat_account": (ResourcePerson.wechat_account, "string"),
@@ -409,18 +448,10 @@ def _talent_query(
         elif field in {"dialects", "dialect_regions"}:
             column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
             query = query.filter(cast(column, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
-        elif field == "language_skills":
-            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(ResourcePerson.language_skills.any(
-                ResourceLanguageSkill.language.has(InterpretationLanguage.label.ilike(pattern))
-            ))
-        elif field == "certificate_received":
-            query = query.filter(ResourcePerson.certificates.any(
-                ResourceCertificate.material_received == bool(descriptor.get("value"))
-            ))
         elif field == "region_summary":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(or_(
+                ResourcePerson.ancestral_home.ilike(pattern),
                 ResourcePerson.native_place.ilike(pattern),
                 ResourcePerson.residence_address.ilike(pattern),
             ))
@@ -1125,6 +1156,9 @@ def update_talent(
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
     })
+    # 空编号由数据库生成；编辑已有档案时不清空稳定标识。
+    if not data.get("resource_code") and person.resource_code:
+        data.pop("resource_code", None)
     for key, value in data.items():
         setattr(person, key, value)
     if duplicates and payload.allow_duplicate:
@@ -1163,6 +1197,9 @@ def update_recruitment_talent(
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *TALENT_MANAGED_FIELDS,
     })
+    # 空编号由数据库生成；编辑已有档案时不清空稳定标识。
+    if not data.get("resource_code") and person.resource_code:
+        data.pop("resource_code", None)
     for key, value in data.items():
         setattr(person, key, value)
     if duplicates and payload.allow_duplicate:
@@ -1213,7 +1250,7 @@ def sync_legacy_translator_to_talent(db: Session, translator) -> ResourcePerson:
     if person is None:
         person = ResourcePerson(id=translator.id, full_name=translator.translator_name)
         db.add(person)
-    person.resource_code = translator.translator_code
+    person.resource_code = translator.translator_code or person.resource_code
     person.full_name = translator.translator_name
     person.cooperation_type = translator.cooperation_type
     person.contact_info = translator.contact_info
@@ -1235,6 +1272,9 @@ def sync_legacy_translator_to_talent(db: Session, translator) -> ResourcePerson:
     # 兼容表是已持久化记录，必须先确保新主档已插入，
     # 再更新其外键；否则 PostgreSQL 会在同一次 flush 中先执行 UPDATE。
     db.flush([person])
+    db.refresh(person, attribute_names=["resource_code"])
+    if not translator.translator_code:
+        translator.translator_code = person.resource_code
     translator.resource_person_id = translator.id
 
     raw_type = (translator.translation_type or "").strip()

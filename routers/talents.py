@@ -91,8 +91,12 @@ TALENT_FILTER_FIELDS = {
     "resource_code", "full_name", "capability_types", "language_directions",
     "annotation_language_directions", "industries", "job_titles", "years_experience",
     "status", "cooperation_type", "annotation_willingness", "primary_phone", "primary_email", "gender", "age",
-    "native_place", "registration_source", "wechat_account", "residence_address", "dialects", "dialect_regions", "nationality",
+    "ancestral_home", "native_place", "registration_source", "wechat_account", "residence_address", "dialects", "dialect_regions", "nationality",
     "employment_status", "highest_education", "language_skills", "certificate_received",
+    "education_level", "education_institution", "education_major",
+    "education_institution_category", "education_major_category", "education_graduation_year",
+    "education_minor_major", "education_degree_name", "language_role", "language_proficiency",
+    "certificate_type", "certificate_name", "certificate_language", "certificate_issuer",
     "region_summary", "education_summary", "language_summary", "project_situation",
     "overall_score", "overall_rating", "audio_annotation_score",
     "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
@@ -140,10 +144,12 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
     ranges = {
         "years_experience", "age", "overall_score", "audio_annotation_score",
         "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
+        "education_graduation_year",
     }
     enums = {
         "capability_types", "status", "cooperation_type", "annotation_willingness",
         "employment_status", "highest_education",
+        "education_level", "language_role", "language_proficiency", "certificate_type",
     }
     booleans = {"duplicate_review_required", "certificate_received"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})

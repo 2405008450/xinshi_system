@@ -56,7 +56,7 @@
       <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
         <template #header>
-          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="search[headerFilterDefinition(column.key).key]" @update:model-value="search[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" @clear="searchNow">
+          <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model="search" :model-value="search[headerFilterDefinition(column.key).key]" @update:model-value="search[headerFilterDefinition(column.key).key]=$event" @update-field="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="searchNow" @enter="searchNow" @clear="searchNow">
             <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
           </ConfiguredColumnHeaderFilter>
           <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
@@ -64,7 +64,10 @@
         <template #default="{ row }">
           <el-popover v-if="column.key === 'fullName'" trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} 姓名与联系方式`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
             <template #reference>
-              <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${displayTalentName(row)}（点击查看详情）`" @click.stop>{{ displayTalentName(row) }}</el-button>
+              <span class="talent-name-cell">
+                <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${displayTalentName(row)}（点击查看详情）`" @click.stop>{{ displayTalentName(row) }}</el-button>
+                <el-tag v-if="row.nameDuplicate" type="warning" size="small" title="人才总库中存在相同姓名；重名不代表同一人，请结合资源编号和详情区分。">同名</el-tag>
+              </span>
             </template>
             <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" section="identity" />
           </el-popover>
@@ -168,7 +171,7 @@
             </div>
           </el-collapse-transition>
           <div v-if="!nameFieldsExpanded" class="name-collapsed-summary">当前显示名：{{ preferredFormName || '尚未填写' }}<span v-if="filledNameCount">（已填写 {{ filledNameCount }} 项）</span></div>
-          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="人才编号"><el-input v-model="form.resourceCode" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="档案状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col v-if="!isRecruitmentPool" :xs="24" :md="8"><el-form-item label="标注意愿"><el-select v-model="form.annotationWillingness" clearable placeholder="请选择低、中或高" style="width:100%"><el-option v-for="item in willingnessOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="人才编号"><ReadonlyField :model-value="form.resourceCode" source="auto" placeholder="保存后自动生成" tooltip="人才编号由系统自动生成，可选中复制" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="档案状态"><el-select v-model="form.status" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col v-if="!isRecruitmentPool" :xs="24" :md="8"><el-form-item label="标注意愿"><el-select v-model="form.annotationWillingness" clearable placeholder="请选择低、中或高" style="width:100%"><el-option v-for="item in willingnessOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col></el-row>
           <el-form-item v-if="!isRecruitmentPool" label="专业能力" prop="capabilityTypes"><el-checkbox-group v-model="form.capabilityTypes"><el-checkbox value="written_translation">笔译</el-checkbox><el-checkbox value="interpretation">口译</el-checkbox><el-checkbox value="annotation">标注</el-checkbox></el-checkbox-group></el-form-item>
         </div>
         <div v-if="canViewContacts" class="form-section"><h3>联系方式</h3>
@@ -192,7 +195,7 @@
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="职业状态"><el-select v-model="form.employmentStatus" clearable style="width:100%"><el-option v-for="item in employmentOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="16"><el-form-item label="具体说明"><el-input v-model="form.employmentDetail" /></el-form-item></el-col></el-row>
           <el-row v-if="form.employmentStatus==='student'" :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="学习阶段"><el-input v-model="form.studentStage" placeholder="例如：本科" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="入学年份"><el-input-number v-model="form.enrollmentYear" :min="1900" :max="2200" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="学制"><el-input-number v-model="form.programDurationYears" :min="1" :max="15" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="当前年级"><ReadonlyField :model-value="studentGrade" source="auto" tooltip="默认按每年9月进入下一学年" /></el-form-item></el-col></el-row>
         </div>
-        <div class="form-section"><h3>区域信息</h3><el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="主要成长地"><el-input v-model="form.nativePlace" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="目前所在地"><el-input v-model="form.residenceAddress" /></el-form-item></el-col></el-row></div>
+        <div class="form-section"><h3>区域信息</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="籍贯" prop="ancestralHome"><el-input v-model="form.ancestralHome" maxlength="255" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="主要成长地"><el-input v-model="form.nativePlace" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="目前所在地"><el-input v-model="form.residenceAddress" /></el-form-item></el-col></el-row></div>
 
         <div class="form-section"><h3>学历信息</h3>
           <el-form-item label="最高学历"><el-select v-model="form.highestEducation" clearable style="width:100%"><el-option v-for="item in educationOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
@@ -375,7 +378,7 @@ const formatDateTime = value => {
 }
 const tableDisplay = (column, row) => {
   if (column.key === 'employmentStatus') return employmentOptions.find(item => item.value === row.employmentStatus)?.label || display(row.employmentStatus)
-  if (column.key === 'regionSummary') return row.residenceAddress || '-'
+  if (column.key === 'regionSummary') return row.residenceAddress || row.nativePlace || row.ancestralHome || '-'
   if (column.key === 'educationSummary') return row.educationSummary || '-'
   if (column.key === 'languageSummary') return row.languageSummary || '-'
   if (column.key === 'age') return ageOf(row.birthDate)
@@ -391,7 +394,7 @@ const overallPerformanceSummary = row => {
 }
 const summarySectionMap={regionSummary:'region',educationSummary:'education',languageSummary:'language'}
 const summarySection=key=>summarySectionMap[key]||''
-const summaryHover=(key,row)=>({regionSummary:row.nativePlace,educationSummary:row.highestEducation,languageSummary:row.languageSummary}[key]||'点击查看详情')
+const summaryHover=(key,row)=>({regionSummary:[row.ancestralHome,row.nativePlace,row.residenceAddress].filter(Boolean).join(' · '),educationSummary:row.highestEducation,languageSummary:row.languageSummary}[key]||'点击查看详情')
 
 const ProfileDescription = defineComponent({props:{profile:Object,type:String},setup(props){const items=computed(()=>{const p=props.profile||{};if(props.type==='written')return [['语种方向',p.languages],['翻译方向',p.direction],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['默认优先级',p.defaultPriority],['日产接单数',p.dailyAcceptCount],['时速',p.hourlySpeed],['日产能',p.dailyWordCapacity],['可用时段',p.availableTimeSlot],['排班备注',p.scheduleRemarks],['云编辑',p.canCloudEdit===true?'支持':p.canCloudEdit===false?'不支持':'-'],['审校',p.canRevision===true?'支持':p.canRevision===false?'不支持':'-']];if(props.type==='interpretation')return [['语种方向',p.languages],['翻译方向',p.direction],['口译等级',p.interpretationLevel],['口译方式',(p.interpretationModes||[]).map(v=>v==='simultaneous'?'同传':'交传').join('、')],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['评价概述',p.evaluationSummary]];if(props.type==='annotation')return [['任务类型',p.taskTypes],['数据模态',p.dataModalities],['工具经验',p.tools],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['日产能',p.dailyCapacity],['备注',p.remarks]];return [['行业',p.industries],['职能',p.functions],['岗位',p.jobTitles],['工作年限',p.yearsExperience],['期望地点',p.preferredLocations],['期望薪资',p.expectedSalary],['职业概述',p.summary]]});return()=>h(ElDescriptions,{column:2,border:true,size:'small'},()=>items.value.map(([label,value])=>h(ElDescriptionsItem,{label},()=>display(value))))}})
 
@@ -399,11 +402,11 @@ const tableColumns=[
   {key:'resourceCode',label:'人才编号',width:130},
   {key:'registrationSource',label:'来源',width:190},
   {key:'wechatAccount',label:'所在微信',width:160},
-  {key:'fullName',label:'姓名',width:100,tooltip:false,clickHint:'点击姓名查看人才详情'},
+  {key:'fullName',label:'姓名',width:160,tooltip:false,clickHint:'点击姓名查看人才详情'},
   {key:'gender',label:'性别',width:80},
   {key:'nationality',label:'国籍',width:100},
   {key:'employmentStatus',label:'职业状态',width:110},
-  {key:'regionSummary',label:'区域信息',width:150,tooltip:false,clickHint:'点击查看成长地与目前所在地'},
+  {key:'regionSummary',label:'区域信息',width:150,tooltip:false,clickHint:'点击查看籍贯、主要成长地与目前所在地'},
   {key:'educationSummary',label:'学历信息',width:190,tooltip:false,clickHint:'点击查看完整学历经历'},
   {key:'languageSummary',label:'语言与证书',width:190,tooltip:false,clickHint:'点击查看语言与证书'},
   {key:'capabilityTypes',label:'专业能力',width:130,tooltip:false},
@@ -418,6 +421,7 @@ const tableColumns=[
   {key:'primaryPhone',label:'主要电话',width:140},
   {key:'primaryEmail',label:'主要邮箱',width:200},
   {key:'age',label:'年龄',width:80},
+  {key:'ancestralHome',label:'籍贯',width:150},
   {key:'nativePlace',label:'主要成长地',width:150},
   {key:'residenceAddress',label:'现居地址',width:180},
   {key:'dialects',label:'掌握方言',width:180},
@@ -452,9 +456,23 @@ const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDel
 const search=reactive({keyword:'',status:'',cooperationType:'',industryKeyword:'',reviewRequired:null})
 const talentFilterFields=[
   {key:'resourceCode',label:'人才编号',type:'text'},{key:'fullName',label:'姓名',type:'text'},
-  {key:'regionSummary',label:'区域信息',type:'text',placeholder:'筛选籍贯或现居地址'},
+  {key:'regionSummary',label:'区域信息',type:'text',placeholder:'筛选籍贯、主要成长地或目前所在地'},
   {key:'educationSummary',label:'学历信息',type:'text',placeholder:'筛选最高学历、院校或专业'},
   {key:'languageSummary',label:'语言与证书',type:'text',placeholder:'筛选语言、证书或颁发机构'},
+  {key:'educationLevel',label:'经历学历层次',type:'select',options:educationLevelOptions},
+  {key:'educationInstitution',label:'院校',type:'text'},
+  {key:'educationMajor',label:'专业',type:'text'},
+  {key:'educationInstitutionCategory',label:'院校分类',type:'text'},
+  {key:'educationMajorCategory',label:'专业分类',type:'text'},
+  {key:'educationGraduationYear',label:'毕业年份',type:'number-range',wide:true,min:1900,max:2200,precision:0},
+  {key:'educationMinorMajor',label:'辅修专业',type:'text'},
+  {key:'educationDegreeName',label:'学位名称',type:'text'},
+  {key:'languageRole',label:'语言角色',type:'select',options:languageRoleOptions},
+  {key:'languageProficiency',label:'熟悉程度',type:'select',options:proficiencyOptions},
+  {key:'certificateType',label:'证书类型',type:'select',options:[{value:'language',label:'外语类证书'},{value:'other',label:'其他类证书'}]},
+  {key:'certificateName',label:'证书名称',type:'text'},
+  {key:'certificateLanguage',label:'证书语言',type:'text'},
+  {key:'certificateIssuer',label:'颁发机构',type:'text'},
   {key:'capabilityTypes',label:'专业能力',type:'select',options:Object.entries(capabilityLabels).map(([value,label])=>({value,label}))},
   {key:'annotationWillingness',label:'标注意愿',type:'select',options:willingnessOptions,talentManaged:true},
   {key:'languageDirections',label:'语种方向',type:'text'},{key:'annotationLanguageDirections',label:'标注语言方向',type:'text'},
@@ -466,6 +484,7 @@ const talentFilterFields=[
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
   {key:'registrationSource',label:'来源',type:'text'},
   {key:'wechatAccount',label:'所在微信',type:'text'},
+  {key:'ancestralHome',label:'籍贯',type:'text'},
   {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
   {key:'nationality',label:'国籍',type:'text'},
@@ -483,7 +502,19 @@ Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})
 const talentAdvancedFilterFields=computed(()=>talentFilterFields.filter((item)=>item.key!=='status'&&availableToCurrentPool(item)))
 const activeTalentFilterFields=computed(()=>talentFilterFields.filter(availableToCurrentPool))
 const advancedCount=computed(()=>countActiveFilters(search,talentAdvancedFilterFields.value))
-const headerFilterDefinition=(key)=>talentFilterFields.find((item)=>item.key===key&&availableToCurrentPool(item))||null
+const groupedFilterKeys = {
+  regionSummary: ['regionSummary','ancestralHome','nativePlace','residenceAddress'],
+  educationSummary: ['educationSummary','highestEducation','educationLevel','educationInstitution','educationMajor','educationInstitutionCategory','educationMajorCategory','educationGraduationYear','educationMinorMajor','educationDegreeName'],
+  languageSummary: ['languageSummary','languageSkills','languageRole','languageProficiency','dialects','certificateType','certificateName','certificateLanguage','certificateIssuer','certificateReceived'],
+}
+const groupedHeaderFilters = Object.fromEntries(Object.entries(groupedFilterKeys).map(([key, keys]) => [key, {
+  key, label: talentFilterFields.find(field => field.key === key).label, type: 'group', headerWidth: 480,
+  fields: keys.map(fieldKey => {
+    const field = talentFilterFields.find(item => item.key === fieldKey)
+    return { ...field, groupLabel: fieldKey === key ? '综合关键词' : fieldKey === 'residenceAddress' ? '目前所在地' : field.label }
+  }),
+}]))
+const headerFilterDefinition=(key)=>groupedHeaderFilters[key]||talentFilterFields.find((item)=>item.key===key&&availableToCurrentPool(item))||null
 const performanceSortField=ref('')
 const performanceSortDirection=ref('desc')
 let timer=null;let controller=null;let sequence=0
@@ -515,7 +546,7 @@ const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?nul
 const emptyForm=()=>({
   id:null,resourceCode:'',registrationSource:'',wechatAccount:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
   contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
-  resumePath:'',gender:'',birthDate:null,birthYearMonth:null,nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
+  resumePath:'',gender:'',birthDate:null,birthYearMonth:null,ancestralHome:'',nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
   nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
   annotationExperience:'',interpretationExperience:'',translationExperience:'',otherExperience:'',annotationWillingness:null,educationExperiences:[],languageSkills:[],certificates:[],attachments:[],
   overallScore:null,overallRating:'',cooperationLevel:null,cooperationNote:'',punctualityLevel:null,punctualityNote:'',
@@ -586,7 +617,7 @@ const payload=(allowDuplicate=false)=>{
     chineseName:form.chineseName||null,englishName:form.englishName||null,nickname:form.nickname||null,otherNames:form.otherNames||[],cooperationType:form.cooperationType||null,
     contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,
     otherContact:form.otherContact||null,wechat:form.wechat||null,whatsapp:form.whatsapp||null,skype:form.skype||null,line:form.line||null,resumePath:form.resumePath||null,
-    gender:form.gender||null,birthDate:blankToNull(form.birthDate),birthYearMonth:blankToNull(form.birthYearMonth),nativePlace:form.nativePlace||null,residenceAddress:form.residenceAddress||null,
+    gender:form.gender||null,birthDate:blankToNull(form.birthDate),birthYearMonth:blankToNull(form.birthYearMonth),ancestralHome:form.ancestralHome||null,nativePlace:form.nativePlace||null,residenceAddress:form.residenceAddress||null,
     dialects:form.dialects||[],dialectRegions:form.dialectRegions||[],height:form.height||null,appearance:form.appearance||null,nationality:form.nationality||null,ethnicity:form.ethnicity||null,
     employmentStatus:form.employmentStatus||null,employmentDetail:form.employmentDetail||null,studentStage:form.studentStage||null,enrollmentYear:form.enrollmentYear,
     programDurationYears:form.programDurationYears,studentGradeOverride:form.studentGradeOverride||null,highestEducation:form.highestEducation||null,
@@ -624,6 +655,9 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{co
 </script>
 
 <style scoped>
+.talent-name-cell{display:inline-flex;align-items:center;gap:6px;max-width:100%}
+.talent-name-cell .talent-name-link{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.talent-name-cell .el-tag{flex-shrink:0}
 .card-header,.header-actions,.advanced-actions,.tag-list,.action-buttons,.status-option-row{display:flex;align-items:center}.status-option-row{gap:8px;width:100%}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-current-icon{color:var(--el-color-primary)}.action-buttons{justify-content:center;flex-wrap:nowrap;white-space:nowrap}.card-header,.advanced-actions{justify-content:space-between}.header-actions,.tag-list{gap:8px}.page-title{font-size:18px;font-weight:600}.page-subtitle{margin-left:12px;color:var(--el-text-color-secondary);font-size:13px}.search-form{margin-bottom:4px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-title{margin-bottom:14px;font-weight:600}.performance-sort-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--el-border-color-lighter)}.performance-sort-controls label{display:grid;gap:3px;color:var(--el-text-color-secondary);font-size:12px}.pagination{justify-content:flex-end;margin-top:16px}.detail-content{max-height:560px;overflow-y:auto}.detail-content h4{margin:14px 0 8px}.detail-content h4:first-child{margin-top:0}.pre-wrap{white-space:pre-wrap;word-break:break-word}
 .talent-editor-body{padding:16px 20px 20px;background:var(--el-fill-color-lighter)}
 .talent-editor-form{width:100%}

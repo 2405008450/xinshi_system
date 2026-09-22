@@ -144,7 +144,7 @@
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" layout="total, sizes, prev, pager, next" @change="fetchData" />
     </el-card>
 
-    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @opened="notesForegroundVersion++" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -240,12 +240,12 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))">
+    <DraggableFormDialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))" @opened="notesForegroundVersion++">
       <AppForm label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></AppForm>
       <template #footer><el-button @click="progressDialog = false">取消</el-button><el-button type="primary" @click="saveProgress">保存进度</el-button></template>
     </DraggableFormDialog>
 
-    <ResourceRequestDailyNotesDialog v-model="notesDialogVisible" :can-edit="canWrite" />
+    <ResourceRequestDailyNotesDialog v-model="notesDialogVisible" :can-edit="canWrite" :foreground-version="notesForegroundVersion" />
   </div>
 </template>
 
@@ -332,6 +332,7 @@ const advancedVisible = ref(false)
 const dialogVisible = ref(false)
 const progressDialog = ref(false)
 const notesDialogVisible = ref(false)
+const notesForegroundVersion = ref(0)
 const saving = ref(false)
 const sending = ref(false)
 const cancelling = ref(false)

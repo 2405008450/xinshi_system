@@ -196,6 +196,7 @@ class ResourcePersonWrite(BaseModel):
     gender: Optional[str] = None
     birth_date: Optional[date] = None
     birth_year_month: Optional[str] = Field(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    ancestral_home: Optional[str] = Field(default=None, max_length=255)
     native_place: Optional[str] = None
     registration_source: Optional[str] = Field(default=None, max_length=255)
     wechat_account: Optional[str] = Field(default=None, max_length=100)
@@ -249,7 +250,7 @@ class ResourcePersonWrite(BaseModel):
         "cooperation_type", "contact_info",
         "primary_phone", "secondary_phone", "primary_email", "secondary_email",
         "other_contact", "wechat", "whatsapp", "skype", "line", "resume_path", "gender",
-        "native_place", "registration_source", "wechat_account", "residence_address", "height", "appearance", "nationality", "ethnicity",
+        "ancestral_home", "native_place", "registration_source", "wechat_account", "residence_address", "height", "appearance", "nationality", "ethnicity",
         "employment_detail", "student_stage", "student_grade_override", "annotation_experience",
         "interpretation_experience", "translation_experience", "other_experience", "overall_rating",
         "cooperation_note", "punctuality_note", "audio_annotation_evaluation",
@@ -456,6 +457,7 @@ class ResourcePersonListResponse(BaseModel):
     id: UUID
     resource_code: Optional[str] = None
     full_name: str
+    name_duplicate: bool = False
     chinese_name: Optional[str] = None
     english_name: Optional[str] = None
     nickname: Optional[str] = None
@@ -481,6 +483,7 @@ class ResourcePersonListResponse(BaseModel):
     language_summary: Optional[str] = None
     registration_source: Optional[str] = None
     wechat_account: Optional[str] = None
+    ancestral_home: Optional[str] = Field(default=None, max_length=255)
     native_place: Optional[str] = None
     residence_address: Optional[str] = None
     dialects: list[str] = Field(default_factory=list)

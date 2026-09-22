@@ -54,12 +54,18 @@ def test_person_locale_profile_fields_are_typed_and_default_to_lists():
         full_name="方言标注员",
         gender="女",
         birth_date="1998-06-15",
+        ancestral_home="  福建漳州  ",
         native_place="福建泉州",
         residence_address="福建厦门",
         dialects=["闽南语"],
         dialect_regions=["泉州石狮"],
     )
 
+    assert payload.ancestral_home == "福建漳州"
+    assert payload.native_place == "福建泉州"
+    assert ResourcePersonUpdate(full_name="人才", ancestral_home="  ").ancestral_home is None
+    assert "ancestral_home" in ResourcePersonDetailResponse.model_fields
+    assert "ancestral_home" in ResourcePersonListResponse.model_fields
     assert payload.birth_date.isoformat() == "1998-06-15"
     assert payload.dialects == ["闽南语"]
     assert payload.dialect_regions == ["泉州石狮"]
@@ -225,7 +231,7 @@ def test_talent_performance_sort_keeps_nulls_last_and_stable_ties():
 
 def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
     person = SimpleNamespace(
-        id=uuid4(), full_name="招聘人才", chinese_name="招聘人才", english_name=None,
+        id=uuid4(), resource_code="RC000123", full_name="招聘人才", chinese_name="招聘人才", english_name=None,
         nickname=None, other_names=[], overall_score=9, overall_rating="保留评价",
         cooperation_level="high", cooperation_note="保留说明", punctuality_level="medium",
         punctuality_note="守时说明", audio_annotation_score=8,
@@ -246,6 +252,7 @@ def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
 
     updated = update_recruitment_talent(db, person.id, payload)
 
+    assert updated.resource_code == "RC000123"
     assert updated.overall_score == 9
     assert updated.overall_rating == "保留评价"
     assert updated.cooperation_level == "high"

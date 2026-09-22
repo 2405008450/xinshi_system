@@ -8,6 +8,7 @@
       trigger="click"
       :placement="placement"
       :width="width"
+      :popper-options="viewportPopperOptions"
       popper-class="column-header-filter-popover"
       @before-enter="$emit('before-enter')"
     >
@@ -21,6 +22,7 @@
           @click.stop
         >
           <el-icon><Filter /></el-icon>
+          <span v-if="activeCount" class="column-header-filter__count">{{ activeCount }}</span>
         </button>
       </template>
       <div class="column-header-filter__content">
@@ -42,6 +44,7 @@ import { Filter } from '@element-plus/icons-vue'
 defineProps({
   label: { type: String, required: true },
   active: { type: Boolean, default: false },
+  activeCount: { type: Number, default: 0 },
   placement: { type: String, default: 'bottom-start' },
   width: { type: Number, default: 240 },
   hideDefaultFooter: { type: Boolean, default: false },
@@ -50,6 +53,13 @@ defineProps({
 defineEmits(['clear', 'before-enter'])
 
 const visible = ref(false)
+// 表格横向滚动或视口缩小时，表头可能移出屏幕；浮层仍须留在视口内。
+const viewportPopperOptions = {
+  modifiers: [{
+    name: 'preventOverflow',
+    options: { rootBoundary: 'viewport', altAxis: true, tether: false, padding: 16 },
+  }],
+}
 const close = () => { visible.value = false }
 defineExpose({ close })
 </script>
@@ -69,6 +79,7 @@ defineExpose({ close })
 }
 
 .column-header-filter__trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -82,6 +93,19 @@ defineExpose({ close })
   color: var(--el-text-color-secondary);
   cursor: pointer;
   font-size: 13px;
+}
+
+.column-header-filter__count {
+  position: absolute;
+  top: -9px;
+  right: -10px;
+  min-width: 14px;
+  padding: 0 2px;
+  border-radius: 7px;
+  background: #2563eb;
+  color: white;
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .column-header-filter__trigger:hover {

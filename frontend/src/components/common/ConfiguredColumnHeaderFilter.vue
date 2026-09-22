@@ -3,14 +3,27 @@
     ref="popoverRef"
     :label="definition.label"
     :active="active"
+    :active-count="isGroup ? groupActiveCount : 0"
     :width="definition.headerWidth || (definition.wide ? 320 : 240)"
     :placement="placement"
-    :hide-default-footer="usesConfirmedSelection"
+    :hide-default-footer="usesConfirmedSelection || isGroup"
     @before-enter="prepareDraft"
     @clear="clear"
   >
     <template #label><slot name="label">{{ definition.label }}</slot></template>
-    <div v-if="usesConfirmedSelection" class="confirmed-header-filter">
+    <GroupedColumnFilterContent
+      v-if="isGroup"
+      :key="groupOpenVersion"
+      :definition="definition"
+      :model="model"
+      @update-field="(key, value) => $emit('update-field', key, value)"
+      @text-input="$emit('text-input', $event)"
+      @change="$emit('change')"
+      @enter="$emit('enter')"
+      @clear="$emit('clear')"
+      @close="popoverRef?.close()"
+    />
+    <div v-else-if="usesConfirmedSelection" class="confirmed-header-filter">
       <div class="confirmed-header-filter__header">
         <span>选择{{ definition.label }}</span>
         <div>
@@ -56,16 +69,21 @@
 import { computed, ref } from 'vue'
 import ColumnHeaderFilter from './ColumnHeaderFilter.vue'
 import ListFilterControl from './ListFilterControl.vue'
-import { emptyFilterValue, isActiveFilterValue } from '@/utils/listFieldFilters'
+import GroupedColumnFilterContent from './GroupedColumnFilterContent.vue'
+import { countActiveFilters, emptyFilterValue, isActiveFilterValue } from '@/utils/listFieldFilters'
 
 const props = defineProps({
   definition: { type: Object, required: true },
+  model: { type: Object, default: () => ({}) },
   modelValue: { type: [String, Number, Boolean, Array, Object], default: '' },
   placement: { type: String, default: 'bottom-start' },
 })
 
-const emit = defineEmits(['update:modelValue', 'text-input', 'change', 'enter', 'clear'])
-const active = computed(() => isActiveFilterValue(props.definition, props.modelValue))
+const emit = defineEmits(['update:modelValue', 'update-field', 'text-input', 'change', 'enter', 'clear'])
+const isGroup = computed(() => props.definition.type === 'group')
+const groupActiveCount = computed(() => countActiveFilters(props.model, props.definition.fields || []))
+const groupOpenVersion = ref(0)
+const active = computed(() => isGroup.value ? groupActiveCount.value > 0 : isActiveFilterValue(props.definition, props.modelValue))
 // 所有可多选的表头选择筛选统一直接展示复选项，避免下拉选择后反复打开。
 const usesConfirmedSelection = computed(() => props.definition.type === 'select' && props.definition.multiple !== false)
 const popoverRef = ref()
@@ -85,6 +103,7 @@ const filteredOptions = computed(() => {
   return resolvedOptions.value.filter((option) => String(option.label).toLocaleLowerCase().includes(keyword))
 })
 const prepareDraft = () => {
+  groupOpenVersion.value++
   draftValue.value = Array.isArray(props.modelValue) ? [...props.modelValue] : []
   filterKeyword.value = ''
 }

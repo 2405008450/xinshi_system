@@ -1,16 +1,32 @@
 <template>
   <DraggableFormDialog
+    ref="dialogRef"
     :model-value="modelValue"
     title="需求说明"
-    width="min(960px, calc(100vw - 32px))"
+    width="min(560px, calc(100vw - 32px))"
     top="5vh"
     append-to-body
     class="resource-request-notes-dialog"
+    :draggable="!pinned"
+    non-modal
+    :modal="false"
+    modal-penetrable
+    :lock-scroll="false"
+    :close-on-press-escape="false"
+    :z-index="windowZIndex"
     :close-on-click-modal="false"
     :before-close="beforeClose"
     @update:model-value="emit('update:modelValue', $event)"
     @open="handleOpen"
   >
+    <template #header="{ titleId, titleClass }">
+      <div class="daily-note-window-heading">
+        <span :id="titleId" :class="titleClass">需求说明</span>
+        <el-button size="small" :type="pinned ? 'primary' : 'default'" :aria-pressed="pinned" @mousedown.stop @click="togglePinned">
+          {{ pinned ? '解除固定' : '固定' }}
+        </el-button>
+      </div>
+    </template>
     <section v-if="canEdit" ref="editorSection" class="daily-note-editor">
       <div class="daily-note-editor__heading">
         <div>
@@ -88,8 +104,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox, useZIndex } from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
@@ -100,8 +116,30 @@ import { formatDateTimeMinute } from '@/utils/dateTime'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   canEdit: { type: Boolean, default: false },
+  foregroundVersion: { type: Number, default: 0 },
 })
 const emit = defineEmits(['update:modelValue'])
+const dialogRef = ref(null)
+const pinned = ref(false)
+const { nextZIndex } = useZIndex()
+const windowZIndex = ref(nextZIndex())
+
+function togglePinned() {
+  pinned.value = !pinned.value
+  if (pinned.value) windowZIndex.value = nextZIndex()
+}
+
+// 后方业务弹窗完成打开后再置顶，后续日期、颜色及确认浮层仍使用正常层级。
+watch(() => props.foregroundVersion, async () => {
+  await nextTick()
+  if (props.modelValue && pinned.value) windowZIndex.value = nextZIndex()
+})
+
+function handleViewportResize() {
+  if (props.modelValue) dialogRef.value?.resetPosition()
+}
+onMounted(() => window.addEventListener('resize', handleViewportResize))
+onBeforeUnmount(() => window.removeEventListener('resize', handleViewportResize))
 
 const emptyDocument = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
 const cloneDocument = value => JSON.parse(JSON.stringify(value || emptyDocument()))
@@ -164,6 +202,8 @@ async function loadNotes() {
 }
 
 async function handleOpen() {
+  pinned.value = false
+  windowZIndex.value = nextZIndex()
   setEditorDate(localDate())
   await loadNotes()
 }
@@ -227,6 +267,7 @@ const formatDateTime = value => formatDateTimeMinute(value) || '-'
 </script>
 
 <style scoped>
+.daily-note-window-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .daily-note-editor { padding-bottom: 24px; border-bottom: 1px solid var(--el-border-color-lighter); }
 .daily-note-editor__heading,.daily-note-history__heading,.daily-note-card header,.daily-note-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .daily-note-editor__heading,.daily-note-history__heading { margin-bottom: 14px; }
@@ -250,7 +291,7 @@ const formatDateTime = value => formatDateTimeMinute(value) || '-'
 </style>
 
 <style>
-.resource-request-notes-dialog { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
+.resource-request-notes-dialog { display: flex; flex-direction: column; max-height: 80vh; overflow: hidden; margin-right: 16px; margin-left: auto; }
 .resource-request-notes-dialog .el-dialog__header,.resource-request-notes-dialog .el-dialog__footer { flex-shrink: 0; }
 .resource-request-notes-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
 .resource-request-notes-dialog .el-dialog__footer { padding-top: 14px; border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-lighter); }
