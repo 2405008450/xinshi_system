@@ -7,6 +7,7 @@ import json
 import re
 from typing import Any, Optional
 from uuid import UUID
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -15,7 +16,7 @@ ALLOWED_NODE_TYPES = {
     "doc", "paragraph", "text", "heading", "bulletList", "orderedList",
     "listItem", "blockquote", "hardBreak", "horizontalRule", "codeBlock",
 }
-ALLOWED_MARK_TYPES = {"bold", "italic", "strike", "code", "textColor", "highlight"}
+ALLOWED_MARK_TYPES = {"bold", "italic", "strike", "code", "textColor", "highlight", "link"}
 MAX_DOCUMENT_BYTES = 512 * 1024
 
 
@@ -49,7 +50,27 @@ def validate_tiptap_document(value: Any) -> dict:
             if not isinstance(mark, dict) or mark.get("type") not in ALLOWED_MARK_TYPES:
                 raise ValueError("须知内容包含不支持的文字格式")
             mark_attrs = mark.get("attrs") or {}
-            if mark.get("type") == "textColor":
+            if not isinstance(mark_attrs, dict):
+                raise ValueError("须知文字格式属性无效")
+            if mark.get("type") == "link":
+                href = mark_attrs.get("href")
+                if not isinstance(href, str) or re.search(r"[\s\\\x00-\x1f\x7f]", href):
+                    raise ValueError("超链接地址无效")
+                try:
+                    parsed = urlsplit(href)
+                    valid_url = parsed.scheme.lower() in {"http", "https"} and bool(parsed.hostname) and bool(parsed.netloc)
+                    parsed.port  # 校验非法端口，避免保存后无法打开。
+                except ValueError:
+                    valid_url = False
+                if not valid_url:
+                    raise ValueError("超链接只支持有效的 HTTP 或 HTTPS 地址")
+                if (set(mark_attrs) - {"href", "target", "rel", "class", "title"}
+                        or mark_attrs.get("target") not in (None, "_blank")
+                        or mark_attrs.get("rel") not in (None, "noopener noreferrer nofollow")
+                        or mark_attrs.get("class") is not None
+                        or mark_attrs.get("title") is not None):
+                    raise ValueError("超链接属性无效")
+            elif mark.get("type") == "textColor":
                 color = mark_attrs.get("color")
                 if not isinstance(color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
                     raise ValueError("字体颜色格式无效")

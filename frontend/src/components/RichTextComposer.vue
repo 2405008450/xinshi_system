@@ -16,6 +16,7 @@
         <span class="rich-editor__color-label">字体颜色</span>
         <el-color-picker
           v-model="selectedColor"
+          color-format="hex"
           size="small"
           :predefine="predefinedColors"
           @change="applyTextColor"
@@ -41,11 +42,15 @@ import { computed, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
+import { pasteWithoutFormatting } from '@/utils/plainTextPaste'
+import { handleWebLinkClick, linkifyDocument, noticeLinkOptions } from '@/utils/richTextLinks'
 
 const props = defineProps({
   modelValue: { type: Object, default: null },
   placeholder: { type: String, default: '请输入留言内容…' },
   formatColors: Boolean,
+  plainTextPaste: Boolean,
+  enableLinks: Boolean,
   minHeight: { type: String, default: '132px' }
 })
 
@@ -57,16 +62,20 @@ const selectedColor = ref('#1f2937')
 const predefinedColors = ['#1f2937', '#475569', '#2563eb', '#0f766e', '#b45309', '#b91c1c', '#7e22ce']
 
 const editor = useEditor({
-  content: props.modelValue || emptyDocument(),
+  content: (props.enableLinks ? linkifyDocument(props.modelValue) : props.modelValue) || emptyDocument(),
   extensions: [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
-      link: false
+      link: props.enableLinks ? noticeLinkOptions : false
     }),
     TextColor,
     YellowHighlight
   ],
   editorProps: {
+    handleClick: (view, pos, event) => props.enableLinks ? handleWebLinkClick(view, pos, event) : false,
+    handlePaste: (view, event, slice) => props.plainTextPaste
+      ? pasteWithoutFormatting(view, event, slice)
+      : false,
     attributes: {
       class: 'rich-editor__prose',
       'data-placeholder': props.placeholder
@@ -95,7 +104,7 @@ watch(
   (value) => {
     if (!editor.value || !value) return
     if (JSON.stringify(editor.value.getJSON()) !== JSON.stringify(value)) {
-      editor.value.commands.setContent(value, false)
+      editor.value.commands.setContent(props.enableLinks ? linkifyDocument(value) : value, { emitUpdate: false })
     }
   }
 )
@@ -149,6 +158,12 @@ defineExpose({
 
 :deep(.rich-editor__prose p) {
   margin: 0 0 8px;
+}
+
+:deep(.rich-editor__prose a) {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 :deep(.rich-editor__prose ul),

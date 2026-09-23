@@ -8,24 +8,26 @@ import { onBeforeUnmount, watch } from 'vue'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
+import { linkifyDocument, noticeLinkOptions } from '@/utils/richTextLinks'
 
 const props = defineProps({
   document: { type: Object, default: null },
+  enableLinks: Boolean,
   fallback: { type: String, default: '' }
 })
 
 const editor = props.document
   ? new Editor({
-      content: props.document,
+      content: props.enableLinks ? linkifyDocument(props.document) : props.document,
       editable: false,
-      extensions: [StarterKit.configure({ link: false }), TextColor, YellowHighlight]
+      extensions: [StarterKit.configure({ link: props.enableLinks ? noticeLinkOptions : false }), TextColor, YellowHighlight]
     })
   : null
 
 watch(
   () => props.document,
   (value) => {
-    if (editor && value) editor.commands.setContent(value, false)
+    if (editor && value) editor.commands.setContent(props.enableLinks ? linkifyDocument(value) : value, { emitUpdate: false })
   },
   { deep: true }
 )
@@ -50,5 +52,11 @@ onBeforeUnmount(() => editor?.destroy())
 
 :deep(p:last-child) {
   margin-bottom: 0;
+}
+
+:deep(a) {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+  cursor: pointer;
 }
 </style>

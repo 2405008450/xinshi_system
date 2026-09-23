@@ -125,6 +125,7 @@
           </div>
 
           <RichTextContent
+            enable-links
             v-if="hasContent(activeDetail?.contentJson)"
             :document="activeDetail.contentJson"
             class="notice-content__document"
@@ -148,7 +149,7 @@
     :close-on-click-modal="false"
     :before-close="beforeEditorClose"
   >
-    <RichTextComposer v-if="editorVisible" v-model="draftContent" format-colors min-height="360px" placeholder="请输入需要团队注意的事项…" />
+    <RichTextComposer v-if="editorVisible" v-model="draftContent" format-colors plain-text-paste enable-links min-height="360px" placeholder="请输入需要团队注意的事项…" />
     <template #footer>
       <el-button :disabled="saving" @click="requestEditorClose">取消</el-button>
       <el-button type="primary" :loading="saving" @click="saveNotice">保存</el-button>

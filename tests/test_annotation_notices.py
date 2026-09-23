@@ -100,6 +100,27 @@ def test_notice_schema_accepts_text_color_and_yellow_highlight():
     assert payload.content_json["content"][0]["content"][0]["text"] == "注意事项"
 
 
+@pytest.mark.parametrize("href", ["https://example.com/path?q=1#part", "http://example.com", "https://例子.中国/说明"])
+def test_notice_schema_accepts_external_links(href):
+    payload = AnnotationNoticeSectionUpdate(content_json=document({"type": "link", "attrs": {
+        "href": href, "target": "_blank", "rel": "noopener noreferrer nofollow", "class": None, "title": None,
+    }}))
+    assert payload.content_json["content"][0]["content"][0]["marks"][0]["attrs"]["href"] == href
+
+
+@pytest.mark.parametrize("attrs", [
+    {"href": "javascript:alert(1)"}, {"href": "data:text/html,test"},
+    {"href": "file:///C:/test"}, {"href": "//example.com"},
+    {"href": "https://"}, {"href": "https://example.com:bad"},
+    {"href": "https://exam\nple.com"}, {"href": "https://example.com", "onclick": "alert(1)"},
+    {"href": "https://example.com", "target": "_self"},
+    {"href": "https://example.com", "rel": []},
+])
+def test_notice_schema_rejects_invalid_links(attrs):
+    with pytest.raises(ValidationError):
+        AnnotationNoticeSectionUpdate(content_json=document({"type": "link", "attrs": attrs}))
+
+
 @pytest.mark.parametrize("mark", [
     {"type": "link", "attrs": {"href": "javascript:alert(1)"}},
     {"type": "textColor", "attrs": {"color": "red;position:fixed"}},
