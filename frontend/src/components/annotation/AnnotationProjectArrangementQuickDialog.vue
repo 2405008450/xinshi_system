@@ -15,8 +15,16 @@
     @closed="resetState"
   >
     <template #header>
+      <DialogFieldSearchHeader
+        ref="fieldSearchRef"
+        v-model="fieldSearchKeyword"
+        title="项目安排"
+        placeholder="定位字段，如任务内容"
+        :fetch-suggestions="fetchFieldSuggestions"
+        @select="locateDialogField"
+        @clear="clearFieldSearch"
+      />
       <div class="quick-dialog-heading">
-        <strong>项目安排</strong>
         <span @mousedown.stop>{{ textValue(activeProject?.orderNo) }}</span>
         <span class="heading-separator" aria-hidden="true" />
         <span class="heading-project" :title="textValue(activeProject?.projectName)" @mousedown.stop>
@@ -25,81 +33,75 @@
       </div>
     </template>
 
-    <div class="quick-toolbar">
-      <div>
-        <strong>任务与安排</strong>
-        <span>当前日期：{{ defaultDate }}</span>
-      </div>
-      <div class="quick-toolbar-actions">
-        <el-popover v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
-          <template #reference><el-button>任务类型管理</el-button></template>
-          <div class="task-type-manager">
-            <div class="task-type-create">
-              <el-input v-model="newTaskTypeName" maxlength="50" placeholder="新增任务类型" @keyup.enter="createTaskType" />
-              <el-button type="primary" :loading="taskTypeSaving" @click="createTaskType">新增</el-button>
-            </div>
-            <div class="task-type-list">
-              <div v-for="item in taskTypes" :key="item.id" class="task-type-row">
-                <el-input v-if="editingTaskTypeId === item.id" v-model="editingTaskTypeName" maxlength="50" size="small" @keyup.enter="saveTaskTypeName(item)" />
-                <span v-else :class="{ 'is-inactive': !item.isActive }">{{ item.name }}</span>
-                <div class="task-type-actions">
-                  <el-button v-if="editingTaskTypeId === item.id" type="primary" link size="small" @click="saveTaskTypeName(item)">保存</el-button>
-                  <el-button v-else type="primary" link size="small" @click="startEditTaskType(item)">改名</el-button>
-                  <el-button :type="item.isActive ? 'warning' : 'success'" link size="small" @click="toggleTaskType(item)">
-                    {{ item.isActive ? '停用' : '恢复' }}
-                  </el-button>
-                </div>
+    <div ref="editorBodyRef">
+      <div class="quick-toolbar">
+        <div>
+          <strong>任务与安排</strong>
+          <span>当前日期：{{ defaultDate }}</span>
+        </div>
+        <div class="quick-toolbar-actions">
+          <el-popover v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
+            <template #reference><el-button>任务类型管理</el-button></template>
+            <div class="task-type-manager">
+              <div class="task-type-create">
+                <el-input v-model="newTaskTypeName" maxlength="50" placeholder="新增任务类型" @keyup.enter="createTaskType" />
+                <el-button type="primary" :loading="taskTypeSaving" @click="createTaskType">新增</el-button>
               </div>
-              <el-empty v-if="!taskTypes.length" description="暂无任务类型" :image-size="52" />
+              <div class="task-type-list">
+                <div v-for="item in taskTypes" :key="item.id" class="task-type-row">
+                  <el-input v-if="editingTaskTypeId === item.id" v-model="editingTaskTypeName" maxlength="50" size="small" @keyup.enter="saveTaskTypeName(item)" />
+                  <span v-else :class="{ 'is-inactive': !item.isActive }">{{ item.name }}</span>
+                  <div class="task-type-actions">
+                    <el-button v-if="editingTaskTypeId === item.id" type="primary" link size="small" @click="saveTaskTypeName(item)">保存</el-button>
+                    <el-button v-else type="primary" link size="small" @click="startEditTaskType(item)">改名</el-button>
+                    <el-button :type="item.isActive ? 'warning' : 'success'" link size="small" @click="toggleTaskType(item)">
+                      {{ item.isActive ? '停用' : '恢复' }}
+                    </el-button>
+                  </div>
+                </div>
+                <el-empty v-if="!taskTypes.length" description="暂无任务类型" :image-size="52" />
+              </div>
             </div>
-          </div>
-        </el-popover>
-        <el-button v-if="canWrite && allowNewTasks" type="primary" plain @click="addTask">新增任务</el-button>
+          </el-popover>
+          <el-button v-if="canWrite && allowNewTasks" type="primary" plain @click="addTask">新增任务</el-button>
+        </div>
       </div>
-    </div>
 
-    <AppForm ref="formRef" :model="formModel" label-position="top" class="quick-arrangement-form">
-      <el-table :data="formModel.tasks" border size="small" class="quick-task-table">
-        <el-table-column prop="executionDate" label="执行日期" width="158">
-          <template #default="{ row, $index }">
-            <el-form-item :prop="taskProp($index, 'executionDate')" :rules="requiredRule('请选择执行日期', 'change')">
+      <AppForm ref="formRef" :model="formModel" label-position="top" class="quick-arrangement-form">
+        <article
+          v-for="(row, index) in formModel.tasks"
+          :key="row._key"
+          class="quick-task-card"
+          data-dialog-field-search-group
+        >
+          <div class="quick-task-heading">
+            <strong data-dialog-field-search-group-title>任务 {{ index + 1 }}</strong>
+            <el-button v-if="canWrite" type="danger" link size="small" :aria-label="`删除任务 ${index + 1}`" @click="removeTask(row)">删除</el-button>
+          </div>
+          <div class="quick-task-fields">
+            <el-form-item label="执行日期" :prop="taskProp(index, 'executionDate')" :rules="requiredRule('请选择执行日期', 'change')">
               <el-date-picker v-model="row.executionDate" type="date" value-format="YYYY-MM-DD" style="width:100%" :disabled="!canWrite" @change="markDirty(row)" />
             </el-form-item>
-          </template>
-        </el-table-column>
-        <el-table-column prop="taskTypeId" label="任务类型" min-width="180">
-          <template #default="{ row, $index }">
-            <el-form-item :prop="taskProp($index, 'taskTypeId')" :rules="requiredRule('请选择任务类型', 'change')">
+            <el-form-item label="任务类型" :prop="taskProp(index, 'taskTypeId')" :rules="requiredRule('请选择任务类型', 'change')">
               <el-select v-model="row.taskTypeId" filterable allow-create default-first-option style="width:100%" :disabled="!canWrite" @change="(value) => selectTaskType(row, value)">
                 <el-option v-for="item in taskTypeOptions(row)" :key="item.id" :label="item.isActive ? item.name : `${item.name}（已停用）`" :value="item.id" :disabled="!item.isActive && item.id !== row.originalTaskTypeId" />
               </el-select>
             </el-form-item>
-          </template>
-        </el-table-column>
-        <el-table-column prop="assigneeId" label="执行人" min-width="180">
-          <template #default="{ row, $index }">
-            <el-form-item :prop="taskProp($index, 'assigneeId')" :rules="requiredRule('请选择执行人', 'change')">
+            <el-form-item label="执行人" :prop="taskProp(index, 'assigneeId')" :rules="requiredRule('请选择执行人', 'change')">
               <el-select v-model="row.assigneeId" filterable style="width:100%" :disabled="!canWrite" @change="markDirty(row)">
                 <el-option-group v-for="group in assigneeGroups" :key="group.key" :label="group.label">
                   <el-option v-for="person in group.options" :key="person.id" :label="person.department ? `${person.displayName}（${person.department}）` : person.displayName" :value="person.id" />
                 </el-option-group>
               </el-select>
             </el-form-item>
-          </template>
-        </el-table-column>
-        <el-table-column label="任务内容" min-width="300">
-          <template #default="{ row, $index }">
-            <el-form-item :prop="taskProp($index, 'taskContent')" :rules="requiredRule('请填写任务内容', 'blur')">
-              <el-input v-model="row.taskContent" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" maxlength="10000" show-word-limit :disabled="!canWrite" @input="markDirty(row)" />
-            </el-form-item>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="canWrite" label="操作" width="68" fixed="right" align="center">
-          <template #default="{ row }"><el-button type="danger" link size="small" @click="removeTask(row)">删除</el-button></template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="initialized && !formModel.tasks.length" description="暂无项目安排" :image-size="56" />
-    </AppForm>
+          </div>
+          <el-form-item class="quick-task-content" label="任务内容" :prop="taskProp(index, 'taskContent')" :rules="requiredRule('请填写任务内容', 'blur')">
+            <el-input v-model="row.taskContent" type="textarea" :autosize="{ minRows: 4, maxRows: 12 }" resize="vertical" maxlength="10000" show-word-limit placeholder="填写任务说明、交付要求等，可换行输入" :disabled="!canWrite" @input="markDirty(row)" />
+          </el-form-item>
+        </article>
+        <el-empty v-if="initialized && !formModel.tasks.length" description="暂无项目安排" :image-size="56" />
+      </AppForm>
+    </div>
 
     <template #footer>
       <el-button @click="requestClose">取消</el-button>
@@ -113,6 +115,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as annotationOpsApi from '@/api/annotationOps'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import AppForm from '@/components/common/AppForm.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 
@@ -125,6 +129,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'saved', 'project-change-rejected'])
 
+const editorBodyRef = ref(null)
+const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch } = useDialogFieldSearch(editorBodyRef)
 const formRef = ref(null)
 const formModel = reactive({ tasks: [] })
 const activeProject = ref(null)
@@ -202,6 +208,7 @@ async function initialize() {
 }
 
 function resetState() {
+  clearFieldSearch()
   formModel.tasks.splice(0)
   activeProject.value = null
   taskTypes.value = []
@@ -341,7 +348,26 @@ watch(() => props.initialProject?.id, () => {
 </script>
 
 <style scoped>
-.quick-dialog-heading{display:flex;align-items:center;gap:10px;min-width:0;padding-right:28px}.quick-dialog-heading>span{user-select:text;cursor:text}.heading-separator{width:1px;height:18px;background:var(--el-border-color)}.heading-project{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--el-text-color-regular)}.quick-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.quick-toolbar>div:first-child{display:grid;gap:3px}.quick-toolbar>div:first-child span{color:var(--el-text-color-secondary);font-size:12px}.quick-toolbar-actions{display:flex;gap:8px;flex:none}.quick-task-table :deep(.el-form-item){margin:7px 0}.task-type-create{display:flex;gap:8px;margin-bottom:10px}.task-type-list{max-height:330px;overflow-y:auto}.task-type-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--el-border-color-lighter)}.task-type-row>span,.task-type-row>.el-input{flex:1}.task-type-actions{display:flex;white-space:nowrap}.is-inactive{text-decoration:line-through;color:var(--el-text-color-placeholder)}
+.quick-dialog-heading{display:flex;align-items:center;gap:10px;min-width:0;padding-right:28px}.quick-dialog-heading>span{user-select:text;cursor:text}.heading-separator{width:1px;height:18px;background:var(--el-border-color)}.heading-project{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--el-text-color-regular)}.quick-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}.quick-toolbar>div:first-child{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.quick-toolbar>div:first-child span{color:var(--el-text-color-secondary);font-size:12px}.quick-toolbar-actions{display:flex;gap:8px;flex:none}.task-type-create{display:flex;gap:8px;margin-bottom:10px}.task-type-list{max-height:330px;overflow-y:auto}.task-type-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--el-border-color-lighter)}.task-type-row>span,.task-type-row>.el-input{flex:1}.task-type-actions{display:flex;white-space:nowrap}.is-inactive{text-decoration:line-through;color:var(--el-text-color-placeholder)}
 :global(.annotation-arrangement-quick-dialog){display:flex;flex-direction:column;max-height:86vh;overflow:hidden;background:#fff;box-shadow:0 18px 48px rgb(15 23 42 / 22%)}:global(.annotation-arrangement-quick-dialog .el-dialog__header),:global(.annotation-arrangement-quick-dialog .el-dialog__footer){flex:none}:global(.annotation-arrangement-quick-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.annotation-arrangement-quick-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
-@media(max-width:760px){.quick-toolbar{align-items:stretch;flex-direction:column}.quick-toolbar-actions{justify-content:space-between}.quick-task-table{min-width:760px}.quick-arrangement-form{overflow-x:auto}}
+.quick-dialog-heading{margin-top:8px;font-size:13px}
+.quick-toolbar-actions{flex-wrap:wrap}
+.quick-toolbar-actions .el-button+.el-button{margin-left:0}
+.quick-task-card{min-width:0;padding:12px;border:1px solid var(--el-border-color-lighter);border-radius:8px}
+.quick-task-card+.quick-task-card{margin-top:12px}
+.quick-task-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.quick-task-fields{display:grid;grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.2fr);gap:12px}
+.quick-task-card :deep(.el-form-item){min-width:0;margin-bottom:18px}
+.quick-task-card :deep(.el-form-item__label){margin-bottom:4px;line-height:20px}
+.quick-task-content :deep(.el-textarea__inner){line-height:1.6;padding:8px 12px 26px;overflow-wrap:anywhere}
+.quick-task-content :deep(.el-input__count){bottom:5px;right:12px;line-height:18px}
+.quick-task-card .quick-task-content{margin-bottom:14px}
+@media(max-width:600px){
+  .quick-task-fields{grid-template-columns:minmax(0,1fr);gap:0}
+  .quick-toolbar{align-items:stretch;flex-direction:column}
+  .quick-toolbar-actions{justify-content:flex-end}
+  .quick-dialog-heading{flex-wrap:wrap;gap:6px}
+  .heading-project{flex-basis:100%;white-space:normal;overflow-wrap:anywhere}
+  .heading-separator{display:none}
+}
 </style>

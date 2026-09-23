@@ -194,8 +194,8 @@ const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
 const SYSTEM_MENU_INDEX = 'system-management'
-const appVersion = 'V1.6'
-const appUpdatedAt = '2026-09-21 16:09'
+const appVersion = 'V1.7'
+const appUpdatedAt = '2026-09-23 19:55'
 
 /** 侧边栏是否折叠 */
 const isCollapse = ref(false)
