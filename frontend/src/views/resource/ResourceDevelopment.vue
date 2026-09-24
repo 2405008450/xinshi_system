@@ -15,7 +15,6 @@
     <div class="development-actions" v-if="activeColumnKeys.length"><el-tag v-for="key in activeColumnKeys" :key="key" closable @close="delete columnFilters[key]; query()">{{ developmentColumns.find(c => c.key === key)?.label }}：已筛选</el-tag><el-button link @click="clearColumns">清空列筛选</el-button></div>
     <DevelopmentFriendDailyPanel ref="friendPanelRef" />
     <div v-loading="loading">
-      <div class="development-pagination"><span class="muted">日期分组</span><el-pagination v-model:current-page="dayPage" v-model:page-size="dayPageSize" :page-sizes="[3, 7, 14, 31]" :total="dayTotal" layout="total, sizes, prev, pager, next, jumper" @size-change="daySizeChanged" @current-change="dayPageChanged" /></div>
       <el-empty v-if="!days.length" description="所选日期暂无开拓记录，可调整日期查询历史数据" />
       <el-collapse v-model="activeDay" accordion @change="changeDay">
         <el-collapse-item v-for="day in days" :key="day.date" :name="day.date"><template #title><el-button link type="primary" :aria-label="`${chineseDate(day.date)}群聊好友统计`" @click.stop="friendPanelRef.open(day.date)">{{ chineseDate(day.date) }}</el-button><el-tag class="day-count" effect="plain">{{ day.count }} 条开拓记录</el-tag></template>
@@ -35,7 +34,15 @@
           </template>
         </el-collapse-item>
       </el-collapse>
-      <el-pagination v-if="dayTotal > dayPageSize" v-model:current-page="dayPage" :page-size="dayPageSize" :total="dayTotal" layout="total, prev, pager, next" @current-change="dayPageChanged" />
+      <div v-if="dayTotal > 3" class="development-pagination development-day-pagination">
+        <span class="muted">共 {{ dayTotal }} 个日期</span>
+        <div class="development-day-controls">
+          <el-select v-model="dayPageSize" aria-label="每页显示日期数" @change="daySizeChanged">
+            <el-option v-for="size in [3, 7, 14, 31]" :key="size" :label="`${size} 天/页`" :value="size" />
+          </el-select>
+          <el-pagination v-model:current-page="dayPage" :page-size="dayPageSize" :total="dayTotal" layout="prev, pager, next" :pager-count="5" @current-change="dayPageChanged" />
+        </div>
+      </div>
     </div>
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="reload" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
@@ -144,6 +151,7 @@ onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordCont
 .development-heading,.development-actions,.development-filters,.people-summary,.person-summary,.period-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .development-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}.development-pagination>.el-pagination{max-width:100%;overflow-x:auto;margin-top:0}
 .development-heading{justify-content:space-between;margin-bottom:18px}.development-heading h2{margin:0 0 5px}.resource-development-page .muted,.development-dialog .muted{color:var(--el-text-color-secondary);font-size:13px}
+.development-day-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:100%}.development-day-controls>.el-select{width:110px}.resource-development-page .development-day-controls>.el-pagination{margin-top:0;max-width:100%;overflow-x:auto}
 .development-filters{margin:16px 0}.development-filters>.el-input{width:290px}.development-filters>.el-select{width:150px}.development-filters>.el-date-editor{max-width:330px}
 .development-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.development-form-grid .wide{grid-column:1/-1}.development-form-grid .el-select,.development-form-grid .el-date-editor{width:100%}
 .development-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.development-dialog>.el-dialog__header,.development-dialog>.el-dialog__footer{flex-shrink:0}.development-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.development-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color-light);background:#f8fafc;padding:16px}
