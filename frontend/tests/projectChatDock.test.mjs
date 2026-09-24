@@ -93,8 +93,8 @@ test('最小化会话在任务栏胶囊展示未读并在恢复时清零', () =>
   assert.match(dock, /project-chat-task__unread/)
 })
 
-test('三类聊天通知统一打开聊天小窗且不再跳转页面', () => {
-  assert.match(notificationBell, /CHAT_NOTIFICATION_TYPES = \['project_chat', 'project_chat_mention', 'annotation_project_chat_mention'\]/)
+test('聊天通知和群邀请统一打开聊天小窗且不再跳转页面', () => {
+  assert.match(notificationBell, /CHAT_NOTIFICATION_TYPES = \['project_chat', 'project_chat_mention', 'annotation_project_chat_mention', 'annotation_project_chat_invite'\]/)
   assert.match(notificationBell, /const projectType = item\.related_project_type \|\| 'translation'/)
   assert.match(notificationBell, /const projectId = item\.related_entity_id \|\| item\.related_project_id/)
   assert.match(notificationBell, /openChat\(\{ projectId, projectType \}\)/)

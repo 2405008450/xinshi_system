@@ -915,6 +915,12 @@ class ChatProjectMessage(Base):
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
     project: Mapped['TranslationProject'] = relationship('TranslationProject', back_populates='chat_messages')
+    sequence_no: Mapped[int] = mapped_column(BigInteger, server_default=text("nextval('chat_message_sequence')"))
+    client_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    reply_to_message_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    recalled_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    recalled_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    recall_label: Mapped[Optional[str]] = mapped_column(String(500))
     annotation_project: Mapped[Optional['AnnotationProject']] = relationship('AnnotationProject', back_populates='chat_messages')
     sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
     mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')
@@ -933,6 +939,21 @@ class ChatProjectMessage(Base):
         back_populates='message',
         cascade='all, delete-orphan',
     )
+
+
+class AnnotationChatMember(Base):
+    """关注与阅读位置独立保存；退订记录不得由自动加入覆盖。"""
+    __tablename__ = 'annotation_chat_member'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id'], ['annotation_project.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE'),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    following: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
+    explicit_unfollow: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text('0'))
+    joined_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
 
 class ChatProjectMention(Base):
@@ -1034,6 +1055,7 @@ class ChatProjectAttachment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)

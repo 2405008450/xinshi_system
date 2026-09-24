@@ -64,8 +64,8 @@
         <template #default="{ row }">
           <el-popover v-if="column.key === 'fullName'" trigger="click" placement="left" :width="760" :title="`${displayTalentName(row, '人才')} 姓名与联系方式`" popper-class="talent-detail-popper" @show="loadDetail(row.id)">
             <template #reference>
-              <span class="talent-name-cell">
-                <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${displayTalentName(row)}（点击查看详情）`" @click.stop>{{ displayTalentName(row) }}</el-button>
+              <span class="talent-name-cell" @click.stop>
+                <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${displayTalentName(row)}（点击查看详情）`">{{ displayTalentName(row) }}</el-button>
                 <el-tag v-if="row.nameDuplicate" type="warning" size="small" title="人才总库中存在相同姓名；重名不代表同一人，请结合资源编号和详情区分。">同名</el-tag>
               </span>
             </template>
@@ -189,8 +189,9 @@
               <el-input v-if="wechatAccountSelection==='__custom_wechat__'" v-model="form.wechatAccount" maxlength="100" show-word-limit placeholder="请输入其他微信名称" style="margin-top:8px" />
             </el-form-item>
           </el-col></el-row>
+          <el-row :gutter="16"><el-col :span="24"><el-form-item label="所在微信群" prop="wechatGroups"><el-input v-model="form.wechatGroups" type="textarea" :autosize="{minRows:2,maxRows:5}" maxlength="4000" show-word-limit placeholder="一行填写一个微信群，可保留已退群等说明" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="来源" prop="registrationSource"><el-input v-model="form.registrationSource" maxlength="255" placeholder="例如：2609资源整合行动" /></el-form-item></el-col></el-row>
-          <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="性别"><el-select v-model="form.gender" clearable filterable allow-create style="width:100%"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="出生年月"><el-date-picker v-model="form.birthYearMonth" type="month" value-format="YYYY-MM" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="年龄"><ReadonlyField :model-value="calculatedAge" source="auto" tooltip="根据出生年月自动计算" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="合作形式"><el-select v-model="form.cooperationType" clearable style="width:100%"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="性别"><el-select v-model="form.gender" clearable filterable allow-create style="width:100%"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="出生年月"><el-date-picker v-model="form.birthYearMonth" type="month" value-format="YYYY-MM" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="年龄" prop="reportedAge"><ReadonlyField v-if="form.birthYearMonth || form.birthDate" :model-value="calculatedAge" source="auto" tooltip="根据出生年月自动计算" /><el-input-number v-else v-model="form.reportedAge" :min="0" :max="120" :precision="0" controls-position="right" placeholder="登记年龄" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="合作形式"><el-select v-model="form.cooperationType" clearable style="width:100%"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="国籍"><el-input v-model="form.nationality" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="民族"><el-input v-model="form.ethnicity" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="身高"><el-input v-model="form.height" placeholder="例如：175cm" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="容貌"><el-input v-model="form.appearance" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="职业状态"><el-select v-model="form.employmentStatus" clearable style="width:100%"><el-option v-for="item in employmentOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="16"><el-form-item label="具体说明"><el-input v-model="form.employmentDetail" /></el-form-item></el-col></el-row>
           <el-row v-if="form.employmentStatus==='student'" :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="学习阶段"><el-input v-model="form.studentStage" placeholder="例如：本科" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="入学年份"><el-input-number v-model="form.enrollmentYear" :min="1900" :max="2200" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="学制"><el-input-number v-model="form.programDurationYears" :min="1" :max="15" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="当前年级"><ReadonlyField :model-value="studentGrade" source="auto" tooltip="默认按每年9月进入下一学年" /></el-form-item></el-col></el-row>
@@ -381,7 +382,7 @@ const tableDisplay = (column, row) => {
   if (column.key === 'regionSummary') return row.residenceAddress || row.nativePlace || row.ancestralHome || '-'
   if (column.key === 'educationSummary') return row.educationSummary || '-'
   if (column.key === 'languageSummary') return row.languageSummary || '-'
-  if (column.key === 'age') return ageOf(row.birthDate)
+  if (column.key === 'age') return row.currentAge == null ? '-' : `${row.currentAge}岁`
   if (column.key === 'yearsExperience') return row.yearsExperience === null || row.yearsExperience === undefined ? '-' : `${row.yearsExperience}年`
   if (column.type === 'datetime') return formatDateTime(row[column.key])
   return display(row[column.key])
@@ -402,6 +403,7 @@ const tableColumns=[
   {key:'resourceCode',label:'人才编号',width:130},
   {key:'registrationSource',label:'来源',width:190},
   {key:'wechatAccount',label:'所在微信',width:160},
+  {key:'wechatGroups',label:'所在微信群',width:240},
   {key:'fullName',label:'姓名',width:160,tooltip:false,clickHint:'点击姓名查看人才详情'},
   {key:'gender',label:'性别',width:80},
   {key:'nationality',label:'国籍',width:100},
@@ -484,6 +486,7 @@ const talentFilterFields=[
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
   {key:'registrationSource',label:'来源',type:'text'},
   {key:'wechatAccount',label:'所在微信',type:'text'},
+  {key:'wechatGroups',label:'所在微信群',type:'text'},
   {key:'ancestralHome',label:'籍贯',type:'text'},
   {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
@@ -544,9 +547,9 @@ const birthDateFromAge=(age,currentBirthDate)=>{
 const handleBirthDateChange=value=>{form.age=calculateAge(value)}
 const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?null:birthDateFromAge(value,form.birthDate)}
 const emptyForm=()=>({
-  id:null,resourceCode:'',registrationSource:'',wechatAccount:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
+  id:null,resourceCode:'',registrationSource:'',wechatAccount:'',wechatGroups:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
   contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
-  resumePath:'',gender:'',birthDate:null,birthYearMonth:null,ancestralHome:'',nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
+  resumePath:'',gender:'',birthDate:null,birthYearMonth:null,reportedAge:null,ancestralHome:'',nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
   nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
   annotationExperience:'',interpretationExperience:'',translationExperience:'',otherExperience:'',annotationWillingness:null,educationExperiences:[],languageSkills:[],certificates:[],attachments:[],
   overallScore:null,overallRating:'',cooperationLevel:null,cooperationNote:'',punctualityLevel:null,punctualityNote:'',
@@ -613,6 +616,8 @@ const payload=(allowDuplicate=false)=>{
     resourceCode:form.resourceCode||null,
     registrationSource:form.registrationSource||null,
     wechatAccount:form.wechatAccount?.trim()||null,
+    wechatGroups:form.wechatGroups?.trim()||null,
+    reportedAge:form.reportedAge??null,
     fullName:[form.chineseName,form.englishName,form.nickname,...(form.otherNames||[]),form.fullName].find(value=>String(value||'').trim())||'',
     chineseName:form.chineseName||null,englishName:form.englishName||null,nickname:form.nickname||null,otherNames:form.otherNames||[],cooperationType:form.cooperationType||null,
     contactInfo:form.contactInfo||null,primaryPhone:form.primaryPhone||null,secondaryPhone:form.secondaryPhone||null,primaryEmail:form.primaryEmail||null,secondaryEmail:form.secondaryEmail||null,

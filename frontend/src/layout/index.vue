@@ -123,6 +123,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
+          <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
             <span class="user-info">
@@ -178,6 +179,7 @@ import {
   hasPermission
 } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
+import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import UiZoomControl from '../components/UiZoomControl.vue'

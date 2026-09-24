@@ -242,7 +242,7 @@ const markItemRead = async (item, showError = false) => {
   }
 }
 
-const CHAT_NOTIFICATION_TYPES = ['project_chat', 'project_chat_mention', 'annotation_project_chat_mention']
+const CHAT_NOTIFICATION_TYPES = ['project_chat', 'project_chat_mention', 'annotation_project_chat_mention', 'annotation_project_chat_invite']
 
 const isChatNotification = (item) => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
 

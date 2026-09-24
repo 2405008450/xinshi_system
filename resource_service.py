@@ -385,6 +385,7 @@ def _talent_query(
         "native_place": (ResourcePerson.native_place, "string"),
         "registration_source": (ResourcePerson.registration_source, "string"),
         "wechat_account": (ResourcePerson.wechat_account, "string"),
+        "wechat_groups": (ResourcePerson.wechat_groups, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
         "annotation_willingness": (ResourcePerson.annotation_willingness, "string"),
@@ -437,6 +438,7 @@ def _talent_query(
                 query = query.filter(or_(
                     ResourcePerson.birth_year_month <= month_cutoff,
                     and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date <= cutoff),
+                    and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date.is_(None), ResourcePerson.reported_age >= int(minimum)),
                 ))
             if maximum not in (None, ""):
                 cutoff = today.replace(year=today.year - int(maximum) - 1)
@@ -444,6 +446,7 @@ def _talent_query(
                 query = query.filter(or_(
                     ResourcePerson.birth_year_month > month_cutoff,
                     and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date > cutoff),
+                    and_(ResourcePerson.birth_year_month.is_(None), ResourcePerson.birth_date.is_(None), ResourcePerson.reported_age <= int(maximum)),
                 ))
         elif field in {"dialects", "dialect_regions"}:
             column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
@@ -1075,6 +1078,7 @@ def _sync_legacy_translator(db: Session, person: ResourcePerson) -> None:
 
 def create_talent(
     db: Session, payload: ResourcePersonCreate, idempotency_key: Optional[str] = None,
+    *, commit: bool = True,
 ) -> ResourcePerson:
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email
@@ -1099,7 +1103,10 @@ def create_talent(
     _sync_display_name(person)
     db.flush()
     _sync_legacy_translator(db, person)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_talent(db, person.id)
 
 
@@ -1157,6 +1164,8 @@ def update_talent(
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
     })
     # 空编号由数据库生成；编辑已有档案时不清空稳定标识。
+    if 'reported_age' not in payload.model_fields_set:
+        data.pop('reported_age', None)
     if not data.get("resource_code") and person.resource_code:
         data.pop("resource_code", None)
     for key, value in data.items():

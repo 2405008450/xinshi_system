@@ -25,4 +25,9 @@ export const TALENT_RESOURCE_VIEWS = Object.freeze([
       },
     ],
   },
+  {
+    label: '资源开拓',
+    path: '/resource-management/resource-development',
+    permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'],
+  },
 ])

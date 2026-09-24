@@ -94,6 +94,19 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
             message = await websocket.receive_text()
             if message == 'ping':
                 await websocket.send_json({"type": "pong"})
+            else:
+                import json
+                from annotation_chat_service import require_project
+                try:
+                    payload = json.loads(message)
+                    if payload.get('type') == 'annotation_chat_watch':
+                        project_id = UUID(payload.get('projectId', ''))
+                        with SessionLocal() as check_db:
+                            current = get_user_from_token_value(check_db, token)
+                            require_project(check_db, project_id, current)
+                        notification_manager.watch_annotation(user_id, websocket, project_id, bool(payload.get('active')))
+                except (ValueError, TypeError, HTTPException):
+                    await websocket.send_json({'type': 'annotation_chat_watch_error'})
     except WebSocketDisconnect:
         if user_id is not None:
             notification_manager.disconnect(user_id, websocket)

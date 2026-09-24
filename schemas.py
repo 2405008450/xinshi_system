@@ -1494,6 +1494,8 @@ class AnnotationProjectChatMessageCreate(BaseModel):
     """标注沟通支持文字和图片附件，不接收富文本。"""
 
     content: str = Field(default='', max_length=10000)
+    client_message_id: Optional[UUID] = None
+    reply_to_message_id: Optional[UUID] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
@@ -1539,6 +1541,12 @@ class ProjectChatAcknowledgementResponse(BaseModel):
 
 
 class ProjectChatMessageResponse(BaseModel):
+    sequence_no: Optional[int] = None
+    client_message_id: Optional[UUID] = None
+    recalled_at: Optional[datetime] = None
+    recall_label: Optional[str] = None
+    can_recall: bool = False
+    reply: Optional[dict] = None
     id: UUID
     project_id: UUID
     project_type: str = 'translation'

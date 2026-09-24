@@ -13,6 +13,18 @@ _main_event_loop: asyncio.AbstractEventLoop | None = None
 class NotificationConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
+        self.annotation_subscriptions = {}
+
+    def annotation_viewers(self, project_id):
+        return {UUID(user_id) for (user_id, _), projects in list(self.annotation_subscriptions.items()) if project_id in projects}
+
+    def watch_annotation(self, user_id, websocket, project_id, active):
+        key = (str(user_id), websocket)
+        projects = self.annotation_subscriptions.setdefault(key, set())
+        if active:
+            projects.add(str(project_id))
+        else:
+            projects.discard(str(project_id))
 
     async def connect(self, user_id: UUID, websocket: WebSocket) -> None:
         global _main_event_loop
@@ -21,6 +33,7 @@ class NotificationConnectionManager:
         self.active_connections[str(user_id)].add(websocket)
 
     def disconnect(self, user_id: UUID, websocket: WebSocket) -> None:
+        self.annotation_subscriptions.pop((str(user_id), websocket), None)
         user_connections = self.active_connections.get(str(user_id))
         if not user_connections:
             return

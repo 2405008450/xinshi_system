@@ -28,7 +28,7 @@
             </span>
           </div>
           <div class="project-chat-window__actions">
-            <el-button link aria-label="搜索消息" title="搜索消息" @click="toggleFilters(chatWindow.key)">
+            <el-button v-if="chatWindow.projectType !== 'annotation'" link aria-label="搜索消息" title="搜索消息" @click="toggleFilters(chatWindow.key)">
               <el-icon><Search /></el-icon>
             </el-button>
             <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
@@ -40,7 +40,8 @@
           </div>
         </header>
         <div class="project-chat-window__body">
-          <ProjectChatPanel
+          <component
+            :is="chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
             :project-type="chatWindow.projectType"
@@ -82,6 +83,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
+import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import { useProjectChatDock, PROJECT_CHAT_WINDOW_SIZE } from '@/composables/useProjectChatDock'
 
 defineProps({ hasExtraTasks: { type: Boolean, default: false } })

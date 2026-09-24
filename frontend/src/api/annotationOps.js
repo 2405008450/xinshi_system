@@ -78,6 +78,9 @@ export const getProjectArrangementOverview = (params = {}, config = {}) => get(
 export const getProjectArrangementWorkloads = (params = {}, config = {}) => get(
   '/annotation-ops/project-arrangements/workloads', params, config
 )
+export const getArrangementDailyNotes = (params = {}) => get(
+  '/annotation-ops/project-arrangements/daily-notes', params
+)
 export const getArrangementDailyNote = (noteDate) => get(
   `/annotation-ops/project-arrangements/daily-notes/${noteDate}`
 )

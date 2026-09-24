@@ -971,6 +971,8 @@
 
             <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files" lazy>
               <ProjectFilesTab
+                v-if="dialogVisible"
+                :key="form.id || 'draft'"
                 ref="projectFilesTabRef"
                 :project-id="form.id"
                 :order-no="form.orderNo"
@@ -1120,7 +1122,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, Download, MagicStick, SortUp } from '@element-plus/icons-vue'
@@ -1194,7 +1196,7 @@ import {
   buildTranslationExportParams,
 } from '@/utils/translationProjectExport'
 
-const ProjectFilesTab = defineAsyncComponent(() => import('./components/ProjectFilesTab.vue'))
+import ProjectFilesTab from './components/ProjectFilesTab.vue'
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')

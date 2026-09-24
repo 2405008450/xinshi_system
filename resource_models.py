@@ -116,10 +116,12 @@ class ResourcePerson(Base):
     gender: Mapped[Optional[str]] = mapped_column(String(20))
     birth_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
     birth_year_month: Mapped[Optional[str]] = mapped_column(String(7))
+    reported_age: Mapped[Optional[int]] = mapped_column(Integer)
     ancestral_home: Mapped[Optional[str]] = mapped_column(String(255))
     native_place: Mapped[Optional[str]] = mapped_column(String(255))
     registration_source: Mapped[Optional[str]] = mapped_column(String(255))
     wechat_account: Mapped[Optional[str]] = mapped_column(String(100))
+    wechat_groups: Mapped[Optional[str]] = mapped_column(Text)
     residence_address: Mapped[Optional[str]] = mapped_column(String(500))
     dialects: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
@@ -244,7 +246,7 @@ class ResourcePerson(Base):
             return today.year - self.birth_date.year - (
                 (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
             )
-        return None
+        return self.reported_age
 
     @property
     def current_student_grade(self) -> Optional[str]:

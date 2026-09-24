@@ -25,10 +25,11 @@
         <el-descriptions-item label="人才编号">{{ show(detail.resourceCode) }}</el-descriptions-item>
         <el-descriptions-item label="来源">{{ show(detail.registrationSource) }}</el-descriptions-item>
         <el-descriptions-item label="所在微信">{{ show(detail.wechatAccount) }}</el-descriptions-item>
+        <el-descriptions-item label="所在微信群" :span="2"><div class="pre-wrap">{{ show(detail.wechatGroups) }}</div></el-descriptions-item>
         <el-descriptions-item label="档案状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
         <el-descriptions-item v-if="showAnnotationWillingness" label="标注意愿">{{ performanceLevelLabel(detail.annotationWillingness) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ show(detail.gender) }}</el-descriptions-item>
-        <el-descriptions-item label="年龄">{{ detail.currentAge == null ? '-' : `${detail.currentAge}岁` }}</el-descriptions-item>
+        <el-descriptions-item label="年龄">{{ detail.currentAge == null ? '-' : `${detail.currentAge}岁${!detail.birthYearMonth && !detail.birthDate ? '（登记年龄）' : ''}` }}</el-descriptions-item>
         <el-descriptions-item label="出生年月">{{ show(detail.birthYearMonth || detail.birthDate) }}</el-descriptions-item>
         <el-descriptions-item label="国籍 / 民族">{{ join(detail.nationality, detail.ethnicity) }}</el-descriptions-item>
         <el-descriptions-item label="职业状态">{{ employmentLabel(detail.employmentStatus) }}</el-descriptions-item>

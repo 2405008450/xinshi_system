@@ -41,6 +41,7 @@ from annotation_ops_schemas import (
     ArrangementWorkloadResponse,
 )
 from annotation_arrangement_note_service import (
+    list_arrangement_daily_notes,
     get_arrangement_daily_note, save_arrangement_daily_note,
 )
 from annotation_ops_service import (
@@ -552,6 +553,18 @@ def arrangement_workloads(
         skip=skip,
         limit=limit,
     )
+
+
+@project_router.get(
+    "/project-arrangements/daily-notes",
+    response_model=List[ArrangementDailyNoteResponse],
+)
+def arrangement_daily_notes(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return list_arrangement_daily_notes(db, skip=skip, limit=limit)
 
 
 @project_router.get(

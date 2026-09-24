@@ -1,6 +1,21 @@
 import { createNotificationSocket } from '@/api/notifications'
 
 const subscribers = new Map()
+const annotationWatches = new Map()
+const sendAnnotationWatch = (projectId, active) => {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'annotation_chat_watch', projectId, active }))
+}
+export const watchAnnotationChat = projectId => {
+  const id = String(projectId)
+  annotationWatches.set(id, (annotationWatches.get(id) || 0) + 1)
+  ensureConnected()
+  sendAnnotationWatch(id, true)
+  return () => {
+    const count = (annotationWatches.get(id) || 1) - 1
+    if (count) annotationWatches.set(id, count)
+    else { annotationWatches.delete(id); sendAnnotationWatch(id, false) }
+  }
+}
 
 let socket = null
 let socketToken = ''
@@ -76,6 +91,7 @@ export const ensureConnected = () => {
   currentSocket.onopen = () => {
     if (socket !== currentSocket) return
     clearHeartbeatTimer()
+    annotationWatches.forEach((_, id) => sendAnnotationWatch(id, true))
     heartbeatTimer = window.setInterval(() => {
       if (currentSocket.readyState === WebSocket.OPEN) currentSocket.send('ping')
     }, 25000)

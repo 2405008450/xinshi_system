@@ -256,6 +256,8 @@ app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
+from routers import resource_development
+app.include_router(resource_development.router)
 app.include_router(recruitment_projects.router)
 app.include_router(project_languages.router)
 app.include_router(user_roles.router)
@@ -563,6 +565,7 @@ RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS ancestral_home VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS registration_source VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS wechat_account VARCHAR(100)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS wechat_groups TEXT",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS chinese_name VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS english_name VARCHAR(255)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS nickname VARCHAR(255)",
@@ -572,6 +575,7 @@ RESOURCE_PERSON_PROFILE_COLUMN_STATEMENTS = (
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS skype VARCHAR(100)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS line VARCHAR(100)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS birth_year_month VARCHAR(7)",
+    "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS reported_age INTEGER",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS employment_status VARCHAR(30)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS employment_detail VARCHAR(500)",
     "ALTER TABLE resource_person ADD COLUMN IF NOT EXISTS student_stage VARCHAR(50)",

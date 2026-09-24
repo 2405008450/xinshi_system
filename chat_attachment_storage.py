@@ -72,7 +72,7 @@ async def upload_remote_attachment(url, content, filename, content_type, authori
         raise HTTPException(503, SERVICE_ERROR) from exc
 
 
-async def read_remote_attachment(url, attachment_id: UUID, authorization, forwarded):
+async def read_remote_attachment(url, attachment_id: UUID, authorization, forwarded, allow_files=False):
     headers = request_headers(authorization, forwarded)
     client = make_client()
     response = None
@@ -87,7 +87,11 @@ async def read_remote_attachment(url, attachment_id: UUID, authorization, forwar
         response = await client.send(request, stream=True)
         check_response(response, 200)
         content_type = response.headers.get('content-type', '').split(';')[0].lower()
-        if content_type not in {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}:
+        allowed = {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}
+        if allow_files:
+            from routers.annotation_chat import FILE_TYPES
+            allowed.update(FILE_TYPES.values())
+        if content_type not in allowed:
             raise HTTPException(503, SERVICE_ERROR)
     except BaseException as exc:
         await close()

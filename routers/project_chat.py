@@ -41,7 +41,25 @@ from schemas import (
     ProjectChatSettingsUpdateRequest,
 )
 
-router = APIRouter(prefix='/project-chat', tags=['project_chat'], dependencies=[Depends(require_module_access("projects:read", "workflow:operate"))])
+def require_chat_access(request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from permission_service import user_has_permission
+    annotation = '/project-chat/annotation/' in request.url.path
+    message_id = request.path_params.get('message_id')
+    if message_id:
+        try:
+            message = db.get(ChatProjectMessage, UUID(str(message_id)))
+            annotation = bool(message and message.annotation_project_id)
+        except ValueError:
+            pass
+    annotation_upload = request.url.path.rstrip('/').endswith('/project-chat/attachments')
+    permission = 'projects:read' if annotation or annotation_upload or request.method in {'GET', 'HEAD', 'OPTIONS'} else 'workflow:operate'
+    if not user_has_permission(db, user.id, permission):
+        raise HTTPException(403, '没有项目沟通权限')
+
+
+router = APIRouter(prefix='/project-chat', tags=['project_chat'], dependencies=[Depends(require_chat_access)])
+from routers.annotation_chat import router as annotation_group_router
+router.include_router(annotation_group_router)
 
 
 MANAGE_ROLES = {'admin', '超级管理员', '项目经理'}
@@ -127,8 +145,8 @@ def _serialize_message(
         project_type=project_type,
         sender_user_id=message.sender_user_id,
         sender_name=message.sender_name,
-        content=message.content,
-        content_json=message.content_json,
+        content=(message.recall_label or '消息已撤回') if getattr(message, 'recalled_at', None) else message.content,
+        content_json=None if getattr(message, 'recalled_at', None) else message.content_json,
         message_type=message.message_type,
         metadata=message.event_data or {},
         created_at=message.created_at,
@@ -141,7 +159,7 @@ def _serialize_message(
         acknowledgements=acknowledgements,
         acknowledgement_count=len(acknowledgements),
         is_acknowledged=any(item.user_id == current_user_id for item in acknowledgement_rows),
-        attachments=attachments,
+        attachments=[] if getattr(message, 'recalled_at', None) else attachments,
     )
 
 
@@ -189,9 +207,11 @@ def _can_manage_chat(db: Session, user_id: UUID) -> bool:
 
 def _require_visible_message(db: Session, message_id: UUID) -> ChatProjectMessage:
     """按消息列表的可见性规则校验，避免通过消息 ID 越权收藏。"""
-    message = db.get(ChatProjectMessage, message_id)
+    message = db.query(ChatProjectMessage).filter(ChatProjectMessage.id == message_id).with_for_update().populate_existing().first()
     if message is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='消息不存在')
+    if getattr(message, 'recalled_at', None):
+        raise HTTPException(409, '消息已撤回')
 
     if message.annotation_project_id is not None:
         _require_annotation_project(db, message.annotation_project_id)
@@ -251,23 +271,8 @@ def create_annotation_message_endpoint(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    _require_annotation_project(db, project_id)
-    try:
-        message = create_annotation_project_chat_message(
-            db,
-            annotation_project_id=project_id,
-            sender=current_user,
-            content=payload.content,
-            attachment_ids=payload.attachment_ids,
-            mentioned_user_id=payload.mentioned_user_id,
-            mentioned_user_ids=payload.mentioned_user_ids,
-        )
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return _serialize_message(message, 'annotation', current_user_id=current_user.id)
-
-
+    from annotation_chat_service import send_message, serialize_many
+    return serialize_many(db, [send_message(db, project_id, current_user, payload)], current_user)[0]
 @router.put('/messages/{message_id}/favorite', response_model=ProjectChatFavoriteResponse)
 def favorite_message_endpoint(
     message_id: UUID,
@@ -387,19 +392,19 @@ async def read_attachment_endpoint(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    from annotation_chat_service import authorize_attachment
+    attachment = authorize_attachment(db, attachment_id, current_user)
     remote_url = remote_attachment_url()
     if remote_url:
         return await read_remote_attachment(
             remote_url, attachment_id,
-            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'),
+            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), allow_files=True,
         )
-    attachment = db.query(ChatProjectAttachment).filter(ChatProjectAttachment.id == attachment_id).first()
-    if attachment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='图片不存在')
     path = get_chat_upload_dir() / attachment.storage_name
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='图片文件不存在')
-    return FileResponse(path, media_type=attachment.content_type, filename=attachment.original_name)
+    return FileResponse(path, media_type=attachment.content_type, filename=attachment.original_name,
+                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
 @router.get('/{project_id}/settings', response_model=ProjectChatSettingsResponse)

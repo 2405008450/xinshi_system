@@ -26,6 +26,11 @@
       title="可直接填写路径组，保存项目时会自动关联到新订单。"
     />
 
+    <el-alert v-if="fileLoadError" type="error" :closable="false" show-icon>
+      <template #title>{{ fileLoadError }}</template>
+      <el-button :loading="fileLoading" @click="loadFiles">重新加载</el-button>
+    </el-alert>
+
     <AppForm
       v-if="sourceFileName !== undefined"
       :model="{ sourceFileName }"
@@ -53,7 +58,7 @@
       v-loading="fileLoading"
       :model="pathGroupForm"
       :rules="pathGroupRules"
-      :disabled="!canWrite"
+      :disabled="!canWrite || fileLoading || Boolean(fileLoadError)"
       label-width="130px"
       class="path-group-form"
     >
@@ -212,7 +217,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -289,6 +294,9 @@ const pathGroupDataKeys = Object.keys(createEmptyPathGroup()).filter((key) => ![
 const canWrite = computed(() => hasPermission('project_files:write'))
 const associatedOrderNo = computed(() => props.orderNo || '')
 const fileLoading = ref(false)
+const fileLoadError = ref('')
+let fileRequestId = 0
+let loadedProjectId = null
 const fileSaving = ref(false)
 const sourceNameLoading = ref(false)
 const lastInspectedStoragePath = ref('')
@@ -355,6 +363,11 @@ function handleSourceNameReload() {
 }
 
 function resetPathGroup() {
+  // 重置时使上一次请求失效，避免关闭或切换订单后回填旧数据。
+  fileRequestId += 1
+  loadedProjectId = null
+  fileLoading.value = false
+  fileLoadError.value = ''
   assignPathGroup()
 }
 
@@ -364,19 +377,28 @@ async function loadFiles() {
     return
   }
 
+  const projectId = props.projectId
+  const requestId = ++fileRequestId
   fileLoading.value = true
+  fileLoadError.value = ''
   try {
-    const response = await getProjectFilesByProject(props.projectId, { skip: 0, limit: 1 })
+    const response = await getProjectFilesByProject(projectId, { skip: 0, limit: 1 })
+    if (requestId !== fileRequestId || projectId !== props.projectId) return
     assignPathGroup(Array.isArray(response) && response.length ? response[0] : {})
+    loadedProjectId = projectId
   } catch (error) {
-    resetPathGroup()
-    ElMessage.error(error?.detail || '加载项目路径组失败')
+    if (requestId !== fileRequestId || projectId !== props.projectId) return
+    fileLoadError.value = getLocalizedErrorMessage(error, '加载项目路径组失败，请重新加载')
   } finally {
-    fileLoading.value = false
+    if (requestId === fileRequestId) fileLoading.value = false
   }
 }
 
 async function validatePathGroup() {
+  if (fileLoading.value || fileLoadError.value) {
+    ElMessage.warning(fileLoading.value ? '项目文件正在加载，请稍后保存' : '请先重新加载项目文件，再保存')
+    return false
+  }
   if (!canWrite.value) return true
   if (!pathGroupForm.id && !hasPathGroupData()) return true
   const valid = await pathGroupFormRef.value?.validate().catch(() => false)
@@ -462,14 +484,15 @@ watch(
   () => [props.projectId, props.active],
   ([projectId, active], previous = []) => {
     const [previousProjectId] = previous
-    if (!projectId) {
-      if (previousProjectId) resetPathGroup()
-      return
-    }
-    if (active) loadFiles()
+    if (projectId !== previousProjectId) resetPathGroup()
+    if (!projectId) return
+    // 页签往返保留尚未保存的输入；失败后再次进入仍可重试。
+    if (active && loadedProjectId !== projectId && !fileLoading.value) void loadFiles()
   },
   { immediate: true }
 )
+
+onBeforeUnmount(() => { fileRequestId += 1 })
 
 watch(
   () => pathGroupForm.translation_domain_level1,

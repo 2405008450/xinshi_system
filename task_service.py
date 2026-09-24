@@ -712,6 +712,10 @@ def derive_daily_report_items(
     if events:
         from task_activity_service import activity_to_report_item
         items.extend(activity_to_report_item(event) for event in events)
+    from resource_development_service import report_item
+    development_item = report_item(db, user_id, report_date)
+    if development_item:
+        items.append(development_item)
     return items
 
 
@@ -843,7 +847,7 @@ def merge_daily_report_items(client_items: list[dict], derived_items: list[dict]
     """保留用户内容，但用数据库派生事件替换全部客户端系统事件。"""
     result = [item for item in client_items if item.get("source_type") != "system_event"]
     result.extend(
-        {**item, "duration_minutes": 0}
+        {**item, "duration_minutes": item["duration_minutes"] if (item.get("display_metadata") or {}).get("source") == "resource_development" else 0}
         for item in derived_items
         if item.get("source_type") == "system_event"
     )

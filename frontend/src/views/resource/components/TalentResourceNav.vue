@@ -2,7 +2,7 @@
   <nav class="resource-nav" aria-label="人才资源分类">
     <div class="resource-nav__primary">
       <el-button
-        v-for="item in TALENT_RESOURCE_VIEWS"
+        v-for="item in visibleViews"
         :key="item.path"
         class="resource-nav__item"
         :class="{ 'is-current': isActiveView(item) }"
@@ -33,9 +33,11 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { TALENT_RESOURCE_VIEWS } from '@/config/talentResourceViews'
+import { hasPermission } from '@/utils/permission'
 
 const route = useRoute()
 const router = useRouter()
+const visibleViews = computed(() => TALENT_RESOURCE_VIEWS.filter(item => !item.permissions || hasPermission(item.permissions)))
 const isActiveView = item => route.path === item.path || item.children?.some(child => route.path === child.path)
 const activeChildren = computed(() => TALENT_RESOURCE_VIEWS.find(isActiveView)?.children ?? [])
 </script>

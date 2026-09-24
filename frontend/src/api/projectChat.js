@@ -21,6 +21,12 @@ function convertKeys(obj, converter) {
   return obj
 }
 
+export const annotationChatRequest = (projectId, suffix, { method = 'get', data, params, signal, responseType } = {}) =>
+  api.request({ url: `/project-chat/annotation/${projectId ? `${projectId}/` : ''}${suffix}`,
+    method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase), params, signal, responseType,
+    ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
+  }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
+
 export const getProjectChatSettings = (projectId) => {
   return api.get(`/project-chat/${projectId}/settings`).then(res => convertKeys(res, toCamelCase))
 }

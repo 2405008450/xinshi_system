@@ -290,6 +290,11 @@ def _broadcast_chat_acknowledgement(
     participants.add(user.id)
     if message.sender_user_id:
         participants.add(message.sender_user_id)
+    if project_type == 'annotation':
+        from annotation_chat_service import eligible_users
+        from notification_ws import notification_manager
+        participants.update(notification_manager.annotation_viewers(str(project_id)))
+        participants = {member.id for member in eligible_users(db, participants)}
     broadcast_to_users(
         participants,
         {

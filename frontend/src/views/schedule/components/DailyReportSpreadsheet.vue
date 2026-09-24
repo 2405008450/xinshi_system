@@ -347,7 +347,8 @@ function getRows() {
     : []
   return values.map((cells, index) => {
     if (!props.mailMode && props.rows[index]?.source_type === 'system_event') {
-      return { ...props.rows[index], duration_minutes: 0 }
+      const row = props.rows[index]
+      return { ...row, duration_minutes: row.display_metadata?.source === 'resource_development' ? row.duration_minutes : 0 }
     }
     const value = Object.fromEntries(columns.map((column, columnIndex) => [column.key, cells[columnIndex]]))
     const duration = normalizeDurationMinutes(value.duration_minutes)

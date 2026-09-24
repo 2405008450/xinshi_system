@@ -353,6 +353,7 @@
         </el-tab-pane>
         <el-tab-pane label="项目沟通" name="chat">
           <ProjectChatPanel
+            :key="activeProgressProject?.id"
             :project-id="activeProgressProject?.id"
             project-type="annotation"
             :active="progressVisible && progressDialogTab === 'chat'"
@@ -601,7 +602,7 @@ import AnnotationProjectArrangementQuickDialog from '@/components/annotation/Ann
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
 import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
 import CustomFieldManager from '@/components/annotation/CustomFieldManager.vue'
-import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
+import ProjectChatPanel from '@/components/chat/AnnotationGroupChat.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'

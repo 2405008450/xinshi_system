@@ -23,6 +23,18 @@ def _note_dict(row: AnnotationArrangementDailyNote) -> dict:
     }
 
 
+def list_arrangement_daily_notes(db: Session, skip: int = 0, limit: int = 20) -> list[dict]:
+    rows = (
+        db.query(AnnotationArrangementDailyNote)
+        .options(joinedload(AnnotationArrangementDailyNote.editor))
+        .order_by(AnnotationArrangementDailyNote.note_date.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [_note_dict(row) for row in rows]
+
+
 def get_arrangement_daily_note(db: Session, note_date: date) -> Optional[dict]:
     row = (
         db.query(AnnotationArrangementDailyNote)

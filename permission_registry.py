@@ -53,6 +53,7 @@ PERMISSION_GROUPS = [
         "permissions": [
             {"code": "talents:read", "name": "查看人才资源库"},
             {"code": "talents:write", "name": "管理人才资源库"},
+            {"code": "resource_development:delegate", "name": "资源开拓代录（跨人员录入、修改及查看联系方式）"},
             {"code": "recruitment_talents:read", "name": "查看招聘人才敏感信息"},
             {"code": "recruitment_talents:write", "name": "管理招聘人才敏感信息"},
             {"code": "translators:read", "name": "查看译员资源"},

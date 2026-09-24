@@ -1,4 +1,4 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import {
   canAccessRoute,
   getDefaultRoute,
@@ -185,6 +185,12 @@ const routes = [
             name: 'TalentOverview',
             component: () => import('../views/resource/TalentOverview.vue'),
             meta: { title: '人才概览', roles: ['*'] }
+          },
+          {
+            path: 'resource-development',
+            name: 'ResourceDevelopment',
+            component: () => import('../views/resource/ResourceDevelopment.vue'),
+            meta: { title: '资源开拓', roles: ['*'], permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
           },
           {
             path: 'talents',
