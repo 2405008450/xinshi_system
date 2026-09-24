@@ -328,3 +328,70 @@ def test_concurrent_numbering_in_isolated_schema():
     finally:
         with engine.begin() as conn:
             conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+@pytest.mark.parametrize('channel,status', [('wechat','已添加'),('enterprise','已添加'),('group','已进群')])
+@pytest.mark.parametrize('historical', [False, True])
+def test_private_entry_new_followup_enrolls_once(db, context, channel, status, historical):
+    from resource_development_service import save_record
+    from resource_models import ResourcePerson
+    from resource_development_schemas import ActionWrite
+    user, _, _ = context
+    payload = make_payload(context, capabilities=['annotation'])
+    row = save_record(db, user, payload, historical_markers={} if historical else None)
+    confirmed = ActionWrite(**action(user, status, channel))
+    changed = payload.model_copy(update={'revision':row.revision, 'actions':[confirmed]})
+    row = save_record(db, user, changed)
+    person_id = row.person_id
+    assert person_id and db.get(ResourcePerson, person_id).full_name == payload.full_name
+    assert row.historical_only == historical
+    # 另一渠道成功以及重复提交不重复建档。
+    changed = changed.model_copy(update={'revision':row.revision, 'actions':[confirmed, ActionWrite(**action(user,'已添加','enterprise'))]})
+    assert save_record(db, user, changed).person_id == person_id
+    assert db.query(ResourcePerson).filter_by(full_name=payload.full_name).count() == 1
+    # 撤销成功状态不删除已关联的人才。
+    changed = changed.model_copy(update={'revision':row.revision, 'actions':[a.model_copy(update={'status':'未处理'}) for a in changed.actions]})
+    assert save_record(db, user, changed).person_id == person_id
+    assert db.get(ResourcePerson, person_id)
+
+
+def test_historical_correction_only_status_triggers(db, context):
+    from resource_development_service import save_record
+    user, _, _ = context
+    payload = make_payload(context, actions=[action(user,'已邀进群','group')], capabilities=['annotation'])
+    row = save_record(db,user,payload,historical_markers={'wechat':{'status':'已添加'}})
+    edited = payload.model_copy(update={'revision':row.revision,'remarks':'只修正备注','actions':[payload.actions[0].model_copy(update={'action_date':date(2026,9,20)})]})
+    save_record(db,user,edited)
+    assert row.person_id is None
+    edited = edited.model_copy(update={'revision':row.revision,'actions':[edited.actions[0].model_copy(update={'status':'已进群'})]})
+    assert save_record(db,user,edited).person_id
+
+
+@pytest.mark.parametrize('channel,status', [('group','已邀进群'),('group','已添加'),('communication','已沟通'),('project','已入项'),('wechat','自定义已添加好友')])
+def test_non_private_states_do_not_enroll(db, context, channel, status):
+    from resource_development_service import save_record
+    user, _, _ = context
+    assert save_record(db,user,make_payload(context,actions=[action(user,status,channel)])).person_id is None
+
+
+def test_private_entry_final_status_and_transaction_rollback(db, context):
+    from resource_development_service import save_record
+    from resource_models import ResourcePerson
+    from resource_development_models import DevelopmentAction, DevelopmentRecord
+    user, _, _ = context
+    # 同次提交最后状态不是成功时不建档。
+    row = save_record(db,user,make_payload(context,actions=[action(user,'已进群','group'),action(user,'未处理','group')]))
+    assert row.person_id is None
+    payload = make_payload(context,actions=[action(user,'已进群','group')])
+    with db.begin_nested() as nested:
+        with pytest.raises(HTTPException) as exc:
+            save_record(db,user,payload)
+        assert exc.value.status_code == 422
+        nested.rollback()
+    assert db.get(DevelopmentRecord,payload.id) is None
+    assert db.query(DevelopmentAction).filter_by(record_id=payload.id).count() == 0
+    with db.begin_nested() as nested:
+        created = save_record(db,user,payload.model_copy(update={'capabilities':['annotation']}))
+        person_id = created.person_id
+        nested.rollback()
+    assert db.get(ResourcePerson,person_id) is None
+    assert db.get(DevelopmentRecord,payload.id) is None

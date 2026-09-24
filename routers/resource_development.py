@@ -242,3 +242,7 @@ def delete_screenshot(screenshot_id: UUID, db: Session = Depends(get_db), user=D
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+# 群聊统计仅继承模块访问范围，写入权限在服务端单独检查。
+from routers.resource_friend_daily import router as friend_daily_router
+router.include_router(friend_daily_router)

@@ -111,3 +111,17 @@ class DevelopmentAudit(Base):
     before = mapped_column(JSON, nullable=False, default=dict)
     after = mapped_column(JSON, nullable=False, default=dict)
     created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+
+class DevelopmentFriendDaily(Base):
+    """群聊渠道每日新增量；applied 保留上次同步概览的稳定单元格。"""
+    __tablename__ = "resource_development_friend_daily"
+    id = mapped_column(Uuid, primary_key=True, default=uuid4)
+    work_date = mapped_column(Date, nullable=False, unique=True, index=True)
+    rows = mapped_column(JSON, nullable=False, default=list)
+    applied = mapped_column(JSON, nullable=False, default=list)
+    revision = mapped_column(Integer, nullable=False, default=1)
+    created_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
+    updated_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
+    created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+    updated_at = mapped_column(DateTime, nullable=False, default=datetime.now)

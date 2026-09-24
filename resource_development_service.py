@@ -133,8 +133,23 @@ def duplicates(db, name, phone, wechat):
     return result
 
 
-def sync_person(db, row, payload, languages):
-    if row.historical_only or row.person_id or "已添加" not in {row.wechat_status, row.enterprise_status}:
+PRIVATE_ENTRY_STATUSES = {"wechat": "已添加", "enterprise": "已添加", "group": "已进群"}
+
+
+def has_new_private_entry(actions, previous):
+    """只有新确认的成功跟进才入库；沿用创建顺序判断各渠道最终状态。"""
+    latest = {a.channel: a.status for a in actions}
+    return any(
+        a.channel in PRIVATE_ENTRY_STATUSES
+        and a.status == PRIVATE_ENTRY_STATUSES[a.channel]
+        and latest[a.channel] == a.status
+        and previous.get(a.id) != (a.channel, a.status)
+        for a in actions
+    )
+
+
+def sync_person(db, row, payload, languages, *, eligible):
+    if row.person_id or not eligible:
         return
     candidates = duplicates(db, row.full_name, row.phone, row.wechat)
     if payload.link_person_id:
@@ -148,7 +163,7 @@ def sync_person(db, row, payload, languages):
     if strong or (candidates and not payload.duplicate_note):
         raise HTTPException(409, {"message": "发现疑似重复人才，请确认关联或处理冲突", "duplicates": candidates})
     if not payload.capabilities:
-        raise HTTPException(422, "添加成功时请至少选择一个人才专业分类")
+        raise HTTPException(422, "进入私域时请至少选择一个人才专业分类")
     platform = option(db, row.platform_id, "platform")
     account = option(db, row.account_id, "account") if row.account_id else None
     person_payload = ResourcePersonCreate(
@@ -200,6 +215,7 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     db.query(Language).filter_by(record_id=row.id).delete(synchronize_session=False)
     db.add_all([Language(record_id=row.id, language_id=lang.id) for lang in languages])
     existing = {a.id: a for a in db.query(Action).filter_by(record_id=row.id).all()}
+    previous_states = {a.id: (a.channel, a.status) for a in existing.values()}
     if not set(existing).issubset({a.id for a in payload.actions}):
         raise HTTPException(422, "已保存的操作历史不能删除，可修正日期、人员或状态")
     for entry in payload.actions:
@@ -235,7 +251,8 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
                 action.request_number = 0
             current = action.status
         setattr(row, field, current)
-    sync_person(db, row, payload, languages)
+    sync_person(db, row, payload, languages,
+                eligible=historical_markers is None and has_new_private_entry(actions, previous_states))
     audit(db, user, row, "update" if before else "create", before)
     db.flush()
     if not defer_refresh:
@@ -276,7 +293,7 @@ def serialize_record(db, user, row, detail=False):
     labels = {"wechat": "微信", "enterprise": "企微", "group": "进群", "communication": "沟通", "project": "入项"}
     for action in actions:
         result["progress"][action.channel] = {
-            "status": action.status if allowed or action.status in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已沟通", "已入项"} else "自定义状态",
+            "status": action.status if allowed or action.status in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已进群", "已沟通", "已入项"} else "自定义状态",
             "action_date": action.action_date.isoformat(), "operator_name": user_name(db, action.operator_id),
         }
     latest = actions[-1] if actions else None
@@ -287,7 +304,7 @@ def serialize_record(db, user, row, detail=False):
                              for a in actions]
         if not allowed:
             for action in result["actions"]:
-                if action["status"] not in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已沟通", "已入项"}:
+                if action["status"] not in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已进群", "已沟通", "已入项"}:
                     action["status"] = "自定义状态"
         result["audit"] = [{**snapshot(a), "actor_name": user_name(db, a.actor_id)}
                            for a in db.query(Audit).filter(Audit.entity_id.in_([row.id, *[UUID(a["id"]) for a in result["actions"]]])).order_by(Audit.created_at)] if allowed else []
@@ -327,7 +344,7 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
                 raise HTTPException(422, '语种标识无效')
             q = q.filter(db.query(Language).filter(Language.record_id == Record.id, Language.language_id.in_(ids)).exists())
         elif key in channels:
-            if not unrestricted and any(v not in {'未处理','搜不到','已发请求','已添加','已邀进群','已沟通','已入项'} for v in values):
+            if not unrestricted and any(v not in {'未处理','搜不到','已发请求','已添加','已邀进群','已进群','已沟通','已入项'} for v in values):
                 q = q.filter(Record.owner_id == user.id)
             latest = db.query(Action.status).filter(Action.record_id == Record.id, Action.channel == channels[key]).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
             q = q.filter(func.coalesce(latest, '未处理').in_(values))

@@ -4,6 +4,7 @@
       <div><h3>{{ record.full_name || '-' }}</h3><p>{{ record.greeting_no || '暂无招呼编号' }}</p></div>
       <el-tag v-if="record.historical_only" type="info" effect="plain" round>历史导入</el-tag>
     </header>
+    <el-alert v-if="record.person_id" type="success" :closable="false" :title="`已入人才总库 · ${record.resource_code || '已关联档案'}`" />
     <section class="detail-section">
       <h4>基本资料</h4>
       <el-descriptions :column="2" border size="small" class="detail-facts">
@@ -54,7 +55,7 @@ const fields = [{ key: 'platform_name', label: '开拓平台' }, { key: 'work_da
 const date = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('zh-CN') : '原表未填写'
 const time = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const accountName = id => props.accounts.find(a => a.id === id)?.name || '-'
-const completed = channel => ['已添加', '已邀进群', '已沟通', '已入项'].includes(props.record.progress?.[channel]?.status)
+const completed = channel => ['已添加', '已进群', '已沟通', '已入项'].includes(props.record.progress?.[channel]?.status)
 const auditLabel = action => ({ create: '新增', update: '修改', delete: '删除', import_history_repair: '补齐历史导入明细' })[action] || action
 const history = computed(() => [...(props.record.actions || [])].sort((a, b) => String(b.action_date).localeCompare(String(a.action_date))))
 // 仅整理已知导入标记的显示；原始备注不修改，解析失败仍可查看完整原文。
@@ -86,5 +87,3 @@ const notes = computed(() => {
 .detail-secondary{--el-collapse-border-color:#edf0f4}.detail-secondary :deep(.el-collapse-item__header){font-size:12px;color:#64748b;line-height:1.5;padding:10px 0;height:auto;min-height:44px}.detail-source{white-space:pre-wrap;overflow-wrap:anywhere;color:#64748b}.detail-original{display:grid;grid-template-columns:130px minmax(0,1fr);margin:0;font-size:12px}.detail-original dt,.detail-original dd{margin:0;padding:8px 10px;border-bottom:1px solid #edf0f4;overflow-wrap:anywhere}.detail-original dt{color:#64748b;background:#f8fafc}.detail-audit{font-size:12px;color:#64748b;padding:6px 0}
 @media(max-width:600px){.detail-progress-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-facts :deep(.el-descriptions__label){width:76px!important;font-size:12px}.detail-facts :deep(.el-descriptions__cell){padding:8px 6px!important}.detail-original{grid-template-columns:100px minmax(0,1fr)}}
 </style>
-
-

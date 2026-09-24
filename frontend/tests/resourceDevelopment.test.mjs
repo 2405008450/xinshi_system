@@ -21,3 +21,16 @@ test('批次按当天及账号隔离，撤销代录权限后不沿用他人归�
   assert.deepEqual(restoreDevelopmentBatch(saved, { ...options, user_id: 'another' }, '2026-09-24'), {})
   assert.equal(restoreDevelopmentBatch(saved, { ...options, can_delegate: false }, '2026-09-24').owner_id, undefined)
 })
+
+import { hasNewPrivateEntry, defaultProgressStatus } from '../src/utils/resourceDevelopment.js'
+test('私域入库只接受新增或修正成功状态，历史及日期修改不触发',()=>{
+ const old=[{id:'a',channel:'wechat',status:'已添加',action_date:'2026-09-20'}]
+ assert.equal(hasNewPrivateEntry(old,old),false)
+ assert.equal(hasNewPrivateEntry([{...old[0],action_date:'2026-09-24'}],old),false)
+ for(const [channel,status] of [['wechat','已添加'],['enterprise','已添加'],['group','已进群']]) assert.equal(hasNewPrivateEntry([...old,{id:'b',channel,status}],old),true)
+ assert.equal(hasNewPrivateEntry([{id:'g',channel:'group',status:'已进群'}],[{id:'g',channel:'group',status:'已邀进群'}]),true)
+ assert.equal(hasNewPrivateEntry([{id:'g',channel:'group',status:'已邀进群'}]),false)
+ assert.equal(hasNewPrivateEntry([{id:'g',channel:'group',status:'已进群'},{id:'h',channel:'group',status:'未处理'}]),false)
+ assert.equal(defaultProgressStatus('group'),'已邀进群')
+ assert.deepEqual(progressStatuses('group'),['未处理','已邀进群','已进群'])
+})

@@ -10,7 +10,7 @@ export const developmentColumns = [
 export const defaultDevelopmentColumns = developmentColumns.slice(0, 11).map(c => c.key)
 export const progressChannels = { wechat: '微信', enterprise: '企微', group: '进群', communication: '沟通', project: '入项' }
 export const progressColumnChannel = { wechat_status: 'wechat', enterprise_status: 'enterprise', group_status: 'group', communication_status: 'communication', project_status: 'project' }
-export const progressStatuses = channel => ({ group: ['未处理', '已邀进群'], communication: ['未处理', '已沟通'], project: ['未处理', '已入项'] })[channel] || statusOptions
+export const progressStatuses = channel => ({ group: ['未处理', '已邀进群', '已进群'], communication: ['未处理', '已沟通'], project: ['未处理', '已入项'] })[channel] || statusOptions
 export const progressText = (row, channel) => {
   const p = row.progress?.[channel]
   return p ? `${p.status} · ${p.action_date ? p.action_date.slice(5) : '原表未填日期'} · ${p.operator_name}` : '未处理'
@@ -52,3 +52,13 @@ export const cleanColumns = value => {
 }
 export const statusOptions = ['未处理', '搜不到', '已发请求', '已添加']
 export const categoryOptions = [{ value: 'national', label: '全国性平台' }, { value: 'local', label: '地方性平台' }, { value: 'international', label: '国外平台' }]
+
+export const defaultProgressStatus = channel => channel === 'group' ? '已邀进群' : progressStatuses(channel).at(-1)
+// 与后端保持相同的渠道、成功状态和变更判断；历史原标记不参与自动入库。
+export const hasNewPrivateEntry = (actions, previous = []) => {
+  const statuses = { wechat: '已添加', enterprise: '已添加', group: '已进群' }
+  const old = new Map(previous.map(a => [a.id, a]))
+  const latest = new Map(actions.map(a => [a.channel, a.status]))
+  return actions.some(a => statuses[a.channel] === a.status && latest.get(a.channel) === a.status &&
+    (!old.has(a.id) || old.get(a.id).channel !== a.channel || old.get(a.id).status !== a.status))
+}

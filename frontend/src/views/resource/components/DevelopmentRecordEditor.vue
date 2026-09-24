@@ -23,12 +23,12 @@
         </template>
         <el-alert v-if="nameCandidates.length && !needsEnrollment" type="warning" :closable="false" :title="`人才总库有 ${nameCandidates.length} 条疑似匹配，添加成功时请确认关联。`" />
         <h3>跟进进展</h3>
-        <p v-if="historicalOnly" class="muted">历史导入记录：仅在资源开拓保存跟进标记，不创建、关联或跳转人才总库。</p><p v-else class="muted">微信、企微“已添加”会进入人才入库流程；进群、沟通、入项独立记录，入项标记不会自动生成项目安排。</p>
+        <p v-if="historicalOnly" class="muted">历史导入记录：原表标记不自动入库；今后确认添加好友或已进群时，会查重并进入人才总库。</p><p v-else class="muted">微信、企微“已添加”或“已进群”会进入人才入库流程；“已邀进群”仅表示邀请。沟通、入项不触发入库。</p>
         <el-button v-if="quickMode" text type="primary" @click="quickMode = false">查看全部历史及资料</el-button>
         <div v-for="(action, index) in form.actions" v-show="!quickMode || !savedActionIds.includes(action.id)" :key="action.id" class="development-action" data-dialog-field-search-group>
           <div data-dialog-field-search-group-title>操作 {{ index + 1 }}<span v-if="action.request_number"> · 第 {{ action.request_number }} 次请求</span></div>
           <div class="development-form-grid">
-            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" @change="action.status = progressStatuses(action.channel).at(-1)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
+            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" @change="action.status = defaultProgressStatus(action.channel)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
             <el-form-item label="跟进状态" :prop="`actions.${index}.status`" :rules="required('请选择跟进状态')"><el-select v-model="action.status" filterable allow-create default-first-option><el-option v-for="s in progressStatuses(action.channel)" :key="s" :label="s" :value="s" /></el-select></el-form-item>
             <el-form-item label="操作日期" :prop="`actions.${index}.action_date`" :rules="required('请选择操作日期')"><el-date-picker v-model="action.action_date" value-format="YYYY-MM-DD" /></el-form-item>
             <el-form-item label="操作人员" :prop="`actions.${index}.operator_id`" :rules="required('请选择操作人员')"><el-select v-model="action.operator_id" filterable><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
@@ -61,7 +61,7 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { categoryOptions, progressChannels, progressStatuses, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday } from '@/utils/resourceDevelopment'
+import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday } from '@/utils/resourceDevelopment'
 const props = defineProps({ options: { type: Object, required: true } })
 const emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), checking = ref(false), formRef = ref(null), bodyRef = ref(null)
@@ -75,14 +75,14 @@ function saveShortcut(event) {
   if (event.isComposing || event.repeat || !(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return
   event.preventDefault(); save(!form.revision)
 }
-const historicalOnly = ref(false)
+const historicalOnly = ref(false), originalActions = ref([])
 const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedActionIds = ref([]), nameCandidates = ref([])
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, phone: '', wechat: '', language_ids: [], follow_up: '', remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
 const form = reactive(empty())
 const platforms = computed(() => props.options.options.filter(o => o.kind === 'platform'))
 const accounts = computed(() => props.options.options.filter(o => o.kind === 'account'))
-const needsEnrollment = computed(() => !historicalOnly.value && !personId.value && ['wechat', 'enterprise'].some(channel => form.actions.filter(a => a.channel === channel).at(-1)?.status === '已添加'))
+const needsEnrollment = computed(() => !personId.value && hasNewPrivateEntry(form.actions, originalActions.value))
 const capabilityOptions = [{ value: 'written_translation', label: '笔译' }, { value: 'interpretation', label: '口译' }, { value: 'annotation', label: '标注' }, { value: 'recruitment', label: '全职' }]
 const required = message => [{ required: true, message, trigger: 'change' }]
 const rules = computed(() => ({ platform_id: required('请选择开拓平台'), work_date: required('请选择日期'), owner_id: required('请选择开拓人员'), full_name: required('请填写资源姓名'), capabilities: needsEnrollment.value && !form.link_person_id ? [{ type: 'array', required: true, min: 1, message: '请选择至少一个专业分类', trigger: 'change' }] : [] }))
@@ -91,13 +91,13 @@ function payload() {
 }
 let checkSequence = 0
 async function checkName() {
-  if (historicalOnly.value || !form.full_name.trim() || !form.platform_id) return
+  if (!form.full_name.trim() || !form.platform_id) return
   const seq = ++checkSequence; checking.value = true
   try { const result = await api.duplicates(payload()); if (seq === checkSequence) nameCandidates.value = result.items }
   catch (e) { if (seq === checkSequence) ElMessage.error(e.message) }
   finally { if (seq === checkSequence) checking.value = false }
 }
-function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? progressStatuses(channel).at(-1) : '已发请求', action_date: followDate.value || dateText(new Date()), operator_id: followOwner.value === form.owner_id && props.options.users.some(u => u.id === followOperator.value) ? followOperator.value : form.owner_id, account_id: form.account_id }) }
+function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '已发请求', action_date: followDate.value || dateText(new Date()), operator_id: followOwner.value === form.owner_id && props.options.users.some(u => u.id === followOperator.value) ? followOperator.value : form.owner_id, account_id: form.account_id }) }
 async function open(row, channel) {
   const data = row ? await api.detail(row.id) : null
   Object.assign(form, empty()); nameCandidates.value = []; clearFieldSearch(); checkSequence++
@@ -105,7 +105,7 @@ async function open(row, channel) {
   if (data) for (const key of Object.keys(form)) if (key in data) form[key] = data[key]
   historicalOnly.value = Boolean(data?.historical_only)
   greetingNo.value = data?.greeting_no || ''; personId.value = data?.person_id || null; resourceCode.value = data?.resource_code || ''
-  savedActionIds.value = form.actions.map(a => a.id); quickMode.value = Boolean(channel)
+  originalActions.value = form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status })); savedActionIds.value = form.actions.map(a => a.id); quickMode.value = Boolean(channel)
   if (channel) addAction(channel, true)
   visible.value = true
 }
@@ -124,13 +124,13 @@ async function save(continueAdding = false) {
         }
       }
     }
-    await api.save(payload())
+    const saved = await api.save(payload())
     if (!form.revision) {
       try { sessionStorage.setItem(batchKey(), JSON.stringify({ user_id: props.options.user_id, day: dateText(new Date()), batch: continueDevelopmentValues(form) })) } catch { /* 浏览器禁用存储时不影响保存。 */ }
     }
     const latest = form.actions.filter(a => !savedActionIds.value.includes(a.id)).at(-1)
     if (latest) { followOperator.value = latest.operator_id; followDate.value = latest.action_date; followOwner.value = form.owner_id }
-    emit('saved'); ElMessage.success('资源开拓已保存')
+    emit('saved'); ElMessage.success(saved.person_id ? '已入人才总库 · ' + (saved.resource_code || '已关联档案') : '资源开拓已保存')
     if (continueAdding) {
       const retained = continueDevelopmentValues(form)
       await open(); Object.assign(form, retained)
@@ -146,4 +146,3 @@ async function save(continueAdding = false) {
 }
 defineExpose({ open })
 </script>
-
