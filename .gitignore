@@ -58,6 +58,7 @@ build/
 .eggs/
 
 # Runtime data / local outputs
+/outputs/
 *.db
 *.db-journal
 *.sqlite
