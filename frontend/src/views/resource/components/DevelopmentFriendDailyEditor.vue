@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body non-modal :modal="false" modal-penetrable :lock-scroll="false" :close-on-click-modal="false" :close-on-press-escape="false" :before-close="beforeClose" class="friend-daily-dialog">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="群聊每日加好友统计" placeholder="查找账号、语种或人数" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="群聊好友统计" placeholder="查找账号、语种或人数" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef" v-loading="loading" @keydown.ctrl.enter.prevent="save" @keydown.meta.enter.prevent="save">
       <div class="friend-daily-intro"><el-date-picker :model-value="day" value-format="YYYY-MM-DD" format="YYYY年MM月DD日" :clearable="false" :disabled="saving || loading" aria-label="群聊统计日期" @update:model-value="switchDay" /><span>仅填写微信群聊途径的当天新增人数</span><el-button link :disabled="saving || loading" @click="open(day)">重新加载</el-button></div>
       <p class="friend-daily-hint">保存后同步人才概览；修改按差额更新。空白表示未填写，0 表示无新增。同一人同一账号请勿因会多种语言重复计数。</p>
@@ -29,7 +29,7 @@
       <p class="friend-daily-hint" v-if="updated">最近更新：{{ updated.name }} · {{ formatTime(updated.at) }}</p>
       <el-collapse v-if="audit.length"><el-collapse-item title="查看修改记录"><div v-for="(a, i) in audit" :key="i" class="friend-audit">{{ formatTime(a.at) }} · {{ a.actor }} · 微信 {{ a.totals.wechat }} 人 / 企微 {{ a.totals.enterprise }} 人</div></el-collapse-item></el-collapse>
     </div>
-    <template #footer><span class="friend-footer-total">微信 {{ subtotal('wechat') }} 人 · 企微 {{ subtotal('enterprise') }} 人 · 合计 <strong>{{ subtotal('wechat') + subtotal('enterprise') }}</strong> 人</span><el-button :disabled="saving" @click="beforeClose(() => visible = false)">关闭</el-button><el-button v-if="options.can_write" type="primary" :disabled="loading" :loading="saving" @click="save">保存并同步概览</el-button></template>
+    <template #footer><span class="friend-footer-total">微信 {{ subtotal('wechat') }} 人 · 企微 {{ subtotal('enterprise') }} 人 · 合计 <strong>{{ subtotal('wechat') + subtotal('enterprise') }}</strong> 人</span><el-button :disabled="saving" @click="beforeClose(() => visible = false)">关闭</el-button><el-button v-if="options.can_write" type="primary" :disabled="loading" :loading="saving" @click="save">保存</el-button></template>
   </DraggableFormDialog>
 </template>
 <script setup>
@@ -101,7 +101,7 @@ async function open(value) { if (saving.value || !await allowDiscard()) return; 
 async function save() {
   if (saving.value || loading.value || !props.options.can_write || !await formRef.value.validate().catch(() => false)) return
   saving.value = true
-  try { const data = await api.save(day.value, { revision: revision.value, rows: payloadRows() }); applyData(day.value, data); emit('saved'); emit('options-changed'); ElMessage.success('统计已保存，人才概览已按差额更新') }
+  try { const data = await api.save(day.value, { revision: revision.value, rows: payloadRows() }); applyData(day.value, data); emit('saved'); emit('options-changed'); accountVisible.value = false; visible.value = false; ElMessage.success('统计已保存，人才概览已按差额更新') }
   catch (e) {
     ElMessage.error(e.message)
     const index = Number(e.message?.match(/第(\d+)行/)?.[1]) - 1
