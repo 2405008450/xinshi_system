@@ -51,7 +51,7 @@ test('人才总库全部可配置列均复用公共漏斗筛选', () => {
 
   assert.ok(tableKeys.length >= 28)
   assert.deepEqual(tableKeys.filter(key => !filterKeys.has(key)), [])
-  assert.match(source, /const headerFilterDefinition=\(key\)=>talentFilterFields\.find/)
+  assert.match(source, /const headerFilterDefinition=\(key\)=>groupedHeaderFilters\[key\]\|\|talentFilterFields\.find/)
   assert.doesNotMatch(source, /defaultColumnKeys\.includes\(key\)\?talentFilterFields\.find/)
   for (const key of ['regionSummary', 'educationSummary', 'languageSummary', 'overallRating', 'projectSituation']) {
     assert.match(filterBlock, new RegExp(`key:'${key}'.*type:'text'`))
@@ -81,7 +81,7 @@ test('人才详情按分类展示且不依赖悬浮才能访问', () => {
 
 test('人才长表单每次打开时恢复到顶部', () => {
   assert.match(source, /@open="onEditorOpened"/)
-  assert.match(source, /scrollBody\.scrollTop=0/)
+  assert.match(source, /scrollBody\.scrollTop\s*=\s*0/)
 })
 
 test('人才综合表现支持结构化录入、详情弹窗和高级评分筛选排序', () => {

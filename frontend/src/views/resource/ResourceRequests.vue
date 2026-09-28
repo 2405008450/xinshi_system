@@ -761,6 +761,7 @@ const sendDemand = async () => {
     ElMessage.success('需求已发送')
     await fetchData()
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '发送需求失败'))
   } finally {
     sending.value = false

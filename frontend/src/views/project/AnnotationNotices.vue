@@ -299,6 +299,7 @@ async function beforeEditorClose(done) {
 
 async function saveNotice() {
   if (!activeId.value || saving.value) return
+  if (saving.value) return
   saving.value = true
   try {
     const saved = await updateAnnotationNoticeContent(activeId.value, draftContent.value, activeDetail.value?.updatedAt)

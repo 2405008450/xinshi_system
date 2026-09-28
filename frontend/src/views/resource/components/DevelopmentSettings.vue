@@ -28,12 +28,15 @@ function create(kind, category = '') { editId.value = null; Object.assign(form, 
 function edit(p) { editId.value = p.id; Object.assign(form, p); editing.value = true }
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
+  if (saving.value) return
   saving.value = true
   try {
     if (form.kind === 'language') await api.addLanguage({ label: form.name, language_type: form.language_type })
     else await api.saveOption({ kind: form.kind, category: form.category, name: form.name, description: form.description, revision: form.revision }, editId.value)
     editing.value = false; emit('saved'); ElMessage.success('选项已保存')
-  } catch (e) { ElMessage.error(e.message) } finally { saving.value = false }
+  } catch (e) {
+        await formRef.value?.applyServerErrors(e)
+ ElMessage.error(e.message) } finally { saving.value = false }
 }
 defineExpose({ open: () => { visible.value = true }, edit })
 </script>

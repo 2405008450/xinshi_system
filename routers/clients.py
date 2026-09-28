@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 import logging
 from datetime import date
 from typing import List, Optional
@@ -77,14 +78,14 @@ def create_client_endpoint(
             return get_client(db, existing.id)
     try:
         return create_client(db=db, client=client, idempotency_key=idempotency_key)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         if idempotency_key:
             existing = db.query(Client).filter(Client.idempotency_key == idempotency_key).first()
             if existing:
                 return get_client(db, existing.id)
         logger.exception("创建客户时触发数据库约束")
-        raise HTTPException(status_code=400, detail="客户数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=400, detail=integrity_error_detail(exc, "客户数据不符合保存要求，请检查后重试"))
 
 @router.get("/", response_model=List[ClientResponse], deprecated=True)
 def read_clients(
@@ -240,7 +241,7 @@ def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Ses
 def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db)):
     try:
         success = delete_client(db, client_id=client_id)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="无法删除该客户：仍被咨询或项目引用，请先处理关联记录")
     if not success:
@@ -270,7 +271,7 @@ def create_sub_client_endpoint(
         return create_sub_client(
             db=db, sub_client=sub_client, idempotency_key=idempotency_key,
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         if idempotency_key:
             existing = db.query(SubClient).filter(
@@ -279,7 +280,7 @@ def create_sub_client_endpoint(
             if existing:
                 return get_sub_client(db, existing.id)
         logger.exception("创建子客户时触发数据库约束")
-        raise HTTPException(status_code=400, detail="子客户数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=400, detail=integrity_error_detail(exc, "子客户数据不符合保存要求，请检查后重试"))
 
 @router.put("/sub_clients/{sub_id}", response_model=SubClientResponse)
 def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db)):

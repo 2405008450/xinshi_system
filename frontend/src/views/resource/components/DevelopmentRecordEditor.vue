@@ -140,6 +140,7 @@ async function save(continueAdding = false) {
       formRef.value?.clearValidate()
     } else visible.value = false
   } catch (e) {
+    await formRef.value?.applyServerErrors(e)
     if (e.rawDetail?.duplicates) { nameCandidates.value = e.rawDetail.duplicates; await locateDialogFieldByLabel('关联已有档案') }
     ElMessage.error(e.message)
   } finally { saving.value = false }

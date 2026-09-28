@@ -987,11 +987,16 @@ def save_trial(db: Session, payload, created_by: UUID | None, trial_id: UUID | N
         db, payload.project_id, payload.person_id,
         payload.platform_account_id, language_item_id=payload.language_item_id,
     )
+    # 同一项目的序号分配串行执行，避免并发新增读到相同的最大序号。
+    db.query(AnnotationProject.id).filter(
+        AnnotationProject.id == payload.project_id,
+    ).with_for_update().first()
     row = db.get(AnnotationTrialRecord, trial_id) if trial_id else AnnotationTrialRecord(project_id=payload.project_id, created_by=created_by)
     if trial_id and not row:
         return None
     if trial_id and row.project_id != payload.project_id:
         raise ValueError("试标记录创建后不能更换项目")
+    previous_round = row.round_no if trial_id else None
     duplicate = db.query(AnnotationTrialRecord.id).filter(
         AnnotationTrialRecord.project_id == payload.project_id,
         AnnotationTrialRecord.person_id == payload.person_id,
@@ -1016,7 +1021,11 @@ def save_trial(db: Session, payload, created_by: UUID | None, trial_id: UUID | N
         db, "trial", payload.project_id, payload.custom_values,
         row.custom_values if trial_id else None,
     )
-    row.sequence_no = payload.sequence_no or (row.sequence_no if trial_id else _next_sequence(db, AnnotationTrialRecord, AnnotationTrialRecord.project_id == payload.project_id, AnnotationTrialRecord.round_no == payload.round_no))
+    if not trial_id or previous_round != payload.round_no:
+        # 编辑轮次时，旧轮次的序号不能直接复用到新轮次。
+        row.sequence_no = (payload.sequence_no if not trial_id else None) or _next_sequence(db, AnnotationTrialRecord, AnnotationTrialRecord.project_id == payload.project_id, AnnotationTrialRecord.round_no == payload.round_no)
+    elif payload.sequence_no:
+        row.sequence_no = payload.sequence_no
     row.updated_at = datetime.now()
     if not trial_id:
         db.add(row)

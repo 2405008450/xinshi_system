@@ -2538,6 +2538,7 @@ const handleInlineStatusChange = async (row, newStatus) => {
 
 const handleSubmit = async (continueCreate = false) => {
   if (!formRef.value || formSubmitting.value) return
+  if (formSubmitting.value) return
   formSubmitting.value = true
 
   await formRef.value.validate(async (valid) => {
@@ -2623,6 +2624,7 @@ const handleSubmit = async (continueCreate = false) => {
         await routeToProjectBoard(payload.consultation_type)
       }
     } catch (error) {
+    await formRef.value?.applyServerErrors(error)
       ElMessage.error(error?.detail || '操作失败')
     } finally {
       formSubmitting.value = false
@@ -2865,6 +2867,7 @@ const handleConfirmConsultation = async (sendEmail) => {
       : null,
   }
   confirmationSubmitAction.value = sendEmail ? 'with-email' : 'project-only'
+  if (confirmationSubmitting.value) return
   confirmationSubmitting.value = true
   if (confirmationContext.mode === 'inline') {
     statusUpdatingId.value = confirmationContext.consultationId
@@ -2914,6 +2917,7 @@ const handleConfirmConsultation = async (sendEmail) => {
       : await routeToProjectBoard(targetProjectType, targetProjectId)
     if (!navigated) await fetchData()
   } catch (error) {
+    await confirmationFormRef.value?.applyServerErrors(error)
     const detail = error?.rawDetail || error?.detail
     if (error?.response?.status === 409 && detail?.preview) {
       applyConfirmationPreview(detail.preview)

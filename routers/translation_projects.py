@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 import logging
 from typing import List, Literal, Optional
 from uuid import UUID
@@ -151,7 +152,7 @@ def create_project_endpoint(
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="项目数据不符合保存要求，请检查后重试"
+            detail=integrity_error_detail(e, "项目数据不符合保存要求，请检查后重试")
         )
     except DatabaseError:
         db.rollback()
@@ -552,7 +553,7 @@ def delete_project_endpoint(
         success = delete_translation_project(
             db, project_id=project_id, actor_user_id=current_user.id,
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

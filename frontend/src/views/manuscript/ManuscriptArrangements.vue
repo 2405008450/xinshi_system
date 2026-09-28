@@ -2476,6 +2476,7 @@ async function saveMailPaths() {
   const dispatchId = selectedProjectDispatch.value?.id
   if (!dispatchId) return
   if (!ensureCanManage(selectedProjectDispatch.value)) return
+  if (mailPathsSaving.value) return
   mailPathsSaving.value = true
   try {
     const saved = await updateManuscriptMailPaths(dispatchId, {
@@ -2838,6 +2839,8 @@ async function saveQuickTranslator() {
     return
   }
 
+  if (quickTranslatorSaving.value) return
+
   quickTranslatorSaving.value = true
   try {
     const created = await quickCreateManuscriptTranslator({
@@ -2857,6 +2860,7 @@ async function saveQuickTranslator() {
     workspaceTranslatorTableRef.value?.toggleRowSelection(created, true)
     ElMessage.success(`已添加并选择译员“${created.translator_name}”`)
   } catch (error) {
+    await quickTranslatorFormRef.value?.applyServerErrors(error)
     ElMessage.error(error?.detail || '快捷添加译员失败')
   } finally {
     quickTranslatorSaving.value = false
@@ -3718,6 +3722,7 @@ async function saveDraft(shouldConfirm) {
     }
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     const payload = buildDispatchPayload()
@@ -3998,6 +4003,7 @@ async function saveReassignment() {
     return
   }
   const assignment = reassignForm.replacement
+  if (reassignSaving.value) return
   reassignSaving.value = true
   try {
     const response = await reassignManuscriptAssignment(
@@ -4060,6 +4066,7 @@ async function saveReassignment() {
     await nextTick()
     await openMailPreviewDialog(dispatch, replacement)
   } catch (error) {
+    await reassignFormRef.value?.applyServerErrors(error)
     ElMessage.error(error.detail || '改派失败')
   } finally {
     reassignSaving.value = false
@@ -4120,6 +4127,7 @@ async function saveSettlement() {
     (item) => item.id === settlementForm.dispatch_id
   )
   if (!ensureCanManage(dispatch)) return
+  if (settlementSaving.value) return
   settlementSaving.value = true
   try {
     await updateManuscriptSettlement(

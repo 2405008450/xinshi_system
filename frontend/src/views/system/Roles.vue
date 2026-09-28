@@ -199,6 +199,7 @@ async function handleRoleSubmit() {
       roleDialogVisible.value = false
       await fetchData()
     } catch (error) {
+    await formRef.value?.applyServerErrors(error)
       ElMessage.error(error.detail || '保存失败')
     }
   })
@@ -237,6 +238,7 @@ function toggleGroup(group, checked) {
 
 async function savePermissions() {
   if (!selectedRole.value) return
+  if (savingPermissions.value) return
   savingPermissions.value = true
   try {
     await roleApi.updateRolePermissions(selectedRole.value.id, selectedPermissions.value)

@@ -457,6 +457,7 @@ async function saveOverview() {
   finishActiveEditor()
   const validationError = validateDraft()
   if (validationError) return ElMessage.warning(validationError)
+  if (saving.value) return
   saving.value = true
   try {
     const result = await saveTalentOverview({

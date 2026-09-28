@@ -244,6 +244,7 @@ async function save(finalize) {
   }
   try {
     if (finalize) await ElMessageBox.confirm('确认后将保存日报快照；邮件发送前仍可撤回确认，是否继续？', '确认日报', { type: 'warning' })
+    if (saving.value) return
     saving.value = true
     applyReport(await (finalize ? finalizeDailyReport : saveDailyReport)(props.reportDate, payload))
     ElMessage.success(finalize ? '日报已确认' : '草稿已保存')

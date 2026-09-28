@@ -3,7 +3,9 @@
     v-for="field in fields"
     :key="field.id"
     :label="field.fieldLabel"
-    :required="field.isRequired"
+    :required="validateValues ? undefined : field.isRequired"
+    :prop="validateValues ? [...modelPath, field.id] : undefined"
+    :rules="validateValues ? customFieldRules(field) : undefined"
   >
     <el-switch
       v-if="field.dataType === 'boolean'"
@@ -48,9 +50,9 @@
     >
       <el-option
         v-for="option in field.options || []"
-        :key="option.value || option"
-        :label="option.label || option"
-        :value="option.value || option"
+        :key="option.value ?? option"
+        :label="option.label ?? option"
+        :value="option.value ?? option"
       />
     </el-select>
     <el-input
@@ -65,6 +67,7 @@
 <script setup>
 import { ref } from 'vue'
 import AnnotationCustomFieldImage from './AnnotationCustomFieldImage.vue'
+import { customFieldRules } from '../../utils/annotationCustomFieldRules.js'
 
 const imageEditors = ref([])
 
@@ -72,6 +75,8 @@ defineProps({
   fields: { type: Array, default: () => [] },
   values: { type: Object, required: true },
   projectId: { type: String, default: '' },
+  validateValues: { type: Boolean, default: false },
+  modelPath: { type: Array, default: () => ['customValues'] },
 })
 
 const cleanupPending = async () => {

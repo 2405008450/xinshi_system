@@ -29,14 +29,16 @@
           :closable="false"
           show-icon
         />
-        <AppForm label-width="110px" class="policy-form">
+        <div class="policy-form">
           <section v-for="item in projectTypes" :key="item.value" class="policy-section">
+            <AppForm :ref="el => policyFormRefs[item.value] = el" :model="policies[item.value]" :rules="mailPolicyRules(policies[item.value])" label-width="110px">
             <h3>{{ item.label }}</h3>
-            <el-form-item label="默认主送组"><el-select v-model="policies[item.value].to_group_ids" multiple filterable placeholder="可留空，发送时手动选择" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
+            <el-form-item label="默认主送组" prop="to_group_ids"><el-select v-model="policies[item.value].to_group_ids" multiple filterable placeholder="主送或抄送至少选择一组" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
             <el-form-item label="默认抄送组"><el-select v-model="policies[item.value].cc_group_ids" multiple filterable placeholder="请选择默认抄送组" style="width:100%"><el-option v-for="group in activeGroups" :key="group.id" :label="group.name" :value="group.id" /></el-select></el-form-item>
-            <el-button v-if="canWrite" type="primary" plain @click="savePolicy(item.value)">保存{{ item.label }}策略</el-button>
+            <el-button v-if="canWrite" type="primary" plain :loading="policySaving[item.value]" @click="savePolicy(item.value)">保存{{ item.label }}策略</el-button>
+            </AppForm>
           </section>
-        </AppForm>
+        </div>
       </el-tab-pane>
       <el-tab-pane label="工作报告收件策略" name="daily-reports">
         <el-alert title="为每位用户配置固定的工作报告主送组和抄送组；用户发送时只能查看收件人，不能临时修改。" type="info" :closable="false" show-icon class="policy-tip" />
@@ -60,11 +62,11 @@
         </el-table>
       </el-tab-pane>
     </el-tabs>
-    <DraggableFormDialog v-model="groupDialog" :title="groupForm.id ? '编辑邮件组' : '新增邮件组'" width="min(680px, calc(100vw - 32px))">
-      <AppForm label-width="90px">
-        <el-form-item label="组名" required><el-input v-model="groupForm.name" maxlength="100" /></el-form-item>
+    <DraggableFormDialog v-model="groupDialog" @closed="groupFormRef?.clearValidate()" :title="groupForm.id ? '编辑邮件组' : '新增邮件组'" width="min(680px, calc(100vw - 32px))">
+      <AppForm ref="groupFormRef" :model="groupForm" :rules="groupRules" label-width="90px">
+        <el-form-item label="组名" prop="name"><el-input v-model="groupForm.name" maxlength="100" /></el-form-item>
         <el-form-item label="说明"><el-input v-model="groupForm.description" maxlength="500" /></el-form-item>
-        <el-form-item label="成员" required>
+        <el-form-item label="成员" prop="user_ids">
           <InternalMailRecipientSelector
             v-model="groupForm.user_ids"
             :users="validUsers"
@@ -73,7 +75,7 @@
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="groupForm.is_active" /></el-form-item>
       </AppForm>
-      <template #footer><el-button @click="groupDialog=false">取消</el-button><el-button type="primary" @click="saveGroup">保存</el-button></template>
+      <template #footer><el-button @click="groupDialog=false">取消</el-button><el-button type="primary" :loading="groupSaving" @click="saveGroup">保存</el-button></template>
     </DraggableFormDialog>
   </el-card>
 </template>
@@ -85,22 +87,40 @@ import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import { hasPermission } from '@/utils/permission'
+import { mailPolicyRules } from '@/utils/mailPolicyForm.js'
 
 const canWrite = hasPermission('system:mail_settings:write')
 const loading = ref(false); const activeTab = ref('groups'); const groupDialog = ref(false)
 const groups = ref([]); const users = ref([]); const dailyReportPolicies = ref([]); const mailStatus = reactive({})
 const projectTypes = [{value:'translation',label:'笔译项目'},{value:'interpretation',label:'口译项目'},{value:'annotation',label:'标注项目'},{value:'recruitment',label:'招聘项目'}]
 const policies = reactive(Object.fromEntries(projectTypes.map((item)=>[item.value,{to_group_ids:[],cc_group_ids:[]}])) )
+const policyFormRefs = {}, policySaving = reactive({})
+const groupFormRef=ref(null),groupSaving=ref(false)
+const groupRules={name:[{required:true,whitespace:true,max:100,message:'请填写组名（最多100字）',trigger:'blur'}],user_ids:[{type:'array',required:true,min:1,message:'请选择邮件组成员',trigger:'change'}]}
 const groupForm = reactive({id:'',name:'',description:'',is_active:true,user_ids:[]})
 const validUsers = computed(()=>users.value.filter((item)=>item.is_active && item.email))
 const activeGroups = computed(()=>groups.value.filter((item)=>item.is_active))
 
 const load = async()=>{ loading.value=true; try { const [status,groupRows,userRows,dailyRows,...policyRows]=await Promise.all([mailApi.getMailStatus(),mailApi.getMailGroups(),userApi.getUsers({skip:0,limit:500}),mailApi.getDailyReportMailPolicies(),...projectTypes.map((item)=>mailApi.getMailPolicy(item.value))]); Object.assign(mailStatus,status); groups.value=groupRows; users.value=userRows; dailyReportPolicies.value=dailyRows.map(row=>({...row,to_group_ids:[...(row.to_group_ids||[])],cc_group_ids:[...(row.cc_group_ids||[])],_saving:false})); policyRows.forEach((row,index)=>Object.assign(policies[projectTypes[index].value],{to_group_ids:row.to_group_ids,cc_group_ids:row.cc_group_ids})) } catch(error){ElMessage.error(error.detail||'加载邮件设置失败')} finally{loading.value=false} }
 const openGroup=(row=null)=>{Object.assign(groupForm,row?{id:row.id,name:row.name,description:row.description||'',is_active:row.is_active,user_ids:[...row.user_ids]}:{id:'',name:'',description:'',is_active:true,user_ids:[]});groupDialog.value=true}
-const saveGroup=async()=>{if(!groupForm.name.trim()||!groupForm.user_ids.length)return ElMessage.warning('请填写组名并选择成员');try{const payload={name:groupForm.name.trim(),description:groupForm.description.trim()||null,is_active:groupForm.is_active,user_ids:groupForm.user_ids};if(groupForm.id)await mailApi.updateMailGroup(groupForm.id,payload);else await mailApi.createMailGroup(payload);groupDialog.value=false;ElMessage.success('邮件组已保存');await load()}catch(error){ElMessage.error(error.detail||'保存失败')}}
+const saveGroup=async()=>{
+  if(groupSaving.value)return
+  if(!await groupFormRef.value?.validate().catch(()=>false))return
+  if(groupSaving.value)return
+  groupSaving.value=true
+  try{
+    const payload={name:groupForm.name.trim(),description:groupForm.description.trim()||null,is_active:groupForm.is_active,user_ids:groupForm.user_ids}
+    if(groupForm.id)await mailApi.updateMailGroup(groupForm.id,payload)
+    else await mailApi.createMailGroup(payload)
+    groupDialog.value=false
+    ElMessage.success('邮件组已保存')
+    await load()
+  }catch(error){await groupFormRef.value?.applyServerErrors(error);ElMessage.error(error.detail||'保存失败')}
+  finally{groupSaving.value=false}
+}
 const removeGroup=async(row)=>{try{await ElMessageBox.confirm(`确认删除邮件组“${row.name}”吗？`,'提示',{type:'warning'});await mailApi.deleteMailGroup(row.id);ElMessage.success('已删除');await load()}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除失败')}}
-const savePolicy=async(type)=>{try{await mailApi.updateMailPolicy(type,policies[type]);ElMessage.success('项目邮件策略已保存')}catch(error){ElMessage.error(error.detail||'保存策略失败')}}
-const saveDailyReportPolicy=async(row)=>{row._saving=true;try{const saved=await mailApi.updateDailyReportMailPolicy(row.user_id,{to_group_ids:row.to_group_ids,cc_group_ids:row.cc_group_ids});Object.assign(row,saved,{_saving:false});ElMessage.success(`${row.user_name}的工作报告收件策略已保存`)}catch(error){ElMessage.error(error.detail||'保存工作报告策略失败')}finally{row._saving=false}}
+const savePolicy=async(type)=>{if(policySaving[type])return;if(!await policyFormRefs[type]?.validate().catch(()=>false))return;if(policySaving[type])return;policySaving[type]=true;try{await mailApi.updateMailPolicy(type,policies[type]);ElMessage.success('项目邮件策略已保存')}catch(error){await policyFormRefs[type]?.applyServerErrors(error);ElMessage.error(error.detail||'保存策略失败')}finally{policySaving[type]=false}}
+const saveDailyReportPolicy=async(row)=>{if(row._saving)return;row._saving=true;try{const saved=await mailApi.updateDailyReportMailPolicy(row.user_id,{to_group_ids:row.to_group_ids,cc_group_ids:row.cc_group_ids});Object.assign(row,saved,{_saving:false});ElMessage.success(`${row.user_name}的工作报告收件策略已保存`)}catch(error){ElMessage.error(error.detail||'保存工作报告策略失败')}finally{row._saving=false}}
 onMounted(load)
 </script>
 

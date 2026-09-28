@@ -46,12 +46,15 @@ async function preview(s) { try { const blob = await api.screenshot(s.id); if (p
 async function removeImage(s) { try { await ElMessageBox.confirm('确定删除这张打卡截图？', '删除截图'); await api.removeScreenshot(s.id); screenshots.value = screenshots.value.filter(x => x.id !== s.id) } catch (e) { if (e?.message) ElMessage.error(e.message) } }
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
+  if (saving.value) return
   saving.value = true
   try {
     const row = await api.saveWork({ ...form, completed: form.completed === 'unset' ? null : form.completed }); form.revision = row.revision; loaded.value = true
     while (files.value.length) { const s = await api.upload(row.id, files.value[0]); screenshots.value.push(s); files.value.shift() }
     visible.value = false; emit('saved'); ElMessage.success('每日工作已保存并更新草稿日报')
-  } catch (e) { ElMessage.error(e.message); emit('saved') } finally { saving.value = false }
+  } catch (e) {
+        await formRef.value?.applyServerErrors(e)
+ ElMessage.error(e.message); emit('saved') } finally { saving.value = false }
 }
 onBeforeUnmount(() => { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value) })
 defineExpose({ open })

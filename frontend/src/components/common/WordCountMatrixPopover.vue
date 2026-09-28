@@ -216,6 +216,7 @@ function buildChanges() {
 async function saveMatrix() {
   if (!draft.value) return
   if (localMode.value) {
+    if (saving.value) return
     saving.value = true
     try {
       let saved = clone(draft.value)
@@ -253,6 +254,7 @@ async function saveMatrix() {
     visible.value = false
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     const params = props.dispatchId ? { dispatch_id: props.dispatchId } : {}

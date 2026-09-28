@@ -612,6 +612,7 @@ const handleAssignRoles = async (user) => {
 
 const saveUserRoles = async () => {
   if (!selectedUser.value) return
+  if (savingRoles.value) return
   savingRoles.value = true
   try {
     const currentRows = userRoleRows.value.filter(
@@ -686,6 +687,8 @@ const submitPasswordReset = async () => {
     return
   }
 
+  if (passwordSubmitting.value) return
+
   passwordSubmitting.value = true
   try {
     await userApi.resetUserPassword(
@@ -695,6 +698,7 @@ const submitPasswordReset = async () => {
     ElMessage.success('密码修改成功')
     passwordDialogVisible.value = false
   } catch (error) {
+    await passwordFormRef.value?.applyServerErrors(error)
     ElMessage.error(error.detail || '密码修改失败')
   } finally {
     passwordSubmitting.value = false
@@ -726,6 +730,7 @@ const openMailAccountDialog = async (row) => {
 
 const saveAndVerifyMailAccount = async () => {
   if (!mailTargetUser.value?.email || !mailAuthorizationCode.value.trim()) return
+  if (mailAccountSubmitting.value) return
   mailAccountSubmitting.value = true
   try {
     Object.assign(
@@ -819,6 +824,7 @@ const saveMailProfile = async () => {
     ElMessage.warning('启用签名前请先填写签名内容')
     return
   }
+  if (mailProfileSaving.value) return
   mailProfileSaving.value = true
   try {
     await userApi.saveUserMailProfile(mailProfileTargetUser.value.id, {
@@ -888,6 +894,7 @@ const handleSubmit = async () => {
       dialogVisible.value = false
       fetchData()
     } catch (error) {
+    await formRef.value?.applyServerErrors(error)
       ElMessage.error(error.detail || '操作失败')
     }
   })

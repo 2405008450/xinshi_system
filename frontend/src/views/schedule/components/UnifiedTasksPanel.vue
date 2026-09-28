@@ -488,6 +488,7 @@ async function submitTask() {
     ElMessage.warning('请输入自定义任务类型')
     return
   }
+  if (taskSubmitting.value) return
   taskSubmitting.value = true
   try {
     const common = {
@@ -519,6 +520,7 @@ async function submitTask() {
     taskDialogVisible.value = false
     emit('refresh')
   } catch (error) {
+    await taskFormRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '保存任务失败'))
   } finally {
     taskSubmitting.value = false
@@ -604,6 +606,7 @@ async function submitWorkEntry() {
   } catch {
     return
   }
+  if (workEntrySubmitting.value) return
   workEntrySubmitting.value = true
   try {
     const source = activeWorkItem.value.source_type === 'project'
@@ -616,6 +619,7 @@ async function submitWorkEntry() {
     workEntryVisible.value = false
     emit('refresh')
   } catch (error) {
+    await workEntryFormRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '保存进展失败'))
   } finally {
     workEntrySubmitting.value = false

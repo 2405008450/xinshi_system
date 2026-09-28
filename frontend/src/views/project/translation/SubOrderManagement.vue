@@ -280,7 +280,9 @@ const resetSubOrderForm = () => { assignReactive(subOrderForm, createSubOrderFor
 const openCreateDialog = () => { resetSubOrderForm(); dialogTitle.value = '新增子订单'; assignReactive(subOrderForm, { ...createSubOrderForm(), ...buildDefaultsFromProject() }); dialogVisible.value = true }
 const openEditDialog = (row) => { resetSubOrderForm(); dialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, { ...createSubOrderForm(), ...row }); dialogVisible.value = true }
 const buildPayload = (source) => cleanPayload({ parentProjectId: projectId, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerChargeItems: source.customerChargeItems || [], customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', status: normalizeStatus(source.status) || 'pending_confirmation', translatorDeliveryProgress: source.translatorDeliveryProgress || '', preReviewQcProgress: source.preReviewQcProgress || '', review1Progress: source.review1Progress || '', review2Progress: source.review2Progress || '', postReviewQcProgress: source.postReviewQcProgress || '', layoutProgress: source.layoutProgress || '', consolidationProgress: source.consolidationProgress || '', networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
-const handleSubmit = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildPayload(subOrderForm); if (dialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } dialogVisible.value = false; await loadData() } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '保存失败')) } }
+const handleSubmit = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildPayload(subOrderForm); if (dialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } dialogVisible.value = false; await loadData() } catch (error) {
+        await subOrderFormRef.value?.applyServerErrors(error)
+ ElMessage.error(getLocalizedErrorMessage(error, '保存失败')) } }
 const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, handleDeleteSelectionChange, confirmBatchDelete } = useBatchDelete({
   rows: subOrders,
   tableRef: subOrderTableRef,
@@ -315,6 +317,7 @@ const saveAllInlineNames = async () => {
     ElMessage.warning('请先补全所有文件名称，再保存全部')
     return
   }
+  if (inlineSaving.value) return
   inlineSaving.value = true
   try {
     const results = await Promise.allSettled(

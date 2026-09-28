@@ -1443,6 +1443,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     }
     await fetchData()
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     const message = getLocalizedErrorMessage(error, '保存失败')
     ElMessage.error(message)
     if (message.includes('时间')) dialogBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1523,6 +1524,7 @@ const confirmStatusChange = async () => {
   if (!valid) return
   const progressOnly = statusEntryMode.value === 'progress'
   const selectedStatus = statusForm.projectStatus
+  if (statusSubmitting.value) return
   statusSubmitting.value = true
   setProjectStatusSaving(project.id, true)
   try {
@@ -1543,6 +1545,7 @@ const confirmStatusChange = async () => {
     ElMessage.success(progressOnly ? '具体进度已添加' : '项目状态已更新')
     if (!progressOnly && searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
   } catch (error) {
+    await statusFormRef.value?.applyServerErrors(error)
     ElMessage.error(error?.detail || (progressOnly ? '添加具体进度失败' : '项目状态更新失败'))
   } finally {
     statusSubmitting.value = false

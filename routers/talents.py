@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 """统一人才资源库 API。"""
 
 import logging
@@ -355,7 +356,7 @@ def create_talent_endpoint(
             status_code=409,
             detail=_duplicate_error_detail(exc, contacts_visible=contacts_visible),
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         if idempotency_key:
             existing = db.query(ResourcePerson).filter(
@@ -367,7 +368,7 @@ def create_talent_endpoint(
                     RESOURCE_CONTACT_FIELDS, contacts_visible=contacts_visible,
                 )
         logger.exception("创建人才档案时触发数据库约束")
-        raise HTTPException(status_code=400, detail="人才档案数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=400, detail=integrity_error_detail(exc, "人才档案数据不符合保存要求，请检查后重试"))
 
 
 @router.get("/{person_id}", response_model=ResourcePersonDetailResponse)

@@ -210,6 +210,7 @@ async function saveNote() {
     ElMessage.warning('请输入当日安排内容')
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     note.value = await saveArrangementDailyNote(selectedDate.value, {

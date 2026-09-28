@@ -1187,6 +1187,7 @@ const canSubmitHandover = computed(() => (
 
 const submitHandover = async () => {
   if (!handoverTargetUserId.value || !directSelectedTasks.value.length) return
+  if (submittingHandover.value) return
   submittingHandover.value = true
   try {
     await handoverWorkflowTasksAPI({
@@ -1311,6 +1312,7 @@ const openClaimDialog = () => {
 
 const submitClaim = async () => {
   if (!claimSelectedTasks.value.length) return
+  if (submittingClaim.value) return
   submittingClaim.value = true
   try {
     await claimWorkflowTasksAPI({

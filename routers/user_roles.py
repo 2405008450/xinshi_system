@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 import logging
 from typing import List
 from uuid import UUID
@@ -65,7 +66,7 @@ def create_user_role_endpoint(user_role: UserRoleCreate, db: Session = Depends(g
             )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户角色数据不符合保存要求，请检查后重试"
+            detail=integrity_error_detail(e, "用户角色数据不符合保存要求，请检查后重试")
         )
     except DatabaseError:
         db.rollback()

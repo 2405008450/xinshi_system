@@ -581,6 +581,7 @@
 </template>
 
 <script setup>
+import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
@@ -959,6 +960,7 @@ const handleSubmit = async () => {
   
   await formRef.value.validate(async (valid) => {
     if (valid) {
+      if (submitLoading.value) return
       submitLoading.value = true
       try {
         const submitData = { ...form }
@@ -982,6 +984,7 @@ const handleSubmit = async () => {
         dialogVisible.value = false
         fetchData()
       } catch (error) {
+    await formRef.value?.applyServerErrors(error)
         ElMessage.error(error.detail || '操作失败')
       } finally {
         submitLoading.value = false
@@ -1063,12 +1066,16 @@ const handleSubSubmit = async () => {
           ElMessage.success('创建子客户成功')
         }
         subDialogVisible.value = false
-        if (form.id) {
-           const res = await clientApi.getClient(form.id)
-           form.sub_clients = res.sub_clients || []
-        }
-        fetchData()
+        delete detailCache[subForm.parent_client_id]
+        await refreshAfterSave(async () => {
+          if (form.id) {
+            const res = await clientApi.getClient(form.id)
+            form.sub_clients = res.sub_clients || []
+          }
+          await fetchData()
+        })
       } catch (error) {
+    await subFormRef.value?.applyServerErrors(error)
         ElMessage.error(error.detail || '操作失败')
       } finally {
         subSubmitLoading.value = false

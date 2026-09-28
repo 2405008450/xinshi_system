@@ -442,6 +442,8 @@ async function savePathGroup(options = {}) {
   const targetOrderNo = options.orderNo || associatedOrderNo.value
   if (!targetProjectId) throw new Error('请先保存项目，再关联路径组')
 
+  if (fileSaving.value) return
+
   fileSaving.value = true
   try {
     const payload = buildPayload(targetOrderNo)

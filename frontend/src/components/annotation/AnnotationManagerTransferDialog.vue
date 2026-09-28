@@ -316,6 +316,7 @@ async function submitTransfer() {
       },
     )
     if (String(value || '').trim() !== '交接') return
+    if (submitting.value) return
     submitting.value = true
     const transferAPI = isClientManagerTransfer.value
       ? directTransferAnnotationClientManagerAPI
@@ -330,6 +331,7 @@ async function submitTransfer() {
     emit('update:modelValue', false)
     emit('transferred')
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(getLocalizedErrorMessage(error, `${managerLabel.value}移交失败`))
     }

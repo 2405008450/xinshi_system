@@ -169,6 +169,7 @@ const handleSave = async () => {
       return
     }
   }
+  if (saving.value) return
   saving.value = true
   try {
     const details = buildTranslatorAssignmentDetailUpdates(draft.value)

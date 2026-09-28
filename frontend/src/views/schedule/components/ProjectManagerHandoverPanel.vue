@@ -295,12 +295,12 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="progressVisible" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
-      <AppForm label-width="90px">
+    <DraggableFormDialog v-model="progressVisible" @closed="progressFormRef?.clearValidate()" title="记录管理项目进展" width="min(560px, calc(100vw - 32px))">
+      <AppForm ref="progressFormRef" :model="progressForm" :rules="progressRules" label-width="90px">
         <el-form-item label="项目"><el-input :model-value="progressProject?.project_name || progressProject?.order_no" disabled /></el-form-item>
-        <el-form-item label="工作日期" required><el-date-picker v-model="progressForm.work_date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
-        <el-form-item label="进展内容" required><el-input v-model="progressForm.progress_content" type="textarea" :rows="4" maxlength="10000" show-word-limit /></el-form-item>
-        <el-form-item label="耗时（分钟）"><el-input-number v-model="progressForm.duration_minutes" :min="0" :max="1440" style="width: 100%" /></el-form-item>
+        <el-form-item label="工作日期" prop="work_date"><el-date-picker v-model="progressForm.work_date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
+        <el-form-item label="进展内容" prop="progress_content"><el-input v-model="progressForm.progress_content" type="textarea" :rows="4" maxlength="10000" show-word-limit /></el-form-item>
+        <el-form-item label="耗时（分钟）" prop="duration_minutes"><el-input-number v-model="progressForm.duration_minutes" :min="0" :max="1440" style="width: 100%" /></el-form-item>
         <el-form-item label="工作结果"><el-input v-model="progressForm.result_content" type="textarea" :rows="2" maxlength="10000" show-word-limit /></el-form-item>
       </AppForm>
       <template #footer>
@@ -376,6 +376,8 @@ const managerCandidates = ref([])
 const progressVisible = ref(false)
 const progressSubmitting = ref(false)
 const progressProject = ref(null)
+const progressFormRef=ref(null)
+const progressRules={work_date:[{required:true,message:'请选择工作日期',trigger:'change'}],progress_content:[{required:true,whitespace:true,max:10000,message:'请填写进展内容（最多10000字）',trigger:'blur'}],duration_minutes:[{type:'number',min:0,max:1440,message:'耗时必须为0～1440分钟',trigger:'change'}]}
 const progressForm = ref({ work_date: '', progress_content: '', duration_minutes: 0, result_content: '' })
 const localDate = () => {
   const now = new Date()
@@ -388,7 +390,8 @@ const openProgressDialog = (row) => {
   progressVisible.value = true
 }
 const submitProgress = async () => {
-  if (!progressForm.value.work_date || !progressForm.value.progress_content.trim()) return ElMessage.warning('请填写工作日期和进展内容')
+  if (!await progressFormRef.value?.validate().catch(()=>false)) return
+  if (progressSubmitting.value) return
   progressSubmitting.value = true
   try {
     await createWorkEntry({
@@ -400,6 +403,7 @@ const submitProgress = async () => {
     ElMessage.success('管理项目进展已记录')
     progressVisible.value = false
   } catch (error) {
+    await progressFormRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '记录进展失败'))
   } finally {
     progressSubmitting.value = false
@@ -662,6 +666,7 @@ async function openHandoverDialog() {
 
 async function submitHandover() {
   if (!targetManagerId.value || !handoverProjects.value.length) return
+  if (submitting.value) return
   submitting.value = true
   try {
     await createProjectManagerHandoverAPI({

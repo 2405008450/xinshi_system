@@ -144,10 +144,11 @@
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
-    <DraggableFormDialog v-model="editorVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" @open="onEditorOpened" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="editorVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" :before-close="beforeEditorClose" :close-on-click-modal="!saving" :close-on-press-escape="!saving" @open="onEditorOpened" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
+          :inert="saving"
           v-model="fieldSearchKeyword"
           :title="editorTitle"
           subtitle="按业务分区填写，带 * 的项目为必填项"
@@ -157,7 +158,7 @@
           @clear="clearFieldSearch"
         />
       </template>
-      <div ref="editorBodyRef" class="talent-editor-body">
+      <div ref="editorBodyRef" class="talent-editor-body" :inert="saving" :aria-busy="saving">
         <AppForm ref="formRef" :model="form" :rules="rules" label-position="top" class="talent-editor-form">
         <div class="form-section">
           <div class="form-section-header name-section-header">
@@ -269,13 +270,25 @@
         </div>
         <div class="form-section"><h3>招聘职业档案</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="行业"><el-select v-model="form.careerProfile.industries" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="职能"><el-select v-model="form.careerProfile.functions" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="岗位"><el-select v-model="form.careerProfile.jobTitles" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col></el-row><el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="工作年限"><el-input-number v-model="form.careerProfile.yearsExperience" :min="0" :precision="1" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="期望地点"><el-select v-model="form.careerProfile.preferredLocations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="期望薪资"><el-input v-model="form.careerProfile.expectedSalary" /></el-form-item></el-col></el-row><el-form-item label="职业概述"><el-input v-model="form.careerProfile.summary" type="textarea" :rows="2" /></el-form-item></div>
         <div class="form-section"><h3>照片与音频</h3>
-          <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="照片"><el-upload :auto-upload="false" multiple accept=".jpg,.jpeg,.png,.webp" :on-change="file=>queueAttachment('photo',file)" :on-remove="file=>unqueueAttachment('photo',file)"><el-button>选择照片</el-button><template #tip><div class="el-upload__tip">JPG、PNG、WebP，单个不超过10MB</div></template></el-upload></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="音频"><el-upload :auto-upload="false" multiple accept=".mp3,.wav,.m4a,.aac,.ogg" :on-change="file=>queueAttachment('audio',file)" :on-remove="file=>unqueueAttachment('audio',file)"><el-button>选择音频</el-button><template #tip><div class="el-upload__tip">MP3、WAV、M4A、AAC、OGG，单个不超过100MB</div></template></el-upload></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="照片"><el-upload v-model:file-list="queuedAttachments.photo" :auto-upload="false" multiple accept=".jpg,.jpeg,.png,.webp" :on-change="file=>queueAttachment('photo',file)" :on-remove="file=>unqueueAttachment('photo',file)"><el-button>选择照片</el-button><template #tip><div class="el-upload__tip">JPG、PNG、WebP，单个不超过10MB</div></template></el-upload></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="音频"><el-upload v-model:file-list="queuedAttachments.audio" :auto-upload="false" multiple accept=".mp3,.wav,.m4a,.aac,.ogg" :on-change="file=>queueAttachment('audio',file)" :on-remove="file=>unqueueAttachment('audio',file)"><el-button>选择音频</el-button><template #tip><div class="el-upload__tip">MP3、WAV、M4A、AAC、OGG，单个不超过100MB</div></template></el-upload></el-form-item></el-col></el-row>
           <div v-if="form.attachments?.length" class="attachment-list"><el-tag v-for="item in form.attachments" :key="item.id" closable @close="removeSavedAttachment(item)">{{ item.category==='photo'?'照片':'音频' }}：{{ item.originalName }}</el-tag></div>
         </div>
         <div class="form-section"><h3>其他资料</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="简历路径"><el-input v-model="form.resumePath" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="首次联系"><el-date-picker v-model="form.firstContactDate" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col v-if="canViewContacts" :xs="24" :md="8"><el-form-item label="兼容联系方式"><el-input v-model="form.contactInfo" /></el-form-item></el-col></el-row><el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="2" /></el-form-item></div>
         </AppForm>
       </div>
-      <template #footer><div class="talent-editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">保存</el-button></div></template>
+      <template #footer>
+        <div class="talent-editor-footer">
+          <div v-if="canContinueCreate" class="talent-batch-options">
+            <el-checkbox v-model="keepBatchInfo" :disabled="saving">沿用本批公共信息</el-checkbox>
+            <span class="section-hint">仅沿用：来源、所在微信、所在微信群</span>
+          </div>
+          <div class="talent-editor-actions">
+            <el-button :disabled="saving" @click="editorVisible=false">取消</el-button>
+            <el-button type="primary" :loading="saving && !continuingSave" :disabled="saving" @click="submit(false)">保存</el-button>
+            <el-button v-if="canContinueCreate" :loading="saving && continuingSave" :disabled="saving" @click="submit(true)">保存并继续新增</el-button>
+          </div>
+        </div>
+      </template>
     </DraggableFormDialog>
   </el-card>
 </template>
@@ -310,6 +323,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { countTalentNames, getTalentDisplayName } from '@/utils/talentNames'
+import { focusFormTarget } from '@/utils/formNavigation'
 
 const route = useRoute()
 const pageTitle = computed(() => route.meta.title || '人才总库')
@@ -561,6 +575,11 @@ const emptyForm=()=>({
   careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''},
 })
 const form=reactive(emptyForm());const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const nameFieldsExpanded=ref(true)
+const keepBatchInfo = ref(false)
+const continuingSave = ref(false)
+// 新增中途附件失败时 form.id 已存在，仍保留本次新增流程的操作入口。
+const creatingTalent = ref(false)
+const canContinueCreate = computed(() => route.name === 'Talents' && creatingTalent.value)
 const preferredFormName=computed(()=>getTalentDisplayName(form,''));const filledNameCount=computed(()=>countTalentNames(form))
 const validateNameGroup=(_rule,_value,callback)=>filledNameCount.value?callback():callback(new Error('中文姓名、英文姓名、昵称或其他名字至少填写一项'))
 // 导入的待核实档案可能尚未确认专业能力，编辑时允许保留空值。
@@ -607,9 +626,46 @@ const wechatAccountSelection = computed({
 })
 watch(editorVisible, () => { customWechatAccount.value = false })
 const talentManagedPayloadKeys=['annotationWillingness','overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
-function resetForm(){Object.assign(form,emptyForm());nameFieldsExpanded.value=true;queuedAttachments.photo=[];queuedAttachments.audio=[];formRef.value?.clearValidate();clearFieldSearch()}async function onEditorOpened(){await nextTick();const scrollBody=editorBodyRef.value?.closest('.el-dialog__body');if(scrollBody)scrollBody.scrollTop=0}function onEditorClosed(){pauseDraft();resetForm()}async function openCreate(){resetForm();nameFieldsExpanded.value=true;const chinese=languages.value.find(item=>item.code==='zh-CN');if(chinese)form.languageSkills.push({id:null,_key:recordKey(),languageId:chinese.id,role:'native',priority:1,proficiency:'very_familiar',remarks:'',sortOrder:0});editorTitle.value='新增人才';editorVisible.value=true;await beginDraft('create')}
+function resetForm() {
+  Object.assign(form, emptyForm())
+  nameFieldsExpanded.value = true
+  queuedAttachments.photo = []
+  queuedAttachments.audio = []
+  customWechatAccount.value = false
+  clearTimeout(languageSearchTimer)
+  languageKeyword.value = ''
+  languageSearchResults.value = []
+  formRef.value?.clearValidate()
+  clearFieldSearch()
+}
+function initializeCreateForm(batchInfo = {}) {
+  resetForm()
+  Object.assign(form, batchInfo)
+  const chinese = languages.value.find(item => item.code === 'zh-CN')
+  if (chinese) form.languageSkills.push({ id: null, _key: recordKey(), languageId: chinese.id, role: 'native', priority: 1, proficiency: 'very_familiar', remarks: '', sortOrder: 0 })
+  creatingTalent.value = true
+  editorTitle.value = '新增人才'
+}
+async function onEditorOpened() {
+  await nextTick()
+  const scrollBody = editorBodyRef.value?.closest('.el-dialog__body')
+  if (scrollBody) scrollBody.scrollTop = 0
+}
+function beforeEditorClose(done) { if (!saving.value) done() }
+function onEditorClosed() {
+  pauseDraft()
+  resetForm()
+  keepBatchInfo.value = false
+  creatingTalent.value = false
+}
+async function openCreate() {
+  keepBatchInfo.value = false
+  initializeCreateForm()
+  editorVisible.value = true
+  await beginDraft('create')
+}
 function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
-async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
+async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
   const result={
@@ -647,15 +703,116 @@ const payload=(allowDuplicate=false)=>{
   return result
 }
 async function savePayload(allowDuplicate=false){const client=talentClient.value;return form.id?client.update(form.id,payload(allowDuplicate)):client.create(payload(allowDuplicate))}
-async function flushQueuedAttachments(personId){for(const category of ['photo','audio']){for(const item of queuedAttachments[category])await talentApi.uploadTalentAttachment(personId,category,item.raw);queuedAttachments[category]=[]}}
+async function flushQueuedAttachments(personId) {
+  for (const category of ['photo', 'audio']) {
+    while (queuedAttachments[category].length) {
+      const item = queuedAttachments[category][0]
+      const attachment = await talentApi.uploadTalentAttachment(personId, category, item.raw)
+      // 每上传成功一项就出队，失败重试时不重复上传已经成功的文件。
+      queuedAttachments[category].shift()
+      if (attachment?.id) form.attachments.push(attachment)
+    }
+  }
+}
 async function removeSavedAttachment(item){try{await ElMessageBox.confirm(`确认删除附件“${item.originalName}”？`,'删除附件',{type:'warning'});await talentApi.deleteTalentAttachment(form.id,item.id);form.attachments=form.attachments.filter(value=>value.id!==item.id);delete detailCache[form.id];ElMessage.success('附件已删除')}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除附件失败')}}
-async function submit(){
-  try{
-    if(!filledNameCount.value){nameFieldsExpanded.value=true;await nextTick()}
-    const valid=await formRef.value.validate().catch(()=>false)
-    if(!valid){
-      return
-    }if(hasCapability('annotation')){if(form.annotationLanguageSkills.some(item=>!item.sourceLanguageId))return ElMessage.warning('请选择完整的标注语言方向');if(form.annotationLanguageSkills.some(item=>item.directionType==='translation'&&!item.targetLanguageId))return ElMessage.warning('翻译类标注必须选择目标语种');const keys=form.annotationLanguageSkills.map(item=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)return ElMessage.warning('标注语言方向不能重复')}saving.value=true;let saved;try{saved=await savePayload()}catch(error){const detail=error.rawDetail;if(detail?.code!=='duplicate_talent')throw error;const first=detail.duplicates?.[0];try{await ElMessageBox.confirm(`发现联系方式相同的人才“${first?.fullName||first?.full_name||'未知'}”。打开已有档案，还是仍然新建？`,'疑似重复人才',{confirmButtonText:'打开已有档案',cancelButtonText:'仍然新建',distinguishCancelAndClose:true,type:'warning'});editorVisible.value=false;if(first)openEdit(first);return}catch(action){if(action==='cancel')saved=await savePayload(true);else return}}await flushQueuedAttachments(saved.id);detailCache[saved.id]=await talentClient.value.detail(saved.id);clearDraft();editorVisible.value=false;ElMessage.success('人才档案已保存');fetchData()}catch(error){if(error!==false&&error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
+async function submit(continueCreating = false) {
+  if (saving.value) return
+  saving.value = true
+  continuingSave.value = continueCreating && canContinueCreate.value
+  let invalidForm = false
+  let focusNextName = false
+  let attachmentStage = false
+  let invalidAnnotation = false
+  try {
+    if (!filledNameCount.value) { nameFieldsExpanded.value = true; await nextTick() }
+    const valid = await formRef.value.validate().catch(() => false)
+    if (!valid) { invalidForm = true; return }
+    if (hasCapability('annotation')) {
+      let message = ''
+      if (form.annotationLanguageSkills.some(item => !item.sourceLanguageId)) message = '请选择完整的标注语言方向'
+      else if (form.annotationLanguageSkills.some(item => item.directionType === 'translation' && !item.targetLanguageId)) message = '翻译类标注必须选择目标语种'
+      else {
+        const keys = form.annotationLanguageSkills.map(item => `${item.sourceLanguageId}:${item.targetLanguageId || ''}`)
+        if (new Set(keys).size !== keys.length) message = '标注语言方向不能重复'
+      }
+      if (message) {
+        ElMessage.warning(message)
+        invalidAnnotation = true
+        return
+      }
+    }
+    let saved
+    try {
+      saved = await savePayload()
+    } catch (error) {
+      const detail = error.rawDetail
+      if (detail?.code !== 'duplicate_talent') throw error
+      const first = detail.duplicates?.[0]
+      let openExisting = false
+      try {
+        await ElMessageBox.confirm(`发现联系方式相同的人才“${first?.fullName || first?.full_name || '未知'}”。打开已有档案，还是仍然新建？`, '疑似重复人才', {
+          confirmButtonText: '打开已有档案', cancelButtonText: '仍然新建', distinguishCancelAndClose: true, type: 'warning',
+        })
+        openExisting = true
+      } catch (action) {
+        if (action !== 'cancel') return
+        saved = await savePayload(true)
+      }
+      if (openExisting) {
+        // 直接切换编辑内容，不关闭弹窗，避免 closed 回调清空刚载入的档案。
+        if (first) await openEdit(first)
+        return
+      }
+    }
+    // 档案已落库：后续附件失败也必须使用同一 ID 更新，不能再次创建。
+    form.id = saved.id
+    form.resourceCode = saved.resourceCode || form.resourceCode
+    delete detailCache[saved.id]
+    attachmentStage = true
+    await flushQueuedAttachments(saved.id)
+    attachmentStage = false
+    const savedName = displayTalentName(saved, preferredFormName.value || '人才')
+    const batchInfo = keepBatchInfo.value ? {
+      registrationSource: form.registrationSource,
+      wechatAccount: form.wechatAccount,
+      wechatGroups: form.wechatGroups,
+    } : {}
+    clearDraft()
+    if (continuingSave.value) {
+      initializeCreateForm(batchInfo)
+      await beginDraft('create')
+      focusNextName = true
+      ElMessage.success(`已保存人才：${savedName}，可继续新增`)
+    } else {
+      editorVisible.value = false
+      ElMessage.success('人才档案已保存')
+    }
+    // 列表查询自行提示刷新错误，不影响本次保存成功的结果。
+    void fetchData()
+  } catch (error) {
+    await formRef.value?.applyServerErrors?.(error)
+    if (error !== false && error !== 'cancel' && error !== 'close') {
+      ElMessage.error(attachmentStage
+        ? `人才档案已保存，附件未全部上传，请重试保存：${error.detail || '附件上传失败'}`
+        : error.detail || '保存失败')
+    }
+  } finally {
+    saving.value = false
+    continuingSave.value = false
+    await nextTick()
+    if (invalidForm) await formRef.value?.locateFirstError()
+    if (invalidAnnotation) {
+      // 解锁后复用公共字段导航，避免只提示而无法定位错误。
+      let matches = []
+      fetchFieldSuggestions('语言方向', items => { matches = items })
+      if (matches[0]) await locateDialogField(matches[0])
+    }
+    if (focusNextName) {
+      await onEditorOpened()
+      focusFormTarget(editorBodyRef.value?.querySelector('.el-form-item'))
+    }
+  }
+}
 watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{const results=await Promise.allSettled([getProjectLanguages(),fetchData()]);languages.value=results[0].status==='fulfilled'?results[0].value:[]});onBeforeUnmount(()=>{clearTimeout(timer);clearTimeout(languageSearchTimer);controller?.abort()})
 </script>
 
@@ -687,7 +844,10 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{co
 .performance-form-item :deep(.el-input-number){width:100%}
 .performance-form-item :deep(.el-input-number .el-input__inner){padding-right:54px;text-align:left}
 .performance-summary-cell{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attachment-list{display:flex;gap:8px;flex-wrap:wrap}
-.talent-editor-footer{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.talent-editor-footer{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px}
+.talent-batch-options{display:flex;flex-direction:column;align-items:flex-start;margin-right:auto;text-align:left}
+.talent-editor-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px}
+.talent-editor-actions .el-button+.el-button{margin-left:0}
 .talent-editor-footer .el-button{min-width:88px}
 @media(max-width:768px){.card-header{align-items:flex-start;gap:12px;flex-direction:column}.page-subtitle{display:block;margin:4px 0 0}.search-form .el-form-item{width:100%;margin-right:0}.search-form .el-input,.search-form .el-select{width:100%!important}.performance-sort-controls,.performance-form-grid{grid-template-columns:1fr}.talent-editor-body{padding:12px}.form-section{padding:16px 14px 2px}.form-section-header{align-items:stretch;flex-direction:column}.form-section-header .el-button{align-self:flex-end}}
 </style>

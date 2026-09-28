@@ -143,6 +143,7 @@ async function createSection() {
     ElMessage.success('栏目已新增')
     emit('refresh')
   } catch (error) {
+    await createFormRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '栏目新增失败'))
   } finally {
     creating.value = false
@@ -155,6 +156,7 @@ async function saveEdit() {
   } catch {
     return
   }
+  if (savingEdit.value) return
   savingEdit.value = true
   try {
     const updated = await updateAnnotationNoticeStructure(selected.value.id, {
@@ -167,6 +169,7 @@ async function saveEdit() {
     ElMessage.success('栏目设置已保存')
     emit('refresh')
   } catch (error) {
+    await editFormRef.value?.applyServerErrors(error)
     ElMessage.error(error?.response?.status === 409 ? '栏目已被其他用户修改，请刷新后重试' : getLocalizedErrorMessage(error, '栏目保存失败'))
   } finally {
     savingEdit.value = false
@@ -212,6 +215,7 @@ function collectPlacements(tree) {
 }
 
 async function saveOrder() {
+  if (savingOrder.value) return
   savingOrder.value = true
   try {
     localTree.value = await reorderAnnotationNotices(collectPlacements(localTree.value))

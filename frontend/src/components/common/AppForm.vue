@@ -2,9 +2,10 @@
   <ElementForm
     ref="innerFormRef"
     v-bind="$attrs"
-    :scroll-to-error="true"
+    :scroll-to-error="false"
     :scroll-into-view-options="scrollOptions"
   >
+    <el-alert v-if="serverError" :title="serverError" type="error" show-icon :closable="false" class="app-form-server-error" />
     <slot />
   </ElementForm>
 </template>
@@ -13,6 +14,7 @@
 import { nextTick, ref } from 'vue'
 import { ElForm as ElementForm } from 'element-plus'
 import { focusFirstInvalidField } from '../../utils/formValidation'
+import { resolveServerFieldErrors } from '../../utils/formServerErrors.js'
 
 defineOptions({
   name: 'AppForm',
@@ -20,6 +22,7 @@ defineOptions({
 })
 
 const innerFormRef = ref(null)
+const serverError = ref('')
 const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
 
 const locateFirstError = async () => {
@@ -29,6 +32,7 @@ const locateFirstError = async () => {
 
 const validate = async (callback) => {
   if (!innerFormRef.value) return false
+  serverError.value = ''
 
   if (typeof callback === 'function') {
     const valid = await innerFormRef.value.validate(callback)
@@ -47,14 +51,38 @@ const validate = async (callback) => {
 
 const callInnerForm = (method) => (...args) => innerFormRef.value?.[method]?.(...args)
 
+const clearValidate = (...args) => {
+  serverError.value = ''
+  return innerFormRef.value?.clearValidate(...args)
+}
+const resetFields = (...args) => {
+  serverError.value = ''
+  return innerFormRef.value?.resetFields(...args)
+}
+const applyServerErrors = async (error, aliases = {}) => {
+  const { matches, message } = resolveServerFieldErrors(error, innerFormRef.value?.fields || [], aliases)
+  serverError.value = message
+  for (const { field, message: fieldMessage } of matches) {
+    field.validateMessage = fieldMessage
+    field.validateState = 'error'
+  }
+  if (matches.length) await locateFirstError()
+  return matches.length > 0
+}
+
 defineExpose({
   validate,
   validateField: callInnerForm('validateField'),
-  resetFields: callInnerForm('resetFields'),
-  clearValidate: callInnerForm('clearValidate'),
+  resetFields,
+  clearValidate,
   scrollToField: callInnerForm('scrollToField'),
   getField: callInnerForm('getField'),
   setInitialValues: callInnerForm('setInitialValues'),
   locateFirstError,
+  applyServerErrors,
 })
 </script>
+
+<style scoped>
+.app-form-server-error { margin-bottom: 16px; }
+</style>

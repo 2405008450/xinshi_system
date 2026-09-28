@@ -32,6 +32,13 @@ test('失败保留图片，可重试；重复重试不会重复上传', async ()
   assert.equal(calls, 2)
   assert.equal(item.status, 'ready')
 })
+
+test('图片上传错误净化原始 SQL，保留可操作中文', async () => {
+  const { queue, items } = setup(async () => { throw { response: { data: { detail: 'IntegrityError INSERT INTO private_table' } } } })
+  queue.add([file]); await tick()
+  assert.equal(items[0].status, 'failed')
+  assert.equal(items[0].error, '图片上传失败，请重试或移除')
+})
 test('上传中的图片占用九张限额，非法格式和尺寸不会入队', () => {
   const { queue, items, warnings } = setup(() => new Promise(() => {}))
   queue.add([{ ...file, type: 'image/svg+xml' }, { ...file, size: 0 }, { ...file, size: 10485761 }])

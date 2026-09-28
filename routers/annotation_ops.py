@@ -1,6 +1,7 @@
 """标注运营 API。"""
 
 import logging
+from annotation_trial_errors import trial_integrity_detail
 
 from datetime import date
 from typing import List, Optional
@@ -83,7 +84,7 @@ def _run(db: Session, callback):
         db.rollback()
         if isinstance(exc, IntegrityError):
             logger.exception("标注运营数据触发数据库约束")
-            detail = "数据不符合保存要求，请检查后重试"
+            detail = trial_integrity_detail(exc) or "数据不符合保存要求，请检查后重试"
         else:
             detail = str(exc)
         raise HTTPException(status_code=400, detail=detail)

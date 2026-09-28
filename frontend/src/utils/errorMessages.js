@@ -1,3 +1,6 @@
+// 原始协议只供公共解析器定位字段使用；展示文案仍须经过本模块净化。
+export const getRawErrorDetail = error => error?.rawDetail ?? error?.response?.data?.detail ?? error?.detail
+
 const FIELD_LABELS = {
   username: '用户名',
   password: '密码',

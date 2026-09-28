@@ -2105,6 +2105,7 @@ const handleExport = async () => {
     exportDialogVisible.value = false
     ElMessage.success(exportModeMeta.value.success)
   } catch (error) {
+    await exportFormRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(
       error,
       exportModeMeta.value.failure,
@@ -2519,6 +2520,7 @@ const handleSubmit = async (sendAfterSave = false) => {
       notifyError: false,
     })
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     if (!String(form.sourceFileName || '').trim()) {
       projectDialogTab.value = 'files'
       ElMessage.error(getLocalizedErrorMessage(error, '无法从原文路径读取母订单文件名称'))
@@ -2570,6 +2572,7 @@ const handleSubmit = async (sendAfterSave = false) => {
       // fetchData 内部已处理错误；保存结果不应被误报为失败。
     }
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     ElMessage.error(
       projectSaved
         ? `项目已保存，但路径组保存失败：${getLocalizedErrorMessage(error, '请重新进入项目补充保存')}`
@@ -2607,7 +2610,9 @@ const saveSubOrderTranslatorCompletions = async (row, completions) => {
 const buildSubOrderPayload = (source) => {
   return cleanPayload({ parentProjectId: form.id, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerChargeItems: source.customerChargeItems || [], customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', assignedTranslators: source.assignedTranslators || [], translatorAssignmentTime: source.translatorAssignmentTime || '', status: source.status || 'pending', translatorDeliveryProgress: source.translatorDeliveryProgress ?? 0, preReviewQcProgress: source.preReviewQcProgress ?? 0, reviewProgress: source.reviewProgress ?? 0, review1Progress: source.review1Progress ?? 0, review2Progress: source.review2Progress ?? 0, postReviewQcProgress: source.postReviewQcProgress ?? 0, layoutProgress: source.layoutProgress ?? 0, consolidationProgress: source.consolidationProgress ?? 0, networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 }
-const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '子订单保存失败')) } }
+const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = buildSubOrderPayload(subOrderForm); if (subOrderDialogTitle.value === '新增子订单') { await createSubOrder(payload); ElMessage.success('子订单创建成功') } else { await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); await fetchData() } catch (error) {
+        await subOrderFormRef.value?.applyServerErrors(error)
+ ElMessage.error(getLocalizedErrorMessage(error, '子订单保存失败')) } }
 const handleDeleteSubOrder = async (row) => { try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '子订单删除失败')) } }
 const openBatchDialog = (project, mode = 'quantity') => {
   const target = project?.id ? project : form
@@ -2660,6 +2665,7 @@ const saveAllInlineNames = async (scope, projectId = null) => {
     ElMessage.warning('请先补全所有文件名称，再保存全部')
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     const results = await Promise.allSettled(

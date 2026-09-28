@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 import logging
 from typing import List, Optional
 from uuid import UUID
@@ -52,7 +53,7 @@ def create_project_file_endpoint(project_file: ProjectFileCreate, db: Session = 
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="关联项目或用户不存在，请刷新后重试"
             )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件记录数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(e, "文件记录数据不符合保存要求，请检查后重试"))
     except DatabaseError:
         db.rollback()
         logger.exception("创建项目文件记录时数据库异常")
@@ -129,10 +130,10 @@ def update_project_file_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         logger.exception("更新项目文件记录时触发数据库约束")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件记录数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc, "文件记录数据不符合保存要求，请检查后重试"))
     except DatabaseError:
         db.rollback()
         logger.exception("更新项目文件记录时数据库异常")

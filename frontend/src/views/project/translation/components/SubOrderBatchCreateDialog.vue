@@ -235,6 +235,7 @@ const buildDefaults = () => ({
 })
 const submit = async () => {
   if (!canSubmit.value) return
+  if (submitting.value) return
   submitting.value = true
   try {
     const names = mode.value === 'quantity'

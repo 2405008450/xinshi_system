@@ -46,7 +46,7 @@
       <el-empty v-if="!loading&&!rows.length" :description="projectId?'该项目暂无正式标注安排':'暂无正式标注安排'" />
     </el-card>
 
-    <DraggableFormDialog v-model="dialogVisible" :title="form.id?'编辑正式安排':'新增正式安排'" width="min(760px,calc(100vw - 32px))" top="5vh" class="workflow-dialog">
+    <DraggableFormDialog v-model="dialogVisible" @closed="formRef?.clearValidate()" :title="form.id?'编辑正式安排':'新增正式安排'" width="min(760px,calc(100vw - 32px))" top="5vh" class="workflow-dialog">
       <AppForm ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="标注项目" prop="projectId"><el-select v-model="form.projectId" filterable :disabled="Boolean(form.id)" placeholder="请选择归属项目" style="width:100%" @change="editorProjectChanged"><el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" /></el-select></el-form-item>
         <el-row :gutter="16">
@@ -54,12 +54,12 @@
           <el-col :xs="24" :md="12"><el-form-item label="人员" prop="personId"><el-select v-model="form.personId" filterable style="width:100%"><el-option v-for="item in talents" :key="item.id" :label="`${item.resourceCode||'-'} · ${item.fullName}`" :value="item.id" /></el-select></el-form-item></el-col>
         </el-row>
         <el-form-item label="语种"><el-select v-model="form.languageItemId" clearable filterable style="width:100%"><el-option v-for="item in languageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item>
-        <el-form-item label="音频长度"><div class="amount-input"><el-input-number v-model="form.audioDurationValue" :min="0" :precision="3" /><el-select v-model="form.audioDurationUnit" clearable placeholder="单位"><el-option v-for="(label,value) in durationUnitLabels" :key="value" :label="label" :value="value" /></el-select></div></el-form-item>
-        <el-form-item label="人员价格"><div class="amount-input"><el-input-number v-model="form.amount" :min="0" :precision="6" /><el-select v-model="form.unit" clearable placeholder="单位"><el-option v-for="(label,value) in priceUnitLabels" :key="value" :label="label" :value="value" /></el-select><el-select v-model="form.currency" style="width:100px"><el-option label="CNY" value="CNY" /><el-option label="USD" value="USD" /><el-option label="EUR" value="EUR" /></el-select></div></el-form-item>
+        <el-form-item label="音频长度" prop="audioDurationValue"><div class="amount-input"><el-input-number v-model="form.audioDurationValue" :min="0" :precision="3" /><el-select v-model="form.audioDurationUnit" clearable placeholder="单位"><el-option v-for="(label,value) in durationUnitLabels" :key="value" :label="label" :value="value" /></el-select></div></el-form-item>
+        <el-form-item label="人员价格" prop="amount"><div class="amount-input"><el-input-number v-model="form.amount" :min="0" :precision="6" /><el-select v-model="form.unit" clearable placeholder="单位"><el-option v-for="(label,value) in priceUnitLabels" :key="value" :label="label" :value="value" /></el-select><el-select v-model="form.currency" style="width:100px"><el-option label="CNY" value="CNY" /><el-option label="USD" value="USD" /><el-option label="EUR" value="EUR" /></el-select></div></el-form-item>
         <el-form-item label="进行状态"><el-select v-model="form.assignmentStatus" style="width:100%"><el-option v-for="(label,value) in assignmentStatusLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
         <el-form-item label="质量评分"><el-input v-model="form.qualityScore" /></el-form-item>
         <el-form-item label="评价备注"><el-input v-model="form.evaluationNote" type="textarea" :rows="3" /></el-form-item>
-        <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" />
+        <AnnotationCustomFieldInputs :fields="editorFields" :values="form.customValues" :project-id="form.projectId" validate-values />
       </AppForm>
       <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRow">保存</el-button></template>
     </DraggableFormDialog>
@@ -67,6 +67,7 @@
 </template>
 
 <script setup>
+import { workflowFormValues, workflowRules } from '@/utils/annotationWorkflowForm.js'
 import { computed,onBeforeUnmount,onMounted,reactive,ref } from 'vue'
 import { Filter } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -95,7 +96,7 @@ const languageItems=computed(()=>editorProject.value?.languageItems||[])
 const filterLanguageItems=computed(()=>filterProject.value?.languageItems||[])
 const emptyForm=()=>({id:'',projectId:'',personId:'',assignmentRole:'annotator',languageItemId:null,audioDurationValue:null,audioDurationUnit:null,amount:null,unit:null,currency:'CNY',customValues:{},assignmentStatus:'assigned',qualityScore:'',evaluationNote:''})
 const form=reactive(emptyForm())
-const rules={projectId:[{required:true,message:'请选择标注项目',trigger:'change'}],personId:[{required:true,message:'请选择人员',trigger:'change'}],assignmentRole:[{required:true,message:'请选择人员角色',trigger:'change'}]}
+const rules=computed(()=>workflowRules(form))
 const normalizePair=(amount,unit,label)=>{if((amount===null||amount===undefined)!==!unit)throw new Error(`${label}和单位必须同时填写`)}
 const payload=()=>{normalizePair(form.audioDurationValue,form.audioDurationUnit,'音频长度');normalizePair(form.amount,form.unit,'人员价格');return{personId:form.personId,assignmentRole:form.assignmentRole,languageItemId:form.languageItemId||null,audioDurationValue:form.audioDurationValue,audioDurationUnit:form.audioDurationUnit||null,amount:form.amount,unit:form.unit||null,currency:form.currency||'CNY',customValues:form.customValues,assignmentStatus:form.assignmentStatus,qualityScore:form.qualityScore?.trim()||null,evaluationNote:form.evaluationNote?.trim()||null}}
 const loadFields=async()=>{customFields.value=projectId.value?await opsApi.getCustomFields('assignment',projectId.value):[]}
@@ -105,8 +106,11 @@ const handleKeyword=value=>{clearTimeout(keywordTimer);if(!value)return loadRows
 const resetFilters=()=>{projectId.value='';keyword.value='';roleFilter.value='';statusFilter.value='';languageItemId.value='';languageFilterVisible.value=false;customFields.value=[];loadRows()}
 const clearLanguageFilter=()=>{languageItemId.value='';languageFilterVisible.value=false;loadRows()}
 const editorProjectChanged=async()=>{form.languageItemId=null;form.customValues={};editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[]}
-const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?{...row,projectId:row.projectId,customValues:{...(row.customValues||{})}}:{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
-const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{const data=payload();form.id?await opsApi.updateAnnotationWorkflow(form.projectId,form.id,data):await opsApi.createAnnotationWorkflow(form.projectId,data);dialogVisible.value=false;ElMessage.success('正式安排已保存');await loadRows()}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}}
+const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?workflowFormValues(row):{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
+const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;if (saving.value) return
+  saving.value=true;try{const data=payload();form.id?await opsApi.updateAnnotationWorkflow(form.projectId,form.id,data):await opsApi.createAnnotationWorkflow(form.projectId,data);dialogVisible.value=false;ElMessage.success('正式安排已保存');await loadRows()}catch(error){
+        await formRef.value?.applyServerErrors(error, {audio_duration_unit:'audioDurationValue',unit:'amount'})
+ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}}
 const amountText=(amount,unit,labels)=>amount===null||amount===undefined?'-':`${amount} ${labels[unit]||unit||''}`
 const priceText=(amount,unit,currency)=>amount===null||amount===undefined?'-':`${amount} ${currency||'CNY'} / ${priceUnitLabels[unit]||unit||'-'}`
 const customText=value=>Array.isArray(value)?value.join('、')||'-':value===true?'是':value===false?'否':value===null||value===undefined||value===''?'-':value

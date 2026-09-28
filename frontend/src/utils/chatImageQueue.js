@@ -1,3 +1,5 @@
+import { getLocalizedErrorMessage } from './errorMessages.js'
+
 export const CHAT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 export const CHAT_IMAGE_LIMIT = 9
 export const CHAT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
@@ -18,7 +20,7 @@ export function createChatImageQueue(items, { upload, createUrl, revokeUrl, warn
     } catch (error) {
       if (!contains(item)) return
       item.status = 'failed'
-      item.error = error?.response?.data?.detail || '图片上传失败，请重试或移除'
+      item.error = getLocalizedErrorMessage(error, '图片上传失败，请重试或移除')
     }
   }
   function add(files) {

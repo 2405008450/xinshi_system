@@ -129,6 +129,7 @@ const save = async () => {
     cancel()
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     const value = normalized || (props.emptyAsNull ? null : '')

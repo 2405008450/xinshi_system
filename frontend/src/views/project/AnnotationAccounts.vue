@@ -183,24 +183,24 @@
     <div v-if="viewMode==='assets'" class="pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="reload" @size-change="pageSizeChanged" /></div>
   </el-card>
 
-  <DraggableFormDialog v-model="platformDialog" :title="platformForm.id ? '编辑平台' : '新增平台'" width="min(680px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
-    <AppForm label-width="100px"><el-form-item label="平台名称"><el-input v-model="platformForm.platformName" /></el-form-item><el-form-item label="平台链接" required><el-input v-model="platformForm.platformUrl" /></el-form-item><el-form-item label="登录说明"><el-input v-model="platformForm.loginNotes" type="textarea" :rows="4" /></el-form-item><el-form-item label="启用"><el-switch v-model="platformForm.isActive" /></el-form-item></AppForm>
+  <DraggableFormDialog v-model="platformDialog" @closed="platformFormRef?.clearValidate()" :title="platformForm.id ? '编辑平台' : '新增平台'" width="min(680px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
+    <AppForm ref="platformFormRef" :model="platformForm" :rules="platformRules" label-width="100px"><el-form-item label="平台名称" prop="platformName"><el-input v-model="platformForm.platformName" /></el-form-item><el-form-item label="平台链接" prop="platformUrl"><el-input v-model="platformForm.platformUrl" /></el-form-item><el-form-item label="登录说明"><el-input v-model="platformForm.loginNotes" type="textarea" :rows="4" /></el-form-item><el-form-item label="启用"><el-switch v-model="platformForm.isActive" /></el-form-item></AppForm>
     <template #footer><el-button @click="platformDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePlatform">保存</el-button></template>
   </DraggableFormDialog>
 
   <DraggableFormDialog v-model="accountDialog" title="编辑账号" width="min(880px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body destroy-on-close @closed="cleanupAccountImageDrafts">
-    <AppForm label-width="110px"><el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="平台" required><el-select v-model="accountForm.platformId" style="width:100%"><el-option v-for="item in platforms" :key="item.id" :label="platformName(item)" :value="item.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="账号昵称"><el-input v-model="accountForm.nickname" /></el-form-item></el-col>
+    <AppForm ref="accountFormRef" :model="accountForm" :rules="accountRules" label-width="110px"><el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="平台" prop="platformId"><el-select v-model="accountForm.platformId" style="width:100%"><el-option v-for="item in platforms" :key="item.id" :label="platformName(item)" :value="item.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="账号昵称" prop="nickname"><el-input v-model="accountForm.nickname" /></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="登录账号"><el-input v-model="accountForm.loginAccount" autocomplete="off" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="密码"><el-input v-model="accountForm.password" type="text" autocomplete="off" /></el-form-item></el-col>
-      <el-col :xs="24" :md="12"><el-form-item label="所属项目"><el-select v-model="accountForm.projectId" clearable filterable style="width:100%" @change="accountFormProjectChanged"><el-option v-for="item in accountFormProjects" :key="item.id" :label="item.projectName || item.orderNo || '未命名'" :value="item.id" /></el-select></el-form-item></el-col>
-      <el-col :xs="24" :md="12"><el-form-item label="账号适用语言"><el-select v-model="accountForm.languageItemIds" multiple collapse-tags clearable :disabled="!accountForm.projectId" style="width:100%"><el-option v-for="item in accountFormLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
-      <el-col :xs="24" :md="12"><el-form-item label="标注员"><el-select v-model="accountForm.personId" clearable filterable :disabled="!accountForm.personId&&(!accountForm.projectId||!accountForm.languageItemIds.length)" placeholder="选择未分配标注员" style="width:100%" @change="accountFormPersonChanged"><el-option v-for="item in talentsForRow(accountForm)" :key="item.id" :label="talentOptionLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="所属项目" prop="projectId"><el-select v-model="accountForm.projectId" clearable filterable style="width:100%" @change="accountFormProjectChanged"><el-option v-for="item in accountFormProjects" :key="item.id" :label="item.projectName || item.orderNo || '未命名'" :value="item.id" /></el-select></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="账号适用语言" prop="languageItemIds"><el-select v-model="accountForm.languageItemIds" multiple collapse-tags clearable :disabled="!accountForm.projectId" style="width:100%"><el-option v-for="item in accountFormLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="标注员" prop="personId"><el-select v-model="accountForm.personId" clearable filterable :disabled="!accountForm.personId&&(!accountForm.projectId||!accountForm.languageItemIds.length)" placeholder="选择未分配标注员" style="width:100%" @change="accountFormPersonChanged"><el-option v-for="item in talentsForRow(accountForm)" :key="item.id" :label="talentOptionLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="账号状态"><el-select v-model="accountForm.accountStatus" style="width:100%" :disabled="Boolean(accountForm.personId)"><el-option v-for="(label,value) in accountForm.personId?{assigned:'已分配'}:manualAccountStatusLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="注册状态"><el-select v-model="accountForm.registrationStatus" style="width:100%"><el-option v-for="(label,value) in registrationStatusLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="账号来源"><el-select v-model="accountForm.accountSource" style="width:100%"><el-option v-for="(label,value) in sourceLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
-      <el-col :xs="24" :md="12"><el-form-item label="负责人" required><el-select v-model="accountForm.ownerId" filterable style="width:100%"><el-option v-for="item in users" :key="item.id" :label="userName(item)" :value="item.id" /></el-select></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="负责人" prop="ownerId"><el-select v-model="accountForm.ownerId" filterable style="width:100%"><el-option v-for="item in users" :key="item.id" :label="userName(item)" :value="item.id" /></el-select></el-form-item></el-col>
       <el-col :xs="24" :md="12"><el-form-item label="到期日"><el-date-picker v-model="accountForm.expiresOn" clearable value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col></el-row>
       <el-form-item label="备注"><el-input v-model="accountForm.remarks" type="textarea" :rows="3" /></el-form-item>
-      <template v-if="accountForm.projectId && accountFormCustomFields.length"><el-divider content-position="left">项目账号字段</el-divider><AnnotationCustomFieldInputs ref="assignmentCustomFieldInputs" :fields="accountFormCustomFields" :values="accountForm.assignmentCustomValues" :project-id="accountForm.projectId" /></template>
+      <template v-if="accountForm.projectId && accountFormCustomFields.length"><el-divider content-position="left">项目账号字段</el-divider><AnnotationCustomFieldInputs ref="assignmentCustomFieldInputs" :fields="accountFormCustomFields" :values="accountForm.assignmentCustomValues" :project-id="accountForm.projectId" :model-path="['assignmentCustomValues']" validate-values /></template>
     </AppForm><template #footer><el-button @click="accountDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveAccount">保存</el-button></template>
   </DraggableFormDialog>
 
@@ -209,6 +209,7 @@
 </template>
 
 <script setup>
+import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -252,6 +253,16 @@ const pagination=reactive({page:1,limit:20,total:0})
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:accountTableRef,pagination,deleteRow:(row)=>ops.deleteAccount(row.id),getLabel:(row)=>row.nickname||row.loginAccount||row.platformName||row.id,reload:()=>reload(),onDeleted:(row)=>{delete assignmentCache[row.id]},entityName:'标注账号'})
 const {deleteMode:projectDeleteMode,deleting:projectDeleting,selectedRows:projectSelectedRows,enterDeleteMode:enterProjectDeleteMode,exitDeleteMode:exitProjectDeleteMode,handleDeleteSelectionChange:handleProjectDeleteSelectionChange,confirmBatchDelete:confirmProjectBatchDelete}=useBatchDelete({rows,deleteRow:(row)=>ops.deleteAccount(row.id),getLabel:(row)=>row.nickname||row.loginAccount||row.platformName||row.id,reload:()=>reload(),onDeleted:(row)=>{delete assignmentCache[row.id]},entityName:'项目账号'})
 const filters=reactive({platformId:'',assignmentState:'',accountStatus:'',languageItemId:''})
+const platformFormRef=ref(null),accountFormRef=ref(null)
+const required=message=>({required:true,whitespace:true,message,trigger:['change','blur']})
+const platformRules={platformUrl:[required('请输入平台链接')],platformName:[{max:150,message:'平台名称不能超过150字',trigger:'blur'}]}
+const accountRules=computed(()=>({
+  platformId:[required('请选择平台')],ownerId:[required('请选择负责人')],
+  nickname:[{max:255,message:'账号昵称不能超过255字',trigger:'blur'}],
+  projectId:accountForm.personId?[required('绑定标注员前请选择所属项目')]:[],
+  languageItemIds:accountForm.personId?[{type:'array',required:true,min:1,message:'绑定标注员前请选择账号适用语言',trigger:'change'}]:[],
+  personId:[{validator:(_rule,_value,callback)=>{const message=draftPersonError(accountForm);callback(message?new Error(message):undefined)},trigger:'change'}],
+}))
 const platformForm=reactive({id:'',clientId:'',platformName:'',platformUrl:'',loginNotes:'',isActive:true})
 const accountForm=reactive({id:'',clientId:'',platformId:'',parentAccountId:null,ownerId:currentUserId,nickname:'',loginAccount:'',password:'',accountStatus:'available',registrationStatus:'unregistered',accountSource:'client_provided',expiresOn:null,remarks:'',customValues:{},assignmentCustomValues:{},personId:'',originalPersonId:'',projectId:'',originalProjectId:'',languageItemIds:[]})
 const assignmentCustomFieldInputs=ref(null),accountFormCustomFields=ref([])
@@ -303,6 +314,7 @@ const addProjectSheetRow=()=>projectSpreadsheetRef.value?.focusNewRow()
 const saveProjectSheetChanges=async changes=>{
   if(!changes.length)return
   sheetSaveErrors.value={}
+  if (saving.value) return
   saving.value=true
   try{
     const response=await ops.batchSaveAccounts({clientId:effectiveClientId.value,rows:changes.map(({original,account,personId,languageItemIds,assignmentCustomValues,rowIndex})=>({
@@ -514,7 +526,7 @@ const discardDrafts=async()=>{
   return true
 }
 const openPlatform=row=>{Object.assign(platformForm,{id:row?.id||'',clientId:effectiveClientId.value,platformName:row?.platformName||'',platformUrl:row?.platformUrl||'',loginNotes:row?.loginNotes||'',isActive:row?.isActive??true});platformDialog.value=true}
-const savePlatform=async()=>{if(!platformForm.platformUrl.trim())return ElMessage.warning('请输入平台链接');saving.value=true;try{platformForm.id?await ops.updatePlatform(platformForm.id,platformForm):await ops.createPlatform(platformForm);platformDialog.value=false;ElMessage.success('平台已保存');await loadPlatforms();await reload()}catch(error){ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
+const savePlatform=async()=>{if(saving.value)return;if(!await platformFormRef.value?.validate().catch(()=>false))return;if(saving.value)return;saving.value=true;try{platformForm.id?await ops.updatePlatform(platformForm.id,{...platformForm,clientId:platformForm.clientId||null}):await ops.createPlatform({...platformForm,clientId:platformForm.clientId||null});platformDialog.value=false;ElMessage.success('平台已保存');await refreshAfterSave(async()=>{await loadPlatforms();await reload()})}catch(error){await platformFormRef.value?.applyServerErrors(error);ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
 const removePlatform=async row=>{try{await ElMessageBox.confirm(`删除平台“${platformName(row)}”及其全部账号？`,'确认删除');await ops.deletePlatform(row.id);await loadPlatforms();await reload()}catch(error){if(!['cancel','close'].includes(error))ElMessage.error(error.detail||'删除失败')}}
 const openAccount=async row=>{
   const resolvedProjectId=row.projectId||projectId.value||''
@@ -542,11 +554,10 @@ const accountFormProjectChanged=async()=>{
 const accountFormPersonChanged=()=>{accountForm.accountStatus=accountForm.personId?'assigned':'available'}
 const cleanupAccountImageDrafts=()=>assignmentCustomFieldInputs.value?.cleanupPending?.()
 const saveAccount=async()=>{
-  if(!accountForm.platformId)return ElMessage.warning('请选择平台')
-  if(!accountForm.ownerId)return ElMessage.warning('请选择负责人')
+  if(saving.value)return
+  if(!await accountFormRef.value?.validate().catch(()=>false))return
   if(Boolean(accountForm.loginAccount)!==Boolean(accountForm.password)&&!accountForm.id)return ElMessage.warning('登录账号和密码必须同时填写')
-  if(accountForm.personId&&(!accountForm.projectId||!accountForm.languageItemIds.length))return ElMessage.warning('当前账号缺少项目或语言方向，无法保存标注员绑定')
-  if(accountForm.personId){const error=draftPersonError(accountForm);if(error)return ElMessage.warning(error)}
+  if (saving.value) return
   saving.value=true
   try{
     const {clientId:formClientId,personId,originalPersonId,projectId:formProjectId,originalProjectId,languageItemIds,assignmentCustomValues,...formAccount}=accountForm
@@ -558,8 +569,8 @@ const saveAccount=async()=>{
       if(!result?.success)throw new Error(result?.error||'账号绑定保存失败')
     }else await ops.updateAccount(accountForm.id,account)
     assignmentCustomFieldInputs.value?.markSaved?.()
-    accountDialog.value=false;ElMessage.success('账号已保存');await reload()
-  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}
+    accountDialog.value=false;ElMessage.success('账号已保存');await refreshAfterSave(reload)
+  }catch(error){await accountFormRef.value?.applyServerErrors(error);ElMessage.error(getLocalizedErrorMessage(error,'保存失败'))}finally{saving.value=false}
 }
 const loadAssignments=async row=>{if(assignmentCache[row.id])return;assignmentLoading.value=row.id;try{assignmentCache[row.id]=await ops.getAccountAssignments(row.id)}catch(error){ElMessage.error(error.detail||'加载分配履历失败')}finally{assignmentLoading.value=''}}
 const loadPersonProfile=async personId=>{if(personProfileCache[personId])return;personProfileLoadingId.value=personId;try{personProfileCache[personId]=await ops.getAccountPersonProfile(personId)}catch(error){ElMessage.error(error.detail||'加载标注员信息失败')}finally{personProfileLoadingId.value=''}}

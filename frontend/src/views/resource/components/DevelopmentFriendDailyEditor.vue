@@ -100,9 +100,11 @@ async function switchDay(value) { if (!value || value === day.value || saving.va
 async function open(value) { if (saving.value || !await allowDiscard()) return; await loadDate(value) }
 async function save() {
   if (saving.value || loading.value || !props.options.can_write || !await formRef.value.validate().catch(() => false)) return
+  if (saving.value) return
   saving.value = true
   try { const data = await api.save(day.value, { revision: revision.value, rows: payloadRows() }); applyData(day.value, data); emit('saved'); emit('options-changed'); accountVisible.value = false; visible.value = false; ElMessage.success('统计已保存，人才概览已按差额更新') }
   catch (e) {
+    await formRef.value?.applyServerErrors(e)
     ElMessage.error(e.message)
     const index = Number(e.message?.match(/第(\d+)行/)?.[1]) - 1
     const record = payloadRows()[index]
@@ -113,7 +115,9 @@ async function save() {
 async function createAccount() {
   if (accountSaving.value || !await accountFormRef.value.validate().catch(() => false)) return
   accountSaving.value = true
-  try { await api.addAccount(newAccount); newAccount.name = ''; accountVisible.value = false; emit('options-changed'); ElMessage.success('账号已就绪') } catch (e) { ElMessage.error(e.message) } finally { accountSaving.value = false }
+  try { await api.addAccount(newAccount); newAccount.name = ''; accountVisible.value = false; emit('options-changed'); ElMessage.success('账号已就绪') } catch (e) {
+        await accountFormRef.value?.applyServerErrors(e)
+ ElMessage.error(e.message) } finally { accountSaving.value = false }
 }
 onBeforeUnmount(() => { seq++; controller?.abort() })
 defineExpose({ open })

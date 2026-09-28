@@ -252,6 +252,7 @@ function startEditTaskType(item) { editingTaskTypeId.value = item.id; editingTas
 async function saveTaskTypeName(item) {
   const name = editingTaskTypeName.value.trim()
   if (!name) return ElMessage.warning('请输入任务类型')
+  if (taskTypeSaving.value) return
   taskTypeSaving.value = true
   try {
     Object.assign(item, await annotationOpsApi.updateArrangementTaskType(item.id, { name, expectedUpdatedAt:item.updatedAt }))
@@ -271,6 +272,7 @@ async function toggleTaskType(item) {
 async function saveAll(closeAfterSave = false) {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return false
+  if (saving.value) return
   saving.value = true
   try {
     await annotationOpsApi.saveProjectArrangements({
@@ -291,6 +293,7 @@ async function saveAll(closeAfterSave = false) {
     if (closeAfterSave) emit('update:modelValue', false)
     return true
   } catch (error) {
+    await formRef.value?.applyServerErrors(error)
     ElMessage.error(getLocalizedErrorMessage(error, '保存项目安排失败'))
     return false
   } finally { saving.value = false }

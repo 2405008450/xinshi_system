@@ -270,6 +270,7 @@ async function saveTemplate() {
     ElMessage.warning('请填写锁定或解锁原因')
     return
   }
+  if (saving.value) return
   saving.value = true
   try {
     const userId = props.employee.id || props.employee.user_id

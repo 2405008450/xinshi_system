@@ -12,13 +12,14 @@
       </el-table>
     </div>
   </el-popover>
-  <DraggableFormDialog v-model="dialogVisible" :title="editingId?'编辑动态字段':'新增动态字段'" width="min(620px, calc(100vw - 32px))" append-to-body>
-    <AppForm label-width="90px"><el-form-item v-if="!autoFieldKey" label="字段键"><el-input v-model="form.fieldKey" :disabled="!!editingId" placeholder="例如 delivery_batch" /></el-form-item><el-form-item label="显示名称"><el-input v-model="form.fieldLabel" placeholder="例如：验收批次" /></el-form-item><el-form-item label="数据类型"><el-select v-model="form.dataType" style="width:100%"><el-option v-for="item in types" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item v-if="form.dataType.includes('select')" label="选项"><el-select v-model="form.options" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item><el-form-item label="设置"><el-checkbox v-model="form.isRequired">必填</el-checkbox><el-checkbox v-model="form.isActive">启用</el-checkbox></el-form-item></AppForm>
+  <DraggableFormDialog v-model="dialogVisible" @closed="formRef?.clearValidate()" :title="editingId?'编辑动态字段':'新增动态字段'" width="min(620px, calc(100vw - 32px))" append-to-body>
+    <AppForm ref="formRef" :model="form" :rules="rules" label-width="90px"><el-form-item v-if="!autoFieldKey" label="字段键" prop="fieldKey"><el-input v-model="form.fieldKey" :disabled="!!editingId" placeholder="例如 delivery_batch" /></el-form-item><el-form-item label="显示名称" prop="fieldLabel"><el-input v-model="form.fieldLabel" placeholder="例如：验收批次" /></el-form-item><el-form-item label="数据类型" prop="dataType"><el-select v-model="form.dataType" style="width:100%"><el-option v-for="item in types" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item><el-form-item v-if="form.dataType.includes('select')" label="选项" prop="options"><el-select v-model="form.options" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item><el-form-item label="设置"><el-checkbox v-model="form.isRequired">必填</el-checkbox><el-checkbox v-model="form.isActive">启用</el-checkbox></el-form-item></AppForm>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存</el-button></template>
   </DraggableFormDialog>
 </template>
 
 <script setup>
+import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createCustomField, deleteCustomField, getCustomFields, updateCustomField } from '@/api/annotationOps'
@@ -34,13 +35,19 @@ const types=computed(()=>[
   ...(props.tableCode==='account_assignment'?[['image','图片']]:[]),
 ].map(([value,label])=>({value,label})))
 const empty=()=>({projectId:props.projectId||null,tableCode:props.tableCode,fieldKey:'',fieldLabel:'',dataType:'text',options:[],isRequired:false,isActive:true})
-const form=reactive(empty())
+const form=reactive(empty()),formRef=ref(null)
+const rules=computed(()=>({
+  fieldKey:[{required:true,pattern:/^[a-z][a-z0-9_]*$/,max:100,message:'字段键需以小写字母开头，仅含小写字母、数字和下划线，最多100字',trigger:'blur'}],
+  fieldLabel:[{required:true,whitespace:true,max:150,message:'请填写显示名称（最多150字）',trigger:'blur'}],
+  dataType:[{required:true,message:'请选择数据类型',trigger:'change'}],
+  options:form.dataType.includes('select')?[{type:'array',required:true,min:1,message:'请至少配置一个选项',trigger:'change'}]:[],
+}))
 const load=async()=>{loading.value=true;try{fields.value=await getCustomFields(props.tableCode,props.projectId||null,true)}finally{loading.value=false}}
 const generateFieldKey=()=>`custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`
 const startAdd=()=>{editingId.value='';Object.assign(form,empty(),{fieldKey:props.autoFieldKey?generateFieldKey():''});dialogVisible.value=true}
 const startEdit=(row)=>{editingId.value=row.id;Object.assign(form,empty(),row);dialogVisible.value=true}
 const payload=source=>({projectId:source.projectId||null,tableCode:source.tableCode,fieldKey:source.fieldKey,fieldLabel:source.fieldLabel.trim(),dataType:source.dataType,options:source.options||[],sequenceNo:source.sequenceNo||null,isRequired:Boolean(source.isRequired),isActive:Boolean(source.isActive)})
-const save=async()=>{if(!form.fieldKey.trim()||!form.fieldLabel.trim())return ElMessage.warning('请填写字段名称');saving.value=true;try{const data=payload(form);const action=editingId.value?updateCustomField(editingId.value,data):createCustomField(data);await action;ElMessage.success('动态字段已保存');dialogVisible.value=false;await load();emit('changed')}catch(error){ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
+const save=async()=>{if(saving.value)return;if(!await formRef.value?.validate().catch(()=>false))return;if(saving.value)return;saving.value=true;try{const data=payload(form);const action=editingId.value?updateCustomField(editingId.value,data):createCustomField(data);await action;ElMessage.success('动态字段已保存');dialogVisible.value=false;emit('changed');await refreshAfterSave(load)}catch(error){await formRef.value?.applyServerErrors(error);ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
 const disable=async(row)=>{
   visible.value=false
   try{

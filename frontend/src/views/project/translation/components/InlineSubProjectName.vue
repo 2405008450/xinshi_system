@@ -81,6 +81,7 @@ const save = async () => {
   if (!name) return ElMessage.warning('文件名称不能为空')
   if (name.length > 255) return ElMessage.warning('文件名称不能超过 255 个字符')
   if (name === (props.modelValue || '').trim()) return cancel()
+  if (saving.value) return
   saving.value = true
   try {
     const updated = await updateSubOrder(props.subOrderId, { subProjectName: name })

@@ -1,3 +1,4 @@
+from form_errors import integrity_error_detail
 import logging
 from typing import List, Optional
 from uuid import UUID
@@ -47,7 +48,7 @@ def create_sub_order_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         if idempotency_key:
             existing = db.query(TranslationSubOrder).filter(
@@ -56,7 +57,7 @@ def create_sub_order_endpoint(
             if existing:
                 return get_sub_order(db, existing.id)
         logger.exception("创建子订单时触发数据库约束")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="子订单数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc, "子订单数据不符合保存要求，请检查后重试"))
     except Exception:
         db.rollback()
         logger.exception("创建子订单时发生未知异常")
@@ -80,10 +81,10 @@ def create_sub_orders_bulk_endpoint(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         logger.exception("批量创建子订单时触发数据库约束")
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="子订单数据不符合保存要求，请检查后重试")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=integrity_error_detail(exc, "子订单数据不符合保存要求，请检查后重试"))
     except Exception:
         db.rollback()
         logger.exception("批量创建子订单时发生未知异常")
