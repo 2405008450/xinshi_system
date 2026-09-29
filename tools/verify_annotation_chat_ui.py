@@ -24,9 +24,31 @@ OUT = ROOT / '.tmp' / 'annotation-chat-ui'
 OUT.mkdir(parents=True, exist_ok=True)
 
 
+def purge_leftover_qa(db):
+    """清掉上次验收中断后留下的 QA-CHAT 项目和账号。"""
+    projects = db.query(AnnotationProject).filter(AnnotationProject.order_no.like('QA-CHAT-%')).all()
+    users = db.query(AppUser).filter(AppUser.username.like('qa-chat-%')).all()
+    roles = db.query(Role).filter(Role.role_name.like('qa-chat-%')).all()
+    user_ids = [user.id for user in users]
+    role_ids = [role.id for role in roles]
+    if user_ids:
+        db.query(AppNotification).filter(AppNotification.recipient_user_id.in_(user_ids)).delete(synchronize_session=False)
+    if projects:
+        db.query(AnnotationProject).filter(AnnotationProject.id.in_([project.id for project in projects])).delete(synchronize_session=False)
+    if user_ids:
+        db.query(UserRole).filter(UserRole.user_id.in_(user_ids)).delete(synchronize_session=False)
+        db.query(AppUser).filter(AppUser.id.in_(user_ids)).delete(synchronize_session=False)
+    if role_ids:
+        db.query(RolePermission).filter(RolePermission.role_id.in_(role_ids)).delete(synchronize_session=False)
+        db.query(UserRole).filter(UserRole.role_id.in_(role_ids)).delete(synchronize_session=False)
+        db.query(Role).filter(Role.id.in_(role_ids)).delete(synchronize_session=False)
+    db.commit()
+
+
 def main_test():
     marker = uuid4().hex[:10]
     db = SessionLocal()
+    purge_leftover_qa(db)
     role = Role(role_name='qa-chat-' + marker)
     users = [AppUser(username=f'qa-chat-{marker}-{i}', full_name=f'群聊验收{i+1}', password_hash='disabled', is_active=True) for i in range(3)]
     project = AnnotationProject(order_no='QA-CHAT-' + marker, project_name='开放项目群验收-' + marker, project_types=[])
@@ -73,6 +95,23 @@ def main_test():
                 expect(page.locator('.annotation-group:visible').get_by_role('button', name='关注项目', exact=True)).to_be_visible()
             results['open_without_invitation'] = True
             pages[0].bring_to_front()
+            shell = pages[0].locator('.project-chat-window:visible').first
+            expect(shell.get_by_role('button', name='窗口尺寸')).to_be_visible()
+            expect(shell.get_by_role('button', name='会话列表')).to_be_visible()
+            width_before = shell.bounding_box()['width']
+            shell.get_by_role('button', name='窗口尺寸').click()
+            pages[0].wait_for_timeout(250)
+            results['size_cycle_changes_width'] = shell.bounding_box()['width'] != width_before
+            shell.get_by_role('button', name='窗口尺寸').click()
+            shell.get_by_role('button', name='窗口尺寸').click()
+            pages[0].locator('.annotation-group:visible').get_by_role('button', name='聊天记录').click()
+            expect(pages[0].locator('.chat-history:visible')).to_be_visible()
+            pages[0].locator('.chat-history:visible').get_by_role('button', name='关闭聊天记录').click()
+            shell.get_by_role('button', name='会话列表').click()
+            expect(pages[0].locator('.chat-workspace-shell')).to_be_visible()
+            pages[0].get_by_role('button', name='独立窗口').click()
+            expect(pages[0].locator('.annotation-group:visible')).to_be_visible()
+            results['workspace_roundtrip'] = True
             editor = pages[0].locator('.annotation-group:visible textarea')
             editor.fill('请协助 @群聊验收')
             menu = pages[0].get_by_role('listbox', name='选择提及用户')
@@ -155,9 +194,10 @@ def main_test():
             pages[2].reload(wait_until='networkidle')
             pages[0].locator('.annotation-group:visible textarea').fill('邀请参与后的未读消息')
             pages[0].locator('.annotation-group:visible textarea').press('Enter')
-            expect(pages[2].get_by_role('button', name='项目消息')).to_contain_text('1', timeout=20000)
-            pages[2].get_by_role('button', name='项目消息').click()
-            pages[2].get_by_role('button', name=f'{project.order_no} · {project.project_name}').click()
+            favorites = pages[2].get_by_role('button', name='收藏夹', exact=True)
+            expect(favorites).to_have_attribute('title', __import__('re').compile(r'1 条未读'), timeout=20000)
+            favorites.click()
+            pages[2].get_by_role('button', name=f'沟通 {project.order_no}', exact=True).click()
             expect(pages[2].locator('.group-content', has_text='邀请参与后的未读消息')).to_be_visible()
             results['closed_window_unread_and_open'] = True
             pages[0].bring_to_front()
@@ -228,7 +268,11 @@ def main_test():
                 pass
         raise
     finally:
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            db.close()
+            db = SessionLocal()
         db.query(AppNotification).filter(AppNotification.recipient_user_id.in_(uid)).delete(synchronize_session=False)
         db.query(AnnotationProject).filter(AnnotationProject.id == project.id).delete(synchronize_session=False)
         db.query(UserRole).filter(UserRole.user_id.in_(uid)).delete(synchronize_session=False)

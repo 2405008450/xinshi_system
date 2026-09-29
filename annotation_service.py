@@ -482,7 +482,7 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
-NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments"}
+NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes"}
 
 
 def _resolve_client(db: Session, data: dict) -> None:
@@ -654,6 +654,8 @@ def create_annotation_project(
     validate_assignment_map(db, assignments)
     ensure_project_responsibilities(db, 'annotation', project.id, assignments)
     _sync_nested(db, project, payload)
+    from annotation_material_service import apply_changes
+    apply_changes(db, project.id, payload.material_changes, created_by)
     project.updated_at = datetime.now()
     record_project_operation(
         db, project_type="annotation", operation_type="create", project=project,
@@ -667,6 +669,8 @@ def update_annotation_project(
     db: Session, project_id: UUID, payload: AnnotationProjectUpdate,
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
+    # 序列化项目保存，确保版本递增和乐观锁检查在同一锁内。
+    db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
     project = get_annotation_project(db, project_id)
     if not project:
         return None
@@ -709,6 +713,10 @@ def update_annotation_project(
         if responsibility_rows else previous_project_manager_ids
     )
     _sync_nested(db, project, payload)
+    from annotation_material_service import apply_changes
+    if payload.material_changes is not None and payload.expected_updated_at is None:
+        raise ValueError('保存项目资料必须携带项目版本，请刷新后重试')
+    apply_changes(db, project.id, payload.material_changes, changed_by)
     project.updated_at = datetime.now()
     record_annotation_manager_change(
         db,
@@ -910,7 +918,7 @@ def delete_annotation_project(
     db: Session, project_id: UUID, *, actor_user_id: Optional[UUID] = None,
     operation_source: str = "project_delete",
 ) -> bool:
-    project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).first()
+    project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().first()
     if not project:
         return False
 
@@ -958,6 +966,8 @@ def delete_annotation_project(
         db, project_type="annotation", operation_type="delete", project=project,
         actor_user_id=actor_user_id, operation_source=operation_source,
     )
+    from annotation_material_service import remove_project_materials
+    remove_project_materials(db, project.id)
     db.delete(project)
     db.commit()
     delete_custom_field_image_files(image_storage_names)

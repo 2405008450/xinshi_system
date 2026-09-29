@@ -67,6 +67,7 @@ build/
 /backups/*.sql
 /backups/*.dump
 /data/annotation_custom_field_images/
+/data/annotation_materials/
 
 # Browser automation and test artifacts
 .playwright/
@@ -86,3 +87,6 @@ blob-report/
 *.http
 .claude/
 docs/
+!/docs/
+/docs/*
+!/docs/annotation-materials.md

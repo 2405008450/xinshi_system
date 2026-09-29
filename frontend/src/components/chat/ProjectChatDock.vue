@@ -1,19 +1,49 @@
 <template>
   <Teleport to="body">
-    <div v-if="state.windows.length || hasExtraTasks" class="project-chat-dock" aria-label="全局悬浮窗口">
+    <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" aria-label="全局悬浮窗口">
+      <div v-show="workspaceVisible" class="chat-workspace-shell" :style="workspaceShellStyle" @mousedown="focusWorkspace">
+        <ChatWorkspace
+          :sessions="sessions"
+          :active-key="state.activeKey"
+          :error="followedError"
+          :narrow="workspaceNarrow"
+          :sidebar-open="sidebarOpen"
+          :size-mode="state.workspaceSize"
+          :title="activeWindow?.title || '沟通'"
+          :subtitle="activeWindow?.subtitle || ''"
+          :project-type="activeWindow?.projectType || ''"
+          :meta-loading="!!activeWindow?.metaLoading"
+          :dragging="draggingKey === '__workspace__'"
+          @select="selectSession($event.key)"
+          @open="openFollowed"
+          @close="closeChat($event.key)"
+          @close-active="activeWindow && closeChat(activeWindow.key)"
+          @minimize="minimizeWorkspace"
+          @cycle-size="cycleWorkspaceSize"
+          @toggle-layout="setLayout('float')"
+          @open-search="openSearch(state.activeKey)"
+          @toggle-sidebar="sidebarOpen = !sidebarOpen"
+          @header-mousedown="startWorkspaceDrag"
+          @header-dblclick="onWorkspaceDblClick"
+          @retry="refreshFollowed"
+        />
+      </div>
+
       <section
         v-for="chatWindow in state.windows"
-        v-show="!chatWindow.minimized"
+        v-show="isChatWindowVisible(chatWindow)"
         :key="chatWindow.key"
         class="project-chat-window"
-        :class="{ 'project-chat-window--solo': isCompactScreen }"
+        :class="windowClass(chatWindow)"
         :style="windowStyle(chatWindow)"
-        @mousedown="focusChat(chatWindow.key)"
+        @mousedown="onWindowMouseDown(chatWindow)"
       >
         <header
+          v-show="showFloatChrome"
           class="project-chat-window__header"
           :class="{ 'project-chat-window__header--dragging': draggingKey === chatWindow.key }"
           @mousedown="startDrag($event, chatWindow)"
+          @dblclick="onHeaderDblClick($event, chatWindow)"
         >
           <div class="project-chat-window__heading">
             <div class="project-chat-window__title-row">
@@ -28,8 +58,14 @@
             </span>
           </div>
           <div class="project-chat-window__actions">
-            <el-button v-if="chatWindow.projectType !== 'annotation'" link aria-label="搜索消息" title="搜索消息" @click="toggleFilters(chatWindow.key)">
+            <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
               <el-icon><Search /></el-icon>
+            </el-button>
+            <el-button v-if="!isCompactScreen" link aria-label="会话列表" title="切换到会话列表" @click="setLayout('workspace')">
+              <el-icon><ChatDotRound /></el-icon>
+            </el-button>
+            <el-button v-if="!isCompactScreen" link aria-label="窗口尺寸" :title="`窗口尺寸：${sizeLabel(chatWindow.sizeMode)}，点击切换`" @click="cycleSize(chatWindow.key)">
+              {{ sizeLabel(chatWindow.sizeMode) }}
             </el-button>
             <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
               <el-icon><Minus /></el-icon>
@@ -45,7 +81,8 @@
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
             :project-type="chatWindow.projectType"
-            :active="!chatWindow.minimized"
+            :active="isChatWindowVisible(chatWindow)"
+            :history-placement="historyPlacement(chatWindow)"
             conversation-mode
             compact
             :text-only="chatWindow.projectType === 'annotation'"
@@ -55,23 +92,36 @@
         </div>
       </section>
 
-      <div v-if="state.windows.some(item => item.minimized) || hasExtraTasks" class="project-chat-dock__taskbar">
-        <div v-if="state.windows.some(item => item.minimized)" class="project-chat-dock__chat-tasks">
-        <button
-          v-for="chatWindow in state.windows.filter(item => item.minimized)"
-          :key="chatWindow.key"
-          type="button"
-          class="project-chat-task"
-          :title="`恢复 ${chatWindow.title}`"
-          @click="restoreChat(chatWindow.key)"
-        >
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ chatWindow.title }}</span>
-          <span v-if="chatWindow.subtitle" class="project-chat-task__subtitle">{{ chatWindow.subtitle }}</span>
-          <span v-if="chatWindow.unread" class="project-chat-task__unread">
-            {{ chatWindow.unread > 99 ? '99+' : chatWindow.unread }}
-          </span>
-        </button>
+      <div v-if="minimizedWindows.length || showWorkspaceTask || hasExtraTasks" class="project-chat-dock__taskbar">
+        <div v-if="minimizedWindows.length || showWorkspaceTask" class="project-chat-dock__chat-tasks">
+          <button
+            v-if="showWorkspaceTask"
+            type="button"
+            class="project-chat-task"
+            title="恢复沟通"
+            @click="restoreWorkspace"
+          >
+            <el-icon><ChatDotRound /></el-icon>
+            <span>沟通</span>
+            <span v-if="workspaceUnread" class="project-chat-task__unread">
+              {{ workspaceUnread > 99 ? '99+' : workspaceUnread }}
+            </span>
+          </button>
+          <button
+            v-for="chatWindow in minimizedWindows"
+            :key="chatWindow.key"
+            type="button"
+            class="project-chat-task"
+            :title="`恢复 ${chatWindow.title}`"
+            @click="restoreChat(chatWindow.key)"
+          >
+            <el-icon><ChatDotRound /></el-icon>
+            <span>{{ chatWindow.title }}</span>
+            <span v-if="chatWindow.subtitle" class="project-chat-task__subtitle">{{ chatWindow.subtitle }}</span>
+            <span v-if="chatWindow.unread" class="project-chat-task__unread">
+              {{ chatWindow.unread > 99 ? '99+' : chatWindow.unread }}
+            </span>
+          </button>
         </div>
         <slot name="tasks" />
       </div>
@@ -80,29 +130,50 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
-import { useProjectChatDock, PROJECT_CHAT_WINDOW_SIZE } from '@/composables/useProjectChatDock'
+import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
+import {
+  isChatWindowVisible,
+  resolveChatSize,
+  useProjectChatDock,
+} from '@/composables/useProjectChatDock'
 
 defineProps({ hasExtraTasks: { type: Boolean, default: false } })
 
 const {
   state,
+  openChat,
   closeChat,
   closeAllChats,
   minimizeChat,
   restoreChat,
   focusChat,
+  focusWorkspace,
   setPosition,
+  setWorkspacePosition,
   clampAllPositions,
   incrementUnread,
+  cycleSize,
+  toggleQuickSize,
+  cycleWorkspaceSize,
+  setLayout,
+  selectSession,
+  minimizeWorkspace,
+  restoreWorkspace,
+  ensurePreferences,
 } = useProjectChatDock()
+const { followed, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
 
 const COMPACT_SCREEN_WIDTH = 768
+const WORKSPACE_HEADER = 52
+const SIZE_LABELS = { small: '小', medium: '中', large: '大' }
 const isCompactScreen = ref(false)
 const draggingKey = ref('')
+const sidebarOpen = ref(true)
 const panelRefs = new Map()
 
 const setPanelRef = (key, el) => {
@@ -110,24 +181,142 @@ const setPanelRef = (key, el) => {
   else panelRefs.delete(key)
 }
 
-const toggleFilters = (key) => {
+const sizeLabel = mode => SIZE_LABELS[mode] || '小'
+const showFloatChrome = computed(() => isCompactScreen.value || state.layout !== 'workspace')
+const workspaceNarrow = computed(() => resolveChatSize(state.workspaceSize).width < 640)
+const workspaceVisible = computed(() => (
+  !isCompactScreen.value
+  && state.layout === 'workspace'
+  && !state.workspaceMinimized
+  && (state.windows.length > 0 || followed.value.length > 0)
+))
+const showWorkspaceTask = computed(() => (
+  state.layout === 'workspace'
+  && state.workspaceMinimized
+  && (state.windows.length > 0 || followed.value.length > 0)
+))
+const minimizedWindows = computed(() => (
+  state.layout !== 'workspace' || isCompactScreen.value
+    ? state.windows.filter(item => item.minimized)
+    : []
+))
+const sidebarWidth = computed(() => {
+  if (!workspaceVisible.value) return 0
+  if (workspaceNarrow.value && !sidebarOpen.value) return 0
+  return 240
+})
+const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey) || null)
+const sessions = computed(() => {
+  const openedAnnotation = new Set()
+  const rows = state.windows.map((item) => {
+    if (item.projectType === 'annotation') openedAnnotation.add(String(item.projectId))
+    return {
+      key: item.key,
+      projectId: item.projectId,
+      projectType: item.projectType,
+      title: item.title,
+      subtitle: item.subtitle,
+      unread: isChatWindowVisible(item) ? 0 : (item.unread || 0),
+      opened: true,
+    }
+  })
+  followed.value.forEach((item) => {
+    if (openedAnnotation.has(String(item.projectId))) return
+    rows.push({
+      key: `annotation:${item.projectId}`,
+      projectId: item.projectId,
+      projectType: 'annotation',
+      title: item.projectName || '未命名项目',
+      subtitle: item.orderNo || '',
+      unread: item.unread || 0,
+      opened: false,
+    })
+  })
+  return rows
+})
+const workspaceUnread = computed(() => sessions.value.reduce((sum, item) => sum + (Number(item.unread) || 0), 0))
+const workspaceShellStyle = computed(() => {
+  const size = resolveChatSize(state.workspaceSize)
+  return {
+    left: `${state.workspaceX}px`,
+    top: `${state.workspaceY}px`,
+    width: `${size.width}px`,
+    height: `${size.height}px`,
+    zIndex: state.workspaceZ,
+  }
+})
+const contentRect = computed(() => {
+  const size = resolveChatSize(state.workspaceSize)
+  const side = sidebarWidth.value
+  return {
+    x: state.workspaceX + side,
+    y: state.workspaceY + WORKSPACE_HEADER,
+    width: Math.max(160, size.width - side),
+    height: Math.max(160, size.height - WORKSPACE_HEADER),
+  }
+})
+
+const historyPlacement = chatWindow => (
+  (!isCompactScreen.value && state.layout === 'workspace' ? state.workspaceSize : chatWindow.sizeMode) === 'large'
+    ? 'side'
+    : 'overlay'
+)
+const frameSize = chatWindow => (
+  !isCompactScreen.value && state.layout === 'workspace' ? state.workspaceSize : (chatWindow.sizeMode || 'small')
+)
+const windowClass = chatWindow => ({
+  'project-chat-window--solo': isCompactScreen.value,
+  'project-chat-window--embedded': !isCompactScreen.value && state.layout === 'workspace',
+  [`project-chat-window--${frameSize(chatWindow)}`]: true,
+})
+
+const openSearch = (key) => {
+  if (!key) return
   focusChat(key)
-  panelRefs.get(key)?.toggleFilters?.()
+  panelRefs.get(key)?.openSearch?.()
+}
+
+const openFollowed = (session) => {
+  openChat({
+    projectId: session.projectId,
+    projectType: 'annotation',
+    title: session.title,
+    subtitle: session.subtitle,
+  })
 }
 
 const windowStyle = (chatWindow) => {
   if (isCompactScreen.value) return { zIndex: chatWindow.zIndex }
+  if (state.layout === 'workspace') {
+    const rect = contentRect.value
+    return {
+      left: `${rect.x}px`,
+      top: `${rect.y}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      zIndex: state.workspaceZ,
+      borderRadius: sidebarWidth.value ? '0 0 12px 0' : '0 0 12px 12px',
+    }
+  }
+  const size = resolveChatSize(chatWindow.sizeMode || 'small')
   return {
     left: `${chatWindow.x}px`,
     top: `${chatWindow.y}px`,
+    width: `${size.width}px`,
+    height: `${size.height}px`,
     zIndex: chatWindow.zIndex,
   }
 }
 
-const dragState = { key: '', offsetX: 0, offsetY: 0 }
+const dragState = { key: '', offsetX: 0, offsetY: 0, moved: false }
 
 const handleDragMove = (event) => {
   if (!dragState.key) return
+  if (Math.abs(event.movementX) + Math.abs(event.movementY) > 0) dragState.moved = true
+  if (dragState.key === '__workspace__') {
+    setWorkspacePosition(event.clientX - dragState.offsetX, event.clientY - dragState.offsetY)
+    return
+  }
   setPosition(dragState.key, event.clientX - dragState.offsetX, event.clientY - dragState.offsetY)
 }
 
@@ -138,23 +327,52 @@ const stopDrag = () => {
   window.removeEventListener('mouseup', stopDrag)
 }
 
-// 仅标题栏空白区域作为拖拽手柄；项目名、订单号和按钮保留文字选择与点击。
-const startDrag = (event, chatWindow) => {
-  if (isCompactScreen.value || event.button !== 0) return
-  if (event.target.closest('.project-chat-window__heading, .project-chat-window__actions, button, a')) return
+const beginDrag = (event, key, originX, originY) => {
   event.preventDefault()
-  focusChat(chatWindow.key)
-  dragState.key = chatWindow.key
-  dragState.offsetX = event.clientX - chatWindow.x
-  dragState.offsetY = event.clientY - chatWindow.y
-  draggingKey.value = chatWindow.key
+  dragState.key = key
+  dragState.offsetX = event.clientX - originX
+  dragState.offsetY = event.clientY - originY
+  dragState.moved = false
+  draggingKey.value = key
   window.addEventListener('mousemove', handleDragMove)
   window.addEventListener('mouseup', stopDrag)
 }
 
-// 小屏幕只保留最近使用的会话展开，其余自动最小化。
+// 仅标题栏空白区域作为拖拽手柄；项目名、订单号和按钮保留文字选择与点击。
+const startDrag = (event, chatWindow) => {
+  if (isCompactScreen.value || event.button !== 0) return
+  if (event.target.closest('.project-chat-window__heading, .project-chat-window__actions, button, a')) return
+  focusChat(chatWindow.key)
+  beginDrag(event, chatWindow.key, chatWindow.x, chatWindow.y)
+}
+
+const startWorkspaceDrag = (event) => {
+  if (isCompactScreen.value || event.button !== 0) return
+  if (event.target.closest('.chat-workspace__heading, .chat-workspace__actions, button, a, input')) return
+  focusWorkspace()
+  beginDrag(event, '__workspace__', state.workspaceX, state.workspaceY)
+}
+
+const onHeaderDblClick = (event, chatWindow) => {
+  if (isCompactScreen.value || dragState.moved) return
+  if (event.target.closest('.project-chat-window__heading, .project-chat-window__actions, button, a')) return
+  toggleQuickSize(chatWindow.key)
+}
+
+const onWorkspaceDblClick = (event) => {
+  if (dragState.moved) return
+  if (event.target.closest('.chat-workspace__heading, .chat-workspace__actions, button, a, input')) return
+  cycleWorkspaceSize()
+}
+
+const onWindowMouseDown = (chatWindow) => {
+  if (!isCompactScreen.value && state.layout === 'workspace') focusWorkspace()
+  else focusChat(chatWindow.key)
+}
+
+// 小屏幕只保留最近使用的会话展开，其余自动最小化。工作区模式按当前会话显示，不改各窗口的最小化标记。
 const enforceSoloWindow = () => {
-  if (!isCompactScreen.value) return
+  if (!isCompactScreen.value || state.layout === 'workspace') return
   const expanded = state.windows
     .filter(item => !item.minimized)
     .sort((left, right) => right.lastActiveOrder - left.lastActiveOrder)
@@ -170,8 +388,12 @@ const syncViewportState = () => {
 watch(() => state.windows.length, () => {
   enforceSoloWindow()
 })
+watch(workspaceNarrow, (narrow) => {
+  if (narrow) sidebarOpen.value = false
+})
 
 onMounted(() => {
+  ensurePreferences()
   syncViewportState()
   window.addEventListener('resize', syncViewportState)
 })
@@ -191,11 +413,20 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+.chat-workspace-shell {
+  position: fixed;
+  display: flex;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid var(--el-border-color);
+  background: var(--el-bg-color);
+  box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
+  pointer-events: auto;
+}
+
 .project-chat-window {
   position: fixed;
   display: flex;
-  width: v-bind('`${PROJECT_CHAT_WINDOW_SIZE.width}px`');
-  height: v-bind('`${PROJECT_CHAT_WINDOW_SIZE.height}px`');
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   flex-direction: column;
@@ -205,6 +436,11 @@ onBeforeUnmount(() => {
   background: var(--el-bg-color);
   box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
   pointer-events: auto;
+}
+
+.project-chat-window--embedded {
+  border: 0;
+  box-shadow: none;
 }
 
 .project-chat-window__header {
@@ -268,6 +504,38 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
+.project-chat-window--medium :deep(.group-bubble),
+.project-chat-window--medium :deep(.chat-conversation-item__main) {
+  max-width: min(640px, 88%);
+}
+
+.project-chat-window--large :deep(.group-bubble),
+.project-chat-window--large :deep(.chat-conversation-item__main) {
+  max-width: min(760px, 78%);
+}
+
+.project-chat-window--medium :deep(.group-file .el-image) {
+  max-width: 360px;
+  max-height: 240px;
+}
+
+.project-chat-window--large :deep(.group-file .el-image) {
+  max-width: 480px;
+  max-height: 320px;
+}
+
+.project-chat-window--medium :deep(.message-attachment),
+.project-chat-window--medium :deep(.message-attachment img) {
+  width: 180px;
+  height: 128px;
+}
+
+.project-chat-window--large :deep(.message-attachment),
+.project-chat-window--large :deep(.message-attachment img) {
+  width: 240px;
+  height: 160px;
+}
+
 .project-chat-dock__taskbar {
   position: fixed;
   right: 16px;
@@ -329,8 +597,8 @@ onBeforeUnmount(() => {
 
 .project-chat-window--solo {
   inset: 8px;
-  width: auto;
-  height: auto;
+  width: auto !important;
+  height: auto !important;
   max-width: none;
   max-height: none;
 }

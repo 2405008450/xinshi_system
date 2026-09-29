@@ -45,6 +45,10 @@ export const getProjectChatMessages = (projectId, params = {}, projectType = 'tr
   return api.get(`${messageBasePath(projectId, projectType)}/messages`, { params }).then(res => convertKeys(res, toCamelCase))
 }
 
+export const searchProjectChatHistory = (projectId, params = {}, projectType = 'translation', signal) => {
+  return api.get(`${messageBasePath(projectId, projectType)}/history`, { params, signal }).then(res => convertKeys(res, toCamelCase))
+}
+
 export const createProjectChatMessage = (projectId, data, projectType = 'translation') => {
   return api.post(`${messageBasePath(projectId, projectType)}/messages`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }

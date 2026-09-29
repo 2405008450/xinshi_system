@@ -13,6 +13,7 @@ from database import get_db
 from annotation_models import AnnotationProject
 from models import AppUser, ChatProjectAttachment, ChatProjectMessage
 from chat_attachment_storage import remote_attachment_url, upload_remote_attachment, read_remote_attachment
+from chat_history_search import ChatHistoryError, search_chat_history
 from project_chat_crud import (
     acknowledge_chat_message,
     create_annotation_project_chat_message,
@@ -22,6 +23,8 @@ from project_chat_crud import (
     get_project_chat_settings,
     list_annotation_project_chat_messages,
     list_project_chat_messages,
+    list_project_chat_messages_around,
+    list_project_chat_messages_before,
     set_project_chat_settings,
     unacknowledge_chat_message,
     unfavorite_chat_message,
@@ -432,6 +435,53 @@ def update_settings_endpoint(
     return _serialize_settings(project_id, settings, True)
 
 
+def _history_bounds(date_from: str | None, date_to: str | None):
+    try:
+        return (
+            datetime.fromisoformat(date_from) if date_from else None,
+            datetime.fromisoformat(date_to) if date_to else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='日期格式无效') from exc
+
+
+@router.get('/{project_id}/history')
+def translation_history_endpoint(
+    project_id: UUID,
+    kind: str = Query('all', pattern='^(all|image|link|file)$'),
+    keyword: str | None = None,
+    sender_user_id: UUID | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    favorites_only: bool = False,
+    cursor: str | None = None,
+    limit: int = Query(30, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    _require_project(db, project_id)
+    settings = get_project_chat_settings(db, project_id)
+    parsed_from, parsed_to = _history_bounds(date_from, date_to)
+    try:
+        return search_chat_history(
+            db,
+            project_type='translation',
+            project_id=project_id,
+            user_id=current_user.id,
+            kind=kind,
+            keyword=keyword,
+            sender_user_id=sender_user_id,
+            date_from=parsed_from,
+            date_to=parsed_to,
+            favorites_only=favorites_only,
+            cursor=cursor,
+            limit=limit,
+            include_user_messages=bool(settings and settings.enabled),
+        )
+    except ChatHistoryError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.get('/{project_id}/messages', response_model=ProjectChatMessageQueryResponse)
 def list_messages_endpoint(
     project_id: UUID,
@@ -442,6 +492,9 @@ def list_messages_endpoint(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     favorites_only: bool = False,
+    around: UUID | None = None,
+    before_created_at: datetime | None = None,
+    before_id: UUID | None = None,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -449,6 +502,33 @@ def list_messages_endpoint(
     settings = get_project_chat_settings(db, project_id)
     can_manage = _can_manage_chat(db, current_user.id)
     chat_enabled = bool(settings and settings.enabled)
+    if around is not None or (before_created_at is not None and before_id is not None):
+        try:
+            if around is not None:
+                items, total, has_older, has_newer = list_project_chat_messages_around(
+                    db, project_id, around, limit, chat_enabled,
+                )
+            else:
+                items, has_older = list_project_chat_messages_before(
+                    db, project_id, before_created_at, before_id, limit, chat_enabled,
+                )
+                total = len(items)
+                has_newer = False
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        favorite_times = get_chat_message_favorite_times(db, [item.id for item in items], current_user.id)
+        return ProjectChatMessageQueryResponse(
+            items=[
+                _serialize_message(item, favorited_at=favorite_times.get(item.id), current_user_id=current_user.id)
+                for item in items
+            ],
+            total=total,
+            enabled=chat_enabled,
+            can_manage=can_manage,
+            anchored=True,
+            has_older=has_older,
+            has_newer=has_newer,
+        )
     items, total = list_project_chat_messages(
         db,
         project_id=project_id,

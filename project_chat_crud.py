@@ -3,6 +3,7 @@ import json
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -393,6 +394,87 @@ def list_project_chat_messages(
         .all()
     )
     return items, total
+
+
+def _visible_translation_messages(db: Session, project_id: UUID, include_user_messages: bool = True):
+    query = (
+        db.query(ChatProjectMessage)
+        .options(
+            selectinload(ChatProjectMessage.mentions),
+            selectinload(ChatProjectMessage.acknowledgements),
+            selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
+        )
+        .filter(ChatProjectMessage.project_id == project_id)
+    )
+    if not include_user_messages:
+        query = query.filter(ChatProjectMessage.message_type != 'user')
+    return query
+
+
+def _older_than(created_at: dt.datetime, message_id: UUID):
+    return or_(
+        ChatProjectMessage.created_at < created_at,
+        and_(ChatProjectMessage.created_at == created_at, ChatProjectMessage.id < message_id),
+    )
+
+
+def _newer_than(created_at: dt.datetime, message_id: UUID):
+    return or_(
+        ChatProjectMessage.created_at > created_at,
+        and_(ChatProjectMessage.created_at == created_at, ChatProjectMessage.id > message_id),
+    )
+
+
+def list_project_chat_messages_around(
+    db: Session,
+    project_id: UUID,
+    message_id: UUID,
+    limit: int = 40,
+    include_user_messages: bool = True,
+) -> tuple[list[ChatProjectMessage], int, bool, bool]:
+    """返回目标消息前后的时间正序窗口，供聊天记录定位后就地阅读。"""
+    query = _visible_translation_messages(db, project_id, include_user_messages)
+    anchor = query.filter(ChatProjectMessage.id == message_id).first()
+    if anchor is None or anchor.created_at is None:
+        raise ValueError('消息不存在')
+    older_limit = max(limit // 2, 1)
+    newer_limit = max(limit - older_limit - 1, 0)
+    older_rows = (
+        query.filter(_older_than(anchor.created_at, anchor.id))
+        .order_by(ChatProjectMessage.created_at.desc(), ChatProjectMessage.id.desc())
+        .limit(older_limit + 1)
+        .all()
+    )
+    newer_rows = (
+        query.filter(_newer_than(anchor.created_at, anchor.id))
+        .order_by(ChatProjectMessage.created_at.asc(), ChatProjectMessage.id.asc())
+        .limit(newer_limit + 1)
+        .all()
+    )
+    has_older = len(older_rows) > older_limit
+    has_newer = len(newer_rows) > newer_limit
+    items = list(reversed(older_rows[:older_limit])) + [anchor] + newer_rows[:newer_limit]
+    return items, query.count(), has_older, has_newer
+
+
+def list_project_chat_messages_before(
+    db: Session,
+    project_id: UUID,
+    before_created_at: dt.datetime,
+    before_id: UUID,
+    limit: int = 20,
+    include_user_messages: bool = True,
+) -> tuple[list[ChatProjectMessage], bool]:
+    """从已定位窗口继续向更早的消息加载，结果按时间正序。"""
+    query = _visible_translation_messages(db, project_id, include_user_messages)
+    rows = (
+        query.filter(_older_than(before_created_at, before_id))
+        .order_by(ChatProjectMessage.created_at.desc(), ChatProjectMessage.id.desc())
+        .limit(limit + 1)
+        .all()
+    )
+    has_older = len(rows) > limit
+    return list(reversed(rows[:limit])), has_older
 
 
 def list_annotation_project_chat_messages(

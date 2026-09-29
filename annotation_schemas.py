@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
+from annotation_material_schemas import MaterialChanges
 
 
 ANNOTATION_PROJECT_TYPE_LABELS = {
@@ -216,6 +217,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
 
 
 class AnnotationProjectWrite(BaseModel):
+    material_changes: Optional[MaterialChanges] = None
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list, max_length=11)
     task_description: Optional[str] = None

@@ -495,6 +495,9 @@ class DeleteQuery:
     def filter(self, *_args):
         return self
 
+    def with_for_update(self):
+        return self
+
     def first(self):
         return self.rows[0] if self.rows else None
 
@@ -513,6 +516,9 @@ class DeleteDb:
         self.commit_count = 0
 
     def query(self, target):
+        from annotation_material_models import AnnotationMaterialFile
+        if target is AnnotationMaterialFile:
+            return DeleteQuery([])
         if target is AnnotationProject:
             return DeleteQuery([self.project] if self.project else [])
         if target is ResourceRequest:

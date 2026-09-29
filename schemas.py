@@ -1574,3 +1574,6 @@ class ProjectChatMessageQueryResponse(BaseModel):
     total: int = 0
     enabled: bool = False
     can_manage: bool = False
+    anchored: bool = False
+    has_older: bool = False
+    has_newer: bool = False

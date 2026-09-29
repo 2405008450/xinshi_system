@@ -1,14 +1,17 @@
 from types import SimpleNamespace
+import pytest
 from uuid import uuid4
 
 from routers.annotation_projects import router as annotation_router
 from routers.talents import router as talent_router
 from talent_overview_service import (
+    _bind_overview_languages,
     _prepare_saved_payload,
     get_talent_overview,
     lookup_language_reserves,
     resolve_overview_for_language,
     resolve_overview_for_text,
+    sync_overview_language_catalog,
 )
 from talent_overview_models import TalentOverviewSnapshot
 from talent_overview_schemas import TalentOverviewWrite
@@ -105,6 +108,79 @@ def test_region_variants_map_to_overview_base_language():
     spanish = language("西班牙语（拉丁美洲）")
     assert resolve_overview_for_language(english)[0]["language"] == "英语"
     assert resolve_overview_for_language(spanish)[0]["language"] == "西班牙语"
+
+
+def test_catalog_sync_creates_real_languages_and_skips_summary_rows():
+    class CatalogDb:
+        def __init__(self):
+            self.items = []
+
+        def query(self, _model):
+            return FakeLanguageQuery(self.items)
+
+        def add(self, item):
+            self.items.append(item)
+
+    db = CatalogDb()
+    data = {"rows": [
+        {"overview_key": "english-native", "language": "英语（母语者）"},
+        {"overview_key": "unknown", "language": "未知语种"},
+        {"overview_key": "nigeria", "language": "尼日利亚语"},
+        {"overview_key": "bolivia", "language": "玻利维亚语"},
+        {"overview_key": "dialect", "language": "汕尾话"},
+        {"overview_key": "gan", "language": "赣语"},
+    ]}
+
+    result = sync_overview_language_catalog(db, data)
+    assert result["created"] == ["尼日利亚语", "玻利维亚语", "汕尾话", "赣语"]
+    assert result["skipped"] == ["英语（母语者）", "未知语种"]
+    assert [item.language_type for item in db.items] == ["language", "language", "dialect", "dialect"]
+    assert sync_overview_language_catalog(db, data)["created"] == []
+
+
+def test_english_native_row_is_included_in_english_reserve(monkeypatch):
+    import talent_overview_service
+
+    payload = get_talent_overview()
+    payload["rows"].append({
+        "overview_key": "native-english", "language": "英语（母语者）",
+        "row_total": 48, "updated_at": None,
+    })
+    monkeypatch.setattr(talent_overview_service, "get_talent_overview", lambda _db: payload)
+    english = language("英语", overview_key="overview-001")
+    result = lookup_language_reserves(FakeDb([english]), [english.id])[0]
+
+    english_row = next(row for row in payload["rows"] if row["language"] == "英语")
+    assert result["total"] == english_row["row_total"] + 48
+    assert result["overview_language"] == "英语（含母语者）"
+
+
+def test_overview_language_requires_catalog_id_and_prevents_inline_rename():
+    existing = language("英语", overview_key="overview-001")
+    selectable = language("尼泊尔语")
+    selectable.is_active = True
+    db = FakeDb([existing, selectable])
+    previous = {"rows": [{"overview_key": "overview-001", "language": "英语"}]}
+
+    with pytest.raises(ValueError, match="不能直接修改"):
+        _bind_overview_languages(db, previous, SimpleNamespace(rows=[
+            SimpleNamespace(overview_key="overview-001", language="英文", language_id=None),
+        ]))
+    with pytest.raises(ValueError, match="必须选择"):
+        _bind_overview_languages(db, previous, SimpleNamespace(rows=[
+            SimpleNamespace(overview_key="row-new", language="尼泊尔语", language_id=None),
+        ]))
+    _bind_overview_languages(db, previous, SimpleNamespace(rows=[
+        SimpleNamespace(overview_key="row-new", language="尼泊尔语", language_id=selectable.id),
+    ]))
+    assert selectable.talent_overview_key == "row-new"
+
+    placeholder = language("无")
+    placeholder.is_active = True
+    with pytest.raises(ValueError, match="历史占位值"):
+        _bind_overview_languages(FakeDb([placeholder]), previous, SimpleNamespace(rows=[
+            SimpleNamespace(overview_key="row-placeholder", language="无", language_id=placeholder.id),
+        ]))
 
 
 def test_overview_and_annotation_lookup_routes_are_separate():

@@ -19,35 +19,20 @@
   </el-popover>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Star } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { annotationChatRequest } from '@/api/projectChat'
-import { subscribe, ensureConnected } from '@/utils/realtimeSocket'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { hasPermission } from '@/utils/permission'
-const { openChat, state } = useProjectChatDock()
-const total = ref(0), error = ref('')
-const favoritesVisible = ref(false), followed = ref([])
+const { openChat } = useProjectChatDock()
+const { followed, total, error, refresh } = useAnnotationFollowed()
+const favoritesVisible = ref(false)
 const router = useRouter()
 const allowed = computed(() => hasPermission('projects:read'))
-let timer, pending = false, rerun = false, disposed = false
-const cleanup = []
-async function refresh() {
-  if (!allowed.value || disposed) return
-  if (pending) { rerun = true; return }
-  pending = true
-  try { const data = await annotationChatRequest('', 'unread'); if (!disposed) {
-    followed.value = data.followedItems || []; total.value = data.total; error.value = ''
-    state.windows.filter(w => w.projectType === 'annotation').forEach(w => { w.unread = data.items.find(item => String(item.projectId) === String(w.projectId))?.unread || 0 })
-  } }
-  catch { error.value = '未读消息暂时无法加载' } finally { pending = false; if (rerun) { rerun = false; refresh() } }
-}
 function open(item) { openChat({ projectId: item.projectId, projectType: 'annotation', title: item.projectName, subtitle: item.orderNo }); favoritesVisible.value = false }
 function locateProject(item) { favoritesVisible.value = false; router.push({ path: '/annotation-details', query: { projectId: String(item.projectId), openProgress: '1' } }) }
 watch(favoritesVisible, value => { if (value) refresh() })
-onMounted(() => { refresh(); ensureConnected(); cleanup.push(subscribe('annotation_chat_changed', refresh), subscribe('connected', refresh)); timer = setInterval(refresh, 15000) })
-onBeforeUnmount(() => { disposed = true; clearInterval(timer); cleanup.forEach(fn => fn()) })
 </script>
 <style>
 .annotation-favorites-popover{max-width:calc(100vw - 24px)!important}

@@ -159,7 +159,8 @@ from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+from annotation_material_lifecycle import material_lifespan
+app = FastAPI(lifespan=material_lifespan)
 
 
 def _configured_cors_origins() -> list[str]:
@@ -251,6 +252,8 @@ app.include_router(users.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)
+from routers import annotation_materials
+app.include_router(annotation_materials.router)
 app.include_router(annotation_projects.router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
@@ -1881,6 +1884,9 @@ def run_runtime_migrations():
     InterpretationProjectInterpreter.__table__.create(bind=engine, checkfirst=True)
     ensure_interpretation_requirement_columns()
     AnnotationProject.__table__.create(bind=engine, checkfirst=True)
+    from annotation_material_models import MATERIAL_TABLES
+    for table in MATERIAL_TABLES:
+        table.create(bind=engine, checkfirst=True)
     ensure_annotation_project_columns()
     ensure_project_order_no_schema()
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)

@@ -62,25 +62,7 @@
             />
           </template>
           <template #default="{ row }">
-            <el-input
-              v-if="isActive(`row:${row.overviewKey}:language`)"
-              :ref="captureActiveEditor"
-              v-model="row.language"
-              size="small"
-              maxlength="100"
-              @blur="finishActiveEditor"
-              @keydown.enter.prevent="finishActiveEditor"
-              @keydown.esc.prevent="cancelActiveEditor"
-            />
-            <button
-              v-else-if="editing"
-              type="button"
-              class="editable-cell editable-cell--text"
-              @click="activateEditor(`row:${row.overviewKey}:language`, row.language, value => { row.language = value })"
-            >
-              {{ row.language || '点击填写' }}
-            </button>
-            <span v-else>{{ row.language }}</span>
+            <span>{{ row.language }}</span>
           </template>
         </el-table-column>
 
@@ -213,6 +195,27 @@
     </el-card>
 
     <DraggableFormDialog
+      v-model="addRowVisible"
+      title="新增人才概览语种行"
+      width="min(520px, calc(100vw - 32px))"
+      :close-on-click-modal="false"
+      @closed="resetAddRowForm"
+    >
+      <AppForm ref="addRowFormRef" :model="addRowForm" :rules="addRowRules" label-width="96px">
+        <el-form-item label="语种/方言" prop="languageId">
+          <el-select v-model="addRowForm.languageId" filterable placeholder="从共享语种目录选择" style="width: 100%">
+            <el-option v-for="item in availableLanguages" :key="item.id" :label="item.label" :value="item.id" />
+          </el-select>
+        </el-form-item>
+      </AppForm>
+      <p class="overview-note">目录中没有所需语种时，请先在语种/方言设置中新增，再返回选择。</p>
+      <template #footer>
+        <el-button @click="addRowVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmAddRow">确定</el-button>
+      </template>
+    </DraggableFormDialog>
+
+    <DraggableFormDialog
       v-model="addColumnVisible"
       title="新增人才来源列"
       width="min(520px, calc(100vw - 32px))"
@@ -247,6 +250,7 @@ import AppForm from '@/components/common/AppForm.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { getTalentOverview, saveTalentOverview } from '@/api/talents'
+import { getProjectLanguages } from '@/api/projectLanguages'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute } from '@/utils/dateTime'
@@ -283,6 +287,10 @@ const activeEditorRef = ref(null)
 const nativeFullscreen = ref(false)
 const fallbackFullscreen = ref(false)
 const addColumnVisible = ref(false)
+const addRowVisible = ref(false)
+const addRowFormRef = ref(null)
+const addRowForm = reactive({ languageId: '' })
+const languageOptions = ref([])
 const addColumnFormRef = ref(null)
 const addColumnForm = reactive({ label: '', group: 'sheet' })
 const filterValues = reactive({ language: [], updatedAt: [], rowTotal: [], counts: {} })
@@ -290,6 +298,12 @@ const filterValues = reactive({ language: [], updatedAt: [], rowTotal: [], count
 const groupLabels = { sheet: '人才资料表', wecom: '企业微信' }
 const canWrite = computed(() => hasPermission(['talents:write', 'translators:write']))
 const displayedRows = computed(() => editing.value ? draftRows.value : tableRows.value)
+const invalidOverviewLanguageLabels = new Set(['中', '英', '无'])
+const availableLanguages = computed(() => languageOptions.value.filter(item => (
+  !item.talentOverviewKey
+  && !invalidOverviewLanguageLabels.has(item.label)
+  && !draftRows.value.some(row => row.language === item.label)
+)))
 const displayedColumns = computed(() => editing.value ? draftColumns.value : overviewColumns.value)
 const filteredRows = computed(() => filterTalentOverviewRows(
   displayedRows.value,
@@ -377,6 +391,9 @@ const addColumnRules = {
     { max: 100, message: '列名称不能超过 100 个字符', trigger: 'blur' },
   ],
   group: [{ required: true, message: '请选择所属分组', trigger: 'change' }],
+}
+const addRowRules = {
+  languageId: [{ required: true, message: '请选择共享语种目录中的语种/方言', trigger: 'change' }],
 }
 
 function uuid() {
@@ -557,24 +574,36 @@ function clearOverviewFilters() {
 
 async function addRow() {
   finishActiveEditor()
+  try {
+    languageOptions.value = await getProjectLanguages()
+    addRowVisible.value = true
+  } catch (error) {
+    ElMessage.error(error?.detail || '共享语种目录加载失败')
+  }
+}
+
+function resetAddRowForm() {
+  addRowForm.languageId = ''
+  addRowFormRef.value?.clearValidate?.()
+}
+
+async function confirmAddRow() {
+  const valid = await addRowFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  const selected = availableLanguages.value.find(item => item.id === addRowForm.languageId)
+  if (!selected) return ElMessage.warning('请选择尚未关联人才概览的语种/方言')
   const overviewKey = `row-${uuid()}`
   draftRows.value = appendTalentOverviewRow(draftRows.value, draftColumns.value, {
     overviewKey,
-    language: '',
+    language: selected.label,
+    languageId: selected.id,
     aliases: [],
     updatedAt: todayValue(),
   })
+  addRowVisible.value = false
   if (!filteredRows.value.some(row => row.overviewKey === overviewKey)) clearOverviewFilters()
   await nextTick()
   overviewTableRef.value?.setScrollTop?.(Number.MAX_SAFE_INTEGER)
-  activateEditor(
-    `row:${overviewKey}:language`,
-    '',
-    value => {
-      const row = draftRows.value.find(item => item.overviewKey === overviewKey)
-      if (row) row.language = value
-    },
-  )
 }
 
 function summaryMethod({ columns }) {

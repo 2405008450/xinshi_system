@@ -9,7 +9,7 @@
     :popper-class="popperClass"
     :teleported="teleported"
     @show="load"
-    @hide="cancelInlineEdit"
+    @hide="cancelInlineEdit(); materialsActive = false"
   >
     <template #reference>
       <slot name="reference">
@@ -52,9 +52,9 @@
         <el-descriptions-item label="任务提交时间">{{ displayRow.taskSubmittedAt ? formatDateTime(displayRow.taskSubmittedAt) : '待定' }}</el-descriptions-item>
         <el-descriptions-item label="客户经理">{{ textValue(displayRow.clientManagerName) }}</el-descriptions-item>
         <el-descriptions-item label="创建人">{{ textValue(displayRow.createdByName) }}</el-descriptions-item>
-        <el-descriptions-item label="项目路径" :span="2"><InlineTextField :model-value="displayRow.projectPath" :editable="editable" label="项目路径" multiline :save-field="(value) => saveText('projectPath', value)" @conflict="load" /></el-descriptions-item>
-        <el-descriptions-item label="报价单路径" :span="2"><InlineTextField :model-value="displayRow.quotationPath" :editable="editable" label="报价单路径" multiline :save-field="(value) => saveText('quotationPath', value)" @conflict="load" /></el-descriptions-item>
-        <el-descriptions-item label="合同路径" :span="2"><InlineTextField :model-value="displayRow.contractPath" :editable="editable" label="合同路径" multiline :save-field="(value) => saveText('contractPath', value)" @conflict="load" /></el-descriptions-item>
+        <el-descriptions-item v-if="displayRow.projectPath" label="历史项目路径" :span="2">{{ displayRow.projectPath }}</el-descriptions-item>
+        <el-descriptions-item v-if="displayRow.quotationPath" label="历史报价单路径" :span="2">{{ displayRow.quotationPath }}</el-descriptions-item>
+        <el-descriptions-item v-if="displayRow.contractPath" label="历史合同路径" :span="2">{{ displayRow.contractPath }}</el-descriptions-item>
         <el-descriptions-item label="关联咨询编号">{{ textValue(displayRow.consultationCode) }}</el-descriptions-item>
         <el-descriptions-item label="客户咨询时间">{{ formatDateTime(displayRow.customerConsultationTime) }}</el-descriptions-item>
         <el-descriptions-item label="客户确认时间">{{ formatDateTime(displayRow.customerConfirmationTime) }}</el-descriptions-item>
@@ -69,6 +69,7 @@
         <el-descriptions-item label="状态履历" :span="2">
           <el-timeline v-if="history.length" class="status-timeline"><el-timeline-item v-for="item in history" :key="item.id" :timestamp="`${formatDateTime(item.effectiveOn)} · ${formatDateTime(item.changedAt)}`"><el-tag size="small" :type="statusType(item.toStatus)">{{ statusLabel(item.toStatus) }}</el-tag><span v-if="item.changeNote" class="history-note">{{ item.changeNote }}</span></el-timeline-item></el-timeline><span v-else>-</span>
         </el-descriptions-item>
+        <el-descriptions-item label="云端项目资料" :span="2"><AnnotationMaterialManager v-if="materialsActive" :project-id="String(projectId)" readonly /></el-descriptions-item>
       </el-descriptions>
     </div>
   </el-popover>
@@ -80,6 +81,8 @@ import { ElMessage } from 'element-plus'
 import * as annotationApi from '@/api/annotationProjects'
 import * as annotationOpsApi from '@/api/annotationOps'
 import InlineTextField from '@/components/common/InlineTextField.vue'
+import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
+const materialsActive = ref(false)
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
@@ -116,7 +119,7 @@ const priorityType = (value) => ({high:'danger',medium:'warning',low:'info'}[val
 const assignmentStatusLabel = (value) => ({assigned:'已安排',in_progress:'进行中',completed:'已完成',cancelled:'已取消'}[value] || value || '-')
 const assignmentStatusType = (value) => ({assigned:'info',in_progress:'primary',completed:'success',cancelled:'danger'}[value] || 'info')
 const cancelInlineEdit = () => window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
-const load = async () => { loading.value=true; try { const [project, rows] = await Promise.all([annotationApi.getAnnotationProject(props.projectId), annotationOpsApi.getStatusHistory(props.projectId).catch(()=>[]), loadCustomFields().catch(()=>{})]); detail.value=project; history.value=rows } catch(error) { ElMessage.error(error.detail||'加载项目详情失败') } finally { loading.value=false } }
+const load = async () => { materialsActive.value=true; loading.value=true; try { const [project, rows] = await Promise.all([annotationApi.getAnnotationProject(props.projectId), annotationOpsApi.getStatusHistory(props.projectId).catch(()=>[]), loadCustomFields().catch(()=>{})]); detail.value=project; history.value=rows } catch(error) { ElMessage.error(error.detail||'加载项目详情失败') } finally { loading.value=false } }
 const saveText = async (field, value) => { const updated=await annotationApi.updateAnnotationProjectTextField(props.projectId,field,value,displayRow.value.updatedAt); detail.value=updated; emit('updated',updated); return updated }
 const saveCustom = async (field, value) => { const updated=await annotationApi.updateAnnotationCustomTextField(props.projectId,field,value,displayRow.value.updatedAt); detail.value=updated; emit('updated',updated); return updated }
 </script>

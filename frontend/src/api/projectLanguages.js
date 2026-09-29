@@ -14,6 +14,7 @@ const normalize = (item) => ({
   shortNameZh: item.short_name_zh ?? item.shortNameZh ?? '',
   shortNameEn: item.short_name_en ?? item.shortNameEn ?? '',
   languageType: item.language_type ?? item.languageType ?? 'language',
+  talentOverviewKey: item.talent_overview_key ?? item.talentOverviewKey ?? null,
   aliases: Array.isArray(item.aliases) ? item.aliases : [],
   shortcuts: Array.isArray(item.shortcuts) ? item.shortcuts : [],
   matchedAlias: item.matched_alias ?? item.matchedAlias ?? '',

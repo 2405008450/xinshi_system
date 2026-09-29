@@ -1,7 +1,7 @@
 <template>
-  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode }]">
+  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode, 'project-chat-panel--search-side': searchOpen && historyPlacement === 'side' }]">
     <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
-    <template v-else>
+    <div v-else class="project-chat-panel__main">
       <div class="chat-toolbar">
         <div class="chat-toolbar__title">
           <span v-if="!conversationMode">项目沟通</span>
@@ -146,7 +146,8 @@
               <div
                 v-else
                 class="chat-conversation-item"
-                :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart }"
+                :data-message-id="item.message.id"
+                :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart, 'chat-conversation-item--highlight': highlightedMessageId === String(item.message.id) }"
               >
                 <div v-if="!item.isOwn" class="chat-conversation-item__avatar">
                   <span v-if="item.groupStart" class="chat-avatar">{{ avatarText(item.message.senderName) }}</span>
@@ -243,8 +244,8 @@
           </div>
           <el-empty v-else description="暂无沟通记录" :image-size="56" />
         </el-scrollbar>
-        <button v-if="pendingNewCount" type="button" class="chat-new-message-tip" @click="handleNewMessageTipClick">
-          有 {{ pendingNewCount }} 条新消息，点击查看
+        <button v-if="viewingHistory || pendingNewCount" type="button" class="chat-new-message-tip" @click="viewingHistory ? returnToLatest() : handleNewMessageTipClick()">
+          {{ viewingHistory ? (pendingNewCount ? `返回最新消息（${pendingNewCount} 条新消息）` : '返回最新消息') : `有 ${pendingNewCount} 条新消息，点击查看` }}
         </button>
       </div>
 
@@ -567,7 +568,17 @@
           <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending"
             @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
-    </template>
+    </div>
+    <ChatHistorySearchPanel
+      v-if="conversationMode && projectId"
+      v-model:visible="searchOpen"
+      :project-id="projectId"
+      :project-type="projectType"
+      :senders="historySenders"
+      :allow-files="projectType === 'annotation'"
+      :placement="historyPlacement"
+      @locate="locateMessage"
+    />
     <Teleport to="body">
       <div
         v-if="canAddToProgress && progressTextMenu.visible"
@@ -630,6 +641,7 @@ import {
   uploadProjectChatAttachment
 } from '@/api/projectChat'
 import ChatImageAttachments from '@/components/chat/ChatImageAttachments.vue'
+import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue'
 import { createChatImageQueue } from '@/utils/chatImageQueue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
@@ -644,7 +656,8 @@ const props = defineProps({
   compact: { type: Boolean, default: false },
   collapsibleFilters: { type: Boolean, default: false },
   canAddToProgress: { type: Boolean, default: false },
-  conversationMode: { type: Boolean, default: false }
+  conversationMode: { type: Boolean, default: false },
+  historyPlacement: { type: String, default: 'overlay' }
 })
 
 const emit = defineEmits(['add-to-progress', 'unread'])
@@ -705,6 +718,11 @@ const mentionIdsAtAutomaticTrigger = ref(new Set())
 const composerIsComposing = ref(false)
 const loadingEarlier = ref(false)
 const pendingNewCount = ref(0)
+const viewingHistory = ref(false)
+const historyHasOlder = ref(false)
+const searchOpen = ref(false)
+const highlightedMessageId = ref('')
+let highlightTimer = null
 const filters = reactive({ keyword: '', senderUserId: '', dateRange: [], favoritesOnly: false })
 const composer = reactive({
   content: '',
@@ -952,6 +970,8 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     // 后端按时间倒序返回，会话视图反转为正序展示。
     messages.value = (Array.isArray(res?.items) ? res.items : []).slice().reverse()
     pagination.total = Number(res?.total || 0)
+    viewingHistory.value = false
+    historyHasOlder.value = false
     pendingNewCount.value = 0
     await ensureAttachmentUrls(messages.value)
     if (scrollToEnd) {
@@ -967,11 +987,47 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
   }
 }
 
-const hasEarlierMessages = computed(() => messages.value.length < pagination.total)
+const hasEarlierMessages = computed(() => (
+  viewingHistory.value ? historyHasOlder.value : messages.value.length < pagination.total
+))
+const historySenders = computed(() => userOptions.value.map(user => ({
+  id: user.id,
+  name: user.full_name || user.username,
+})))
 
 // 滚动到顶部加载更早消息，并保持原滚动锚点不跳动。
+const loadMessagesBeforeAnchor = async () => {
+  const oldest = messages.value[0]
+  if (!oldest?.createdAt || !oldest?.id) return
+  loadingEarlier.value = true
+  const wrap = getScrollWrap()
+  const prevHeight = wrap?.scrollHeight || 0
+  const prevTop = wrap?.scrollTop || 0
+  try {
+    const res = await getProjectChatMessages(props.projectId, {
+      before_created_at: oldest.createdAt,
+      before_id: oldest.id,
+      limit: conversationPageSize,
+    }, props.projectType)
+    const existingIds = new Set(messages.value.map(item => String(item.id)))
+    const older = (Array.isArray(res?.items) ? res.items : []).filter(item => !existingIds.has(String(item.id)))
+    if (older.length) {
+      messages.value = [...older, ...messages.value]
+      await ensureAttachmentUrls(older)
+    }
+    historyHasOlder.value = !!res?.hasOlder
+    await nextTick()
+    if (wrap) wrap.scrollTop = wrap.scrollHeight - prevHeight + prevTop
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, '加载更早的消息失败'))
+  } finally {
+    loadingEarlier.value = false
+  }
+}
+
 const loadEarlierMessages = async () => {
   if (!props.conversationMode || !hasEarlierMessages.value || loadingEarlier.value || messagesLoading.value) return
+  if (viewingHistory.value) return loadMessagesBeforeAnchor()
   loadingEarlier.value = true
   const wrap = getScrollWrap()
   const prevHeight = wrap?.scrollHeight || 0
@@ -1003,7 +1059,7 @@ const loadEarlierMessages = async () => {
 
 // 轮询与重连时静默合并最新消息，避免打断用户阅读历史消息。
 const mergeLatestConversationMessages = async () => {
-  if (!props.projectId || activeFilterCount.value || messagesLoading.value || loadingEarlier.value) return
+  if (!props.projectId || activeFilterCount.value || viewingHistory.value || messagesLoading.value || loadingEarlier.value) return
   try {
     const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
     settings.enabled = !!res?.enabled
@@ -1082,6 +1138,41 @@ const conversationItems = computed(() => {
 
 const toggleFilters = () => {
   conversationFiltersVisible.value = !conversationFiltersVisible.value
+}
+
+const openSearch = async () => {
+  searchOpen.value = !searchOpen.value
+  if (searchOpen.value) await ensureUsersLoaded()
+}
+
+const locateMessage = async (messageId) => {
+  if (!messageId || !props.projectId) return
+  messagesLoading.value = true
+  try {
+    const res = await getProjectChatMessages(props.projectId, { around: messageId, limit: 40 }, props.projectType)
+    messages.value = Array.isArray(res?.items) ? res.items : []
+    pagination.total = Number(res?.total || messages.value.length)
+    viewingHistory.value = true
+    historyHasOlder.value = !!res?.hasOlder
+    pendingNewCount.value = 0
+    await ensureAttachmentUrls(messages.value)
+    await nextTick()
+    const target = getScrollWrap()?.querySelector(`[data-message-id="${messageId}"]`)
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    highlightedMessageId.value = String(messageId)
+    window.clearTimeout(highlightTimer)
+    highlightTimer = window.setTimeout(() => { highlightedMessageId.value = '' }, 1800)
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, '定位消息失败'))
+  } finally {
+    messagesLoading.value = false
+  }
+}
+
+const returnToLatest = async () => {
+  viewingHistory.value = false
+  historyHasOlder.value = false
+  await conversationLoadLatest()
 }
 
 const userNameById = (userId) => {
@@ -1174,7 +1265,7 @@ const handleComposerKeydown = (event) => {
   handleSend()
 }
 
-defineExpose({ toggleFilters })
+defineExpose({ toggleFilters, openSearch, locateMessage })
 
 const resetChatState = () => {
   settings.enabled = props.alwaysEnabled
@@ -1193,6 +1284,10 @@ const resetChatState = () => {
   composerIsComposing.value = false
   loadingEarlier.value = false
   pendingNewCount.value = 0
+  viewingHistory.value = false
+  historyHasOlder.value = false
+  searchOpen.value = false
+  highlightedMessageId.value = ''
   clearProgressSelection(true)
   closeProgressTextMenu()
   composer.content = ''
@@ -1480,7 +1575,10 @@ const handleRealtimeChatMessage = async (payload) => {
   if (messages.value.some(item => String(item.id) === String(payload.message.id))) return
   if (props.conversationMode) {
     if (!props.active) emit('unread')
-    if (activeFilterCount.value) return
+    if (activeFilterCount.value || viewingHistory.value) {
+      if (viewingHistory.value && props.active) pendingNewCount.value += 1
+      return
+    }
     const wasAtBottom = isConversationAtBottom()
     messages.value = [...messages.value, payload.message]
     pagination.total += 1
@@ -1613,9 +1711,33 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .project-chat-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.project-chat-panel--search-side {
+  flex-direction: row;
+  gap: 0;
+}
+
+.project-chat-panel__main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.project-chat-panel--conversation .project-chat-panel__main {
+  gap: 0;
+  height: 100%;
+}
+
+.chat-conversation-item--highlight .chat-bubble {
+  outline: 2px solid var(--el-color-primary);
 }
 
 .project-chat-panel--drawer {

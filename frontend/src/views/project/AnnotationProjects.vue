@@ -68,7 +68,7 @@
             <AnnotationProjectDetailPopover :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="(updated) => Object.assign(row, updated)">
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </AnnotationProjectDetailPopover>
-            <PathActionButtons @open="openProjectPath(row)" @copy="copyProjectPath(row)" />
+            <el-popover trigger="click" placement="left" :width="760" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
           </div>
         </template>
       </el-table-column>
@@ -395,7 +395,7 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="dialogVisible" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" :before-close="closeMaterialEditor" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -525,9 +525,10 @@
 
           <section class="form-section">
             <h3>项目资料</h3>
-            <el-form-item label="项目路径"><PathInput v-model="form.projectPath" @open="openPathValue(form.projectPath)" @copy="copyPathValue(form.projectPath)" /></el-form-item>
-            <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPathValue(form.quotationPath)" @copy="copyPathValue(form.quotationPath)" /></el-form-item>
-            <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPathValue(form.contractPath)" @copy="copyPathValue(form.contractPath)" /></el-form-item>
+            <AnnotationMaterialManager ref="materialEditorRef" :project-id="form.id || ''" :active="dialogVisible" :disabled="submitLoading" />
+            <el-form-item v-if="form.projectPath" label="历史项目路径"><ReadonlyField :model-value="form.projectPath" source="auto" /></el-form-item>
+            <el-form-item v-if="form.quotationPath" label="历史报价单路径"><ReadonlyField :model-value="form.quotationPath" source="auto" /></el-form-item>
+            <el-form-item v-if="form.contractPath" label="历史合同路径"><ReadonlyField :model-value="form.contractPath" source="auto" /></el-form-item>
             <el-form-item label="标题前缀"><el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" /></el-form-item>
             <el-form-item label="邮件主题预览">
               <div class="subject-preview-field">
@@ -542,7 +543,7 @@
           <InternalProjectRolesForm v-model="form.roleAssignments" :role-codes="['project_specialist', 'project_assistant']" />
         </AppForm>
       </div>
-      <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
+      <template #footer><el-button :disabled="submitLoading" @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
     </DraggableFormDialog>
     <DraggableFormDialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
       <el-alert title="订单号修改后，原号码仍会永久保留，不能再次分配给其他项目。" type="warning" :closable="false" show-icon />
@@ -590,8 +591,8 @@ import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
-import PathActionButtons from '@/components/common/PathActionButtons.vue'
-import PathInput from '@/components/common/PathInput.vue'
+import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
+
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
@@ -614,8 +615,8 @@ import { useResourceRequestStatuses } from '@/composables/useResourceRequestStat
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
-import { copyTextToClipboard } from '@/utils/clipboard'
-import { launchOpenPath } from '@/utils/openPath'
+
+
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
@@ -782,7 +783,8 @@ const orderNoRules={
   reason:[{validator:(_rule,value,callback)=>String(value||'').trim()?callback():callback(new Error('请填写修改原因')),trigger:['blur','change']}],
 }
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
-const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
+const materialEditorRef=ref(), materialViewId=ref(null)
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([]), projectManagerOptions=ref([])
 const languageReserveById=reactive({}), languageReserveLoading=ref(false), languageReserveError=ref('')
 const projectStatusSavingIds=ref(new Set())
@@ -950,9 +952,9 @@ const confirmOrderNoChange=async()=>{normalizeOrderNoInput();const valid=await o
         await orderNoFormRef.value?.applyServerErrors(error)
 ElMessage.error(getLocalizedErrorMessage(error,'订单号修改失败'))}finally{orderNoSubmitting.value=false}}
 const scrollEditorToTop=async()=>{await nextTick();if(await formRef.value?.locateFirstError?.())return;dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})}
-const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;try{const payload=buildPayload();let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(form.id?'标注项目已更新':'标注项目已创建');clearDraft();dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){
+const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;let projectSaved=false;try{if(!materialEditorRef.value?.validate()){await locateDialogFieldByLabel('项目资料');return}const payload={...buildPayload(),materialChanges:materialEditorRef.value.changes()};const wasNew=!form.id;let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);projectSaved=true;materialEditorRef.value?.saved();form.id=saved.id;form.updatedAt=saved.updatedAt;delete detailCache[saved.id];const rateActions=form.assignees.map((item,index)=>{const assigneeId=saved.assignees?.[index]?.id;if(!assigneeId)return null;const hasAnnotatorRate=item.rate?.amount>0&&item.rate?.unit;const hasQualityRate=item.rate?.qualityAmount>0&&item.rate?.qualityUnit;if(hasAnnotatorRate||hasQualityRate)return annotationOpsApi.saveAssigneeRate(assigneeId,{amount:hasAnnotatorRate?item.rate.amount:null,currency:item.rate.currency||null,unit:hasAnnotatorRate?item.rate.unit:null,qualityAmount:hasQualityRate?item.rate.qualityAmount:null,qualityUnit:hasQualityRate?item.rate.qualityUnit:null,remarks:item.rate.remarks?.trim()||null});if(item.rate?.id)return annotationOpsApi.deleteAssigneeRate(assigneeId);return null}).filter(Boolean);if(rateActions.length){await Promise.all(rateActions);saved=await annotationApi.getAnnotationProject(saved.id)}if(form.id)delete detailCache[form.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(wasNew?'标注项目已创建':'标注项目已更新');clearDraft();dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){
         await formRef.value?.applyServerErrors(error)
-ElMessage.error(getLocalizedErrorMessage(error,'保存失败'));scrollEditorToTop()}finally{submitLoading.value=false;submitLocked=false}}
+ElMessage.error(projectSaved?'项目及资料已保存，但人员报价保存失败，请检查后重试。'+getLocalizedErrorMessage(error,''):getLocalizedErrorMessage(error,'保存失败'));scrollEditorToTop()}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
 const confirmStatusChange=async()=>{const project=activeProgressProject.value;if(!project)return;const valid=await statusFormRef.value?.validate().catch(()=>false);if(!valid)return;const progressOnly=statusEntryMode.value==='progress';const selectedStatus=statusForm.projectStatus;if (statusSubmitting.value) return
   statusSubmitting.value=true;setProjectStatusSaving(project.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(project.id,{...statusForm,changeNote:statusForm.changeNote.trim(),progressOnly});const row=tableData.value.find((item)=>item.id===project.id);if(row)Object.assign(row,updated);activeProgressProject.value=updated;detailCache[project.id]=updated;const history=await annotationOpsApi.getStatusHistory(project.id);progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[project.id]=progressRows.value;statusForm.projectStatus=progressOnly?selectedStatus:updated.projectStatus;statusForm.changeNote='';progressDraftSource.value=null;await nextTick();statusFormRef.value?.clearValidate();ElMessage.success(progressOnly?'具体进度已添加':'项目状态已更新');await fetchData()}catch(error){
@@ -970,12 +972,8 @@ const setManagerSaving=(id,saving)=>{const next=new Set(managerSavingIds.value);
 const updateManager=async(row,columnKey,value)=>{const isClientManager=columnKey==='clientManagerName';const payload={clientManagerId:isClientManager?(value||null):(row.clientManagerId||null),projectManagerIds:isClientManager?roleAssignmentIds(row,'project_manager'):(value||[])};setManagerSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectManagers(row.id,payload);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success(`${isClientManager?'客户经理':'项目经理'}已更新`);if(searchForm.clientManagerName?.length||searchForm.projectManagerName?.length)await fetchData()}catch(error){ElMessage.error(error?.detail||'负责人更新失败')}finally{setManagerSaving(row.id,false)}}
 const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.value=[];nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 const onEditorClosed=()=>{pauseDraft();resetForm()}
+const closeMaterialEditor=(done)=>{if(submitLoading.value){ElMessage.warning('项目正在保存，请稍候');return}done()}
 
-const openPathValue=(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可打开的路径');if(!launchOpenPath(value))ElMessage.error('该路径不在企业允许的网络目录中，已阻止打开')}
-const copyPathValue=async(path)=>{const value=String(path||'').trim();if(!value)return ElMessage.warning('暂无可复制的路径');try{const copied=await copyTextToClipboard(value);if(!copied)return ElMessage.error('复制失败，请手工复制');ElMessage.success('路径已复制')}catch{ElMessage.error('复制失败，请手工复制')}}
-const projectPath=async(row)=>(await loadDetail(row.id))?.projectPath||''
-const openProjectPath=async(row)=>openPathValue(await projectPath(row))
-const copyProjectPath=async(row)=>copyPathValue(await projectPath(row))
 
 watch(()=>[form.clientShortName,[...form.projectTypes],form.languageItems.map((item)=>`${item.mode}:${item.sourceLanguageId}:${item.targetLanguageId}`).join('|')],()=>{clearTimeout(autoNameTimer);if(nameManuallyEdited.value||!dialogVisible.value)return;autoNameTimer=setTimeout(()=>{form.projectName=buildGeneratedProjectName()},300)},{deep:true})
 
@@ -1008,4 +1006,9 @@ onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);reque
 
 <style>
 .annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+</style>
+
+<style>
+.annotation-material-popover { max-width: calc(100vw - 32px); }
+.material-readonly-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 </style>

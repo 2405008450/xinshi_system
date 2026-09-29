@@ -24,6 +24,51 @@ from talent_overview_schemas import TalentOverviewWrite
 
 DATA_PATH = Path(__file__).resolve().parent / "data" / "talent_overview.json"
 GROUP_ORDER = ("sheet", "wecom")
+NON_LANGUAGE_OVERVIEW_ROWS = frozenset({"未知语种", "其他（非译员）"})
+ENGLISH_NATIVE_LABEL = "英语（母语者）"
+DIALECT_OVERVIEW_LABELS = frozenset({"赣语", "湘语", "闽北语"})
+INVALID_OVERVIEW_CATALOG_LABELS = frozenset({"中", "英", "无"})
+
+
+def sync_overview_language_catalog(db: Session, data: dict) -> dict:
+    """让概览中的具体语种、方言和民族语言拥有共享目录记录。"""
+    languages = db.query(InterpretationLanguage).all()
+    by_key = {item.talent_overview_key: item for item in languages if item.talent_overview_key}
+    by_label = {normalize_language_search_text(item.label): item for item in languages}
+    created = []
+    linked = []
+    skipped = []
+    for row in data["rows"]:
+        label = row["language"].strip()
+        if label in NON_LANGUAGE_OVERVIEW_ROWS or label == ENGLISH_NATIVE_LABEL:
+            skipped.append(label)
+            continue
+        key = row["overview_key"]
+        if key in by_key:
+            continue
+        language = by_label.get(normalize_language_search_text(label))
+        if language is not None:
+            if language.talent_overview_key is None:
+                language.talent_overview_key = key
+                linked.append(label)
+            else:
+                raise ValueError(f"语种“{label}”已关联另一条人才概览记录，请先核对名称")
+            continue
+        language = InterpretationLanguage(
+            label=label,
+            language_type=(
+                "dialect" if label.endswith("话") or "方言" in label or label in DIALECT_OVERVIEW_LABELS
+                else "language"
+            ),
+            talent_overview_key=key,
+            is_custom=True,
+            is_active=True,
+        )
+        db.add(language)
+        by_key[key] = language
+        by_label[normalize_language_search_text(label)] = language
+        created.append(label)
+    return {"created": created, "linked": linked, "skipped": skipped}
 
 
 def _numeric_count(value) -> int:
@@ -194,7 +239,7 @@ def _validate_language_identifiers(rows: list[dict]) -> None:
 
 def _prepare_saved_payload(previous: dict, payload: TalentOverviewWrite) -> dict:
     columns = [item.model_dump(mode="json") for item in payload.columns]
-    submitted_rows = [item.model_dump(mode="json") for item in payload.rows]
+    submitted_rows = [item.model_dump(mode="json", exclude={"language_id"}) for item in payload.rows]
     _validate_structure(previous, columns, submitted_rows)
 
     previous_rows = {row["overview_key"]: row for row in previous["rows"]}
@@ -214,6 +259,39 @@ def _prepare_saved_payload(previous: dict, payload: TalentOverviewWrite) -> dict
         "columns": columns,
         "rows": rows,
     })
+
+
+def _bind_overview_languages(db: Session, previous: dict, payload: TalentOverviewWrite) -> None:
+    """已有行保持名称，新行必须选择尚未关联的共享语种 ID。"""
+    previous_by_key = {row["overview_key"]: row for row in previous["rows"]}
+    new_rows = []
+    for row in payload.rows:
+        old = previous_by_key.get(row.overview_key)
+        if old:
+            if row.language != old["language"]:
+                raise ValueError("语种/方言名称由共享语种目录管理，人才概览中不能直接修改")
+            continue
+        if row.language_id is None:
+            raise ValueError("新增行必须选择共享语种目录中的语种/方言")
+        new_rows.append(row)
+    if not new_rows:
+        return
+    ids = [row.language_id for row in new_rows]
+    if len(ids) != len(set(ids)):
+        raise ValueError("同一语种/方言不能重复新增")
+    languages = db.query(InterpretationLanguage).filter(InterpretationLanguage.id.in_(ids)).all()
+    by_id = {item.id: item for item in languages}
+    for row in new_rows:
+        language = by_id.get(row.language_id)
+        if language is None or not language.is_active:
+            raise ValueError("所选语种/方言不存在或已停用")
+        if language.label in INVALID_OVERVIEW_CATALOG_LABELS:
+            raise ValueError("所选名称是历史占位值，不能作为人才概览语种")
+        if language.talent_overview_key:
+            raise ValueError(f"语种/方言“{language.label}”已关联人才概览")
+        if row.language != language.label:
+            raise ValueError("新增行名称必须与共享语种目录一致")
+        language.talent_overview_key = row.overview_key
 
 
 def save_talent_overview(
@@ -239,6 +317,7 @@ def save_talent_overview(
         raise StaleUpdateError("人才概览已被其他人更新，请重新加载后再保存")
 
     previous = _with_totals(copy.deepcopy(snapshot.payload))
+    _bind_overview_languages(db, previous, payload)
     saved = _prepare_saved_payload(previous, payload)
     snapshot.payload = _storage_payload(saved)
     snapshot.revision += 1
@@ -374,6 +453,9 @@ def lookup_language_reserves(db: Session, language_ids: Iterable[UUID]) -> list[
         .all()
     )
     by_id = {language.id: language for language in languages}
+    english_native_row = next((
+        row for row in data["rows"] if row["language"].strip() == ENGLISH_NATIVE_LABEL
+    ), None)
     results = []
     for language_id in ordered_ids:
         language = by_id.get(language_id)
@@ -390,14 +472,18 @@ def lookup_language_reserves(db: Session, language_ids: Iterable[UUID]) -> list[
                 "match_type": match_type,
             })
             continue
+        native_extra = (
+            english_native_row["row_total"]
+            if english_native_row and row["language"] == "英语" else 0
+        )
         results.append({
             "language_id": language_id,
             "requested_label": language.label,
             "matched": True,
             "overview_key": row["overview_key"],
-            "overview_language": row["language"],
+            "overview_language": "英语（含母语者）" if native_extra else row["language"],
             "updated_at": row.get("updated_at"),
-            "total": row["row_total"],
+            "total": row["row_total"] + native_extra,
             "non_deduplicated": True,
             "match_type": match_type,
         })

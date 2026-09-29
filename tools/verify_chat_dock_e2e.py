@@ -44,8 +44,30 @@ def open_chat_from_list(page):
     page.goto(f"{BASE}/annotation-details", wait_until="domcontentloaded")
     row = page.locator(".el-table__row", has_text=TARGET_ORDER).first
     row.wait_for(timeout=20000)
-    row.get_by_role("button", name="沟通").click()
+    row.get_by_role("button", name="更多").click()
+    page.get_by_role("menuitem", name="沟通", exact=True).click()
     page.locator(".project-chat-window").first.wait_for(timeout=10000)
+
+
+def exercise_chat_chrome(page):
+    """三档尺寸、会话列表和聊天记录面板。测完回到小档独立窗口，避免影响后续发消息。"""
+    win = page.locator(".project-chat-window:visible").first
+    size_btn = win.get_by_role("button", name="窗口尺寸")
+    size_btn.wait_for()
+    before = win.bounding_box()["width"]
+    size_btn.click()
+    page.wait_for_timeout(250)
+    changed = win.bounding_box()["width"] != before
+    size_btn.click()
+    size_btn.click()
+    win.get_by_role("button", name="聊天记录").first.click()
+    page.locator(".chat-history:visible").wait_for()
+    page.locator(".chat-history:visible").get_by_role("button", name="关闭聊天记录").click()
+    win.get_by_role("button", name="会话列表").click()
+    page.locator(".chat-workspace-shell").wait_for()
+    page.get_by_role("button", name="独立窗口").click()
+    win.wait_for()
+    return changed
 
 
 def send_with_mention(page, text, mention_name):
@@ -94,6 +116,7 @@ def main():
         inject(page_b, TOKEN_WANGLU, wanglu)
         open_chat_from_list(page_a)
         open_chat_from_list(page_b)
+        results["size_and_workspace_chrome"] = exercise_chat_chrome(page_a)
         page_a.evaluate(
             """() => {
                 window.__desktopNotifs = [];

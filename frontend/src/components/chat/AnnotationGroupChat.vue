@@ -1,27 +1,19 @@
 <template>
-  <section class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode }">
+  <section class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
+    <div class="annotation-group__main">
     <div class="group-toolbar">
       <el-popover trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover">
         <template #reference><el-button text size="small" class="group-participants" :icon="User">参与人 <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">有项目查看权限的用户均可发言，参与人会持续收到未读提醒。</p>
         <div class="group-members"><el-tag v-for="member in group.members" :key="member.id">{{ member.name }}</el-tag></div>
-        <el-select v-model="inviteIds" multiple filterable placeholder="选择邀请用户" style="width:100%">
+        <el-select v-model="inviteIds" multiple filterable :teleported="false" placeholder="选择邀请用户" style="width:100%">
           <el-option v-for="user in group.eligibleUsers" :key="user.id" :value="user.id" :label="user.name" />
         </el-select>
         <el-button type="primary" size="small" :loading="inviting" :disabled="!inviteIds.length" @click="invite">邀请参与</el-button>
       </el-popover>
       <span class="group-toolbar-spacer" />
       <el-button text size="small" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow">{{ group.following ? '已关注' : '关注' }}</el-button>
-      <el-popover v-model:visible="filtersVisible" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover">
-        <template #reference><el-button text size="small" :icon="Search" aria-label="搜索消息" title="搜索消息">{{ filterCount || '' }}</el-button></template>
-        <div class="group-filters">
-          <el-input v-model="filters.keyword" clearable placeholder="搜索消息内容" @keyup.enter="search" />
-          <el-select v-model="filters.sender" clearable filterable placeholder="发送人" @change="search"><el-option v-for="u in group.eligibleUsers" :key="u.id" :value="u.id" :label="u.name" /></el-select>
-          <el-date-picker v-model="filters.dates" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="search" />
-          <el-checkbox v-model="filters.favorites" @change="search">只看收藏</el-checkbox>
-          <div><el-button size="small" type="primary" @click="search">查询</el-button><el-button size="small" @click="resetSearch">重置</el-button><el-button size="small" @click="filtersVisible=false">关闭</el-button></div>
-        </div>
-      </el-popover>
+      <el-button text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
       <el-button v-if="canAddToProgress" size="small" :disabled="!selected.length" @click="toProgress">转进度 {{ selected.length || '' }}</el-button>
     </div>
     <div v-if="error" class="group-error" role="alert">{{ error }} <el-button link @click="search">重新加载</el-button></div>
@@ -72,6 +64,16 @@
       <div class="group-compose-footer"><span>Enter发送 · Shift+Enter换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
       <div v-if="sendError" class="group-error" role="alert">{{ sendError }}</div>
     </div>
+    </div>
+    <ChatHistorySearchPanel
+      v-model:visible="searchOpen"
+      :project-id="projectId"
+      project-type="annotation"
+      :senders="historySenders"
+      allow-files
+      :placement="historyPlacement"
+      @locate="onSearchLocate"
+    />
   </section>
 </template>
 
@@ -81,11 +83,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Paperclip, User, Star, StarFilled, Search } from '@element-plus/icons-vue'
 import { annotationChatRequest as request, createProjectChatMessage, favoriteProjectChatMessage, unfavoriteProjectChatMessage,
   acknowledgeProjectChatMessage, unacknowledgeProjectChatMessage, getProjectChatAttachmentBlob } from '@/api/projectChat'
+import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue'
 import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
-const props = defineProps({ projectId: [String, Number], active: Boolean, conversationMode: Boolean, canAddToProgress: Boolean })
+const props = defineProps({
+  projectId: [String, Number],
+  active: Boolean,
+  conversationMode: Boolean,
+  canAddToProgress: Boolean,
+  historyPlacement: { type: String, default: 'overlay' },
+})
 const emit = defineEmits(['add-to-progress', 'unread'])
 const currentUserId = localStorage.getItem('user_id') || ''
 // 局域网 HTTP 下 randomUUID 可能不可用，getRandomValues 仍可生成标准 UUID。
@@ -102,20 +111,17 @@ const mentionCandidates = computed(() => group.eligibleUsers.filter(u => u.name.
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
-const inviting = ref(false), followingBusy = ref(false), filtersVisible = ref(false)
-const filters = reactive({ keyword: '', sender: '', dates: [], favorites: false })
+const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
 const imageUrls = reactive({}), imageErrors = reactive({}), imageRequests = new Set()
-const filterCount = computed(() => [filters.keyword.trim(), filters.sender, filters.dates?.length, filters.favorites].filter(Boolean).length)
+const historySenders = computed(() => group.eligibleUsers.map(user => ({ id: user.id, name: user.name })))
 const canSend = computed(() => !sending.value && !files.value.some(f => f.status !== 'ready') && (!!content.value.trim() || files.value.length > 0))
 const detail = e => e?.detail || e?.message || '操作失败，请重试'
 const sizeLabel = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
 let disposed = false, generation = 0, searchController, searchTimer, syncTimer, syncing = false, syncAgain = false, unwatch, observer, readTimer
 let lastRead = 0, readBusy = false
 const visibleMessages = new Map(), observedElements = new WeakSet(), cleanup = []
-const params = () => ({ keyword: filters.keyword.trim(), sender_user_id: filters.sender || undefined, favorites_only: filters.favorites,
-  date_from: filters.dates?.[0] ? `${filters.dates[0]}T00:00:00` : undefined, date_to: filters.dates?.[1] ? `${filters.dates[1]}T23:59:59.999999` : undefined })
 const atBottom = () => !!list.value && list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 45
 const bottom = async () => { await nextTick(); if (list.value) list.value.scrollTop = list.value.scrollHeight; pendingNew.value = 0 }
 
@@ -125,7 +131,7 @@ async function loadGroup() {
 function merge(rows) {
   const merged = new Map(messages.value.map(m => [m.id, m]))
   rows.forEach(m => merged.set(m.id, m))
-    messages.value = [...merged.values()].filter(m => !(filters.keyword.trim() && m.recalledAt) && (!filters.favorites || m.isFavorited)).sort((a, b) => a.sequenceNo - b.sequenceNo)
+    messages.value = [...merged.values()].sort((a, b) => a.sequenceNo - b.sequenceNo)
   selected.value = selected.value.filter(id => merged.has(id) && !merged.get(id).recalledAt)
   if (replyTo.value && merged.get(replyTo.value.id)?.recalledAt) replyTo.value = null
   const validImages = new Set(messages.value.flatMap(m => m.attachments || []).map(f => f.id))
@@ -139,21 +145,19 @@ async function search() {
   const version = ++generation
   loading.value = true; error.value = ''; viewingHistory.value = false
   try {
-    const data = await request(props.projectId, 'timeline', { params: params(), signal: searchController.signal })
+    const data = await request(props.projectId, 'timeline', { signal: searchController.signal })
     if (version !== generation || disposed) return
     messages.value = []; visibleMessages.clear(); merge(data.items); hasEarlier.value = data.hasMore
     await bottom()
   } catch (e) { if (version === generation && !searchController.signal.aborted) error.value = detail(e) }
   finally { if (version === generation) loading.value = false }
 }
-function resetSearch() { Object.assign(filters, { keyword: '', sender: '', dates: [], favorites: false }); return search() }
-watch(() => filters.keyword, value => { clearTimeout(searchTimer); if (!value) search(); else searchTimer = setTimeout(search, 400) })
 async function loadEarlier() {
   if (loadingEarlier.value || !messages.value.length) return
   const version = generation, height = list.value.scrollHeight, top = list.value.scrollTop
   loadingEarlier.value = true
   try {
-    const data = await request(props.projectId, 'timeline', { params: { ...params(), before: messages.value[0].sequenceNo } })
+    const data = await request(props.projectId, 'timeline', { params: { before: messages.value[0].sequenceNo } })
     if (version !== generation || disposed) return
     merge(data.items); hasEarlier.value = data.hasMore
     await nextTick(); if (list.value) list.value.scrollTop = top + list.value.scrollHeight - height
@@ -176,11 +180,12 @@ async function sync() {
       let more = true
       while (more) {
         const after = messages.value.at(-1)?.sequenceNo || 0
-        const data = await request(props.projectId, 'timeline', { params: { ...params(), after, limit: 100 } })
+        const data = await request(props.projectId, 'timeline', { params: { after, limit: 100 } })
         if (version !== generation || disposed) return
-        const count = data.items.filter(m => !messages.value.some(existing => existing.id === m.id)).length
+        const incoming = data.items.filter(m => !messages.value.some(existing => existing.id === m.id))
+        if (!props.active) incoming.filter(m => !m.recalledAt && m.senderUserId !== currentUserId).forEach(() => emit('unread'))
         merge(data.items); more = data.hasMore && data.items.length > 0
-        if (!wasBottom || !props.active) pendingNew.value += count
+        if (!wasBottom || !props.active) pendingNew.value += incoming.length
       }
     }
     if (wasBottom && !viewingHistory.value && props.active) await bottom()
@@ -204,7 +209,7 @@ function observeMessage(el) {
 }
 function scheduleRead() { clearTimeout(readTimer); readTimer = setTimeout(markRead, 350) }
 async function markRead() {
-  if (!props.active || document.visibilityState !== 'visible' || !document.hasFocus() || readBusy || filterCount.value || viewingHistory.value) return
+  if (!props.active || document.visibilityState !== 'visible' || !document.hasFocus() || readBusy || viewingHistory.value) return
   const visible = [...visibleMessages.entries()].filter(([id]) => messages.value.some(m => m.id === id)).sort((a, b) => b[1] - a[1])[0]
   if (!visible || visible[1] <= lastRead) return
   readBusy = true
@@ -332,7 +337,7 @@ async function send() {
   try {
     const message = await createProjectChatMessage(props.projectId, payload, 'annotation')
     retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
-    if (filterCount.value || viewingHistory.value) await resetSearch()
+    if (viewingHistory.value) await search()
     merge([message]); await bottom(); await loadGroup()
   } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
   finally { sending.value = false; nextTick(() => input.value?.focus()) }
@@ -370,7 +375,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', closeMention)
   Object.values(imageUrls).forEach(URL.revokeObjectURL)
 })
-defineExpose({ toggleFilters: () => { filtersVisible.value = !filtersVisible.value } })
+function openSearch() { searchOpen.value = !searchOpen.value }
+function onSearchLocate(messageId) { return locate(messageId) }
+defineExpose({ openSearch, locate, toggleFilters: openSearch })
 </script>
 
 <style scoped>
@@ -397,5 +404,8 @@ defineExpose({ toggleFilters: () => { filtersVisible.value = !filtersVisible.val
 .group-toolbar .el-button+.el-button{margin-left:0}.group-timeline{flex:1;min-height:0;overflow-y:auto;padding:12px;background:#f6f8fb;overflow-anchor:none}
 .group-earlier{display:block;margin:auto}.group-message{margin:10px 0 14px;scroll-margin:25px}.group-message-meta{display:flex;gap:7px;align-items:center;font-size:12px;color:#64748b;margin-bottom:5px}.group-message-meta time{font-size:11px}.group-message--own .group-message-meta{justify-content:flex-end}.group-bubble{padding:9px 12px;background:white;border:1px solid #e2e8f0;border-radius:9px;max-width:94%;width:fit-content;overflow-wrap:anywhere}.group-message--own .group-bubble{margin-left:auto;background:#eaf3ff;border-color:#d5e6fc}.group-content{white-space:pre-wrap;line-height:1.6;margin:0;user-select:text}.group-mentions{color:#2563eb;font-size:12px}.group-message-actions{display:flex;gap:8px;opacity:0;margin-top:4px;flex-wrap:wrap}.group-message-actions .el-button{margin:0}.group-message:hover .group-message-actions,.group-message:focus-within .group-message-actions{opacity:1}.group-message--own .group-message-actions{justify-content:flex-end}.group-recalled{text-align:center;color:#94a3b8;font-size:12px}.group-reply{display:block;text-align:left;background:#f1f5f9;border:0;border-left:3px solid #94a3b8;color:#64748b;padding:6px;margin-bottom:7px;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;cursor:pointer}.group-file .el-image{max-width:240px;max-height:170px;display:block}.group-file .el-button{white-space:normal;text-align:left}.group-composer{flex-shrink:0;padding:9px;border-top:1px solid #e2e8f0;background:white}.group-compose-tools,.group-compose-footer{display:flex;align-items:center;gap:8px;margin:5px 0}.group-compose-footer{justify-content:space-between;font-size:11px;color:#94a3b8}.group-compose-reply{max-height:60px;overflow:auto;padding:6px;background:#f1f5f9;overflow-wrap:anywhere}.group-file-queue{max-height:85px;overflow:auto;font-size:12px}.group-file-queue>div{overflow-wrap:anywhere}.group-hint{font-size:12px;color:#64748b}.group-members{display:flex;gap:6px;flex-wrap:wrap;max-height:180px;overflow:auto;margin-bottom:12px}.group-filters{display:flex;flex-direction:column;gap:10px}.group-filters .el-date-editor{max-width:100%}.group-error{color:#b91c1c;font-size:12px;padding:3px 8px;overflow-wrap:anywhere}.group-new{align-self:center;flex-shrink:0}.group-message--highlight .group-bubble{outline:2px solid #409eff}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
 @media(hover:none){.group-message-actions{opacity:1}}@media(max-height:650px){.group-composer :deep(textarea){min-height:48px!important;height:48px}.group-file-queue{max-height:50px}}
+.annotation-group{position:relative}
+.annotation-group--search-side{flex-direction:row}
+.annotation-group__main{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;height:100%}
 </style>
 <style>.annotation-members-popover{max-width:calc(100vw - 32px)!important;max-height:min(560px,calc(100vh - 120px));overflow-y:auto}</style>

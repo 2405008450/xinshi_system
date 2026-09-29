@@ -56,6 +56,7 @@ class TalentOverviewColumnWrite(BaseModel):
 class TalentOverviewRowWrite(BaseModel):
     overview_key: str = Field(min_length=1, max_length=80, pattern=OVERVIEW_KEY_PATTERN)
     language: str = Field(min_length=1, max_length=100)
+    language_id: Optional[UUID] = None
     updated_at: Optional[date] = None
     counts: dict[str, Optional[int]]
 

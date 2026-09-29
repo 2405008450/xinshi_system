@@ -28,6 +28,7 @@ export const saveTalentOverview = (data) => api.put('/talents/overview', {
   rows: data.rows.map(row => ({
     overview_key: row.overviewKey,
     language: row.language,
+    language_id: row.languageId || null,
     updated_at: row.updatedAt || null,
     // counts 的键是服务端认可的动态列标识，不参与 snake_case 转换。
     counts: Object.fromEntries(Object.entries(row.counts || {})),
