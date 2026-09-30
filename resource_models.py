@@ -165,6 +165,9 @@ class ResourcePerson(Base):
     duplicate_review_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    operated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    operator_name: Mapped[Optional[str]] = mapped_column(String(255))
+    operated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")
     )

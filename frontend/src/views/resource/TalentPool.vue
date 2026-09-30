@@ -211,7 +211,7 @@
         <div class="form-section"><h3>语言情况与证书</h3>
           <el-alert title="新建人才默认添加“汉语 / Chinese”为母语，请按实际情况调整。" type="info" :closable="false" show-icon />
           <div v-for="(item,index) in form.languageSkills" :key="item._key || item.id" class="sub-record">
-            <el-row :gutter="12"><el-col :xs="24" :md="8"><el-form-item label="语言"><el-select v-model="item.languageId" filterable :filter-method="filterTalentLanguages" @visible-change="visible=>!visible&&(languageKeyword='')" style="width:100%"><el-option v-for="language in filteredLanguages" :key="language.id" :label="languageDisplay(language)" :value="language.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="类型"><el-select v-model="item.role" style="width:100%"><el-option v-for="option in languageRoleOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="4"><el-form-item label="顺序"><el-input-number v-model="item.priority" :min="0" :max="9" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="熟悉程度"><el-select v-model="item.proficiency" clearable style="width:100%"><el-option v-for="option in proficiencyOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="2"><el-button type="danger" link @click="removeLanguage(index)">删除</el-button></el-col></el-row>
+            <el-row :gutter="12"><el-col :xs="24" :md="8"><el-form-item label="语言"><el-select v-model="item.languageId" filterable :filter-method="filterTalentLanguages" @visible-change="visible=>!visible&&(languageKeyword='')" style="width:100%"><el-option v-for="language in filteredLanguages" :key="language.id" :label="languageDisplay(language)" :value="language.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="类型"><el-select v-model="item.role" @change="normalizeLanguagePriorities" style="width:100%"><el-option v-for="option in languageRoleOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="4"><el-form-item label="顺序"><el-input-number v-model="item.priority" :min="0" :max="9" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="熟悉程度"><el-select v-model="item.proficiency" clearable style="width:100%"><el-option v-for="option in proficiencyOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="2"><el-button type="danger" link @click="removeLanguage(index)">删除</el-button></el-col></el-row>
           </div>
           <el-button @click="addLanguage">添加语言</el-button>
           <el-divider />
@@ -323,6 +323,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { countTalentNames, getTalentDisplayName } from '@/utils/talentNames'
+import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
 import { focusFormTarget } from '@/utils/formNavigation'
 
 const route = useRoute()
@@ -446,6 +447,8 @@ const tableColumns=[
   {key:'projectSituation',label:'项目情况',width:220,tooltip:false},
   {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
   {key:'updatedAt',label:'最近更新',width:170,type:'datetime'},
+  {key:'operatorName',label:'操作人',width:120},
+  {key:'operatedAt',label:'操作时间',width:190,type:'datetime'},
   {key:'duplicateReviewRequired',label:'核重状态',width:100}
 ]
 const legacyDefaultColumnKeys=[
@@ -456,7 +459,7 @@ const legacyDefaultColumnKeys=[
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 ]
-const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired']
+const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired','operatorName','operatedAt']
 const contactColumnKeys=new Set(['primaryPhone','primaryEmail'])
 const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
 const availableToCurrentPool=item=>!isRecruitmentPool.value||(!item.performance&&!item.talentManaged)
@@ -601,6 +604,7 @@ const addEducation=()=>form.educationExperiences.push({id:null,_key:recordKey(),
 const removeEducation=index=>form.educationExperiences.splice(index,1)
 const addLanguage=()=>form.languageSkills.push({id:null,_key:recordKey(),languageId:'',role:'dialect_ethnic',priority:0,proficiency:null,remarks:'',sortOrder:form.languageSkills.length})
 const removeLanguage=index=>form.languageSkills.splice(index,1)
+const normalizeLanguagePriorities=()=>normalizeForeignLanguagePriorities(form.languageSkills).forEach((item,index)=>{form.languageSkills[index].priority=item.priority})
 const addCertificate=()=>form.certificates.push({id:null,_key:recordKey(),certificateType:'language',name:'',languageId:null,issuer:'',certificateNo:'',issuedOn:null,materialReceived:false,remarks:'',sortOrder:form.certificates.length})
 const removeCertificate=index=>form.certificates.splice(index,1)
 const queueAttachment=(category,file)=>{if(file?.raw&&!queuedAttachments[category].some(item=>item.uid===file.uid))queuedAttachments[category].push(file)}
@@ -664,7 +668,7 @@ async function openCreate() {
   editorVisible.value = true
   await beginDraft('create')
 }
-function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
+function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
 async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
@@ -684,7 +688,7 @@ const payload=(allowDuplicate=false)=>{
     programDurationYears:form.programDurationYears,studentGradeOverride:form.studentGradeOverride||null,highestEducation:form.highestEducation||null,
     annotationExperience:form.annotationExperience||null,interpretationExperience:form.interpretationExperience||null,translationExperience:form.translationExperience||null,otherExperience:form.otherExperience||null,annotationWillingness:form.annotationWillingness||null,
     educationExperiences:form.educationExperiences.map((item,index)=>({...cleanChild(item),sortOrder:index})),
-    languageSkills:form.languageSkills.filter(item=>item.languageId).map((item,index)=>({...cleanChild(item),sortOrder:index})),
+    languageSkills:normalizeForeignLanguagePriorities(form.languageSkills.filter(item=>item.languageId)).map((item,index)=>({...cleanChild(item),sortOrder:index})),
     certificates:form.certificates.filter(item=>item.name?.trim()).map((item,index)=>({...cleanChild(item),sortOrder:index})),
     overallScore:form.overallScore,overallRating:form.overallRating||null,cooperationLevel:form.cooperationLevel||null,cooperationNote:form.cooperationNote||null,
     punctualityLevel:form.punctualityLevel||null,punctualityNote:form.punctualityNote||null,audioAnnotationScore:form.audioAnnotationScore,

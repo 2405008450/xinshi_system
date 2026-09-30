@@ -17,6 +17,7 @@ export const getTalents = (params, config = {}) => api.get('/talents/', { ...con
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalentOverview = () => api.get('/talents/overview').then(fromApi)
+export const getTalentPoolStatistics = () => api.get('/talents/overview/pool-statistics').then(fromApi)
 export const saveTalentOverview = (data) => api.put('/talents/overview', {
   expected_revision: data.expectedRevision,
   columns: data.columns.map(column => ({

@@ -148,7 +148,7 @@ def has_new_private_entry(actions, previous):
     )
 
 
-def sync_person(db, row, payload, languages, *, eligible):
+def sync_person(db, row, payload, languages, *, eligible, actor=None):
     if row.person_id or not eligible:
         return
     candidates = duplicates(db, row.full_name, row.phone, row.wechat)
@@ -176,7 +176,7 @@ def sync_person(db, row, payload, languages, *, eligible):
                          for i, lang in enumerate(languages)],
         annotation_language_skills=[{"source_language_id": lang.id} for lang in languages] if "annotation" in payload.capabilities else [],
     )
-    person = create_talent(db, person_payload, idempotency_key=f"development:{row.id}", commit=False)
+    person = create_talent(db, person_payload, idempotency_key=f"development:{row.id}", commit=False, actor=actor)
     row.person_id = person.id
 
 
@@ -252,7 +252,7 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
             current = action.status
         setattr(row, field, current)
     sync_person(db, row, payload, languages,
-                eligible=historical_markers is None and has_new_private_entry(actions, previous_states))
+                eligible=historical_markers is None and has_new_private_entry(actions, previous_states), actor=user)
     audit(db, user, row, "update" if before else "create", before)
     db.flush()
     if not defer_refresh:

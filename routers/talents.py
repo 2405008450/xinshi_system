@@ -55,7 +55,8 @@ from talent_attachment_service import (
     save_talent_attachment,
 )
 from talent_overview_schemas import TalentOverviewResponse, TalentOverviewWrite
-from talent_overview_service import get_talent_overview, save_talent_overview
+from talent_overview_service import save_talent_overview
+from talent_pool_statistics import get_pool_language_statistics, get_synced_talent_overview
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import PageResponse, resolve_page_total
 from talent_privacy import (
@@ -110,10 +111,15 @@ TALENT_SORT_PATTERN = (
 )
 
 
+@router.get("/overview/pool-statistics")
+def read_pool_language_statistics(db: Session = Depends(get_db)):
+    return get_pool_language_statistics(db)
+
+
 @router.get("/overview", response_model=TalentOverviewResponse)
 def read_talent_overview(db: Session = Depends(get_db)):
     """返回人才概览统一快照；访问权限沿用人才资源库。"""
-    return get_talent_overview(db)
+    return get_synced_talent_overview(db)
 
 
 @router.put(
@@ -336,7 +342,7 @@ def create_talent_endpoint(
                 RESOURCE_CONTACT_FIELDS, contacts_visible=contacts_visible,
             )
     try:
-        person = create_talent(db, payload, idempotency_key=idempotency_key)
+        person = create_talent(db, payload, idempotency_key=idempotency_key, actor=current_user)
         return serialize_with_contact_access(
             person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
             contacts_visible=contacts_visible,
@@ -506,6 +512,7 @@ def update_talent_endpoint(
             person_id,
             payload,
             check_contact_duplicates=contacts_visible,
+            actor=current_user,
         )
     except TalentDuplicateError as exc:
         db.rollback()
@@ -531,7 +538,7 @@ def update_talent_name_endpoint(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    person = update_talent_name(db, person_id, payload.full_name)
+    person = update_talent_name(db, person_id, payload.full_name, actor=current_user)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
     return serialize_with_contact_access(
@@ -550,7 +557,7 @@ def update_talent_status_endpoint(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    person = update_talent_status(db, person_id, payload.status)
+    person = update_talent_status(db, person_id, payload.status, actor=current_user)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
     return serialize_with_contact_access(
@@ -623,6 +630,7 @@ def update_recruitment_talent_endpoint(
             person_id,
             payload,
             check_contact_duplicates=contacts_visible,
+            actor=current_user,
         )
     except TalentDuplicateError as exc:
         db.rollback()

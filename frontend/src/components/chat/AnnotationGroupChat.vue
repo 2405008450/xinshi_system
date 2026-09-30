@@ -2,7 +2,7 @@
   <section class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
     <div class="group-toolbar">
-      <el-popover trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover">
+      <el-popover trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
         <template #reference><el-button text size="small" class="group-participants" :icon="User">参与人 <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">有项目查看权限的用户均可发言，参与人会持续收到未读提醒。</p>
         <div class="group-members"><el-tag v-for="member in group.members" :key="member.id">{{ member.name }}</el-tag></div>
@@ -408,4 +408,8 @@ defineExpose({ openSearch, locate, toggleFilters: openSearch })
 .annotation-group--search-side{flex-direction:row}
 .annotation-group__main{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;height:100%}
 </style>
-<style>.annotation-members-popover{max-width:calc(100vw - 32px)!important;max-height:min(560px,calc(100vh - 120px));overflow-y:auto}</style>
+<style>
+.annotation-members-popover{max-width:calc(100vw - 32px)!important;max-height:min(560px,calc(100vh - 120px));overflow-y:auto}
+/* 邀请用户的下拉层留在参与人弹窗内，弹窗不能裁切下拉选项。 */
+.annotation-members-popover.annotation-participants-popover{overflow:visible}
+</style>

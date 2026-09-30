@@ -1076,9 +1076,18 @@ def _sync_legacy_translator(db: Session, person: ResourcePerson) -> None:
             setattr(translator, key, value)
 
 
+def _record_talent_operation(person: ResourcePerson, actor) -> None:
+    """记录实际保存档案的登录用户，保留姓名快照以便溯源。"""
+    if actor is None:
+        return
+    person.operated_by = actor.id
+    person.operator_name = (actor.full_name or "").strip() or actor.username
+    person.operated_at = datetime.now()
+
+
 def create_talent(
     db: Session, payload: ResourcePersonCreate, idempotency_key: Optional[str] = None,
-    *, commit: bool = True,
+    *, commit: bool = True, actor=None,
 ) -> ResourcePerson:
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email
@@ -1094,6 +1103,7 @@ def create_talent(
         duplicate_review_required=bool(duplicates and payload.allow_duplicate),
         idempotency_key=idempotency_key, **data,
     )
+    _record_talent_operation(person, actor)
     db.add(person)
     db.flush()
     _sync_capabilities(db, person, payload)
@@ -1111,13 +1121,14 @@ def create_talent(
 
 
 def update_talent_name(
-    db: Session, person_id: UUID, full_name: str
+    db: Session, person_id: UUID, full_name: str, *, actor=None,
 ) -> Optional[ResourcePerson]:
     """只修改姓名，避免账号页快速纠错时覆盖人才档案的其他字段。"""
     person = get_talent(db, person_id)
     if not person:
         return None
     if person.full_name != full_name:
+        _record_talent_operation(person, actor)
         person.full_name = full_name
         person.updated_at = datetime.now()
         db.flush()
@@ -1128,12 +1139,13 @@ def update_talent_name(
 
 
 def update_talent_status(
-    db: Session, person_id: UUID, status: str
+    db: Session, person_id: UUID, status: str, *, actor=None,
 ) -> Optional[ResourcePerson]:
     person = get_talent(db, person_id)
     if not person:
         return None
     if person.status != status:
+        _record_talent_operation(person, actor)
         person.status = status
         person.updated_at = datetime.now()
         db.flush()
@@ -1149,6 +1161,7 @@ def update_talent(
     payload: ResourcePersonUpdate,
     *,
     check_contact_duplicates: bool = True,
+    actor=None,
 ) -> Optional[ResourcePerson]:
     person = get_talent(db, person_id)
     if not person:
@@ -1177,6 +1190,7 @@ def update_talent(
     _sync_annotation_language_skills(db, person, payload)
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
+    _record_talent_operation(person, actor)
     person.updated_at = datetime.now()
     db.flush()
     _sync_legacy_translator(db, person)
@@ -1190,6 +1204,7 @@ def update_recruitment_talent(
     payload: ResourcePersonUpdate,
     *,
     check_contact_duplicates: bool = True,
+    actor=None,
 ) -> Optional[ResourcePerson]:
     """招聘端只更新人员主档与职业档案，不改写专业能力。"""
     person = get_talent(db, person_id)
@@ -1222,6 +1237,7 @@ def update_recruitment_talent(
                 setattr(person.career_profile, key, value)
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
+    _record_talent_operation(person, actor)
     person.updated_at = datetime.now()
     db.flush()
     _sync_legacy_translator(db, person)

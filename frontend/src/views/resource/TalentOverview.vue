@@ -17,6 +17,7 @@
             </span>
           </div>
           <div class="header-actions">
+            <el-button :loading="poolLoading" :disabled="editing || loading || saving" @click="fetchPoolStatistics">刷新总库统计</el-button>
             <el-button :icon="FullScreen" @click="toggleFullscreen">
               {{ fullscreenActive ? '退出全屏' : '全屏显示' }}
             </el-button>
@@ -40,6 +41,26 @@
       <div class="overview-note">
         合计为原表各单元格相加，不代表去重后的人才人数；空白表示原表未填写，明确的零保留显示为 0。
         <template v-if="editing"> 当前为编辑模式，修改将在点击“保存”后统一生效。</template>
+      </div>
+
+      <div class="overview-note pool-statistics-note" v-loading="poolLoading">
+        <strong>人才总库自动统计：</strong>
+        <template v-if="poolStatistics">
+          共 {{ formatTalentCount(poolStatistics.totalPeople) }} 人，已登记语言 {{ formatTalentCount(poolStatistics.withLanguagePeople) }} 人，
+          未登记语言 {{ formatTalentCount(poolStatistics.withoutLanguagePeople) }} 人。
+        </template>
+        <span v-else>统计暂不可用，请刷新重试。</span>
+        按档案 ID 去重，同一人多语种分别计数（含母语、外语、方言/少数民族语，不限熟练度及人才状态）；不计入原表合计。
+        总库新增语种会在打开概览或刷新统计时自动补行，来源列留空，可按实际来源填写。
+        英语母语者同时计入英语行；底部为当前筛选行的人次相加，不是去重人数。
+        <el-popover v-if="poolStatistics?.unmatched?.length" trigger="click" placement="bottom-start" :width="360">
+          <template #reference><el-button link type="warning">语种数据待核对（{{ poolStatistics.unmatched.length }}）</el-button></template>
+          <p>以下登记含历史占位名称或别名冲突，请先在共享语种目录核对，修正后刷新统计即可自动对应。</p>
+          <el-table :data="poolStatistics.unmatched" max-height="320" size="small">
+            <el-table-column prop="language" label="语种/方言" />
+            <el-table-column prop="peopleCount" label="总库人数" width="100" />
+          </el-table>
+        </el-popover>
       </div>
 
       <el-table
@@ -95,6 +116,15 @@
             </button>
             <span v-else>{{ row.updatedAt || '' }}</span>
           </template>
+        </el-table-column>
+
+        <el-table-column label="人才总库 · 自动统计" header-align="center">
+          <el-table-column prop="poolPeopleCount" label="总库人数" width="140" align="right" class-name="pool-statistics-cell">
+            <template #header>
+              <ConfiguredColumnHeaderFilter v-model="poolCountFilter" :definition="poolCountFilterDefinition" />
+            </template>
+            <template #default="{ row }">{{ poolStatistics ? formatTalentCount(poolCounts[row.overviewKey] || 0) : '—' }}</template>
+          </el-table-column>
         </el-table-column>
 
         <el-table-column
@@ -249,7 +279,7 @@ import { Edit, FullScreen, Plus } from '@element-plus/icons-vue'
 import AppForm from '@/components/common/AppForm.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
-import { getTalentOverview, saveTalentOverview } from '@/api/talents'
+import { getTalentOverview, getTalentPoolStatistics, saveTalentOverview } from '@/api/talents'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import { hasPermission } from '@/utils/permission'
@@ -270,6 +300,14 @@ import {
 const overviewPanelRef = ref(null)
 const overviewTableRef = ref(null)
 const loading = ref(false)
+const poolLoading = ref(false)
+const poolStatistics = ref(null)
+const poolCountFilter = ref([])
+const poolCounts = computed(() => Object.fromEntries((poolStatistics.value?.rows || []).map(row => [row.overviewKey, row.peopleCount])))
+const poolCountFilterDefinition = computed(() => ({
+  key: 'poolPeopleCount', label: '总库人数', type: 'select', headerWidth: 260,
+  options: buildFilterOptions(displayedRows.value.map(row => poolStatistics.value ? (poolCounts.value[row.overviewKey] || 0) : null), formatTalentCount),
+}))
 const saving = ref(false)
 const editing = ref(false)
 const tableRows = ref([])
@@ -309,7 +347,9 @@ const filteredRows = computed(() => filterTalentOverviewRows(
   displayedRows.value,
   displayedColumns.value,
   filterValues,
-))
+).filter(row => !poolCountFilter.value.length || poolCountFilter.value.includes(
+  normalizeTalentOverviewFilterValue(poolStatistics.value ? (poolCounts.value[row.overviewKey] || 0) : null),
+)))
 const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label]) => ({
   key,
   label,
@@ -318,11 +358,12 @@ const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label
 const draftSignature = computed(() => JSON.stringify({ columns: draftColumns.value, rows: draftRows.value }))
 const isDirty = computed(() => editing.value && draftSignature.value !== draftBaseline.value)
 const fullscreenActive = computed(() => nativeFullscreen.value || fallbackFullscreen.value)
-const tableHeight = computed(() => fullscreenActive.value ? 'calc(100vh - 244px)' : 'calc(100vh - 246px)')
+const tableHeight = computed(() => fullscreenActive.value ? 'calc(100vh - 320px)' : 'calc(100vh - 322px)')
 const liveColumnTotals = computed(() => calculateTalentColumnTotals(filteredRows.value, displayedColumns.value))
 const liveGrandTotal = computed(() => calculateTalentGrandTotal(filteredRows.value, displayedColumns.value))
 const hasActiveFilters = computed(() => (
-  filterValues.language.length > 0
+  poolCountFilter.value.length > 0
+  || filterValues.language.length > 0
   || filterValues.updatedAt.length > 0
   || filterValues.rowTotal.length > 0
   || Object.values(filterValues.counts).some(values => values?.length)
@@ -423,10 +464,26 @@ async function fetchOverview() {
   loading.value = true
   try {
     applyOverview(await getTalentOverview())
+    await fetchPoolStatistics()
   } catch (error) {
     ElMessage.error(error?.detail || '人才概览加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchPoolStatistics() {
+  if (poolLoading.value) return
+  poolLoading.value = true
+  try {
+    poolStatistics.value = await getTalentPoolStatistics()
+    // 同一次响应更新语种行、修订号与人数，刷新时也能看到新补齐的行。
+    if (!editing.value && poolStatistics.value.overview) applyOverview(poolStatistics.value.overview)
+  } catch {
+    poolStatistics.value = null
+    ElMessage.error('人才总库统计加载失败，请刷新重试')
+  } finally {
+    poolLoading.value = false
   }
 }
 
@@ -483,6 +540,7 @@ async function saveOverview() {
       rows: draftRows.value,
     })
     applyOverview(result)
+    await fetchPoolStatistics()
     editing.value = false
     draftColumns.value = []
     draftRows.value = []
@@ -608,6 +666,9 @@ async function confirmAddRow() {
 
 function summaryMethod({ columns }) {
   return columns.map(column => {
+    if (column.property === 'poolPeopleCount') return poolStatistics.value
+      ? `${formatTalentCount(filteredRows.value.reduce((sum, row) => sum + (poolCounts.value[row.overviewKey] || 0), 0))} 人次`
+      : '—'
     if (column.property === 'language') return '合计'
     if (column.property === 'updatedAt') return ''
     if (column.property === 'rowTotal') return formatTalentCount(liveGrandTotal.value)
@@ -731,6 +792,16 @@ onBeforeUnmount(() => {
 
 .overview-table {
   min-height: 360px;
+}
+
+.pool-statistics-note {
+  border-color: var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-9);
+}
+
+.overview-table :deep(.pool-statistics-cell) {
+  color: var(--el-color-primary);
+  font-weight: 600;
 }
 
 .overview-table :deep(.el-table__header-wrapper th) {

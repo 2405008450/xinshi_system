@@ -23,6 +23,8 @@
       <h4>基本信息</h4>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="人才编号">{{ show(detail.resourceCode) }}</el-descriptions-item>
+        <el-descriptions-item label="操作人">{{ show(detail.operatorName) }}</el-descriptions-item>
+        <el-descriptions-item label="操作时间">{{ formatOperationTime(detail.operatedAt) }}</el-descriptions-item>
         <el-descriptions-item label="来源">{{ show(detail.registrationSource) }}</el-descriptions-item>
         <el-descriptions-item label="所在微信">{{ show(detail.wechatAccount) }}</el-descriptions-item>
         <el-descriptions-item label="所在微信群" :span="2"><div class="pre-wrap">{{ show(detail.wechatGroups) }}</div></el-descriptions-item>
@@ -67,7 +69,7 @@
     <section v-if="shows('language')">
       <h4>语言情况</h4>
       <el-descriptions :column="2" border size="small">
-        <el-descriptions-item v-for="item in detail.languageSkills || []" :key="item.id" :label="languageRoleLabel(item)">
+        <el-descriptions-item v-for="item in displayLanguageSkills" :key="item.id" :label="languageRoleLabel(item)">
           {{ item.languageLabel }}<span v-if="item.proficiency"> · {{ proficiencyLabel(item.proficiency) }}</span>
         </el-descriptions-item>
         <el-descriptions-item v-if="!detail.languageSkills?.length" label="语言">-</el-descriptions-item>
@@ -133,6 +135,7 @@
 <script setup>
 import { computed } from 'vue'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
+import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
 
 const props = defineProps({
   detail: { type: Object, default: () => ({}) },
@@ -143,8 +146,16 @@ const props = defineProps({
 })
 
 const contactRestricted = computed(() => props.detail.contactRestricted === true)
+const displayLanguageSkills = computed(() => normalizeForeignLanguagePriorities(props.detail.languageSkills || []))
 
 const shows = (section) => props.section === 'all' || props.section === section
+const formatOperationTime = value => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  const pad = number => String(number).padStart(2, '0')
+  return `${date.getFullYear()}年${pad(date.getMonth()+1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 const show = (value) => value === null || value === undefined || value === ''
   ? '-'
   : Array.isArray(value) ? (value.join('、') || '-') : value

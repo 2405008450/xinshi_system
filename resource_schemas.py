@@ -456,6 +456,9 @@ class TalentAnnotationProjectPerformanceResponse(BaseModel):
 
 
 class ResourcePersonListResponse(BaseModel):
+    operated_by: Optional[UUID] = None
+    operator_name: Optional[str] = None
+    operated_at: Optional[datetime] = None
     id: UUID
     resource_code: Optional[str] = None
     full_name: str
