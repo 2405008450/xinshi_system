@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 
 const dock = readFileSync(new URL('../src/components/chat/ProjectChatDock.vue', import.meta.url), 'utf8')
 const dockStore = readFileSync(new URL('../src/composables/useProjectChatDock.js', import.meta.url), 'utf8')
 const workspace = readFileSync(new URL('../src/components/chat/ChatWorkspace.vue', import.meta.url), 'utf8')
+const windowMenu = readFileSync(new URL('../src/components/chat/ChatWindowStateMenu.vue', import.meta.url), 'utf8')
 const historyPanel = readFileSync(new URL('../src/components/chat/ChatHistorySearchPanel.vue', import.meta.url), 'utf8')
 const annotationChat = readFileSync(new URL('../src/components/chat/AnnotationGroupChat.vue', import.meta.url), 'utf8')
 const followedStore = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
@@ -14,6 +16,68 @@ const layout = readFileSync(new URL('../src/layout/index.vue', import.meta.url),
 const notificationBell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
 
+// 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
+function createDockHarness() {
+  const storage = new Map()
+  const viewport = { innerWidth: 1440, innerHeight: 950 }
+  const source = dockStore.replace(/^import .*\r?\n/gm, '').replace(/export const /g, 'const ')
+  const { dock: instance, size, visible } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible })`, {
+    reactive: value => value,
+    getProject: async () => ({ projectName: '笔译项目', orderNo: 'T-001' }),
+    getAnnotationProject: async () => ({ projectName: '标注项目', orderNo: 'A-001' }),
+    window: viewport,
+    localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+    console,
+  })
+  return { dock: instance, size, visible, viewport, storage }
+}
+
+test('全屏还原保留独立窗口位置与尺寸，最小化恢复保持当前会话', () => {
+  const { dock: instance, size, viewport } = createDockHarness()
+  const key = instance.openChat({ projectId: '1', title: '项目一', subtitle: 'A-001' })
+  const chat = instance.state.windows[0]
+  const original = { x: chat.x, y: chat.y, sizeMode: chat.sizeMode }
+  instance.toggleWorkspaceMaximize()
+  assert.equal(instance.state.layout, 'workspace')
+  assert.equal(instance.state.workspaceX, 0)
+  assert.equal(size('maximized').width, 1440)
+  instance.minimizeWorkspace()
+  instance.restoreWorkspace()
+  assert.equal(instance.state.workspaceMaximized, true)
+  assert.equal(instance.state.activeKey, key)
+  instance.toggleWorkspaceMaximize()
+  assert.equal(instance.state.layout, 'float')
+  assert.deepEqual({ x: chat.x, y: chat.y, sizeMode: chat.sizeMode }, original)
+  instance.toggleWorkspaceMaximize()
+  viewport.innerWidth = 1024
+  viewport.innerHeight = 720
+  instance.clampAllPositions()
+  assert.equal(size('maximized').width, 1024)
+  assert.equal(size('maximized').height, 720)
+  instance.toggleWorkspaceMaximize()
+  assert.equal(instance.state.layout, 'float')
+  assert.equal(chat.sizeMode, original.sizeMode)
+  assert.ok(chat.x >= 8 && chat.x + size(chat.sizeMode).width <= 1024)
+})
+
+test('工作区全屏还原恢复拖动坐标，会话切换保留窗口实例', () => {
+  const { dock: instance } = createDockHarness()
+  const first = instance.openChat({ projectId: '1', title: '项目一', subtitle: 'A-001' })
+  const second = instance.openChat({ projectId: '2', title: '项目二', subtitle: 'A-002' })
+  const originalWindow = instance.state.windows[0]
+  instance.setLayout('workspace')
+  instance.setWorkspacePosition(100, 80)
+  instance.toggleWorkspaceMaximize()
+  instance.selectSession(first)
+  instance.selectSession(second)
+  assert.equal(instance.state.windows[0], originalWindow)
+  instance.toggleWorkspaceMaximize()
+  assert.equal(instance.state.layout, 'workspace')
+  assert.equal(instance.state.workspaceX, 100)
+  assert.equal(instance.state.workspaceY, 80)
+  assert.equal(instance.state.workspaceSize, 'medium')
+})
+
 test('项目沟通 Dock 全局挂载并支持多窗、最小化和关闭', () => {
   assert.match(layout, /<ProjectChatDock(?:\s|>)/)
   assert.match(annotationPage, /\{ command: 'project-chat', label: '沟通' \}/)
@@ -21,7 +85,7 @@ test('项目沟通 Dock 全局挂载并支持多窗、最小化和关闭', () =>
   assert.doesNotMatch(annotationPage, /@click="openProjectChat\(row\)">沟通<\/el-button>/)
   assert.match(annotationPage, /projectType:\s*'annotation'/)
   assert.match(dock, /<Teleport to="body">/)
-  assert.match(dock, /v-show="isChatWindowVisible\(chatWindow\)"/)
+  assert.match(dock, /v-show="isChatWindowVisible\(chatWindow\)/)
   assert.match(dock, /minimizeChat\(chatWindow\.key\)/)
   assert.match(dock, /restoreChat\(chatWindow\.key\)/)
   assert.match(dock, /closeChat\(chatWindow\.key\)/)
@@ -59,7 +123,7 @@ test('聊天窗支持独立定位、拖拽、置顶与视口边界约束', () =>
   assert.match(dockStore, /VIEWPORT_MARGIN\s*=\s*8/)
   assert.match(dockStore, /const nextCascadePosition = \(mode = 'small'\) =>/)
   assert.match(dockStore, /const clampPosition = \(x, y/)
-  assert.match(dockStore, /const focusChat = \(key\) =>/)
+  assert.match(dockStore, /const focusChat = \(key, minimumZ = 0\) =>/)
   assert.match(dockStore, /const setPosition = \(key, x, y\) =>/)
   assert.match(dockStore, /const clampAllPositions = \(\) =>/)
   assert.match(dockStore, /const updateChatMeta = \(key, \{ title, subtitle \}/)
@@ -156,8 +220,12 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(dockStore, /const toggleQuickSize = \(key\) =>/)
   assert.match(dockStore, /const setLayout = \(layout\) =>/)
   assert.match(dockStore, /workspaceSize === 'medium' \? 'large' : 'medium'/)
-  assert.match(dock, /aria-label="窗口尺寸"/)
-  assert.match(dock, /aria-label="会话列表"/)
+  assert.match(dockStore, /mode === 'maximized'/)
+  assert.match(dockStore, /const toggleWorkspaceMaximize = \(\) =>/)
+  assert.match(windowMenu, /aria-label="窗口状态"/)
+  assert.match(windowMenu, /全屏聊天/)
+  assert.match(workspace, /还原窗口/)
+  assert.match(windowMenu, /会话工作区/)
   assert.match(dock, /v-if="!isCompactScreen"/)
   assert.match(dock, /project-chat-window--embedded/)
   assert.match(dock, /project-chat-window--medium :deep\(\.group-bubble\)/)
@@ -189,4 +257,42 @@ test('悬浮窗中标注项目纯文本常开、笔译项目保留富文本并�
   assert.match(dock, /:text-only="chatWindow\.projectType === 'annotation'"/)
   assert.match(dock, /:always-enabled="chatWindow\.projectType === 'annotation'"/)
   assert.match(dock, /@unread="incrementUnread\(chatWindow\.key\)"/)
+})
+
+test('顶栏可直接打开空会话大屏，多次点击保持大屏打开', () => {
+  const { dock: instance } = createDockHarness()
+  instance.openFullscreen()
+  assert.equal(instance.state.workspaceOpened, true)
+  assert.equal(instance.state.workspaceMaximized, true)
+  instance.openFullscreen()
+  assert.equal(instance.state.workspaceMaximized, true)
+  instance.minimizeWorkspace()
+  instance.openFullscreen()
+  assert.equal(instance.state.workspaceMinimized, false)
+  assert.match(layout, /aria-label="聊天大屏"/)
+})
+
+test('固定小窗只显示当前会话，重新进入大屏再还原不展开其他窗口', () => {
+  const { dock: instance, visible } = createDockHarness()
+  const first = instance.openChat({ projectId: '1', title: '项目一', subtitle: 'A-001' })
+  const second = instance.openChat({ projectId: '2', title: '项目二', subtitle: 'A-002' })
+  instance.minimizeChat(first)
+  instance.openFullscreen()
+  instance.pinChat(second)
+  assert.equal(instance.state.layout, 'float')
+  assert.equal(instance.state.pinnedKey, second)
+  assert.equal(instance.state.windows.length, 2)
+  assert.equal(instance.state.windows[0].minimized, true)
+  assert.deepEqual(instance.state.windows.filter(visible).map(item => item.key).join(','), second)
+  instance.focusChat(second, 5000)
+  assert.ok(instance.state.windows.find(item => item.key === second).zIndex > 5000)
+  instance.openFullscreen()
+  const third = instance.openChat({ projectId: '3', title: '项目三', subtitle: 'A-003' })
+  instance.selectSession(first)
+  instance.toggleWorkspaceMaximize()
+  assert.equal(instance.state.pinnedKey, second)
+  assert.equal(instance.state.windows.find(item => item.key === first).minimized, true)
+  assert.equal(instance.state.windows.find(item => item.key === third).minimized, true)
+  assert.equal(instance.state.windows.find(item => item.key === second).minimized, false)
+  assert.equal(instance.state.windows.filter(visible).map(item => item.key).join(','), second)
 })

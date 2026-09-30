@@ -40,7 +40,8 @@ const handleClose = () => dialogRef.value?.handleClose?.()
 
 // 无模态小窗允许焦点离开；普通业务弹窗继续使用 Element Plus 的焦点锁定。
 const handleFocusOut = (event) => {
-  if (props.nonModal) event.stopImmediatePropagation()
+  // 固定聊天小窗是表单旁的协作入口，允许焦点在它和当前表单之间切换。
+  if (props.nonModal || event.relatedTarget?.closest?.('.project-chat-window--pinned')) event.stopImmediatePropagation()
 }
 const handleKeydown = (event) => {
   if (props.nonModal && ['Tab', 'Escape'].includes(event.key)) event.stopImmediatePropagation()

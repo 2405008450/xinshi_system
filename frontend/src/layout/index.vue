@@ -123,6 +123,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
+          <el-button v-if="canViewProjects" class="header-chat-entry" text aria-label="聊天大屏" title="打开聊天大屏" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span></el-button>
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
@@ -181,6 +182,7 @@ import {
 import NotificationBell from '../components/NotificationBell.vue'
 import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import { useUiZoom } from '../composables/useUiZoom'
@@ -188,6 +190,7 @@ import { logout } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
+const { openFullscreen } = useProjectChatDock()
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
 const canEditNotes = computed(() => hasPermission('projects:write'))
@@ -794,6 +797,14 @@ const handleLogout = async () => {
 }
 
 /* 响应式 */
+@media (max-width: 560px) {
+  .header-left { flex: none; }
+  .header-left :deep(.el-breadcrumb) { display: none; }
+  .header-right { gap: 8px; }
+  .header-chat-label { display: none; }
+  .header-right :deep(.ui-zoom-step) { display: none; }
+}
+
 @media (max-width: 768px) {
   .sidebar {
     width: 64px !important;

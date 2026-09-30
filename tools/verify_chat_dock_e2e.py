@@ -52,20 +52,22 @@ def open_chat_from_list(page):
 def exercise_chat_chrome(page):
     """三档尺寸、会话列表和聊天记录面板。测完回到小档独立窗口，避免影响后续发消息。"""
     win = page.locator(".project-chat-window:visible").first
-    size_btn = win.get_by_role("button", name="窗口尺寸")
+    size_btn = win.get_by_role("button", name="窗口状态")
     size_btn.wait_for()
     before = win.bounding_box()["width"]
     size_btn.click()
+    page.locator('.chat-window-state-menu:visible').get_by_role('button', name='中窗', exact=True).click()
     page.wait_for_timeout(250)
     changed = win.bounding_box()["width"] != before
     size_btn.click()
-    size_btn.click()
+    page.locator('.chat-window-state-menu:visible').get_by_role('button', name='小窗', exact=True).click()
     win.get_by_role("button", name="聊天记录").first.click()
     page.locator(".chat-history:visible").wait_for()
     page.locator(".chat-history:visible").get_by_role("button", name="关闭聊天记录").click()
-    win.get_by_role("button", name="会话列表").click()
+    size_btn.click()
+    page.locator('.chat-window-state-menu:visible').get_by_role('button', name='会话工作区').click()
     page.locator(".chat-workspace-shell").wait_for()
-    page.get_by_role("button", name="独立窗口").click()
+    page.get_by_role("button", name="固定小窗", exact=True).click()
     win.wait_for()
     return changed
 

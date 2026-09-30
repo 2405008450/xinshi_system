@@ -18,16 +18,26 @@ const state = reactive({
   windows: [],
   layout: 'float',
   workspaceMinimized: false,
+  workspaceOpened: false,
+  pinnedKey: '',
   workspaceSize: 'medium',
+  workspaceMaximized: false,
+  maximizedFrom: 'float',
   workspaceX: 0,
   workspaceY: 0,
   workspaceZ: DOCK_Z_BASE,
   workspaceReady: false,
   activeKey: '',
   preferencesReady: false,
+  viewportWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
+  viewportHeight: typeof window === 'undefined' ? 800 : window.innerHeight,
 })
 
 const sizePreference = { translation: 'small', annotation: 'small' }
+let maximizedRestoreX = 0
+let maximizedRestoreY = 0
+let maximizedRestoreReady = false
+let floatWindowSnapshot = null
 const projectMetaCache = new Map()
 const projectMetaRequests = new Map()
 
@@ -55,6 +65,8 @@ const persistPreferences = () => {
     localStorage.setItem(preferenceStorageKey(), JSON.stringify({
       layout: state.layout,
       workspaceSize: state.workspaceSize,
+      workspaceMaximized: state.workspaceMaximized,
+      maximizedFrom: state.maximizedFrom,
       sizeByType: { ...sizePreference },
     }))
   } catch {
@@ -69,6 +81,9 @@ const ensurePreferences = () => {
     const saved = JSON.parse(localStorage.getItem(preferenceStorageKey()) || '{}')
     if (saved.layout === 'workspace' || saved.layout === 'float') state.layout = saved.layout
     state.workspaceSize = normalizeWorkspaceSize(saved.workspaceSize)
+    state.workspaceMaximized = saved.workspaceMaximized === true
+    state.maximizedFrom = saved.maximizedFrom === 'workspace' ? 'workspace' : 'float'
+    if (state.workspaceMaximized) state.layout = 'workspace'
     if (saved.sizeByType && typeof saved.sizeByType === 'object') {
       sizePreference.translation = normalizeSize(saved.sizeByType.translation)
       sizePreference.annotation = normalizeSize(saved.sizeByType.annotation)
@@ -79,8 +94,14 @@ const ensurePreferences = () => {
 }
 
 export const resolveChatSize = (mode = 'small') => {
-  const viewportWidth = typeof window === 'undefined' ? 1280 : (Number(window.innerWidth) || 1280)
-  const viewportHeight = typeof window === 'undefined' ? 800 : (Number(window.innerHeight) || 800)
+  const viewportWidth = Number(state.viewportWidth) || 1280
+  const viewportHeight = Number(state.viewportHeight) || 800
+  if (mode === 'maximized') {
+    return {
+      width: viewportWidth,
+      height: viewportHeight,
+    }
+  }
   const presets = {
     small: { width: WINDOW_WIDTH, height: WINDOW_HEIGHT },
     medium: { width: 760, height: 680 },
@@ -100,6 +121,7 @@ export const isChatWindowVisible = (chatWindow) => {
   if (!chatWindow) return false
   if (state.layout === 'workspace' && state.workspaceMinimized) return false
   if (state.layout === 'workspace') return state.activeKey === chatWindow.key
+  if (state.pinnedKey && state.pinnedKey !== chatWindow.key) return false
   return !chatWindow.minimized
 }
 
@@ -127,8 +149,16 @@ const clampPosition = (x, y, width = WINDOW_WIDTH, height = WINDOW_HEIGHT) => {
   }
 }
 
+const workspaceFrameMode = () => (state.workspaceMaximized ? 'maximized' : state.workspaceSize)
+
 const ensureWorkspacePlaced = () => {
-  const size = resolveChatSize(state.workspaceSize)
+  const size = resolveChatSize(workspaceFrameMode())
+  if (state.workspaceMaximized) {
+    state.workspaceX = 0
+    state.workspaceY = 0
+    state.workspaceReady = true
+    return
+  }
   if (!state.workspaceReady) {
     const viewportWidth = Number(window.innerWidth) || 1280
     const viewportHeight = Number(window.innerHeight) || 800
@@ -234,6 +264,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
     existing.minimized = false
+    if (state.pinnedKey && state.layout === 'float') state.pinnedKey = key
     existing.unread = 0
     state.activeKey = key
     focusChat(key)
@@ -266,16 +297,18 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
   chatWindow.zIndex = ++zSequence
   state.activeKey = key
   state.windows.push(chatWindow)
+  if (state.pinnedKey && state.layout === 'float') state.pinnedKey = key
   activateWorkspace(key)
   enforceExpandedLimit(key)
   if (needsMeta) fillChatWindowMeta(chatWindow)
   return key
 }
 
-const focusChat = (key) => {
+const focusChat = (key, minimumZ = 0) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
   state.activeKey = key
+  zSequence = Math.max(zSequence, Number(minimumZ) || 0)
   chatWindow.zIndex = ++zSequence
   touchWindow(chatWindow)
 }
@@ -295,6 +328,7 @@ const setPosition = (key, x, y) => {
 }
 
 const setWorkspacePosition = (x, y) => {
+  if (state.workspaceMaximized) return
   const size = resolveChatSize(state.workspaceSize)
   const position = clampPosition(x, y, size.width, size.height)
   state.workspaceX = position.x
@@ -320,6 +354,32 @@ const cycleSize = (key) => {
   applySize(chatWindow, SIZE_MODES[(index + 1) % SIZE_MODES.length])
 }
 
+const setSize = (key, mode) => {
+  const chatWindow = state.windows.find(item => item.key === key)
+  if (chatWindow) applySize(chatWindow, mode)
+}
+
+const setWorkspaceSize = (mode) => {
+  state.workspaceSize = normalizeWorkspaceSize(mode)
+  state.workspaceMaximized = false
+  persistPreferences()
+  ensureWorkspacePlaced()
+}
+
+const rememberFloatWindows = () => {
+  if (state.layout !== 'float') return
+  floatWindowSnapshot = new Map(state.windows.map(item => [item.key, item.minimized]))
+}
+
+const restoreFloatWindows = () => {
+  if (!floatWindowSnapshot) return
+  state.windows.forEach(item => {
+    // 大屏里新开的会话先收起，避免退出时突然铺开一批窗口。
+    item.minimized = floatWindowSnapshot.has(item.key) ? floatWindowSnapshot.get(item.key) : true
+  })
+  floatWindowSnapshot = null
+}
+
 const toggleQuickSize = (key) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
@@ -327,16 +387,89 @@ const toggleQuickSize = (key) => {
 }
 
 const cycleWorkspaceSize = () => {
-  state.workspaceSize = state.workspaceSize === 'medium' ? 'large' : 'medium'
+  if (state.workspaceMaximized) state.workspaceMaximized = false
+  else state.workspaceSize = state.workspaceSize === 'medium' ? 'large' : 'medium'
   persistPreferences()
   ensureWorkspacePlaced()
 }
 
+const toggleWorkspaceMaximize = () => {
+  ensurePreferences()
+  if (state.workspaceMaximized) {
+    state.workspaceMaximized = false
+    const restoreLayout = state.maximizedFrom === 'workspace' ? 'workspace' : 'float'
+    state.layout = restoreLayout
+    persistPreferences()
+    if (restoreLayout === 'workspace') {
+      state.workspaceX = maximizedRestoreX
+      state.workspaceY = maximizedRestoreY
+      state.workspaceReady = maximizedRestoreReady
+      state.workspaceMinimized = false
+      ensureWorkspacePlaced()
+      focusWorkspace()
+      return
+    }
+    restoreFloatWindows()
+    const active = state.windows.find(item => item.key === state.activeKey)
+    if (active && isChatWindowVisible(active)) {
+      active.unread = 0
+      focusChat(active.key)
+    }
+    enforceExpandedLimit(state.activeKey)
+    return
+  }
+  rememberFloatWindows()
+  state.maximizedFrom = state.layout === 'workspace' ? 'workspace' : 'float'
+  maximizedRestoreX = state.workspaceX
+  maximizedRestoreY = state.workspaceY
+  maximizedRestoreReady = state.workspaceReady
+  state.workspaceMaximized = true
+  state.layout = 'workspace'
+  state.workspaceOpened = true
+  state.workspaceMinimized = false
+  if (!state.windows.some(item => item.key === state.activeKey)) {
+    const newest = [...state.windows].sort((left, right) => right.lastActiveOrder - left.lastActiveOrder)[0]
+    state.activeKey = newest?.key || ''
+  }
+  const active = state.windows.find(item => item.key === state.activeKey)
+  if (active) active.unread = 0
+  ensureWorkspacePlaced()
+  focusWorkspace()
+  persistPreferences()
+}
+
+const openFullscreen = () => {
+  ensurePreferences()
+  if (!state.workspaceMaximized) toggleWorkspaceMaximize()
+  state.layout = 'workspace'
+  state.workspaceOpened = true
+  state.workspaceMinimized = false
+  ensureWorkspacePlaced()
+  focusWorkspace()
+}
+
+const pinChat = (key = state.activeKey) => {
+  const chatWindow = state.windows.find(item => item.key === key)
+  if (!chatWindow) return
+  restoreFloatWindows()
+  state.layout = 'float'
+  state.workspaceMaximized = false
+  state.workspaceMinimized = false
+  state.pinnedKey = key
+  chatWindow.minimized = false
+  applySize(chatWindow, 'small')
+  focusChat(key)
+  persistPreferences()
+}
+
 const setLayout = (layout) => {
   ensurePreferences()
+  if (layout === 'workspace') rememberFloatWindows()
   state.layout = layout === 'workspace' ? 'workspace' : 'float'
+  if (state.layout === 'float') state.workspaceMaximized = false
   persistPreferences()
   if (state.layout === 'workspace') {
+    state.workspaceOpened = true
     state.workspaceMinimized = false
     if (!state.windows.some(item => item.key === state.activeKey)) {
       const newest = [...state.windows].sort((left, right) => right.lastActiveOrder - left.lastActiveOrder)[0]
@@ -348,6 +481,7 @@ const setLayout = (layout) => {
     focusWorkspace()
     return
   }
+  restoreFloatWindows()
   if (state.activeKey) {
     const active = state.windows.find(item => item.key === state.activeKey)
     if (active) {
@@ -363,6 +497,10 @@ const clampAllPositions = () => {
   // 视口异常（最小化到 0 或小于窗口尺寸）时保持原坐标，避免把窗口永久压到角落。
   const viewportWidth = Number(window.innerWidth) || 0
   const viewportHeight = Number(window.innerHeight) || 0
+  // 视口尺寸参与 Vue 响应式计算，全屏及聊天内容区随缩放一起更新。
+  if (viewportWidth > 0) state.viewportWidth = viewportWidth
+  if (viewportHeight > 0) state.viewportHeight = viewportHeight
+  if (state.workspaceReady) ensureWorkspacePlaced()
   if (
     viewportWidth < WINDOW_WIDTH + VIEWPORT_MARGIN * 2
     || viewportHeight < WINDOW_HEIGHT + VIEWPORT_MARGIN * 2
@@ -371,7 +509,6 @@ const clampAllPositions = () => {
     const size = resolveChatSize(chatWindow.sizeMode || 'small')
     Object.assign(chatWindow, clampPosition(chatWindow.x, chatWindow.y, size.width, size.height))
   })
-  if (state.workspaceReady) ensureWorkspacePlaced()
 }
 
 const incrementUnread = (key) => {
@@ -383,6 +520,7 @@ const incrementUnread = (key) => {
 const closeChat = (key) => {
   const index = state.windows.findIndex(item => item.key === key)
   if (index >= 0) state.windows.splice(index, 1)
+  if (state.pinnedKey === key) state.pinnedKey = '__empty__'
   if (state.activeKey === key) {
     const newest = [...state.windows].sort((left, right) => right.lastActiveOrder - left.lastActiveOrder)[0]
     state.activeKey = newest?.key || ''
@@ -392,6 +530,8 @@ const closeChat = (key) => {
 const closeAllChats = () => {
   state.windows.splice(0, state.windows.length)
   state.activeKey = ''
+  state.pinnedKey = ''
+  state.workspaceOpened = false
 }
 
 const minimizeChat = (key) => {
@@ -428,6 +568,7 @@ const restoreChat = (key) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
   chatWindow.minimized = false
+  if (state.pinnedKey) state.pinnedKey = key
   chatWindow.unread = 0
   focusChat(key)
   enforceExpandedLimit(key)
@@ -448,8 +589,13 @@ export const useProjectChatDock = () => ({
   clampAllPositions,
   incrementUnread,
   cycleSize,
+  setSize,
+  setWorkspaceSize,
+  pinChat,
+  openFullscreen,
   toggleQuickSize,
   cycleWorkspaceSize,
+  toggleWorkspaceMaximize,
   setLayout,
   selectSession,
   minimizeWorkspace,

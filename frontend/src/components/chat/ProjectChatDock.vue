@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
-    <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" aria-label="全局悬浮窗口">
-      <div v-show="workspaceVisible" class="chat-workspace-shell" :style="workspaceShellStyle" @mousedown="focusWorkspace">
+    <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" :class="{ 'project-chat-dock--immersive': workspaceVisible && state.workspaceMaximized }" aria-label="全局悬浮窗口">
+      <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
         <ChatWorkspace
           :sessions="sessions"
           :active-key="state.activeKey"
@@ -9,17 +9,23 @@
           :narrow="workspaceNarrow"
           :sidebar-open="sidebarOpen"
           :size-mode="state.workspaceSize"
+          :maximized="state.workspaceMaximized"
+          :session-width="workspaceNarrow ? 240 : sidebarWidth"
           :title="activeWindow?.title || '沟通'"
           :subtitle="activeWindow?.subtitle || ''"
           :project-type="activeWindow?.projectType || ''"
           :meta-loading="!!activeWindow?.metaLoading"
           :dragging="draggingKey === '__workspace__'"
-          @select="selectSession($event.key)"
+          @select="selectWorkspaceSession($event.key)"
           @open="openFollowed"
           @close="closeChat($event.key)"
           @close-active="activeWindow && closeChat(activeWindow.key)"
           @minimize="minimizeWorkspace"
           @cycle-size="cycleWorkspaceSize"
+          @resize="setWorkspaceSize"
+          @fullscreen="openFullscreen"
+          @pin="pinChat()"
+          @toggle-maximize="toggleWorkspaceMaximize"
           @toggle-layout="setLayout('float')"
           @open-search="openSearch(state.activeKey)"
           @toggle-sidebar="sidebarOpen = !sidebarOpen"
@@ -31,7 +37,7 @@
 
       <section
         v-for="chatWindow in state.windows"
-        v-show="isChatWindowVisible(chatWindow)"
+        v-show="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && workspaceNarrow && sidebarOpen)"
         :key="chatWindow.key"
         class="project-chat-window"
         :class="windowClass(chatWindow)"
@@ -39,7 +45,7 @@
         @mousedown="onWindowMouseDown(chatWindow)"
       >
         <header
-          v-show="showFloatChrome"
+          v-show="state.layout !== 'workspace'"
           class="project-chat-window__header"
           :class="{ 'project-chat-window__header--dragging': draggingKey === chatWindow.key }"
           @mousedown="startDrag($event, chatWindow)"
@@ -61,12 +67,7 @@
             <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
               <el-icon><Search /></el-icon>
             </el-button>
-            <el-button v-if="!isCompactScreen" link aria-label="会话列表" title="切换到会话列表" @click="setLayout('workspace')">
-              <el-icon><ChatDotRound /></el-icon>
-            </el-button>
-            <el-button v-if="!isCompactScreen" link aria-label="窗口尺寸" :title="`窗口尺寸：${sizeLabel(chatWindow.sizeMode)}，点击切换`" @click="cycleSize(chatWindow.key)">
-              {{ sizeLabel(chatWindow.sizeMode) }}
-            </el-button>
+            <ChatWindowStateMenu v-if="!isCompactScreen" :size-mode="chatWindow.sizeMode" :pinned="state.pinnedKey === chatWindow.key" @resize="setSize(chatWindow.key, $event)" @workspace="setLayout('workspace')" @fullscreen="maximizeChat(chatWindow.key)" @pin="pinChat(chatWindow.key)" />
             <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
               <el-icon><Minus /></el-icon>
             </el-button>
@@ -135,6 +136,7 @@ import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import {
   isChatWindowVisible,
@@ -157,9 +159,13 @@ const {
   setWorkspacePosition,
   clampAllPositions,
   incrementUnread,
-  cycleSize,
+  setSize,
+  setWorkspaceSize,
+  pinChat,
+  openFullscreen,
   toggleQuickSize,
   cycleWorkspaceSize,
+  toggleWorkspaceMaximize,
   setLayout,
   selectSession,
   minimizeWorkspace,
@@ -170,7 +176,6 @@ const { followed, error: followedError, refresh: refreshFollowed } = useAnnotati
 
 const COMPACT_SCREEN_WIDTH = 768
 const WORKSPACE_HEADER = 52
-const SIZE_LABELS = { small: '小', medium: '中', large: '大' }
 const isCompactScreen = ref(false)
 const draggingKey = ref('')
 const sidebarOpen = ref(true)
@@ -181,42 +186,42 @@ const setPanelRef = (key, el) => {
   else panelRefs.delete(key)
 }
 
-const sizeLabel = mode => SIZE_LABELS[mode] || '小'
-const showFloatChrome = computed(() => isCompactScreen.value || state.layout !== 'workspace')
-const workspaceNarrow = computed(() => resolveChatSize(state.workspaceSize).width < 640)
+const workspaceNarrow = computed(() => resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width < 640)
 const workspaceVisible = computed(() => (
-  !isCompactScreen.value
-  && state.layout === 'workspace'
+  state.layout === 'workspace'
   && !state.workspaceMinimized
-  && (state.windows.length > 0 || followed.value.length > 0)
+  && (state.workspaceOpened || state.windows.length > 0 || followed.value.length > 0)
 ))
 const showWorkspaceTask = computed(() => (
   state.layout === 'workspace'
   && state.workspaceMinimized
-  && (state.windows.length > 0 || followed.value.length > 0)
+  && (state.workspaceOpened || state.windows.length > 0 || followed.value.length > 0)
 ))
 const minimizedWindows = computed(() => (
-  state.layout !== 'workspace' || isCompactScreen.value
-    ? state.windows.filter(item => item.minimized)
+  state.layout !== 'workspace'
+    ? state.windows.filter(item => item.minimized && (!state.pinnedKey || state.pinnedKey === item.key))
     : []
 ))
 const sidebarWidth = computed(() => {
   if (!workspaceVisible.value) return 0
-  if (workspaceNarrow.value && !sidebarOpen.value) return 0
-  return 240
+  if (workspaceNarrow.value) return 0
+  return state.workspaceMaximized ? 280 : 240
 })
 const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey) || null)
 const sessions = computed(() => {
   const openedAnnotation = new Set()
   const rows = state.windows.map((item) => {
     if (item.projectType === 'annotation') openedAnnotation.add(String(item.projectId))
+    const followedUnread = item.projectType === 'annotation'
+      ? followed.value.find(project => String(project.projectId) === String(item.projectId))?.unread || 0
+      : 0
     return {
       key: item.key,
       projectId: item.projectId,
       projectType: item.projectType,
       title: item.title,
       subtitle: item.subtitle,
-      unread: isChatWindowVisible(item) ? 0 : (item.unread || 0),
+      unread: isChatWindowVisible(item) ? 0 : Math.max(item.unread || 0, followedUnread),
       opened: true,
     }
   })
@@ -235,8 +240,9 @@ const sessions = computed(() => {
   return rows
 })
 const workspaceUnread = computed(() => sessions.value.reduce((sum, item) => sum + (Number(item.unread) || 0), 0))
+const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
 const workspaceShellStyle = computed(() => {
-  const size = resolveChatSize(state.workspaceSize)
+  const size = resolveChatSize(workspaceFrameMode.value)
   return {
     left: `${state.workspaceX}px`,
     top: `${state.workspaceY}px`,
@@ -246,7 +252,7 @@ const workspaceShellStyle = computed(() => {
   }
 })
 const contentRect = computed(() => {
-  const size = resolveChatSize(state.workspaceSize)
+  const size = resolveChatSize(workspaceFrameMode.value)
   const side = sidebarWidth.value
   return {
     x: state.workspaceX + side,
@@ -256,17 +262,19 @@ const contentRect = computed(() => {
   }
 })
 
-const historyPlacement = chatWindow => (
-  (!isCompactScreen.value && state.layout === 'workspace' ? state.workspaceSize : chatWindow.sizeMode) === 'large'
-    ? 'side'
-    : 'overlay'
-)
-const frameSize = chatWindow => (
-  !isCompactScreen.value && state.layout === 'workspace' ? state.workspaceSize : (chatWindow.sizeMode || 'small')
-)
+const historyPlacement = chatWindow => {
+  const mode = state.layout === 'workspace' ? workspaceFrameMode.value : chatWindow.sizeMode
+  return mode === 'large' || mode === 'maximized' ? 'side' : 'overlay'
+}
+const frameSize = chatWindow => {
+  if (state.layout !== 'workspace') return chatWindow.sizeMode || 'small'
+  return state.workspaceMaximized ? 'large' : state.workspaceSize
+}
 const windowClass = chatWindow => ({
-  'project-chat-window--solo': isCompactScreen.value,
-  'project-chat-window--embedded': !isCompactScreen.value && state.layout === 'workspace',
+  'project-chat-window--solo': isCompactScreen.value && state.layout !== 'workspace',
+  'project-chat-window--embedded': state.layout === 'workspace',
+  'project-chat-window--pinned': state.layout === 'float' && state.pinnedKey === chatWindow.key,
+  'project-chat-window--immersive': state.workspaceMaximized && state.layout === 'workspace',
   [`project-chat-window--${frameSize(chatWindow)}`]: true,
 })
 
@@ -276,6 +284,11 @@ const openSearch = (key) => {
   panelRefs.get(key)?.openSearch?.()
 }
 
+const maximizeChat = (key) => {
+  focusChat(key)
+  openFullscreen()
+}
+
 const openFollowed = (session) => {
   openChat({
     projectId: session.projectId,
@@ -283,10 +296,15 @@ const openFollowed = (session) => {
     title: session.title,
     subtitle: session.subtitle,
   })
+  if (workspaceNarrow.value) sidebarOpen.value = false
+}
+
+const selectWorkspaceSession = (key) => {
+  selectSession(key)
+  if (workspaceNarrow.value) sidebarOpen.value = false
 }
 
 const windowStyle = (chatWindow) => {
-  if (isCompactScreen.value) return { zIndex: chatWindow.zIndex }
   if (state.layout === 'workspace') {
     const rect = contentRect.value
     return {
@@ -295,9 +313,10 @@ const windowStyle = (chatWindow) => {
       width: `${rect.width}px`,
       height: `${rect.height}px`,
       zIndex: state.workspaceZ,
-      borderRadius: sidebarWidth.value ? '0 0 12px 0' : '0 0 12px 12px',
+      borderRadius: state.workspaceMaximized ? '0' : (sidebarWidth.value ? '0 0 12px 0' : '0 0 12px 12px'),
     }
   }
+  if (isCompactScreen.value) return { zIndex: chatWindow.zIndex }
   const size = resolveChatSize(chatWindow.sizeMode || 'small')
   return {
     left: `${chatWindow.x}px`,
@@ -347,7 +366,7 @@ const startDrag = (event, chatWindow) => {
 }
 
 const startWorkspaceDrag = (event) => {
-  if (isCompactScreen.value || event.button !== 0) return
+  if (isCompactScreen.value || state.workspaceMaximized || event.button !== 0) return
   if (event.target.closest('.chat-workspace__heading, .chat-workspace__actions, button, a, input')) return
   focusWorkspace()
   beginDrag(event, '__workspace__', state.workspaceX, state.workspaceY)
@@ -362,11 +381,12 @@ const onHeaderDblClick = (event, chatWindow) => {
 const onWorkspaceDblClick = (event) => {
   if (dragState.moved) return
   if (event.target.closest('.chat-workspace__heading, .chat-workspace__actions, button, a, input')) return
-  cycleWorkspaceSize()
+  if (state.workspaceMaximized) toggleWorkspaceMaximize()
+  else cycleWorkspaceSize()
 }
 
 const onWindowMouseDown = (chatWindow) => {
-  if (!isCompactScreen.value && state.layout === 'workspace') focusWorkspace()
+  if (state.layout === 'workspace') focusWorkspace()
   else focusChat(chatWindow.key)
 }
 
@@ -385,22 +405,30 @@ const syncViewportState = () => {
   enforceSoloWindow()
 }
 
+const onBusinessDialogOpened = (event) => {
+  if (state.layout !== 'float' || !state.pinnedKey) return
+  const overlay = event.detail?.element?.closest?.('.el-overlay')
+  focusChat(state.pinnedKey, overlay ? Number(window.getComputedStyle(overlay).zIndex) : 0)
+}
+
 watch(() => state.windows.length, () => {
   enforceSoloWindow()
 })
 watch(workspaceNarrow, (narrow) => {
   if (narrow) sidebarOpen.value = false
-})
+}, { immediate: true })
 
 onMounted(() => {
   ensurePreferences()
   syncViewportState()
   window.addEventListener('resize', syncViewportState)
+  document.addEventListener('app-dialog-opened', onBusinessDialogOpened)
 })
 
 onBeforeUnmount(() => {
   stopDrag()
   window.removeEventListener('resize', syncViewportState)
+  document.removeEventListener('app-dialog-opened', onBusinessDialogOpened)
   closeAllChats()
 })
 </script>
@@ -422,6 +450,34 @@ onBeforeUnmount(() => {
   background: var(--el-bg-color);
   box-shadow: 0 12px 32px rgb(15 23 42 / 16%);
   pointer-events: auto;
+}
+
+.chat-workspace-shell--maximized {
+  border-radius: 0;
+  outline: 0;
+}
+
+/* 持续的提及提醒也必须避开全屏标题栏，确保还原、最小化、关闭始终可点击。 */
+:global(body:has(.project-chat-dock--immersive) .el-notification) {
+  margin-top: 52px;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+}
+
+.project-chat-window--immersive :deep(.group-timeline),
+.project-chat-window--immersive :deep(.chat-conversation) {
+  padding: 24px 32px;
+  background: var(--el-fill-color-light);
+}
+
+.project-chat-window--immersive :deep(.group-composer),
+.project-chat-window--immersive :deep(.chat-composer--conversation) {
+  padding: 12px 24px;
+}
+
+.project-chat-window--immersive :deep(.group-composer textarea) {
+  min-height: 110px;
+  box-shadow: none;
 }
 
 .project-chat-window {

@@ -54,6 +54,7 @@ def main_test():
     project = AnnotationProject(order_no='QA-CHAT-' + marker, project_name='开放项目群验收-' + marker, project_types=[])
     db.add_all([role, project, *users]); db.flush()
     db.add(RolePermission(role_id=role.id, permission_code='projects:read'))
+    db.add(RolePermission(role_id=role.id, permission_code='projects:write'))
     db.add_all(UserRole(role_id=role.id, user_id=u.id) for u in users)
     db.commit()
     pid, uid, role_id = str(project.id), [u.id for u in users], role.id
@@ -76,9 +77,15 @@ def main_test():
                 page.goto(BASE + '/login')
                 info = {'token': tokens[index], 'user_id': str(users[index].id), 'user_name': users[index].username,
                         'user_full_name': users[index].full_name, 'user_roles': json.dumps([role.role_name]),
-                        'user_permissions': json.dumps(['projects:read'])}
+                        'user_permissions': json.dumps(['projects:read', 'projects:write'] if index == 0 else ['projects:read'])}
                 page.evaluate('(info) => Object.entries(info).forEach(([key,value]) => localStorage.setItem(key,value))', info)
                 page.goto(BASE + '/annotation-details', wait_until='networkidle')
+                if index == 0:
+                    page.get_by_role('button', name='聊天大屏', exact=True).click()
+                    expect(page.locator('.chat-workspace-shell')).to_be_visible()
+                    expect(page.locator('.chat-workspace__empty')).to_contain_text('从左侧选择')
+                    page.get_by_role('button', name='还原窗口', exact=True).click()
+                    results['header_opens_empty_fullscreen'] = True
                 keyword = page.locator('input[placeholder*="订单号、项目名称"]')
                 keyword.fill(project.order_no)
                 keyword.press('Enter')
@@ -96,22 +103,85 @@ def main_test():
             results['open_without_invitation'] = True
             pages[0].bring_to_front()
             shell = pages[0].locator('.project-chat-window:visible').first
-            expect(shell.get_by_role('button', name='窗口尺寸')).to_be_visible()
-            expect(shell.get_by_role('button', name='会话列表')).to_be_visible()
+            expect(shell.get_by_role('button', name='窗口状态')).to_be_visible()
             width_before = shell.bounding_box()['width']
-            shell.get_by_role('button', name='窗口尺寸').click()
+            shell.get_by_role('button', name='窗口状态').click()
+            pages[0].locator('.chat-window-state-menu:visible').get_by_role('button', name='中窗', exact=True).click()
             pages[0].wait_for_timeout(250)
             results['size_cycle_changes_width'] = shell.bounding_box()['width'] != width_before
-            shell.get_by_role('button', name='窗口尺寸').click()
-            shell.get_by_role('button', name='窗口尺寸').click()
+            shell.get_by_role('button', name='窗口状态').click()
+            pages[0].locator('.chat-window-state-menu:visible').get_by_role('button', name='小窗', exact=True).click()
             pages[0].locator('.annotation-group:visible').get_by_role('button', name='聊天记录').click()
             expect(pages[0].locator('.chat-history:visible')).to_be_visible()
             pages[0].locator('.chat-history:visible').get_by_role('button', name='关闭聊天记录').click()
-            shell.get_by_role('button', name='会话列表').click()
+            shell.get_by_role('button', name='窗口状态').click()
+            pages[0].locator('.chat-window-state-menu:visible').get_by_role('button', name='会话工作区').click()
             expect(pages[0].locator('.chat-workspace-shell')).to_be_visible()
-            pages[0].get_by_role('button', name='独立窗口').click()
+            pages[0].get_by_role('button', name='固定小窗', exact=True).click()
             expect(pages[0].locator('.annotation-group:visible')).to_be_visible()
             results['workspace_roundtrip'] = True
+            draft = '全屏切换草稿，不发送'
+            pages[0].locator('.annotation-group:visible textarea').fill(draft)
+            float_box = shell.bounding_box()
+            pages[0].get_by_role('button', name='聊天大屏', exact=True).click()
+            workspace = pages[0].locator('.chat-workspace-shell')
+            expect(workspace).to_be_visible()
+            maximized_box = workspace.bounding_box()
+            assert maximized_box['width'] >= 1400 and maximized_box['height'] >= 900
+            expect(pages[0].locator('.chat-workspace__sessions')).to_be_visible()
+            expect(pages[0].locator('.annotation-group:visible')).to_be_visible()
+            expect(pages[0].locator('.annotation-group:visible textarea')).to_have_value(draft)
+            sessions_box = pages[0].locator('.chat-workspace__sessions').bounding_box()
+            assert sessions_box['y'] == 0 and sessions_box['height'] == 950
+            pages[0].screenshot(path=str(OUT / 'immersive-desktop.png'))
+            pages[0].set_viewport_size({'width': 1024, 'height': 720})
+            expect(workspace).to_have_css('width', '1024px')
+            expect(workspace).to_have_css('height', '720px')
+            chat_box = pages[0].locator('.project-chat-window:visible').bounding_box()
+            assert chat_box['x'] >= 280 and chat_box['x'] + chat_box['width'] <= 1024
+            assert chat_box['y'] + chat_box['height'] <= 720
+            pages[0].get_by_role('button', name='最小化沟通', exact=True).click()
+            expect(workspace).to_be_hidden()
+            pages[0].get_by_role('button', name='沟通', exact=True).click()
+            expect(workspace).to_be_visible()
+            expect(pages[0].locator('.annotation-group:visible textarea')).to_have_value(draft)
+            pages[0].set_viewport_size({'width': 1440, 'height': 950})
+            expect(workspace).to_have_css('width', '1440px')
+            pages[0].get_by_role('button', name='还原窗口', exact=True).click()
+            expect(workspace).to_be_hidden()
+            expect(pages[0].locator('.annotation-group:visible')).to_be_visible()
+            expect(pages[0].locator('.annotation-group:visible textarea')).to_have_value(draft)
+            restored_box = shell.bounding_box()
+            assert restored_box['width'] == float_box['width'] and restored_box['height'] == float_box['height']
+            results['maximize_wechat_layout'] = True
+            pages[0].get_by_role('button', name='聊天大屏', exact=True).click()
+            pages[0].get_by_role('button', name='固定小窗', exact=True).click()
+            expect(workspace).to_be_hidden()
+            expect(shell).to_be_visible()
+            expect(pages[0].locator('.annotation-group:visible textarea')).to_have_value(draft)
+            keyword = pages[0].locator('input[placeholder*="订单号、项目名称"]')
+            keyword.fill(project.order_no)
+            expect(keyword).to_be_focused()
+            keyword.press('Enter')
+            expect(shell).to_be_visible()
+            pages[0].get_by_role('button', name='新增标注项目', exact=True).click()
+            form_dialog = pages[0].locator('.annotation-editor-dialog:visible')
+            expect(form_dialog).to_be_visible()
+            field = form_dialog.locator('input[placeholder="可手工填写，或根据客户、方向和类型生成"]')
+            field.fill('固定聊天并行编辑验收，不保存')
+            expect(field).to_be_focused()
+            chat_editor = pages[0].locator('.annotation-group:visible textarea')
+            chat_editor.click()
+            expect(chat_editor).to_be_focused()
+            chat_editor.fill(draft)
+            field.click()
+            expect(field).to_be_focused()
+            form_dialog.get_by_role('button', name='取消', exact=True).click()
+            expect(form_dialog).to_be_hidden()
+            pages[0].get_by_role('button', name='聊天大屏', exact=True).click()
+            expect(workspace).to_be_visible()
+            pages[0].get_by_role('button', name='固定小窗', exact=True).click()
+            results['pin_chat_and_edit_page_without_scattering'] = True
             editor = pages[0].locator('.annotation-group:visible textarea')
             editor.fill('请协助 @群聊验收')
             menu = pages[0].get_by_role('listbox', name='选择提及用户')
@@ -177,11 +247,14 @@ def main_test():
             expect(pages[1].locator('.group-content', has_text='实时群聊验收第一条')).to_be_visible(timeout=10000)
             results['spectator_realtime'] = True
             pages[1].bring_to_front()
+            pages[1].get_by_role('button', name='聊天大屏', exact=True).click()
             bubble = pages[1].locator('.group-message', has_text='实时群聊验收第一条')
             bubble.hover(); bubble.get_by_role('button', name='引用', exact=True).click()
             pages[1].locator('.annotation-group:visible textarea').fill('这是引用回复')
             pages[1].locator('.annotation-group:visible textarea').press('Enter')
             expect(pages[0].locator('.group-content', has_text='这是引用回复')).to_be_visible(timeout=10000)
+            pages[1].screenshot(path=str(OUT / 'immersive-conversation.png'))
+            pages[1].get_by_role('button', name='还原窗口', exact=True).click()
             results['reply'] = True
             pages[0].bring_to_front()
             first = pages[0].locator('.group-message').filter(has=pages[0].locator('.group-content', has_text='实时群聊验收第一条')).first
@@ -274,7 +347,7 @@ def main_test():
             db.close()
             db = SessionLocal()
         db.query(AppNotification).filter(AppNotification.recipient_user_id.in_(uid)).delete(synchronize_session=False)
-        db.query(AnnotationProject).filter(AnnotationProject.id == project.id).delete(synchronize_session=False)
+        db.query(AnnotationProject).filter(AnnotationProject.id == pid).delete(synchronize_session=False)
         db.query(UserRole).filter(UserRole.user_id.in_(uid)).delete(synchronize_session=False)
         db.query(RolePermission).filter(RolePermission.role_id == role_id).delete(synchronize_session=False)
         db.query(AppUser).filter(AppUser.id.in_(uid)).delete(synchronize_session=False)
