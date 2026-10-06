@@ -15,7 +15,7 @@ test('具体任务列默认展示但不再绕过安排池', () => {
 })
 
 test('项目操作列只保留高频安排入口，编辑和移出收进更多菜单', () => {
-  assert.match(page, /label="操作" width="150"/)
+  assert.match(page, /label="操作" width="120"/)
   assert.match(page, /edit-in-more/)
   assert.match(page, /command: 'arrangement-remove', label: '移出安排'/)
   assert.doesNotMatch(page, />移出<\/el-button>/)

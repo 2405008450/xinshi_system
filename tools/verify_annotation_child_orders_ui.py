@@ -25,9 +25,14 @@ def run():
     log = (out / 'preview.log').open('w', encoding='utf-8')
     process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--outDir', '../.tmp/frontend-dist', '--host', '127.0.0.1', '--port', '12423', '--strictPort'], cwd=ROOT / 'frontend', stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     parent = dict(id=PID, order_no='AP-QA-CHILD', project_name='多语种标注母订单', project_types=['text_annotation'], task_description='公共标注要求', client_id=CID, client_short_name='验收客户', client_full_name='验收客户全称', client_code='QA-CLIENT', contact_name='母订单联系人', customer_order_no='CUSTOMER-QA', client_manager_id=UID, client_manager_name='验收经理', project_status='trial_preparation', priority='medium', status_effective_on=NOW, task_dispatched_at=NOW, task_submitted_at=None, updated_at=NOW, created_at=NOW, language_items=[dict(id=str(uuid4()), source_language_id=LID, source_language_label='英语', display='英语', sequence_no=1)], language_items_display='英语', price_items=[], assignees=[], custom_values={}, role_assignments=[dict(role_code='project_manager', role_name='项目经理', assignee_id=UID, assignee_name='验收经理', assignment_type='direct')], parent_project_id=None, child_count=2, child_status_counts={'trial_preparation': 2})
+    # 长编号和七个语种用于复现列表逐字换行、行高失控的问题。
+    parent['order_no'] = 'AP-260929-003'
+    for sequence, label in enumerate(['南非荷兰语', '冰岛语', '阿尔巴尼亚语', '爱尔兰语', '宿务语', '加泰罗尼亚语'], 2):
+        parent['language_items'].append(dict(id=str(uuid4()), source_language_id=str(uuid4()), source_language_label=label, display=label, sequence_no=sequence))
+    parent['language_items_display'] = '；'.join(item['display'] for item in parent['language_items'])
     children = []
     for index in range(2):
-        children.append({**parent, 'id': str(uuid4()), 'order_no': f'AP-QA-CHILD-S{index+1:03d}', 'project_name': f'英语标注批次{index+1}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': index+1, 'child_count': 0, 'child_status_counts': {}})
+        children.append({**parent, 'id': str(uuid4()), 'order_no': f'{parent["order_no"]}-S{index+1:03d}', 'project_name': f'英语标注批次{index+1}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': index+1, 'child_count': 0, 'child_status_counts': {}})
     errors, creates, scopes = [], [], []
 
     def api(route):
@@ -50,7 +55,7 @@ def run():
             for item in items:
                 number = len(children) + 1
                 language = '日语' if item['language_items'][0]['source_language_id'] == LID2 else '英语'
-                child = {**parent, **item, 'id': str(uuid4()), 'order_no': f'AP-QA-CHILD-S{number:03d}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': number, 'child_count': 0, 'child_status_counts': {}, 'language_items_display': language}
+                child = {**parent, **item, 'id': str(uuid4()), 'order_no': f'{parent["order_no"]}-S{number:03d}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': number, 'child_count': 0, 'child_status_counts': {}, 'language_items_display': language}
                 children.append(child); added.append(child)
             parent['child_count'] = len(children); parent['child_status_counts'] = {'trial_preparation': len(children)}
             result = added if 'items' in payload else added[0]; status = 201
@@ -81,9 +86,56 @@ def run():
             context = browser.new_context(viewport={'width':1440,'height':1000})
             context.route('**/api/**', api)
             context.add_init_script("localStorage.setItem('token','isolated-qa');localStorage.setItem('user_roles','[\"admin\"]')")
+            context.add_init_script("if (!localStorage.getItem('table-columns:annotation-details-v6:qa')) localStorage.setItem('table-columns:annotation-details-v6:qa', JSON.stringify(['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']))")
             page = context.new_page(); page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(BASE + '/annotation-details')
             expect(page.get_by_role('button', name='新增标注项目', exact=True)).to_be_visible()
+            selection = page.evaluate("JSON.parse(localStorage.getItem('table-columns:annotation-details-v6:qa'))")
+            assert len(selection) == 8 and 'customerPriceSummary' not in selection, selection
+            page.get_by_role('button', name='字段设置', exact=True).click()
+            settings = page.locator('.table-column-settings-popover:visible')
+            settings.locator('.el-checkbox').filter(has_text='客户经理').click()
+            page.mouse.click(300, 160)
+            page.reload()
+            expect(page.get_by_role('button', name='新增标注项目', exact=True)).to_be_visible()
+            assert 'clientManagerName' in page.evaluate("JSON.parse(localStorage.getItem('table-columns:annotation-details-v6:qa'))")
+            page.get_by_role('button', name='字段设置', exact=True).click()
+            settings.get_by_role('button', name='恢复默认', exact=True).click()
+            page.mouse.click(300, 160)
+            expect(settings).not_to_be_visible()
+            table = page.locator('.annotation-table')
+            row = table.locator('.el-table__body-wrapper tr.el-table__row').first
+            order = row.locator('.order-no-link')
+            expect(order).to_have_text(parent['order_no'])
+            assert order.evaluate('(element) => getComputedStyle(element).whiteSpace') == 'nowrap'
+            list_row_height = row.bounding_box()['height']
+            assert order.bounding_box()['height'] < 25
+            assert row.bounding_box()['height'] < 80, row.bounding_box()
+            summary = row.locator('.annotation-language-summary')
+            expect(summary).to_contain_text('+6')
+            table.locator('.el-table__body-wrapper .el-scrollbar__wrap').evaluate('(element)=>element.scrollLeft=element.scrollWidth')
+            summary.click()
+            languages = page.locator('.annotation-languages-popover:visible')
+            expect(languages.get_by_text('加泰罗尼亚语', exact=True)).to_be_visible()
+            languages.get_by_text('加泰罗尼亚语', exact=True).click()
+            expect(page.locator('.annotation-language-reserve-popover:visible')).to_be_visible()
+            page.keyboard.press('Escape'); page.mouse.click(300, 160)
+            row.get_by_role('button', name='查看详情', exact=True).click()
+            expect(page.locator('.annotation-detail-popover:visible').last).to_be_visible()
+            page.mouse.click(300, 160)
+            row.get_by_role('button', name='项目资料', exact=True).click()
+            expect(page.locator('.annotation-material-popover:visible')).to_be_visible()
+            page.mouse.click(300, 160)
+            expect(page.locator('.annotation-material-popover:visible')).not_to_be_visible()
+            page.set_viewport_size({'width':1920,'height':1000})
+            table.locator('.el-table__body-wrapper .el-scrollbar__wrap').evaluate('(element)=>element.scrollLeft=0')
+            page.screenshot(path=str(out / 'annotation-list-desktop.png'), full_page=True)
+            for width in [1024, 768]:
+                page.set_viewport_size({'width':width,'height':900})
+                assert row.bounding_box()['height'] < 80
+                assert order.bounding_box()['height'] < 25
+                page.screenshot(path=str(out / f'annotation-list-{width}.png'), full_page=True)
+            page.set_viewport_size({'width':1440,'height':1000})
             page.locator('.annotation-table .el-table__expand-icon').first.click()
             panel = page.locator('.child-order-panel:visible').first
             expect(panel.get_by_text('英语标注批次1', exact=True)).to_be_visible()
@@ -135,17 +187,20 @@ def run():
             expect(editor.get_by_role('tab', name='订单信息', exact=True)).to_have_attribute('aria-selected', 'true')
             expect(editor.locator('.el-form-item').filter(has=page.locator('label', has_text='具体任务')).first).to_be_visible()
             editor.get_by_role('button',name='取消',exact=True).click()
+            expect(editor).not_to_be_visible()
             page.set_viewport_size({'width':600,'height':740})
             page.get_by_role('button',name='新增标注项目',exact=True).click()
-            expect(editor).to_be_visible(); box=editor.bounding_box(); assert box['width']<=568 and box['height']<=666
+            expect(editor).to_be_visible()
+            page.wait_for_function("() => { const element = [...document.querySelectorAll('.annotation-editor-dialog')].find(item => item.getClientRects().length); if (!element) return false; const box = element.getBoundingClientRect(); return box.width <= 568.5 && box.height <= 666.5; }")
+            box=editor.bounding_box(); assert box['width']<=568.5 and box['height']<=666.5
             editor.get_by_role('button',name='保存',exact=True).click()
             expect(editor.locator('.el-form-item.is-error').first).to_be_visible()
             expect(editor.get_by_role('button',name='取消',exact=True)).to_be_visible()
             page.screenshot(path=str(out/'child-orders-small.png'), full_page=True)
             assert not errors, errors
-            (out/'result.json').write_text(json.dumps(dict(passed=True,batch_rows=2,scopes=sorted(set(scopes)),errors=errors),ensure_ascii=False,indent=2),encoding='utf-8')
+            (out/'result.json').write_text(json.dumps(dict(passed=True,list_row_height=list_row_height,language_count=7,layout_viewports=[1920,1440,1024,768],column_settings_verified=True,batch_rows=2,scopes=sorted(set(scopes)),errors=errors),ensure_ascii=False,indent=2),encoding='utf-8')
             browser.close()
-            print('UI 验收通过：展开、批量预览、同语种多批次、独立管理、只读字段、母订单页签、拖拽边界与复位、小屏校验及固定操作栏')
+            print('UI 验收通过：紧凑行高、多语种及储备小窗、资料详情、字段配置迁移与持久化、展开、批量预览、同语种多批次、独立管理、只读字段、母订单页签、拖拽边界与复位、小屏校验及固定操作栏')
     finally:
         process.terminate(); process.wait(timeout=10); log.close()
 

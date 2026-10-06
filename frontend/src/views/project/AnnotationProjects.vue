@@ -63,8 +63,8 @@
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="48"><template #default="{ row }"><AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision" @create="openChildCreate" /></template></el-table-column>
       <el-table-column v-if="props.orderScope === 'child'" label="母订单" min-width="180"><template #default="{ row }"><el-button link type="primary" @click="openParent(row)">{{ row.parentOrderNo || '-' }}</el-button></template></el-table-column>
-      <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
-      <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
+      <el-table-column type="index" label="序号" :width="56" align="center" fixed="left" />
+      <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="200" fixed="left">
         <template #header>
           <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目管理" /></template>
@@ -72,12 +72,14 @@
         </template>
         <template #default="{ row }">
           <div class="order-cell">
-            <el-tag v-if="row.parentProjectId" size="small" type="warning">子订单</el-tag>
-            <el-button v-else link type="primary" @click="goChildManagement(row.id)">子订单 {{ row.childCount || 0 }}</el-button>
             <AnnotationProjectDetailPopover :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="(updated) => Object.assign(row, updated)">
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </AnnotationProjectDetailPopover>
-            <el-popover trigger="click" placement="left" :width="760" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
+            <div class="order-cell-secondary">
+              <el-tag v-if="row.parentProjectId" size="small" type="warning">子订单</el-tag>
+              <el-button v-else link type="primary" @click="goChildManagement(row.id)">子订单 {{ row.childCount || 0 }}</el-button>
+              <el-popover trigger="click" placement="left" :width="760" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
+            </div>
           </div>
         </template>
       </el-table-column>
@@ -181,20 +183,23 @@
               </el-descriptions>
             </div>
           </el-popover>
-          <div
+          <el-popover
             v-else-if="column.key === 'languageItemsDisplay' && row.languageItems?.length"
-            class="annotation-language-reserve-cell"
+            trigger="click" placement="bottom-start" :width="360"
+            title="全部语言方向 · 点击查看人才储备" popper-class="annotation-languages-popover"
           >
-            <template v-for="(languageItem, languageIndex) in row.languageItems" :key="languageItem.id">
-              <span v-if="languageIndex" class="language-item-separator">；</span>
-              <LanguageTalentReservePopover
-                :language-item="languageItem"
-                :reserves="languageReserveById"
-                :loading="languageReserveLoading"
-                :error="languageReserveError"
-              />
+            <template #reference>
+              <el-button link type="primary" class="annotation-language-summary" @click.stop>
+                <span class="annotation-language-primary">{{ row.languageItems[0].display || row.languageItemsDisplay || '-' }}</span>
+                <span v-if="row.languageItems.length > 1" class="annotation-language-count">+{{ row.languageItems.length - 1 }}</span>
+              </el-button>
             </template>
-          </div>
+            <div class="annotation-language-list">
+              <div v-for="languageItem in row.languageItems" :key="languageItem.id" class="annotation-language-list-item">
+                <LanguageTalentReservePopover :language-item="languageItem" :reserves="languageReserveById" :loading="languageReserveLoading" :error="languageReserveError" />
+              </div>
+            </div>
+          </el-popover>
           <span v-else-if="column.key === 'taskSubmittedAt' && !row.taskSubmittedAt">待定</span>
           <el-tooltip
             v-else-if="column.type === 'datetime'"
@@ -209,7 +214,7 @@
         </template>
       </el-table-column>
       <el-table-column label="详情" width="100" fixed="right"><template #default="{ row }"><AnnotationProjectDetailPopover :project-id="row.id" :summary="row" :editable="false"><template #reference><el-button link type="primary">查看详情</el-button></template></AnnotationProjectDetailPopover></template></el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="150" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right" align="center">
         <template #default="{ row }">
           <div class="annotation-row-actions">
             <span class="arrangement-status-slot">
@@ -753,7 +758,7 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:96 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection,clickHint:'点击语言方向查看人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:98,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:110,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看全部语言及人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -761,7 +766,7 @@ const visibleProjectCustomFields = computed(()=>projectCustomFields.value.filter
 const customTableColumns = computed(()=>visibleProjectCustomFields.value.map((field)=>({key:`custom:${field.id}`,label:field.fieldLabel,minWidth:field.dataType==='text'||field.dataType==='url'?160:110,customField:field})))
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
 const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
-const defaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
+const defaultColumns = ['orderNo','projectName','taskDescription','projectManagerName','projectStatus','clientShortName','languageItemsDisplay','taskSubmittedAt']
 const selectedDefaultColumns = props.orderScope === 'child' ? ['orderNo','projectName','languageItemsDisplay','projectStatus','projectManagerName','taskSubmittedAt'] : defaultColumns
 const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(props.orderScope === 'child' ? 'annotation-child-orders-v1' : 'annotation-details-v6',tableColumns,selectedDefaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
@@ -921,7 +926,6 @@ Object.assign(searchForm,createFilterModel(baseAnnotationFilterFields),{keyword:
 const ensureDynamicFilterModel=()=>annotationFilterFields.value.forEach((field)=>{if(!(field.key in searchForm))searchForm[field.key]=createFilterModel([field])[field.key]})
 const advancedCount=computed(()=>{ensureDynamicFilterModel();return countActiveFilters(searchForm,annotationAdvancedFilterFields.value)})
 const headerFilterDefinition=(key)=>{
-  if(!defaultColumns.includes(key))return null
   return annotationFilterFields.value.find((item)=>item.key===key)||null
 }
 
@@ -1050,10 +1054,25 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 .annotation-language-form-item :deep(.el-form-item__content),.annotation-language-panel{width:100%}.annotation-language-panel .section-title-row h3{font-size:15px}
 .annotation-language-reserve-cell{display:flex;align-items:baseline;flex-wrap:wrap;line-height:1.45}.language-item-separator{color:var(--el-text-color-secondary)}
 @media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.annotation-table :deep(.el-table-fixed-column--left),.annotation-table :deep(.el-table-fixed-column--right){position:static!important;z-index:auto!important;right:auto!important;left:auto!important}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
+
+/* 编号独占首行，辅助入口在第二行；避免按钮相互挤压导致编号逐字换行。 */
+.annotation-table.project-detail-list-table .order-cell { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.annotation-table.project-detail-list-table .order-no-link { display: block; width: 100%; overflow: hidden; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; height: 20px; min-height: 20px; line-height: 20px; }
+.order-cell-secondary { display: flex; align-items: center; gap: 12px; }
+.order-cell-secondary .el-button { margin-left: 0; height: 24px; min-height: 24px; padding: 0; font-size: 12px; }
+.annotation-language-summary { min-height: 24px; display: flex; width: 100%; min-width: 0; height: auto; justify-content: flex-start; padding: 0; }
+.annotation-language-summary :deep(>span) { display: flex; width: 100%; min-width: 0; align-items: center; gap: 5px; }
+.annotation-language-primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.annotation-language-count { flex-shrink: 0; padding: 0 5px; border-radius: 8px; background: var(--el-color-primary-light-9); line-height: 18px; font-size: 12px; }
+.annotation-language-list { max-height: min(400px, calc(100vh - 160px)); overflow-y: auto; }
+.annotation-language-list-item + .annotation-language-list-item { margin-top: 10px; }
+.card-header { flex-wrap: wrap; gap: 12px; }
+.header-actions { flex-wrap: wrap; justify-content: flex-end; }
+.header-actions > .el-button { margin-left: 0; }
 </style>
 
 <style>
-.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+.annotation-languages-popover,.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
 </style>
 
 <style>
