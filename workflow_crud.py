@@ -1299,7 +1299,7 @@ def _annotation_client_manager_project_query(
         joinedload(AnnotationProject.sub_client),
         joinedload(AnnotationProject.client_manager),
         selectinload(AnnotationProject.language_items),
-    ).filter(AnnotationProject.client_manager_id == source_manager_id)
+    ).filter(AnnotationProject.client_manager_id == source_manager_id, AnnotationProject.parent_project_id.is_(None))
     if project_ids is not None:
         query = query.filter(AnnotationProject.id.in_(project_ids))
     if lock:
@@ -1696,6 +1696,8 @@ def direct_transfer_annotation_client_manager(
         )
         project.client_manager_id = target_manager_id
         project.updated_at = now
+        from annotation_service import _sync_child_shared_fields
+        _sync_child_shared_fields(db, project)
 
     source_name = source.full_name or source.username
     target_name = target.full_name or target.username

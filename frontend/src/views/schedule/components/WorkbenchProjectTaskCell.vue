@@ -16,7 +16,7 @@ const props = defineProps({
   row: { type: Object, required: true }
 })
 
-const isSubOrder = computed(() => props.row?.entity_type === 'suborder')
+const isSubOrder = computed(() => props.row?.entity_type === 'suborder' || Boolean(props.row?.parent_project_id))
 const title = computed(() => {
   const value = isSubOrder.value
     ? (props.row?.sub_project_name || props.row?.project_name)
@@ -29,7 +29,9 @@ const taskTypeText = computed(() => {
   return taskType && taskType !== projectType ? taskType : ''
 })
 const parentProjectText = computed(() => (
-  isSubOrder.value && props.row?.project_name
+  props.row?.parent_project_id
+    ? `${props.row.parent_order_no || ''} ${props.row.parent_project_name || ''}`.trim()
+    : isSubOrder.value && props.row?.project_name
     ? String(props.row.project_name).trim()
     : ''
 ))

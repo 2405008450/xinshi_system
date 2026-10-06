@@ -12,6 +12,7 @@ from annotation_schemas import (
     AnnotationNamePreviewRequest,
     AnnotationNamePreviewResponse,
     AnnotationProjectCreate,
+    AnnotationChildBatchCreate,
     AnnotationProjectDetailResponse,
     AnnotationProjectListResponse,
     AnnotationProjectManagersUpdate,
@@ -25,6 +26,9 @@ from annotation_service import (
     AnnotationOrderNoConflict,
     count_annotation_projects,
     create_annotation_project,
+    create_annotation_children,
+    CHILD_SHARED_FIELDS,
+    _sync_child_shared_fields,
     delete_annotation_project,
     get_annotation_project,
     get_annotation_projects,
@@ -185,6 +189,8 @@ def _filters(
     confirmation_date_start=None,
     confirmation_date_end=None,
     field_filters=None,
+    order_scope="all",
+    parent_project_id=None,
     sort="order_no_desc",
 ):
     return dict(
@@ -207,6 +213,8 @@ def _filters(
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
         field_filters=field_filters,
+        order_scope=order_scope,
+        parent_project_id=parent_project_id,
         sort=sort,
     )
 
@@ -234,6 +242,8 @@ def read_projects(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    parent_project_id: Optional[UUID] = None,
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -256,6 +266,7 @@ def read_projects(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        order_scope=order_scope, parent_project_id=parent_project_id,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -283,6 +294,8 @@ def read_project_count(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    parent_project_id: Optional[UUID] = None,
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -305,6 +318,7 @@ def read_project_count(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        order_scope=order_scope, parent_project_id=parent_project_id,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -334,6 +348,8 @@ def read_project_page(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
+    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    parent_project_id: Optional[UUID] = None,
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -352,6 +368,7 @@ def read_project_page(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
+        order_scope=order_scope, parent_project_id=parent_project_id,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -409,6 +426,39 @@ def create_project(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.get("/{project_id}/children", response_model=PageResponse[AnnotationProjectListResponse])
+def read_children(project_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=500), db: Session = Depends(get_db)):
+    parent = get_annotation_project(db, project_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="母订单不存在")
+    if parent.parent_project_id:
+        raise HTTPException(status_code=400, detail="子订单没有下一级订单")
+    filters = {"order_scope": "child", "parent_project_id": project_id}
+    items = get_annotation_projects(db, skip=skip, limit=limit, **filters)
+    return {"items": items, "total": resolve_page_total(items, skip, lambda: count_annotation_projects(db, **filters))}
+
+
+def _create_children(project_id, items, db, current_user, idempotency_key):
+    try:
+        return create_annotation_children(db, project_id, items, current_user.id, idempotency_key)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="子订单创建冲突，请重试") from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{project_id}/children", response_model=AnnotationProjectDetailResponse, status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
+def create_child(project_id: UUID, payload: AnnotationProjectCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), idempotency_key: str = Header(alias="X-Idempotency-Key", min_length=8, max_length=128)):
+    return _create_children(project_id, [payload], db, current_user, idempotency_key)[0]
+
+
+@router.post("/{project_id}/children/batch", response_model=List[AnnotationProjectDetailResponse], status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
+def create_children(project_id: UUID, payload: AnnotationChildBatchCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), idempotency_key: str = Header(alias="X-Idempotency-Key", min_length=8, max_length=128)):
+    return _create_children(project_id, payload.items, db, current_user, idempotency_key)
+
+
 @router.get("/{project_id}", response_model=AnnotationProjectDetailResponse)
 def read_project(project_id: UUID, db: Session = Depends(get_db)):
     project = get_annotation_project(db, project_id)
@@ -449,9 +499,13 @@ def update_project_text_field(
     project = db.get(AnnotationProject, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
+    if project.parent_project_id and payload.field in CHILD_SHARED_FIELDS:
+        raise HTTPException(status_code=400, detail="子订单客户信息由母订单维护")
     try:
+        project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
         changed = apply_text_field_update(project, payload, ANNOTATION_TEXT_FIELDS)
         if changed:
+            _sync_child_shared_fields(db, project)
             db.commit()
     except ValueError as exc:
         db.rollback()

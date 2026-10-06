@@ -8,6 +8,12 @@ ALL_PERMISSION = "*"
 
 PERMISSION_GROUPS = [
     {
+        "group": "公司管理",
+        "permissions": [
+            {"code": "company_management:write", "name": "维护公司栏目、文档与附件"},
+        ],
+    },
+    {
         "group": "系统管理",
         "permissions": [
             {"code": "system:users:read", "name": "查看用户"},

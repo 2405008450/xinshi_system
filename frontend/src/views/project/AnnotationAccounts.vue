@@ -39,6 +39,7 @@
       </div>
     </template>
 
+    <AnnotationOrderContext :project="selectedProject" />
     <div class="filters" :class="{ 'filters--focus': viewMode === 'project' }">
       <el-select v-if="viewMode === 'assets'" v-model="clientId" :disabled="sheetLocked" filterable remote clearable :loading="clientSearchLoading" :remote-method="searchClients" placeholder="输入客户名称后联想" style="width:260px" @change="changeClient">
         <el-option v-for="item in clients" :key="item.id" :label="item.client_short_name || item.client_name" :value="item.id" />
@@ -209,6 +210,7 @@
 </template>
 
 <script setup>
+import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'

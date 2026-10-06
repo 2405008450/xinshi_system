@@ -318,7 +318,11 @@ class AnnotationProjectWrite(BaseModel):
 
 
 class AnnotationProjectCreate(AnnotationProjectWrite):
-    pass
+    parent_project_id: Optional[UUID] = None
+
+
+class AnnotationChildBatchCreate(BaseModel):
+    items: list[AnnotationProjectCreate] = Field(min_length=1, max_length=100)
 
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
@@ -411,6 +415,12 @@ class AnnotationProjectManagersUpdate(BaseModel):
 class AnnotationProjectListResponse(BaseModel):
     id: UUID
     order_no: str
+    parent_project_id: Optional[UUID] = None
+    child_sequence_no: Optional[int] = None
+    parent_order_no: Optional[str] = None
+    parent_project_name: Optional[str] = None
+    child_count: int = 0
+    child_status_counts: dict[str, int] = Field(default_factory=dict)
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list)
     task_description: Optional[str] = None

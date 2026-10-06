@@ -25,6 +25,7 @@
         @clear="clearFieldSearch"
       />
       <div class="quick-dialog-heading">
+        <span v-if="activeProject?.parentProjectId" @mousedown.stop>母订单：{{ activeProject.parentOrderNo }} / 子订单：</span>
         <span @mousedown.stop>{{ textValue(activeProject?.orderNo) }}</span>
         <span class="heading-separator" aria-hidden="true" />
         <span class="heading-project" :title="textValue(activeProject?.projectName)" @mousedown.stop>

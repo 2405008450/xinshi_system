@@ -34,3 +34,14 @@ test('私域入库只接受新增或修正成功状态，历史及日期修改�
  assert.equal(defaultProgressStatus('group'),'已邀进群')
  assert.deepEqual(progressStatuses('group'),['未处理','已邀进群','已进群'])
 })
+
+
+import { sameDayRange, friendFollowUpOptions, developmentColumns } from '../src/utils/resourceDevelopment.js'
+test('默认查询同一天，加微跟进在企微后，双渠道预设独立记录', () => {
+  assert.deepEqual(sameDayRange(new Date(2026, 9, 6)), ['2026-10-06', '2026-10-06'])
+  const keys = developmentColumns.map(c => c.key)
+  assert.equal(keys.indexOf('latest_follow_up'), keys.indexOf('enterprise_status') + 1)
+  assert.deepEqual(friendFollowUpOptions.find(p => p.label === '已添加微信和企微').channels, ['wechat', 'enterprise'])
+  assert.equal(friendFollowUpOptions.find(p => p.label === '二次添加微信').status, '二次添加')
+  assert.equal(hasNewPrivateEntry([{id:'retry', channel:'wechat', status:'二次添加'}]), false)
+})

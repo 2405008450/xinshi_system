@@ -68,6 +68,9 @@ export function useEntityPicker({
 
     const orderNo = entity.orderNo || entity.order_no || '-'
     const projectName = entity.projectName || entity.project_name || ''
+    if (entity.parentProjectId || entity.parent_project_id) {
+      return `[子订单] ${orderNo}${projectName ? ` · ${projectName}` : ''}（母订单 ${entity.parentOrderNo || entity.parent_order_no || '-'}）`
+    }
     return `[母订单] ${orderNo}${projectName ? ` · ${projectName}` : ''}`
   }
 

@@ -149,6 +149,9 @@ from annotation_comparison_models import (
     AnnotationProjectComparisonGroup,
     AnnotationProjectComparisonMember,
 )
+from company_management_models import CompanyManagementSection, CompanyManagementAttachment
+from company_management_service import ensure_company_management_sections
+from routers import company_management
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
@@ -257,6 +260,7 @@ app.include_router(annotation_materials.router)
 app.include_router(annotation_projects.router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
+app.include_router(company_management.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
 from routers import resource_development
@@ -1459,7 +1463,7 @@ def ensure_role_permission_table():
 
     legacy_permissions = sorted(
         code for code in PERMISSION_CODES
-        if not code.startswith(("system:", "talents:", "recruitment_talents:"))
+        if not code.startswith(("system:", "talents:", "recruitment_talents:", "company_management:"))
     )
     with Session(engine) as db:
         roles = db.query(Role).filter(~Role.role_name.in_(SUPER_ROLE_NAMES)).all()
@@ -1899,6 +1903,10 @@ def run_runtime_migrations():
     ensure_annotation_arrangement_schema()
     ensure_annotation_status_history_constraints()
     ensure_annotation_status_history_seed()
+    CompanyManagementSection.__table__.create(bind=engine, checkfirst=True)
+    CompanyManagementAttachment.__table__.create(bind=engine, checkfirst=True)
+    with Session(engine) as db:
+        ensure_company_management_sections(db)
     AnnotationNoticeSection.__table__.create(bind=engine, checkfirst=True)
     with Session(engine) as db:
         ensure_annotation_notice_sections(db)

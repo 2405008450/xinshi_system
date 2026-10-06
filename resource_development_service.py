@@ -244,8 +244,8 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     for channel, field in [("wechat", "wechat_status"), ("enterprise", "enterprise_status")]:
         count, current = 0, (row.historical_markers or {}).get(channel, {}).get("status", "未处理")
         for action in [a for a in actions if a.channel == channel]:
-            if action.status == "已发请求":
-                count += 1
+            if action.status in {"已发请求", "二次添加", "三次添加"}:
+                count = max(count + 1, {"二次添加": 2, "三次添加": 3}.get(action.status, 1))
                 action.request_number = count
             else:
                 action.request_number = 0
@@ -293,9 +293,13 @@ def serialize_record(db, user, row, detail=False):
     labels = {"wechat": "微信", "enterprise": "企微", "group": "进群", "communication": "沟通", "project": "入项"}
     for action in actions:
         result["progress"][action.channel] = {
-            "status": action.status if allowed or action.status in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已进群", "已沟通", "已入项"} else "自定义状态",
+            "status": action.status if allowed or action.status in {"未处理", "搜不到", "已发请求", "二次添加", "三次添加", "已添加", "已邀进群", "已进群", "已沟通", "已入项"} else "自定义状态",
             "action_date": action.action_date.isoformat(), "operator_name": user_name(db, action.operator_id),
         }
+    friend_latest = next((a for a in reversed(actions) if a.channel in {'wechat', 'enterprise'}), None)
+    result['add_friend_follow_up'] = (f'{friend_latest.status} · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}' if friend_latest else '')
+    if friend_latest and not allowed and friend_latest.status not in {'未处理', '搜不到', '已发请求', '二次添加', '三次添加', '已添加'}:
+        result['add_friend_follow_up'] = f'自定义状态 · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}'
     latest = actions[-1] if actions else None
     result["latest_follow_up"] = (f"{latest.action_date:%m-%d} · {user_name(db, latest.operator_id)} · {labels.get(latest.channel, latest.channel)}" if latest else "")
     if detail:
@@ -304,7 +308,7 @@ def serialize_record(db, user, row, detail=False):
                              for a in actions]
         if not allowed:
             for action in result["actions"]:
-                if action["status"] not in {"未处理", "搜不到", "已发请求", "已添加", "已邀进群", "已进群", "已沟通", "已入项"}:
+                if action["status"] not in {"未处理", "搜不到", "已发请求", "二次添加", "三次添加", "已添加", "已邀进群", "已进群", "已沟通", "已入项"}:
                     action["status"] = "自定义状态"
         result["audit"] = [{**snapshot(a), "actor_name": user_name(db, a.actor_id)}
                            for a in db.query(Audit).filter(Audit.entity_id.in_([row.id, *[UUID(a["id"]) for a in result["actions"]]])).order_by(Audit.created_at)] if allowed else []
@@ -320,7 +324,8 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
         q = q.filter(or_(Record.wechat_status == state, Record.enterprise_status == state))
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        common = [Record.full_name.ilike(pattern), Record.greeting_no.ilike(pattern)]
+        language_match = db.query(Language).join(InterpretationLanguage, InterpretationLanguage.id == Language.language_id).filter(Language.record_id == Record.id, InterpretationLanguage.label.ilike(pattern)).exists()
+        common = [Record.full_name.ilike(pattern), Record.greeting_no.ilike(pattern), language_match]
         contacts = or_(Record.phone.ilike(pattern), Record.wechat.ilike(pattern))
         q = q.filter(or_(*common, contacts if can_delegate(db, user) else and_(Record.owner_id == user.id, contacts)))
     unrestricted = can_delegate(db, user)
@@ -344,14 +349,14 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
                 raise HTTPException(422, '语种标识无效')
             q = q.filter(db.query(Language).filter(Language.record_id == Record.id, Language.language_id.in_(ids)).exists())
         elif key in channels:
-            if not unrestricted and any(v not in {'未处理','搜不到','已发请求','已添加','已邀进群','已进群','已沟通','已入项'} for v in values):
+            if not unrestricted and any(v not in {'未处理','搜不到','已发请求','二次添加','三次添加','已添加','已邀进群','已进群','已沟通','已入项'} for v in values):
                 q = q.filter(Record.owner_id == user.id)
             latest = db.query(Action.status).filter(Action.record_id == Record.id, Action.channel == channels[key]).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
             q = q.filter(func.coalesce(latest, '未处理').in_(values))
         elif key == 'resource_code':
             q = q.filter(db.query(ResourcePerson).filter(ResourcePerson.id == Record.person_id, ResourcePerson.resource_code.ilike(pattern)).exists())
         elif key == 'latest_follow_up':
-            latest = db.query(Action.id).filter(Action.record_id == Record.id).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
+            latest = db.query(Action.id).filter(Action.record_id == Record.id, Action.channel.in_(['wechat', 'enterprise'])).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
             q = q.filter(db.query(Action).join(AppUser, AppUser.id == Action.operator_id).filter(Action.id == latest, or_(Action.status.ilike(pattern), AppUser.full_name.ilike(pattern), AppUser.username.ilike(pattern), cast(Action.action_date, String).ilike(pattern))).exists())
             if not unrestricted:
                 q = q.filter(Record.owner_id == user.id)

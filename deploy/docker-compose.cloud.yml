@@ -52,6 +52,7 @@ services:
       DB_LOCK_TIMEOUT_MS: "${DB_LOCK_TIMEOUT_MS:-5000}"
       DB_IDLE_TRANSACTION_TIMEOUT_MS: "${DB_IDLE_TRANSACTION_TIMEOUT_MS:-60000}"
       CHAT_UPLOAD_DIR: /app/data/chat_uploads
+      COMPANY_MANAGEMENT_UPLOAD_DIR: /app/data/company_management_uploads
       ANNOTATION_CUSTOM_FIELD_IMAGE_DIR: /app/data/annotation_custom_field_images
       ANNOTATION_MATERIAL_STORAGE_MODE: "${ANNOTATION_MATERIAL_STORAGE_MODE:-disabled}"
       ANNOTATION_MATERIAL_DIR: /app/data/annotation_materials
@@ -72,6 +73,7 @@ services:
       SMTP_TEST_RECIPIENT: "${SMTP_TEST_RECIPIENT:-}"
     volumes:
       - chat_uploads:/app/data/chat_uploads
+      - company_management_uploads:/app/data/company_management_uploads
       - annotation_custom_field_images:/app/data/annotation_custom_field_images
       - annotation_materials:/app/data/annotation_materials
     depends_on:
@@ -108,5 +110,6 @@ services:
 volumes:
   postgres_data:
   chat_uploads:
+  company_management_uploads:
   annotation_custom_field_images:
   annotation_materials:

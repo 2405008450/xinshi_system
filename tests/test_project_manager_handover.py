@@ -371,6 +371,8 @@ def test_direct_transfer_preview_returns_all_annotation_project_statuses(monkeyp
 
 
 def test_admin_direct_client_manager_transfer_preserves_project_manager(monkeypatch):
+    # 公共字段传播由独立 PostgreSQL 母子订单测试覆盖。
+    monkeypatch.setattr("annotation_service._sync_child_shared_fields", lambda *_args: None)
     operator = SimpleNamespace(id=uuid4(), username="admin", full_name="管理员")
     source = SimpleNamespace(id=uuid4(), username="former_sales", full_name="离职客户经理", is_active=False)
     target = SimpleNamespace(id=uuid4(), username="sales", full_name="接收客户经理", is_active=True)

@@ -34,6 +34,11 @@ class AnnotationProject(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="annotation_project_pkey"),
         UniqueConstraint("order_no", name="uq_annotation_project_order_no"),
+        UniqueConstraint("parent_project_id", "child_sequence_no", name="uq_annotation_project_child_sequence"),
+        ForeignKeyConstraint(["parent_project_id"], ["annotation_project.id"], ondelete="RESTRICT", name="fk_annotation_project_parent"),
+        CheckConstraint("(parent_project_id IS NULL AND child_sequence_no IS NULL) OR (parent_project_id IS NOT NULL AND child_sequence_no IS NOT NULL AND child_sequence_no > 0)", name="ck_annotation_project_child_sequence"),
+        CheckConstraint("parent_project_id IS NULL OR parent_project_id <> id", name="ck_annotation_project_not_self"),
+        Index("ix_annotation_project_parent", "parent_project_id"),
         UniqueConstraint("consultation_id", name="uq_annotation_project_consultation"),
         UniqueConstraint("idempotency_key", name="uq_annotation_project_idempotency_key"),
         UniqueConstraint(
@@ -92,6 +97,20 @@ class AnnotationProject(Base):
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
+    parent_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    child_sequence_no: Mapped[Optional[int]] = mapped_column(Integer)
+    parent_project: Mapped[Optional["AnnotationProject"]] = relationship(
+        "AnnotationProject", remote_side="AnnotationProject.id", foreign_keys=[parent_project_id],
+    )
+
+    @property
+    def parent_order_no(self):
+        return self.parent_project.order_no if self.parent_project else None
+
+    @property
+    def parent_project_name(self):
+        return self.parent_project.project_name if self.parent_project else None
+
     project_name: Mapped[Optional[str]] = mapped_column(String(500))
     project_types: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")

@@ -342,6 +342,8 @@ def _load_responsibilities(db: Session):
         joinedload(ProjectWorkbenchResponsibility.annotation_project)
         .selectinload(AnnotationProject.language_items),
         joinedload(ProjectWorkbenchResponsibility.annotation_project)
+        .joinedload(AnnotationProject.parent_project),
+        joinedload(ProjectWorkbenchResponsibility.annotation_project)
         .joinedload(AnnotationProject.client),
         joinedload(ProjectWorkbenchResponsibility.annotation_project)
         .joinedload(AnnotationProject.sub_client),
@@ -373,6 +375,9 @@ def serialize_responsibility(
         'project_type': project_type,
         'project_type_label': PROJECT_TYPE_LABELS[project_type],
         'project_id': project.id,
+        'parent_project_id': getattr(project, 'parent_project_id', None),
+        'parent_order_no': getattr(project, 'parent_order_no', None),
+        'parent_project_name': getattr(project, 'parent_project_name', None),
         'detail_route_name': PROJECT_DETAIL_ROUTES[project_type],
         'sub_order_id': None,
         'order_no': project.order_no,

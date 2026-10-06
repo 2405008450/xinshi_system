@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="development-dialog" destroy-on-close :close-on-click-modal="false">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="quickMode ? `${form.full_name} · 快捷跟进` : form.revision ? '编辑资源开拓' : '新增资源开拓'" placeholder="搜索字段，如资源姓名" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="quickMode ? `${form.full_name} · ${friendMode ? '加微跟进' : '快捷跟进'}` : form.revision ? '编辑资源开拓' : '新增资源开拓'" placeholder="搜索字段，如资源姓名" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef" @keydown="saveShortcut">
       <AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
         <template v-if="!quickMode">
@@ -9,7 +9,7 @@
         <div class="development-form-grid">
           <el-form-item label="开拓平台" prop="platform_id"><el-select v-model="form.platform_id" filterable><el-option-group v-for="group in categoryOptions" :key="group.value" :label="group.label"><el-option v-for="p in platforms.filter(p => p.category === group.value)" :key="p.id" :label="p.name" :value="p.id" /></el-option-group></el-select></el-form-item>
           <el-form-item label="日期" prop="work_date"><el-date-picker v-model="form.work_date" value-format="YYYY-MM-DD" :clearable="false" /></el-form-item>
-          <el-form-item label="开拓人员" prop="owner_id"><el-select v-model="form.owner_id" filterable :disabled="!options.can_delegate" @change="followOperator = ''"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
+          <el-form-item label="开拓人员" prop="owner_id"><el-select v-model="form.owner_id" filterable :disabled="!options.can_delegate"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
           <el-form-item label="对接账号"><el-select v-model="form.account_id" clearable filterable @clear="form.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
         </div>
         <h3>资源资料</h3>
@@ -23,6 +23,7 @@
         </template>
         <el-alert v-if="nameCandidates.length && !needsEnrollment" type="warning" :closable="false" :title="`人才总库有 ${nameCandidates.length} 条疑似匹配，添加成功时请确认关联。`" />
         <h3>跟进进展</h3>
+        <el-form-item v-if="friendMode" label="加微跟进" prop="friend_choice" :rules="required('请选择加微跟进情况')"><el-select v-model="form.friend_choice" placeholder="选择添加情况" @change="chooseFriendFollowUp"><el-option v-for="item in friendFollowUpOptions" :key="item.label" :label="item.label" :value="item.label" /></el-select><small class="muted">二次、三次添加用于记录再次发送请求；确认添加成功后请选择“已添加”。</small></el-form-item>
         <p v-if="historicalOnly" class="muted">历史导入记录：原表标记不自动入库；今后确认添加好友或已进群时，会查重并进入人才总库。</p><p v-else class="muted">微信、企微“已添加”或“已进群”会进入人才入库流程；“已邀进群”仅表示邀请。沟通、入项不触发入库。</p>
         <el-button v-if="quickMode" text type="primary" @click="quickMode = false">查看全部历史及资料</el-button>
         <div v-for="(action, index) in form.actions" v-show="!quickMode || !savedActionIds.includes(action.id)" :key="action.id" class="development-action" data-dialog-field-search-group>
@@ -61,12 +62,11 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday } from '@/utils/resourceDevelopment'
+import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, friendFollowUpOptions, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday } from '@/utils/resourceDevelopment'
 const props = defineProps({ options: { type: Object, required: true } })
 const emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), checking = ref(false), formRef = ref(null), bodyRef = ref(null)
-const quickMode = ref(false)
-const followOperator = ref(''), followDate = ref(''), followOwner = ref('')
+const quickMode = ref(false), friendMode = ref(false)
 const batchKey = () => `resource-development:entry-batch:${props.options.user_id}`
 function readBatch() {
   try { return restoreDevelopmentBatch(JSON.parse(sessionStorage.getItem(batchKey()) || 'null'), props.options) } catch { return {} }
@@ -78,7 +78,7 @@ function saveShortcut(event) {
 const historicalOnly = ref(false), originalActions = ref([])
 const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedActionIds = ref([]), nameCandidates = ref([])
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
-const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, phone: '', wechat: '', language_ids: [], follow_up: '', remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
+const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, phone: '', wechat: '', language_ids: [], follow_up: '', remarks: '', friend_choice: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
 const form = reactive(empty())
 const platforms = computed(() => props.options.options.filter(o => o.kind === 'platform'))
 const accounts = computed(() => props.options.options.filter(o => o.kind === 'account'))
@@ -87,7 +87,8 @@ const capabilityOptions = [{ value: 'written_translation', label: '笔译' }, { 
 const required = message => [{ required: true, message, trigger: 'change' }]
 const rules = computed(() => ({ platform_id: required('请选择开拓平台'), work_date: required('请选择日期'), owner_id: required('请选择开拓人员'), full_name: required('请填写资源姓名'), capabilities: needsEnrollment.value && !form.link_person_id ? [{ type: 'array', required: true, min: 1, message: '请选择至少一个专业分类', trigger: 'change' }] : [] }))
 function payload() {
-  return { ...form, account_id: form.account_id || null, actions: form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status, action_date: a.action_date, operator_id: a.operator_id, account_id: a.account_id || null })) }
+  const { friend_choice, ...record } = form
+  return { ...record, account_id: form.account_id || null, actions: form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status, action_date: a.action_date, operator_id: a.operator_id, account_id: a.account_id || null })) }
 }
 let checkSequence = 0
 async function checkName() {
@@ -97,7 +98,13 @@ async function checkName() {
   catch (e) { if (seq === checkSequence) ElMessage.error(e.message) }
   finally { if (seq === checkSequence) checking.value = false }
 }
-function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '已发请求', action_date: followDate.value || dateText(new Date()), operator_id: followOwner.value === form.owner_id && props.options.users.some(u => u.id === followOperator.value) ? followOperator.value : form.owner_id, account_id: form.account_id }) }
+function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '已发请求', action_date: dateText(new Date()), operator_id: props.options.user_id, account_id: form.account_id }) }
+function chooseFriendFollowUp(label) {
+  // 切换预设只替换本次草稿，已保存历史保持不变。
+  form.actions = form.actions.filter(a => savedActionIds.value.includes(a.id))
+  const selected = friendFollowUpOptions.find(item => item.label === label)
+  for (const channel of selected?.channels || []) { addAction(channel, true); form.actions.at(-1).status = selected.status }
+}
 async function open(row, channel) {
   const data = row ? await api.detail(row.id) : null
   Object.assign(form, empty()); nameCandidates.value = []; clearFieldSearch(); checkSequence++
@@ -106,7 +113,8 @@ async function open(row, channel) {
   historicalOnly.value = Boolean(data?.historical_only)
   greetingNo.value = data?.greeting_no || ''; personId.value = data?.person_id || null; resourceCode.value = data?.resource_code || ''
   originalActions.value = form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status })); savedActionIds.value = form.actions.map(a => a.id); quickMode.value = Boolean(channel)
-  if (channel) addAction(channel, true)
+  friendMode.value = channel === 'friend'
+  if (channel && !friendMode.value) addAction(channel, true)
   visible.value = true
 }
 async function save(continueAdding = false) {
@@ -128,9 +136,7 @@ async function save(continueAdding = false) {
     if (!form.revision) {
       try { sessionStorage.setItem(batchKey(), JSON.stringify({ user_id: props.options.user_id, day: dateText(new Date()), batch: continueDevelopmentValues(form) })) } catch { /* 浏览器禁用存储时不影响保存。 */ }
     }
-    const latest = form.actions.filter(a => !savedActionIds.value.includes(a.id)).at(-1)
-    if (latest) { followOperator.value = latest.operator_id; followDate.value = latest.action_date; followOwner.value = form.owner_id }
-    emit('saved'); ElMessage.success(saved.person_id ? '已入人才总库 · ' + (saved.resource_code || '已关联档案') : '资源开拓已保存')
+    emit('saved'); ElMessage.success(saved.person_id ? (personId.value ? '跟进已保存 · 已关联人才：' : '已入人才总库 · ') + (saved.resource_code || '已关联档案') : '资源开拓已保存')
     if (continueAdding) {
       const retained = continueDevelopmentValues(form)
       await open(); Object.assign(form, retained)

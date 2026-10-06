@@ -18,6 +18,12 @@ const routes = [
     component: () => import('../layout/index.vue'),
     children: [
       {
+        path: 'company-management',
+        name: 'CompanyManagement',
+        component: () => import('../views/system/CompanyManagement.vue'),
+        meta: { title: '公司管理', roles: ['*'] }
+      },
+      {
         path: 'profile',
         name: 'Profile',
         component: () => import('../views/profile/Profile.vue'),
@@ -103,6 +109,12 @@ const routes = [
           title: '标注项目管理',
           permissions: ['projects:read', 'annotation_accounts:read', 'annotation_accounts:write']
         }
+      },
+      {
+        path: 'annotation-child-orders',
+        name: 'AnnotationChildOrders',
+        component: () => import('../views/project/AnnotationChildOrders.vue'),
+        meta: { title: '标注子订单管理', permissions: ['projects:read'] }
       },
       {
         path: 'annotation-arrangements',

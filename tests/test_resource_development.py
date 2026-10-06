@@ -225,7 +225,7 @@ def test_column_filters_combine_and_match_latest_progress(db, context):
     assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'group_status':['已邀进群']}).count() == 0
     assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'phone':'5555'}).count() == 1
     assert filtered_records(db,other,first.work_date,first.work_date,column_filters={'phone':'5555'}).count() == 0
-    assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'latest_follow_up':user.full_name}).count() == 2
+    assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'latest_follow_up':user.full_name}).count() == 0
 
 
 def test_filtered_totals_contact_search_work_and_report(db, context):
@@ -395,3 +395,30 @@ def test_private_entry_final_status_and_transaction_rollback(db, context):
         nested.rollback()
     assert db.get(ResourcePerson,person_id) is None
     assert db.get(DevelopmentRecord,payload.id) is None
+
+
+def test_friend_follow_up_uses_actual_operator_and_latest_friend_channel(db, context):
+    from resource_development_service import save_record, serialize_record, filtered_records
+    user, other, _ = context
+    payload = make_payload(context, actions=[action(other, '二次添加'), action(user, '已沟通', 'communication')])
+    row = save_record(db, user, payload)
+    detail = serialize_record(db, user, row, True)
+    assert detail['add_friend_follow_up'] == f'二次添加 · 2026-09-24 · {other.full_name} · 微信'
+    assert detail['actions'][0]['request_number'] == 2
+    assert row.person_id is None
+    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': other.full_name}).count() == 1
+    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': '已沟通'}).count() == 0
+
+
+def test_keyword_language_search_matches_list_and_day_totals(db, context):
+    from interpretation_models import InterpretationLanguage
+    from resource_development_service import save_record
+    from routers.resource_development import days, records
+    user, _, _ = context
+    language = InterpretationLanguage(id=uuid4(), label='测试检索方言' + uuid4().hex[:8], language_type='dialect', is_active=True)
+    db.add(language); db.flush()
+    payload = make_payload(context, language_ids=[language.id])
+    save_record(db, user, payload)
+    params = dict(start=payload.work_date, end=payload.work_date, keyword=language.label, owner_id=None, platform_id=None, account_id=None, state=None, column_filters={})
+    assert records(params, 0, 10, db, user)['total'] == 1
+    assert days(params, 0, 7, db, user)['items'][0]['count'] == 1

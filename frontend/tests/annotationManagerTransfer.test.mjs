@@ -17,7 +17,7 @@ const apiSource = readFileSync(
 
 test('标注项目页仅向超级管理员展示一个交接入口', () => {
   assert.match(viewSource, /const canDirectTransferManager = isSuperAdmin\(\)/)
-  assert.match(viewSource, /v-if="canDirectTransferManager && !deleteMode"/)
+  assert.match(viewSource, /v-if="canDirectTransferManager && !deleteMode[^"]*"/)
   assert.equal(viewSource.match(/>交接<\/el-button>/g)?.length, 1)
   assert.doesNotMatch(viewSource, />项目经理交接<\/el-button>/)
   assert.doesNotMatch(viewSource, />客户经理交接<\/el-button>/)

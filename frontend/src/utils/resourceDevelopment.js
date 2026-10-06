@@ -2,8 +2,9 @@ export const developmentColumns = [
   ['platform_name', '开拓平台', 140], ['full_name', '姓名', 110], ['language_names', '语种/方言', 140], ['owner_name', '开拓人', 120],
   ['account_name', '对接账号', 130],
   ['wechat_status', '微信', 140], ['enterprise_status', '企微', 140],
+  ['latest_follow_up', '加微跟进', 240],
   ['group_status', '进群', 140], ['communication_status', '沟通', 140], ['project_status', '入项', 140],
-  ['latest_follow_up', '最近跟进', 200], ['greeting_no', '招呼编号', 190],
+  ['greeting_no', '招呼编号', 190],
   ['phone', '资源手机', 150], ['wechat', '资源微信号', 150], ['resource_code', '资源编号', 160],
   ['work_date', '日期', 130], ['follow_up', '后续跟进', 240], ['remarks', '备注', 240], ['updated_at', '更新时间', 190],
 ].map(([key, label, width]) => ({ key, label, width }))
@@ -50,7 +51,17 @@ export const cleanColumns = value => {
   if (!Array.isArray(value) || JSON.stringify(value) === JSON.stringify(oldDefault)) return [...defaultDevelopmentColumns]
   return developmentColumns.filter(c => value.includes(c.key)).map(c => c.key)
 }
-export const statusOptions = ['未处理', '搜不到', '已发请求', '已添加']
+export const statusOptions = ['未处理', '搜不到', '已发请求', '二次添加', '三次添加', '已添加']
+// 两个渠道分别写历史，成功状态继续共用同一人才入库保护。
+export const friendFollowUpOptions = [
+  { label: '搜不到微信（不存在）', channels: ['wechat'], status: '搜不到' },
+  { label: '搜不到企微（不存在）', channels: ['enterprise'], status: '搜不到' },
+  { label: '已添加微信', channels: ['wechat'], status: '已添加' },
+  { label: '已添加企微', channels: ['enterprise'], status: '已添加' },
+  { label: '已添加微信和企微', channels: ['wechat', 'enterprise'], status: '已添加' },
+  ...['二次添加', '三次添加'].flatMap(status => ['wechat', 'enterprise'].map(channel => ({ label: `${status}${progressChannels[channel]}`, channels: [channel], status }))),
+]
+export const sameDayRange = (today = new Date()) => [dateText(today), dateText(today)]
 export const categoryOptions = [{ value: 'national', label: '全国性平台' }, { value: 'local', label: '地方性平台' }, { value: 'international', label: '国外平台' }]
 
 export const defaultProgressStatus = channel => channel === 'group' ? '已邀进群' : progressStatuses(channel).at(-1)

@@ -119,6 +119,23 @@ def save_daily(db, user, day, payload):
     for i, line in enumerate(payload.rows):
         account = account_map.get(line.column_key)
         if not account or account['channel'] != line.channel: raise HTTPException(422, f'第{i+1}行账号与微信/企微类别不一致')
+        # 未知是统计分类，不创建虚假的语种或人才语言关联。
+        if line.language_value == '__unknown__':
+            matched = next((r for r in data['rows'] if r['language'] == '未知'), None)
+            if not matched:
+                if len(data['rows']) >= 500: raise HTTPException(422, '人才概览语种已达上限')
+                matched = {'overview_key': 'row-' + str(uuid4()), 'language': '未知', 'aliases': [], 'updated_at': None, 'counts': {c['key']: None for c in data['columns']}}
+                data['rows'].append(matched)
+                try:
+                    _validate_language_identifiers(data['rows'])
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from exc
+            cell = (matched['overview_key'], line.column_key)
+            if cell in seen: raise HTTPException(422, f'第{i+1}行与前面账号、概览语种重复，请合并人数')
+            seen.add(cell)
+            normalized_rows.append({**line.model_dump(), 'overview_key': cell[0], 'language_label': '未知', 'account_label': account['label']})
+            applied.append({'overview_key': cell[0], 'column_key': cell[1], 'count': line.count or 0})
+            continue
         try: language_id = UUID(line.language_value)
         except ValueError: language_id = None
         lang = db.get(InterpretationLanguage, language_id) if language_id else None

@@ -249,3 +249,23 @@ def test_existing_hr_account_names_do_not_duplicate(db, setup):
     with pytest.raises(HTTPException) as exc:
         add_account(db, user, FriendAccountWrite(name='HR3企微', channel='wechat'))
     assert exc.value.status_code == 422
+
+
+def test_unknown_counts_without_creating_language_and_delta_updates(db, setup):
+    from interpretation_models import InterpretationLanguage
+    user, _, day, _, account, enterprise = setup
+    original = db.query(InterpretationLanguage).count()
+    before = next((r for r in get_talent_overview(db)['rows'] if r['language'] == '未知'), None)
+    baseline = (before['counts'].get(account['key']) or 0) if before else 0
+    common = dict(language_value='__unknown__', overview_key='', count=4)
+    row = save_daily(db, user, day, FriendWrite(rows=[dict(channel=a['channel'], column_key=a['key'], **common) for a in [account, enterprise]]))
+    assert row.rows[0]['overview_key'] == row.rows[1]['overview_key']
+    assert db.query(InterpretationLanguage).count() == original
+    lang = {'overview_key': row.rows[0]['overview_key']}
+    assert value(db, lang, account) == baseline + 4
+    edit = [{k: r.get(k) for k in FriendLine.model_fields} for r in row.rows]
+    edit[0]['count'] = 6
+    save_daily(db, user, day, FriendWrite(revision=1, rows=edit))
+    assert value(db, lang, account) == baseline + 6
+    save_daily(db, user, day, FriendWrite(revision=2, rows=[]))
+    assert value(db, lang, account) == baseline

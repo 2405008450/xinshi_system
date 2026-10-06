@@ -12,6 +12,7 @@
         </div>
       </template>
 
+      <AnnotationOrderContext :project="filterProject" />
       <div class="filters">
         <el-select v-model="projectId" clearable filterable placeholder="全部标注项目" style="width:340px" @change="handleProjectChange">
           <el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" />
@@ -67,6 +68,7 @@
 </template>
 
 <script setup>
+import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { workflowFormValues, workflowRules } from '@/utils/annotationWorkflowForm.js'
 import { computed,onBeforeUnmount,onMounted,reactive,ref } from 'vue'
 import { Filter } from '@element-plus/icons-vue'

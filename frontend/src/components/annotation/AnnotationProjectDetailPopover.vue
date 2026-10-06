@@ -18,6 +18,7 @@
     </template>
     <div class="annotation-project-detail__content" v-loading="loading">
       <el-descriptions :column="2" border size="small">
+        <el-descriptions-item v-if="displayRow.parentProjectId" label="所属母订单" :span="2"><router-link :to="{name: 'AnnotationProjectDetails', query: {projectId: displayRow.parentProjectId, openEditor: '1'}}">{{ displayRow.parentOrderNo }} · {{ displayRow.parentProjectName }}</router-link></el-descriptions-item>
         <el-descriptions-item label="订单号">{{ textValue(displayRow.orderNo) }}</el-descriptions-item>
         <el-descriptions-item label="项目进度"><el-tag :type="statusType(displayRow.projectStatus)">{{ statusLabel(displayRow.projectStatus) }}</el-tag></el-descriptions-item>
         <el-descriptions-item label="优先次序"><el-tag :type="priorityType(displayRow.priority)">{{ priorityLabel(displayRow.priority) }}</el-tag></el-descriptions-item>
@@ -32,8 +33,8 @@
         <el-descriptions-item label="客户简称">{{ textValue(displayRow.clientShortName) }}</el-descriptions-item>
         <el-descriptions-item label="客户编号">{{ textValue(displayRow.clientCode) }}</el-descriptions-item>
         <el-descriptions-item label="客户全称" :span="2">{{ textValue(displayRow.clientFullName) }}</el-descriptions-item>
-        <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="displayRow.contactName" :display-value="displayRow.contactName || displayRow.subClientContact" :editable="editable" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveText('contactName', value)" @conflict="load" /></el-descriptions-item>
-        <el-descriptions-item label="客户单号/项目标识"><InlineTextField :model-value="displayRow.customerOrderNo" :editable="editable" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveText('customerOrderNo', value)" @conflict="load" /></el-descriptions-item>
+        <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="displayRow.contactName" :display-value="displayRow.contactName || displayRow.subClientContact" :editable="editable && !displayRow.parentProjectId" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveText('contactName', value)" @conflict="load" /></el-descriptions-item>
+        <el-descriptions-item label="客户单号/项目标识"><InlineTextField :model-value="displayRow.customerOrderNo" :editable="editable && !displayRow.parentProjectId" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveText('customerOrderNo', value)" @conflict="load" /></el-descriptions-item>
         <el-descriptions-item label="邮件主题预览" :span="2"><InlineTextField :model-value="displayRow.emailSubjectPreview" :editable="editable" label="邮件主题预览" multiline :maxlength="1000" :save-field="(value) => saveText('emailSubjectPreview', value)" @conflict="load" /></el-descriptions-item>
         <el-descriptions-item label="客户单价" :span="2">
           <div v-if="displayRow.priceItems?.length" class="annotation-project-detail__list"><div v-for="item in displayRow.priceItems" :key="item.id">{{ item.display }}<span v-if="item.remarks">（{{ item.remarks }}）</span></div></div><span v-else>-</span>

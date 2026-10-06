@@ -1,0 +1,225 @@
+"""在独立 PostgreSQL 实例验证母子订单事务与执行隔离。"""
+import os
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from uuid import uuid4
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+import annotation_service as service
+from annotation_models import AnnotationProject
+from annotation_ops_models import AnnotationProjectStatusHistory
+from annotation_schemas import AnnotationProjectCreate, AnnotationProjectUpdate
+from interpretation_models import InterpretationLanguage
+from project_order_no_models import ProjectOrderNoReservation
+
+
+@pytest.fixture(scope="module")
+def sessions():
+    url = os.getenv("ANNOTATION_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("需要独立 PostgreSQL 测试实例")
+    import main  # noqa: F401 注册所有既有关系，不启动应用
+    from models import Base
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        connection.execute(text("CREATE SEQUENCE IF NOT EXISTS chat_message_sequence"))
+    Base.metadata.create_all(engine)
+    # 还原历史表结构后实际执行增量迁移，两次执行均不改变历史记录。
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE annotation_project DROP COLUMN parent_project_id CASCADE"))
+        connection.execute(text("ALTER TABLE annotation_project DROP COLUMN child_sequence_no CASCADE"))
+        connection.execute(text("INSERT INTO annotation_project (order_no, project_name) VALUES ('AP-LEGACY-KEEP', '历史保留项目')"))
+    sql = (Path(__file__).resolve().parents[1] / "data/migrations/20261014_add_annotation_child_orders.sql").read_text(encoding="utf-8")
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(sql)
+        connection.exec_driver_sql(sql)
+        historical = connection.execute(text("SELECT project_name, parent_project_id, child_sequence_no FROM annotation_project WHERE order_no = 'AP-LEGACY-KEEP'")).one()
+        assert tuple(historical) == ("历史保留项目", None, None)
+    yield sessionmaker(bind=engine)
+    engine.dispose()
+
+
+@pytest.fixture
+def context(sessions):
+    with sessions() as db:
+        language = InterpretationLanguage(id=uuid4(), label="子单测试语种" + uuid4().hex[:8])
+        db.add(language)
+        db.commit()
+        parent = service.create_annotation_project(db, AnnotationProjectCreate(
+            project_name="多语种母订单", task_description="公共任务要求",
+            project_types=["text_annotation"], contact_name="原联系人", customer_order_no="CLIENT-001",
+            language_items=[{"source_language_id": language.id}],
+        ), None)
+        yield db, parent.id, language.id
+
+
+def item(language_id, **values):
+    return AnnotationProjectCreate(language_items=[{"source_language_id": language_id}], **values)
+
+
+def update_payload(project, **changes):
+    from annotation_schemas import AnnotationProjectDetailResponse
+    data = AnnotationProjectDetailResponse.model_validate(project).model_dump()
+    fields = AnnotationProjectUpdate.model_fields
+    data = {key: value for key, value in data.items() if key in fields}
+    data.update(expected_updated_at=project.updated_at, **changes)
+    return AnnotationProjectUpdate.model_validate(data)
+
+
+def test_defaults_same_language_batches_and_retry(context):
+    db, parent_id, language_id = context
+    request = [item(language_id, project_name="英语一批"), item(language_id, project_name="英语二批")]
+    children = service.create_annotation_children(db, parent_id, request, None, "same-batch-key")
+    assert [child.child_sequence_no for child in children] == [1, 2]
+    assert all(child.contact_name == "原联系人" and child.task_description == "公共任务要求" for child in children)
+    assert all(child.parent_project_id == parent_id and not child.assignees and not child.price_items for child in children)
+    again = service.create_annotation_children(db, parent_id, request, None, "same-batch-key")
+    assert [child.id for child in children] == [child.id for child in again]
+    with pytest.raises(ValueError, match="内容已改变"):
+        service.create_annotation_children(db, parent_id, [item(language_id, project_name="改变")], None, "same-batch-key")
+    db.rollback()
+    assert service.get_annotation_project(db, parent_id).child_count == 2
+    assert service.count_annotation_projects(db, parent_project_id=parent_id, order_scope="child") == 2
+    assert len(service.get_annotation_projects(db, parent_project_id=parent_id, order_scope="child")) == 2
+
+
+def test_batch_failure_rolls_back_rows_reservations_and_history(context):
+    db, parent_id, language_id = context
+    with pytest.raises(ValueError, match="语种不存在"):
+        service.create_annotation_children(db, parent_id, [item(language_id), item(uuid4())], None, "rollback-key")
+    db.rollback()
+    assert service.get_annotation_project(db, parent_id).child_count == 0
+    children = service.create_annotation_children(db, parent_id, [item(language_id)], None, "after-rollback")
+    assert children[0].child_sequence_no == 1
+
+
+def test_no_nested_children_no_manual_numbers_no_parent_delete(context):
+    db, parent_id, language_id = context
+    child = service.create_annotation_children(db, parent_id, [item(language_id)], None, "constraints-key")[0]
+    with pytest.raises(ValueError, match="不能继续"):
+        service.create_annotation_children(db, child.id, [item(language_id)], None, "nested-key")
+    db.rollback()
+    with pytest.raises(ValueError, match="不允许手动"):
+        service.update_annotation_project_order_no(db, child.id, "AP-CHILD-EDIT", "测试", None, None)
+    db.rollback()
+    with pytest.raises(ValueError, match="不能修改"):
+        service.update_annotation_project_order_no(db, parent_id, "AP-PARENT-EDIT", "测试", None, None)
+    db.rollback()
+    with pytest.raises(service.AnnotationProjectDeleteConflict, match="全部子订单"):
+        service.delete_annotation_project(db, parent_id)
+    db.rollback()
+
+
+def test_delete_never_reuses_sequence(context):
+    db, parent_id, language_id = context
+    child = service.create_annotation_children(db, parent_id, [item(language_id)], None, "delete-first")[0]
+    number = child.order_no
+    assert service.delete_annotation_project(db, child.id)
+    second = service.create_annotation_children(db, parent_id, [item(language_id)], None, "delete-second")[0]
+    assert second.child_sequence_no == 2
+    assert db.query(ProjectOrderNoReservation).filter_by(order_no=number).count() == 1
+    assert service.delete_annotation_project(db, second.id)
+    service.update_annotation_project_order_no(db, parent_id, "AP-RENAMED-" + uuid4().hex[:8].upper(), "测试删除后改号", None, None)
+    third = service.create_annotation_children(db, parent_id, [item(language_id)], None, "after-parent-rename")[0]
+    assert third.child_sequence_no == 3
+
+
+def test_shared_fields_sync_independent_tasks_and_progress(context):
+    db, parent_id, language_id = context
+    child = service.create_annotation_children(db, parent_id, [item(language_id, task_description="独立任务")], None, "sync-key")[0]
+    old_version = child.updated_at
+    parent = service.get_annotation_project(db, parent_id)
+    service.update_annotation_project(db, parent_id, update_payload(parent, contact_name="新联系人", task_description="新母任务"))
+    child = service.get_annotation_project(db, child.id)
+    assert child.contact_name == "新联系人" and child.task_description == "独立任务"
+    assert child.updated_at != old_version
+    with pytest.raises(ValueError, match="母订单维护"):
+        service.update_annotation_project(db, child.id, update_payload(child, customer_order_no="ILLEGAL"))
+    db.rollback()
+    service.update_annotation_project_status(db, child.id, "project_in_progress", datetime.now(), "子单开始", None)
+    parent = service.get_annotation_project(db, parent_id)
+    assert parent.project_status == "initial_consultation"
+    assert parent.child_status_counts == {"project_in_progress": 1}
+    assert db.query(AnnotationProjectStatusHistory).filter_by(project_id=child.id).count() == 2
+    assert db.query(AnnotationProjectStatusHistory).filter_by(project_id=parent_id).count() == 1
+
+
+def test_parallel_creations_are_unique(context, sessions):
+    db, parent_id, language_id = context
+    db.rollback()
+    def create(index):
+        with sessions() as concurrent:
+            return service.create_annotation_children(concurrent, parent_id, [item(language_id)], None, f"parallel-{index}")[0].order_no
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        numbers = list(executor.map(create, range(4)))
+    assert len(set(numbers)) == 4
+    assert service.get_annotation_project(db, parent_id).child_count == 4
+
+
+def test_parallel_parent_rename_and_child_create_do_not_deadlock(context, sessions):
+    db, parent_id, language_id = context
+    db.rollback()
+    new_number = "AP-CONCURRENT-" + uuid4().hex[:8].upper()
+    def rename():
+        with sessions() as concurrent:
+            try:
+                service.update_annotation_project_order_no(concurrent, parent_id, new_number, "并发改号验收", None, None)
+                return True
+            except ValueError as error:
+                concurrent.rollback()
+                assert "已有子订单" in str(error)
+                return False
+    def create():
+        with sessions() as concurrent:
+            return service.create_annotation_children(concurrent, parent_id, [item(language_id)], None, "parallel-rename-create")[0].order_no
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        renamed = executor.submit(rename)
+        created = executor.submit(create)
+        number = created.result(timeout=20)
+        success = renamed.result(timeout=20)
+    parent = service.get_annotation_project(db, parent_id)
+    assert number.startswith(parent.order_no + "-S")
+    assert (parent.order_no == new_number) == success
+
+
+def test_api_scopes_atomic_failure_and_readonly_fields(context, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers import annotation_projects as routes, auth
+    db, parent_id, language_id = context
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[auth.get_current_user] = lambda: SimpleNamespace(id=None)
+    monkeypatch.setattr(auth, "user_has_permission", lambda *_args: True)
+    monkeypatch.setattr(auth, "get_user_permission_codes", lambda *_args: {"projects:read", "projects:write"})
+    with TestClient(app) as client:
+        prefix = f"/projects/annotation/{parent_id}/children"
+        payload = {"language_items": [{"source_language_id": str(language_id)}], "project_name": "接口子单"}
+        response = client.post(prefix, json=payload, headers={"X-Idempotency-Key": "api-child-key"})
+        assert response.status_code == 201, response.text
+        child = response.json()
+        assert child["parent_project_id"] == str(parent_id)
+        assert client.post(prefix, json=payload, headers={"X-Idempotency-Key": "api-child-key"}).json()["id"] == child["id"]
+        page = client.get("/projects/annotation/page", params={"order_scope": "child", "parent_project_id": str(parent_id)}).json()
+        count = client.get("/projects/annotation/count", params={"order_scope": "child", "parent_project_id": str(parent_id)}).json()
+        assert page["total"] == count["total"] == 1
+        assert page["items"][0]["parent_order_no"] == child["parent_order_no"]
+        assert client.get("/projects/annotation/page", params={"order_scope": "invalid"}).status_code == 422
+        illegal = client.patch(f"/projects/annotation/{child['id']}/text-field", json={"field": "contact_name", "value": "篡改", "expected_updated_at": child["updated_at"]})
+        assert illegal.status_code == 400
+        failed = client.post(prefix + "/batch", json={"items": [payload, {"language_items": [{"source_language_id": str(uuid4())}]}]}, headers={"X-Idempotency-Key": "api-invalid-batch"})
+        assert failed.status_code == 400
+        assert client.get(prefix).json()["total"] == 1
+        assert service.get_annotation_project(db, parent_id).contact_name == "原联系人"
+        monkeypatch.setattr(auth, "user_has_permission", lambda _db, _id, permission: permission == "projects:read")
+        monkeypatch.setattr(auth, "get_user_permission_codes", lambda *_args: {"projects:read"})
+        assert client.get(prefix).status_code == 200
+        assert client.post(prefix, json=payload, headers={"X-Idempotency-Key": "read-only-key"}).status_code == 403

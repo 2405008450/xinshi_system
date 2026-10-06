@@ -110,6 +110,9 @@ class WorkflowConfigResponse(BaseModel):
 
 
 class MyTaskItem(BaseModel):
+    parent_project_id: Optional[UUID] = None
+    parent_order_no: Optional[str] = None
+    parent_project_name: Optional[str] = None
     """待我处理列表中的单条项目（母订单或子订单）"""
 
     workflow_instance_id: Optional[UUID] = None

@@ -176,12 +176,34 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
     project = SimpleNamespace(
         id=project_id,
         client_manager_id=None,
+        parent_project_id=None,
         workbench_responsibilities=[],
         updated_at=None,
     )
     assignments_seen = []
 
     class ManagerDb:
+        def get(self, *_args):
+            return project
+
+        def query(self, *_args):
+            return self
+
+        def filter(self, *_args):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def populate_existing(self):
+            return self
+
+        def first(self):
+            return project
+
+        def all(self):
+            return []
+
         def __init__(self):
             self.added = []
 
@@ -517,7 +539,7 @@ class DeleteDb:
 
     def query(self, target):
         from annotation_material_models import AnnotationMaterialFile
-        if target is AnnotationMaterialFile:
+        if target is AnnotationProject.id or target is AnnotationMaterialFile:
             return DeleteQuery([])
         if target is AnnotationProject:
             return DeleteQuery([self.project] if self.project else [])

@@ -2,15 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const noticePage = readFileSync(new URL('../src/views/project/AnnotationNotices.vue', import.meta.url), 'utf8')
-const noticeManager = readFileSync(new URL('../src/components/annotation/AnnotationNoticeManager.vue', import.meta.url), 'utf8')
+const noticePage = readFileSync(new URL('../src/components/common/DocumentSectionsPage.vue', import.meta.url), 'utf8')
+const noticeManager = readFileSync(new URL('../src/components/common/DocumentSectionManager.vue', import.meta.url), 'utf8')
 const noticeApi = readFileSync(new URL('../src/api/annotationNotices.js', import.meta.url), 'utf8')
 const richTextComposer = readFileSync(new URL('../src/components/RichTextComposer.vue', import.meta.url), 'utf8')
 const richTextMarks = readFileSync(new URL('../src/utils/richTextMarks.js', import.meta.url), 'utf8')
 
 test('标注须知使用后端树形栏目并按需加载正文', () => {
-  assert.match(noticePage, /getAnnotationNoticeTree/)
-  assert.match(noticePage, /getAnnotationNoticeDetail/)
+  assert.match(noticePage, /props\.adapter\.tree/)
+  assert.match(noticePage, /props\.adapter\.detail/)
   assert.match(noticePage, /root\.children/)
   assert.match(noticePage, /detailCache/)
 })
@@ -20,8 +20,8 @@ test('栏目管理支持两级新增、拖拽、编辑和删除', () => {
   assert.match(noticeManager, /新增二级栏目/)
   assert.match(noticeManager, /draggable/)
   assert.match(noticeManager, /:allow-drop="allowDrop"/)
-  assert.match(noticeManager, /reorderAnnotationNotices/)
-  assert.match(noticeManager, /deleteAnnotationNotice/)
+  assert.match(noticeManager, /props\.adapter\.reorder/)
+  assert.match(noticeManager, /props\.adapter\.remove/)
   assert.match(noticeManager, /<AppForm/)
 })
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 from datetime import date, datetime, time
 from typing import Optional
 from uuid import UUID
@@ -184,6 +186,7 @@ def generate_annotation_order_no(
 
 def _project_options():
     return (
+        joinedload(AnnotationProject.parent_project),
         joinedload(AnnotationProject.consultation),
         joinedload(AnnotationProject.client),
         joinedload(AnnotationProject.sub_client),
@@ -207,12 +210,33 @@ def _project_options():
 def get_annotation_project(
     db: Session, project_id: UUID
 ) -> Optional[AnnotationProject]:
-    return (
+    project = (
         db.query(AnnotationProject)
         .options(*_project_options())
         .filter(AnnotationProject.id == project_id)
         .first()
     )
+    if project:
+        _attach_child_statistics(db, [project])
+    return project
+
+
+def _attach_child_statistics(db: Session, projects) -> None:
+    """一次聚合当前页的子订单状态，避免逐条加载全部子订单。"""
+    ids = [project.id for project in projects]
+    if not ids:
+        return
+    counts = {}
+    for parent_id, status, count in db.query(
+        AnnotationProject.parent_project_id, AnnotationProject.project_status,
+        func.count(AnnotationProject.id),
+    ).filter(AnnotationProject.parent_project_id.in_(ids)).group_by(
+        AnnotationProject.parent_project_id, AnnotationProject.project_status,
+    ).all():
+        counts.setdefault(parent_id, {})[status] = count
+    for project in projects:
+        project.child_status_counts = counts.get(project.id, {})
+        project.child_count = sum(project.child_status_counts.values())
 
 
 def _latest_progress_expressions():
@@ -287,7 +311,17 @@ def _apply_filters(
     confirmation_date_start=None,
     confirmation_date_end=None,
     field_filters=None,
+    order_scope="all",
+    parent_project_id=None,
 ):
+    if order_scope not in {"all", "parent", "child"}:
+        raise ValueError("无效的订单查询范围")
+    if order_scope == "parent":
+        query = query.filter(AnnotationProject.parent_project_id.is_(None))
+    elif order_scope == "child":
+        query = query.filter(AnnotationProject.parent_project_id.is_not(None))
+    if parent_project_id is not None:
+        query = query.filter(AnnotationProject.parent_project_id == parent_project_id)
     if keyword and keyword.strip():
         normalized_keyword = keyword.strip()
         pattern = f"%{normalized_keyword}%"
@@ -469,6 +503,7 @@ def get_annotation_projects(
         project.__dict__["latest_progress_effective_on"] = latest_effective_on
         project.__dict__["latest_progress_changed_at"] = latest_changed_at
         projects.append(project)
+    _attach_child_statistics(db, projects)
     return projects
 
 
@@ -483,6 +518,86 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes"}
+
+# 客户信息只能从母订单带出；任务信息在创建时复制，之后独立维护。
+CHILD_SHARED_FIELDS = {"client_id", "sub_client_id", "contact_name", "client_manager_id", "customer_order_no"}
+CHILD_DEFAULT_FIELDS = {"task_description", "project_types", "priority", "role_assignments"}
+
+
+def _lock_parent(db, parent_id):
+    parent = db.query(AnnotationProject).filter(AnnotationProject.id == parent_id).with_for_update().populate_existing().first()
+    if not parent:
+        raise ValueError("母订单不存在")
+    if parent.parent_project_id:
+        raise ValueError("子订单不能继续创建子订单")
+    return parent
+
+
+def _child_create_payload(parent, payload):
+    values = payload.model_dump()
+    for field in CHILD_SHARED_FIELDS:
+        values[field] = getattr(parent, field)
+    for field in CHILD_DEFAULT_FIELDS - payload.model_fields_set:
+        values[field] = getattr(parent, field)
+    # 不允许带入母订单的明细 ID，否则会错误引用其他订单。
+    if not values["language_items"]:
+        raise ValueError("子订单至少需要一个语种或语言方向")
+    for field in WRITE_ONLY_CLIENT_FIELDS:
+        values[field] = None
+    return AnnotationProjectCreate.model_validate(values)
+
+
+def _next_child_number(db, parent):
+    parent_numbers = {parent.order_no, *(number for (number,) in db.query(ProjectOrderNoReservation.order_no).filter(
+        ProjectOrderNoReservation.project_type == "annotation",
+        ProjectOrderNoReservation.project_id == parent.id,
+    ).all())}
+    patterns = [re.compile(rf"^{re.escape(number)}-S(\d+)$") for number in parent_numbers]
+    reserved = db.query(ProjectOrderNoReservation.order_no).filter(
+        ProjectOrderNoReservation.project_type == "annotation",
+        or_(*(ProjectOrderNoReservation.order_no.like(f"{number}-S%") for number in parent_numbers)),
+    ).all()
+    sequences = [int(match.group(1)) for (number,) in reserved for pattern in patterns if (match := pattern.fullmatch(number))]
+    sequence = max(sequences, default=0) + 1
+    number = f"{parent.order_no}-S{sequence:03d}"
+    if len(number) > 50:
+        raise ValueError("母订单号过长，无法生成子订单号")
+    return number, sequence
+
+
+def _sync_child_shared_fields(db, project):
+    if project.parent_project_id:
+        return
+    children = db.query(AnnotationProject).filter(AnnotationProject.parent_project_id == project.id).with_for_update().all()
+    for child in children:
+        for field in CHILD_SHARED_FIELDS:
+            setattr(child, field, getattr(project, field))
+        child.updated_at = datetime.now()
+
+
+def create_annotation_children(db, parent_id, items, actor_id, idempotency_key):
+    """整批创建只提交一次；每行幂等键绑定母订单、批次及原始请求。"""
+    _lock_annotation_order_numbers(db)
+    parent = _lock_parent(db, parent_id)
+    # 生效时间未显式传入时使用模型默认值，不参与重试指纹。
+    fingerprint_items = [item.model_dump(mode="json", exclude_unset=True) for item in items]
+    signature = json.dumps(fingerprint_items, sort_keys=True, ensure_ascii=False)
+    batch_key = hashlib.sha256(f"{parent_id}:{idempotency_key}".encode()).hexdigest()
+    digest = hashlib.sha256(signature.encode()).hexdigest()[:16]
+    prefix = f"child:{batch_key}:"
+    existing = db.query(AnnotationProject).filter(AnnotationProject.idempotency_key.like(f"{prefix}%")).order_by(AnnotationProject.child_sequence_no).all()
+    if existing:
+        if len(existing) != len(items) or any(f":{digest}:" not in row.idempotency_key for row in existing):
+            raise ValueError("同一幂等键对应的创建内容已改变，请重新发起创建")
+        return [get_annotation_project(db, row.id) for row in existing]
+    projects = []
+    for index, item in enumerate(items):
+        if item.parent_project_id and item.parent_project_id != parent_id:
+            raise ValueError("子订单所属母订单与请求地址不一致")
+        payload = AnnotationProjectCreate.model_validate({**item.model_dump(exclude_unset=True), "parent_project_id": parent_id})
+        projects.append(create_annotation_project(db, payload, actor_id, idempotency_key=f"{prefix}{digest}:{index}", operation_source="child_order_create", commit=False))
+    db.commit()
+    return [get_annotation_project(db, row.id) for row in projects]
 
 
 def _resolve_client(db: Session, data: dict) -> None:
@@ -614,7 +729,17 @@ def create_annotation_project(
     db: Session, payload: AnnotationProjectCreate, created_by: Optional[UUID],
     idempotency_key: Optional[str] = None,
     operation_source: str = "project_form",
+    commit: bool = True,
 ) -> AnnotationProject:
+    parent = None
+    child_sequence_no = None
+    if payload.parent_project_id:
+        _lock_annotation_order_numbers(db)
+        parent = _lock_parent(db, payload.parent_project_id)
+        payload = _child_create_payload(parent, payload)
+        order_no, child_sequence_no = _next_child_number(db, parent)
+    else:
+        order_no = generate_annotation_order_no(db)
     data = payload.model_dump(exclude=NESTED_FIELDS)
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
@@ -623,12 +748,12 @@ def create_annotation_project(
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
-    order_no = generate_annotation_order_no(db)
     data["email_subject_preview"] = normalize_email_subject_order_no(
         data.get("email_subject_preview"), order_no
     )
     project = AnnotationProject(
         order_no=order_no, created_by=created_by,
+        child_sequence_no=child_sequence_no,
         idempotency_key=idempotency_key, **data
     )
     db.add(project)
@@ -661,14 +786,19 @@ def create_annotation_project(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
     )
-    db.commit()
-    return get_annotation_project(db, project.id)
+    if commit:
+        db.commit()
+        return get_annotation_project(db, project.id)
+    db.flush()
+    return project
 
 
 def update_annotation_project(
     db: Session, project_id: UUID, payload: AnnotationProjectUpdate,
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
+    existing = db.get(AnnotationProject, project_id)
+    parent = _lock_parent(db, existing.parent_project_id) if existing and existing.parent_project_id else None
     # 序列化项目保存，确保版本递增和乐观锁检查在同一锁内。
     db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
     project = get_annotation_project(db, project_id)
@@ -678,6 +808,14 @@ def update_annotation_project(
     previous_client_manager_id = project.client_manager_id
     previous_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
+    if parent:
+        if not payload.language_items:
+            raise ValueError("子订单至少需要一个语种或语言方向")
+        for field in CHILD_SHARED_FIELDS:
+            if data[field] != getattr(parent, field):
+                raise ValueError("子订单客户信息由母订单维护，请刷新或修改母订单")
+        for field in WRITE_ONLY_CLIENT_FIELDS:
+            data[field] = None
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
         db, "project", None, data.get("custom_values") or {}, project.custom_values,
@@ -735,6 +873,7 @@ def update_annotation_project(
         change_mode="project_edit", actor_user_id=changed_by,
         reason="编辑标注项目时修改负责人",
     )
+    _sync_child_shared_fields(db, project)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -747,6 +886,8 @@ def update_annotation_project_order_no(
     expected_updated_at: Optional[datetime],
     changed_by: Optional[UUID],
 ) -> Optional[AnnotationProject]:
+    # 与创建子订单保持“全局编号锁 → 母订单行锁”的顺序，避免并发改号死锁。
+    _lock_annotation_order_numbers(db)
     project = (
         db.query(AnnotationProject)
         .filter(AnnotationProject.id == project_id)
@@ -756,6 +897,10 @@ def update_annotation_project_order_no(
     if not project:
         return None
     assert_fresh(project, expected_updated_at)
+    if getattr(project, "parent_project_id", None):
+        raise ValueError("子订单号由系统生成，不允许手动修改")
+    if db.query(AnnotationProject.id).filter(AnnotationProject.parent_project_id == project.id).first():
+        raise ValueError("已有子订单的母订单不能修改订单号")
     normalized = normalize_annotation_order_no(new_order_no)
     previous_order_no = project.order_no
     if normalized == previous_order_no:
@@ -863,9 +1008,15 @@ def update_annotation_project_managers(
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     """更新标注项目的客户经理和项目经理用户关联。"""
+    existing = db.get(AnnotationProject, project_id)
+    if existing and existing.parent_project_id:
+        _lock_parent(db, existing.parent_project_id)
+    db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
     project = get_annotation_project(db, project_id)
     if not project:
         return None
+    if project.parent_project_id and client_manager_id != project.client_manager_id:
+        raise ValueError("子订单客户经理由母订单维护")
     previous_client_manager_id = project.client_manager_id
 
     if client_manager_id and client_manager_id != project.client_manager_id:
@@ -910,6 +1061,7 @@ def update_annotation_project_managers(
         change_mode="inline_edit", actor_user_id=changed_by,
         reason="标注项目列表直接修改负责人",
     )
+    _sync_child_shared_fields(db, project)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -921,6 +1073,8 @@ def delete_annotation_project(
     project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().first()
     if not project:
         return False
+    if db.query(AnnotationProject.id).filter(AnnotationProject.parent_project_id == project.id).first():
+        raise AnnotationProjectDeleteConflict("请先删除该母订单的全部子订单")
 
     resource_requests = db.query(ResourceRequest).filter(
         ResourceRequest.annotation_project_id == project_id,

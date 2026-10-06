@@ -29,6 +29,10 @@
           <el-icon><ChatLineRound /></el-icon>
           <template #title>工作台</template>
         </el-menu-item>
+        <el-menu-item index="/company-management">
+          <el-icon><OfficeBuilding /></el-icon>
+          <template #title>公司管理</template>
+        </el-menu-item>
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
@@ -70,7 +74,7 @@
         </el-menu-item>
         <el-menu-item v-if="showResourceManagement" :index="resourceManagementPath">
           <el-icon><Avatar /></el-icon>
-          <template #title>人才资源库</template>
+          <template #title>人才资源管理</template>
         </el-menu-item>
 
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->

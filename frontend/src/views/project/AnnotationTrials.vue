@@ -47,6 +47,7 @@
       </div>
     </div></template>
     <div class="workspace-body" v-loading="workspaceLoading">
+      <AnnotationOrderContext :project="activeProject" />
       <div class="workspace-summary-toolbar"><div><strong>语言方向与人数策略</strong><span class="summary-note">按10%转化率计算建议联系人数；储备数据来自人才概览</span></div><div class="header-actions"><el-button @click="openComparison">资源比较</el-button><el-button v-if="canWrite" @click="openStrategyEditor">编辑人数策略</el-button><el-button v-if="canWrite" type="primary" @click="openEditor()">添加候选人</el-button></div></div>
       <div class="language-summary-grid">
         <div v-for="item in languageSummaries" :key="item.languageItemId" class="language-summary-card" :class="{'is-warning':item.reserveTotal<10}">
@@ -116,6 +117,7 @@
 </template>
 
 <script setup>
+import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { conversionPercent, conversionRate, trialFormValues, trialPayload, trialRules } from '../../utils/annotationTrialForm.js'
 import { refreshAfterSave } from '../../utils/postSaveRefresh.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'

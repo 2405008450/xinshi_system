@@ -34,6 +34,20 @@ export const getAnnotationProject = (id, config = {}) => (
   api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
 
+export const getAnnotationChildren = (id, params = {}, config = {}) => (
+  api.get(`/projects/annotation/${id}/children`, { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+)
+
+export const createAnnotationChildren = (id, items, key, single = false) => (
+  api.post(`/projects/annotation/${id}/children${single ? '' : '/batch'}`,
+    convertKeys(single ? items[0] : { items }, toSnakeCase),
+    { headers: { 'X-Idempotency-Key': key } },
+  ).then((res) => {
+    invalidateOptionCache('source-projects:annotation:')
+    return convertKeys(res, toCamelCase)
+  })
+)
+
 export const lookupAnnotationLanguageReserves = (languageIds) => (
   api.post('/projects/annotation/language-reserves/lookup', {
     language_ids: [...new Set(languageIds)].filter(Boolean),

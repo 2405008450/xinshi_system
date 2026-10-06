@@ -26,3 +26,6 @@ test-results/
 .pytest_cache/
 .playwright/
 .playwright-mcp/
+.tmp/
+.tmp-company-pg-*/
+data/company_management_uploads/
