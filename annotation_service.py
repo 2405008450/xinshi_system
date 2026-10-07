@@ -562,14 +562,22 @@ def _next_child_number(db, parent):
         ProjectOrderNoReservation.project_type == "annotation",
         ProjectOrderNoReservation.project_id == parent.id,
     ).all())}
-    patterns = [re.compile(rf"^{re.escape(number)}-S(\d+)$") for number in parent_numbers]
+    # 两种历史格式都计入永久占用序号，改号或删除后也不复用。
+    patterns = [re.compile(rf"^{re.escape(number)}(?:-S|\.)(\d+)$") for number in parent_numbers]
     reserved = db.query(ProjectOrderNoReservation.order_no).filter(
         ProjectOrderNoReservation.project_type == "annotation",
-        or_(*(ProjectOrderNoReservation.order_no.like(f"{number}-S%") for number in parent_numbers)),
+        or_(*(condition for number in parent_numbers for condition in (
+            ProjectOrderNoReservation.order_no.like(f"{number}-S%"),
+            ProjectOrderNoReservation.order_no.like(f"{number}.%"),
+        ))),
     ).all()
     sequences = [int(match.group(1)) for (number,) in reserved for pattern in patterns if (match := pattern.fullmatch(number))]
-    sequence = max(sequences, default=0) + 1
-    number = f"{parent.order_no}-S{sequence:03d}"
+    existing_sequences = [value for (value,) in db.query(AnnotationProject.child_sequence_no).filter(
+        AnnotationProject.parent_project_id == parent.id,
+        AnnotationProject.child_sequence_no.is_not(None),
+    ).all()]
+    sequence = max([*sequences, *existing_sequences], default=0) + 1
+    number = f"{parent.order_no}.{sequence:03d}"
     if len(number) > 50:
         raise ValueError("母订单号过长，无法生成子订单号")
     return number, sequence

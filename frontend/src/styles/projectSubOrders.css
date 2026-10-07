@@ -1,0 +1,46 @@
+.sub-order-panel__header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.sub-order-panel__meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; line-height: 24px; }
+.sub-order-panel__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sub-order-panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100cqw;
+  padding: 8px 16px 12px;
+  border-top: 1px solid #dce5e2;
+  border-bottom: 1px solid #dce5e2;
+  background: #f6f8f7;
+}
+.sub-order-panel__header { min-height: 24px; margin-bottom: 6px; }
+.sub-order-panel .sub-order-panel__actions .el-button {
+  --el-button-text-color: #405c59;
+  --el-button-bg-color: #eaf1ef;
+  --el-button-border-color: #cadbd6;
+  --el-button-hover-text-color: #304d49;
+  --el-button-hover-bg-color: #dfeae6;
+  --el-button-hover-border-color: #afc7be;
+  --el-button-active-text-color: #304d49;
+  --el-button-active-bg-color: #d4e3dd;
+  --el-button-active-border-color: #9bb9ad;
+  height: 28px;
+  min-height: 28px;
+  margin-left: 0;
+  padding: 4px 12px;
+  border-radius: 5px;
+  font-weight: 500;
+}
+.sub-order-panel__actions .el-button:focus-visible { outline: 2px solid #6d9184; outline-offset: 2px; }
+.sub-order-table {
+  --el-table-border-color: #dce5e2;
+  --el-table-row-hover-bg-color: #edf3f1;
+  font-size: 13px;
+}
+.sub-order-table .el-table__header-wrapper th.el-table__cell { padding: 4px 0; background: #eef3f1; }
+.sub-order-table .el-table__body td.el-table__cell { padding: 4px 0; }
+.sub-order-table .cell { padding-right: 8px; padding-left: 8px; line-height: 20px; }
+.sub-order-table .el-table__body tr > td.el-table__cell { background: #f8faf9; }
+.sub-order-table .el-table__body tr:nth-child(even) > td.el-table__cell { background: #f5f8f7; }
+.sub-order-table .el-table__body tr:hover > td.el-table__cell { background: #edf3f1 !important; }
+.project-suborder-dialog { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
+.project-suborder-dialog .el-dialog__header, .project-suborder-dialog .el-dialog__footer { flex: 0 0 auto; }
+.project-suborder-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
+.project-suborder-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgb(0 0 0 / 4%); }

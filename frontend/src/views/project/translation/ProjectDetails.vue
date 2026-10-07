@@ -106,8 +106,8 @@
                 <el-tag v-if="hasMoreSubOrders(row)" size="small" type="warning">当前仅显示前 {{ SUB_ORDER_PREVIEW_LIMIT }} 条</el-tag>
               </div>
               <div class="sub-order-panel__actions">
-                <el-button v-if="canWriteProjects" type="primary" link @click="openBatchDialog(row)">批量新增子订单</el-button>
-                <el-button v-if="hasMoreSubOrders(row)" type="primary" link @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
+                <el-button v-if="canWriteProjects" type="primary" plain @click="openBatchDialog(row)">批量新增子订单</el-button>
+                <el-button v-if="hasMoreSubOrders(row)" type="primary" plain @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
               </div>
             </div>
             <el-table class="sub-order-table" :data="getVisibleSubOrders(row)" border size="small">
@@ -2733,9 +2733,6 @@ onBeforeUnmount(() => {
 :global(.advanced-filter-popover) { max-width: calc(100vw - 32px) !important; }
 .card-header,
 .section-header,
-.sub-order-panel__header { display: flex; align-items: center; justify-content: space-between; }
-.sub-order-panel__meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; line-height: 24px; }
-.sub-order-panel__actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sub-order-name-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .sub-order-name-header :deep(.el-button) { flex: none; height: 28px; min-height: 28px; padding: 0 2px; font-weight: 400; }
 .order-no-actions { display: flex; align-items: center; gap: 6px; }
@@ -2804,25 +2801,6 @@ onBeforeUnmount(() => {
 .progress-card__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 14px; }
 .section-title { margin: 12px 0; font-size: 15px; font-weight: 600; }
 .section-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.sub-order-panel {
-  padding: 8px 16px 12px;
-  border-top: 1px solid #dce5e2;
-  border-bottom: 1px solid #dce5e2;
-  background: #f6f8f7;
-}
-.sub-order-panel__header { min-height: 24px; margin-bottom: 6px; }
-.sub-order-panel__actions :deep(.el-button) { height: 28px; min-height: 28px; padding: 2px 0; }
-.sub-order-table {
-  --el-table-border-color: #dce5e2;
-  --el-table-row-hover-bg-color: #edf3f1;
-  font-size: 13px;
-}
-.sub-order-table :deep(.el-table__header-wrapper th.el-table__cell) { padding: 4px 0; background: #eef3f1; }
-.sub-order-table :deep(.el-table__body td.el-table__cell) { padding: 4px 0; }
-.sub-order-table :deep(.cell) { padding-right: 8px; padding-left: 8px; line-height: 20px; }
-.sub-order-table :deep(.el-table__body tr > td.el-table__cell) { background: #f8faf9; }
-.sub-order-table :deep(.el-table__body tr:nth-child(even) > td.el-table__cell) { background: #f5f8f7; }
-.sub-order-table :deep(.el-table__body tr:hover > td.el-table__cell) { background: #edf3f1 !important; }
 .sub-order-panel .sub-order-table :deep(.translator-return-deadlines) { gap: 2px; }
 .sub-order-panel .sub-order-table :deep(.translator-return-deadline) { align-items: center; gap: 4px; }
 .sub-order-panel .sub-order-table :deep(.translator-return-deadline__name) { padding-top: 0; line-height: 20px; }

@@ -181,7 +181,7 @@ def test_automatic_creation_failure_rolls_back_parent_and_children(context, monk
     db.rollback()
     parent = service.get_annotation_project(db, parent_id)
     assert parent.project_name == before_name and len(parent.language_items) == 1 and parent.child_count == 0
-    assert db.query(ProjectOrderNoReservation).filter(ProjectOrderNoReservation.order_no.like(parent.order_no+'-S%')).count() == 0
+    assert db.query(ProjectOrderNoReservation).filter(ProjectOrderNoReservation.order_no.like(parent.order_no+'.%')).count() == 0
     calls.clear()
     with pytest.raises(ValueError, match='自动创建失败'):
         service.create_annotation_project(db, AnnotationProjectCreate(project_name='整次新增回滚',
@@ -419,6 +419,21 @@ def test_delete_never_reuses_sequence(context):
     assert third.child_sequence_no == 3
 
 
+def test_dot_numbering_keeps_legacy_and_deleted_sequences(context):
+    db, parent_id, language_id = context
+    parent = service.get_annotation_project(db, parent_id)
+    for suffix in ('-S007', '.009'):
+        service.reserve_annotation_order_no(db, project_id=uuid4(),
+            order_no=parent.order_no + suffix, assignment_source='historical_fixture', assigned_by=None)
+    db.commit()
+    child = service.create_annotation_children(db, parent_id, [item(language_id)], None, 'dot-numbering')[0]
+    assert child.order_no == parent.order_no + '.010'
+    assert child.child_sequence_no == 10
+    service.delete_annotation_project(db, child.id)
+    replacement = service.create_annotation_children(db, parent_id, [item(language_id)], None, 'dot-replacement')[0]
+    assert replacement.order_no == parent.order_no + '.011'
+
+
 def test_copied_fields_remain_independent_after_parent_and_child_edits(context):
     db, parent_id, language_id = context
     child = service.create_annotation_children(db, parent_id, [item(language_id, task_description="独立任务")], None, "sync-key")[0]
@@ -473,7 +488,7 @@ def test_parallel_parent_rename_and_child_create_do_not_deadlock(context, sessio
         number = created.result(timeout=20)
         success = renamed.result(timeout=20)
     parent = service.get_annotation_project(db, parent_id)
-    assert number.startswith(parent.order_no + "-S")
+    assert number.startswith(parent.order_no + ".")
     assert (parent.order_no == new_number) == success
 
 

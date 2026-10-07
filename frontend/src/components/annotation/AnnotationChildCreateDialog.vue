@@ -1,8 +1,8 @@
 <template>
-  <DraggableFormDialog v-model="visible" class="annotation-child-create-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="(done) => !saving && done()">
+  <DraggableFormDialog v-model="visible" class="annotation-child-create-dialog project-suborder-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="(done) => !saving && done()">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="split ? '分拆标注子订单' : single ? '增加标注子订单' : '批量增加标注子订单'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef">
-      <AppForm ref="formRef" :model="form" label-width="110px" :disabled="saving">
+      <AppForm ref="formRef" :model="form" label-position="top" :disabled="saving">
         <el-form-item label="母订单" prop="parentId" :rules="[{ required: true, message: '请选择母订单', trigger: 'change' }]">
           <ReadonlyField v-if="parent" :model-value="`${parent.orderNo} · ${parent.projectName || ''}`" source="auto" />
           <el-select v-else v-model="form.parentId" remote filterable :remote-method="searchParents" :loading="parentLoading" style="width:100%" @change="selectParent"><el-option v-for="item in parents" :key="item.id" :value="item.id" :label="`${item.orderNo} · ${item.projectName || ''}`" /></el-select>
@@ -11,7 +11,7 @@
         <el-form-item v-if="!single" label="批量选择语种"><el-select v-model="selectedLanguages" multiple filterable style="width:100%"><el-option v-for="language in languages" :key="language.id" :value="language.id" :label="language.label" /></el-select><el-button @click="addSelected">添加到预览</el-button></el-form-item>
         <div v-for="(item,index) in form.items" :key="item.key" class="child-preview-row" data-dialog-field-search-group>
           <div class="child-preview-title"><strong data-dialog-field-search-group-title>子订单 {{ index + 1 }}</strong><el-button v-if="!single" link type="danger" @click="form.items.splice(index,1)">移除</el-button></div>
-          <el-row :gutter="12">
+          <el-row :gutter="16">
             <el-col :xs="24" :md="12"><el-form-item label="任务名称" :prop="['items', String(index), 'projectName']" :rules="required('请输入任务名称')"><el-input v-model="item.projectName" maxlength="500" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="项目类型" :prop="['items', String(index), 'projectTypes']" :rules="required('请选择项目类型')"><el-select v-model="item.projectTypes" multiple style="width:100%"><el-option v-for="type in projectTypes" :key="type.value" :value="type.value" :label="type.label" /></el-select></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="语种" :prop="['items', String(index), 'sourceLanguageId']" :rules="required('请选择语种')"><el-select v-model="item.sourceLanguageId" filterable style="width:100%"><el-option v-for="language in languages" :key="language.id" :value="language.id" :label="language.label" /></el-select></el-form-item></el-col>
@@ -109,14 +109,8 @@ const save = async () => {
 onBeforeUnmount(() => { controller?.abort(); ++parentSelectionId })
 </script>
 
-<style>
-.annotation-child-create-dialog { display:flex; flex-direction:column; max-height:90vh; overflow:hidden; }
-.annotation-child-create-dialog .el-dialog__header, .annotation-child-create-dialog .el-dialog__footer { flex-shrink:0; }
-.annotation-child-create-dialog .el-dialog__body { flex:1; min-height:0; overflow-y:auto; }
-.annotation-child-create-dialog .el-dialog__footer { background:#f8fafc; border-top:1px solid #e2e8f0; }
-</style>
 <style scoped>
-.child-preview-row { border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin:12px 0; }
+.child-preview-row { border:1px solid var(--el-border-color-lighter); border-radius:6px; background:#fff; padding:16px; margin:16px 0; }
 .child-copy-summary { margin-bottom: 12px; }
 .child-preview-title { display:flex; justify-content:space-between; margin-bottom:10px; }
 .child-preview-count { margin-right:12px; }

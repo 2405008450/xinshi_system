@@ -607,6 +607,7 @@
 </template>
 
 <script setup>
+import { annotationStatusLabel as statusLabel, annotationStatusType as statusType } from '@/utils/annotationStatus'
 import AnnotationChildOrderPanel from '@/components/annotation/AnnotationChildOrderPanel.vue'
 import AnnotationChildCreateDialog from '@/components/annotation/AnnotationChildCreateDialog.vue'
 import { customFieldRules } from '@/utils/annotationCustomFieldRules.js'
@@ -962,8 +963,6 @@ const managerValue=(row,columnKey)=>columnKey==='clientManagerName'?(row.clientM
 const managerOptions=(columnKey)=>columnKey==='clientManagerName'?activeUsers.value:projectManagerOptions.value
 const compactDateTime=(value)=>{if(!value)return '-';const date=new Date(String(value).replace(' ','T'));if(Number.isNaN(date.getTime()))return String(value);const monthDay=`${date.getMonth()+1}/${date.getDate()}`;return date.getFullYear()===new Date().getFullYear()?monthDay:`${date.getFullYear()}/${monthDay}`}
 const projectTypesText=(values)=>Array.isArray(values)&&values.length?values.map((value)=>projectTypeMap[value]||value).join('；'):'-'
-const statusLabel=(value)=>statusMap[value]||value||'-'
-const statusType=(value)=>({initial_consultation:'info',consultation_no_result:'info',resource_sourcing:'primary',resource_sourcing_cancelled:'danger',trial_preparation:'warning',trial_in_progress:'warning',trial_submitted:'primary',trial_passed:'success',trial_failed:'danger',trial_partially_passed:'warning',project_in_progress:'primary',sent_to_client:'success',client_feedback:'warning',cancelled:'danger',partially_cancelled:'warning',paused:'warning',actively_abandoned:'danger',ended:'success'}[value]||'info')
 const priorityLabel=(value)=>priorityMap[value]||'-'
 const priorityType=(value)=>({high:'danger',medium:'warning',low:'info'}[value]||'info')
 const languageName=(id)=>languages.value.find((item)=>item.id===id)?.label||''
@@ -1070,6 +1069,7 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
   padding: 8px 16px;
 }
 .annotation-card :deep(> .el-card__body) {
+  container-type: inline-size;
   display: flex;
   flex: 1;
   flex-direction: column;

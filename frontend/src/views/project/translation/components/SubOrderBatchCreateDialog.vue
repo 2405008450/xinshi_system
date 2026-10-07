@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog
     :model-value="modelValue"
-    class="suborder-batch-create-dialog"
+    class="suborder-batch-create-dialog project-suborder-dialog"
     title="批量新增子订单"
     width="min(960px, calc(100vw - 32px))"
     top="5vh"
@@ -269,12 +269,4 @@ watch(() => props.modelValue, (visible) => { if (visible) reset() })
 .import-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
 .import-summary span { color: var(--el-text-color-secondary); font-size: 12px; }
 .word-count-summary { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 32px; gap: 8px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); }
-</style>
-
-<style>
-.suborder-batch-create-dialog { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
-.suborder-batch-create-dialog .el-dialog__header,
-.suborder-batch-create-dialog .el-dialog__footer { flex: 0 0 auto; }
-.suborder-batch-create-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
-.suborder-batch-create-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -3px 10px rgb(0 0 0 / 4%); }
 </style>
