@@ -537,6 +537,12 @@ class DeleteDb:
         self.flush_count = 0
         self.commit_count = 0
 
+    def get_bind(self):
+        return None
+
+    def get(self, _model, _id):
+        return self.project
+
     def query(self, target):
         from annotation_material_models import AnnotationMaterialFile
         if target is AnnotationProject.id or target is AnnotationMaterialFile:
@@ -575,7 +581,7 @@ def _patch_annotation_delete_side_effects(monkeypatch, cleaned_images):
 
 
 def test_delete_annotation_project_blocks_active_account_assignment(monkeypatch):
-    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-001")
+    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-001", parent_project_id=None)
     assignment = SimpleNamespace(
         id=uuid4(),
         released_on=None,
@@ -598,7 +604,7 @@ def test_delete_annotation_project_blocks_active_account_assignment(monkeypatch)
 
 
 def test_delete_annotation_project_blocks_resource_requests(monkeypatch):
-    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-002")
+    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-002", parent_project_id=None)
     request = SimpleNamespace(request_no="RR-260817-001")
     db = DeleteDb(project, resource_requests=[request])
     _patch_annotation_delete_side_effects(monkeypatch, [])
@@ -614,7 +620,7 @@ def test_delete_annotation_project_blocks_resource_requests(monkeypatch):
 
 
 def test_delete_annotation_project_cleans_released_assignment_and_image_files(monkeypatch):
-    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-003")
+    project = SimpleNamespace(id=uuid4(), order_no="AP-260817-003", parent_project_id=None)
     assignment = SimpleNamespace(id=uuid4(), released_on=date(2026, 8, 30))
     db = DeleteDb(project, assignments=[assignment], images=["project-image.png"])
     cleaned_images = []

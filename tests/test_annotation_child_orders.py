@@ -73,8 +73,207 @@ def update_payload(project, **changes):
     data = AnnotationProjectDetailResponse.model_validate(project).model_dump()
     fields = AnnotationProjectUpdate.model_fields
     data = {key: value for key, value in data.items() if key in fields}
-    data.update(expected_updated_at=project.updated_at, **changes)
+    data.update(expected_updated_at=project.updated_at)
+    data.update(changes)
     return AnnotationProjectUpdate.model_validate(data)
+
+
+def add_test_language(db):
+    language = InterpretationLanguage(label='自动方向'+uuid4().hex[:8])
+    db.add(language); db.commit()
+    return language.id
+
+
+def test_automatic_create_single_and_multiple_directions(context):
+    db, parent_id, language_id = context
+    assert service.get_annotation_project(db, parent_id).child_count == 0
+    second = add_test_language(db)
+    directions = [{'source_language_id': language_id},
+                  {'source_language_id': language_id, 'target_language_id': second},
+                  {'source_language_id': second, 'target_language_id': language_id}]
+    parent = service.create_annotation_project(db, AnnotationProjectCreate(
+        project_name='自动母订单', language_items=directions), None)
+    assert parent.auto_created_child_count == parent.child_count == 3
+    children = service.get_annotation_projects(db, parent_project_id=parent.id)
+    assert len(children) == 3 and all(len(child.language_items) == 1 for child in children)
+    assert {(child.language_items[0].source_language_id, child.language_items[0].target_language_id)
+            for child in children} == {(language_id, None), (language_id, second), (second, language_id)}
+    assert parent.direction_summary['missing_directions'] == []
+    parent = service.update_annotation_project(db, parent.id, update_payload(parent))
+    assert parent.auto_created_child_count == 0 and parent.child_count == 3
+
+
+def test_automatic_add_delete_change_and_shrink_preserve_children(context):
+    db, parent_id, language_id = context
+    second, third = add_test_language(db), add_test_language(db)
+    existing = service.create_annotation_children(db, parent_id,
+        [item(language_id, task_description='人工调整'), item(language_id)], None, 'manual-batches')[0]
+    parent = service.get_annotation_project(db, parent_id)
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent,
+        language_items=[{'id':parent.language_items[0].id,'source_language_id':language_id}, {'source_language_id':second}]))
+    assert parent.auto_created_child_count == 1 and parent.child_count == 3
+    assert service.get_annotation_project(db, existing.id).task_description == '人工调整'
+    second_child = next(child for child in service.get_annotation_projects(db, parent_project_id=parent_id)
+                        if child.language_items[0].source_language_id == second)
+    old_number = second_child.order_no
+    service.delete_annotation_project(db, second_child.id)
+    parent = service.get_annotation_project(db, parent_id)
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent))
+    assert parent.auto_created_child_count == 1
+    replacement = next(child for child in service.get_annotation_projects(db, parent_project_id=parent_id)
+                       if child.language_items[0].source_language_id == second)
+    assert replacement.order_no != old_number
+    service.update_annotation_project(db, replacement.id, update_payload(replacement,
+        language_items=[{'id':replacement.language_items[0].id,'source_language_id':third}]))
+    parent = service.get_annotation_project(db, parent_id)
+    assert parent.direction_summary['extra_directions'] and parent.direction_summary['missing_directions']
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent))
+    assert parent.auto_created_child_count == 1 and parent.child_count == 4
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent,
+        language_items=[{'id':parent.language_items[0].id,'source_language_id':language_id}]))
+    assert parent.auto_created_child_count == 0 and parent.child_count == 4
+    assert not parent.direction_summary['automatic_enabled'] and parent.direction_summary['extra_directions']
+
+
+def test_child_requires_exactly_one_direction(context):
+    db, parent_id, language_id = context
+    second = add_test_language(db)
+    with pytest.raises(ValueError, match='只能绑定一个'):
+        service.create_annotation_children(db, parent_id, [AnnotationProjectCreate(language_items=[
+            {'source_language_id':language_id}, {'source_language_id':second}])], None, 'multi-child')
+    db.rollback()
+    child = service.create_annotation_children(db, parent_id, [item(language_id)], None, 'one-child')[0]
+    with pytest.raises(ValueError, match='只能绑定一个'):
+        service.update_annotation_project(db, child.id, update_payload(child, language_items=[]))
+    db.rollback()
+    assert len(service.get_annotation_project(db, child.id).language_items) == 1
+
+
+def test_stale_parent_save_does_not_generate_children(context):
+    from concurrency import StaleUpdateError
+    db,parent_id,language_id = context
+    second = add_test_language(db)
+    parent = service.get_annotation_project(db,parent_id)
+    with pytest.raises(StaleUpdateError):
+        service.update_annotation_project(db,parent_id,update_payload(parent,
+            expected_updated_at=datetime(2000,1,1),language_items=[{'source_language_id':language_id},{'source_language_id':second}]))
+    db.rollback()
+    assert service.get_annotation_project(db,parent_id).child_count == 0
+
+
+def test_automatic_creation_failure_rolls_back_parent_and_children(context, monkeypatch):
+    db, parent_id, language_id = context
+    second = add_test_language(db)
+    original = service.create_annotation_project
+    calls = []
+    def fail_second(db, payload, *args, **kwargs):
+        if kwargs.get('operation_source') == 'automatic_direction_create':
+            calls.append(payload)
+            if len(calls) == 2:
+                raise ValueError('自动创建失败测试')
+        return original(db, payload, *args, **kwargs)
+    monkeypatch.setattr(service, 'create_annotation_project', fail_second)
+    parent = service.get_annotation_project(db, parent_id)
+    before_name = parent.project_name
+    with pytest.raises(ValueError, match='自动创建失败'):
+        service.update_annotation_project(db, parent_id, update_payload(parent,
+            project_name='不应保存', language_items=[{'source_language_id':language_id}, {'source_language_id':second}]))
+    db.rollback()
+    parent = service.get_annotation_project(db, parent_id)
+    assert parent.project_name == before_name and len(parent.language_items) == 1 and parent.child_count == 0
+    assert db.query(ProjectOrderNoReservation).filter(ProjectOrderNoReservation.order_no.like(parent.order_no+'-S%')).count() == 0
+    calls.clear()
+    with pytest.raises(ValueError, match='自动创建失败'):
+        service.create_annotation_project(db, AnnotationProjectCreate(project_name='整次新增回滚',
+            language_items=[{'source_language_id':language_id},{'source_language_id':second}]), None)
+    db.rollback()
+    assert db.query(AnnotationProject).filter_by(project_name='整次新增回滚').count() == 0
+
+
+def test_automatic_snapshot_includes_current_form_rates(context):
+    from resource_models import ResourcePerson, ResourceCapability
+    db, parent_id, language_id = context
+    second = add_test_language(db)
+    person = ResourcePerson(full_name='自动复制单价人员')
+    db.add(person); db.flush()
+    db.add(ResourceCapability(person_id=person.id, capability_type='annotation', status='active'))
+    db.commit()
+    parent = service.get_annotation_project(db, parent_id)
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent,
+        language_items=[{'id':parent.language_items[0].id,'source_language_id':language_id},{'source_language_id':second}],
+        assignees=[{'person_id':person.id,'rate':{'amount':8,'currency':'CNY','unit':'item','remarks':'本次表单单价'}}]))
+    assert parent.auto_created_child_count == 2
+    children = service.get_annotation_projects(db, parent_project_id=parent_id)
+    assert len({parent.assignees[0].rate.id, *(child.assignees[0].rate.id for child in children)}) == 3
+    assert all(child.assignees[0].rate.amount == 8 for child in children)
+    parent = service.update_annotation_project(db, parent_id, update_payload(parent,
+        assignees=[{'id':parent.assignees[0].id,'person_id':person.id,'rate':None}]))
+    assert parent.assignees[0].rate is None
+    assert all(service.get_annotation_project(db, child.id).assignees[0].rate.amount == 8 for child in children)
+
+
+def test_historical_preview_apply_retry_partial_failure_and_legacy_child(context, sessions, monkeypatch):
+    from annotation_models import AnnotationProjectLanguageItem
+    from tools.backfill_annotation_direction_children import backfill
+    import annotation_direction_service as directions
+    db, parent_id, language_id = context
+    second = add_test_language(db)
+    parent = service.get_annotation_project(db, parent_id)
+    parent.project_status = 'ended'
+    parent.language_items.append(AnnotationProjectLanguageItem(sequence_no=2, source_language_id=second))
+    legacy = AnnotationProject(order_no=parent.order_no+'-S001',parent_project_id=parent_id,child_sequence_no=1)
+    legacy.language_items = [AnnotationProjectLanguageItem(sequence_no=1,source_language_id=language_id),
+                             AnnotationProjectLanguageItem(sequence_no=2,source_language_id=second)]
+    db.add(legacy); db.flush()
+    service.reserve_annotation_order_no(db,project_id=legacy.id,order_no=legacy.order_no,
+        assignment_source='historical_fixture',assigned_by=None)
+    db.commit()
+    before_history = db.query(AnnotationProjectStatusHistory).filter_by(project_id=parent_id).count()
+    preview = backfill(sessions,parent_ids=[parent_id])
+    assert len(preview) == 1 and len(preview[0]['pending_directions']) == 2 and preview[0]['anomalies']
+    assert service.get_annotation_project(db,parent_id).child_count == 1
+    db.rollback()
+    applied = backfill(sessions,apply=True,parent_ids=[parent_id])
+    assert applied[0]['status'] == 'success', applied
+    assert len(applied[0]['created_order_nos']) == 2
+    assert backfill(sessions,apply=True,parent_ids=[parent_id])[0]['created_order_nos'] == []
+    assert db.query(AnnotationProjectStatusHistory).filter_by(project_id=parent_id).count() == before_history
+    assert len(service.get_annotation_project(db,legacy.id).language_items) == 2
+    db.rollback()
+    other = AnnotationProject(order_no='AP-FAIL-BACKFILL-'+uuid4().hex[:8].upper())
+    other.language_items = [AnnotationProjectLanguageItem(sequence_no=1,source_language_id=language_id),
+                            AnnotationProjectLanguageItem(sequence_no=2,source_language_id=second)]
+    db.add(other); db.commit()
+    original = directions.ensure_direction_children
+    def fail_one(db,parent,*args,**kwargs):
+        if parent.id == other.id:
+            raise ValueError('母订单失败测试')
+        return original(db,parent,*args,**kwargs)
+    monkeypatch.setattr(directions,'ensure_direction_children',fail_one)
+    db.rollback()
+    results = backfill(sessions,apply=True,parent_ids=[parent_id,other.id])
+    assert sorted(row['status'] for row in results) == ['failed','success']
+
+
+def test_concurrent_automatic_save_and_backfill_no_duplicates(context, sessions):
+    from annotation_models import AnnotationProjectLanguageItem
+    from tools.backfill_annotation_direction_children import backfill
+    db,parent_id,language_id = context
+    second = add_test_language(db)
+    parent = service.get_annotation_project(db,parent_id)
+    parent.language_items.append(AnnotationProjectLanguageItem(sequence_no=2,source_language_id=second))
+    db.commit()
+    payload = update_payload(parent,expected_updated_at=None)
+    db.rollback()
+    def save():
+        with sessions() as concurrent:
+            return service.update_annotation_project(concurrent,parent_id,payload).child_count
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        tasks=[executor.submit(save), executor.submit(save),
+               executor.submit(backfill,sessions,apply=True,parent_ids=[parent_id])]
+        for task in tasks:
+            task.result(timeout=30)
+    assert service.get_annotation_project(db,parent_id).child_count == 2
 
 
 def test_defaults_same_language_batches_and_retry(context):
@@ -291,6 +490,19 @@ def test_api_scopes_atomic_failure_and_independent_client_fields(context, monkey
     monkeypatch.setattr(auth, "user_has_permission", lambda *_args: True)
     monkeypatch.setattr(auth, "get_user_permission_codes", lambda *_args: {"projects:read", "projects:write"})
     with TestClient(app) as client:
+        second = add_test_language(db)
+        new_payload = {'project_name':'接口自动生成母单','language_items':[
+            {'source_language_id':str(language_id)},{'source_language_id':str(second)}]}
+        created = client.post('/projects/annotation/',json=new_payload,headers={'X-Idempotency-Key':'api-auto-parent'})
+        assert created.status_code == 201, created.text
+        automatic = created.json()
+        assert automatic['auto_created_child_count'] == automatic['child_count'] == 2
+        assert automatic['direction_summary']['missing_directions'] == []
+        retry = client.post('/projects/annotation/',json=new_payload,headers={'X-Idempotency-Key':'api-auto-parent'}).json()
+        assert retry['id'] == automatic['id'] and retry['child_count'] == 2 and retry['auto_created_child_count'] == 0
+        saved = client.put(f"/projects/annotation/{automatic['id']}",json={**new_payload,'expected_updated_at':automatic['updated_at']})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()['auto_created_child_count'] == 0 and saved.json()['child_count'] == 2
         prefix = f"/projects/annotation/{parent_id}/children"
         payload = {"language_items": [{"source_language_id": str(language_id)}], "project_name": "接口子单"}
         response = client.post(prefix, json=payload, headers={"X-Idempotency-Key": "api-child-key"})

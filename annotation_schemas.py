@@ -159,6 +159,20 @@ class AnnotationPriceItemResponse(AnnotationPriceItemInput):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnnotationAssigneeRateInput(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    unit: str
+    remarks: Optional[str] = None
+
+    @field_validator("unit")
+    @classmethod
+    def validate_unit(cls, value):
+        if value not in {"item", "second", "minute", "hour"}:
+            raise ValueError("不支持的计价单位")
+        return value
+
+
 class AnnotationAssigneeInput(BaseModel):
     id: Optional[UUID] = None
     person_id: UUID
@@ -170,6 +184,8 @@ class AnnotationAssigneeInput(BaseModel):
     assignment_status: str = "assigned"
     quality_score: Optional[str] = None
     evaluation_note: Optional[str] = None
+    # 未提交保留原值；显式 null 删除；对象在项目事务内保存。
+    rate: Optional[AnnotationAssigneeRateInput] = None
 
     @field_validator("assignment_status")
     @classmethod
@@ -423,6 +439,7 @@ class AnnotationProjectListResponse(BaseModel):
     parent_order_no: Optional[str] = None
     parent_project_name: Optional[str] = None
     child_count: int = 0
+    auto_created_child_count: int = 0
     child_status_counts: dict[str, int] = Field(default_factory=dict)
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list)
@@ -462,7 +479,16 @@ class AnnotationProjectListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnnotationDirectionSummary(BaseModel):
+    automatic_enabled: bool = False
+    direction_count: int = 0
+    missing_directions: list[str] = Field(default_factory=list)
+    extra_directions: list[str] = Field(default_factory=list)
+    invalid_child_order_nos: list[str] = Field(default_factory=list)
+
+
 class AnnotationProjectDetailResponse(AnnotationProjectListResponse):
+    direction_summary: Optional[AnnotationDirectionSummary] = None
     consultation_id: Optional[UUID] = None
     consultation_code: Optional[str] = None
     customer_consultation_time: Optional[datetime] = None

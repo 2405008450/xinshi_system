@@ -34,10 +34,13 @@ def run():
     parent['task_submitted_at'] = '2026-12-01T18:00:00'
     parent['language_items'][0]['target_language_id'] = LID2
     parent['language_items'][0]['display'] = '英语 → 日语'
+    parent['direction_summary'] = dict(automatic_enabled=True,direction_count=7,
+        missing_directions=[item['display'] for item in parent['language_items'][1:]],
+        extra_directions=[],invalid_child_order_nos=[])
     children = []
     for index in range(2):
-        children.append({**parent, 'id': str(uuid4()), 'order_no': f'{parent["order_no"]}-S{index+1:03d}', 'project_name': f'英语标注批次{index+1}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': index+1, 'child_count': 0, 'child_status_counts': {}})
-    errors, creates, scopes = [], [], []
+        children.append({**parent, 'id': str(uuid4()), 'order_no': f'{parent["order_no"]}-S{index+1:03d}', 'project_name': f'英语标注批次{index+1}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': index+1, 'child_count': 0, 'child_status_counts': {}, 'language_items':[dict(parent['language_items'][0])], 'direction_summary':None})
+    errors, creates, scopes, saves = [], [], [], []
 
     def api(route):
         request = route.request
@@ -65,6 +68,22 @@ def run():
             result = added if 'items' in payload else added[0]; status = 201
         elif path.endswith('/children'):
             result = dict(items=children[:10], total=len(children))
+        elif path == f'/projects/annotation/{PID}' and request.method == 'PUT':
+            payload=request.post_data_json; saves.append(payload)
+            directions={ (item['source_language_id'],item.get('target_language_id')) for child in children
+                if len(child['language_items'])==1 for item in child['language_items'] }
+            added=0
+            for item in parent['language_items']:
+                if (item['source_language_id'],item.get('target_language_id')) in directions:
+                    continue
+                number=len(children)+1
+                children.append({**parent,'id':str(uuid4()),'order_no':f'{parent["order_no"]}-S{number:03d}',
+                    'parent_project_id':PID,'parent_order_no':parent['order_no'],'child_sequence_no':number,
+                    'language_items':[dict(item)],'child_count':0,'child_status_counts':{},'direction_summary':None})
+                added+=1
+            parent['child_count']=len(children); parent['auto_created_child_count']=added
+            parent['direction_summary']['missing_directions']=[]
+            result=parent
         elif path.startswith('/projects/annotation/') and path.rsplit('/',1)[-1] in [PID, *(child['id'] for child in children)]:
             result = parent if path.endswith(PID) else next(child for child in children if path.endswith(child['id']))
         elif path == '/projects/languages':
@@ -198,6 +217,8 @@ def run():
             page.goto(BASE+f'/annotation-child-orders?parentProjectId={PID}&projectId={children[0]["id"]}&openEditor=1')
             editor=page.locator('.annotation-editor-dialog:visible')
             expect(editor).to_be_visible(); expect(editor.get_by_text('所属母订单：',exact=False)).to_be_visible()
+            expect(editor.get_by_role('button',name='添加语言项',exact=True)).to_be_disabled()
+            expect(editor.get_by_text('子订单必须且只能绑定一个语种或语言方向。',exact=True)).to_be_visible()
             for label in ['联系人','客户单号/项目标识']:
                 field=editor.locator('.el-form-item').filter(has=page.locator('label',has_text=label)).first
                 assert field.locator('input:not([readonly])').count() == 1, label
@@ -216,8 +237,18 @@ def run():
             page.locator('.project-field-search-option').filter(has_text='具体任务').first.click()
             expect(editor.get_by_role('tab', name='订单信息', exact=True)).to_have_attribute('aria-selected', 'true')
             expect(editor.locator('.el-form-item').filter(has=page.locator('label', has_text='具体任务')).first).to_be_visible()
-            editor.get_by_role('button',name='取消',exact=True).click()
+            expect(editor.get_by_text('一个方向不自动生成子订单；两个及以上方向保存后自动补齐对应子订单，已有子订单不会覆盖。',exact=True)).to_be_visible()
+            page.screenshot(path=str(out/'automatic-direction-form.png'),full_page=True)
+            editor.get_by_role('button',name='保存',exact=True).click()
             expect(editor).not_to_be_visible()
+            assert len(saves)==1 and len(saves[0]['language_items'])==7
+            expect(page.get_by_text('标注项目已更新，自动生成 6 个子订单',exact=True)).to_be_visible()
+            expect(page.locator('.annotation-table .order-cell-secondary').first).to_contain_text(f'子订单 {len(children)}')
+            page.locator('.annotation-table').get_by_role('button',name='查看详情',exact=True).first.click()
+            expect(page.locator('.annotation-detail-popover:visible').get_by_text('方向对应完整',exact=True)).to_be_visible()
+            page.wait_for_function("() => [...document.querySelectorAll('.annotation-detail-popover')].some(el => el.getClientRects().length && Number(getComputedStyle(el).opacity) > 0.99 && el.getBoundingClientRect().top >= 0)")
+            page.screenshot(path=str(out/'automatic-direction-detail.png'),full_page=True)
+            page.mouse.click(300,160)
             page.set_viewport_size({'width':600,'height':740})
             page.get_by_role('button',name='新增标注项目',exact=True).click()
             expect(editor).to_be_visible()

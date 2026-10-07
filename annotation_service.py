@@ -217,7 +217,11 @@ def get_annotation_project(
         .first()
     )
     if project:
+        project.auto_created_child_count = 0
         _attach_child_statistics(db, [project])
+        if not project.parent_project_id:
+            from annotation_direction_service import direction_state
+            project.direction_summary = direction_state(db, project)[1]
     return project
 
 
@@ -536,8 +540,8 @@ def _child_create_payload(parent, payload):
     from annotation_schemas import AnnotationProjectWrite
     from annotation_child_copy_service import source_direction, copy_prices
     assert_fresh(parent, payload.expected_parent_updated_at)
-    if not payload.language_items:
-        raise ValueError("子订单至少需要一个语种或语言方向")
+    if len(payload.language_items) != 1:
+        raise ValueError("子订单必须且只能绑定一个语种或语言方向")
     source = source_direction(parent, payload)
     values = payload.model_dump()
     scalar_fields = set(AnnotationProjectWrite.model_fields) - NESTED_FIELDS - WRITE_ONLY_CLIENT_FIELDS
@@ -704,7 +708,7 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
                 current_rows.remove(row)
 
         for index, item in enumerate(items, start=1):
-            values = item.model_dump(exclude={"id"})
+            values = item.model_dump(exclude={"id", "rate"})
             row = current_by_id.get(item.id) if item.id else None
             if model is AnnotationProjectAssignee:
                 from annotation_custom_field_service import validate_custom_values
@@ -718,6 +722,16 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
             for key, value in values.items():
                 setattr(row, key, value)
             row.sequence_no = index
+            if model is AnnotationProjectAssignee and 'rate' in item.model_fields_set:
+                from annotation_ops_models import AnnotationAssigneeRate
+                if item.rate is None:
+                    row.rate = None
+                else:
+                    if row.rate is None:
+                        row.rate = AnnotationAssigneeRate()
+                    for key, value in item.rate.model_dump().items():
+                        setattr(row.rate, key, value)
+                    row.rate.updated_at = datetime.now()
             if hasattr(row, "updated_at"):
                 row.updated_at = datetime.now()
 
@@ -799,9 +813,15 @@ def create_annotation_project(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
     )
+    auto_count = 0
+    if not parent:
+        from annotation_direction_service import ensure_direction_children
+        auto_count = len(ensure_direction_children(db, project, created_by))
     if commit:
         db.commit()
-        return get_annotation_project(db, project.id)
+        result = get_annotation_project(db, project.id)
+        result.auto_created_child_count = auto_count
+        return result
     db.flush()
     return project
 
@@ -810,6 +830,7 @@ def update_annotation_project(
     db: Session, project_id: UUID, payload: AnnotationProjectUpdate,
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
+    _lock_annotation_order_numbers(db)
     existing = db.get(AnnotationProject, project_id)
     parent = _lock_parent(db, existing.parent_project_id) if existing and existing.parent_project_id else None
     # 序列化项目保存，确保版本递增和乐观锁检查在同一锁内。
@@ -822,8 +843,8 @@ def update_annotation_project(
     previous_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     if parent:
-        if not payload.language_items:
-            raise ValueError("子订单至少需要一个语种或语言方向")
+        if len(payload.language_items) != 1:
+            raise ValueError("子订单必须且只能绑定一个语种或语言方向")
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
         db, "project", None, data.get("custom_values") or {}, project.custom_values,
@@ -881,8 +902,12 @@ def update_annotation_project(
         change_mode="project_edit", actor_user_id=changed_by,
         reason="编辑标注项目时修改负责人",
     )
+    from annotation_direction_service import ensure_direction_children
+    auto_count = len(ensure_direction_children(db, project, changed_by)) if not parent else 0
     db.commit()
-    return get_annotation_project(db, project.id)
+    result = get_annotation_project(db, project.id)
+    result.auto_created_child_count = auto_count
+    return result
 
 
 def update_annotation_project_order_no(
@@ -1074,6 +1099,10 @@ def delete_annotation_project(
     db: Session, project_id: UUID, *, actor_user_id: Optional[UUID] = None,
     operation_source: str = "project_delete",
 ) -> bool:
+    _lock_annotation_order_numbers(db)
+    existing = db.get(AnnotationProject, project_id)
+    if existing and existing.parent_project_id:
+        _lock_parent(db, existing.parent_project_id)
     project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().first()
     if not project:
         return False

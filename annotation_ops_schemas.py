@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from annotation_schemas import AnnotationProjectListResponse
+from annotation_schemas import AnnotationProjectListResponse, AnnotationAssigneeRateInput
 from annotation_notice_schemas import validate_tiptap_document
 
 
@@ -426,18 +426,8 @@ class TrialSummaryResponse(BaseModel):
     items: list[TrialLanguageSummaryResponse] = Field(default_factory=list)
 
 
-class AssigneeRateWrite(BaseModel):
-    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
-    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
-    unit: str
-    remarks: Optional[str] = None
-
-    @field_validator("unit")
-    @classmethod
-    def validate_unit(cls, value):
-        if value not in {"item", "second", "minute", "hour"}:
-            raise ValueError("不支持的计价单位")
-        return value
+class AssigneeRateWrite(AnnotationAssigneeRateInput):
+    pass
 
 
 class AssigneeRateResponse(AssigneeRateWrite):

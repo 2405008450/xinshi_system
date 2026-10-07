@@ -19,6 +19,12 @@
     <div class="annotation-project-detail__content" v-loading="loading">
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item v-if="displayRow.parentProjectId" label="所属母订单" :span="2"><router-link :to="{name: 'AnnotationProjectDetails', query: {projectId: displayRow.parentProjectId, openEditor: '1'}}">{{ displayRow.parentOrderNo }} · {{ displayRow.parentProjectName }}</router-link></el-descriptions-item>
+        <el-descriptions-item v-if="displayRow.directionSummary" label="子订单方向检查" :span="2">
+          <div v-if="displayRow.directionSummary.missingDirections?.length">{{ displayRow.directionSummary.automaticEnabled ? '缺失方向' : '单方向无需自动生成' }}：{{ displayRow.directionSummary.missingDirections.join('；') }}</div>
+          <div v-if="displayRow.directionSummary.extraDirections?.length">额外方向：{{ displayRow.directionSummary.extraDirections.join('；') }}；已有子订单保留，请人工处理。</div>
+          <div v-if="displayRow.directionSummary.invalidChildOrderNos?.length">非单方向子订单：{{ displayRow.directionSummary.invalidChildOrderNos.join('、') }}；请人工调整为一个方向。</div>
+          <span v-if="!displayRow.directionSummary.missingDirections?.length && !displayRow.directionSummary.extraDirections?.length && !displayRow.directionSummary.invalidChildOrderNos?.length">方向对应完整</span>
+        </el-descriptions-item>
         <el-descriptions-item label="订单号">{{ textValue(displayRow.orderNo) }}</el-descriptions-item>
         <el-descriptions-item label="项目进度"><el-tag :type="statusType(displayRow.projectStatus)">{{ statusLabel(displayRow.projectStatus) }}</el-tag></el-descriptions-item>
         <el-descriptions-item label="优先次序"><el-tag :type="priorityType(displayRow.priority)">{{ priorityLabel(displayRow.priority) }}</el-tag></el-descriptions-item>
