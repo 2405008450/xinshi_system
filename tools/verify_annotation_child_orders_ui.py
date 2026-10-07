@@ -136,7 +136,20 @@ def run():
                 assert order.bounding_box()['height'] < 25
                 page.screenshot(path=str(out / f'annotation-list-{width}.png'), full_page=True)
             page.set_viewport_size({'width':1440,'height':1000})
-            page.locator('.annotation-table .el-table__expand-icon').first.click()
+            expand = row.get_by_role('button', name='展开子订单', exact=True)
+            assert expand.locator('xpath=ancestor::div[contains(@class,"annotation-index-cell")]').count() == 1
+            assert row.locator('.annotation-expand-column').bounding_box()['width'] <= 2
+            expand.focus(); expand.press('Enter')
+            expect(row.get_by_role('button', name='收起子订单', exact=True)).to_have_attribute('aria-expanded', 'true')
+            row.get_by_role('button', name='收起子订单', exact=True).press('Space')
+            expect(page.locator('.child-order-panel:visible')).to_have_count(0)
+            page.get_by_role('button', name='删除管理', exact=True).click()
+            row.get_by_role('button', name='展开子订单', exact=True).click()
+            readonly_panel = page.locator('.child-order-panel:visible').first
+            expect(readonly_panel.get_by_role('button', name='批量新增子订单', exact=True)).to_have_count(0)
+            row.get_by_role('button', name='收起子订单', exact=True).click()
+            page.get_by_role('button', name='退出', exact=True).click()
+            row.get_by_role('button', name='展开子订单', exact=True).click()
             panel = page.locator('.child-order-panel:visible').first
             expect(panel.get_by_text('英语标注批次1', exact=True)).to_be_visible()
             assert 'parent' in scopes
@@ -197,6 +210,12 @@ def run():
             expect(editor.locator('.el-form-item.is-error').first).to_be_visible()
             expect(editor.get_by_role('button',name='取消',exact=True)).to_be_visible()
             page.screenshot(path=str(out/'child-orders-small.png'), full_page=True)
+            editor.get_by_role('button',name='取消',exact=True).click()
+            expect(editor).not_to_be_visible()
+            parent['child_count'] = 0
+            page.goto(BASE + '/annotation-details')
+            expect(page.locator('.annotation-table .order-no-link')).to_have_text(parent['order_no'])
+            expect(page.locator('.annotation-index-cell .table-expand-button')).to_have_count(0)
             assert not errors, errors
             (out/'result.json').write_text(json.dumps(dict(passed=True,list_row_height=list_row_height,language_count=7,layout_viewports=[1920,1440,1024,768],column_settings_verified=True,batch_rows=2,scopes=sorted(set(scopes)),errors=errors),ensure_ascii=False,indent=2),encoding='utf-8')
             browser.close()

@@ -59,11 +59,23 @@
       </div>
     </AppForm>
 
-    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :expand-row-keys="expandedProjectIds" @expand-change="handleProjectExpandChange" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="48"><template #default="{ row }"><AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision" @create="openChildCreate" /></template></el-table-column>
+      <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column"><template #default="{ row }"><AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision" @create="openChildCreate" /></template></el-table-column>
       <el-table-column v-if="props.orderScope === 'child'" label="母订单" min-width="180"><template #default="{ row }"><el-button link type="primary" @click="openParent(row)">{{ row.parentOrderNo || '-' }}</el-button></template></el-table-column>
-      <el-table-column type="index" label="序号" :width="56" align="center" fixed="left" />
+      <el-table-column label="序号" :width="56" align="center" fixed="left">
+        <template #default="{ row, $index }">
+          <div class="annotation-index-cell">
+            <span>{{ $index + 1 }}</span>
+            <TableExpandButton
+              v-if="props.orderScope !== 'child' && !row.parentProjectId && row.childCount > 0"
+              :expanded="expandedProjectIds.includes(row.id)"
+              expand-label="展开子订单" collapse-label="收起子订单"
+              @click="toggleProjectExpansion(row)"
+            />
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="200" fixed="left">
         <template #header>
           <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -624,6 +636,7 @@ import AnnotationMaterialManager from '@/components/annotation/AnnotationMateria
 
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
@@ -837,6 +850,14 @@ const orderNoRules={
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const materialEditorRef=ref(), materialViewId=ref(null)
+const expandedProjectIds = ref([])
+const handleProjectExpandChange = (_row, expandedRows) => {
+  expandedProjectIds.value = expandedRows.filter((row) => !row.parentProjectId && row.childCount > 0).map((row) => row.id)
+}
+const toggleProjectExpansion = (row) => {
+  if (row.parentProjectId || !row.childCount) return
+  projectTableRef.value?.toggleRowExpansion(row, !expandedProjectIds.value.includes(row.id))
+}
 const tableData=ref([]), clients=ref([]), users=ref([]), languages=ref([]), annotationTalents=ref([]), projectManagerOptions=ref([])
 const languageReserveById=reactive({}), languageReserveLoading=ref(false), languageReserveError=ref('')
 const projectStatusSavingIds=ref(new Set())
@@ -952,7 +973,7 @@ const detailRow=(row)=>detailCache[row.id]||row
 const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value),sort:listSort.value,order_scope:props.orderScope,parent_project_id:props.orderScope === 'child' ? (parentFilterId.value || undefined) : undefined}}
 const pageLanguageIds=(rows)=>[...new Set((rows||[]).flatMap((row)=>(row.languageItems||[]).flatMap((item)=>[item.sourceLanguageId,item.targetLanguageId])).filter(Boolean))]
 const loadPageLanguageReserves=async(rows)=>{const ids=pageLanguageIds(rows);const current=++languageReserveRequestId;languageReserveLoading.value=Boolean(ids.length);languageReserveError.value='';for(const key of Object.keys(languageReserveById))delete languageReserveById[key];if(!ids.length)return;try{const result=await annotationApi.lookupAnnotationLanguageReserves(ids);if(current!==languageReserveRequestId)return;for(const item of result?.items||[])languageReserveById[item.languageId]=item}catch(error){if(current!==languageReserveRequestId)return;languageReserveError.value=error?.detail||'请稍后重试'}finally{if(current===languageReserveRequestId)languageReserveLoading.value=false}}
-const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];pagination.total=page?.total||0;childRevision.value++;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
+const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];expandedProjectIds.value=expandedProjectIds.value.filter((id)=>tableData.value.some((row)=>row.id===id && row.childCount>0));pagination.total=page?.total||0;childRevision.value++;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
 const toggleProgressSort=()=>{listSort.value=progressSortActive.value?'order_no_desc':'latest_progress_desc';handleSearch()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
@@ -1054,6 +1075,11 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 .annotation-language-form-item :deep(.el-form-item__content),.annotation-language-panel{width:100%}.annotation-language-panel .section-title-row h3{font-size:15px}
 .annotation-language-reserve-cell{display:flex;align-items:baseline;flex-wrap:wrap;line-height:1.45}.language-item-separator{color:var(--el-text-color-secondary)}
 @media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.annotation-table :deep(.el-table-fixed-column--left),.annotation-table :deep(.el-table-fixed-column--right){position:static!important;z-index:auto!important;right:auto!important;left:auto!important}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
+
+/* 与笔译列表一致：序号下方放置展开按钮，原生展开列仅承载展开内容。 */
+.annotation-index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
+.annotation-table :deep(.annotation-expand-column) { padding: 0 !important; border-right: 0 !important; }
+.annotation-table :deep(.annotation-expand-column .cell) { display: none; padding: 0; }
 
 /* 编号独占首行，辅助入口在第二行；避免按钮相互挤压导致编号逐字换行。 */
 .annotation-table.project-detail-list-table .order-cell { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
