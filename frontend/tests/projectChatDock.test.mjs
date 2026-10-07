@@ -17,8 +17,7 @@ const notificationBell = readFileSync(new URL('../src/components/NotificationBel
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
 
 // 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
-function createDockHarness() {
-  const storage = new Map()
+function createDockHarness(storage = new Map()) {
   const viewport = { innerWidth: 1440, innerHeight: 950 }
   const source = dockStore.replace(/^import .*\r?\n/gm, '').replace(/export const /g, 'const ')
   const { dock: instance, size, visible } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible })`, {
@@ -31,6 +30,59 @@ function createDockHarness() {
   })
   return { dock: instance, size, visible, viewport, storage }
 }
+
+function workspaceVisibility(state, followedItems = [{ projectId: 'followed-project' }]) {
+  const source = dock.slice(dock.indexOf('const workspaceVisible = computed'), dock.indexOf('const minimizedWindows = computed'))
+  return runInNewContext(`${source}\n;({ visible: workspaceVisible.value, task: showWorkspaceTask.value })`, {
+    state,
+    followed: { value: followedItems },
+    computed: getter => ({ get value() { return getter() } }),
+  })
+}
+
+test('旧版全屏偏好刷新后恢复普通布局，已关注项目不会自动打开窗口', () => {
+  for (const maximizedFrom of ['float', 'workspace', undefined]) {
+    const storage = new Map([['xinshi.chatDock.anonymous', JSON.stringify({
+      layout: 'workspace', workspaceMaximized: true, maximizedFrom,
+      workspaceSize: 'large', sizeByType: { annotation: 'medium' },
+    })]])
+    const { dock: instance } = createDockHarness(storage)
+    instance.ensurePreferences()
+    assert.equal(instance.state.layout, maximizedFrom || 'float')
+    assert.equal(instance.state.workspaceMaximized, false)
+    assert.equal(instance.state.workspaceSize, 'large')
+    assert.equal(workspaceVisibility(instance.state).visible, false)
+    assert.equal(workspaceVisibility(instance.state).task, false)
+    instance.openChat({ projectId: '1', projectType: 'annotation', title: '项目一', subtitle: 'A-001' })
+    assert.equal(instance.state.windows[0].sizeMode, 'medium')
+    assert.equal(instance.state.workspaceMaximized, false)
+  }
+})
+
+test('主动全屏在本次会话内正常打开和恢复，刷新不继承全屏状态', () => {
+  for (const layoutMode of ['float', 'workspace']) {
+    const { dock: instance, storage } = createDockHarness()
+    instance.setLayout(layoutMode)
+    instance.openFullscreen()
+    assert.equal(workspaceVisibility(instance.state).visible, true)
+    instance.minimizeWorkspace()
+    assert.equal(workspaceVisibility(instance.state).visible, false)
+    assert.equal(workspaceVisibility(instance.state).task, true)
+    instance.restoreWorkspace()
+    assert.equal(instance.state.workspaceMaximized, true)
+    const saved = JSON.parse(storage.get('xinshi.chatDock.anonymous'))
+    assert.equal(saved.layout, layoutMode)
+    assert.equal(saved.workspaceMaximized, undefined)
+    const { dock: reloaded } = createDockHarness(storage)
+    reloaded.ensurePreferences()
+    assert.equal(reloaded.state.layout, layoutMode)
+    assert.equal(reloaded.state.workspaceMaximized, false)
+    assert.equal(workspaceVisibility(reloaded.state).visible, false)
+    assert.equal(workspaceVisibility(reloaded.state).task, false)
+    instance.closeAllChats()
+    assert.equal(workspaceVisibility(instance.state).visible, false)
+  }
+})
 
 test('全屏还原保留独立窗口位置与尺寸，最小化恢复保持当前会话', () => {
   const { dock: instance, size, viewport } = createDockHarness()

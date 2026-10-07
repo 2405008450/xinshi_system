@@ -63,10 +63,9 @@ const normalizeWorkspaceSize = (value) => (value === 'large' ? 'large' : 'medium
 const persistPreferences = () => {
   try {
     localStorage.setItem(preferenceStorageKey(), JSON.stringify({
-      layout: state.layout,
+      // 全屏是本次打开的临时状态，只保存进入全屏前的布局。
+      layout: state.workspaceMaximized ? state.maximizedFrom : state.layout,
       workspaceSize: state.workspaceSize,
-      workspaceMaximized: state.workspaceMaximized,
-      maximizedFrom: state.maximizedFrom,
       sizeByType: { ...sizePreference },
     }))
   } catch {
@@ -79,11 +78,10 @@ const ensurePreferences = () => {
   state.preferencesReady = true
   try {
     const saved = JSON.parse(localStorage.getItem(preferenceStorageKey()) || '{}')
-    if (saved.layout === 'workspace' || saved.layout === 'float') state.layout = saved.layout
+    // 兼容旧版全屏偏好，刷新后恢复普通布局，不自动遮住业务页面。
+    const savedLayout = saved.workspaceMaximized === true ? saved.maximizedFrom : saved.layout
+    if (savedLayout === 'workspace' || savedLayout === 'float') state.layout = savedLayout
     state.workspaceSize = normalizeWorkspaceSize(saved.workspaceSize)
-    state.workspaceMaximized = saved.workspaceMaximized === true
-    state.maximizedFrom = saved.maximizedFrom === 'workspace' ? 'workspace' : 'float'
-    if (state.workspaceMaximized) state.layout = 'workspace'
     if (saved.sizeByType && typeof saved.sizeByType === 'object') {
       sizePreference.translation = normalizeSize(saved.sizeByType.translation)
       sizePreference.annotation = normalizeSize(saved.sizeByType.annotation)

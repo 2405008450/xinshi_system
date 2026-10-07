@@ -190,12 +190,12 @@ const workspaceNarrow = computed(() => resolveChatSize(state.workspaceMaximized 
 const workspaceVisible = computed(() => (
   state.layout === 'workspace'
   && !state.workspaceMinimized
-  && (state.workspaceOpened || state.windows.length > 0 || followed.value.length > 0)
+  && (state.workspaceOpened || state.windows.length > 0)
 ))
 const showWorkspaceTask = computed(() => (
   state.layout === 'workspace'
   && state.workspaceMinimized
-  && (state.workspaceOpened || state.windows.length > 0 || followed.value.length > 0)
+  && (state.workspaceOpened || state.windows.length > 0)
 ))
 const minimizedWindows = computed(() => (
   state.layout !== 'workspace'
