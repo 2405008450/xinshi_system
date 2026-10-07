@@ -30,6 +30,10 @@ def run():
     for sequence, label in enumerate(['南非荷兰语', '冰岛语', '阿尔巴尼亚语', '爱尔兰语', '宿务语', '加泰罗尼亚语'], 2):
         parent['language_items'].append(dict(id=str(uuid4()), source_language_id=str(uuid4()), source_language_label=label, display=label, sequence_no=sequence))
     parent['language_items_display'] = '；'.join(item['display'] for item in parent['language_items'])
+    parent['custom_values'] = {FIELD_ID: '母订单字段值'}
+    parent['task_submitted_at'] = '2026-12-01T18:00:00'
+    parent['language_items'][0]['target_language_id'] = LID2
+    parent['language_items'][0]['display'] = '英语 → 日语'
     children = []
     for index in range(2):
         children.append({**parent, 'id': str(uuid4()), 'order_no': f'{parent["order_no"]}-S{index+1:03d}', 'project_name': f'英语标注批次{index+1}', 'parent_project_id': PID, 'parent_order_no': parent['order_no'], 'parent_project_name': parent['project_name'], 'child_sequence_no': index+1, 'child_count': 0, 'child_status_counts': {}})
@@ -153,6 +157,18 @@ def run():
             panel = page.locator('.child-order-panel:visible').first
             expect(panel.get_by_text('英语标注批次1', exact=True)).to_be_visible()
             assert 'parent' in scopes
+            panel.get_by_role('button', name='分拆子订单', exact=True).click()
+            split_dialog = page.locator('.annotation-child-create-dialog:visible')
+            expect(split_dialog.locator('.child-preview-row')).to_have_count(7)
+            first_split = split_dialog.locator('.child-preview-row').first
+            expect(first_split.locator('textarea').first).to_have_value(parent['task_description'])
+            expect(first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='任务名称')).locator('input')).to_have_value(parent['project_name'])
+            expect(first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='目标语种')).locator('.el-select__placeholder')).to_contain_text('日语')
+            inherited = first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='验收必填字段'))
+            expect(inherited.locator('textarea')).to_have_value('母订单字段值')
+            page.screenshot(path=str(out / 'split-copy-preview.png'), full_page=True)
+            split_dialog.locator('.el-dialog__headerbtn').click()
+            expect(split_dialog).not_to_be_visible()
             panel.get_by_role('button', name='批量新增子订单', exact=True).click()
             dialog = page.locator('.annotation-child-create-dialog:visible')
             expect(dialog).to_be_visible()
@@ -182,9 +198,10 @@ def run():
             page.goto(BASE+f'/annotation-child-orders?parentProjectId={PID}&projectId={children[0]["id"]}&openEditor=1')
             editor=page.locator('.annotation-editor-dialog:visible')
             expect(editor).to_be_visible(); expect(editor.get_by_text('所属母订单：',exact=False)).to_be_visible()
-            for label in ['客户简称','联系人','客户单号/项目标识','客户经理']:
+            for label in ['联系人','客户单号/项目标识']:
                 field=editor.locator('.el-form-item').filter(has=page.locator('label',has_text=label)).first
-                assert field.locator('input[readonly]').count() == 1, label
+                assert field.locator('input:not([readonly])').count() == 1, label
+            assert editor.locator('.el-form-item').filter(has=page.locator('label',has_text='客户经理')).first.locator('.el-select.is-disabled').count() == 0
             assert editor.get_by_role('button',name='修改订单号',exact=True).count()==0
             assert editor.get_by_role('tab',name='子订单',exact=True).count()==0
             editor.locator('.el-dialog__body').evaluate('(element)=>element.scrollTop=element.scrollHeight')
@@ -219,7 +236,7 @@ def run():
             assert not errors, errors
             (out/'result.json').write_text(json.dumps(dict(passed=True,list_row_height=list_row_height,language_count=7,layout_viewports=[1920,1440,1024,768],column_settings_verified=True,batch_rows=2,scopes=sorted(set(scopes)),errors=errors),ensure_ascii=False,indent=2),encoding='utf-8')
             browser.close()
-            print('UI 验收通过：紧凑行高、多语种及储备小窗、资料详情、字段配置迁移与持久化、展开、批量预览、同语种多批次、独立管理、只读字段、母订单页签、拖拽边界与复位、小屏校验及固定操作栏')
+            print('UI 验收通过：紧凑行高、多语种及储备小窗、资料详情、字段配置迁移与持久化、展开、批量预览、同语种多批次、分拆全部方向、业务信息继承、独立管理与客户字段编辑、母订单页签、拖拽边界与复位、小屏校验及固定操作栏')
     finally:
         process.terminate(); process.wait(timeout=10); log.close()
 

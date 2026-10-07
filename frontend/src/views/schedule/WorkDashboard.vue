@@ -1,5 +1,5 @@
 <template>
-  <el-card class="workbench-card">
+  <el-card class="common-page-card workbench-card">
     <template #header>
       <ScheduleHeader
         title="工作台"

@@ -1,6 +1,6 @@
 <template>
   <div class="profile-page">
-    <el-card shadow="never" class="profile-card">
+    <el-card shadow="never" class="common-page-card profile-card">
       <template #header>
         <div class="card-header">
           <div>

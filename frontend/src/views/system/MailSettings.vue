@@ -1,5 +1,5 @@
 <template>
-  <el-card class="mail-settings-card">
+  <el-card class="common-page-card mail-settings-card">
     <template #header>
       <div class="page-header"><div><h2>邮件设置</h2><p>项目邮件和个人工作报告共用邮件组；成员来自启用且已绑定邮箱的系统用户。</p></div><el-button v-if="canWrite" type="primary" @click="openGroup()">新增邮件组</el-button></div>
     </template>

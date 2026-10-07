@@ -25,78 +25,39 @@
         :collapse-transition="false"
       >
         <!-- 工作台 -->
-        <el-menu-item v-if="showWorkbench" index="/workbench">
-          <el-icon><ChatLineRound /></el-icon>
-          <template #title>工作台</template>
-        </el-menu-item>
-        <el-menu-item index="/company-management">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>公司管理</template>
-        </el-menu-item>
+        <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="ChatLineRound" label="工作台" />
+        <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
-        <el-menu-item v-if="showConsultations" index="/consultations">
-          <el-icon><ChatDotRound /></el-icon>
-          <template #title>新咨询管理</template>
-        </el-menu-item>
+        <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="ChatDotRound" label="新咨询管理" />
 
-        <el-menu-item v-if="canViewProjects" index="/translation-details">
-          <el-icon><Document /></el-icon>
-          <template #title>笔译项目</template>
-        </el-menu-item>
-        <el-menu-item v-if="canViewProjects" index="/interpretation-details">
-          <el-icon><Headset /></el-icon>
-          <template #title>口译项目</template>
-        </el-menu-item>
-        <el-menu-item v-if="canViewAnnotation" index="/annotation-details">
-          <el-icon><EditPen /></el-icon>
-          <template #title>标注项目</template>
-        </el-menu-item>
-        <el-menu-item v-if="canViewProjects" index="/recruitment-details">
-          <el-icon><UserFilled /></el-icon>
-          <template #title>招聘项目</template>
-        </el-menu-item>
-        <el-menu-item v-if="canViewManuscript" index="/manuscript-arrangements">
-          <el-icon><Calendar /></el-icon>
-          <template #title>稿件安排</template>
-        </el-menu-item>
+        <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="Document" label="笔译项目" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="Headset" label="口译项目" />
+        <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="EditPen" label="标注项目" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="UserFilled" label="招聘项目" />
+        <SidebarNavigationItem v-if="canViewManuscript" index="/manuscript-arrangements" :icon="Calendar" label="稿件安排" />
 
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
-        <el-menu-item v-if="showClients" index="/clients">
-          <el-icon><OfficeBuilding /></el-icon>
-          <template #title>客户信息</template>
-        </el-menu-item>
-        <el-menu-item v-if="showResourceRequests" index="/resource-requests">
-          <el-icon><Tickets /></el-icon>
-          <template #title>资源需求管理</template>
-        </el-menu-item>
-        <el-menu-item v-if="showResourceManagement" :index="resourceManagementPath">
-          <el-icon><Avatar /></el-icon>
-          <template #title>人才资源管理</template>
-        </el-menu-item>
+        <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
+        <SidebarNavigationItem v-if="showResourceRequests" index="/resource-requests" :icon="Tickets" label="资源需求管理" />
+        <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="人才资源管理" />
 
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
         <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>
-        <el-menu-item index="/profile">
-          <el-icon><User /></el-icon>
-          <template #title>个人中心</template>
-        </el-menu-item>
-        <el-menu-item v-if="showPendingModules" index="/pending-modules">
-          <el-icon><QuestionFilled /></el-icon>
-          <template #title>更多模块</template>
-        </el-menu-item>
+        <SidebarNavigationItem index="/profile" :icon="User" label="个人中心" />
+        <SidebarNavigationItem v-if="showPendingModules" index="/pending-modules" :icon="QuestionFilled" label="更多模块" />
 
         <el-sub-menu v-if="showSystemMenu" :index="SYSTEM_MENU_INDEX" @click="handlePopupToggle(SYSTEM_MENU_INDEX, $event)">
           <template #title>
             <el-icon><Setting /></el-icon>
             <span>系统管理</span>
           </template>
-          <el-menu-item v-if="canViewUsers" index="/users">用户管理</el-menu-item>
-          <el-menu-item v-if="canViewRoles" index="/roles">角色管理</el-menu-item>
-          <el-menu-item v-if="canViewMailSettings" index="/mail-settings">项目邮件设置</el-menu-item>
-          <el-menu-item v-if="canViewProjectAudits" index="/project-operation-audits">项目操作审计</el-menu-item>
+          <SidebarNavigationItem v-if="canViewUsers" index="/users" label="用户管理" />
+          <SidebarNavigationItem v-if="canViewRoles" index="/roles" label="角色管理" />
+          <SidebarNavigationItem v-if="canViewMailSettings" index="/mail-settings" label="项目邮件设置" />
+          <SidebarNavigationItem v-if="canViewProjectAudits" index="/project-operation-audits" label="项目操作审计" />
         </el-sub-menu>
       </el-menu>
       <transition name="logo-text">
@@ -189,6 +150,7 @@ import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import UiZoomControl from '../components/UiZoomControl.vue'
+import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'
 
@@ -213,7 +175,7 @@ const preferredCollapse = ref(false)
 const sidebarMenuRef = ref()
 
 /** 侧边栏宽度 */
-const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '240px'))
+const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '200px'))
 
 function toggleCollapse() {
   if (isMobileViewport.value) return
@@ -481,7 +443,7 @@ const handleLogout = async () => {
   height: 64px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 12px;
   background: var(--color-primary);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -492,7 +454,7 @@ const handleLogout = async () => {
   justify-content: center;
   width: 40px;
   height: 40px;
-  margin-right: 12px;
+  margin-right: 8px;
   flex-shrink: 0;
 }
 
@@ -530,7 +492,7 @@ const handleLogout = async () => {
 
 .sidebar-version {
   flex: none;
-  padding: 10px 20px 14px;
+  padding: 10px 12px 14px;
   color: rgba(255, 255, 255, 0.36);
   font-size: 10px;
   line-height: 1.2;
@@ -562,6 +524,7 @@ const handleLogout = async () => {
   height: 44px;
   line-height: 44px;
   margin: 2px 8px;
+  padding: 0 12px;
   border-radius: 10px;
   transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
@@ -604,6 +567,7 @@ const handleLogout = async () => {
   color: rgba(255, 255, 255, 0.72);
   height: 44px;
   line-height: 44px;
+  padding: 0 12px;
   border-radius: 10px;
   transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
@@ -654,7 +618,7 @@ const handleLogout = async () => {
   height: 40px;
   line-height: 40px;
   margin: 2px 6px;
-  padding-left: 42px !important;
+  padding-left: 28px !important;
   font-size: 13px;
 }
 
@@ -674,7 +638,7 @@ const handleLogout = async () => {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 14px 20px 4px;
+  margin: 14px 14px 4px;
   color: rgba(255, 255, 255, 0.42);
   font-size: 11px;
   font-weight: 600;

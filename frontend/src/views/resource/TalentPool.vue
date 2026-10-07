@@ -1,5 +1,5 @@
 <template>
-  <el-card class="talent-card compact-list-card">
+  <el-card class="common-page-card talent-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>

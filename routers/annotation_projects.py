@@ -27,7 +27,6 @@ from annotation_service import (
     count_annotation_projects,
     create_annotation_project,
     create_annotation_children,
-    CHILD_SHARED_FIELDS,
     _sync_child_shared_fields,
     delete_annotation_project,
     get_annotation_project,
@@ -499,8 +498,6 @@ def update_project_text_field(
     project = db.get(AnnotationProject, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
-    if project.parent_project_id and payload.field in CHILD_SHARED_FIELDS:
-        raise HTTPException(status_code=400, detail="子订单客户信息由母订单维护")
     try:
         project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
         changed = apply_text_field_update(project, payload, ANNOTATION_TEXT_FIELDS)

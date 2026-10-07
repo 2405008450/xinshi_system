@@ -1,5 +1,5 @@
 <template>
-  <el-card class="compact-list-card">
+  <el-card class="common-page-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>招聘项目管理</span>

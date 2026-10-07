@@ -13,6 +13,8 @@
 <script setup>
 import { nextTick, ref } from 'vue'
 import { ElForm as ElementForm } from 'element-plus'
+// 包装组件使用别名，按需插件无法识别 ElementForm，必须显式引入表单布局样式。
+import 'element-plus/theme-chalk/el-form.css'
 import { focusFirstInvalidField } from '../../utils/formValidation'
 import { resolveServerFieldErrors } from '../../utils/formServerErrors.js'
 

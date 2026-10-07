@@ -1,4 +1,154 @@
 /* 通用页面样式 */
+/* 导航常用页面显式接入，避免影响弹窗、嵌套卡片及工作台专用布局。 */
+.common-page-card.el-card {
+  border-color: var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+  min-width: 0;
+}
+
+.common-page-card > .el-card__header {
+  padding: 14px 18px;
+}
+
+.common-page-card > .el-card__body {
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+.common-page-card > .el-card__header :is(.card-header, .page-header, .header, .notice-page__header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  min-height: 32px;
+}
+
+.common-page-card > .el-card__header :is(.card-header > span, .header-title, .title, h2, .page-title) {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+
+.common-page-card > .el-card__header :is(p, .subtitle, .header-hint, .page-subtitle) {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.common-page-card > .el-card__header :is(.header-actions, .notice-page__actions) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.common-page-card > .el-card__header .el-button + .el-button {
+  margin-left: 0;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-page-bg);
+}
+
+.common-page-card > .el-card__body > .search-form.el-form--inline:not(.project-list-search-form),
+.common-page-card > .el-card__body > :is(.search-bar, .search-area) > .el-form--inline {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+/* 筛选外层已经提供分组背景，内部表单不再叠加第二层边框和留白。 */
+.common-page-card > .el-card__body > :is(.search-bar, .search-area) > .el-form--inline {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item {
+  margin: 0;
+  max-width: 100%;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item__content {
+  min-width: 0;
+  gap: 8px;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item__label {
+  padding-right: 8px;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) :is(.el-input, .el-select) {
+  max-width: 100%;
+}
+
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-button + .el-button {
+  margin-left: 0;
+}
+
+.common-page-card > .el-card__body > .el-table {
+  --el-table-header-bg-color: var(--color-surface-muted);
+  --el-table-header-text-color: var(--color-text-secondary);
+  --el-table-row-hover-bg-color: var(--color-page-bg);
+  border-radius: var(--radius-md);
+}
+
+.common-page-card > .el-card__body > .el-pagination {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 768px) {
+  .common-page-card > :is(.el-card__header, .el-card__body) {
+    padding: 12px;
+  }
+
+  .common-page-card > .el-card__header .header-actions {
+    justify-content: flex-start;
+    margin-left: 0;
+    max-width: 100%;
+  }
+
+  .common-page-card > .el-card__header .batch-delete-toolbar {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
+  .common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item__content {
+    flex-wrap: wrap;
+  }
+
+  .common-page-card > .el-card__body > .el-pagination {
+    justify-content: flex-start;
+  }
+}
+
 .page-card {
   min-height: calc(100vh - 120px);
   animation: fadeIn 220ms ease-out;
@@ -186,11 +336,11 @@
 }
 
 /* 四类项目详情列表使用同一套紧凑单元格节奏，避免默认字段出现横向滚动。 */
-.project-detail-list-table .el-table__cell {
+.project-detail-list-table.el-table .el-table__cell {
   padding: 6px 0;
 }
 
-.project-detail-list-table .cell {
+.project-detail-list-table.el-table .cell {
   min-width: 0;
   padding-right: 4px;
   padding-left: 4px;

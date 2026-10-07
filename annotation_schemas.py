@@ -319,6 +319,9 @@ class AnnotationProjectWrite(BaseModel):
 
 class AnnotationProjectCreate(AnnotationProjectWrite):
     parent_project_id: Optional[UUID] = None
+    copy_source_language_item_id: Optional[UUID] = None
+    expected_parent_updated_at: Optional[datetime] = None
+    copy_parent_materials: bool = True
 
 
 class AnnotationChildBatchCreate(BaseModel):

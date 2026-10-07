@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="common-page-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>

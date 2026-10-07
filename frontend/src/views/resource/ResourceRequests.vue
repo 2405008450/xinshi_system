@@ -1,6 +1,6 @@
 <template>
   <div class="resource-request-page">
-    <el-card class="compact-list-card">
+    <el-card class="common-page-card compact-list-card">
       <template #header>
         <div class="header">
           <div>

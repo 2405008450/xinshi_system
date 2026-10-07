@@ -1,5 +1,5 @@
 <template>
-  <el-card class="interpretation-card compact-list-card">
+  <el-card class="common-page-card interpretation-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>口译项目管理</span>

@@ -63,11 +63,13 @@ def queue_upload_deletion(db, upload):
 def remove_material(db, material):
     rows = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(
         Version.file_id == material.id).all()
+    uploads = db.query(Upload).filter(Upload.id.in_([upload.id for _, upload in rows])).order_by(Upload.id).with_for_update().all()
     for version, _upload in rows:
         db.delete(version)
     db.flush()
-    for _version, upload in rows:
-        queue_upload_deletion(db, upload)
+    for upload in uploads:
+        if db.query(Version.id).filter_by(upload_id=upload.id).first() is None:
+            queue_upload_deletion(db, upload)
     db.delete(material)
 
 

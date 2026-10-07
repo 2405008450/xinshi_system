@@ -1,5 +1,5 @@
 <template>
-  <el-card class="pending-modules">
+  <el-card class="common-page-card pending-modules">
     <template #header>
       <div>
         <div class="page-title">待完善模块</div>

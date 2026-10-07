@@ -41,6 +41,11 @@ def sessions():
         connection.exec_driver_sql(sql)
         historical = connection.execute(text("SELECT project_name, parent_project_id, child_sequence_no FROM annotation_project WHERE order_no = 'AP-LEGACY-KEEP'")).one()
         assert tuple(historical) == ("历史保留项目", None, None)
+    material_sql = (Path(__file__).resolve().parents[1] / "data/migrations/20261015_annotation_material_shared_versions.sql").read_text(encoding="utf-8")
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE annotation_material_version ADD CONSTRAINT legacy_upload_unique UNIQUE (upload_id)"))
+        connection.exec_driver_sql(material_sql)
+        connection.exec_driver_sql(material_sql)
     yield sessionmaker(bind=engine)
     engine.dispose()
 
@@ -84,6 +89,91 @@ def test_defaults_same_language_batches_and_retry(context):
     with pytest.raises(ValueError, match="内容已改变"):
         service.create_annotation_children(db, parent_id, [item(language_id, project_name="改变")], None, "same-batch-key")
     db.rollback()
+
+
+def test_full_snapshot_direction_remapping_and_override(context, monkeypatch):
+    from resource_models import ResourcePerson
+    from annotation_models import AnnotationProjectAssignee, AnnotationProjectPriceItem, AnnotationProjectLanguageItem
+    from annotation_ops_models import AnnotationAssigneeRate, AnnotationCustomFieldDefinition
+    db, parent_id, language_id = context
+    monkeypatch.setenv("OPENPATH_ALLOWED_ROOTS", r"\\Win-server\服务器资料7")
+    person = ResourcePerson(full_name="复制测试人员")
+    other_language = InterpretationLanguage(label="另一复制方向" + uuid4().hex[:8])
+    db.add_all([person, other_language]); db.flush()
+    parent = service.get_annotation_project(db, parent_id)
+    parent.project_status = 'project_in_progress'
+    parent.priority = 'high'
+    parent.potential_demand = '约1000条/批'
+    parent.language_region = '地区要求'
+    parent.project_path = r'\\Win-server\服务器资料7\复制测试'
+    parent.task_submitted_at = datetime(2026, 12, 1)
+    field = AnnotationCustomFieldDefinition(table_code='project', field_key='copy_'+uuid4().hex, field_label='复制字段', data_type='text', sequence_no=1)
+    scoped = AnnotationCustomFieldDefinition(project_id=parent.id, table_code='assignment', field_key='person_copy', field_label='人员字段', data_type='text', sequence_no=1)
+    db.add_all([field, scoped]); db.flush()
+    parent.custom_values = {str(field.id): '母单自定义值'}
+    direction = parent.language_items[0]
+    second_direction = AnnotationProjectLanguageItem(sequence_no=2, source_language_id=other_language.id)
+    parent.language_items.append(second_direction)
+    db.flush()
+    parent.price_items.append(AnnotationProjectPriceItem(sequence_no=1, amount=12, currency='CNY', unit='条', source_language_id=language_id))
+    parent.price_items.append(AnnotationProjectPriceItem(sequence_no=2, amount=99, currency='CNY', unit='条', source_language_id=other_language.id))
+    assigned = AnnotationProjectAssignee(person_id=person.id, sequence_no=1, language_item_id=direction.id, custom_values={str(scoped.id): '人员业务值'})
+    parent.assignees.append(assigned); db.flush()
+    parent.assignees.append(AnnotationProjectAssignee(person_id=person.id, sequence_no=2, language_item_id=second_direction.id))
+    assigned.rate = AnnotationAssigneeRate(amount=3, currency='CNY', unit='item', remarks='人员单价')
+    db.commit()
+    child = service.create_annotation_children(db, parent_id, [item(other_language.id, copy_source_language_item_id=direction.id, expected_parent_updated_at=parent.updated_at)], None, 'snapshot-key')[0]
+    assert child.project_name == parent.project_name
+    assert child.priority == 'high' and child.project_status == 'project_in_progress'
+    assert child.potential_demand == parent.potential_demand and child.project_path == parent.project_path
+    assert child.task_submitted_at == parent.task_submitted_at and child.custom_values == parent.custom_values
+    assert child.price_items[0].id != parent.price_items[0].id
+    assert len(child.price_items) == 1 and child.price_items[0].amount == 12
+    assert len(child.assignees) == 1
+    assert child.price_items[0].source_language_id == other_language.id
+    assert child.assignees[0].id != assigned.id and child.assignees[0].language_item_id == child.language_items[0].id
+    assert child.assignees[0].rate.amount == 3 and child.assignees[0].rate.id != assigned.rate.id
+    assert list(child.assignees[0].custom_values.values()) == ['人员业务值']
+    assert str(scoped.id) not in child.assignees[0].custom_values
+    override = service.create_annotation_children(db, parent_id, [item(language_id, price_items=[], assignees=[], custom_values={}, priority='low', copy_parent_materials=False)], None, 'override-key')[0]
+    assert not override.price_items and not override.assignees and override.priority == 'low'
+
+
+def test_snapshot_stale_parent_and_atomic_copy_rollback(context):
+    from concurrency import StaleUpdateError
+    db, parent_id, language_id = context
+    parent = service.get_annotation_project(db, parent_id)
+    stale = datetime(2000, 1, 1)
+    with pytest.raises(StaleUpdateError):
+        service.create_annotation_children(db, parent_id, [item(language_id, expected_parent_updated_at=stale)], None, 'stale-parent')
+    db.rollback()
+    assert service.get_annotation_project(db, parent_id).child_count == 0
+    with pytest.raises(ValueError, match='复制来源语种'):
+        service.create_annotation_children(db, parent_id, [item(language_id), item(language_id, copy_source_language_item_id=uuid4())], None, 'copy-failure')
+    db.rollback()
+    assert service.get_annotation_project(db, parent_id).child_count == 0
+
+
+def test_copied_materials_independent_versions_and_last_reference_cleanup(context):
+    from datetime import timedelta
+    from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialDeletion as Deletion
+    from annotation_material_service import remove_material, versions
+    db, parent_id, language_id = context
+    upload = Upload(uploader_name='复制测试', original_name='合同.pdf', storage_key=uuid4().hex, file_size=100, content_type='application/pdf', sha256='a'*64, consumed_at=datetime.now(), expires_at=datetime.now()+timedelta(days=1))
+    original = Material(project_id=parent_id, category='contract')
+    db.add_all([upload, original]); db.flush()
+    db.add(Version(file_id=original.id, upload_id=upload.id, version_no=1)); db.commit()
+    children = service.create_annotation_children(db, parent_id, [item(language_id), item(language_id)], None, 'material-copy')
+    child_files = [db.query(Material).filter_by(project_id=child.id).one() for child in children]
+    assert len({original.id, *(file.id for file in child_files)}) == 3
+    assert all(versions(db, child.id)[0]['original_name'] == '合同.pdf' for child in children)
+    remove_material(db, original); db.commit()
+    assert db.get(Upload, upload.id) and not db.get(Deletion, upload.storage_key)
+    remove_material(db, child_files[0]); db.commit()
+    assert len(versions(db, children[1].id)) == 1
+    upload_id, key = upload.id, upload.storage_key
+    remove_material(db, child_files[1]); db.commit()
+    assert db.get(Upload, upload_id) is None and db.get(Deletion, key)
     assert service.get_annotation_project(db, parent_id).child_count == 2
     assert service.count_annotation_projects(db, parent_project_id=parent_id, order_scope="child") == 2
     assert len(service.get_annotation_projects(db, parent_project_id=parent_id, order_scope="child")) == 2
@@ -130,18 +220,18 @@ def test_delete_never_reuses_sequence(context):
     assert third.child_sequence_no == 3
 
 
-def test_shared_fields_sync_independent_tasks_and_progress(context):
+def test_copied_fields_remain_independent_after_parent_and_child_edits(context):
     db, parent_id, language_id = context
     child = service.create_annotation_children(db, parent_id, [item(language_id, task_description="独立任务")], None, "sync-key")[0]
     old_version = child.updated_at
     parent = service.get_annotation_project(db, parent_id)
     service.update_annotation_project(db, parent_id, update_payload(parent, contact_name="新联系人", task_description="新母任务"))
     child = service.get_annotation_project(db, child.id)
-    assert child.contact_name == "新联系人" and child.task_description == "独立任务"
-    assert child.updated_at != old_version
-    with pytest.raises(ValueError, match="母订单维护"):
-        service.update_annotation_project(db, child.id, update_payload(child, customer_order_no="ILLEGAL"))
-    db.rollback()
+    assert child.contact_name == "原联系人" and child.task_description == "独立任务"
+    assert child.updated_at == old_version
+    service.update_annotation_project(db, child.id, update_payload(child, customer_order_no="CHILD-EDITED", contact_name="子单联系人"))
+    assert service.get_annotation_project(db, parent_id).contact_name == "新联系人"
+    assert service.get_annotation_project(db, child.id).customer_order_no == "CHILD-EDITED"
     service.update_annotation_project_status(db, child.id, "project_in_progress", datetime.now(), "子单开始", None)
     parent = service.get_annotation_project(db, parent_id)
     assert parent.project_status == "initial_consultation"
@@ -188,7 +278,7 @@ def test_parallel_parent_rename_and_child_create_do_not_deadlock(context, sessio
     assert (parent.order_no == new_number) == success
 
 
-def test_api_scopes_atomic_failure_and_readonly_fields(context, monkeypatch):
+def test_api_scopes_atomic_failure_and_independent_client_fields(context, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from database import get_db
@@ -214,7 +304,7 @@ def test_api_scopes_atomic_failure_and_readonly_fields(context, monkeypatch):
         assert page["items"][0]["parent_order_no"] == child["parent_order_no"]
         assert client.get("/projects/annotation/page", params={"order_scope": "invalid"}).status_code == 422
         illegal = client.patch(f"/projects/annotation/{child['id']}/text-field", json={"field": "contact_name", "value": "篡改", "expected_updated_at": child["updated_at"]})
-        assert illegal.status_code == 400
+        assert illegal.status_code == 200
         failed = client.post(prefix + "/batch", json={"items": [payload, {"language_items": [{"source_language_id": str(uuid4())}]}]}, headers={"X-Idempotency-Key": "api-invalid-batch"})
         assert failed.status_code == 400
         assert client.get(prefix).json()["total"] == 1

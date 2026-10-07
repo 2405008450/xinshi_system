@@ -1,11 +1,12 @@
 <template>
-  <el-card class="annotation-card compact-list-card">
+  <el-card class="common-page-card annotation-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>{{ props.orderScope === 'child' ? '标注子订单管理' : '标注项目管理' }}</span>
         <div class="header-actions">
           <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回母订单列表</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="goChildManagement()">子订单管理</el-button>
+          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false, true)">分拆母订单</el-button>
           <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, true)">新增子订单</el-button>
           <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false)">批量新增子订单</el-button>
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
@@ -59,7 +60,7 @@
       </div>
     </AppForm>
 
-    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :expand-row-keys="expandedProjectIds" @expand-change="handleProjectExpandChange" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <el-table ref="projectTableRef" height="100%" :data="tableData" v-loading="loading" row-key="id" :expand-row-keys="expandedProjectIds" @expand-change="handleProjectExpandChange" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column"><template #default="{ row }"><AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision" @create="openChildCreate" /></template></el-table-column>
       <el-table-column v-if="props.orderScope === 'child'" label="母订单" min-width="180"><template #default="{ row }"><el-button link type="primary" @click="openParent(row)">{{ row.parentOrderNo || '-' }}</el-button></template></el-table-column>
@@ -157,7 +158,7 @@
             v-else-if="['clientManagerName', 'projectManagerName'].includes(column.key) && canWrite"
             :model-value="managerValue(row, column.key)"
             :loading="managerSavingIds.has(row.id)"
-            :disabled="Boolean(row.parentProjectId && column.key === 'clientManagerName')"
+            :disabled="false"
             filterable
             clearable
             :multiple="column.key === 'projectManagerName'"
@@ -448,13 +449,12 @@
               <el-col :xs="24"><el-form-item label="项目类型" prop="projectTypes"><el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户经理" prop="clientManagerId"><ReadonlyField v-if="form.parentProjectId" :model-value="users.find(item => item.id === form.clientManagerId) ? userLabel(users.find(item => item.id === form.clientManagerId)) : form.clientManagerName" source="auto" /><el-select v-else v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="item in activeUsers" :key="item.id" :label="userLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户经理" prop="clientManagerId"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="item in activeUsers" :key="item.id" :label="userLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目经理"><el-select v-model="projectManagerIds" multiple filterable clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectManagerOptions" :key="item.id" :label="userLabel(item)" :value="item.id" :disabled="item.isOnLeave || item.is_on_leave" /></el-select></el-form-item></el-col>
             </el-row>
             <el-form-item label="具体任务" prop="taskDescription"><el-input v-model="form.taskDescription" type="textarea" :rows="3" placeholder="请输入具体任务" /></el-form-item>
             <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
-              <ReadonlyField v-if="form.parentProjectId" :model-value="form.clientShortName" source="auto" />
-              <div v-else class="client-autocomplete-field">
+              <div class="client-autocomplete-field">
                 <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
                   <template #default="{ item }"><div class="client-suggestion"><span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span></div></template>
                 </el-autocomplete>
@@ -509,12 +509,12 @@
               </el-row>
             </div>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.parentProjectId || form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.parentProjectId || form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="联系人"><ReadonlyField v-if="form.parentProjectId" :model-value="form.contactName" source="auto" /><el-input v-else v-model="form.contactName" placeholder="填写联系人姓名或联系方式" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><ReadonlyField v-if="form.parentProjectId" :model-value="form.customerOrderNo" source="auto" /><el-input v-else v-model="form.customerOrderNo" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="联系人"><el-input v-model="form.contactName" placeholder="填写联系人姓名或联系方式" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col v-if="showManagerContactInput" :xs="24" :md="12"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
@@ -583,7 +583,7 @@
       </div>
       <template #footer><el-button :disabled="submitLoading" @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
     </DraggableFormDialog>
-    <AnnotationChildCreateDialog v-model="childCreateVisible" :parent="childCreateParent" :single="childCreateSingle" :languages="languages" :project-types="projectTypeOptions" :managers="projectManagerOptions" :custom-fields="visibleProjectCustomFields" @created="onChildrenCreated" />
+    <AnnotationChildCreateDialog v-model="childCreateVisible" :parent="childCreateParent" :single="childCreateSingle" :split="childCreateSplit" :languages="languages" :project-types="projectTypeOptions" :managers="projectManagerOptions" :custom-fields="visibleProjectCustomFields" @created="onChildrenCreated" />
     <DraggableFormDialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
       <el-alert title="订单号修改后，原号码仍会永久保留，不能再次分配给其他项目。" type="warning" :closable="false" show-icon />
       <AppForm ref="orderNoFormRef" :model="orderNoForm" :rules="orderNoRules" label-width="100px" class="order-no-change-form">
@@ -669,6 +669,7 @@ const canManageArrangementPool = isSuperAdmin()
 const canChangeOrderNo = canWrite && hasPermission('projects:order_no:write')
 const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
 const props = defineProps({ orderScope: { type: String, default: 'parent' } })
+const childCreateSplit = ref(false)
 const childCreateVisible = ref(false), childCreateParent = ref(null), childCreateSingle = ref(false), childRevision = ref(0), editorTab = ref('form')
 const parentFilterId = ref(''), parentFilterOptions = ref([])
 let parentFilterController, parentFilterRequestId = 0
@@ -679,8 +680,8 @@ const searchParentFilters = async (keyword = '') => {
 }
 const goChildManagement = (id) => router.push({ name: 'AnnotationChildOrders', query: id ? { parentProjectId: id } : {} })
 const openParent = (row) => { dialogVisible.value = false; router.push({ name: 'AnnotationProjectDetails', query: { projectId: row.parentProjectId, openEditor: '1' } }) }
-const openChildCreate = async (parent, single = false) => {
-  try { childCreateParent.value = parent?.id ? await annotationApi.getAnnotationProject(parent.id) : parentFilterId.value ? await annotationApi.getAnnotationProject(parentFilterId.value) : null; childCreateSingle.value = single; childCreateVisible.value = true }
+const openChildCreate = async (parent, single = false, split = false) => {
+  try { childCreateParent.value = parent?.id ? await annotationApi.getAnnotationProject(parent.id) : parentFilterId.value ? await annotationApi.getAnnotationProject(parentFilterId.value) : null; childCreateSingle.value = single; childCreateSplit.value = split; childCreateVisible.value = true }
   catch (error) { ElMessage.error(error.detail || '母订单加载失败') }
 }
 const onChildrenCreated = async () => {
@@ -1056,6 +1057,48 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 </script>
 
 <style scoped>
+/* 查询与分页固定在可视区域，长列表和展开的子订单只在表格内部滚动。 */
+.annotation-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.annotation-card :deep(> .el-card__header) {
+  flex: none;
+  padding: 8px 16px;
+}
+.annotation-card :deep(> .el-card__body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 16px;
+}
+.annotation-card :deep(> .el-card__body > .search-form) {
+  flex: none;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+}
+.annotation-card :deep(> .el-card__body > .search-form .el-form-item) {
+  margin-bottom: 0;
+}
+.annotation-table {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.annotation-card :deep(> .el-card__body > .pagination) {
+  flex: none;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+@media (max-width: 768px) {
+  .annotation-card .annotation-search-toolbar { flex-wrap: wrap; gap: 8px; }
+  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex-basis: 100%; flex-wrap: wrap; gap: 8px; }
+  .annotation-card .annotation-search-toolbar .annotation-search-actions { white-space: normal; }
+}
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .annotation-search-toolbar{display:flex;width:100%;align-items:flex-start;gap:16px;flex-wrap:nowrap}.annotation-search-toolbar .project-list-primary-filters{flex:1 1 auto;width:auto;min-width:0}.annotation-search-actions{flex:0 0 auto;margin-right:0!important;white-space:nowrap}
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}

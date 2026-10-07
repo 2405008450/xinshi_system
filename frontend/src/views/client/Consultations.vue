@@ -1,5 +1,5 @@
 <template>
-  <el-card class="consultations-card compact-list-card">
+  <el-card class="common-page-card consultations-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>新咨询管理</span>

@@ -3,6 +3,7 @@
     <div class="child-order-panel__toolbar">
       <span>子订单 {{ total }} 个 · {{ statusSummary || '暂无子订单' }}</span>
       <div>
+        <el-button v-if="editable" @click="$emit('create', parent, false, true)">分拆子订单</el-button>
         <el-button v-if="editable" type="primary" plain @click="$emit('create', parent, true)">新增子订单</el-button>
         <el-button v-if="editable" @click="$emit('create', parent, false)">批量新增子订单</el-button>
         <el-button @click="manage()">子订单管理</el-button>

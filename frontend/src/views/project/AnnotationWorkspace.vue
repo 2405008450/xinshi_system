@@ -1,5 +1,5 @@
 <template>
-  <div class="annotation-workspace" :class="{ 'annotation-workspace--focus': focusMode && activeSection === 'accounts' }">
+  <div class="annotation-workspace" :class="{ 'annotation-workspace--focus': focusMode && activeSection === 'accounts', 'annotation-workspace--projects': activeSection === 'projects' }">
     <el-card v-show="!(focusMode && activeSection === 'accounts')" class="workspace-navigation" shadow="never">
       <el-tabs v-model="activeSection" @tab-change="handleSectionChange">
         <el-tab-pane v-if="canViewProjects" label="标注项目管理" name="projects" />
@@ -73,7 +73,16 @@ const handleFocusModeChange = (value) => {
 .annotation-workspace {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+}
+
+.annotation-workspace--projects {
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-navigation {
+  flex: none;
 }
 
 .annotation-workspace--focus {
@@ -88,12 +97,17 @@ const handleFocusModeChange = (value) => {
   margin: 0;
 }
 
+/* 页签只承担导航，隐藏空内容区，避免额外留白和滚动条。 */
+.workspace-navigation :deep(.el-tabs__content) {
+  display: none;
+}
+
 .workspace-navigation :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
 }
 
 .workspace-navigation :deep(.el-tabs__item) {
-  height: 48px;
+  height: 36px;
   font-size: 15px;
 }
 </style>

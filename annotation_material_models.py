@@ -35,7 +35,7 @@ class AnnotationMaterialVersion(Base):
     __table_args__ = (UniqueConstraint('file_id', 'version_no'),)
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     file_id = Column(Uuid, ForeignKey('annotation_material_file.id', ondelete='CASCADE'), nullable=False, index=True)
-    upload_id = Column(Uuid, ForeignKey('annotation_material_upload.id'), nullable=False, unique=True)
+    upload_id = Column(Uuid, ForeignKey('annotation_material_upload.id'), nullable=False, index=True)
     version_no = Column(Integer, nullable=False)
 
 

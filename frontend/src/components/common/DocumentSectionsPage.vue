@@ -1,6 +1,6 @@
 <template>
   <div class="document-sections-page">
-  <el-card class="notice-page" shadow="never" v-loading="loading">
+  <el-card class="common-page-card notice-page" shadow="never" v-loading="loading">
     <template #header>
       <div class="notice-page__header">
         <div>

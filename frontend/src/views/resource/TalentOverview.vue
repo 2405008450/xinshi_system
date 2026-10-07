@@ -4,7 +4,7 @@
     class="talent-overview-panel"
     :class="{ 'is-fallback-fullscreen': fallbackFullscreen }"
   >
-    <el-card class="talent-overview-card compact-list-card">
+    <el-card class="common-page-card talent-overview-card compact-list-card">
       <template #header>
         <div class="card-header">
           <div class="title-block">

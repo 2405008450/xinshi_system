@@ -1,12 +1,16 @@
 <template>
-  <el-card class="page-card">
+  <el-card class="common-page-card page-card compact-list-card users-card">
     <template #header>
       <div class="card-header">
         <div class="header-left">
           <el-icon class="header-icon"><User /></el-icon>
           <span class="header-title">用户管理</span>
         </div>
-        <el-button type="primary" :icon="Plus" @click="handleAdd">新增用户</el-button>
+        <div class="header-actions">
+          <TableColumnSettings v-model="visibleColumnKeys" :columns="userColumns" title="用户列表字段" @reset="resetColumns" />
+          <BatchDeleteToolbar v-if="canWriteUsers" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="canWriteUsers && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增用户</el-button>
+        </div>
       </div>
     </template>
 
@@ -50,14 +54,19 @@
       </el-form-item>
     </AppForm>
 
-    <el-table :data="tableData" v-loading="loading" border>
-      <el-table-column prop="username" label="用户名" width="150" />
-      <el-table-column prop="full_name" label="全名" width="150" />
-      <el-table-column prop="department" label="部门" width="120">
+    <el-table ref="userTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
+      <el-table-column v-if="isColumnVisible('username')" prop="username" label="用户名" min-width="120" show-overflow-tooltip />
+      <el-table-column v-if="isColumnVisible('full_name')" prop="full_name" label="姓名" min-width="100" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.full_name || '-' }}</template>
+      </el-table-column>
+      <el-table-column v-if="isColumnVisible('department')" prop="department" label="部门" width="110" show-overflow-tooltip>
         <template #default="{ row }">{{ normalizeDepartment(row.department) || '未分部门' }}</template>
       </el-table-column>
-      <el-table-column prop="email" label="邮箱" width="200" />
-      <el-table-column label="邮件资料" min-width="240">
+      <el-table-column v-if="isColumnVisible('email')" prop="email" label="邮箱" min-width="220" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.email || '-' }}</template>
+      </el-table-column>
+      <el-table-column v-if="isColumnVisible('mail_profile')" label="邮件资料" min-width="240">
         <template #default="{ row }">
           <div class="mail-profile-cell">
             <span class="mail-profile-name" :title="row.mail_display_name || ''">
@@ -66,11 +75,11 @@
             <el-tag size="small" :type="row.mail_signature_enabled ? 'success' : 'info'">
               {{ row.mail_signature_enabled ? '签名已启用' : '无签名' }}
             </el-tag>
-            <el-button v-if="canManageMailProfile" type="primary" link size="small" @click="openMailProfileDialog(row)">管理</el-button>
+            <el-button v-if="canManageMailProfile && !deleteMode" type="primary" link size="small" @click="openMailProfileDialog(row)">管理</el-button>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="发件邮箱" width="170" align="center">
+      <el-table-column v-if="isColumnVisible('mail_account')" label="发件邮箱" width="170" align="center">
         <template #default="{ row }">
           <div class="mail-account-cell">
             <el-tag
@@ -80,7 +89,7 @@
               {{ row.mail_account_verified ? '已验证' : (row.mail_account_bound ? '待验证' : '未配置') }}
             </el-tag>
             <el-button
-              v-if="canManageMailAccount"
+              v-if="canManageMailAccount && !deleteMode"
               type="primary"
               link
               size="small"
@@ -89,7 +98,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="角色" min-width="220">
+      <el-table-column v-if="isColumnVisible('roles')" label="角色" min-width="180">
         <template #default="{ row }">
           <template v-if="row.roles?.length">
             <el-tag
@@ -104,18 +113,43 @@
           <el-text v-else type="info">未分配角色</el-text>
         </template>
       </el-table-column>
-      <el-table-column prop="is_active" label="状态" width="100">
+      <el-table-column v-if="isColumnVisible('is_active')" prop="is_active" label="状态" width="80" align="center">
         <template #default="{ row }">
           <el-tag :type="row.is_active ? 'success' : 'danger'">
             {{ row.is_active ? '启用' : '禁用' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180">
+      <el-table-column v-if="isColumnVisible('created_at')" prop="created_at" label="创建时间" width="170">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="230" fixed="right" align="center">
+      <el-table-column label="详情" width="100" fixed="right" align="center">
         <template #default="{ row }">
+          <el-popover trigger="click" placement="left" :width="760" title="用户详情" popper-class="user-detail-popover">
+            <template #reference><el-button link type="primary">查看详情</el-button></template>
+            <div class="user-detail-content">
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="用户名">{{ row.username || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="姓名">{{ row.full_name || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="部门">{{ normalizeDepartment(row.department) || '未分部门' }}</el-descriptions-item>
+                <el-descriptions-item label="状态">{{ row.is_active ? '启用' : '禁用' }}</el-descriptions-item>
+                <el-descriptions-item label="邮箱" :span="2">{{ row.email || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="角色" :span="2">{{ row.roles?.map(role => role.role_name).join('、') || '未分配角色' }}</el-descriptions-item>
+                <el-descriptions-item label="邮件显示名">{{ row.mail_display_name || row.full_name || row.username || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="邮件签名">{{ row.mail_signature_enabled ? '签名已启用' : '无签名' }}</el-descriptions-item>
+                <el-descriptions-item label="发件邮箱">{{ row.mail_account_verified ? '已验证' : (row.mail_account_bound ? '待验证' : '未配置') }}</el-descriptions-item>
+                <el-descriptions-item label="创建时间">{{ row.created_at ? formatDateTime(row.created_at) : '-' }}</el-descriptions-item>
+              </el-descriptions>
+              <div v-if="canManageMailProfile && !deleteMode" class="user-detail-actions">
+                <el-button link type="primary" @click="openMailProfileDialog(row)">管理邮件资料</el-button>
+              </div>
+            </div>
+          </el-popover>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" width="190" fixed="right" align="center">
+        <template #default="{ row }">
+          <div class="user-row-actions">
           <TableActionButton
             v-if="canAssignRoles"
             action="assign"
@@ -127,9 +161,9 @@
             action="password"
             @click="handleResetPassword(row)"
           />
-          <TableActionButton action="edit" @click="handleEdit(row)" />
+          <TableActionButton v-if="canWriteUsers" action="edit" @click="handleEdit(row)" />
           <el-button v-if="canManageSchedule" type="primary" link size="small" @click="handleShiftSettings(row)">排班设置</el-button>
-          <TableActionButton action="delete" @click="handleDelete(row)" />
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -404,8 +438,28 @@ import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { DEPARTMENT_NAMES, normalizeDepartment } from '@/constants/departments'
 import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShiftTemplateDialog.vue'
 import MailSignatureEditor from '@/components/common/MailSignatureEditor.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import { useTableColumns } from '@/composables/useTableColumns'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 
 const loading = ref(false)
+const userTableRef = ref(null)
+const canWriteUsers = computed(() => hasPermission('system:users:write'))
+const userColumns = [
+  { key: 'username', label: '用户名' },
+  { key: 'full_name', label: '姓名' },
+  { key: 'department', label: '部门' },
+  { key: 'email', label: '邮箱' },
+  { key: 'mail_profile', label: '邮件资料' },
+  { key: 'mail_account', label: '发件邮箱' },
+  { key: 'roles', label: '角色' },
+  { key: 'is_active', label: '状态' },
+  { key: 'created_at', label: '创建时间' },
+]
+const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
+  'system-users', userColumns, ['username', 'full_name', 'department', 'email', 'mail_account', 'roles', 'is_active'],
+)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增用户')
 const formRef = ref(null)
@@ -485,6 +539,16 @@ const searchForm = reactive({
   username: '',
   full_name: '',
   department: ''
+})
+
+const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, handleDeleteSelectionChange, confirmBatchDelete } = useBatchDelete({
+  rows: tableData,
+  tableRef: userTableRef,
+  pagination,
+  deleteRow: row => userApi.deleteUser(row.id),
+  getLabel: row => row.full_name || row.username,
+  reload: () => fetchData(),
+  entityName: '用户',
 })
 
 const form = reactive({
@@ -852,21 +916,6 @@ const resetMailProfileDialog = () => {
   })
 }
 
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该用户吗？', '提示', {
-      type: 'warning'
-    })
-    await userApi.deleteUser(row.id)
-    ElMessage.success('删除成功')
-    fetchData()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
-  }
-}
-
 const handleSubmit = async () => {
   if (!formRef.value) return
   
@@ -990,8 +1039,15 @@ onBeforeUnmount(() => {
 }
 
 .el-table :deep(.el-table__cell) {
-  padding: 16px 0;
+  padding: 9px 0;
 }
+
+.user-row-actions { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.user-row-actions .el-button + .el-button { margin-left: 0; }
+.user-detail-content { max-height: 560px; overflow-y: auto; overflow-wrap: anywhere; }
+.user-detail-actions { margin-top: 12px; }
+:global(.user-detail-popover) { max-width: calc(100vw - 32px); }
+.users-card .search-form :deep(.el-input) { width: 220px; }
 
 .role-tag {
   margin: 2px 6px 2px 0;

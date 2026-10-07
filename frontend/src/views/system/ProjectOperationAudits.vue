@@ -1,5 +1,5 @@
 <template>
-  <el-card class="audit-card">
+  <el-card class="common-page-card audit-card">
     <template #header>
       <div class="page-header">
         <div>

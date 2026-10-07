@@ -4410,9 +4410,9 @@ onBeforeUnmount(() => {
   min-height: 480px;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: var(--el-card-border-radius, 4px);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
-  box-shadow: var(--el-box-shadow-light);
+  box-shadow: none;
 }
 
 .legacy-workbench__left {
