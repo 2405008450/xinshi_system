@@ -17,6 +17,7 @@ from sqlalchemy import (
     FetchedValue,
     Index,
     Integer,
+    JSON,
     Numeric,
     PrimaryKeyConstraint,
     String,
@@ -120,7 +121,10 @@ class ResourcePerson(Base):
     ancestral_home: Mapped[Optional[str]] = mapped_column(String(255))
     native_place: Mapped[Optional[str]] = mapped_column(String(255))
     registration_source: Mapped[Optional[str]] = mapped_column(String(255))
-    wechat_account: Mapped[Optional[str]] = mapped_column(String(100))
+    wechat_account: Mapped[Optional[str]] = mapped_column(Text)
+    wechat_accounts: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+    wechat_accounts_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    wechat_contact_state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     wechat_groups: Mapped[Optional[str]] = mapped_column(Text)
     residence_address: Mapped[Optional[str]] = mapped_column(String(500))
     dialects: Mapped[list] = mapped_column(

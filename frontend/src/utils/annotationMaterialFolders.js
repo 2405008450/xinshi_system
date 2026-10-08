@@ -25,6 +25,24 @@ export function folderPath(folders, selectedId) {
   return ['项目资料', parent?.name, folder.name].filter(Boolean).join(' / ')
 }
 
+export function folderBreadcrumbs(folders, selectedId) {
+  const result = [{ id: null, name: '项目资料' }]
+  const folder = folders.find(item => item.id === selectedId)
+  if (!folder) return result
+  const parent = folders.find(item => item.id === folder.parent_id)
+  if (parent) result.push({ id: parent.id, name: parent.name })
+  result.push({ id: folder.id, name: folder.name })
+  return result
+}
+
+export function materialFileType(name) {
+  const extension = name.split('.').length > 1 ? name.split('.').at(-1).toLowerCase() : ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) return { family: 'image', label: `${extension.toUpperCase()} 图像` }
+  if (['mp3', 'wav', 'flac', 'm4a', 'ogg', 'aac'].includes(extension)) return { family: 'audio', label: `${extension.toUpperCase()} 音频` }
+  if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(extension)) return { family: 'video', label: `${extension.toUpperCase()} 视频` }
+  return { family: 'document', label: extension ? `${extension.toUpperCase()} 文件` : '文件' }
+}
+
 export function newFolderId() {
   // 局域网 HTTP 也支持 getRandomValues，不依赖安全上下文中的 randomUUID。
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))

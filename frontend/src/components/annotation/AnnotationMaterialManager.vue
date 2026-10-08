@@ -7,22 +7,19 @@
     <section v-for="category in categories" :key="category.key" class="material-category" :data-dialog-field-search-label="category.label">
       <div class="material-heading">
         <strong>{{ category.label }}</strong>
-        <label v-if="!readonly" class="material-upload" :class="{ disabled }">
+        <label v-if="!readonly && category.key !== 'project'" class="material-upload" :class="{ disabled }">
           上传文件<input type="file" multiple :disabled="disabled || loading || !!loadError" :aria-label="`上传${category.label}`" @change="selectFiles($event, category.key)">
         </label>
       </div>
-      <div v-if="category.key === 'project' && !readonly" class="material-folder-toolbar">
-        <el-button size="small" :disabled="disabled || loading || !!loadError" @click="openFolderCreator(1)">新建一级文件夹</el-button>
-        <el-button size="small" :disabled="disabled || loading || !!loadError || !rootFolders.length" @click="openFolderCreator(2)">新建二级文件夹</el-button>
-      </div>
-      <div :class="{ 'material-directory-layout': category.key === 'project' }">
-        <nav v-if="category.key === 'project'" class="material-folder-tree" aria-label="项目资料目录">
-          <el-tree :data="folderTree" node-key="key" :props="{ label: 'name', children: 'children' }" :current-node-key="selectedFolderId || '@root'" highlight-current default-expand-all :expand-on-click-node="false" @node-click="selectFolder">
-            <template #default="{ data }"><span class="material-folder-node" :title="data.name"><span>{{ data.name }}</span><el-tag v-if="data.pending" size="small" type="info">待保存</el-tag></span></template>
-          </el-tree>
-        </nav>
-        <div class="material-directory-files">
-          <p v-if="category.key === 'project'" class="material-folder-path">当前目录：{{ currentFolderPath }}</p>
+      <AnnotationMaterialExplorer
+        v-if="category.key === 'project'" :key="`${projectId}:${active}`" v-model:folder-id="selectedFolderId"
+        :folders="allFolders" :files="categoryRows('project')" :pending="categoryPending('project')"
+        :readonly="readonly" :disabled="disabled || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
+        @create="openFolderCreator" @upload="files => addFiles(files, 'project')"
+        @replace="({ files, fileId }) => addFiles(files, 'project', fileId)"
+        @download="download" @history="showHistory" @remove="remove" @retry="send" @discard="discard"
+      />
+      <div v-else>
           <div v-for="row in categoryRows(category.key)" :key="row.file_id" class="material-row">
             <div class="material-info"><span>{{ row.original_name }}</span><small>{{ sizeText(row.file_size) }} · V{{ row.version_no }} · {{ row.uploader_name }} · {{ timeText(row.created_at) }}</small></div>
             <div class="material-actions">
@@ -42,7 +39,6 @@
             <el-button link :disabled="disabled" @click="discard(item)">取消上传</el-button>
           </div>
           <small v-if="!categoryRows(category.key).length && !categoryPending(category.key).length" class="material-hint">暂无文件</small>
-        </div>
       </div>
     </section>
     <div v-if="removed.length" class="material-hint">{{ removed.length }} 个文件将在保存后移除（含全部版本）。<el-button link :disabled="disabled" @click="removed = []">撤销移除</el-button></div>
@@ -68,9 +64,10 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
+import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
 import * as api from '@/api/annotationMaterials'
 import { formatDateTimeMinute } from '@/utils/dateTime'
-import { buildFolderTree, folderNameError, folderParentId, folderPath, newFolderId } from '@/utils/annotationMaterialFolders'
+import { folderNameError, folderParentId, newFolderId } from '@/utils/annotationMaterialFolders'
 
 const props = defineProps({ projectId: { type: String, default: '' }, readonly: Boolean, active: { type: Boolean, default: true }, disabled: Boolean })
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
@@ -78,8 +75,6 @@ const rows = ref([]), pending = ref([]), removed = ref([]), loading = ref(false)
 const savedFolders = ref([]), createdFolders = ref([]), selectedFolderId = ref(null)
 const allFolders = computed(() => [...savedFolders.value, ...createdFolders.value.map(folder => ({ ...folder, pending: true }))])
 const rootFolders = computed(() => allFolders.value.filter(folder => !folder.parent_id))
-const folderTree = computed(() => buildFolderTree(allFolders.value))
-const currentFolderPath = computed(() => folderPath(allFolders.value, selectedFolderId.value))
 const folderCreatorVisible = ref(false), folderLevel = ref(1), folderFormRef = ref(null)
 const folderForm = reactive({ name: '', parentId: null })
 const folderRules = {
@@ -99,7 +94,6 @@ const categoryRows = category => rows.value.filter(row => row.category === categ
 const categoryPending = category => pending.value.filter(item => item.category === category && inCurrentFolder(item))
 const hasReplacement = id => pending.value.some(item => item.fileId === id)
 
-function selectFolder(folder) { selectedFolderId.value = folder.id || null }
 async function openFolderCreator(level) {
   if (props.disabled || props.readonly || loading.value || loadError.value) return
   folderLevel.value = level
@@ -163,7 +157,10 @@ async function send(item) {
 }
 function selectFiles(event, category, fileId = null) {
   const files = Array.from(event.target.files || []); event.target.value = ''
-  if (props.disabled) return
+  addFiles(files, category, fileId)
+}
+function addFiles(files, category, fileId = null) {
+  if (props.disabled || props.readonly || loading.value || loadError.value) return
   for (const file of files) {
     if (!file.size || file.size > 100 * 1024 * 1024) { ElMessage.error(`${file.name}：文件不能为空或超过100MB`); continue }
     if (pending.value.length >= 200) { ElMessage.warning('每次保存最多处理200个文件'); break }
@@ -189,7 +186,8 @@ async function showHistory(row) {
 }
 function validate() {
   if (loading.value || loadError.value) { ElMessage.warning('请等待资料加载完成或重新加载后保存'); return false }
-  if (pending.value.some(item => item.status !== 'ready')) { ElMessage.warning('请等待上传完成，并重试或取消失败的文件'); return false }
+  const unfinished = pending.value.find(item => item.status !== 'ready')
+  if (unfinished) { if (unfinished.category === 'project') selectedFolderId.value = unfinished.folder_id; ElMessage.warning('请等待上传完成，并重试或取消失败的文件'); return false }
   if (pending.value.some(item => new Date(`${item.upload.expires_at}Z`).getTime() <= Date.now())) { ElMessage.warning('暂存文件已过期，请取消后重新上传'); return false }
   return true
 }
@@ -217,15 +215,7 @@ defineExpose({ validate, changes, saved, reload })
 .material-upload.disabled { opacity: .5; cursor: default; }
 .material-info .material-error { color: var(--el-color-danger); }
 .material-history { max-height: 55vh; overflow-y: auto; }
-.material-folder-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.material-folder-toolbar .el-button + .el-button { margin-left: 0; }
-.material-directory-layout { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); gap: 16px; }
-.material-folder-tree { min-width: 0; max-height: 300px; overflow: auto; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; padding: 6px; }
-.material-folder-node { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
-.material-folder-node > span { overflow: hidden; text-overflow: ellipsis; }
-.material-directory-files { min-width: 0; }
-.material-folder-path { margin: 0 0 8px; color: var(--el-text-color-secondary); font-size: 12px; overflow-wrap: anywhere; }
-@media (max-width: 600px) { .material-actions { width: 100%; } .material-directory-layout { grid-template-columns: minmax(0, 1fr); } .material-folder-tree { max-height: 180px; } }
+@media (max-width: 600px) { .material-actions { width: 100%; } }
 </style>
 
 <style>

@@ -1,6 +1,6 @@
 <template>
-  <DraggableFormDialog v-model="visible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="development-dialog" destroy-on-close :close-on-click-modal="false">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="quickMode ? `${form.full_name} · ${friendMode ? '加微跟进' : '快捷跟进'}` : form.revision ? '编辑资源开拓' : '新增资源开拓'" placeholder="搜索字段，如资源姓名" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+  <DraggableFormDialog v-model="visible" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body class="development-dialog" destroy-on-close :close-on-click-modal="false">
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="quickMode ? `${form.full_name} · ${followUpMode ? '后续跟进情况' : '快捷跟进'}` : form.revision ? '编辑资源开拓' : '新增资源开拓'" placeholder="搜索字段，如资源姓名" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef" @keydown="saveShortcut">
       <AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
         <template v-if="!quickMode">
@@ -10,7 +10,8 @@
           <el-form-item label="开拓平台" prop="platform_id"><el-select v-model="form.platform_id" filterable><el-option-group v-for="group in categoryOptions" :key="group.value" :label="group.label"><el-option v-for="p in platforms.filter(p => p.category === group.value)" :key="p.id" :label="p.name" :value="p.id" /></el-option-group></el-select></el-form-item>
           <el-form-item label="日期" prop="work_date"><el-date-picker v-model="form.work_date" value-format="YYYY-MM-DD" :clearable="false" /></el-form-item>
           <el-form-item label="开拓人员" prop="owner_id"><el-select v-model="form.owner_id" filterable :disabled="!options.can_delegate"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
-          <el-form-item label="对接账号"><el-select v-model="form.account_id" clearable filterable @clear="form.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
+          <el-form-item label="交换账号"><el-select v-model="form.account_id" clearable filterable @clear="form.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
+          <el-form-item label="加微账号" prop="friend_accounts"><CompanyWechatAccountSelect v-model="form.friend_accounts" /></el-form-item>
         </div>
         <h3>资源资料</h3>
         <div class="development-form-grid">
@@ -42,22 +43,22 @@
             </div>
           </el-form-item>
           <el-form-item label="资源语种/方言" class="wide"><el-select v-model="form.language_ids" multiple filterable><el-option v-for="l in options.languages" :key="l.id" :label="`${l.label}${l.language_type === 'dialect' ? '（方言）' : ''}`" :value="l.id" /></el-select></el-form-item>
-          <el-form-item label="资源手机" prop="phone"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
+          <el-form-item label="资源手机" prop="phone" class="wide"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
           <el-form-item label="资源微信号" prop="wechat"><el-input v-model="form.wechat" maxlength="100" /></el-form-item>
+          <el-form-item label="资源小红书号" prop="xiaohongshu"><el-input v-model="form.xiaohongshu" maxlength="100" /></el-form-item>
         </div>
         </template>
         <h3>跟进进展</h3>
-        <el-form-item v-if="friendMode" label="加微跟进" prop="friend_choice" :rules="required('请选择加微跟进情况')"><el-select v-model="form.friend_choice" placeholder="选择添加情况" @change="chooseFriendFollowUp"><el-option v-for="item in friendFollowUpOptions" :key="item.label" :label="item.label" :value="item.label" /></el-select><small class="muted">一次、二次、三次请求用于记录发送请求；未获通过请选择对应的“请求未通过”，被对方删除请选择“（对方）已删”；确认添加成功后请选择“已添加”。</small></el-form-item>
-        <p v-if="historicalOnly" class="muted">历史导入记录：原表标记不自动入库；今后确认添加好友或已进群时，会查重并进入人才总库。</p><p v-else class="muted">微信、企微“已添加”或“已进群”会进入人才入库流程；“已邀进群”仅表示邀请。沟通、入项不触发入库。</p>
+        <p v-if="historicalOnly" class="muted">历史导入记录：原表标记不自动入库；今后确认添加好友或小群、大群已进群时，会查重并进入人才总库。</p><p v-else class="muted">微信、企微“已添加”或企微小群、大群“已进群”会进入人才入库流程；已拉群、已发码、已退群不触发入库。</p>
         <el-button v-if="quickMode" text type="primary" @click="quickMode = false">查看全部历史及资料</el-button>
         <div v-for="(action, index) in form.actions" v-show="!quickMode || !savedActionIds.includes(action.id)" :key="action.id" class="development-action" data-dialog-field-search-group>
           <div data-dialog-field-search-group-title>操作 {{ index + 1 }}<span v-if="action.request_number"> · 第 {{ action.request_number }} 次请求</span></div>
           <div class="development-form-grid">
-            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" @change="action.status = defaultProgressStatus(action.channel)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
-            <el-form-item label="跟进状态" :prop="`actions.${index}.status`" :rules="required('请选择跟进状态')"><el-select v-model="action.status" filterable allow-create default-first-option><el-option v-for="s in progressStatuses(action.channel)" :key="s" :label="s" :value="s" /></el-select></el-form-item>
-            <el-form-item label="操作日期" :prop="`actions.${index}.action_date`" :rules="required('请选择操作日期')"><el-date-picker v-model="action.action_date" value-format="YYYY-MM-DD" /></el-form-item>
-            <el-form-item label="操作人员" :prop="`actions.${index}.operator_id`" :rules="required('请选择操作人员')"><el-select v-model="action.operator_id" filterable><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
-            <el-form-item label="操作账号"><el-select v-model="action.account_id" clearable filterable @clear="action.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
+            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" :disabled="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" @change="changeActionChannel(action)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
+            <el-form-item label="跟进状态" :prop="`actions.${index}.status`" :rules="required('请选择跟进状态')"><ReadonlyField v-if="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" :model-value="action.status" source="auto" /><el-select v-else v-model="action.status" filterable :allow-create="!isGroupChannel(action.channel)" default-first-option><el-option v-for="s in progressStatuses(action.channel)" :key="s" :label="s" :value="s" /></el-select></el-form-item>
+            <el-form-item label="操作日期" :prop="`actions.${index}.action_date`" :rules="required('请选择操作日期')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="action.action_date" source="auto" /><el-date-picker v-else v-model="action.action_date" value-format="YYYY-MM-DD" /></el-form-item>
+            <el-form-item label="操作人员" :prop="`actions.${index}.operator_id`" :rules="required('请选择操作人员')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="options.users.find(u => u.id === action.operator_id)?.name || action.operator_name || '-'" source="auto" /><el-select v-else v-model="action.operator_id" filterable><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
+            <el-form-item label="操作账号"><el-select v-model="action.account_id" :disabled="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" clearable filterable @clear="action.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
           </div>
           <el-button v-if="!savedActionIds.includes(action.id)" text type="danger" @click="form.actions.splice(index, 1)">移除此条未保存操作</el-button>
           <small v-else class="muted">录入：{{ action.created_by_name }}；最近修改：{{ action.updated_by_name }}</small>
@@ -70,8 +71,23 @@
           <el-form-item v-if="nameCandidates.length" label="关联已有档案" prop="link_person_id"><el-select v-model="form.link_person_id" clearable @clear="form.link_person_id = null"><el-option v-for="p in nameCandidates" :key="p.id" :value="p.id" :label="`${p.full_name} / ${p.resource_code || '暂无编号'}（${p.match_fields.map(f => ({name:'同名',phone:'同手机号',wechat:'同微信号'})[f]).join('、')}）`" /></el-select></el-form-item>
           <el-form-item v-if="nameCandidates.length && !form.link_person_id" label="不是同一人的说明" prop="duplicate_note"><el-input v-model="form.duplicate_note" type="textarea" :rows="3" placeholder="仅同名时可填写说明另建；手机号或微信号冲突需先处理" /></el-form-item>
         </template>
-        <el-alert v-if="personId" type="success" :closable="false" :title="`已关联人才：${resourceCode || '已入库'}，修改开拓记录不会覆盖人才档案。`" />
-        <el-form-item label="后续跟进"><el-input v-model="form.follow_up" type="textarea" :rows="quickMode ? 2 : 5" maxlength="20000" placeholder="可补充沟通内容、群名、入项项目等" /></el-form-item>
+        <el-alert v-if="personId" type="success" :closable="false" :title="`已关联人才：${resourceCode || '已入库'}，交换账号、加微账号会汇总到人才总库，已添加和已删状态双向同步。`" />
+        <section v-if="!quickMode || followUpMode" class="form-section">
+          <h3>后续跟进情况</h3>
+          <p class="muted">手工填写跟进内容，保存后自动记录操作人和操作时间。已保存记录只读，可新增一条补充或更正说明。</p>
+          <div v-for="(entry, index) in form.follow_ups" :key="entry.id" class="development-action" data-dialog-field-search-group>
+            <div data-dialog-field-search-group-title>新增跟进 {{ index + 1 }}</div>
+            <el-form-item label="后续跟进情况" :prop="`follow_ups.${index}.content`" :rules="[{ required: true, whitespace: true, message: '请填写跟进内容或移除此条草稿', trigger: 'blur' }]">
+              <el-input v-model="entry.content" type="textarea" :rows="3" maxlength="20000" show-word-limit placeholder="请输入本次跟进情况" />
+            </el-form-item>
+            <el-button text type="danger" @click="form.follow_ups.splice(index, 1)">移除此条草稿</el-button>
+          </div>
+          <el-button @click="addFollowUp">新增跟进情况</el-button>
+          <DevelopmentFollowUpHistory :entries="followUpHistory" :legacy="form.follow_up" />
+        </section>
+        <el-alert v-if="versionConflict" type="warning" :closable="false" title="记录已变化，草稿已保留。重新加载最新资料后再保存；其他未保存的资料和状态修改将被重新加载替换。">
+          <el-button :loading="saving" @click="reloadWithDrafts">重新加载（保留文字草稿）</el-button>
+        </el-alert>
         <el-form-item v-if="!quickMode" label="备注"><el-input v-model="form.remarks" type="textarea" :rows="5" maxlength="20000" /></el-form-item>
       </AppForm>
     </div>
@@ -83,14 +99,16 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import CompanyWechatAccountSelect from '@/components/common/CompanyWechatAccountSelect.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import DevelopmentFollowUpHistory from './DevelopmentFollowUpHistory.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, friendFollowUpOptions, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday } from '@/utils/resourceDevelopment'
+import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday, isGroupChannel, developmentDateRange } from '@/utils/resourceDevelopment'
 const props = defineProps({ options: { type: Object, required: true } })
 const emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), checking = ref(false), formRef = ref(null), bodyRef = ref(null)
-const quickMode = ref(false), friendMode = ref(false)
+const quickMode = ref(false), followUpMode = ref(false), followUpHistory = ref([]), versionConflict = ref(false)
 const batchKey = () => `resource-development:entry-batch:${props.options.user_id}`
 function readBatch() {
   try { return restoreDevelopmentBatch(JSON.parse(sessionStorage.getItem(batchKey()) || 'null'), props.options) } catch { return {} }
@@ -102,7 +120,7 @@ function saveShortcut(event) {
 const historicalOnly = ref(false), originalActions = ref([])
 const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedActionIds = ref([]), nameCandidates = ref([])
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
-const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, phone: '', wechat: '', language_ids: [], follow_up: '', remarks: '', friend_choice: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
+const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, friend_accounts: [], phone: '', wechat: '', xiaohongshu: '', language_ids: [], follow_up: '', follow_ups: [], remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
 const form = reactive(empty())
 const recordCandidates = ref([]), recordTotal = ref(0), recordPage = ref(1), recordChecking = ref(false), recordCheckFailed = ref(false), recordPopover = ref(false)
 let recordTimer, recordController, recordSequence = 0, recordQueryKey = ''
@@ -142,7 +160,7 @@ const capabilityOptions = [{ value: 'written_translation', label: '笔译' }, { 
 const required = message => [{ required: true, message, trigger: 'change' }]
 const rules = computed(() => ({ platform_id: required('请选择开拓平台'), work_date: required('请选择日期'), owner_id: required('请选择开拓人员'), full_name: required('请填写资源姓名'), capabilities: needsEnrollment.value && !form.link_person_id ? [{ type: 'array', required: true, min: 1, message: '请选择至少一个专业分类', trigger: 'change' }] : [] }))
 function payload() {
-  const { friend_choice, ...record } = form
+  const { follow_up, ...record } = form
   return { ...record, account_id: form.account_id || null, actions: form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status, action_date: a.action_date, operator_id: a.operator_id, account_id: a.account_id || null })) }
 }
 let checkSequence = 0
@@ -153,23 +171,33 @@ async function checkName() {
   catch (e) { if (seq === checkSequence) ElMessage.error(e.message) }
   finally { if (seq === checkSequence) checking.value = false }
 }
-function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '一次请求', action_date: dateText(new Date()), operator_id: props.options.user_id, account_id: form.account_id }) }
-function chooseFriendFollowUp(label) {
-  // 切换预设只替换本次草稿，已保存历史保持不变。
-  form.actions = form.actions.filter(a => savedActionIds.value.includes(a.id))
-  const selected = friendFollowUpOptions.find(item => item.label === label)
-  for (const channel of selected?.channels || []) { addAction(channel, true); form.actions.at(-1).status = selected.status }
+function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick || isGroupChannel(channel) ? defaultProgressStatus(channel) : '一次请求', action_date: isGroupChannel(channel) ? developmentDateRange('month')[1] : dateText(new Date()), operator_id: props.options.user_id, account_id: form.account_id }) }
+function changeActionChannel(action) {
+  action.status = defaultProgressStatus(action.channel)
+  if (isGroupChannel(action.channel) && !savedActionIds.value.includes(action.id)) { action.operator_id = props.options.user_id; action.action_date = developmentDateRange('month')[1] }
 }
-async function open(row, channel) {
+function addFollowUp() { form.follow_ups.push({ id: newDevelopmentId(), content: '' }) }
+async function reloadWithDrafts() {
+  const drafts = form.follow_ups.map(entry => ({ ...entry }))
+  const channel = followUpMode.value ? 'follow_up' : undefined
+  try {
+    await open({ id: form.id }, channel)
+    // 已保存的同 UUID 草稿说明上次响应丢失，不再重复提交。
+    form.follow_ups = drafts.filter(entry => !followUpHistory.value.some(saved => saved.id === entry.id && saved.content === entry.content.trim()))
+  } catch (error) { ElMessage.error(error.message) }
+}
+async function open(row, channel, status) {
   const data = row ? await api.detail(row.id) : null
   Object.assign(form, empty()); nameCandidates.value = []; clearFieldSearch(); checkSequence++
   if (!data) Object.assign(form, readBatch())
-  if (data) for (const key of Object.keys(form)) if (key in data) form[key] = data[key]
+  if (data) for (const key of Object.keys(form)) if (key !== 'follow_ups' && key in data) form[key] = data[key]
+  followUpHistory.value = data?.follow_ups || []; versionConflict.value = false
   historicalOnly.value = Boolean(data?.historical_only)
   greetingNo.value = data?.greeting_no || ''; personId.value = data?.person_id || null; resourceCode.value = data?.resource_code || ''
   originalActions.value = form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status })); savedActionIds.value = form.actions.map(a => a.id); quickMode.value = Boolean(channel)
-  friendMode.value = channel === 'friend'
-  if (channel && !friendMode.value) addAction(channel, true)
+  followUpMode.value = channel === 'follow_up'
+  if (followUpMode.value) addFollowUp()
+  else if (channel) { addAction(channel, true); if (status) form.actions.at(-1).status = status }
   visible.value = true
 }
 async function save(continueAdding = false) {
@@ -201,6 +229,7 @@ async function save(continueAdding = false) {
       formRef.value?.clearValidate()
     } else visible.value = false
   } catch (e) {
+    if (e.response?.status === 409) versionConflict.value = true
     await formRef.value?.applyServerErrors(e)
     if (e.rawDetail?.duplicates) { nameCandidates.value = e.rawDetail.duplicates; await locateDialogFieldByLabel('关联已有档案') }
     ElMessage.error(e.message)

@@ -1,5 +1,5 @@
 """开拓记录保存、权限、查重、统计及日报来源。事务由 API 统一提交。"""
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 from fastapi import HTTPException
@@ -16,9 +16,11 @@ from resource_development_models import (
     DevelopmentCounter as Counter, DevelopmentLanguage as Language,
     DevelopmentOption as Option, DevelopmentRecord as Record,
     DevelopmentScreenshot as Screenshot, DevelopmentWork as Work,
+    DevelopmentFollowUp as FollowUp,
 )
 from talent_privacy import can_view_talent_contacts
 from permission_service import user_has_permission
+from talent_wechat_accounts import lock_account_writes, merge_development_accounts, sync_development_channels
 
 
 def previous_workday(today: date) -> date:
@@ -30,8 +32,7 @@ def previous_workday(today: date) -> date:
 
 def lock_writes(db):
     # 开拓事务串行分配编号、核重与入库，锁在事务结束自动释放。
-    if db.get_bind().dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(724092401)"))
+    lock_account_writes(db)
 
 
 def is_admin(db, user):
@@ -71,7 +72,7 @@ def user_name(db, user_id):
 def option(db, option_id, kind):
     row = db.get(Option, option_id) if option_id else None
     if not row or row.kind != kind:
-        raise HTTPException(422, "平台或对接账号无效")
+        raise HTTPException(422, "平台或交换账号无效")
     return row
 
 
@@ -153,19 +154,32 @@ def duplicates(db, name, phone, wechat):
     return result
 
 
-PRIVATE_ENTRY_STATUSES = {"wechat": "已添加", "enterprise": "已添加", "group": "已进群"}
+PRIVATE_ENTRY_STATUSES = {"wechat": "已添加", "enterprise": "已添加", "group": "已进群", "group_large": "已进群"}
+GROUP_STATUSES = {"group": {"未处理", "已拉群", "已进群", "已退群"},
+                  "group_large": {"未处理", "已拉群", "已发码", "已进群", "已退群"}}
+
+
+def group_action_date():
+    return datetime.now(timezone(timedelta(hours=8))).date()
+
+
 FRIEND_STATUS_ALIASES = {"已发请求": "一次请求", "二次添加": "二次请求", "三次添加": "三次请求"}
 FRIEND_STATUSES = {"未处理", "搜不到", "一次请求", "一次请求未通过", "二次请求", "二次请求未通过",
                    "三次请求", "三次请求未通过", "已添加", "（对方）已删"}
-STANDARD_PROGRESS_STATUSES = FRIEND_STATUSES | set(FRIEND_STATUS_ALIASES) | {"已邀进群", "已进群", "已沟通", "已入项"}
+STANDARD_PROGRESS_STATUSES = FRIEND_STATUSES | set(FRIEND_STATUS_ALIASES) | {"已邀进群", "已拉群", "已发码", "已进群", "已退群", "已沟通", "已入项"}
 
 
 def progress_status(status, channel):
+    if channel == "group" and status == "已邀进群":
+        return "已拉群"
     return FRIEND_STATUS_ALIASES.get(status, status) if channel in {"wechat", "enterprise"} else status
 
 
 def status_filter_values(values, channel):
     # 新旧查询名称均能命中同一业务状态；其他渠道不套用加微别名。
+    if channel == "group":
+        canonical = {progress_status(value, channel) for value in values}
+        return canonical | ({"已邀进群"} if "已拉群" in canonical else set())
     if channel not in {"wechat", "enterprise"}:
         return values
     canonical = {progress_status(value, channel) for value in values}
@@ -226,6 +240,8 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
         if payload.revision == 0:
             return row
         check_revision(row, payload.revision)
+        if "follow_up" in payload.model_fields_set and payload.follow_up != row.follow_up:
+            raise HTTPException(422, "历史跟进原文不能修改，请新增跟进情况")
     elif payload.revision:
         raise HTTPException(404, "开拓记录已删除")
     active_user(db, payload.owner_id)
@@ -236,32 +252,65 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     if len(languages) != len(payload.language_ids):
         raise HTTPException(422, "语种/方言已不存在，请重新选择")
     before = snapshot(row) if row else None
+    old_person_id = row.person_id if row else None
     old_date, old_owner = (row.work_date, row.owner_id) if row else (payload.work_date, payload.owner_id)
     if not row:
         row = Record(id=payload.id, greeting_no=allocate_greeting(db, platform, payload.work_date),
                      created_by=user.id, revision=0, historical_only=historical_markers is not None,
                      historical_markers=historical_markers or {})
         db.add(row)
-    for key in ["platform_id", "work_date", "owner_id", "full_name", "account_id", "phone", "wechat", "follow_up", "remarks", "duplicate_note"]:
+    for key in ["platform_id", "work_date", "owner_id", "full_name", "account_id", "phone", "wechat", "remarks", "duplicate_note"]:
         setattr(row, key, getattr(payload, key))
+    # 旧页面未提交新增字段时保留原值；显式提交空字符串仍可清空。
+    if "xiaohongshu" in payload.model_fields_set or before is None:
+        row.xiaohongshu = payload.xiaohongshu
+    if "friend_accounts" in payload.model_fields_set or before is None:
+        row.friend_accounts = payload.friend_accounts
+    if before is None:
+        row.follow_up = payload.follow_up
     row.updated_by, row.updated_at = user.id, datetime.now()
     row.revision += 1
     # flush 前先填满记录的所有必填字段。
     db.flush()
     db.query(Language).filter_by(record_id=row.id).delete(synchronize_session=False)
     db.add_all([Language(record_id=row.id, language_id=lang.id) for lang in languages])
+    last_follow_up_time = db.query(func.max(FollowUp.created_at)).filter(FollowUp.record_id == row.id).scalar()
+    for entry in payload.follow_ups:
+        saved = db.get(FollowUp, entry.id)
+        if saved:
+            if saved.record_id != row.id or saved.content != entry.content:
+                raise HTTPException(409, "跟进标识冲突或历史内容被修改，请重新加载")
+            continue
+        # 存储香港本地时间；微秒保证同次提交多条记录的先后顺序。
+        created_at = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
+        if last_follow_up_time is not None:
+            created_at = max(created_at, last_follow_up_time + timedelta(microseconds=1))
+        last_follow_up_time = created_at
+        follow_up = FollowUp(id=entry.id, record_id=row.id, content=entry.content,
+                             operator_id=user.id, created_at=created_at)
+        db.add(follow_up)
+        audit(db, user, follow_up, "create")
     existing = {a.id: a for a in db.query(Action).filter_by(record_id=row.id).all()}
     previous_states = {a.id: (a.channel, a.status) for a in existing.values()}
     if not set(existing).issubset({a.id for a in payload.actions}):
         raise HTTPException(422, "已保存的操作历史不能删除，可修正日期、人员或状态")
     for entry in payload.actions:
-        active_user(db, entry.operator_id)
         if entry.account_id:
             option(db, entry.account_id, "account")
         action = existing.get(entry.id)
         action_before = snapshot(action) if action else None
         values = {key: getattr(entry, key) for key in ["channel", "status", "action_date", "operator_id", "account_id"]}
         values["status"] = progress_status(entry.status, entry.channel)
+        if action and (action.channel in GROUP_STATUSES or entry.channel in GROUP_STATUSES):
+            if any(getattr(action, key) != value for key, value in values.items()
+                   if key != "status") or progress_status(action.status, action.channel) != values["status"]:
+                raise HTTPException(422, "已保存的群操作记录不能修改，请新增一次跟进")
+        if not action and entry.channel in GROUP_STATUSES and historical_markers is None:
+            if values["status"] not in GROUP_STATUSES[entry.channel]:
+                raise HTTPException(422, "请选择该群类型支持的状态")
+            # 群操作按实际保存人和业务时区记账，不能由客户端伪造。
+            values["operator_id"], values["action_date"] = user.id, group_action_date()
+        active_user(db, values["operator_id"])
         if action and action.channel == entry.channel and progress_status(action.status, action.channel) == values["status"]:
             # 展示名变化不改写历史原值，也不产生额外的操作审计。
             values["status"] = action.status
@@ -295,6 +344,24 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
         setattr(row, field, current)
     sync_person(db, row, payload, languages,
                 eligible=historical_markers is None and has_new_private_entry(actions, previous_states), actor=user)
+    if row.person_id:
+        newly_linked = old_person_id != row.person_id
+        if newly_linked:
+            row.contact_state = dict(db.get(ResourcePerson, row.person_id).wechat_contact_state or {})
+        if newly_linked or (before and before.get("account_id") != (str(row.account_id) if row.account_id else None)):
+            merge_development_accounts(db, row, actor=user)
+        elif before.get("friend_accounts", []) != row.friend_accounts:
+            merge_development_accounts(db, row, actor=user)
+        # 只有各渠道最后一条操作的新建/状态修正才是新结论；普通保存不重放旧历史。
+        latest = {a.channel: a for a in actions if a.channel in {"wechat", "enterprise"}}
+        changes = {channel: progress_status(a.status, channel) for channel, a in latest.items()
+                   if previous_states.get(a.id) != (a.channel, a.status)}
+        overlay = dict(row.contact_state or {})
+        for channel in changes:
+            overlay.pop(channel, None)
+        row.contact_state = overlay
+        if historical_markers is None:
+            sync_development_channels(db, row, changes, actor=user)
     audit(db, user, row, "update" if before else "create", before)
     db.flush()
     if not defer_refresh:
@@ -304,6 +371,11 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     return row
 
 
+def current_contact_status(channel):
+    """当前状态供查询使用；统计仍读原始业务状态。"""
+    return func.coalesce(Record.contact_state[channel]["status"].as_string(), getattr(Record, f"{channel}_status"))
+
+
 def serialize_record(db, user, row, detail=False):
     allowed = owns(db, user, row.owner_id)
     result = snapshot(row)
@@ -311,7 +383,7 @@ def serialize_record(db, user, row, detail=False):
         result[key] = progress_status(result[key], key.removesuffix("_status"))
         if not allowed and result[key] not in FRIEND_STATUSES:
             result[key] = "自定义状态"
-    for key in ["phone", "wechat"]:
+    for key in ["phone", "wechat", "xiaohongshu"]:
         if not allowed and result[key]:
             result[key] = "******"
     # 自由文本可能包含联系方式，同样按记录所有权保护。
@@ -330,22 +402,40 @@ def serialize_record(db, user, row, detail=False):
     result["progress"] = {key: {"status": progress_status(value["status"], key) if allowed or value["status"] in STANDARD_PROGRESS_STATUSES else "自定义状态", "action_date": value.get("action_date"),
                                "operator_name": value.get("operator_name") or "原表未填写", "request_number": 0}
                           for key, value in (row.historical_markers or {}).items()}
+    # 只读人员也能追溯标准群状态；不暴露历史导入原文中的联系方式。
+    result["historical_progress"] = {key: dict(value) for key, value in result["progress"].items() if key in GROUP_STATUSES}
     # 来源原文可能含联系方式，未授权人员只看标准进展。
     if not allowed:
         result["historical_markers"] = {}
-    labels = {"wechat": "微信", "enterprise": "企微", "group": "进群", "communication": "沟通", "project": "入项"}
+    labels = {"wechat": "微信", "enterprise": "企微", "group": "企微小群", "group_large": "企微大群", "communication": "沟通", "project": "入项"}
     for action in actions:
         result["progress"][action.channel] = {
             "status": progress_status(action.status, action.channel) if allowed or action.status in STANDARD_PROGRESS_STATUSES else "自定义状态",
             "action_date": action.action_date.isoformat(), "operator_name": user_name(db, action.operator_id),
         }
+    for channel, value in (row.contact_state or {}).items():
+        if channel in {"wechat", "enterprise"}:
+            result[f"{channel}_status"] = value["status"]
+            result["progress"][channel] = {key: value.get(key) for key in ["status", "action_date", "operator_name", "source", "updated_at"]}
+            result["progress"][channel]["synchronized"] = True
+    # 同步来源记录 ID 仅供审计，不在普通响应中暴露其他人员记录标识。
+    result.pop("contact_state", None)
+    result["friend_accounts_text"] = "、".join(row.friend_accounts or [])
     friend_latest = next((a for a in reversed(actions) if a.channel in {'wechat', 'enterprise'}), None)
     result['add_friend_follow_up'] = (f'{progress_status(friend_latest.status, friend_latest.channel)} · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}' if friend_latest else '')
     if friend_latest and not allowed and progress_status(friend_latest.status, friend_latest.channel) not in FRIEND_STATUSES:
         result['add_friend_follow_up'] = f'自定义状态 · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}'
-    latest = actions[-1] if actions else None
-    result["latest_follow_up"] = (f"{latest.action_date:%m-%d} · {user_name(db, latest.operator_id)} · {labels.get(latest.channel, latest.channel)}" if latest else "")
+    follow_ups = db.query(FollowUp).filter_by(record_id=row.id).order_by(FollowUp.created_at.desc(), FollowUp.id.desc())
+    latest = follow_ups.first()
+    def follow_up_result(entry):
+        return {"id": str(entry.id), "content": entry.content if allowed else "受限内容",
+                "operator_name": user_name(db, entry.operator_id),
+                "created_at": entry.created_at.replace(tzinfo=timezone(timedelta(hours=8))).isoformat()}
+    result["latest_follow_up"] = (latest.content if allowed else "受限内容") if latest else result["follow_up"]
+    result["latest_follow_up_entry"] = follow_up_result(latest) if latest else None
+    result["follow_up_count"] = follow_ups.count()
     if detail:
+        result["follow_ups"] = [follow_up_result(entry) for entry in follow_ups.all()]
         result["actions"] = [{**snapshot(a), "status": progress_status(a.status, a.channel), "operator_name": user_name(db, a.operator_id),
                               "created_by_name": user_name(db, a.created_by), "updated_by_name": user_name(db, a.updated_by)}
                              for a in actions]
@@ -354,7 +444,7 @@ def serialize_record(db, user, row, detail=False):
                 if action["status"] not in STANDARD_PROGRESS_STATUSES:
                     action["status"] = "自定义状态"
         result["audit"] = [{**snapshot(a), "actor_name": user_name(db, a.actor_id)}
-                           for a in db.query(Audit).filter(Audit.entity_id.in_([row.id, *[UUID(a["id"]) for a in result["actions"]]])).order_by(Audit.created_at)] if allowed else []
+                           for a in db.query(Audit).filter(Audit.entity_id.in_([row.id, *[UUID(a["id"]) for a in result["actions"]], *[UUID(a["id"]) for a in result["follow_ups"]]])).order_by(Audit.created_at)] if allowed else []
     return result
 
 
@@ -369,13 +459,13 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
             q = q.filter(field == value)
     if state:
         states = status_filter_values([state], "wechat")
-        q = q.filter(or_(Record.wechat_status.in_(states), Record.enterprise_status.in_(states)))
+        q = q.filter(or_(current_contact_status("wechat").in_(states), current_contact_status("enterprise").in_(states)))
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
         language_match = db.query(Language).join(InterpretationLanguage, InterpretationLanguage.id == Language.language_id).filter(Language.record_id == Record.id, InterpretationLanguage.label.ilike(pattern)).exists()
         platform_match = db.query(Option).filter(Option.id == Record.platform_id, Option.kind == "platform", Option.name.ilike(pattern)).exists()
         common = [Record.full_name.ilike(pattern), Record.greeting_no.ilike(pattern), language_match, platform_match]
-        contacts = or_(Record.phone.ilike(pattern), Record.wechat.ilike(pattern))
+        contacts = or_(Record.phone.ilike(pattern), Record.wechat.ilike(pattern), Record.xiaohongshu.ilike(pattern))
         q = q.filter(or_(*common, contacts if can_delegate(db, user) else and_(Record.owner_id == user.id, contacts)))
     unrestricted = can_delegate(db, user)
     for key, value in (column_filters or {}).items():
@@ -384,7 +474,7 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
         values = value if isinstance(value, list) else [value]
         pattern = f"%{values[0]}%"
         identifiers = {'platform_name': Record.platform_id, 'owner_name': Record.owner_id, 'account_name': Record.account_id}
-        channels = {'wechat_status': 'wechat', 'enterprise_status': 'enterprise', 'group_status': 'group', 'communication_status': 'communication', 'project_status': 'project'}
+        channels = {'wechat_status': 'wechat', 'enterprise_status': 'enterprise', 'group_status': 'group', 'group_large_status': 'group_large', 'communication_status': 'communication', 'project_status': 'project'}
         if key in identifiers:
             try:
                 ids = [UUID(v) for v in values]
@@ -402,18 +492,27 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
                 q = q.filter(Record.owner_id == user.id)
             latest = db.query(Action.status).filter(Action.record_id == Record.id, Action.channel == channels[key]).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
             fallback = getattr(Record, key) if key in {'wechat_status', 'enterprise_status'} else '未处理'
-            q = q.filter(func.coalesce(latest, fallback).in_(status_filter_values(values, channels[key])))
+            if channels[key] in GROUP_STATUSES:
+                fallback = func.coalesce(Record.historical_markers[channels[key]]["status"].as_string(), '未处理')
+            current = current_contact_status(channels[key]) if channels[key] in {"wechat", "enterprise"} else func.coalesce(latest, fallback)
+            q = q.filter(current.in_(status_filter_values(values, channels[key])))
+        elif key == 'friend_accounts_text':
+            q = q.filter(cast(Record.friend_accounts, String).ilike(pattern))
         elif key == 'resource_code':
             q = q.filter(db.query(ResourcePerson).filter(ResourcePerson.id == Record.person_id, ResourcePerson.resource_code.ilike(pattern)).exists())
-        elif key == 'latest_follow_up':
-            latest = db.query(Action.id).filter(Action.record_id == Record.id, Action.channel.in_(['wechat', 'enterprise'])).order_by(Action.created_at.desc(), Action.id.desc()).limit(1).correlate(Record).scalar_subquery()
-            display_status = case(FRIEND_STATUS_ALIASES, value=Action.status, else_=Action.status)
-            q = q.filter(db.query(Action).join(AppUser, AppUser.id == Action.operator_id).filter(Action.id == latest, or_(display_status.ilike(pattern), Action.status.ilike(pattern), AppUser.full_name.ilike(pattern), AppUser.username.ilike(pattern), cast(Action.action_date, String).ilike(pattern))).exists())
+        elif key in {'latest_follow_up', 'follow_up'}:
+            latest = db.query(FollowUp.id).filter(FollowUp.record_id == Record.id).order_by(FollowUp.created_at.desc(), FollowUp.id.desc()).limit(1).correlate(Record).scalar_subquery()
+            current_match = db.query(FollowUp).join(AppUser, AppUser.id == FollowUp.operator_id).filter(
+                FollowUp.id == latest, or_(FollowUp.content.ilike(pattern),
+                    func.coalesce(func.nullif(AppUser.full_name, ''), AppUser.username).ilike(pattern),
+                    cast(FollowUp.created_at, String).ilike(pattern),
+                    func.to_char(FollowUp.created_at, 'YYYY"年"MM"月"DD"日" HH24:MI:SS').ilike(pattern))).exists()
+            q = q.filter(or_(current_match, and_(latest.is_(None), Record.follow_up.ilike(pattern))))
             if not unrestricted:
                 q = q.filter(Record.owner_id == user.id)
-        elif key in {'full_name','greeting_no','phone','wechat','work_date','follow_up','remarks','updated_at'}:
+        elif key in {'full_name','greeting_no','phone','wechat','xiaohongshu','work_date','follow_up','remarks','updated_at'}:
             q = q.filter(cast(getattr(Record, key), String).ilike(pattern))
-            if key in {'phone','wechat','follow_up','remarks'} and not unrestricted:
+            if key in {'phone','wechat','xiaohongshu','follow_up','remarks'} and not unrestricted:
                 q = q.filter(Record.owner_id == user.id)
     return q
 

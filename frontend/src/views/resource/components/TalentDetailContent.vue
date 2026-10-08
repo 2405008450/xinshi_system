@@ -26,7 +26,7 @@
         <el-descriptions-item label="操作人">{{ show(detail.operatorName) }}</el-descriptions-item>
         <el-descriptions-item label="操作时间">{{ formatOperationTime(detail.operatedAt) }}</el-descriptions-item>
         <el-descriptions-item label="来源">{{ show(detail.registrationSource) }}</el-descriptions-item>
-        <el-descriptions-item label="所在微信">{{ show(detail.wechatAccount) }}</el-descriptions-item>
+        <el-descriptions-item label="所在微信">{{ formatWechatAccounts(detail.wechatAccounts, detail.wechatAccount) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="所在微信群" :span="2"><div class="pre-wrap">{{ show(detail.wechatGroups) }}</div></el-descriptions-item>
         <el-descriptions-item label="档案状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
         <el-descriptions-item v-if="showAnnotationWillingness" label="标注意愿">{{ performanceLevelLabel(detail.annotationWillingness) || '-' }}</el-descriptions-item>
@@ -134,6 +134,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { formatWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
 

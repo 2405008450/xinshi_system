@@ -2,7 +2,7 @@
   <DraggableFormDialog v-model="visible" title="平台与选项维护" width="min(780px, calc(100vw - 32px))" top="5vh" class="development-dialog" destroy-on-close>
     <el-tabs v-model="tab">
       <el-tab-pane label="开拓平台" name="platform"><div v-for="group in categoryOptions" :key="group.value"><h3>{{ group.label }}</h3><el-button v-for="p in options.options.filter(p => p.kind === 'platform' && p.category === group.value)" :key="p.id" class="platform-chip" @click="edit(p)">{{ p.name }} · 情况说明</el-button><el-button plain @click="create('platform', group.value)">人工添加</el-button></div></el-tab-pane>
-      <el-tab-pane label="对接账号" name="account"><el-tag v-for="a in options.options.filter(o => o.kind === 'account')" :key="a.id" class="platform-chip">{{ a.name }}</el-tag><el-button @click="create('account')">新增账号</el-button></el-tab-pane>
+      <el-tab-pane label="交换账号" name="account"><el-tag v-for="a in options.options.filter(o => o.kind === 'account')" :key="a.id" class="platform-chip">{{ a.name }}</el-tag><el-button @click="create('account')">新增账号</el-button></el-tab-pane>
       <el-tab-pane label="语种/方言" name="language"><p>与人才总库共用语种目录。</p><el-button @click="create('language')">新增语种/方言</el-button></el-tab-pane>
     </el-tabs>
     <template #footer><el-button @click="visible = false">关闭</el-button></template>

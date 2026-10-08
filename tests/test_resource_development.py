@@ -44,6 +44,8 @@ def db():
     import main  # noqa: F401
     from database import engine
     from sqlalchemy.orm import Session
+    # 调试机默认配置可能指向云端，回滚测试也不能连接生产数据库。
+    assert engine.url.host in {'localhost', '127.0.0.1', '192.168.31.144'}, '数据库回归仅允许连接局域网或隔离数据库'
     with engine.connect() as conn:
         transaction = conn.begin()
         session = Session(bind=conn, join_transaction_mode="create_savepoint")
@@ -69,6 +71,84 @@ def make_payload(context, **kwargs):
     user, _, platform = context
     return RecordWrite(**(dict(id=uuid4(), platform_id=platform.id, work_date=date(2026, 9, 24), owner_id=user.id,
                                full_name="测试资源" + uuid4().hex, phone="", wechat="") | kwargs))
+
+
+def test_xiaohongshu_validation():
+    common = dict(id=uuid4(), platform_id=uuid4(), work_date=date(2026, 10, 8), owner_id=uuid4(), full_name="小红书校验")
+    assert RecordWrite(**common).xiaohongshu == ""
+    assert RecordWrite(**common, xiaohongshu="  xhs_001  ").xiaohongshu == "xhs_001"
+    assert RecordWrite(**common, xiaohongshu="   ").xiaohongshu == ""
+    assert RecordWrite(**common, xiaohongshu="x" * 100).xiaohongshu == "x" * 100
+    with pytest.raises(ValidationError):
+        RecordWrite(**common, xiaohongshu="x" * 101)
+
+
+def test_xiaohongshu_migration_backfills_history_and_is_repeatable(db):
+    from pathlib import Path
+    from sqlalchemy import text
+    # 临时表遮蔽同名业务表，避免迁移测试修改真实结构或数据。
+    db.execute(text("CREATE TEMP TABLE resource_development_record (id integer PRIMARY KEY) ON COMMIT DROP"))
+    try:
+        db.execute(text("INSERT INTO resource_development_record (id) VALUES (1)"))
+        sql = (Path(__file__).resolve().parents[1] / "data/migrations/20261008_resource_development_xiaohongshu.sql").read_text(encoding="utf-8")
+        sql = sql.replace("BEGIN;", "").replace("COMMIT;", "")
+        db.connection().exec_driver_sql(sql)
+        db.connection().exec_driver_sql(sql)
+        assert db.execute(text("SELECT xiaohongshu FROM resource_development_record WHERE id=1")).scalar() == ""
+        db.execute(text("INSERT INTO resource_development_record (id) VALUES (2)"))
+        assert db.execute(text("SELECT xiaohongshu FROM resource_development_record WHERE id=2")).scalar() == ""
+    finally:
+        db.execute(text("DROP TABLE pg_temp.resource_development_record"))
+
+
+def test_xiaohongshu_api_save_search_permissions_and_clear(db, context):
+    import json
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers.auth import get_current_user
+    from routers.resource_development import router
+    from resource_development_service import save_record
+    user, other, _ = context
+    token = "xhs_" + uuid4().hex
+    foreign = save_record(db, other, make_payload(context, owner_id=other.id, xiaohongshu=token + "_other"))
+    historical = seed_name_check_record(db, context, "历史空账号" + uuid4().hex)
+    assert historical.xiaohongshu == ""
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: user
+    payload = make_payload(context, xiaohongshu="  " + token + "  ").model_dump(mode="json")
+    with TestClient(app) as client, patch("routers.auth.get_user_permission_codes", return_value=["talents:read", "talents:write"]), patch("resource_development_service.can_delegate", return_value=False):
+        created = client.post("/resource-development/records", json=payload)
+        assert created.status_code == 200, created.text
+        record = created.json()
+        assert record["xiaohongshu"] == token and not record["person_id"]
+        url = "/resource-development/records/" + record["id"]
+        assert client.get(url).json()["xiaohongshu"] == token
+        for params in [{"keyword": token}, {"column_filters": json.dumps({"xiaohongshu": token})}]:
+            listing = client.get("/resource-development/records", params=params)
+            assert listing.status_code == 200, listing.text
+            assert listing.json()["total"] == 1
+            assert listing.json()["items"][0]["id"] == record["id"]
+            days = client.get("/resource-development/days", params=params).json()
+            assert days["total"] == 1 and days["items"][0]["count"] == 1
+        masked = client.get("/resource-development/records/" + str(foreign.id)).json()
+        assert masked["xiaohongshu"] == "******" and masked["audit"] == []
+        with patch("resource_development_service.can_delegate", return_value=True):
+            assert client.get("/resource-development/records", params={"keyword": token}).json()["total"] == 2
+            assert client.get("/resource-development/records", params={"column_filters": json.dumps({"xiaohongshu": token})}).json()["total"] == 2
+            assert client.get("/resource-development/records/" + str(foreign.id)).json()["xiaohongshu"] == token + "_other"
+        edited = client.post("/resource-development/records", json={**payload, "revision": record["revision"], "xiaohongshu": "edited_" + token})
+        assert edited.status_code == 200 and edited.json()["xiaohongshu"] == "edited_" + token
+        legacy_payload = {key: value for key, value in payload.items() if key != "xiaohongshu"}
+        legacy_edit = client.post("/resource-development/records", json={**legacy_payload, "revision": edited.json()["revision"]})
+        assert legacy_edit.status_code == 200 and legacy_edit.json()["xiaohongshu"] == "edited_" + token
+        overlength = client.post("/resource-development/records", json={**payload, "revision": legacy_edit.json()["revision"], "xiaohongshu": "x" * 101})
+        assert overlength.status_code == 422
+        cleared = client.post("/resource-development/records", json={**payload, "revision": legacy_edit.json()["revision"], "xiaohongshu": "  "})
+        assert cleared.status_code == 200 and cleared.json()["xiaohongshu"] == ""
+        assert client.get(url).json()["xiaohongshu"] == ""
 
 
 def seed_name_check_record(db, context, name, **kwargs):
@@ -272,7 +352,7 @@ def test_independent_progress_preserves_history_and_does_not_enroll(db, context)
     detail = serialize_record(db, user, row, True)
     assert set(detail['progress']) == {'wechat', 'group', 'communication', 'project'}
     assert detail['progress']['project']['operator_name'] == other.full_name
-    assert detail['latest_follow_up'].endswith('入项')
+    assert detail['latest_follow_up'] == '' and detail['follow_up_count'] == 0
     assert len(detail['actions']) == 4
     with pytest.raises(HTTPException) as error:
         save_record(db, other, updated.model_copy(update={'revision': row.revision}))
@@ -329,6 +409,81 @@ def test_column_filters_combine_and_match_latest_progress(db, context):
     assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'phone':'5555'}).count() == 1
     assert filtered_records(db,other,first.work_date,first.work_date,column_filters={'phone':'5555'}).count() == 0
     assert filtered_records(db,user,first.work_date,first.work_date,column_filters={'latest_follow_up':user.full_name}).count() == 0
+
+
+def test_cross_date_status_records_use_channel_or_and_current_status(db, context):
+    from routers.resource_development import records
+    from resource_development_service import save_record
+    user, _, platform = context
+    combinations = [
+        ('未处理', '未处理'), ('未处理', '已添加'), ('已添加', '未处理'),
+        ('一次请求', '一次请求'), ('一次请求', '已添加'), ('已添加', '一次请求'),
+        ('一次请求未通过', '二次请求'), ('已添加', '已添加'), ('已发请求', '搜不到'),
+    ]
+    seeded = []
+    for index, (wechat, enterprise) in enumerate(combinations):
+        seeded.append(seed_name_check_record(db, context, f'跨日状态{index}',
+            work_date=date(2026, 10, 1) + timedelta(days=index),
+            wechat_status=wechat, enterprise_status=enterprise))
+    # 曾经一次请求、目前已二次请求的记录不能再进入一次请求列表。
+    payload = make_payload(context, full_name='已转二次请求', actions=[action(user, '一次请求')])
+    changed = save_record(db, user, payload)
+    save_record(db, user, RecordWrite.model_validate(payload.model_dump() | {
+        'revision': changed.revision, 'actions': [*[entry.model_dump() for entry in payload.actions], action(user, '二次请求')]}))
+    base = dict(start=None, end=None, owner_id=user.id, platform_id=platform.id)
+    for state, expected in [('未处理', seeded[:3] + [changed]), ('一次请求', seeded[3:6] + [seeded[8]])]:
+        result = records(dict(base, state=state), 0, 100, db, user)
+        ids = [item['id'] for item in result['items']]
+        assert result['total'] == len(expected) == len(set(ids))
+        assert set(ids) == {str(row.id) for row in expected}
+        paged = records(dict(base, state=state), 1, 2, db, user)
+        assert paged['total'] == len(expected) and len(paged['items']) == 2
+    bounded = records(dict(base, state='一次请求', start=date(2026, 10, 4), end=date(2026, 10, 5)), 0, 100, db, user)
+    assert bounded['total'] == 2
+    assert {item['id'] for item in bounded['items']} == {str(row.id) for row in seeded[3:5]}
+    named = records(dict(base, state='一次请求', column_filters={'full_name': '状态4'}), 0, 100, db, user)
+    assert named['total'] == 1 and named['items'][0]['id'] == str(seeded[4].id)
+
+
+def test_cross_date_records_http_combines_common_and_column_filters(db, context):
+    import json
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from models import Role, UserRole
+    from routers.auth import get_current_user
+    from routers.resource_development import router
+    from resource_development_models import DevelopmentOption
+    user, other, platform = context
+    role = Role(id=uuid4(), role_name='admin')
+    account = DevelopmentOption(id=uuid4(), kind='account', name='隔离测试账号')
+    db.add_all([role, account]); db.flush()
+    db.add(UserRole(user_id=user.id, role_id=role.id)); db.flush()
+    wanted = seed_name_check_record(db, context, '综合筛选命中', work_date=date(2026, 10, 6),
+        account_id=account.id, wechat_status='一次请求', enterprise_status='已添加')
+    seed_name_check_record(db, context, '综合筛选其他账号', work_date=date(2026, 10, 7),
+        wechat_status='一次请求', enterprise_status='一次请求')
+    seed_name_check_record(db, context, '综合筛选其他人员', work_date=date(2026, 10, 6),
+        owner_id=other.id, account_id=account.id, wechat_status='一次请求', enterprise_status='已添加')
+    seed_name_check_record(db, context, '综合筛选请求未通过', work_date=date(2026, 10, 6),
+        account_id=account.id, wechat_status='一次请求未通过', enterprise_status='已添加')
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: user
+    params = dict(state='一次请求', start='2026-10-06', end='2026-10-07', keyword='综合筛选',
+        owner_id=str(user.id), platform_id=str(platform.id), account_id=str(account.id),
+        column_filters=json.dumps({'wechat_status': ['一次请求'], 'full_name': '命中'}), limit=1)
+    with TestClient(app) as client:
+        response = client.get('/resource-development/records', params=params)
+        assert response.status_code == 200, response.text
+        assert response.json()['total'] == 1
+        assert [row['id'] for row in response.json()['items']] == [str(wanted.id)]
+        response = client.get('/resource-development/records', params={**params, 'skip': 1})
+        assert response.status_code == 200 and response.json() == {'items': [], 'total': 1}
+        cleared = client.get('/resource-development/records', params={'state': '', 'owner_id': str(user.id)})
+        assert cleared.status_code == 200 and cleared.json()['total'] == 3
+        assert client.get('/resource-development/records', params={**params, 'start': '无效日期'}).status_code == 422
 
 
 def test_filtered_totals_contact_search_work_and_report(db, context):
@@ -441,6 +596,7 @@ def test_concurrent_numbering_in_isolated_schema():
     from sqlalchemy.orm import Session
     from database import engine
     from resource_development_service import allocate_greeting
+    assert engine.url.host in {'localhost', '127.0.0.1', '192.168.31.144'}, '数据库回归仅允许连接局域网或隔离数据库'
     schema = 'test_development_' + uuid4().hex
     platform = SimpleNamespace(id=uuid4(), code='BOSS1')
     try:
@@ -463,7 +619,7 @@ def test_concurrent_numbering_in_isolated_schema():
         with engine.begin() as conn:
             conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
-@pytest.mark.parametrize('channel,status', [('wechat','已添加'),('enterprise','已添加'),('group','已进群')])
+@pytest.mark.parametrize('channel,status', [('wechat','已添加'),('enterprise','已添加'),('group','已进群'),('group_large','已进群')])
 @pytest.mark.parametrize('historical', [False, True])
 def test_private_entry_new_followup_enrolls_once(db, context, channel, status, historical):
     from resource_development_service import save_record
@@ -479,32 +635,101 @@ def test_private_entry_new_followup_enrolls_once(db, context, channel, status, h
     assert person_id and db.get(ResourcePerson, person_id).full_name == payload.full_name
     assert row.historical_only == historical
     # 另一渠道成功以及重复提交不重复建档。
+    if channel in {'group', 'group_large'}:
+        from resource_development_service import serialize_record
+        confirmed = ActionWrite(**{key: value for key, value in serialize_record(db, user, row, True)['actions'][0].items() if key in ActionWrite.model_fields})
     changed = changed.model_copy(update={'revision':row.revision, 'actions':[confirmed, ActionWrite(**action(user,'已添加','enterprise'))]})
     assert save_record(db, user, changed).person_id == person_id
     assert db.query(ResourcePerson).filter_by(full_name=payload.full_name).count() == 1
     # 撤销成功状态不删除已关联的人才。
-    changed = changed.model_copy(update={'revision':row.revision, 'actions':[a.model_copy(update={'status':'未处理'}) for a in changed.actions]})
+    from resource_development_service import serialize_record
+    from resource_development_schemas import ActionWrite
+    saved = [ActionWrite(**{key: value for key, value in entry.items() if key in ActionWrite.model_fields}) for entry in serialize_record(db, user, row, True)['actions']]
+    changed = changed.model_copy(update={'revision':row.revision, 'actions':saved + [ActionWrite(**action(user, '已退群', channel))] if channel in {'group', 'group_large'} else [a.model_copy(update={'status':'未处理'}) for a in changed.actions]})
     assert save_record(db, user, changed).person_id == person_id
     assert db.get(ResourcePerson, person_id)
 
 
-def test_historical_correction_only_status_triggers(db, context):
+def test_historical_group_append_only_success_triggers(db, context):
     from resource_development_service import save_record
     user, _, _ = context
     payload = make_payload(context, actions=[action(user,'已邀进群','group')], capabilities=['annotation'])
     row = save_record(db,user,payload,historical_markers={'wechat':{'status':'已添加'}})
-    edited = payload.model_copy(update={'revision':row.revision,'remarks':'只修正备注','actions':[payload.actions[0].model_copy(update={'action_date':date(2026,9,20)})]})
+    from resource_development_service import serialize_record
+    from resource_development_schemas import ActionWrite
+    saved = [ActionWrite(**{key: value for key, value in entry.items() if key in ActionWrite.model_fields}) for entry in serialize_record(db, user, row, True)['actions']]
+    edited = payload.model_copy(update={'revision':row.revision,'remarks':'只修正备注','actions':saved})
     save_record(db,user,edited)
     assert row.person_id is None
-    edited = edited.model_copy(update={'revision':row.revision,'actions':[edited.actions[0].model_copy(update={'status':'已进群'})]})
+    edited = edited.model_copy(update={'revision':row.revision,'actions':saved + [ActionWrite(**action(user, '已进群', 'group'))]})
     assert save_record(db,user,edited).person_id
 
 
-@pytest.mark.parametrize('channel,status', [('group','已邀进群'),('group','已添加'),('communication','已沟通'),('project','已入项'),('wechat','自定义已添加好友')])
+@pytest.mark.parametrize('channel,status', [('group','已邀进群'),('group','已退群'),('group_large','已发码'),('group_large','已退群'),('communication','已沟通'),('project','已入项'),('wechat','自定义已添加好友')])
 def test_non_private_states_do_not_enroll(db, context, channel, status):
     from resource_development_service import save_record
     user, _, _ = context
     assert save_record(db,user,make_payload(context,actions=[action(user,status,channel)])).person_id is None
+
+
+def test_group_action_server_identity_history_and_alias(db, context):
+    from resource_development_service import save_record, serialize_record, group_action_date, filtered_records
+    from resource_development_schemas import ActionWrite
+    from resource_development_models import DevelopmentAction
+    user, other, _ = context
+    old = action(other, '已邀进群', 'group')
+    payload = make_payload(context, actions=[old])
+    row = save_record(db, user, payload)
+    detail = serialize_record(db, user, row, True)
+    assert detail['progress']['group']['status'] == '已拉群'
+    first = db.get(DevelopmentAction, old['id'])
+    assert first.operator_id == user.id and first.action_date == group_action_date()
+    saved = ActionWrite(**{key: value for key, value in detail['actions'][0].items() if key in ActionWrite.model_fields})
+    latest = ActionWrite(**action(other, '已发码', 'group_large'))
+    row = save_record(db, user, payload.model_copy(update={'revision': row.revision, 'actions': [saved, latest]}))
+    result = serialize_record(db, user, row, True)
+    assert result['progress']['group']['status'] == '已拉群'
+    assert result['progress']['group_large']['status'] == '已发码'
+    assert len(result['actions']) == 2 and result['actions'][-1]['operator_name'] == user.full_name
+    for field, status in [('group_status', '已拉群'), ('group_large_status', '已发码')]:
+        assert filtered_records(db, user, payload.work_date, payload.work_date, column_filters={field: [status]}).filter_by(id=row.id).count() == 1
+    with db.begin_nested() as nested:
+        with pytest.raises(HTTPException, match='已保存的群操作记录不能修改'):
+            save_record(db, user, payload.model_copy(update={'revision': row.revision, 'actions': [saved.model_copy(update={'status': '已退群'}), latest]}))
+        nested.rollback()
+    with db.begin_nested() as nested:
+        with pytest.raises(HTTPException, match='支持的状态'):
+            save_record(db, user, make_payload(context, actions=[action(user, '已发码', 'group')]))
+        nested.rollback()
+    historical = save_record(db, user, make_payload(context), historical_markers={'group': {'status': '已邀进群', 'operator_name': '旧操作人', 'action_date': '2025-01-01', 'source': '私密来源'}})
+    with patch('resource_development_service.can_delegate', return_value=False):
+        public = serialize_record(db, other, historical, True)
+    assert public['historical_markers'] == {}
+    assert public['historical_progress']['group']['status'] == '已拉群'
+    assert 'source' not in public['historical_progress']['group']
+
+
+def test_group_quick_action_permissions_conflict_and_idempotency(db, context):
+    from routers.resource_development import write_group_action
+    from resource_development_service import save_record, serialize_record
+    from resource_development_schemas import GroupActionWrite
+    user, other, _ = context
+    row = save_record(db, user, make_payload(context))
+    payload = GroupActionWrite(id=uuid4(), revision=row.revision, channel='group_large', status='已发码')
+    with patch('resource_development_service.can_delegate', return_value=False):
+        with pytest.raises(HTTPException) as exc:
+            write_group_action(row.id, payload, db, other)
+        assert exc.value.status_code == 403
+    result = write_group_action(row.id, payload, db, user)
+    assert result['progress']['group_large']['status'] == '已发码'
+    assert len(write_group_action(row.id, payload, db, user)['actions']) == 1
+    with pytest.raises(HTTPException) as exc:
+        write_group_action(row.id, payload.model_copy(update={'id': uuid4()}), db, user)
+    assert exc.value.status_code == 409
+    with pytest.raises(HTTPException) as exc:
+        write_group_action(row.id, GroupActionWrite(id=uuid4(), revision=row.revision, channel='group', status='已进群'), db, user)
+    assert exc.value.detail['code'] == 'enrollment_required'
+    assert len(serialize_record(db, user, row, True)['actions']) == 1
 
 
 def test_private_entry_final_status_and_transaction_rollback(db, context):
@@ -540,7 +765,7 @@ def test_friend_follow_up_uses_actual_operator_and_latest_friend_channel(db, con
     assert detail['add_friend_follow_up'] == f'二次请求 · 2026-09-24 · {other.full_name} · 微信'
     assert detail['actions'][0]['request_number'] == 2
     assert row.person_id is None
-    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': other.full_name}).count() == 1
+    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': other.full_name}).count() == 0
     assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': '已沟通'}).count() == 0
 
 
@@ -609,7 +834,7 @@ def test_friend_status_alias_preserves_history_and_matches_filters(db, context, 
     for value in [old, new]:
         assert filtered_records(db, other, row.work_date, row.work_date, state=value).count() == 1
         assert filtered_records(db, other, row.work_date, row.work_date, column_filters={channel + '_status': [value]}).count() == 1
-    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': new[:2]}).count() == 1
+    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': new[:2]}).count() == 0
     normalized = ActionWrite(**{key: detail['actions'][0][key] for key in ['id', 'channel', 'status', 'action_date', 'operator_id', 'account_id']})
     save_record(db, user, payload.model_copy(update={'revision': row.revision, 'actions': [normalized]}))
     assert saved.status == old and getattr(row, channel + '_status') == old

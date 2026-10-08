@@ -27,6 +27,7 @@ from resource_models import (
 )
 from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
 from field_filtering import apply_scalar_specs
+from talent_wechat_accounts import ACCOUNT_FIELDS, lock_account_writes, write_talent_accounts
 
 
 PROFILE_FIELDS = {
@@ -1089,6 +1090,7 @@ def create_talent(
     db: Session, payload: ResourcePersonCreate, idempotency_key: Optional[str] = None,
     *, commit: bool = True, actor=None,
 ) -> ResourcePerson:
+    lock_account_writes(db)
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email
     )
@@ -1098,6 +1100,7 @@ def create_talent(
         "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
+        *ACCOUNT_FIELDS,
     })
     person = ResourcePerson(
         duplicate_review_required=bool(duplicates and payload.allow_duplicate),
@@ -1106,6 +1109,7 @@ def create_talent(
     _record_talent_operation(person, actor)
     db.add(person)
     db.flush()
+    write_talent_accounts(db, person, payload, actor=actor, creating=True)
     _sync_capabilities(db, person, payload)
     _sync_profiles(db, person, payload)
     _sync_annotation_language_skills(db, person, payload)
@@ -1163,9 +1167,12 @@ def update_talent(
     check_contact_duplicates: bool = True,
     actor=None,
 ) -> Optional[ResourcePerson]:
+    lock_account_writes(db)
     person = get_talent(db, person_id)
     if not person:
         return None
+    db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
+    write_talent_accounts(db, person, payload, actor=actor)
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
     ) if check_contact_duplicates else []
@@ -1175,6 +1182,7 @@ def update_talent(
         "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
+        *ACCOUNT_FIELDS,
     })
     # 空编号由数据库生成；编辑已有档案时不清空稳定标识。
     if 'reported_age' not in payload.model_fields_set:
@@ -1207,9 +1215,12 @@ def update_recruitment_talent(
     actor=None,
 ) -> Optional[ResourcePerson]:
     """招聘端只更新人员主档与职业档案，不改写专业能力。"""
+    lock_account_writes(db)
     person = get_talent(db, person_id)
     if not person:
         return None
+    db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
+    write_talent_accounts(db, person, payload, actor=actor)
     duplicates = find_duplicate_talents(
         db, phone=payload.primary_phone, email=payload.primary_email, exclude_id=person_id
     ) if check_contact_duplicates else []
@@ -1220,6 +1231,7 @@ def update_recruitment_talent(
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *TALENT_MANAGED_FIELDS,
+        *ACCOUNT_FIELDS,
     })
     # 空编号由数据库生成；编辑已有档案时不清空稳定标识。
     if not data.get("resource_code") and person.resource_code:

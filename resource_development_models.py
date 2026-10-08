@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import mapped_column
 from models import Base
 
@@ -35,8 +35,12 @@ class DevelopmentRecord(Base):
     owner_id = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False, index=True)
     full_name = mapped_column(String(255), nullable=False)
     account_id = mapped_column(Uuid, ForeignKey("resource_development_option.id"))
+    friend_accounts = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    # 同步状态只用于当前展示、筛选；原始状态继续作为日报和业绩依据。
+    contact_state = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     phone = mapped_column(String(100), nullable=False, default="")
     wechat = mapped_column(String(100), nullable=False, default="")
+    xiaohongshu = mapped_column(String(100), nullable=False, default="", server_default="")
     wechat_status = mapped_column(String(100), nullable=False, default="未处理")
     enterprise_status = mapped_column(String(100), nullable=False, default="未处理")
     follow_up = mapped_column(Text, nullable=False, default="")
@@ -73,6 +77,17 @@ class DevelopmentAction(Base):
     updated_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
     created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
     updated_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+
+class DevelopmentFollowUp(Base):
+    """纯文字跟进，只能追加；操作人和时间由服务端记录。"""
+    __tablename__ = "resource_development_follow_up"
+    __table_args__ = (Index("ix_resource_development_follow_up_record_time", "record_id", "created_at", "id"),)
+    id = mapped_column(Uuid, primary_key=True, default=uuid4)
+    record_id = mapped_column(Uuid, ForeignKey("resource_development_record.id", ondelete="CASCADE"), nullable=False)
+    content = mapped_column(Text, nullable=False)
+    operator_id = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
+    created_at = mapped_column(DateTime, nullable=False)
 
 
 class DevelopmentWork(Base):

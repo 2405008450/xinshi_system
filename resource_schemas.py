@@ -201,6 +201,8 @@ class ResourcePersonWrite(BaseModel):
     native_place: Optional[str] = None
     registration_source: Optional[str] = Field(default=None, max_length=255)
     wechat_account: Optional[str] = Field(default=None, max_length=100)
+    wechat_accounts: Optional[list[str]] = Field(default=None, max_length=100)
+    wechat_accounts_revision: Optional[int] = Field(default=None, ge=1)
     wechat_groups: Optional[str] = Field(default=None, max_length=4000)
     residence_address: Optional[str] = None
     dialects: list[str] = Field(default_factory=list)
@@ -261,6 +263,16 @@ class ResourcePersonWrite(BaseModel):
     @classmethod
     def normalize_text(cls, value):
         return _clean_text(value)
+
+    @field_validator("wechat_accounts")
+    @classmethod
+    def normalize_wechat_accounts(cls, values):
+        if values is None:
+            return None
+        cleaned = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if any(len(value) > 100 for value in cleaned):
+            raise ValueError("每个微信账号最多100个字符")
+        return cleaned
 
     @field_validator("birth_date", "birth_year_month", mode="before")
     @classmethod
@@ -456,6 +468,12 @@ class TalentAnnotationProjectPerformanceResponse(BaseModel):
 
 
 class ResourcePersonListResponse(BaseModel):
+    @model_validator(mode="after")
+    def compatible_wechat_accounts(self):
+        if not self.wechat_accounts and self.wechat_account:
+            self.wechat_accounts = [self.wechat_account]
+        return self
+
     operated_by: Optional[UUID] = None
     operator_name: Optional[str] = None
     operated_at: Optional[datetime] = None
@@ -489,6 +507,8 @@ class ResourcePersonListResponse(BaseModel):
     language_summary: Optional[str] = None
     registration_source: Optional[str] = None
     wechat_account: Optional[str] = None
+    wechat_accounts: list[str] = Field(default_factory=list)
+    wechat_accounts_revision: int = 1
     wechat_groups: Optional[str] = None
     ancestral_home: Optional[str] = Field(default=None, max_length=255)
     native_place: Optional[str] = None

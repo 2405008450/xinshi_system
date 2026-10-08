@@ -107,6 +107,7 @@ def main():
         field('所在微信').locator('.el-select').click()
         page.get_by_role('option', name='其他（自主添加）', exact=True).click()
         field('所在微信').locator('input[maxlength="100"]').fill('自定义工作微信')
+        field('所在微信').get_by_role('button', name='添加', exact=True).click()
         field('所在微信群').locator('textarea').fill('资源一群\n资源二群')
         field('手机').locator('input').fill('13800000001')
         dialog.locator('label.el-checkbox').filter(has_text='沿用本批公共信息').click()
@@ -115,7 +116,7 @@ def main():
         ready()
         assert len(writes) == 1
         expect(field('来源').locator('input')).to_have_value('同批来源')
-        expect(field('所在微信').locator('input[maxlength="100"]')).to_have_value('自定义工作微信')
+        expect(field('所在微信').locator('.el-tag')).to_contain_text('自定义工作微信')
         expect(field('手机').locator('input')).to_have_value('')
         assert page.evaluate("sessionStorage.getItem('form-drafts:talent:talent-ui-test')") is None
         assert records['1']['language_skills'][0]['language_id'] == 'zh-test'

@@ -182,12 +182,9 @@
         </div>
         <div class="form-section"><h3>基本信息</h3>
           <el-row :gutter="16"><el-col :xs="24" :md="12">
-            <el-form-item label="所在微信" prop="wechatAccount">
-              <el-select v-model="wechatAccountSelection" clearable filterable placeholder="请选择所在微信" style="width:100%">
-                <el-option v-for="item in wechatAccountOptions" :key="item" :label="item" :value="item" />
-                <el-option label="其他（自主添加）" value="__custom_wechat__" />
-              </el-select>
-              <el-input v-if="wechatAccountSelection==='__custom_wechat__'" v-model="form.wechatAccount" maxlength="100" show-word-limit placeholder="请输入其他微信名称" style="margin-top:8px" />
+            <el-form-item label="所在微信" prop="wechatAccounts">
+              <CompanyWechatAccountSelect v-model="form.wechatAccounts" include-deleted />
+              <small class="wechat-account-hint">删除标记表示对应渠道有删友情况，账号名称仍保留；取消“已删微信/企微”会将关联开拓记录对应渠道恢复为“已添加”。</small>
             </el-form-item>
           </el-col></el-row>
           <el-row :gutter="16"><el-col :span="24"><el-form-item label="所在微信群" prop="wechatGroups"><el-input v-model="form.wechatGroups" type="textarea" :autosize="{minRows:2,maxRows:5}" maxlength="4000" show-word-limit placeholder="一行填写一个微信群，可保留已退群等说明" /></el-form-item></el-col></el-row>
@@ -311,6 +308,8 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import CompanyWechatAccountSelect from '@/components/common/CompanyWechatAccountSelect.vue'
+import { normalizeWechatAccounts, formatWechatAccounts, sameWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
 import TalentDetailContent from '@/views/resource/components/TalentDetailContent.vue'
@@ -355,7 +354,6 @@ const talentClient = computed(() => isRecruitmentPool.value ? {
   delete: talentApi.deleteTalent
 })
 const cooperationOptions = ['全职','兼职','自由职业','外包']
-const wechatAccountOptions = ['HR1','HR2','HR3','HR4','HR5','HR6','HR1企微','HR2企微','HR3企微','HR4企微','HR5企微','HR6企微']
 const capabilityLabels = {written_translation:'笔译',interpretation:'口译',annotation:'标注'}
 const capabilityLabel = value => capabilityLabels[value] || value
 const capabilityText = values => values?.length ? values.map(capabilityLabel).join('、') : '-'
@@ -400,6 +398,7 @@ const tableDisplay = (column, row) => {
   if (column.key === 'age') return row.currentAge == null ? '-' : `${row.currentAge}岁`
   if (column.key === 'yearsExperience') return row.yearsExperience === null || row.yearsExperience === undefined ? '-' : `${row.yearsExperience}年`
   if (column.type === 'datetime') return formatDateTime(row[column.key])
+  if (column.key === 'wechatAccount') return formatWechatAccounts(row.wechatAccounts, row.wechatAccount) || '-'
   return display(row[column.key])
 }
 const overallPerformanceSummary = row => {
@@ -564,7 +563,7 @@ const birthDateFromAge=(age,currentBirthDate)=>{
 const handleBirthDateChange=value=>{form.age=calculateAge(value)}
 const handleAgeChange=value=>{form.birthDate=value===null||value===undefined?null:birthDateFromAge(value,form.birthDate)}
 const emptyForm=()=>({
-  id:null,resourceCode:'',registrationSource:'',wechatAccount:'',wechatGroups:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
+  id:null,resourceCode:'',registrationSource:'',wechatAccount:'',wechatAccounts:[],wechatAccountsOriginal:[],wechatAccountsRevision:1,wechatGroups:'',fullName:'',nameGroup:'',chineseName:'',englishName:'',nickname:'',otherNames:[],cooperationType:'',
   contactInfo:'',primaryPhone:'',secondaryPhone:'',primaryEmail:'',secondaryEmail:'',otherContact:'',wechat:'',whatsapp:'',skype:'',line:'',
   resumePath:'',gender:'',birthDate:null,birthYearMonth:null,reportedAge:null,ancestralHome:'',nativePlace:'',residenceAddress:'',dialects:[],dialectRegions:[],height:'',appearance:'',
   nationality:'',ethnicity:'',employmentStatus:null,employmentDetail:'',studentStage:'',enrollmentYear:null,programDurationYears:null,studentGradeOverride:'',highestEducation:null,
@@ -586,7 +585,7 @@ const canContinueCreate = computed(() => route.name === 'Talents' && creatingTal
 const preferredFormName=computed(()=>getTalentDisplayName(form,''));const filledNameCount=computed(()=>countTalentNames(form))
 const validateNameGroup=(_rule,_value,callback)=>filledNameCount.value?callback():callback(new Error('中文姓名、英文姓名、昵称或其他名字至少填写一项'))
 // 导入的待核实档案可能尚未确认专业能力，编辑时允许保留空值。
-const rules=computed(()=>({wechatAccount:[{max:100,message:'所在微信最多填写100个字符',trigger:['blur','change']}],nameGroup:[{validator:validateNameGroup,trigger:['blur','change']}],capabilityTypes:[{type:'array',required:!form.id,min:form.id?0:1,message:'请至少选择一项专业能力',trigger:'change'}]}));const hasCapability=type=>form.capabilityTypes.includes(type)
+const rules=computed(()=>({wechatAccounts:[{type:'array',max:100,message:'所在微信最多选择100项',trigger:'change'}],nameGroup:[{validator:validateNameGroup,trigger:['blur','change']}],capabilityTypes:[{type:'array',required:!form.id,min:form.id?0:1,message:'请至少选择一项专业能力',trigger:'change'}]}));const hasCapability=type=>form.capabilityTypes.includes(type)
 const validateNameGroupField=()=>nextTick(()=>formRef.value?.validateField('nameGroup').catch(()=>{}))
 const languages=ref([])
 const languageKeyword=ref('')
@@ -619,23 +618,13 @@ const cleanInterpretationProfile=p=>p?{...p,languages:blankToNull(p.languages),d
 const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore),remarks:blankToNull(p.remarks)}:null
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
 const contactPayloadKeys=['contactInfo','primaryPhone','secondaryPhone','primaryEmail','secondaryEmail','otherContact','wechat','whatsapp','skype','line']
-// 自定义模式只用于界面，接口始终保存实际账号名称。
-const customWechatAccount = ref(false)
-const wechatAccountSelection = computed({
-  get: () => customWechatAccount.value || (form.wechatAccount && !wechatAccountOptions.includes(form.wechatAccount)) ? '__custom_wechat__' : form.wechatAccount,
-  set: value => {
-    customWechatAccount.value = value === '__custom_wechat__'
-    form.wechatAccount = customWechatAccount.value ? '' : value
-  },
-})
-watch(editorVisible, () => { customWechatAccount.value = false })
 const talentManagedPayloadKeys=['annotationWillingness','overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
 function resetForm() {
   Object.assign(form, emptyForm())
   nameFieldsExpanded.value = true
   queuedAttachments.photo = []
   queuedAttachments.audio = []
-  customWechatAccount.value = false
+
   clearTimeout(languageSearchTimer)
   languageKeyword.value = ''
   languageSearchResults.value = []
@@ -668,14 +657,13 @@ async function openCreate() {
   editorVisible.value = true
   await beginDraft('create')
 }
-function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
+function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,wechatAccounts:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsOriginal:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsRevision:d.wechatAccountsRevision||1,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
 async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
   const result={
     resourceCode:form.resourceCode||null,
     registrationSource:form.registrationSource||null,
-    wechatAccount:form.wechatAccount?.trim()||null,
     wechatGroups:form.wechatGroups?.trim()||null,
     reportedAge:form.reportedAge??null,
     fullName:[form.chineseName,form.englishName,form.nickname,...(form.otherNames||[]),form.fullName].find(value=>String(value||'').trim())||'',
@@ -703,6 +691,11 @@ const payload=(allowDuplicate=false)=>{
     careerProfile:cleanCareerProfile(form.careerProfile),
   }
   if(!canViewContacts.value)contactPayloadKeys.forEach(key=>delete result[key])
+  // 未修改账号时不提交快照，避免保存备注时覆盖另一页刚同步的账号或状态。
+  if (!form.id || !sameWechatAccounts(form.wechatAccounts, form.wechatAccountsOriginal)) {
+    result.wechatAccounts = normalizeWechatAccounts(form.wechatAccounts)
+    if (form.id) result.wechatAccountsRevision = form.wechatAccountsRevision
+  }
   if(isRecruitmentPool.value)talentManagedPayloadKeys.forEach(key=>delete result[key])
   return result
 }
@@ -771,6 +764,9 @@ async function submit(continueCreating = false) {
     // 档案已落库：后续附件失败也必须使用同一 ID 更新，不能再次创建。
     form.id = saved.id
     form.resourceCode = saved.resourceCode || form.resourceCode
+    form.wechatAccounts = normalizeWechatAccounts(saved.wechatAccounts, saved.wechatAccount)
+    form.wechatAccountsOriginal = [...form.wechatAccounts]
+    form.wechatAccountsRevision = saved.wechatAccountsRevision || 1
     delete detailCache[saved.id]
     attachmentStage = true
     await flushQueuedAttachments(saved.id)
@@ -778,7 +774,7 @@ async function submit(continueCreating = false) {
     const savedName = displayTalentName(saved, preferredFormName.value || '人才')
     const batchInfo = keepBatchInfo.value ? {
       registrationSource: form.registrationSource,
-      wechatAccount: form.wechatAccount,
+      wechatAccounts: [...form.wechatAccounts],
       wechatGroups: form.wechatGroups,
     } : {}
     clearDraft()
@@ -821,6 +817,7 @@ watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{co
 </script>
 
 <style scoped>
+.wechat-account-hint{display:block;color:var(--el-text-color-secondary);line-height:1.6;margin-top:8px}
 .talent-name-cell{display:inline-flex;align-items:center;gap:6px;max-width:100%}
 .talent-name-cell .talent-name-link{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .talent-name-cell .el-tag{flex-shrink:0}

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildFolderTree, folderNameError, folderParentId, folderPath, newFolderId } from '../src/utils/annotationMaterialFolders.js'
+import { buildFolderTree, folderNameError, folderParentId, folderPath, folderBreadcrumbs, materialFileType, newFolderId } from '../src/utils/annotationMaterialFolders.js'
 
 const folders = [
   { id: 'a', parent_id: null, name: '规范' },
@@ -36,4 +36,17 @@ test('HTTP环境没有randomUUID时仍生成标准UUID', () => {
   const first = newFolderId(), second = newFolderId()
   assert.match(first, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
   assert.notEqual(first, second)
+})
+
+test('资源管理器路径保留每一级目录ID，根路径可返回', () => {
+  assert.deepEqual(folderBreadcrumbs(folders, 'b'), [{ id: null, name: '项目资料' }, { id: 'a', name: '规范' }, { id: 'b', name: '中文' }])
+  assert.deepEqual(folderBreadcrumbs(folders, null), [{ id: null, name: '项目资料' }])
+  assert.deepEqual(folderBreadcrumbs(folders, 'missing'), [{ id: null, name: '项目资料' }])
+})
+
+test('文件类型识别兼容大小写、多点名称和无扩展名', () => {
+  assert.deepEqual(materialFileType('项目需求.PNG'), { family: 'image', label: 'PNG 图像' })
+  assert.equal(materialFileType('sample.audio.wav').family, 'audio')
+  assert.equal(materialFileType('sample.MP4').family, 'video')
+  assert.equal(materialFileType('交付说明').label, '文件')
 })

@@ -10,7 +10,8 @@
       <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.owner_id" clearable filterable placeholder="开拓人员" @change="commonChanged('owner_id')"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template><div class="development-advanced-body"><div class="development-form-grid"><div><label>开拓平台</label><el-select v-model="filters.platform_id" clearable filterable @change="commonChanged('platform_id')"><el-option v-for="p in platforms" :key="p.id" :label="p.name" :value="p.id" /></el-select></div><div><label>对接账号</label><el-select v-model="filters.account_id" clearable filterable @change="commonChanged('account_id')"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></div><div><label>添加状态（任一渠道）</label><el-select v-model="filters.state" clearable filterable allow-create @change="query"><el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" /></el-select></div></div><div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div></el-popover>
+      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template><div class="development-advanced-body"><div class="development-form-grid"><div><label>开拓平台</label><el-select v-model="filters.platform_id" clearable filterable @change="commonChanged('platform_id')"><el-option v-for="p in platforms" :key="p.id" :label="p.name" :value="p.id" /></el-select></div><div><label>交换账号</label><el-select v-model="filters.account_id" clearable filterable @change="commonChanged('account_id')"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></div><div><label>添加状态（任一渠道）</label><el-select v-model="filters.state" clearable filterable allow-create @change="query"><el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" /></el-select></div></div><div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div></el-popover>
+      <div v-if="!deleteMode" class="development-status-entry"><el-button @click="statusRecordsRef.open('未处理')">未处理</el-button><el-button @click="statusRecordsRef.open('一次请求')">一次请求</el-button></div>
     </div>
     <div class="development-actions" v-if="activeColumnKeys.length"><el-tag v-for="key in activeColumnKeys" :key="key" closable @close="delete columnFilters[key]; query()">{{ developmentColumns.find(c => c.key === key)?.label }}：已筛选</el-tag><el-button link @click="clearColumns">清空列筛选</el-button></div>
     <DevelopmentFriendDailyPanel ref="friendPanelRef" />
@@ -23,13 +24,8 @@
               <span>{{ day.people.length }} 位开拓人 · {{ day.count }} 条记录 · {{ day.people.reduce((n,p) => n + p.duration_minutes, 0) }} 分钟（人员当日总工时）</span>
             </div>
             <div class="development-pagination"><span class="muted">当日开拓记录</span><el-pagination v-model:current-page="recordPage" v-model:page-size="recordPageSize" :page-sizes="[10, 20, 50, 100]" :total="recordTotal" layout="total, sizes, prev, pager, next, jumper" @size-change="recordSizeChanged" @current-change="recordPageChanged" /></div>
-            <el-table :ref="setTableRef" v-loading="recordsLoading" :data="rows" row-key="id" border stripe @selection-change="handleDeleteSelectionChange">
-              <el-table-column v-if="deleteMode" type="selection" width="48" :selectable="r => r.can_delete" fixed="left" />
-              <el-table-column type="index" :index="index => (recordPage - 1) * recordPageSize + index + 1" label="序号" width="65" />
-              <el-table-column v-for="c in visibleColumns" :key="c.key" :prop="c.key" :label="c.label" :min-width="c.width" show-overflow-tooltip><template #header><ConfiguredColumnHeaderFilter :definition="columnDefinition(c)" :model-value="columnFilters[c.key]" @update:model-value="setColumnFilter(c.key, $event)" @text-input="columnTextInput(c.key, $event)" @change="query" @enter="query" @clear="query" /></template><template #default="{row}"><el-button v-if="progressColumnChannel[c.key] && options.can_write && row.can_edit && !deleteMode" link type="primary" class="development-progress" @click="openEditor(row, progressColumnChannel[c.key])">{{ display(row, c.key) }}</el-button><el-button v-else-if="c.key === 'platform_name' && options.can_write && !deleteMode" link type="primary" @click="settingsRef.edit(platforms.find(p => p.id === row.platform_id))">{{ row.platform_name }}</el-button><el-button v-else-if="c.key === 'owner_name' && options.can_write && row.can_edit && !deleteMode" link type="primary" :aria-label="`填写${row.owner_name}的每日工时`" @click="openWork(row.work_date, row.owner_id)">{{ display(row, c.key) }}</el-button><el-button v-else-if="c.key === 'work_date'" link type="primary" @click="friendPanelRef.open(row.work_date)">{{ display(row, c.key) }}</el-button><el-button v-else-if="c.key === 'latest_follow_up' && options.can_write && row.can_edit && !deleteMode" link type="primary" class="development-progress" @click="openEditor(row, 'friend')">{{ row.add_friend_follow_up || '填写加微跟进' }}</el-button><span v-else>{{ display(row, c.key) }}</span></template></el-table-column>
-              <el-table-column label="详情" width="105" fixed="right"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760" title="资源开拓详情" popper-class="development-detail" @show="loadDetail(row)"><template #reference><el-button link type="primary">查看详情</el-button></template><div v-loading="detailLoading[row.id]" class="development-detail-body"><DevelopmentDetailContent v-if="details[row.id]" :record="details[row.id]" :accounts="accounts" /></div></el-popover></template></el-table-column>
-              <el-table-column v-if="!deleteMode" label="操作" width="90" fixed="right"><template #default="{row}"><el-button v-if="options.can_write && row.can_edit" link type="primary" @click="openEditor(row)">编辑</el-button><span v-else class="muted">只读</span></template></el-table-column>
-            </el-table>
+            <DevelopmentRecordsTable :ref="setTableRef" :rows="rows" :loading="recordsLoading" :options="options" :selected-columns="selectedColumns" :column-filters="columnFilters" :page="recordPage" :page-size="recordPageSize" :delete-mode="deleteMode"
+              @selection-change="handleDeleteSelectionChange" @column-filter="setColumnFilter" @text-input="columnTextInput" @query="query" @edit="openEditor" @saved="recordSaved" @platform="id => settingsRef.edit(platforms.find(p => p.id === id))" @work="openWork" @statistic="day => friendPanelRef.open(day)" />
             <el-pagination v-model:current-page="recordPage" :page-size="recordPageSize" :total="recordTotal" layout="total, prev, pager, next" @current-change="recordPageChanged" />
           </template>
         </el-collapse-item>
@@ -44,7 +40,8 @@
         </div>
       </div>
     </div>
-    <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="reload" />
+    <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
+    <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
     <DevelopmentSettings ref="settingsRef" :options="options" @saved="loadOptions" />
   </el-card>
@@ -58,45 +55,30 @@ import DevelopmentFriendDailyPanel from './components/DevelopmentFriendDailyPane
 import DevelopmentRecordEditor from './components/DevelopmentRecordEditor.vue'
 import DevelopmentWorkEditor from './components/DevelopmentWorkEditor.vue'
 import DevelopmentSettings from './components/DevelopmentSettings.vue'
-import DevelopmentDetailContent from './components/DevelopmentDetailContent.vue'
-import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import DevelopmentRecordsTable from './components/DevelopmentRecordsTable.vue'
+import DevelopmentStatusRecordsDialog from './components/DevelopmentStatusRecordsDialog.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions, progressColumnChannel, progressChannels, progressText, progressStatuses } from '@/utils/resourceDevelopment'
+import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
-const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref()
+const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref()
 // 默认不限定日期，自动展开最近有开拓记录的日期。
-const filters = reactive({ range: null, keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' })
-const columnFilters = reactive({})
-const activeColumnKeys = computed(() => Object.keys(columnFilters).filter(k => Array.isArray(columnFilters[k]) ? columnFilters[k].length : Boolean(columnFilters[k]?.trim())))
+const { filters, columnFilters, activeColumnKeys, params, setColumnFilter, clearCommonColumn, resetFilters } = useDevelopmentFilters()
 function clearColumns() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); query() }
-function commonChanged(key) { delete columnFilters[{ platform_id: 'platform_name', owner_id: 'owner_name', account_id: 'account_name' }[key]]; query() }
+function commonChanged(key) { clearCommonColumn(key); query() }
 function columnTextInput(key, value) { setColumnFilter(key, value); keywordChanged(value) }
-function setColumnFilter(key, value) {
-  columnFilters[key] = value
-  const common = { platform_name: 'platform_id', owner_name: 'owner_id', account_name: 'account_id' }[key]
-  if (common) filters[common] = ''
-}
-function columnDefinition(c) {
-  const selects = { platform_name: platforms.value, owner_name: options.users, account_name: accounts.value, language_names: options.languages }
-  const channel = progressColumnChannel[c.key]
-  return { key: c.key, label: c.label, type: selects[c.key] || channel ? 'select' : 'text',
-    options: channel ? progressStatuses(channel) : selects[c.key], headerWidth: 280,
-    placeholder: ['work_date', 'updated_at'].includes(c.key) ? '例如 2026-09-24' : c.key === 'latest_follow_up' ? '操作日期、人员或状态' : `筛选${c.label}` }
-}
 const days = ref([]), rows = ref([]), activeDay = ref(''), dayPage = ref(1), recordPage = ref(1), dayTotal = ref(0), recordTotal = ref(0), loading = ref(false), recordsLoading = ref(false), advanced = ref(false)
 const dayPageSize = ref(3), recordPageSize = ref(10)
-const details = reactive({}), detailLoading = reactive({}), selectedColumns = ref([...defaultDevelopmentColumns])
-const visibleColumns = computed(() => developmentColumns.filter(c => selectedColumns.value.includes(c.key)))
+const selectedColumns = ref([...defaultDevelopmentColumns])
 const platforms = computed(() => options.options.filter(o => o.kind === 'platform')), accounts = computed(() => options.options.filter(o => o.kind === 'account'))
 const advancedCount = computed(() => ['platform_id','account_id','state'].filter(k => filters[k]).length)
 const columnKey = () => `resource-development:columns:${options.user_id}`
 watch(selectedColumns, value => { if (options.user_id) localStorage.setItem(columnKey(), JSON.stringify(value)) }, { deep: true })
-const params = () => ({ column_filters: activeColumnKeys.value.length ? JSON.stringify(Object.fromEntries(activeColumnKeys.value.map(k => [k, columnFilters[k]]))) : undefined, start: filters.range?.[0], end: filters.range?.[1], ...Object.fromEntries(['keyword','owner_id','platform_id','account_id','state'].filter(k => filters[k]).map(k => [k, filters[k]])) })
-const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, handleDeleteSelectionChange, confirmBatchDelete } = useBatchDelete({ rows, tableRef, deleteRow: api.remove, getLabel: row => row.full_name, reload: () => reload(true), onDeleted: row => { delete details[row.id] }, entityName: '开拓记录' })
+const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, handleDeleteSelectionChange, confirmBatchDelete } = useBatchDelete({ rows, tableRef, deleteRow: api.remove, getLabel: row => row.full_name, reload: () => reload(true), onDeleted: () => { tableRef.value?.invalidateDetails() }, entityName: '开拓记录' })
 const setTableRef = el => { if (el) tableRef.value = el }
-let listController, recordController, listSeq = 0, recordSeq = 0, timer, detailGeneration = 0
+let listController, recordController, listSeq = 0, recordSeq = 0, timer
 const cancelled = e => ['ERR_CANCELED','CanceledError','AbortError'].includes(e.code || e.name)
 async function loadOptions() { Object.assign(options, await api.options()) }
 async function loadRecords() {
@@ -115,7 +97,7 @@ async function loadRecords() {
 async function reload(keepDelete = false) {
   clearTimeout(timer); listController?.abort(); recordController?.abort(); ++recordSeq
   const seq = ++listSeq; listController = new AbortController(); loading.value = true
-  detailGeneration++; Object.keys(details).forEach(k => delete details[k])
+  tableRef.value?.invalidateDetails()
   if (!keepDelete) exitDeleteMode()
   try {
     const data = await api.days({ ...params(), skip: (dayPage.value - 1) * dayPageSize.value, limit: dayPageSize.value }, listController.signal)
@@ -131,21 +113,18 @@ async function reload(keepDelete = false) {
 function query() { activeDay.value = ''; dayPage.value = 1; recordPage.value = 1; reload() }
 function keywordChanged(value) { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++; if (!value) query(); else timer = setTimeout(query, 400) }
 function clearAdvanced() { filters.platform_id = ''; filters.account_id = ''; filters.state = ''; query() }
-function reset() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); Object.assign(filters, { range: null, keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' }); query() }
+function reset() { resetFilters(); query() }
 function changeDay() { exitDeleteMode(); recordPage.value = 1; rows.value = []; loadRecords() }
 function recordPageChanged() { exitDeleteMode(); rows.value = []; loadRecords() }
 function recordSizeChanged() { recordPage.value = 1; recordPageChanged() }
 function daySizeChanged() { dayPage.value = 1; dayPageChanged() }
 function dayPageChanged() { activeDay.value = ''; reload() }
-async function loadDetail(row) { if (details[row.id]) return; const generation = detailGeneration; detailLoading[row.id] = true; try { const data = await api.detail(row.id); if (generation === detailGeneration) details[row.id] = data } catch (e) { ElMessage.error(e.message) } finally { detailLoading[row.id] = false } }
-async function openEditor(row, channel) { try { await editorRef.value.open(row, channel) } catch (e) { ElMessage.error(e.message) } }
+async function recordSaved() { await Promise.all([reload(), statusRecordsRef.value?.reload()]) }
+async function openEditor(row, channel, status) { try { await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
-const chineseTime = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
-const display = (row, key) => key === 'latest_follow_up' ? row.add_friend_follow_up || '-' : progressColumnChannel[key] ? progressText(row, progressColumnChannel[key]) : key === 'work_date' ? chineseDate(row[key]) : key === 'updated_at' ? chineseTime(row[key]) : row[key] || '-'
-const accountName = id => accounts.value.find(a => a.id === id)?.name || '-'
 onMounted(async () => { try { await loadOptions(); const raw = localStorage.getItem(columnKey()); try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] } catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] } await nextTick(); await reload() } catch (e) { ElMessage.error(e.message) } })
-onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++; detailGeneration++ })
+onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++ })
 </script>
 
 <style>
@@ -154,6 +133,7 @@ onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordCont
 .development-heading{justify-content:space-between;margin-bottom:18px}.development-heading h2{margin:0 0 5px}.resource-development-page .muted,.development-dialog .muted{color:var(--el-text-color-secondary);font-size:13px}
 .development-day-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:100%}.development-day-controls>.el-select{width:110px}.resource-development-page .development-day-controls>.el-pagination{margin-top:0;max-width:100%;overflow-x:auto}
 .development-filters{margin:16px 0}.development-filters>.el-input{width:290px}.development-filters>.el-select{width:150px}.development-filters>.el-date-editor{max-width:330px}
+.development-status-entry{display:flex;gap:10px;margin-left:auto}.development-status-entry .el-button+.el-button{margin-left:0}
 .development-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.development-form-grid .wide{grid-column:1/-1}.development-form-grid .el-select,.development-form-grid .el-date-editor{width:100%}
 .development-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.development-dialog>.el-dialog__header,.development-dialog>.el-dialog__footer{flex-shrink:0}.development-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.development-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color-light);background:#f8fafc;padding:16px}
 .development-action{padding:14px;margin:12px 0;border:1px solid var(--el-border-color);border-radius:6px}.development-action>.development-form-grid{margin-top:12px}.development-dialog h3{margin:20px 0 12px}.development-dialog .el-alert{margin:12px 0}

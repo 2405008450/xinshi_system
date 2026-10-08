@@ -10,6 +10,7 @@
       <el-descriptions :column="2" border size="small" class="detail-facts">
         <el-descriptions-item v-for="field in fields" :key="field.key" :label="field.label" label-width="96px">{{ field.key === 'work_date' ? date(record[field.key]) : field.key === 'updated_at' ? time(record[field.key]) : record[field.key] || '-' }}</el-descriptions-item>
         <el-descriptions-item label="语种 / 方言" :span="2" label-width="96px">{{ record.language_names || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="加微账号" :span="2" label-width="96px">{{ formatWechatAccounts(record.friend_accounts) || '-' }}</el-descriptions-item>
       </el-descriptions>
     </section>
     <section class="detail-section">
@@ -18,11 +19,12 @@
         <span class="detail-eyebrow">{{ label }}</span>
         <strong :class="{ 'is-complete': completed(channel) }">{{ record.progress?.[channel]?.status || '未处理' }}</strong>
         <small v-if="record.progress?.[channel]">{{ date(record.progress[channel].action_date) }} · {{ record.progress[channel].operator_name || '原表未填写' }}</small>
+        <small v-if="record.progress?.[channel]?.synchronized">联系状态同步 · {{ record.progress[channel].source === 'talent' ? '人才总库' : '资源开拓' }}</small>
         <small v-else>暂无跟进记录</small>
       </div></div>
     </section>
     <section class="detail-section detail-notes"><h4>补充说明</h4>
-      <div class="detail-note"><span class="detail-eyebrow">后续跟进</span><p>{{ record.follow_up || '-' }}</p></div>
+      <DevelopmentFollowUpHistory :entries="record.follow_ups || []" :legacy="record.follow_up || ''" />
       <div class="detail-note"><span class="detail-eyebrow">备注</span><p>{{ notes.business || '-' }}</p></div>
       <div v-for="(note, index) in notes.notices" :key="index" class="detail-note detail-notice">{{ note }}</div>
     </section>
@@ -50,13 +52,15 @@
 <script setup>
 import { computed } from 'vue'
 import { progressChannels } from '@/utils/resourceDevelopment'
+import { formatWechatAccounts } from '@/utils/companyWechatAccounts'
+import DevelopmentFollowUpHistory from './DevelopmentFollowUpHistory.vue'
 const props = defineProps({ record: { type: Object, required: true }, accounts: { type: Array, default: () => [] } })
-const fields = [{ key: 'platform_name', label: '开拓平台' }, { key: 'work_date', label: '业务日期' }, { key: 'owner_name', label: '开拓人员' }, { key: 'account_name', label: '对接账号' }, { key: 'phone', label: '手机号' }, { key: 'wechat', label: '微信号' }, { key: 'resource_code', label: '资源编号' }, { key: 'updated_at', label: '最近更新' }]
+const fields = [{ key: 'platform_name', label: '开拓平台' }, { key: 'work_date', label: '业务日期' }, { key: 'owner_name', label: '开拓人员' }, { key: 'account_name', label: '交换账号' }, { key: 'phone', label: '手机号' }, { key: 'wechat', label: '微信号' }, { key: 'xiaohongshu', label: '资源小红书号' }, { key: 'resource_code', label: '资源编号' }, { key: 'updated_at', label: '最近更新' }]
 const date = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('zh-CN') : '原表未填写'
 const time = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const accountName = id => props.accounts.find(a => a.id === id)?.name || '-'
 const completed = channel => ['已添加', '已进群', '已沟通', '已入项'].includes(props.record.progress?.[channel]?.status)
-const auditLabel = action => ({ create: '新增', update: '修改', delete: '删除', import_history_repair: '补齐历史导入明细' })[action] || action
+const auditLabel = action => ({ create: '新增', update: '修改', delete: '删除', contact_sync: '联系状态同步', account_merge: '账号汇总', import_history_repair: '补齐历史导入明细' })[action] || action
 const history = computed(() => [...(props.record.actions || [])].sort((a, b) => String(b.action_date).localeCompare(String(a.action_date))))
 // 仅整理已知导入标记的显示；原始备注不修改，解析失败仍可查看完整原文。
 const notes = computed(() => {

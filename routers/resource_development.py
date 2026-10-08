@@ -13,7 +13,7 @@ from interpretation_models import InterpretationLanguage
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission
 from resource_development_models import DevelopmentAction as Action, DevelopmentOption as Option, DevelopmentRecord as Record, DevelopmentScreenshot as Screenshot, DevelopmentWork as Work
-from resource_development_schemas import LanguageWrite, OptionWrite, RecordWrite, WorkWrite
+from resource_development_schemas import GroupActionWrite, LanguageWrite, OptionWrite, RecordWrite, WorkWrite
 from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, work_result
 from permission_service import user_has_permission
 from resource_development_service import can_delegate, can_delete_record
@@ -90,7 +90,7 @@ def filters(start: date | None = None, end: date | None = None, keyword: str | N
         raise HTTPException(422, "开始日期不能晚于结束日期")
     try:
         columns = json.loads(column_filters) if column_filters else {}
-        allowed = {'platform_name','full_name','language_names','owner_name','account_name','wechat_status','enterprise_status','group_status','communication_status','project_status','latest_follow_up','greeting_no','phone','wechat','resource_code','work_date','follow_up','remarks','updated_at'}
+        allowed = {'platform_name','full_name','language_names','owner_name','account_name','friend_accounts_text','wechat_status','enterprise_status','group_status','group_large_status','communication_status','project_status','latest_follow_up','greeting_no','phone','wechat','xiaohongshu','resource_code','work_date','follow_up','remarks','updated_at'}
         if not isinstance(columns, dict) or not set(columns).issubset(allowed):
             raise ValueError()
         for value in columns.values():
@@ -169,6 +169,36 @@ def read_record(record_id: UUID, db: Session = Depends(get_db), user=Depends(get
     row = db.get(Record, record_id)
     if not row:
         raise HTTPException(404, "开拓记录不存在")
+    return serialize_record(db, user, row, True)
+
+
+@router.post("/records/{record_id}/group-actions", dependencies=[write])
+def write_group_action(record_id: UUID, payload: GroupActionWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    from resource_development_service import GROUP_STATUSES, group_action_date, progress_status
+    from resource_development_models import DevelopmentLanguage
+    lock_writes(db)
+    row = db.get(Record, record_id)
+    if not row:
+        raise HTTPException(404, "开拓记录不存在")
+    require_owner(db, user, row.owner_id)
+    if payload.status not in GROUP_STATUSES[payload.channel]:
+        raise HTTPException(422, "请选择该群类型支持的状态")
+    existing = db.get(Action, payload.id)
+    if existing:
+        if (existing.record_id, existing.channel, progress_status(existing.status, existing.channel), existing.created_by) != (row.id, payload.channel, payload.status, user.id):
+            raise HTTPException(409, "操作标识冲突，请重新打开后再保存")
+        return serialize_record(db, user, row, True)
+    check_revision(row, payload.revision)
+    if payload.status == "已进群" and not row.person_id:
+        raise HTTPException(422, {"code": "enrollment_required", "message": "请补齐专业分类并核对重复人才后保存"})
+    data = {key: getattr(row, key) for key in RecordWrite.model_fields if hasattr(row, key)}
+    data["language_ids"] = [item.language_id for item in db.query(DevelopmentLanguage).filter_by(record_id=row.id)]
+    keys = ["id", "channel", "status", "action_date", "operator_id", "account_id"]
+    data["actions"] = [{key: getattr(action, key) for key in keys} for action in db.query(Action).filter_by(record_id=row.id).order_by(Action.created_at, Action.id)]
+    data["actions"].append(dict(id=payload.id, channel=payload.channel, status=payload.status,
+                                action_date=group_action_date(), operator_id=user.id, account_id=row.account_id))
+    row = save_record(db, user, RecordWrite(**data))
+    db.commit()
     return serialize_record(db, user, row, True)
 
 

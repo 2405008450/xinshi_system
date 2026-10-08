@@ -243,7 +243,8 @@ def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
         full_name="招聘人才已编辑", overall_score=1, overall_rating="不应覆盖",
         cooperation_level="low", remarks="招聘端允许修改的备注",
     )
-    db = SimpleNamespace(flush=lambda: None, commit=lambda: None)
+    db = SimpleNamespace(flush=lambda: None, commit=lambda: None, refresh=lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("resource_service.lock_account_writes", lambda *_args: None)
     monkeypatch.setattr("resource_service.get_talent", lambda *_args: person)
     monkeypatch.setattr("resource_service.find_duplicate_talents", lambda *_args, **_kwargs: [])
     monkeypatch.setattr("resource_service._sync_owned_collections", lambda *_args: None)
