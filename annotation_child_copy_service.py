@@ -61,13 +61,20 @@ def copy_people(db, parent, child, source, field_mapping):
 
 
 def copy_materials(db, parent_id, child_id):
-    from annotation_material_models import AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialUpload as Upload
+    from annotation_material_models import AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialUpload as Upload, AnnotationMaterialFolder as Folder
+    folder_mapping = {}
+    folders = db.query(Folder).filter_by(project_id=parent_id).order_by(Folder.created_at, Folder.id).all()
+    for original in sorted(folders, key=lambda row: row.parent_id is not None):
+        cloned = Folder(project_id=child_id, parent_id=folder_mapping.get(original.parent_id), name=original.name)
+        db.add(cloned)
+        db.flush()
+        folder_mapping[original.id] = cloned.id
     originals = db.query(Material).filter_by(project_id=parent_id).order_by(Material.id).all()
     for original in originals:
         versions = db.query(Version).filter_by(file_id=original.id).order_by(Version.version_no).all()
         # 锁住不可变上传对象，避免复制与最后一个引用的删除并发。
         db.query(Upload).filter(Upload.id.in_([version.upload_id for version in versions])).order_by(Upload.id).with_for_update().all()
-        cloned = Material(project_id=child_id, category=original.category)
+        cloned = Material(project_id=child_id, category=original.category, folder_id=folder_mapping.get(original.folder_id))
         db.add(cloned)
         db.flush()
         for version in versions:

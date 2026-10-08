@@ -84,6 +84,46 @@ def add_test_language(db):
     return language.id
 
 
+def test_create_project_with_folders_and_child_snapshot(context):
+    from annotation_material_service import folders
+    db, _parent_id, language_id = context
+    root, child = uuid4(), uuid4()
+    parent = service.create_annotation_project(db, AnnotationProjectCreate(project_name='目录新增验收',
+        language_items=[{'source_language_id': language_id}], material_changes={'created_folders': [
+            {'id': root, 'name': '规范'}, {'id': child, 'parent_id': root, 'name': '中文'},
+        ]}), None)
+    assert len(folders(db, parent.id)) == 2
+    copied = service.create_annotation_children(db, parent.id, [item(language_id)], None, 'folder-snapshot')[0]
+    snapshot = folders(db, copied.id)
+    assert {row['name'] for row in snapshot} == {'规范', '中文'}
+    assert not {row['id'] for row in snapshot} & {root, child}
+
+
+def test_concurrent_folder_edit_rejects_stale_project(context, sessions):
+    from concurrency import StaleUpdateError
+    from annotation_material_service import folders
+    db, parent_id, _language_id = context
+    parent = service.get_annotation_project(db, parent_id)
+    payloads = [update_payload(parent, material_changes={'created_folders': [
+        {'id': uuid4(), 'name': '并发目录'},
+    ]}) for _ in range(2)]
+    db.rollback()
+
+    def save(payload):
+        with sessions() as concurrent:
+            try:
+                service.update_annotation_project(concurrent, parent_id, payload)
+                return 'saved'
+            except StaleUpdateError:
+                concurrent.rollback()
+                return 'stale'
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(save, payloads))
+    assert sorted(results) == ['saved', 'stale']
+    assert [row['name'] for row in folders(db, parent_id)] == ['并发目录']
+
+
 def test_automatic_create_single_and_multiple_directions(context):
     db, parent_id, language_id = context
     assert service.get_annotation_project(db, parent_id).child_count == 0

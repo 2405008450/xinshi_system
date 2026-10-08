@@ -139,11 +139,12 @@
           v-for="user in selectedUsers"
           :key="user.id"
           closable
+          :type="availableIdSet.has(user.id) ? 'primary' : 'warning'"
           effect="light"
           :title="userLabel(user)"
           @close="removeUser(user.id)"
         >
-          {{ displayName(user) }}
+          {{ displayName(user) }}{{ availableIdSet.has(user.id) ? '' : '（不可用）' }}
         </el-tag>
       </div>
       <div v-else class="empty-selection">{{ placeholder }}</div>
@@ -197,13 +198,12 @@ const mailGroups = computed(() => (props.groups || [])
   }))
   .filter((group) => group.userIds.length)
   .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')))
-const selectedIds = computed(() => [...new Set(props.modelValue || [])].filter((id) => availableIdSet.value.has(id)))
+// 保留不可用成员的可关闭标签，避免隐藏的 ID 留在提交数据中却无法取消。
+const selectedIds = computed(() => [...new Set(props.modelValue || [])])
 const selectedIdSet = computed(() => new Set(selectedIds.value))
 const selectedUsers = computed(() => {
-  const order = new Map(selectedIds.value.map((id, index) => [id, index]))
-  return availableUsers.value
-    .filter((user) => selectedIdSet.value.has(user.id))
-    .sort((left, right) => order.get(left.id) - order.get(right.id))
+  const byId = new Map(props.users.map((user) => [user.id, user]))
+  return selectedIds.value.map((id) => byId.get(id) || { id, full_name: '不可用成员', email: '' })
 })
 const departmentGroups = computed(() => {
   const grouped = new Map()
@@ -324,7 +324,7 @@ const startPanelDrag = (event) => {
 watch(
   () => [props.excludedUserIds, props.users, props.groups],
   () => {
-    const normalized = selectedIds.value
+    const normalized = selectedIds.value.filter((id) => availableIdSet.value.has(id))
     if (normalized.length !== (props.modelValue || []).length) emit('update:modelValue', normalized)
     if (activeDepartment.value && !departmentGroups.value.some((group) => group.key === activeDepartment.value)) {
       activeDepartment.value = ''

@@ -13,7 +13,7 @@ from models import AppUser
 from annotation_models import AnnotationProject
 from routers.auth import get_current_user, require_module_access, require_permission
 from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version
-from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, queue_upload_deletion
+from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion
 from annotation_material_storage import remote_origin, forward_upload, forward_delete, forward_download
 
 router = APIRouter(prefix='/projects/annotation', tags=['annotation_materials'],
@@ -106,6 +106,12 @@ def list_materials(project_id: UUID, db: Session = Depends(get_db)):
     for row in versions(db, project_id):
         latest.setdefault(row['file_id'], row)
     return list(latest.values())
+
+
+@router.get('/{project_id}/material-folders')
+def list_material_folders(project_id: UUID, db: Session = Depends(get_db)):
+    require_project(db, project_id)
+    return folders(db, project_id)
 
 
 @router.get('/{project_id}/materials/{file_id}/versions')

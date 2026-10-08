@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.datastructures import UploadFile
 
 import main  # 注册完整 ORM 映射；导入不会启动迁移或数据库连接。
-from annotation_material_models import MATERIAL_TABLES, AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialDeletion as Deletion
+from annotation_material_models import MATERIAL_TABLES, AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialDeletion as Deletion, AnnotationMaterialFolder as Folder
 from annotation_material_schemas import MaterialChanges
 import annotation_material_service as service
 import annotation_material_storage as storage
@@ -38,6 +38,10 @@ def env(tmp_path, monkeypatch):
             migration = (Path(__file__).resolve().parents[1] / 'data/migrations/20261013_annotation_materials.sql').read_text(encoding='utf-8').strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
             connection.execute(text(migration))
             connection.execute(text(migration))  # 迁移可重复执行。
+            for filename in ('20261015_annotation_material_shared_versions.sql', '20261016_annotation_material_folders.sql'):
+                sql = (Path(__file__).resolve().parents[1] / 'data/migrations' / filename).read_text(encoding='utf-8').strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
+                connection.execute(text(sql))
+                connection.execute(text(sql))
     else:
         engine = create_engine('sqlite://', poolclass=StaticPool, connect_args={'check_same_thread': False})
         with engine.begin() as connection:
@@ -376,3 +380,159 @@ def test_postgres_concurrent_reuse_only_one_version(env):
         db.commit()
         assert future.result(timeout=10) == 'rejected'
     assert db.query(Version).count() == 1
+
+
+def test_folder_tree_and_files_saved_together(env):
+    db, user, project, _ = env
+    first, second, third = stage(db, user), stage(db, user), stage(db, user)
+    root, child, empty = uuid4(), uuid4(), uuid4()
+    changes = MaterialChanges(created_folders=[
+        {'id': child, 'parent_id': root, 'name': '中文规范'},
+        {'id': root, 'name': ' 标注规范 '}, {'id': empty, 'name': '空目录'},
+    ], additions=[
+        {'upload_id': first.id, 'category': 'project'},
+        {'upload_id': second.id, 'category': 'project', 'folder_id': root},
+        {'upload_id': third.id, 'category': 'project', 'folder_id': child},
+    ])
+    service.apply_changes(db, project, changes, user.id); db.commit()
+    assert {row['folder_id'] for row in service.versions(db, project)} == {None, root, child}
+    assert {row['name'] for row in service.folders(db, project)} == {'标注规范', '中文规范', '空目录'}
+    assert db.get(Folder, child).parent_id == root
+
+
+@pytest.mark.parametrize('name', ['', '   ', '.', '..', 'x' * 101, 'a/b', 'a\\b', 'a\x00b', 'a\x7fb'])
+def test_invalid_folder_names(name):
+    with pytest.raises(ValueError):
+        MaterialChanges(created_folders=[{'id': uuid4(), 'name': name}])
+
+
+def test_folder_name_uniqueness_and_project_isolation(env):
+    db, user, project, other = env
+    first, second = uuid4(), uuid4()
+    service.apply_changes(db, project, MaterialChanges(created_folders=[
+        {'id': first, 'name': '规范'}, {'id': second, 'name': '交付'},
+        {'id': uuid4(), 'parent_id': first, 'name': '中文'},
+        {'id': uuid4(), 'parent_id': second, 'name': '中文'},
+    ]), user.id); db.commit()
+    for parent, name in [(None, '规范'), (first, '中文')]:
+        with pytest.raises(ValueError, match='同名'):
+            service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': uuid4(), 'parent_id': parent, 'name': name}]), user.id)
+        db.rollback()
+    with pytest.raises(ValueError, match='不属于当前项目'):
+        service.apply_changes(db, other, MaterialChanges(created_folders=[{'id': uuid4(), 'parent_id': first, 'name': '其他'}]), user.id)
+    db.rollback()
+    with pytest.raises(ValueError, match='ID已存在'):
+        service.apply_changes(db, other, MaterialChanges(created_folders=[{'id': first, 'name': '其他'}]), user.id)
+    db.rollback()
+    upload = stage(db, user)
+    with pytest.raises(ValueError, match='不属于当前项目'):
+        service.apply_changes(db, other, MaterialChanges(additions=[{'upload_id': upload.id, 'category': 'project', 'folder_id': first}]), user.id)
+    db.rollback()
+
+
+def test_folder_depth_missing_parent_and_rollback(env):
+    db, user, project, _ = env
+    root, child = uuid4(), uuid4()
+    service.apply_changes(db, project, MaterialChanges(created_folders=[
+        {'id': root, 'name': '规范'}, {'id': child, 'parent_id': root, 'name': '中文'},
+    ]), user.id); db.commit()
+    for parent, message in [(child, '两级'), (uuid4(), '不存在')]:
+        with pytest.raises(ValueError, match=message):
+            service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': uuid4(), 'parent_id': parent, 'name': '错误'}]), user.id)
+        db.rollback()
+    new_root = uuid4()
+    with pytest.raises(ValueError, match='暂存文件'):
+        service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': new_root, 'name': '回滚目录'}],
+            additions=[{'upload_id': uuid4(), 'category': 'project', 'folder_id': new_root}]), user.id)
+    db.rollback()
+    assert db.get(Folder, new_root) is None
+    assert len(service.folders(db, project)) == 2
+
+
+def test_folder_replacement_preserves_directory_and_categories(env):
+    db, user, project, _ = env
+    folder_id = uuid4()
+    upload = stage(db, user)
+    service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': folder_id, 'name': '规范'}],
+        additions=[{'upload_id': upload.id, 'category': 'project', 'folder_id': folder_id}]), user.id); db.commit()
+    file_id = service.versions(db, project)[0]['file_id']
+    newer = stage(db, user, '新版.txt')
+    # 旧客户端省略目录字段，上传新版也不能移回根目录。
+    service.apply_changes(db, project, change(newer, file_id), user.id); db.commit()
+    assert all(row['folder_id'] == folder_id for row in service.versions(db, project))
+    for category in ('quotation', 'contract'):
+        with pytest.raises(ValueError, match='只有项目资料'):
+            MaterialChanges(additions=[{'upload_id': uuid4(), 'category': category, 'folder_id': folder_id}])
+        material = stage(db, user, category + '.txt')
+        service.apply_changes(db, project, change(material, category=category), user.id); db.commit()
+    assert all(row['folder_id'] is None for row in service.versions(db, project) if row['category'] != 'project')
+    other = uuid4()
+    service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': other, 'name': '交付'}]), user.id); db.commit()
+    another_upload = stage(db, user)
+    with pytest.raises(ValueError, match='不能改变'):
+        service.apply_changes(db, project, MaterialChanges(additions=[{'upload_id': another_upload.id,
+            'category': 'project', 'file_id': file_id, 'folder_id': other}]), user.id)
+    db.rollback()
+
+
+def test_folder_copy_and_shared_file_cleanup(env):
+    from annotation_child_copy_service import copy_materials
+    db, user, project, child_project = env
+    root, child, empty = uuid4(), uuid4(), uuid4()
+    upload = stage(db, user)
+    service.apply_changes(db, project, MaterialChanges(created_folders=[
+        {'id': root, 'name': '规范'}, {'id': child, 'parent_id': root, 'name': '中文'}, {'id': empty, 'name': '空目录'},
+    ], additions=[{'upload_id': upload.id, 'category': 'project', 'folder_id': child}]), user.id); db.commit()
+    upload_id, key = upload.id, upload.storage_key
+    copy_materials(db, project, child_project); db.commit()
+    copied = service.folders(db, child_project)
+    assert len(copied) == 3
+    assert not {row['id'] for row in copied} & {root, child, empty}
+    copied_root = next(row['id'] for row in copied if row['name'] == '规范')
+    copied_child = next(row for row in copied if row['name'] == '中文')
+    assert copied_child['parent_id'] == copied_root
+    assert service.versions(db, child_project)[0]['folder_id'] == copied_child['id']
+    service.remove_project_materials(db, project); db.commit()
+    assert service.folders(db, project) == []
+    assert db.get(Upload, upload_id) is not None and db.get(Deletion, key) is None
+    service.remove_project_materials(db, child_project); db.commit()
+    assert service.folders(db, child_project) == []
+    assert db.get(Deletion, key) is not None
+
+
+def test_folder_list_api_empty_and_populated(env, monkeypatch):
+    db, user, project, _ = env
+    app = FastAPI()
+    app.include_router(routes.router, prefix='/api')
+    app.dependency_overrides[routes.get_db] = lambda: db
+    for route in routes.router.routes:
+        for dependency in route.dependencies:
+            app.dependency_overrides[dependency.dependency] = lambda: user
+    monkeypatch.setattr(routes, 'require_project', lambda *_args: None)
+    with TestClient(app) as client:
+        path = f'/api/projects/annotation/{project}/material-folders'
+        assert client.get(path).json() == []
+        folder_id = uuid4()
+        service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': folder_id, 'name': '目录'}]), user.id); db.commit()
+        result = client.get(path)
+        assert result.status_code == 200
+        assert result.json()[0]['id'] == str(folder_id)
+        assert result.json()[0]['parent_id'] is None
+
+
+def test_postgres_folder_migration_preserves_existing_files(env):
+    db, user, project, _ = env
+    if db.bind.dialect.name != 'postgresql':
+        pytest.skip('需隔离PostgreSQL验证增量迁移')
+    upload = stage(db, user)
+    service.apply_changes(db, project, change(upload), user.id); db.commit()
+    file_id = service.versions(db, project)[0]['file_id']
+    # 在本测试独立schema中还原旧结构，再验证旧资料保持根目录和原始版本。
+    db.execute(text('ALTER TABLE annotation_material_file DROP COLUMN folder_id CASCADE'))
+    db.commit()
+    migration = (Path(__file__).resolve().parents[1] / 'data/migrations/20261016_annotation_material_folders.sql').read_text(encoding='utf-8').strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
+    db.execute(text(migration)); db.execute(text(migration)); db.commit()
+    db.expire_all()
+    row = service.versions(db, project)[0]
+    assert row['file_id'] == file_id and row['folder_id'] is None and row['version_no'] == 1
+    assert service.storage_path(upload.storage_key).read_bytes() == b'content'

@@ -51,7 +51,7 @@ export const cleanColumns = value => {
   if (!Array.isArray(value) || JSON.stringify(value) === JSON.stringify(oldDefault)) return [...defaultDevelopmentColumns]
   return developmentColumns.filter(c => value.includes(c.key)).map(c => c.key)
 }
-export const statusOptions = ['未处理', '搜不到', '已发请求', '二次添加', '三次添加', '已添加']
+export const statusOptions = ['未处理', '搜不到', '一次请求', '一次请求未通过', '二次请求', '二次请求未通过', '三次请求', '三次请求未通过', '已添加', '（对方）已删']
 // 两个渠道分别写历史，成功状态继续共用同一人才入库保护。
 export const friendFollowUpOptions = [
   { label: '搜不到微信（不存在）', channels: ['wechat'], status: '搜不到' },
@@ -59,12 +59,12 @@ export const friendFollowUpOptions = [
   { label: '已添加微信', channels: ['wechat'], status: '已添加' },
   { label: '已添加企微', channels: ['enterprise'], status: '已添加' },
   { label: '已添加微信和企微', channels: ['wechat', 'enterprise'], status: '已添加' },
-  ...['二次添加', '三次添加'].flatMap(status => ['wechat', 'enterprise'].map(channel => ({ label: `${status}${progressChannels[channel]}`, channels: [channel], status }))),
+  ...['一次请求', '一次请求未通过', '二次请求', '二次请求未通过', '三次请求', '三次请求未通过', '（对方）已删'].flatMap(status => ['wechat', 'enterprise'].map(channel => ({ label: `${progressChannels[channel]}：${status}`, channels: [channel], status }))),
 ]
 export const sameDayRange = (today = new Date()) => [dateText(today), dateText(today)]
 export const categoryOptions = [{ value: 'national', label: '全国性平台' }, { value: 'local', label: '地方性平台' }, { value: 'international', label: '国外平台' }]
 
-export const defaultProgressStatus = channel => channel === 'group' ? '已邀进群' : progressStatuses(channel).at(-1)
+export const defaultProgressStatus = channel => ['wechat', 'enterprise'].includes(channel) ? '已添加' : channel === 'group' ? '已邀进群' : progressStatuses(channel).at(-1)
 // 与后端保持相同的渠道、成功状态和变更判断；历史原标记不参与自动入库。
 export const hasNewPrivateEntry = (actions, previous = []) => {
   const statuses = { wechat: '已添加', enterprise: '已添加', group: '已进群' }

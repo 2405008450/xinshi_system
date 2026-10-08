@@ -1,6 +1,6 @@
 """开拓核心回归；数据库测试仅在显式启用的局域网调试库运行，逐例回滚。"""
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 from unittest.mock import patch
 
@@ -69,6 +69,109 @@ def make_payload(context, **kwargs):
     user, _, platform = context
     return RecordWrite(**(dict(id=uuid4(), platform_id=platform.id, work_date=date(2026, 9, 24), owner_id=user.id,
                                full_name="测试资源" + uuid4().hex, phone="", wechat="") | kwargs))
+
+
+def seed_name_check_record(db, context, name, **kwargs):
+    from resource_development_models import DevelopmentRecord
+    user, _, platform = context
+    row = DevelopmentRecord(id=uuid4(), greeting_no="QA-" + uuid4().hex,
+                            full_name=name, platform_id=platform.id, owner_id=user.id,
+                            work_date=date(2026, 9, 24), created_by=user.id, updated_by=user.id)
+    for key, value in kwargs.items():
+        setattr(row, key, value)
+    db.add(row); db.flush()
+    return row
+
+
+def test_record_name_duplicates_exact_global_and_pagination(db, context):
+    from resource_development_service import record_name_duplicates
+    from resource_development_models import DevelopmentOption
+    user, other, _ = context
+    name = "姓名核实" + uuid4().hex
+    platform = DevelopmentOption(id=uuid4(), kind="platform", category="national", name="其他平台" + uuid4().hex, code="QA" + uuid4().hex[:12])
+    db.add(platform); db.flush()
+    old = seed_name_check_record(db, context, "  " + name.upper() + "  ", historical_only=True, work_date=date(2025, 1, 1))
+    new = seed_name_check_record(db, context, name, owner_id=other.id, platform_id=platform.id, work_date=date(2026, 10, 8))
+    seed_name_check_record(db, context, name + "不同名")
+    page = record_name_duplicates(db, user, " " + name + " ", limit=1)
+    assert page["total"] == 2 and page["items"][0]["id"] == str(new.id)
+    assert page["items"][0]["platform_name"] == platform.name
+    assert record_name_duplicates(db, user, name, skip=1, limit=1)["items"][0]["id"] == str(old.id)
+    assert record_name_duplicates(db, user, name, skip=2)["items"] == []
+    assert record_name_duplicates(db, user, "   ") == {"items": [], "total": 0}
+
+
+def test_record_name_duplicates_contact_permissions(db, context):
+    from resource_development_service import record_name_duplicates
+    user, other, _ = context
+    name = "联系方式核实" + uuid4().hex
+    own = seed_name_check_record(db, context, name, phone="13812345678", wechat="own_wechat")
+    foreign = seed_name_check_record(db, context, name, owner_id=other.id, phone="13987654321", wechat="private_wechat")
+    with patch("resource_development_service.can_delegate", return_value=False):
+        items = {p["id"]: p for p in record_name_duplicates(db, user, name)["items"]}
+        assert items[str(own.id)]["wechat"] == "own_wechat" and not items[str(own.id)]["contact_restricted"]
+        assert items[str(foreign.id)]["wechat"] == items[str(foreign.id)]["phone"] == ""
+        assert items[str(foreign.id)]["contact_restricted"]
+        assert "private_wechat" not in str(items) and "13987654321" not in str(items)
+    with patch("resource_development_service.can_delegate", return_value=True):
+        items = {p["id"]: p for p in record_name_duplicates(db, user, name)["items"]}
+        assert items[str(foreign.id)]["wechat"] == "private_wechat" and not items[str(foreign.id)]["contact_restricted"]
+
+
+def test_record_name_duplicates_never_queries_talent_pool(db, context):
+    from sqlalchemy import event
+    from resource_models import ResourcePerson
+    from resource_development_service import record_name_duplicates
+    user, _, _ = context
+    name = "仅人才库" + uuid4().hex
+    db.add(ResourcePerson(id=uuid4(), full_name=name, resource_code="QA-" + uuid4().hex))
+    db.flush()
+    statements = []
+    def capture(conn, cursor, statement, parameters, execution_context, executemany):
+        statements.append(statement)
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", capture)
+    try:
+        assert record_name_duplicates(db, user, name) == {"items": [], "total": 0}
+        seed_name_check_record(db, context, name)
+        assert record_name_duplicates(db, user, name)["total"] == 1
+    finally:
+        event.remove(connection, "before_cursor_execute", capture)
+    assert all("resource_person" not in sql.lower() for sql in statements)
+
+
+def test_record_same_name_remains_advisory(db, context):
+    from resource_development_service import save_record, record_name_duplicates
+    user, _, _ = context
+    name = "同名允许保存" + uuid4().hex
+    seed_name_check_record(db, context, name)
+    saved = save_record(db, user, make_payload(context, full_name=name))
+    assert saved.person_id is None and not saved.duplicate_note
+    assert record_name_duplicates(db, user, name)["total"] == 2
+
+
+def test_record_name_duplicates_api_permissions_and_validation(db, context):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers.auth import get_current_user
+    from routers.resource_development import router
+    user, _, _ = context
+    name = "接口姓名核实" + uuid4().hex
+    seed_name_check_record(db, context, name, wechat="api_wechat")
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: user
+    with TestClient(app) as client:
+        with patch("routers.auth.get_user_permission_codes", return_value=["talents:read"]):
+            assert client.get("/resource-development/record-duplicates", params={"full_name": name}).status_code == 403
+        with patch("routers.auth.get_user_permission_codes", return_value=["talents:write"]):
+            result = client.get("/resource-development/record-duplicates", params={"full_name": name})
+            assert result.status_code == 200 and result.json()["total"] == 1
+            assert result.json()["items"][0]["wechat"] == "api_wechat"
+            for params in [{}, {"full_name": ""}, {"full_name": "a" * 256}, {"full_name": name, "skip": -1}, {"full_name": name, "limit": 101}]:
+                assert client.get("/resource-development/record-duplicates", params=params).status_code == 422
 
 
 def test_historical_import_and_edit_never_enroll(db, context):
@@ -164,7 +267,7 @@ def test_independent_progress_preserves_history_and_does_not_enroll(db, context)
         ('group', '已邀进群'), ('communication', '已沟通'), ('project', '已入项')]]
     updated = payload.model_copy(update={'revision': row.revision, 'actions': [*payload.actions, *additions]})
     save_record(db, user, updated)
-    assert row.person_id is None and row.wechat_status == '已发请求'
+    assert row.person_id is None and row.wechat_status == '一次请求'
     assert (first.updated_by, first.updated_at) == original_audit
     detail = serialize_record(db, user, row, True)
     assert set(detail['progress']) == {'wechat', 'group', 'communication', 'project'}
@@ -265,6 +368,37 @@ def test_grouped_day_totals_and_work_only_days(db, context):
     assert result['total'] == 2
     assert [d['count'] for d in result['items']] == [3, 0]
     assert result['items'][0]['people'][0]['count'] == 3
+
+
+def test_default_query_finds_history_and_skips_work_only_dates(db, context):
+    from resource_development_service import save_record, save_work
+    from routers.resource_development import days, filters, records
+    user, _, _ = context
+    latest = date.today() - timedelta(days=30)
+    older = latest - timedelta(days=1)
+    for i in range(12):
+        save_record(db, user, make_payload(context, work_date=latest))
+    save_record(db, user, make_payload(context, work_date=older))
+    save_work(db, user, WorkWrite(work_date=date.today(), owner_id=user.id))
+    params = filters(keyword=None, owner_id=user.id, platform_id=None, account_id=None, state=None, column_filters=None)
+    assert params['start'] is None and params['end'] is None
+    result = days(params, 0, 3, db, user)
+    assert result['total'] == 2
+    assert [d['date'] for d in result['items']] == [latest, older]
+    assert [d['count'] for d in result['items']] == [12, 1]
+    page = records(params, 0, 10, db, user)
+    assert page['total'] == 13 and len(page['items']) == 10
+    assert all(r['work_date'] == latest.isoformat() for r in page['items'])
+    day_params = dict(params, start=latest, end=latest)
+    assert records(day_params, 10, 10, db, user)['total'] == 12
+    assert len(records(day_params, 10, 10, db, user)['items']) == 2
+    assert records(dict(params, end=older), 0, 10, db, user)['total'] == 1
+    bounded = days(dict(params, start=older, end=date.today()), 0, 3, db, user)
+    assert [d['count'] for d in bounded['items']] == [0, 12, 1]
+    assert records(dict(params, start=date.today(), end=date.today()), 0, 10, db, user)['total'] == 0
+    with pytest.raises(HTTPException) as exc:
+        filters(start=latest, end=older)
+    assert exc.value.status_code == 422
 
 
 def test_screenshot_and_delete_permissions(db, context):
@@ -403,7 +537,7 @@ def test_friend_follow_up_uses_actual_operator_and_latest_friend_channel(db, con
     payload = make_payload(context, actions=[action(other, '二次添加'), action(user, '已沟通', 'communication')])
     row = save_record(db, user, payload)
     detail = serialize_record(db, user, row, True)
-    assert detail['add_friend_follow_up'] == f'二次添加 · 2026-09-24 · {other.full_name} · 微信'
+    assert detail['add_friend_follow_up'] == f'二次请求 · 2026-09-24 · {other.full_name} · 微信'
     assert detail['actions'][0]['request_number'] == 2
     assert row.person_id is None
     assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': other.full_name}).count() == 1
@@ -422,3 +556,111 @@ def test_keyword_language_search_matches_list_and_day_totals(db, context):
     params = dict(start=payload.work_date, end=payload.work_date, keyword=language.label, owner_id=None, platform_id=None, account_id=None, state=None, column_filters={})
     assert records(params, 0, 10, db, user)['total'] == 1
     assert days(params, 0, 7, db, user)['items'][0]['count'] == 1
+
+
+def test_keyword_platform_search_matches_pagination_and_day_totals(db, context):
+    from resource_development_models import DevelopmentOption
+    from resource_development_service import save_record
+    from routers.resource_development import days, records
+    user, other, platform = context
+    fragment = '平台检索' + uuid4().hex[:8]
+    platform.name = 'QA-' + fragment + '-Platform'
+    unrelated = DevelopmentOption(id=uuid4(), kind='platform', category='national', name='其他平台' + uuid4().hex, code='OTHER' + uuid4().hex[:12])
+    db.add(unrelated); db.flush()
+    payload = make_payload(context)
+    first = save_record(db, user, payload)
+    second = save_record(db, user, make_payload(context, work_date=payload.work_date - timedelta(days=1)))
+    save_record(db, user, make_payload(context, platform_id=unrelated.id))
+    params = dict(start=None, end=None, keyword='  qa-' + fragment + '  ', owner_id=None, platform_id=None, account_id=None, state=None, column_filters={})
+    # 平台名称支持部分匹配、忽略大小写和首尾空格，并沿用公开字段的可见范围。
+    page = records(params, 0, 1, db, other)
+    assert page['total'] == 2 and [r['id'] for r in page['items']] == [str(first.id)]
+    next_page = records(params, 1, 1, db, other)
+    assert next_page['total'] == 2 and [r['id'] for r in next_page['items']] == [str(second.id)]
+    grouped = days(params, 0, 7, db, other)
+    assert grouped['total'] == 2 and [d['count'] for d in grouped['items']] == [1, 1]
+    assert records(dict(params, platform_id=unrelated.id), 0, 10, db, other)['total'] == 0
+    assert records(dict(params, keyword='不存在' + fragment), 0, 10, db, other)['total'] == 0
+
+
+@pytest.mark.parametrize('channel', ['wechat', 'enterprise'])
+@pytest.mark.parametrize('old,new', [('已发请求', '一次请求'), ('二次添加', '二次请求'), ('三次添加', '三次请求')])
+def test_friend_status_alias_preserves_history_and_matches_filters(db, context, channel, old, new):
+    from resource_development_service import save_record, serialize_record, filtered_records
+    from resource_development_models import DevelopmentAction, DevelopmentAudit
+    from resource_development_schemas import ActionWrite
+    user, other, _ = context
+    payload = make_payload(context, phone='13912340000', actions=[action(user, new, channel)])
+    row = save_record(db, user, payload)
+    saved = db.get(DevelopmentAction, payload.actions[0].id)
+    # 模拟升级前已保存的记录，不运行迁移、不重写历史审计。
+    saved.status = old
+    setattr(row, channel + '_status', old)
+    db.flush()
+    audit_count = db.query(DevelopmentAudit).filter_by(entity_id=saved.id).count()
+    updated_at, updated_by = saved.updated_at, saved.updated_by
+    for viewer in [user, other]:
+        detail = serialize_record(db, viewer, row, True)
+        assert detail[channel + '_status'] == new
+        assert detail['progress'][channel]['status'] == new
+        assert detail['actions'][0]['status'] == new
+        assert detail['add_friend_follow_up'].startswith(new + ' · ')
+    assert serialize_record(db, other, row)['phone'] == '******'
+    for value in [old, new]:
+        assert filtered_records(db, other, row.work_date, row.work_date, state=value).count() == 1
+        assert filtered_records(db, other, row.work_date, row.work_date, column_filters={channel + '_status': [value]}).count() == 1
+    assert filtered_records(db, user, row.work_date, row.work_date, column_filters={'latest_follow_up': new[:2]}).count() == 1
+    normalized = ActionWrite(**{key: detail['actions'][0][key] for key in ['id', 'channel', 'status', 'action_date', 'operator_id', 'account_id']})
+    save_record(db, user, payload.model_copy(update={'revision': row.revision, 'actions': [normalized]}))
+    assert saved.status == old and getattr(row, channel + '_status') == old
+    assert (saved.updated_at, saved.updated_by) == (updated_at, updated_by)
+    assert db.query(DevelopmentAudit).filter_by(entity_id=saved.id).count() == audit_count
+    historical = save_record(db, user, make_payload(context), historical_markers={channel: {'status': old}})
+    assert serialize_record(db, other, historical)['progress'][channel]['status'] == new
+    assert filtered_records(db, other, row.work_date, row.work_date, state=new).count() == 2
+    assert filtered_records(db, other, row.work_date, row.work_date, column_filters={channel + '_status': [new]}).count() == 2
+    # 新版和旧版客户端新增的操作均按规范名称保存。
+    fresh = save_record(db, user, make_payload(context, actions=[action(user, old, channel)]))
+    assert getattr(fresh, channel + '_status') == new
+
+
+@pytest.mark.parametrize('channel', ['wechat', 'enterprise'])
+@pytest.mark.parametrize('status', ['一次请求', '二次请求', '三次请求', '一次请求未通过', '二次请求未通过', '三次请求未通过', '（对方）已删'])
+def test_friend_non_success_status_is_public_and_does_not_enroll(db, context, channel, status):
+    from resource_development_service import save_record, serialize_record, filtered_records
+    user, other, _ = context
+    row = save_record(db, user, make_payload(context, actions=[action(user, status, channel)], phone='13912340000'))
+    assert row.person_id is None
+    detail = serialize_record(db, other, row, True)
+    assert detail[channel + '_status'] == status
+    assert detail['progress'][channel]['status'] == status
+    assert detail['actions'][0]['status'] == status
+    assert detail['add_friend_follow_up'].startswith(status + ' · ')
+    assert detail['phone'] == '******'
+    assert filtered_records(db, other, row.work_date, row.work_date, state=status).count() == 1
+    assert filtered_records(db, other, row.work_date, row.work_date, column_filters={channel + '_status': [status]}).count() == 1
+    if status.endswith('未通过') or status == '（对方）已删':
+        assert detail['actions'][0]['request_number'] == 0
+
+
+def test_friend_request_failures_do_not_increment_request_count(db, context):
+    from resource_development_service import save_record, serialize_record
+    user, _, _ = context
+    statuses = ['一次请求', '一次请求未通过', '二次请求', '二次请求未通过', '三次请求', '三次请求未通过', '（对方）已删']
+    row = save_record(db, user, make_payload(context, actions=[action(user, status) for status in statuses]))
+    assert [a['request_number'] for a in serialize_record(db, user, row, True)['actions']] == [1, 0, 2, 0, 3, 0, 0]
+    assert row.person_id is None
+
+
+@pytest.mark.parametrize('channel', ['wechat', 'enterprise'])
+def test_friend_deleted_retains_existing_talent(db, context, channel):
+    from resource_development_service import save_record
+    from resource_development_schemas import ActionWrite
+    from resource_models import ResourcePerson
+    user, _, _ = context
+    payload = make_payload(context, actions=[action(user, '已添加', channel)], capabilities=['annotation'])
+    row = save_record(db, user, payload)
+    person_id = row.person_id
+    changed = payload.model_copy(update={'revision': row.revision, 'actions': [*payload.actions, ActionWrite(**action(user, '（对方）已删', channel))]})
+    assert save_record(db, user, changed).person_id == person_id
+    assert db.get(ResourcePerson, person_id)

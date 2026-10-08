@@ -6,8 +6,8 @@
     </div></div>
     <TalentResourceNav />
     <div class="development-filters">
-      <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="query" />
-      <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言" @input="keywordChanged" @keyup.enter="query" />
+      <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" />
+      <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.owner_id" clearable filterable placeholder="开拓人员" @change="commonChanged('owner_id')"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
       <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template><div class="development-advanced-body"><div class="development-form-grid"><div><label>开拓平台</label><el-select v-model="filters.platform_id" clearable filterable @change="commonChanged('platform_id')"><el-option v-for="p in platforms" :key="p.id" :label="p.name" :value="p.id" /></el-select></div><div><label>对接账号</label><el-select v-model="filters.account_id" clearable filterable @change="commonChanged('account_id')"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></div><div><label>添加状态（任一渠道）</label><el-select v-model="filters.state" clearable filterable allow-create @change="query"><el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" /></el-select></div></div><div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div></el-popover>
@@ -15,7 +15,7 @@
     <div class="development-actions" v-if="activeColumnKeys.length"><el-tag v-for="key in activeColumnKeys" :key="key" closable @close="delete columnFilters[key]; query()">{{ developmentColumns.find(c => c.key === key)?.label }}：已筛选</el-tag><el-button link @click="clearColumns">清空列筛选</el-button></div>
     <DevelopmentFriendDailyPanel ref="friendPanelRef" />
     <div v-loading="loading">
-      <el-empty v-if="!days.length" description="所选日期暂无开拓记录，可调整日期查询历史数据" />
+      <el-empty v-if="!days.length" :description="filters.range?.length ? '所选日期暂无开拓记录，可调整或清空日期查询历史数据' : '暂无符合条件的开拓记录'" />
       <el-collapse v-model="activeDay" accordion @change="changeDay">
         <el-collapse-item v-for="day in days" :key="day.date" :name="day.date"><template #title><el-button link type="primary" :aria-label="`${chineseDate(day.date)}新增微信/企微好友统计`" @click.stop="friendPanelRef.open(day.date)">{{ chineseDate(day.date) }}</el-button><el-tag class="day-count" effect="plain">{{ day.count }} 条开拓记录</el-tag></template>
           <template v-if="activeDay === day.date">
@@ -63,10 +63,11 @@ import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHe
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { developmentColumns, defaultDevelopmentColumns, cleanColumns, sameDayRange, statusOptions, progressColumnChannel, progressChannels, progressText, progressStatuses } from '@/utils/resourceDevelopment'
+import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions, progressColumnChannel, progressChannels, progressText, progressStatuses } from '@/utils/resourceDevelopment'
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
 const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref()
-const filters = reactive({ range: sameDayRange(), keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' })
+// 默认不限定日期，自动展开最近有开拓记录的日期。
+const filters = reactive({ range: null, keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' })
 const columnFilters = reactive({})
 const activeColumnKeys = computed(() => Object.keys(columnFilters).filter(k => Array.isArray(columnFilters[k]) ? columnFilters[k].length : Boolean(columnFilters[k]?.trim())))
 function clearColumns() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); query() }
@@ -127,10 +128,10 @@ async function reload(keepDelete = false) {
     await loadRecords()
   } catch (e) { if (!cancelled(e) && seq === listSeq) ElMessage.error(e.message) } finally { if (seq === listSeq) loading.value = false }
 }
-function query() { dayPage.value = 1; recordPage.value = 1; reload() }
+function query() { activeDay.value = ''; dayPage.value = 1; recordPage.value = 1; reload() }
 function keywordChanged(value) { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++; if (!value) query(); else timer = setTimeout(query, 400) }
 function clearAdvanced() { filters.platform_id = ''; filters.account_id = ''; filters.state = ''; query() }
-function reset() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); Object.assign(filters, { range: sameDayRange(), keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' }); query() }
+function reset() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); Object.assign(filters, { range: null, keyword: '', owner_id: '', platform_id: '', account_id: '', state: '' }); query() }
 function changeDay() { exitDeleteMode(); recordPage.value = 1; rows.value = []; loadRecords() }
 function recordPageChanged() { exitDeleteMode(); rows.value = []; loadRecords() }
 function recordSizeChanged() { recordPage.value = 1; recordPageChanged() }

@@ -22,7 +22,7 @@ class MailRecipientGroupWrite(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
     is_active: bool = True
-    user_ids: list[UUID] = Field(min_length=1)
+    user_ids: list[UUID]
 
     @field_validator("name")
     @classmethod

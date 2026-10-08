@@ -22,6 +22,7 @@ from business_mail_models import (
     ProjectMailPolicyGroup,
 )
 from daily_report_mail_models import DailyReportMailPolicyGroup
+from mail_group_members import available_group_members
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from annotation_schemas import ANNOTATION_PROJECT_TYPE_LABELS
 from interpretation_schemas import PROJECT_TYPE_LABELS as INTERPRETATION_TYPE_LABELS
@@ -273,13 +274,14 @@ def serialize_user(
 
 
 def serialize_group(group: MailRecipientGroup) -> dict:
+    members = available_group_members(group)
     return {
         "id": group.id,
         "name": group.name,
         "description": group.description,
         "is_active": group.is_active,
-        "user_ids": [item.user_id for item in group.members],
-        "members": [serialize_user(item.user) for item in group.members if item.user],
+        "user_ids": [item.user_id for item in members],
+        "members": [serialize_user(item.user) for item in members],
         "created_at": group.created_at,
         "updated_at": group.updated_at,
     }
@@ -393,7 +395,7 @@ def policy_recipients(db: Session, project_type: str) -> tuple[list[AppUser], li
         if not link.group or not link.group.is_active:
             raise ValueError("默认邮件组已停用，请管理员修复项目邮件设置")
         target = to_ids if link.recipient_type == "to" else cc_ids
-        target.extend(item.user_id for item in link.group.members)
+        target.extend(item.user_id for item in available_group_members(link.group))
     to_users = validate_internal_users(db, to_ids)
     to_set = {item.id for item in to_users}
     cc_users = validate_internal_users(db, [item for item in cc_ids if item not in to_set])

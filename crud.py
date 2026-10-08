@@ -31,6 +31,7 @@ import re
 from utils import generate_order_no, normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 from department_utils import department_filter_values
+from mail_group_members import remove_unavailable_user_memberships
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
 from language_catalog import compact_translation_direction, validate_language_pairs_against_catalog
@@ -154,7 +155,8 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
 
     for field, value in update_data.items():
         setattr(db_user, field, value)
-    
+
+    remove_unavailable_user_memberships(db, db_user)
     db.commit()
     db.refresh(db_user)
     return db_user

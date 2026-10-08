@@ -1,5 +1,5 @@
 """资源开拓 API；联系方式、截图和写入权限均由服务端控制。"""
-from datetime import date, timedelta
+from datetime import date
 import json
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -86,9 +86,7 @@ def create_language(payload: LanguageWrite, db: Session = Depends(get_db), user=
 def filters(start: date | None = None, end: date | None = None, keyword: str | None = Query(None, max_length=255),
             owner_id: UUID | None = None, platform_id: UUID | None = None, account_id: UUID | None = None,
             state: str | None = Query(None, max_length=100), column_filters: str | None = Query(None, max_length=12000)):
-    end = end or date.today()
-    start = start or end - timedelta(days=2)
-    if start > end:
+    if start is not None and end is not None and start > end:
         raise HTTPException(422, "开始日期不能晚于结束日期")
     try:
         columns = json.loads(column_filters) if column_filters else {}
@@ -109,12 +107,16 @@ def days(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query
          db: Session = Depends(get_db), user=Depends(get_current_user)):
     q = filtered_records(db, user, **params)
     dates = q.with_entities(Record.work_date.label("work_date"))
-    # 没有新增资源但填写了工时的日期，也能回查；筛选资源属性时只显示命中记录的日期。
+    # 默认只列有开拓记录的日期，避免最新工时日期没有记录；指定日期后仍可回查仅有工时的日期。
     include_work = not any(params[k] for k in ["keyword", "platform_id", "account_id", "state"]) and not params.get('column_filters')
-    works = db.query(Work).filter(Work.work_date.between(params["start"], params["end"]))
+    works = db.query(Work)
+    if params["start"] is not None:
+        works = works.filter(Work.work_date >= params["start"])
+    if params["end"] is not None:
+        works = works.filter(Work.work_date <= params["end"])
     if params["owner_id"]:
         works = works.filter_by(owner_id=params["owner_id"])
-    if include_work:
+    if include_work and (params["start"] is not None or params["end"] is not None):
         dates = dates.union(works.with_entities(Work.work_date.label("work_date")))
     dates = dates.distinct().order_by(None).subquery()
     total = db.query(func.count()).select_from(dates).scalar()
@@ -134,8 +136,16 @@ def days(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query
 def records(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
             db: Session = Depends(get_db), user=Depends(get_current_user)):
     q = filtered_records(db, user, **params)
-    return {"items": [serialize_record(db, user, row) for row in q.order_by(Record.updated_at.desc(), Record.id.desc()).offset(skip).limit(limit)],
+    return {"items": [serialize_record(db, user, row) for row in q.order_by(Record.work_date.desc(), Record.updated_at.desc(), Record.id.desc()).offset(skip).limit(limit)],
             "total": q.count()}
+
+
+@router.get("/record-duplicates", dependencies=[write])
+def check_record_name_duplicates(full_name: str = Query(..., min_length=1, max_length=255),
+                                 skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+                                 db: Session = Depends(get_db), user=Depends(get_current_user)):
+    from resource_development_service import record_name_duplicates
+    return record_name_duplicates(db, user, full_name, skip, limit)
 
 
 @router.post("/duplicates", dependencies=[write])

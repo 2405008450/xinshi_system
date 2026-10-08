@@ -1891,6 +1891,9 @@ def run_runtime_migrations():
     from annotation_material_models import MATERIAL_TABLES
     for table in MATERIAL_TABLES:
         table.create(bind=engine, checkfirst=True)
+    folder_sql = (Path(__file__).parent / 'data/migrations/20261016_annotation_material_folders.sql').read_text(encoding='utf-8')
+    with engine.begin() as conn:
+        conn.execute(text(folder_sql.strip().removeprefix('BEGIN;').removesuffix('COMMIT;')))
     ensure_annotation_project_columns()
     ensure_project_order_no_schema()
     AnnotationProjectLanguageItem.__table__.create(bind=engine, checkfirst=True)

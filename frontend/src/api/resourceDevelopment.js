@@ -9,6 +9,7 @@ export const developmentApi = {
   detail: id => api.get(`${base}/records/${id}`),
   save: data => api.post(`${base}/records`, data),
   duplicates: data => api.post(`${base}/duplicates`, data),
+  recordDuplicates: (params, signal) => api.get(`${base}/record-duplicates`, { params, signal }),
   remove: row => api.delete(`${base}/records/${row.id}`, { params: { revision: row.revision } }),
   work: params => api.get(`${base}/work`, { params }),
   saveWork: data => api.put(`${base}/work`, data),

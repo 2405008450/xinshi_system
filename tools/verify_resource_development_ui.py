@@ -1,10 +1,11 @@
 """局域网资源开拓交互验收；真实页面配合隔离接口，不修改业务数据。"""
 import copy
 import json
+import re
 import socket
 import subprocess
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
@@ -24,7 +25,8 @@ def run():
     process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--outDir', '../.tmp/resource-optimization-dist', '--host', '127.0.0.1', '--port', '12428', '--strictPort'], cwd=ROOT / 'frontend', stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     uid, owner, rid, platform, language, account, person = [str(uuid4()) for _ in range(7)]
     today = date.today().isoformat()
-    row = dict(id=rid, revision=1, full_name='验收人才', owner_id=owner, owner_name='原开拓人', platform_id=platform, platform_name='测试平台', account_id=account, account_name='HR1', work_date=today, language_ids=[language], language_names='测试语种', phone='', wechat='', follow_up='', remarks='', actions=[], capabilities=[], person_id=person, resource_code='QA-001', progress={}, can_edit=True, can_delete=True, add_friend_follow_up='')
+    latest = (date.today() - timedelta(days=30)).isoformat()
+    row = dict(id=rid, revision=1, full_name='验收人才', owner_id=owner, owner_name='原开拓人', platform_id=platform, platform_name='测试平台', account_id=account, account_name='HR1', work_date=latest, language_ids=[language], language_names='测试语种', phone='', wechat='', follow_up='', remarks='', actions=[], capabilities=[], person_id=person, resource_code='QA-001', progress={}, can_edit=True, can_delete=True, add_friend_follow_up='')
     requests, saves, errors = [], [], []
     friend = dict(revision=0, rows=[], audit=[], updated_at=None)
 
@@ -47,7 +49,8 @@ def run():
                 friend.update(rows=payload['rows'],revision=friend['revision']+1)
             result = friend
         elif path == '/resource-development/days':
-            result = dict(total=1,items=[dict(date=today,count=1,people=[dict(owner_id=owner,owner_name='原开拓人',duration_minutes=0,count=1)])])
+            matches = query.get('start', [''])[0] <= latest <= query.get('end', ['9999-12-31'])[0]
+            result = dict(total=1 if matches else 0,items=[dict(date=latest,count=1,people=[dict(owner_id=owner,owner_name='原开拓人',duration_minutes=0,count=1)])] if matches else [])
         elif path == '/resource-development/records':
             if req.method == 'POST':
                 payload = req.post_data_json
@@ -60,6 +63,8 @@ def run():
             result = row
         elif path == '/resource-development/duplicates':
             result = dict(items=[])
+        elif path == '/resource-development/record-duplicates':
+            result = dict(total=0, items=[])
         elif path.endswith('/unread-count'):
             result = dict(count=0)
         route.fulfill(status=200,json=result)
@@ -86,7 +91,31 @@ def run():
             expect(page.get_by_role('heading',name='资源开拓',exact=True)).to_be_visible()
             expect(page.get_by_role('button',name='填写加微跟进')).to_be_visible()
             first = next(q for _,p,q in requests if p.endswith('/days'))
-            assert first['start'] == first['end'] == [today]
+            assert 'start' not in first and 'end' not in first
+            initial_records = next(q for _,p,q in requests if p.endswith('/records'))
+            assert initial_records['start'] == initial_records['end'] == [latest]
+            assert initial_records['limit'] == ['10']
+            date_editor = page.locator('.development-filters .el-date-editor')
+            date_inputs = date_editor.locator('input')
+            expect(date_inputs.nth(0)).to_have_value('')
+            expect(date_inputs.nth(1)).to_have_value('')
+            page.screenshot(path=str(out/'default-history.png'),full_page=True)
+            date_inputs.nth(0).fill(today)
+            date_inputs.nth(1).fill(today)
+            date_inputs.nth(1).press('Enter')
+            page.get_by_role('heading',name='资源开拓',exact=True).click()
+            expect(page.get_by_text('所选日期暂无开拓记录，可调整或清空日期查询历史数据',exact=True)).to_be_visible()
+            date_editor.hover()
+            date_editor.locator('.el-range__close-icon').click()
+            expect(page.get_by_role('button',name='填写加微跟进')).to_be_visible()
+            assert 'start' not in next(q for _,p,q in reversed(requests) if p.endswith('/days'))
+            date_inputs.nth(0).fill(today)
+            date_inputs.nth(1).fill(today)
+            date_inputs.nth(1).press('Enter')
+            page.get_by_role('button',name='重置',exact=True).click()
+            expect(page.get_by_role('button',name='填写加微跟进')).to_be_visible()
+            expect(date_inputs.nth(0)).to_have_value('')
+            assert 'start' not in next(q for _,p,q in reversed(requests) if p.endswith('/days'))
             titles = [t.strip() for t in page.locator('.el-table__header th').all_text_contents()]
             assert titles.index('加微跟进') == titles.index('企微')+1
             search = page.get_by_placeholder('姓名、招呼编号、联系方式、语种/方言')
@@ -129,10 +158,52 @@ def run():
             assert 'friend_choice' not in payload
             assert [a['channel'] for a in payload['actions']] == ['wechat','enterprise']
             assert all(a['operator_id']==uid and a['action_date']==today and a['status']=='已添加' for a in payload['actions'])
+            expected_statuses = ['未处理', '搜不到', '一次请求', '一次请求未通过', '二次请求', '二次请求未通过', '三次请求', '三次请求未通过', '已添加', '（对方）已删']
+            # 分别从微信、企微列打开快捷跟进，验证实际下拉、默认值及保存请求。
+            for index, channel in enumerate(['wechat', 'enterprise']):
+                for status in expected_statuses[2:]:
+                    if status == '已添加':
+                        continue
+                    page.locator('.el-table__body-wrapper button.development-progress').nth(index).click()
+                    current = dialog.locator('.development-action:visible').last
+                    select = current.locator('.el-form-item').filter(has=page.locator('label', has_text='跟进状态')).locator('.el-select')
+                    expect(select).to_contain_text('已添加')
+                    select.click()
+                    options = page.get_by_role('option').filter(visible=True)
+                    expect(options).to_have_text(expected_statuses)
+                    page.get_by_role('option', name=status, exact=True).click()
+                    expect(dialog.get_by_text('进入人才总库', exact=True)).to_have_count(0)
+                    dialog.get_by_role('button', name='保存', exact=True).click()
+                    expect(dialog).not_to_be_visible()
+                    latest_payload = next(x for kind, x in reversed(saves) if kind == 'record')
+                    assert latest_payload['actions'][-1]['channel'] == channel
+                    assert latest_payload['actions'][-1]['status'] == status
+            page.get_by_role('button', name=re.compile('^高级筛选')).click()
+            advanced = page.locator('.development-advanced:visible')
+            advanced.locator('.el-select').last.click()
+            expect(page.get_by_role('option').filter(visible=True)).to_have_text(expected_statuses)
+            page.get_by_role('option', name='（对方）已删', exact=True).click()
+            page.wait_for_timeout(350)
+            for suffix in ['/days', '/records']:
+                assert next(q for _, p, q in reversed(requests) if p.endswith(suffix))['state'] == ['（对方）已删']
+            page.get_by_role('button', name='重置', exact=True).click()
+            expect(page.locator('.el-loading-mask:visible')).to_have_count(0)
+            # 表头多选必须使用同一组新状态，确认后才发出查询。
+            page.get_by_role('button', name='微信筛选', exact=True).click()
+            funnel = page.locator('.column-header-filter-popover:visible')
+            expect(funnel.locator('.el-checkbox__label')).to_have_text(expected_statuses)
+            funnel.get_by_text('一次请求未通过', exact=True).click()
+            funnel.get_by_text('（对方）已删', exact=True).click()
+            funnel.get_by_role('button', name='确定', exact=True).click()
+            page.wait_for_timeout(350)
+            for suffix in ['/days', '/records']:
+                filters = json.loads(next(q for _, p, q in reversed(requests) if p.endswith(suffix))['column_filters'][0])
+                assert filters['wechat_status'] == ['一次请求未通过', '（对方）已删']
+            page.get_by_role('button', name='清空列筛选', exact=True).click()
             page.get_by_role('button',name='新增统计',exact=True).click()
             daily = page.locator('.friend-daily-dialog')
             expect(daily).to_contain_text('每日新增微信/企微好友统计')
-            assert requests[-1][1] == '/resource-development/friend-daily/'+today
+            assert requests[-1][1] == '/resource-development/friend-daily/'+latest
             daily.locator('.friend-language-col .el-select').click()
             page.get_by_role('option',name='未知',exact=True).click()
             expect(daily.get_by_text('概览对应语种',exact=True)).to_have_count(0)
@@ -144,6 +215,10 @@ def run():
             for button,title in [('新增','新增资源开拓'),('编辑','编辑资源开拓')]:
                 page.get_by_role('button',name=button,exact=True).click()
                 expect(dialog).to_contain_text(title)
+                if button == '新增':
+                    dialog.get_by_role('button', name='新增一次跟进', exact=True).click()
+                    current = dialog.locator('.development-action:visible').last
+                    expect(current.locator('.el-form-item').filter(has=page.locator('label', has_text='跟进状态'))).to_contain_text('一次请求')
                 for pos in [0,400,100000]:
                     dialog.locator('.el-dialog__body').evaluate('(el,pos)=>el.scrollTop=pos',pos)
                     expect(dialog.get_by_role('button',name='保存',exact=True)).to_be_visible()
@@ -160,7 +235,7 @@ def run():
             dialog.get_by_role('button',name='取消',exact=True).click()
             assert not errors, errors
             browser.close()
-        print(json.dumps(dict(ok=True,checks=['日期一致','列顺序','防抖与清空','双渠道添加','实际操作人','未知统计','拖动与边界','关闭与复位','新增编辑固定底部','小屏窗口']),ensure_ascii=False))
+        print(json.dumps(dict(ok=True,checks=['默认历史记录与每页10条','日期筛选、清空与重置','列顺序','防抖与清空','双渠道添加','实际操作人','未知统计','拖动与边界','关闭与复位','新增编辑固定底部','小屏窗口','微信企微全部新状态及保存','请求未通过和已删不显示入库表单','新增一次请求与快捷已添加默认值','高级筛选与表头多选新状态']),ensure_ascii=False))
     finally:
         process.terminate()
         try:

@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, Uuid, text
 from models import Base
 
 
@@ -21,12 +21,30 @@ class AnnotationMaterialUpload(Base):
     consumed_at = Column(DateTime)
 
 
+class AnnotationMaterialFolder(Base):
+    __tablename__ = 'annotation_material_folder'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'parent_id', 'name', name='uq_annotation_material_folder_sibling'),
+        Index('uq_annotation_material_folder_root', 'project_id', 'name', unique=True,
+              postgresql_where=text('parent_id IS NULL'), sqlite_where=text('parent_id IS NULL')),
+    )
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id = Column(Uuid, ForeignKey('annotation_project.id', ondelete='CASCADE'), nullable=False, index=True)
+    parent_id = Column(Uuid, ForeignKey('annotation_material_folder.id', ondelete='CASCADE'))
+    name = Column(String(100), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class AnnotationMaterialFile(Base):
     __tablename__ = 'annotation_material_file'
-    __table_args__ = (CheckConstraint("category IN ('project','quotation','contract')", name='ck_annotation_material_category'),)
+    __table_args__ = (
+        CheckConstraint("category IN ('project','quotation','contract')", name='ck_annotation_material_category'),
+        CheckConstraint("folder_id IS NULL OR category = 'project'", name='ck_annotation_material_folder_category'),
+    )
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id = Column(Uuid, ForeignKey('annotation_project.id', ondelete='CASCADE'), nullable=False, index=True)
     category = Column(String(20), nullable=False)
+    folder_id = Column(Uuid, ForeignKey('annotation_material_folder.id', ondelete='SET NULL', name='fk_annotation_material_file_folder'), index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -48,5 +66,5 @@ class AnnotationMaterialDeletion(Base):
 
 
 MATERIAL_TABLES = [model.__table__ for model in (
-    AnnotationMaterialUpload, AnnotationMaterialFile, AnnotationMaterialVersion, AnnotationMaterialDeletion,
+    AnnotationMaterialUpload, AnnotationMaterialFolder, AnnotationMaterialFile, AnnotationMaterialVersion, AnnotationMaterialDeletion,
 )]

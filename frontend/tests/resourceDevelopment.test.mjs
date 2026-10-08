@@ -37,11 +37,27 @@ test('私域入库只接受新增或修正成功状态，历史及日期修改�
 
 
 import { sameDayRange, friendFollowUpOptions, developmentColumns } from '../src/utils/resourceDevelopment.js'
-test('默认查询同一天，加微跟进在企微后，双渠道预设独立记录', () => {
+test('同日日期工具，加微跟进在企微后，双渠道预设独立记录', () => {
   assert.deepEqual(sameDayRange(new Date(2026, 9, 6)), ['2026-10-06', '2026-10-06'])
   const keys = developmentColumns.map(c => c.key)
   assert.equal(keys.indexOf('latest_follow_up'), keys.indexOf('enterprise_status') + 1)
   assert.deepEqual(friendFollowUpOptions.find(p => p.label === '已添加微信和企微').channels, ['wechat', 'enterprise'])
-  assert.equal(friendFollowUpOptions.find(p => p.label === '二次添加微信').status, '二次添加')
-  assert.equal(hasNewPrivateEntry([{id:'retry', channel:'wechat', status:'二次添加'}]), false)
+  assert.equal(friendFollowUpOptions.find(p => p.label === '微信：二次请求').status, '二次请求')
+  assert.equal(hasNewPrivateEntry([{id:'retry', channel:'wechat', status:'二次请求'}]), false)
+})
+
+test('微信企微状态顺序、快捷默认值与非成功状态入库保护', () => {
+  const expected = ['未处理', '搜不到', '一次请求', '一次请求未通过', '二次请求', '二次请求未通过', '三次请求', '三次请求未通过', '已添加', '（对方）已删']
+  for (const channel of ['wechat', 'enterprise']) {
+    assert.deepEqual(progressStatuses(channel), expected)
+    assert.equal(defaultProgressStatus(channel), '已添加')
+    for (const status of expected.filter(s => s !== '已添加')) {
+      assert.equal(hasNewPrivateEntry([{ id: status, channel, status }]), false)
+    }
+    for (const status of expected.slice(2).filter(s => s !== '已添加')) {
+      assert.ok(friendFollowUpOptions.some(p => p.status === status && p.channels.includes(channel)))
+    }
+  }
+  assert.equal(defaultProgressStatus('communication'), '已沟通')
+  assert.equal(defaultProgressStatus('project'), '已入项')
 })

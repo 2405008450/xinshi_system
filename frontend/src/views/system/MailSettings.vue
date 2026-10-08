@@ -69,9 +69,10 @@
         <el-form-item label="成员" prop="user_ids">
           <InternalMailRecipientSelector
             v-model="groupForm.user_ids"
-            :users="validUsers"
+            :users="users"
             placeholder="请选择邮件组成员"
           />
+          <div class="el-form-item__help">停用或清空邮箱的用户会自动移出；成员可清空，空组不能作为有效收件人。</div>
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="groupForm.is_active" /></el-form-item>
       </AppForm>
@@ -96,9 +97,8 @@ const projectTypes = [{value:'translation',label:'笔译项目'},{value:'interpr
 const policies = reactive(Object.fromEntries(projectTypes.map((item)=>[item.value,{to_group_ids:[],cc_group_ids:[]}])) )
 const policyFormRefs = {}, policySaving = reactive({})
 const groupFormRef=ref(null),groupSaving=ref(false)
-const groupRules={name:[{required:true,whitespace:true,max:100,message:'请填写组名（最多100字）',trigger:'blur'}],user_ids:[{type:'array',required:true,min:1,message:'请选择邮件组成员',trigger:'change'}]}
+const groupRules={name:[{required:true,whitespace:true,max:100,message:'请填写组名（最多100字）',trigger:'blur'}]}
 const groupForm = reactive({id:'',name:'',description:'',is_active:true,user_ids:[]})
-const validUsers = computed(()=>users.value.filter((item)=>item.is_active && item.email))
 const activeGroups = computed(()=>groups.value.filter((item)=>item.is_active))
 
 const load = async()=>{ loading.value=true; try { const [status,groupRows,userRows,dailyRows,...policyRows]=await Promise.all([mailApi.getMailStatus(),mailApi.getMailGroups(),userApi.getUsers({skip:0,limit:500}),mailApi.getDailyReportMailPolicies(),...projectTypes.map((item)=>mailApi.getMailPolicy(item.value))]); Object.assign(mailStatus,status); groups.value=groupRows; users.value=userRows; dailyReportPolicies.value=dailyRows.map(row=>({...row,to_group_ids:[...(row.to_group_ids||[])],cc_group_ids:[...(row.cc_group_ids||[])],_saving:false})); policyRows.forEach((row,index)=>Object.assign(policies[projectTypes[index].value],{to_group_ids:row.to_group_ids,cc_group_ids:row.cc_group_ids})) } catch(error){ElMessage.error(error.detail||'加载邮件设置失败')} finally{loading.value=false} }

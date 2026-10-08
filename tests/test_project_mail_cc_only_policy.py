@@ -72,12 +72,12 @@ def test_save_project_policy_still_requires_at_least_one_group():
 
 
 def test_policy_recipients_returns_cc_members_without_default_to(monkeypatch):
-    cc_user = SimpleNamespace(id=uuid4())
+    cc_user = SimpleNamespace(id=uuid4(), is_active=True, email="cc@example.com")
     policy = SimpleNamespace(groups=[SimpleNamespace(
         recipient_type="cc",
         group=SimpleNamespace(
             is_active=True,
-            members=[SimpleNamespace(user_id=cc_user.id)],
+            members=[SimpleNamespace(user_id=cc_user.id, user=cc_user)],
         ),
     )])
     monkeypatch.setattr(business_mail_service, "_policy", lambda *_args: policy)

@@ -15,15 +15,39 @@
         <h3>资源资料</h3>
         <div class="development-form-grid">
           <el-form-item label="招呼编号"><ReadonlyField :model-value="greetingNo" source="auto" placeholder="保存后自动生成" /></el-form-item>
-          <el-form-item label="资源姓名" prop="full_name"><el-input v-model="form.full_name" maxlength="255" @blur="checkName" /></el-form-item>
+          <el-form-item label="资源姓名" prop="full_name">
+            <el-input v-model="form.full_name" maxlength="255" @blur="checkRecordName()" />
+            <div v-if="!form.revision && !quickMode" class="record-name-check" aria-live="polite">
+              <span v-if="recordChecking" class="muted">正在检查同名开拓记录…</span>
+              <template v-if="recordCheckFailed"><span class="record-name-warning">查重失败，请重试</span><el-button link type="primary" @click="checkRecordName()">重试</el-button></template>
+              <template v-if="recordTotal && !recordCheckFailed">
+                <span class="record-name-warning">资源开拓中存在 {{ recordTotal }} 条同名记录，请人工核实</span>
+                <el-popover v-model:visible="recordPopover" trigger="click" placement="bottom-end" :width="760" :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 16 } }] }" title="同名资源开拓记录" popper-class="record-name-duplicates-popover">
+                  <template #reference><el-button link type="primary">查看同名记录</el-button></template>
+                  <div v-loading="recordChecking" class="record-name-duplicates-body">
+                    <el-descriptions v-for="item in recordCandidates" :key="item.id" :column="2" border size="small" class="record-name-duplicate-item">
+                      <el-descriptions-item label="资源姓名">{{ item.full_name || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="招呼编号">{{ item.greeting_no || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="微信号">{{ item.contact_restricted ? '受限' : item.wechat || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="手机号">{{ item.contact_restricted ? '受限' : item.phone || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="开拓人员">{{ item.owner_name || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="开拓平台">{{ item.platform_name || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="业务日期" :span="2">{{ duplicateDate(item.work_date) }}</el-descriptions-item>
+                    </el-descriptions>
+                  </div>
+                  <el-pagination v-if="recordTotal > 20" small layout="prev, pager, next" :page-size="20" :total="recordTotal" :current-page="recordPage" @current-change="checkRecordName" />
+                  <div class="record-name-duplicates-footer"><span>同名仅作提醒，请人工核实是否为同一人。</span><el-button link type="primary" @click="recordPopover = false">关闭</el-button></div>
+                </el-popover>
+              </template>
+            </div>
+          </el-form-item>
           <el-form-item label="资源语种/方言" class="wide"><el-select v-model="form.language_ids" multiple filterable><el-option v-for="l in options.languages" :key="l.id" :label="`${l.label}${l.language_type === 'dialect' ? '（方言）' : ''}`" :value="l.id" /></el-select></el-form-item>
           <el-form-item label="资源手机" prop="phone"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
           <el-form-item label="资源微信号" prop="wechat"><el-input v-model="form.wechat" maxlength="100" /></el-form-item>
         </div>
         </template>
-        <el-alert v-if="nameCandidates.length && !needsEnrollment" type="warning" :closable="false" :title="`人才总库有 ${nameCandidates.length} 条疑似匹配，添加成功时请确认关联。`" />
         <h3>跟进进展</h3>
-        <el-form-item v-if="friendMode" label="加微跟进" prop="friend_choice" :rules="required('请选择加微跟进情况')"><el-select v-model="form.friend_choice" placeholder="选择添加情况" @change="chooseFriendFollowUp"><el-option v-for="item in friendFollowUpOptions" :key="item.label" :label="item.label" :value="item.label" /></el-select><small class="muted">二次、三次添加用于记录再次发送请求；确认添加成功后请选择“已添加”。</small></el-form-item>
+        <el-form-item v-if="friendMode" label="加微跟进" prop="friend_choice" :rules="required('请选择加微跟进情况')"><el-select v-model="form.friend_choice" placeholder="选择添加情况" @change="chooseFriendFollowUp"><el-option v-for="item in friendFollowUpOptions" :key="item.label" :label="item.label" :value="item.label" /></el-select><small class="muted">一次、二次、三次请求用于记录发送请求；未获通过请选择对应的“请求未通过”，被对方删除请选择“（对方）已删”；确认添加成功后请选择“已添加”。</small></el-form-item>
         <p v-if="historicalOnly" class="muted">历史导入记录：原表标记不自动入库；今后确认添加好友或已进群时，会查重并进入人才总库。</p><p v-else class="muted">微信、企微“已添加”或“已进群”会进入人才入库流程；“已邀进群”仅表示邀请。沟通、入项不触发入库。</p>
         <el-button v-if="quickMode" text type="primary" @click="quickMode = false">查看全部历史及资料</el-button>
         <div v-for="(action, index) in form.actions" v-show="!quickMode || !savedActionIds.includes(action.id)" :key="action.id" class="development-action" data-dialog-field-search-group>
@@ -56,7 +80,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
@@ -80,6 +104,37 @@ const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedA
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, phone: '', wechat: '', language_ids: [], follow_up: '', remarks: '', friend_choice: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
 const form = reactive(empty())
+const recordCandidates = ref([]), recordTotal = ref(0), recordPage = ref(1), recordChecking = ref(false), recordCheckFailed = ref(false), recordPopover = ref(false)
+let recordTimer, recordController, recordSequence = 0, recordQueryKey = ''
+const duplicateDate = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
+function resetRecordCheck() {
+  clearTimeout(recordTimer); recordController?.abort(); recordSequence++
+  recordQueryKey = ''; recordChecking.value = false; recordCheckFailed.value = false
+  recordCandidates.value = []; recordTotal.value = 0; recordPage.value = 1; recordPopover.value = false
+}
+async function checkRecordName(page = 1) {
+  clearTimeout(recordTimer)
+  const name = form.full_name.trim()
+  if (!visible.value || form.revision || quickMode.value || !name) return
+  const key = `${name}:${page}`
+  if (key === recordQueryKey && !recordCheckFailed.value) return
+  recordController?.abort()
+  const controller = new AbortController(), seq = ++recordSequence
+  recordController = controller; recordQueryKey = key; recordChecking.value = true; recordCheckFailed.value = false
+  try {
+    const result = await api.recordDuplicates({ full_name: name, skip: (page - 1) * 20, limit: 20 }, controller.signal)
+    if (seq !== recordSequence) return
+    recordCandidates.value = result.items; recordTotal.value = result.total; recordPage.value = page
+  } catch (error) {
+    if (seq === recordSequence && !controller.signal.aborted) { recordCheckFailed.value = true; recordQueryKey = '' }
+  } finally { if (seq === recordSequence) recordChecking.value = false }
+}
+watch(() => [visible.value, form.revision, quickMode.value, form.full_name], () => {
+  // 姓名改变即清除旧候选；新增录入的提示不参与人才入库校验。
+  resetRecordCheck()
+  if (visible.value && !form.revision && !quickMode.value && form.full_name.trim()) recordTimer = setTimeout(() => checkRecordName(), 400)
+}, { flush: 'sync' })
+onBeforeUnmount(resetRecordCheck)
 const platforms = computed(() => props.options.options.filter(o => o.kind === 'platform'))
 const accounts = computed(() => props.options.options.filter(o => o.kind === 'account'))
 const needsEnrollment = computed(() => !personId.value && hasNewPrivateEntry(form.actions, originalActions.value))
@@ -98,7 +153,7 @@ async function checkName() {
   catch (e) { if (seq === checkSequence) ElMessage.error(e.message) }
   finally { if (seq === checkSequence) checking.value = false }
 }
-function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '已发请求', action_date: dateText(new Date()), operator_id: props.options.user_id, account_id: form.account_id }) }
+function addAction(channel = 'wechat', quick = false) { form.actions.push({ id: newDevelopmentId(), channel, status: quick ? defaultProgressStatus(channel) : '一次请求', action_date: dateText(new Date()), operator_id: props.options.user_id, account_id: form.account_id }) }
 function chooseFriendFollowUp(label) {
   // 切换预设只替换本次草稿，已保存历史保持不变。
   form.actions = form.actions.filter(a => savedActionIds.value.includes(a.id))
@@ -153,3 +208,13 @@ async function save(continueAdding = false) {
 }
 defineExpose({ open })
 </script>
+
+<style>
+.record-name-check{width:100%;font-size:12px;line-height:1.6;margin-top:4px;overflow-wrap:anywhere}
+.record-name-check .el-button{margin-left:8px}.record-name-warning{color:var(--el-color-warning-dark-2)}
+.record-name-duplicates-popover{max-width:calc(100vw - 32px);box-sizing:border-box}
+.record-name-duplicates-body{max-height:min(560px,calc(100vh - 200px));overflow-y:auto}
+.record-name-duplicate-item{margin-bottom:12px}.record-name-duplicate-item .el-descriptions__table{table-layout:fixed;width:100%}
+.record-name-duplicate-item .el-descriptions__cell{overflow-wrap:anywhere;white-space:pre-wrap}
+.record-name-duplicates-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;font-size:12px;color:var(--el-text-color-secondary)}
+</style>

@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, joinedload, object_session
 
 from business_mail_models import MailRecipientGroup, MailRecipientGroupMember
+from mail_group_members import available_group_members
 from daily_report_mail_models import (
     DailyReportMailAttempt,
     DailyReportMailDelivery,
@@ -171,11 +172,8 @@ def _policy_recipients(db: Session, user_id: UUID) -> tuple[list[AppUser], list[
     for link in policy.groups:
         if not link.group or not link.group.is_active:
             raise ValueError("工作报告收件组已停用，请管理员修复邮件设置")
-        for member in link.group.members:
+        for member in available_group_members(link.group):
             recipient = member.user
-            if not recipient or not recipient.is_active or not _valid_email(recipient.email):
-                label = _display_user(recipient) if recipient else str(member.user_id)
-                raise ValueError(f"收件组成员“{label}”已停用或缺少有效邮箱")
             if recipient.id not in seen_ids[link.recipient_type]:
                 seen_ids[link.recipient_type].add(recipient.id)
                 ordered[link.recipient_type].append(recipient)

@@ -2,6 +2,7 @@ import api from './index'
 
 const base = '/projects/annotation'
 export const listMaterials = projectId => api.get(`${base}/${projectId}/materials`)
+export const listMaterialFolders = projectId => api.get(`${base}/${projectId}/material-folders`)
 export const listMaterialVersions = (projectId, fileId) => api.get(`${base}/${projectId}/materials/${fileId}/versions`)
 export const cancelMaterialUpload = id => api.delete(`${base}/material-uploads/${id}`, { timeout: 300000 })
 

@@ -35,8 +35,10 @@ def run():
                    price_items=[], assignees=[], custom_values={}, role_assignments=[], project_path=r'\\Win-server\历史\资料')
     file_id = str(uuid4())
     rows = [dict(id=str(uuid4()), file_id=file_id, category='project', version_no=1, original_name='历史资料.txt', file_size=5, uploader_name='验收用户', created_at=NOW)]
-    uploads, saves, cancels, errors = {}, [], [], []
+    uploads, saves, cancels, errors, folders = {}, [], [], [], []
     fail_next = [False]
+    fail_save_next, hold_upload = [False], [False]
+    delayed_uploads = []
 
     def route_api(route):
         request = route.request
@@ -58,29 +60,42 @@ def run():
                           expires_at=(datetime.utcnow() + timedelta(hours=24)).isoformat())
             uploads[key] = result
             status = 201
+            if hold_upload[0]:
+                hold_upload[0] = False
+                delayed_uploads.append((route, result))
+                return
         elif '/material-uploads/' in path and method == 'DELETE':
             cancels.append(path.rsplit('/', 1)[-1]); route.fulfill(status=204); return
         elif path.endswith('/download'):
             route.fulfill(body='hello', headers={'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="file.txt"'}); return
         elif path.endswith('/versions'):
-            result = sorted(rows, key=lambda row: -row['version_no'])
+            target = path.rsplit('/', 2)[-2]
+            result = sorted((row for row in rows if row['file_id'] == target), key=lambda row: -row['version_no'])
         elif path.endswith('/materials'):
             latest = {}
             for row in sorted(rows, key=lambda row: -row['version_no']): latest.setdefault(row['file_id'], row)
             result = list(latest.values())
+        elif path.endswith('/material-folders'):
+            result = folders
         elif path == '/projects/annotation/page':
             result = {'items': [project], 'total': 1}
         elif path == '/projects/annotation/' + PID:
             if method == 'PUT':
                 payload = request.post_data_json
+                if fail_save_next[0]:
+                    fail_save_next[0] = False
+                    route.fulfill(status=409, json={'detail': '模拟项目版本冲突，请重试'}); return
                 saves.append(payload)
                 changes = payload['material_changes']
+                folders.extend({**folder, 'created_at': NOW} for folder in changes.get('created_folders', []))
                 rows[:] = [row for row in rows if row['file_id'] not in changes['removed_file_ids']]
                 for item in changes['additions']:
                     original = uploads[item['upload_id']]
                     target = item.get('file_id') or str(uuid4())
                     version = max([row['version_no'] for row in rows if row['file_id'] == target] or [0]) + 1
-                    rows.append({**original, 'id': str(uuid4()), 'file_id': target, 'category': item['category'], 'version_no': version})
+                    old = next((row for row in rows if row['file_id'] == target), None)
+                    directory = old.get('folder_id') if old else item.get('folder_id')
+                    rows.append({**original, 'id': str(uuid4()), 'file_id': target, 'category': item['category'], 'folder_id': directory, 'version_no': version})
                 project.update({key: value for key, value in payload.items() if key != 'material_changes'})
                 project['updated_at'] = datetime.now().isoformat()
             result = project
@@ -191,8 +206,144 @@ def run():
             dialog.get_by_label('上传合同', exact=True).set_input_files({'name': '新合同.txt', 'mimeType': 'text/plain', 'buffer': b'hello'})
             expect(dialog.get_by_text('已暂存，等待保存项目')).to_be_visible()
             dialog.get_by_role('button', name='取消', exact=True).click()
+            # 新增态可建两级目录并上传；取消时目录和暂存资料都不保存。
+            page.get_by_role('button', name='新增标注项目', exact=True).click()
+            dialog = page.locator('.annotation-editor-dialog:visible')
+            manager = dialog.locator('.material-manager')
+            manager.scroll_into_view_if_needed()
+            expect(manager.get_by_role('button', name='新建二级文件夹', exact=True)).to_be_disabled()
+
+            def create_folder(level, name):
+                manager.get_by_role('button', name=f'新建{level}级文件夹', exact=True).click()
+                creator = page.get_by_role('dialog', name=f'新建{level}级文件夹', exact=True)
+                expect(creator).to_be_visible()
+                creator.get_by_placeholder('请输入文件夹名称').fill(name)
+                creator.get_by_role('button', name='创建', exact=True).click()
+                expect(creator).not_to_be_visible()
+
+            create_folder('一', '取消目录')
+            create_folder('二', '取消子目录')
+            manager.get_by_label('上传项目资料', exact=True).set_input_files({'name': '取消子目录资料.txt', 'mimeType': 'text/plain', 'buffer': b'hello'})
+            expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
+            dialog.get_by_role('button', name='取消', exact=True).click()
+            expect(dialog).not_to_be_visible()
+            assert folders == [] and len(saves) == 1
+
+            dialog = edit()
+            manager = dialog.locator('.material-manager')
+            manager.scroll_into_view_if_needed()
+            manager.get_by_role('button', name='新建一级文件夹', exact=True).click()
+            creator = page.get_by_role('dialog', name='新建一级文件夹', exact=True)
+            creator.get_by_role('button', name='创建', exact=True).click()
+            expect(creator.locator('.el-form-item.is-error input')).to_be_focused()
+            page.wait_for_timeout(300)
+            panel = creator.locator('.el-dialog')
+            initial = panel.bounding_box()
+            header = creator.locator('.el-dialog__header').bounding_box()
+            page.mouse.move(header['x'] + 160, header['y'] + 10); page.mouse.down(); page.mouse.move(header['x'] + 240, header['y'] + 60, steps=8); page.mouse.up()
+            assert abs(panel.bounding_box()['x'] - initial['x']) > 30
+            moved_header = creator.locator('.el-dialog__header').bounding_box()
+            page.mouse.move(moved_header['x'] + 160, moved_header['y'] + 10); page.mouse.down(); page.mouse.move(3000, 2000, steps=8); page.mouse.up()
+            bounded = panel.bounding_box()
+            assert bounded['x'] >= -1 and bounded['y'] >= -1 and bounded['x'] + bounded['width'] <= 1441 and bounded['y'] + bounded['height'] <= 1001
+            creator.locator('.el-dialog__headerbtn').click()
+            manager.get_by_role('button', name='新建一级文件夹', exact=True).click()
+            page.wait_for_timeout(300)
+            assert abs(panel.bounding_box()['x'] - initial['x']) < 3
+            creator.get_by_placeholder('请输入文件夹名称').fill(' 标注规范 ')
+            creator.get_by_role('button', name='创建', exact=True).click()
+            expect(creator).not_to_be_visible()
+            expect(manager.locator('.material-folder-path')).to_have_text('当前目录：项目资料 / 标注规范')
+
+            manager.get_by_role('button', name='新建二级文件夹', exact=True).click()
+            second_creator = page.get_by_role('dialog', name='新建二级文件夹', exact=True)
+            expect(second_creator.locator('.el-select')).to_contain_text('标注规范')
+            second_creator.get_by_placeholder('请输入文件夹名称').fill('中文规范')
+            second_creator.get_by_role('button', name='创建', exact=True).click()
+            expect(second_creator).not_to_be_visible()
+            expect(manager.locator('.material-folder-path')).to_have_text('当前目录：项目资料 / 标注规范 / 中文规范')
+            # 在二级目录中再次创建二级，默认仍指向它的一级父目录。
+            manager.get_by_role('button', name='新建二级文件夹', exact=True).click()
+            expect(second_creator.locator('.el-select')).to_contain_text('标注规范')
+            second_creator.get_by_role('button', name='取消', exact=True).click()
+
+            hold_upload[0] = True
+            manager.get_by_label('上传项目资料', exact=True).set_input_files({'name': '目录手册.txt', 'mimeType': 'text/plain', 'buffer': b'hello'})
+            expect(manager.get_by_text('目录手册.txt', exact=False)).to_be_visible()
+            manager.locator('.material-folder-tree').get_by_text('项目资料（根目录）', exact=True).click()
+            expect(manager.get_by_text('历史资料.txt', exact=True)).not_to_be_visible()
+            expect(manager.get_by_text('新版资料.txt', exact=True)).to_be_visible()
+            expect(manager.get_by_text('目录手册.txt', exact=False)).not_to_be_visible()
+            assert delayed_uploads
+            held_route, held_result = delayed_uploads.pop()
+            held_route.fulfill(status=201, json=held_result)
+            manager.locator('.material-folder-tree').get_by_text('中文规范', exact=True).click()
+            expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
+
+            # 同父目录重名禁止，不同父目录允许同名。
+            manager.get_by_role('button', name='新建一级文件夹', exact=True).click()
+            creator.get_by_placeholder('请输入文件夹名称').fill('标注规范')
+            creator.get_by_role('button', name='创建', exact=True).click()
+            expect(creator.get_by_text('同一目录下已存在同名文件夹', exact=True)).to_be_visible()
+            creator.get_by_placeholder('请输入文件夹名称').fill('交付资料')
+            creator.get_by_role('button', name='创建', exact=True).click()
+            expect(creator).not_to_be_visible()
+            create_folder('二', '中文规范')
+            fail_save_next[0] = True
+            dialog.get_by_role('button', name='保存', exact=True).click()
+            expect(dialog.get_by_text('模拟项目版本冲突，请重试', exact=True)).to_be_visible()
+            expect(dialog).to_be_visible()
+            assert folders == [] and len(saves) == 1
+            dialog.get_by_role('button', name='保存', exact=True).click()
+            expect(dialog).not_to_be_visible(timeout=10000)
+            assert len(folders) == 4 and len(saves) == 2
+            created = saves[-1]['material_changes']['created_folders']
+            root_id = next(folder['id'] for folder in created if folder['name'] == '标注规范')
+            child_id = next(folder['id'] for folder in created if folder['parent_id'] == root_id)
+            assert saves[-1]['material_changes']['additions'][0]['folder_id'] == child_id
+
+            dialog = edit()
+            manager = dialog.locator('.material-manager')
+            manager.scroll_into_view_if_needed()
+            expect(manager.get_by_text('待保存', exact=True)).not_to_be_visible()
+            manager.locator('.material-folder-tree').get_by_text('中文规范', exact=True).first.click()
+            expect(manager.get_by_text('目录手册.txt', exact=True)).to_be_visible()
+            manager.get_by_label('为目录手册.txt上传新版').set_input_files({'name': '目录新版.txt', 'mimeType': 'text/plain', 'buffer': b'hello'})
+            expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
+            dialog.get_by_role('button', name='保存', exact=True).click()
+            expect(dialog).not_to_be_visible(timeout=10000)
+            assert saves[-1]['material_changes']['additions'][0]['folder_id'] == child_id
+
+            dialog = edit()
+            manager = dialog.locator('.material-manager')
+            manager.scroll_into_view_if_needed()
+            manager.locator('.material-folder-tree').get_by_text('中文规范', exact=True).first.click()
+            manager.get_by_role('button', name='历史版本', exact=True).click()
+            history_dialog = page.get_by_role('dialog', name='资料历史版本')
+            expect(history_dialog.get_by_text('V1 · 目录手册.txt', exact=True)).to_be_visible()
+            with page.expect_download() as download:
+                history_dialog.get_by_role('button', name='下载', exact=True).last.click()
+            assert download.value.suggested_filename == '目录手册.txt'
+            history_dialog.get_by_role('button', name='关闭', exact=True).click()
+            page.set_viewport_size({'width': 390, 'height': 844})
+            manager.scroll_into_view_if_needed()
+            tree_box = manager.locator('.material-folder-tree').bounding_box()
+            files_box = manager.locator('.material-directory-files').first.bounding_box()
+            assert files_box['y'] >= tree_box['y'] + tree_box['height'] - 1
+            footer = dialog.locator('.el-dialog__footer').bounding_box()
+            assert footer['y'] >= 0 and footer['y'] + footer['height'] <= 845
+            page.screenshot(path=str(out / 'folders-mobile.png'))
+            dialog.get_by_role('button', name='取消', exact=True).click()
+            page.set_viewport_size({'width': 1440, 'height': 1000})
+            page.get_by_role('button', name='项目资料', exact=True).first.click()
+            popover = page.locator('.annotation-material-popover:visible')
+            popover.locator('.material-folder-tree').get_by_text('中文规范', exact=True).first.click()
+            expect(popover.get_by_text('目录新版.txt', exact=True)).to_be_visible()
+            assert popover.locator('input[type=file]').count() == 0
+            expect(popover.get_by_role('button', name='新建一级文件夹', exact=True)).not_to_be_visible()
+            page.screenshot(path=str(out / 'folders-readonly.png'))
             assert not errors, errors
-            report = {'status': 'passed', 'checks': ['取消上传不保存', '失败阻止保存及重试', '新版随保存生效', '历史下载', '拖动及视口边界', '重开复位', '小屏固定底部', '只读资料浮层', '新增态上传'], 'page_errors': errors}
+            report = {'status': 'passed', 'checks': ['取消上传不保存', '失败阻止保存及重试', '新版随保存生效', '历史下载', '拖动及视口边界', '重开复位', '小屏固定底部', '只读资料浮层', '新增态上传', '新增态两级目录及取消', '目录表单校验与焦点', '目录弹窗拖拽边界及复位', '一级及二级默认父目录', '上传中切换目录归属稳定', '同父重名及异父同名', '保存失败保留目录及重试', '目录持久化及新版归属', '目录历史下载', '目录小屏上下布局及固定底部', '只读浮层分级浏览'], 'page_errors': errors}
             (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(report, ensure_ascii=False))
             browser.close()

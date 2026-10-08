@@ -517,6 +517,12 @@ class DeleteQuery:
     def filter(self, *_args):
         return self
 
+    def filter_by(self, **_kwargs):
+        return self
+
+    def delete(self, **_kwargs):
+        return len(self.rows)
+
     def with_for_update(self):
         return self
 
@@ -544,8 +550,8 @@ class DeleteDb:
         return self.project
 
     def query(self, target):
-        from annotation_material_models import AnnotationMaterialFile
-        if target is AnnotationProject.id or target is AnnotationMaterialFile:
+        from annotation_material_models import AnnotationMaterialFile, AnnotationMaterialFolder
+        if target is AnnotationProject.id or target is AnnotationMaterialFile or target is AnnotationMaterialFolder:
             return DeleteQuery([])
         if target is AnnotationProject:
             return DeleteQuery([self.project] if self.project else [])
@@ -629,6 +635,6 @@ def test_delete_annotation_project_cleans_released_assignment_and_image_files(mo
     assert annotation_service.delete_annotation_project(db, project.id) is True
 
     assert db.deleted == [assignment, project]
-    assert db.flush_count == 1
+    assert db.flush_count == 2
     assert db.commit_count == 1
     assert cleaned_images == ["project-image.png"]
