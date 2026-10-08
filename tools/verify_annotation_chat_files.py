@@ -10,8 +10,8 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5':
-    raise SystemExit('仅允许局域网调试机运行')
+if socket.gethostname().upper() != 'PC':
+    raise SystemExit('仅允许本机运行')
 import main
 import httpx
 from database import SessionLocal

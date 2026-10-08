@@ -158,6 +158,7 @@ from project_audit_models import ProjectOperationAudit
 from annotation_manager_change_models import AnnotationManagerChangeLog
 from project_order_no_models import ProjectOrderNoReservation
 from talent_overview_models import TalentOverviewSnapshot
+from routers import talent_overview_wecom
 from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
@@ -265,6 +266,8 @@ app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
 from routers import resource_development
 app.include_router(resource_development.router)
+from routers import referral_development
+app.include_router(referral_development.router)
 app.include_router(recruitment_projects.router)
 app.include_router(project_languages.router)
 app.include_router(user_roles.router)
@@ -273,6 +276,7 @@ app.include_router(clients.router)
 app.include_router(client_contacts.router)
 app.include_router(translators.router)
 app.include_router(talents.router)
+app.include_router(talent_overview_wecom.router)
 app.include_router(talents.recruitment_router)
 app.include_router(talent_options.router)
 app.include_router(workflow.router)

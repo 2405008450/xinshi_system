@@ -19,8 +19,8 @@ from tools.talent_remark_rules import CONTACT_FIELDS, CONTACT_MAP, vacant
 
 
 def main():
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or ROOT != Path(r"E:\xinshi_system"):
-        raise RuntimeError("页面运行验收仅允许在局域网调试机")
+    if socket.gethostname().upper() != "PC" or ROOT != Path(r"E:\xinshi_system"):
+        raise RuntimeError("页面运行验收仅允许在本机")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()

@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or 'xinshi_validation' not in str(ROOT):
-        raise SystemExit('仅允许在局域网调试机隔离验证目录运行')
+    if socket.gethostname().upper() != 'PC' or 'xinshi_validation' not in str(ROOT):
+        raise SystemExit('仅允许在本机隔离验证目录运行')
     pg_bin = Path(r'C:\Program Files\PostgreSQL\18\bin')
     data = Path(tempfile.mkdtemp(prefix='material-pg-', dir=ROOT))
     with socket.socket() as probe:
@@ -37,7 +37,7 @@ def run():
         environment = {**os.environ, 'DATABASE_URL': 'sqlite://',
                        'SECRET_KEY': 'isolated-material-test-signing-key-not-for-production', 'PYTHONIOENCODING': 'utf-8',
                        'MATERIAL_TEST_DATABASE_URL': f'postgresql+psycopg2://material_test@127.0.0.1:{port}/postgres'}
-        result = subprocess.run([r'E:\xinshi_system\.conda_env\python.exe', '-m', 'pytest', 'tests/test_annotation_materials.py', '-q', '--disable-warnings', '--maxfail=2'], cwd=ROOT, env=environment)
+        result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_annotation_materials.py', '-q', '--disable-warnings', '--maxfail=2'], cwd=ROOT, env=environment)
         return result.returncode
     finally:
         command(pg_bin / 'pg_ctl.exe', '-D', data, '-m', 'fast', '-w', 'stop')

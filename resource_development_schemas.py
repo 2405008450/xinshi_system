@@ -115,3 +115,58 @@ class OptionWrite(CleanModel):
 class LanguageWrite(CleanModel):
     label: str = Field(min_length=1, max_length=100)
     language_type: Literal["language", "dialect"] = "language"
+
+
+class ArrangementTargetWrite(CleanModel):
+    kind: Literal["request", "manual", "internal"]
+    request_id: UUID | None = None
+    language_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.kind == "request" and (not self.request_id or not self.language_id):
+            raise ValueError("需求开拓方向必须包含需求和语种")
+        if self.kind == "manual" and (not self.language_id or self.request_id):
+            raise ValueError("自选开拓方向必须且只能包含语种")
+        if self.kind == "internal" and (self.language_id or self.request_id):
+            raise ValueError("内部招聘不关联语种或需求")
+        return self
+
+
+class ArrangementProjectWrite(CleanModel):
+    source_type: Literal["annotation", "recruitment", "interpretation", "translation"]
+    project_id: UUID
+
+
+class ArrangementCellWrite(CleanModel):
+    platform_id: UUID
+    owner_id: UUID | None = None
+    targets: list[ArrangementTargetWrite] = Field(default_factory=list, max_length=100)
+    projects: list[ArrangementProjectWrite] = Field(default_factory=list, max_length=100)
+    remarks: str = Field(default="", max_length=20000)
+
+    @model_validator(mode="after")
+    def unique_sources(self):
+        targets = [(t.kind, t.request_id, t.language_id) for t in self.targets]
+        projects = [(p.source_type, p.project_id) for p in self.projects]
+        if len(set(targets)) != len(targets) or len(set(projects)) != len(projects):
+            raise ValueError("开拓方向和关联项目不能重复")
+        return self
+
+
+class ArrangementWrite(CleanModel):
+    revision: int = Field(ge=0)
+    cells: list[ArrangementCellWrite] = Field(default_factory=list, max_length=200)
+    remarks: str | None = Field(default=None, max_length=20000)
+    carried_from: date | None = None
+
+    @model_validator(mode="after")
+    def unique_platforms(self):
+        if len({c.platform_id for c in self.cells}) != len(self.cells):
+            raise ValueError("同一天的平台账号不能重复")
+        return self
+
+
+class ArrangementCompletionWrite(CleanModel):
+    revision: int = Field(ge=1)
+    completed: bool

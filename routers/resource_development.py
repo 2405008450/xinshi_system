@@ -17,11 +17,17 @@ from resource_development_schemas import GroupActionWrite, LanguageWrite, Option
 from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, work_result
 from permission_service import user_has_permission
 from resource_development_service import can_delegate, can_delete_record
+from routers.resource_arrangements import router as arrangement_router
+from routers.resource_channels import router as channel_router
+from resource_channel_schemas import ChannelWrite
+from resource_channel_service import save_channel, save_description
 
 
 router = APIRouter(prefix="/resource-development", tags=["resource_development"],
                    dependencies=[Depends(require_any_permission("talents:read", "talents:write", "translators:read", "translators:write", "resource_development:delegate"))])
 write = Depends(require_any_permission("talents:write", "translators:write", "resource_development:delegate"))
+router.include_router(arrangement_router)
+router.include_router(channel_router)
 
 
 @router.get("/options")
@@ -40,6 +46,10 @@ def create_option(payload: OptionWrite, db: Session = Depends(get_db), user=Depe
     lock_writes(db)
     if payload.kind == "platform" and not payload.category:
         raise HTTPException(422, "请选择平台分类")
+    if payload.kind == "platform":
+        result = save_channel(db, user, ChannelWrite(name=payload.name, category=payload.category, description=payload.description))
+        db.commit()
+        return result
     existing = db.query(Option).filter(Option.kind == payload.kind, func.lower(Option.name) == payload.name.lower()).first()
     if existing:
         return snapshot(existing)
@@ -62,6 +72,10 @@ def update_option(option_id: UUID, payload: OptionWrite, db: Session = Depends(g
     check_revision(row, payload.revision)
     if payload.name != row.name or payload.kind != row.kind or payload.category != row.category:
         raise HTTPException(422, "此入口只修改平台说明")
+    if row.kind == "platform":
+        result = save_description(db, user, row.id, payload.description, payload.revision)
+        db.commit()
+        return result
     before = snapshot(row)
     row.description, row.revision = payload.description, row.revision + 1
     audit(db, user, row, "update", before)

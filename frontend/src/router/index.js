@@ -199,10 +199,22 @@ const routes = [
             meta: { title: '人才概览', roles: ['*'] }
           },
           {
+            path: 'referral-development',
+            name: 'ReferralDevelopment',
+            component: () => import('../views/resource/ReferralDevelopment.vue'),
+            meta: { title: '推荐拓展', roles: ['*'], permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
+          },
+          {
             path: 'resource-development',
             name: 'ResourceDevelopment',
             component: () => import('../views/resource/ResourceDevelopment.vue'),
             meta: { title: '资源开拓', roles: ['*'], permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
+          },
+          {
+            path: 'resource-channels',
+            name: 'ResourceChannels',
+            component: () => import('../views/resource/ResourceChannels.vue'),
+            meta: { title: '渠道管理', roles: ['*'], permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
           },
           {
             path: 'talents',

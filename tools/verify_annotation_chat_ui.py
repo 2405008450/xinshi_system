@@ -1,4 +1,4 @@
-"""局域网三账号聊天联调；只创建 QA 前缀记录，结束时清理本次数据。"""
+"""本机三账号聊天联调；只创建 QA 前缀记录，结束时清理本次数据。"""
 import json
 from pathlib import Path
 import socket
@@ -8,8 +8,8 @@ from datetime import timedelta
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5':
-    raise SystemExit('仅允许在局域网调试机运行')
+if socket.gethostname().upper() != 'PC':
+    raise SystemExit('仅允许在本机运行')
 import main
 import httpx
 from playwright.sync_api import sync_playwright, expect

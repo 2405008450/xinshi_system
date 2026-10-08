@@ -62,11 +62,12 @@ test('人才概览代表行合计准确，空白和零保持不同显示', () =>
 
 test('人才资源导航把人才概览放在人才总库左侧', () => {
   assert.deepEqual(
-    TALENT_RESOURCE_VIEWS.map(item => item.label),
-    ['人才概览', '人才总库', '资源开拓'],
+    TALENT_RESOURCE_VIEWS.slice(0, 4).map(item => item.label),
+    ['人才概览', '人才总库', '资源开拓', '渠道管理'],
   )
   assert.equal(TALENT_RESOURCE_VIEWS[0].path, '/resource-management/talent-overview')
   assert.equal(TALENT_RESOURCE_VIEWS[2].path, '/resource-management/resource-development')
+  assert.equal(TALENT_RESOURCE_VIEWS[3].path, '/resource-management/resource-channels')
   assert.deepEqual(TALENT_RESOURCE_VIEWS[1].children.map(item => item.label), ['笔译资源', '口译资源', '标注资源', '全职资源'])
 })
 

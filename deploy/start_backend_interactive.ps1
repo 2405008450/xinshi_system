@@ -1,12 +1,13 @@
 param(
     [string]$SharePath = ('\\Win-server\' + (-join ([char[]](0x670D, 0x52A1, 0x5668, 0x8D44, 0x6599, 0x37)))),
     [int]$MaxAttempts = 720,
-    [int]$RetryDelaySeconds = 5
+    [int]$RetryDelaySeconds = 5,
+    [string]$PythonPath = '.venv\Scripts\python.exe'
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = 'E:\xinshi_system'
-$pythonExecutable = Join-Path $projectRoot '.conda_env\python.exe'
+$pythonExecutable = Join-Path $projectRoot $PythonPath
 $logDirectory = Join-Path $projectRoot 'logs'
 $startupLog = Join-Path $logDirectory 'backend-interactive-startup.log'
 

@@ -17,6 +17,14 @@ class TalentOverviewColumn(BaseModel):
     width: int
 
 
+class TalentOverviewWecomSummary(BaseModel):
+    built_group_count: int = 0
+    unbuilt_group_count: int = 0
+    recorded_group_count: int = 0
+    people_count_total: Optional[int] = None
+    latest_statistics_date: Optional[date] = None
+
+
 class TalentOverviewRow(BaseModel):
     overview_key: str
     language: str
@@ -24,6 +32,7 @@ class TalentOverviewRow(BaseModel):
     updated_at: Optional[date] = None
     counts: dict[str, Optional[int]]
     row_total: int
+    wecom_summary: TalentOverviewWecomSummary = Field(default_factory=TalentOverviewWecomSummary)
 
 
 class TalentOverviewResponse(BaseModel):

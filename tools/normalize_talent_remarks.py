@@ -56,8 +56,8 @@ def outside(path):
 
 
 def context(args):
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or ROOT != Path(r"E:\xinshi_system"):
-        raise RuntimeError("运行及数据库操作仅允许在指定局域网调试机")
+    if socket.gethostname().upper() != "PC" or ROOT != Path(r"E:\xinshi_system"):
+        raise RuntimeError("运行及数据库操作仅允许在指定本机 PC")
     from database import engine
     if engine.url.host != args.expected_host or engine.url.database != args.expected_database:
         raise RuntimeError("实际数据库目标与指定目标不符")

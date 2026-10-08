@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import mapped_column
 from models import Base
 
@@ -17,6 +17,24 @@ class DevelopmentOption(Base):
     code = mapped_column(String(30), unique=True)
     description = mapped_column(Text, nullable=False, default="")
     revision = mapped_column(Integer, nullable=False, default=1)
+    purpose = mapped_column(Text, nullable=False, default="", server_default="")
+    # 历史平台的创建信息未知，迁移时保留空值，不伪造创建时间。
+    created_by = mapped_column(Uuid, ForeignKey("app_user.id"))
+    updated_by = mapped_column(Uuid, ForeignKey("app_user.id"))
+    created_at = mapped_column(DateTime)
+    updated_at = mapped_column(DateTime)
+
+
+class DevelopmentChannelMember(Base):
+    """平台人员分工；名单只记录责任，不参与访问权限判断。"""
+    __tablename__ = "resource_development_channel_member"
+    __table_args__ = (
+        CheckConstraint("role IN ('maintainer', 'user')", name="ck_channel_member_role"),
+        Index("ix_channel_member_user_role", "user_id", "role"),
+    )
+    platform_id = mapped_column(Uuid, ForeignKey("resource_development_option.id", ondelete="CASCADE"), primary_key=True)
+    user_id = mapped_column(Uuid, ForeignKey("app_user.id"), primary_key=True)
+    role = mapped_column(String(20), primary_key=True)
 
 
 class DevelopmentCounter(Base):
@@ -140,3 +158,35 @@ class DevelopmentFriendDaily(Base):
     updated_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
     created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
     updated_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+
+class DevelopmentArrangement(Base):
+    """每日统筹；工时和日报仍使用独立的 DevelopmentWork。"""
+    __tablename__ = "resource_development_arrangement"
+    id = mapped_column(Uuid, primary_key=True, default=uuid4)
+    work_date = mapped_column(Date, nullable=False, unique=True, index=True)
+    remarks = mapped_column(Text, nullable=False, default="")
+    revision = mapped_column(Integer, nullable=False, default=1)
+    created_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
+    updated_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
+    created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+    updated_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+
+
+class DevelopmentArrangementCell(Base):
+    __tablename__ = "resource_development_arrangement_cell"
+    __table_args__ = (UniqueConstraint("arrangement_id", "platform_id"),)
+    id = mapped_column(Uuid, primary_key=True, default=uuid4)
+    arrangement_id = mapped_column(Uuid, ForeignKey("resource_development_arrangement.id", ondelete="CASCADE"), nullable=False, index=True)
+    platform_id = mapped_column(Uuid, ForeignKey("resource_development_option.id"), nullable=False)
+    platform_name = mapped_column(String(100), nullable=False)
+    owner_id = mapped_column(Uuid, ForeignKey("app_user.id"), index=True)
+    owner_name = mapped_column(String(255), nullable=False, default="")
+    # 名称快照由服务端生成，取消需求或改字典名称不会改写历史。
+    targets = mapped_column(JSON, nullable=False, default=list)
+    projects = mapped_column(JSON, nullable=False, default=list)
+    remarks = mapped_column(Text, nullable=False, default="")
+    completed = mapped_column(Boolean, nullable=False, default=False)
+    completed_by = mapped_column(Uuid, ForeignKey("app_user.id"))
+    completed_by_name = mapped_column(String(255), nullable=False, default="")
+    completed_at = mapped_column(DateTime)

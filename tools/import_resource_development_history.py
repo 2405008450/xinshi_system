@@ -1,4 +1,4 @@
-"""局域网资源开拓历史导入；默认完整试运行回滚，--apply 才提交。"""
+"""本机资源开拓历史导入；默认完整试运行回滚，--apply 才提交。"""
 import argparse,json,socket,sys,hashlib
 from pathlib import Path
 from uuid import UUID,uuid4,uuid5,NAMESPACE_URL
@@ -8,7 +8,7 @@ sys.path.insert(0,str(ROOT))
 
 def main():
  p=argparse.ArgumentParser();p.add_argument('input');p.add_argument('--apply',action='store_true');p.add_argument('--migrate',action='store_true');p.add_argument('--output',required=True);args=p.parse_args()
- assert socket.gethostname().upper()=='WIN-LOLJ8UHT2G5' and ROOT==Path(r'E:\xinshi_system'), '仅允许局域网调试机'
+ assert socket.gethostname().upper()=='PC' and ROOT==Path(r'E:\xinshi_system'), '仅允许本机'
  import main as app_models
  from database import engine,SessionLocal
  from sqlalchemy import text

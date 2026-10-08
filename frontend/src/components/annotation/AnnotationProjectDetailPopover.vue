@@ -2,6 +2,7 @@
   <el-popover
     :trigger="trigger"
     :placement="placement"
+    :popper-options="viewportPopperOptions"
     :width="760"
     :title="popoverTitle"
     :show-after="showAfter"
@@ -108,6 +109,13 @@ const props = defineProps({
   teleported: { type: Boolean, default: true },
 })
 const emit = defineEmits(['updated'])
+// 左侧空间不足或表格横向滚动后，详情浮层仍必须完整留在视口内。
+const viewportPopperOptions = {
+  modifiers: [{
+    name: 'preventOverflow',
+    options: { rootBoundary: 'viewport', altAxis: true, tether: false, padding: 16 },
+  }],
+}
 const detail = ref(null), history = ref([]), loading = ref(false)
 const { fields: customFields, load: loadCustomFields } = useAnnotationCustomFields('project')
 const mergedLabels = new Set(['项目经理', '跟进状态'])

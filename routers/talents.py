@@ -119,7 +119,7 @@ def read_pool_language_statistics(db: Session = Depends(get_db)):
 @router.get("/overview", response_model=TalentOverviewResponse)
 def read_talent_overview(db: Session = Depends(get_db)):
     """返回人才概览统一快照；访问权限沿用人才资源库。"""
-    return get_synced_talent_overview(db)
+    return get_synced_talent_overview(db, include_wecom=True)
 
 
 @router.put(

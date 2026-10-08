@@ -529,7 +529,7 @@ def main() -> None:
     parser.add_argument("source", help="旧标注项目 XLSX 文件路径")
     parser.add_argument("--report", required=True, help="JSON 报告输出路径")
     parser.add_argument("--apply", action="store_true", help="实际写入数据库；默认仅预览")
-    parser.add_argument("--expected-host", default="WIN-LOLJ8UHT2G5", help="写入时允许的主机名")
+    parser.add_argument("--expected-host", default="PC", help="写入时允许的主机名")
     parser.add_argument("--created-by", default="admin", help="导入记录创建人用户名")
     parser.add_argument("--only-rows", default="", help="仅处理指定 Excel 行号，逗号分隔")
     parser.add_argument("--force-rows", default="", help="指定行忽略名称/路径近似去重，仍保留幂等键校验")

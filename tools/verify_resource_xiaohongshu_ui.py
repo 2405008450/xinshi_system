@@ -1,4 +1,4 @@
-"""局域网真实页面验收：微信与小红书字段、列配置和弹窗；隔离接口。"""
+"""本机真实页面验收：微信与小红书字段、列配置和弹窗；隔离接口。"""
 import copy
 import json
 import socket
@@ -19,8 +19,8 @@ DEFAULTS = ['platform_name', 'full_name', 'language_names', 'wechat', 'xiaohongs
 
 
 def run():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机执行')
     out = ROOT / '.tmp' / 'resource-xiaohongshu-ui'
     out.mkdir(parents=True, exist_ok=True)
     uid, platform, rid = [str(uuid4()) for _ in range(3)]

@@ -1,4 +1,4 @@
-"""局域网人才概览发布验收：真实接口、只读页面交互和统计快照备份。"""
+"""本机人才概览发布验收：真实接口、只读页面交互和统计快照备份。"""
 import argparse
 from datetime import timedelta
 import json
@@ -17,8 +17,8 @@ def main():
     parser.add_argument('--backup', action='store_true')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or ROOT != Path(r'E:\xinshi_system'):
-        raise SystemExit('仅允许在局域网项目执行')
+    if socket.gethostname().upper() != 'PC' or ROOT != Path(r'E:\xinshi_system'):
+        raise SystemExit('仅允许在本机项目执行')
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     import main as application  # noqa: F401，注册 ORM 关系

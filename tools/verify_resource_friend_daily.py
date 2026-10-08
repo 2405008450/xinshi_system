@@ -1,4 +1,4 @@
-"""仅在局域网执行群聊统计迁移；随后运行逐例回滚的集成测试。"""
+"""仅在本机执行群聊统计迁移；随后运行逐例回滚的集成测试。"""
 import os
 from pathlib import Path
 import socket
@@ -6,8 +6,8 @@ import subprocess
 import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or ROOT != Path(r'E:\xinshi_system'):
-    raise SystemExit('仅允许在局域网调试项目执行')
+if socket.gethostname().upper() != 'PC' or ROOT != Path(r'E:\xinshi_system'):
+    raise SystemExit('仅允许在本机项目执行')
 from database import engine
 from sqlalchemy import text
 sql = (ROOT / 'data/migrations/20260924_resource_development_friend_daily.sql').read_text(encoding='utf-8-sig')

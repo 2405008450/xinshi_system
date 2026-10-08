@@ -1,4 +1,4 @@
-"""局域网调试机的迁移/回归入口，不连接生产环境。"""
+"""本机的迁移/回归入口，不连接生产环境。"""
 import argparse
 import os
 from pathlib import Path
@@ -14,8 +14,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--migrate", action="store_true")
     args = parser.parse_args()
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or ROOT != Path(r"E:\xinshi_system"):
-        raise SystemExit("仅允许在已核验的局域网调试机项目目录执行")
+    if socket.gethostname().upper() != "PC" or ROOT != Path(r"E:\xinshi_system"):
+        raise SystemExit("仅允许在已核验的本机项目目录执行")
     from database import engine
     if args.migrate:
         from sqlalchemy import text

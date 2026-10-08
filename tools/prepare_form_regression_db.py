@@ -1,4 +1,4 @@
-"""只读克隆结构到局域网独立 PostgreSQL 集群；不复制数据，不修改已有集群。"""
+"""只读克隆结构到本机独立 PostgreSQL 集群；不复制数据，不修改已有集群。"""
 import argparse
 import json
 import os
@@ -19,8 +19,8 @@ def main():
     parser.add_argument('--port', type=int, default=15439)
     parser.add_argument('--allow-cloud-schema', action='store_true')
     args = parser.parse_args()
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5':
-        parser.error('只能在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC':
+        parser.error('只能在本机执行')
     if not re.fullmatch(r'xinshi_form_regression_[a-z0-9_]{1,30}', args.database):
         parser.error('测试库名必须使用专项测试前缀')
     root = Path(args.cluster_root).resolve()
@@ -36,7 +36,7 @@ def main():
     source = make_url(values['DATABASE_URL']) if values.get('DATABASE_URL') else URL.create(
         'postgresql+psycopg2', username=values.get('DB_USER', 'postgres'), password=values.get('DB_PASSWORD'),
         host=values.get('DB_HOST', 'localhost'), port=int(values.get('DB_PORT', '5432')), database=values.get('DB_NAME', 'xinshi_system'))
-    allowed = {'localhost', '127.0.0.1', '192.168.31.144'}
+    allowed = {'localhost', '127.0.0.1'}
     if args.allow_cloud_schema:
         allowed.add('43.132.156.72')
     if source.host not in allowed:

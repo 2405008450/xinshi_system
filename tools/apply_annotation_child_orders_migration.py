@@ -1,4 +1,4 @@
-"""仅在局域网项目执行增量迁移，不修改现有业务记录。"""
+"""仅在本机项目执行增量迁移，不修改现有业务记录。"""
 import socket
 import sys
 from pathlib import Path
@@ -6,8 +6,8 @@ from pathlib import Path
 
 def run():
     root = Path.cwd().resolve()
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or str(root).lower() != r"e:\xinshi_system":
-        raise SystemExit("只能在局域网调试机 E:\\xinshi_system 执行")
+    if socket.gethostname().upper() != "PC" or str(root).lower() != r"e:\xinshi_system":
+        raise SystemExit("只能在本机 E:\\xinshi_system 执行")
     sys.path.insert(0, str(root))
     from dotenv import load_dotenv
     load_dotenv(root / ".env")

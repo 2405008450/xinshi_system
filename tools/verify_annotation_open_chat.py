@@ -1,4 +1,4 @@
-"""仅在局域网调试机运行开放群聊迁移与回归。"""
+"""仅在本机运行开放群聊迁移与回归。"""
 import argparse
 import os
 from pathlib import Path
@@ -16,13 +16,13 @@ def main():
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--allow-cloud-db', action='store_true', help='仅在用户明确授权云端数据库测试时使用')
     args = parser.parse_args()
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or ROOT != Path(r'E:\xinshi_system'):
-        raise SystemExit('仅允许在已核验的局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or ROOT != Path(r'E:\xinshi_system'):
+        raise SystemExit('仅允许在已核验的本机执行')
     from database import engine
     print('Database host:', engine.url.host, 'Python:', sys.executable, flush=True)
-    local = engine.url.host in {'localhost', '127.0.0.1', '192.168.31.144'}
+    local = engine.url.host in {'localhost', '127.0.0.1'}
     if not local and not (args.allow_cloud_db and engine.url.host == '43.132.156.72'):
-        raise SystemExit('数据库不在局域网调试机，停止迁移与测试')
+        raise SystemExit('数据库不在本机，停止迁移与测试')
     if args.migrate:
         if not local:
             from datetime import datetime

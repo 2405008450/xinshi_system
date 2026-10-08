@@ -1,4 +1,4 @@
-"""局域网姓名查重交互验收；接口隔离，不写入实际业务数据。"""
+"""本机姓名查重交互验收；接口隔离，不写入实际业务数据。"""
 import json
 import socket
 import subprocess
@@ -15,8 +15,8 @@ BASE = "http://127.0.0.1:12439"
 
 
 def run():
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or not ROOT.is_relative_to(Path(r"E:\xinshi_system")):
-        raise SystemExit("仅允许在局域网调试机执行")
+    if socket.gethostname().upper() != "PC" or not ROOT.is_relative_to(Path(r"E:\xinshi_system")):
+        raise SystemExit("仅允许在本机执行")
     out = ROOT / ".tmp" / "name-duplicates-ui"
     out.mkdir(parents=True, exist_ok=True)
     requests, saves, errors, delayed = [], [], [], []

@@ -1,4 +1,4 @@
-"""局域网真实页面账号控件验收；接口隔离，不写入业务数据。"""
+"""本机真实页面账号控件验收；接口隔离，不写入业务数据。"""
 import copy
 import json
 import re
@@ -188,8 +188,8 @@ def run(out):
 
 
 def main():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机执行')
     out = ROOT / '.tmp' / 'talent-wechat-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')

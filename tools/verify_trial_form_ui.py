@@ -1,4 +1,4 @@
-"""试采弹窗浏览器回归：全部接口模拟，不代表真实持久化验收；只在局域网隔离目录运行。"""
+"""试采弹窗浏览器回归：全部接口模拟，不代表真实持久化验收；只在本机隔离目录运行。"""
 import json, subprocess, time, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright

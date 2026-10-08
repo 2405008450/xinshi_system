@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument("source", help="旧标注项目 XLSX 文件路径")
     parser.add_argument("--report", required=True, help="JSON 报告输出路径")
     parser.add_argument("--apply", action="store_true", help="实际更新；默认仅预览")
-    parser.add_argument("--expected-host", default="WIN-LOLJ8UHT2G5")
+    parser.add_argument("--expected-host", default="PC")
     args = parser.parse_args()
 
     if args.apply and socket.gethostname().casefold() != args.expected_host.casefold():

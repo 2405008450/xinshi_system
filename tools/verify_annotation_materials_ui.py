@@ -20,8 +20,8 @@ NOW = '2026-09-29T08:00:00'
 
 
 def run():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or 'xinshi_validation' not in str(ROOT):
-        raise SystemExit('仅允许在局域网调试机隔离验证目录执行')
+    if socket.gethostname().upper() != 'PC' or 'xinshi_validation' not in str(ROOT):
+        raise SystemExit('仅允许在本机隔离验证目录执行')
     out = ROOT / '.tmp' / 'material-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')

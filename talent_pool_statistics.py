@@ -41,7 +41,7 @@ def append_pool_language_rows(data, languages):
     return _with_totals(result), bindings
 
 
-def get_synced_talent_overview(db):
+def get_synced_talent_overview(db, *, include_wecom=False):
     """串行补齐并保存共享快照，修订号防止并发旧草稿覆盖新增行。"""
     db.execute(pg_insert(TalentOverviewSnapshot).values(
         id=1, payload=_storage_payload(load_talent_overview_data()), revision=1,
@@ -61,7 +61,7 @@ def get_synced_talent_overview(db):
         if key and language.talent_overview_key != key:
             language.talent_overview_key = key
     db.commit()
-    return get_talent_overview(db)
+    return get_talent_overview(db, include_wecom=include_wecom)
 
 
 def summarize_language_people(data, languages, skills, total_people):
@@ -93,7 +93,7 @@ def summarize_language_people(data, languages, skills, total_people):
 
 
 def get_pool_language_statistics(db):
-    data = get_synced_talent_overview(db)
+    data = get_synced_talent_overview(db, include_wecom=True)
     languages = db.query(InterpretationLanguage).options(selectinload(InterpretationLanguage.aliases)).all()
     # 只读取统计所需标识，不加载姓名、联系方式等个人资料。
     skills = db.query(ResourceLanguageSkill.person_id, ResourceLanguageSkill.language_id,

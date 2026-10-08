@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机运行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机运行')
     pg_bin = Path(r'C:\Program Files\PostgreSQL\18\bin')
     output_root = ROOT / '.tmp' / 'resource-status-postgres'
     output_root.mkdir(parents=True, exist_ok=True)

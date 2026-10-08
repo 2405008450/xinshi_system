@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, expect
 
-assert socket.gethostname().upper() == 'WIN-LOLJ8UHT2G5', '仅在局域网调试机运行'
+assert socket.gethostname().upper() == 'PC', '仅在本机运行'
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 project = {'id': 'qa-files', 'order_no': 'QA-FILES', 'project_name': '加载回归', 'project_status': 'pending'}

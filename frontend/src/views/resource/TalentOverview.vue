@@ -17,6 +17,8 @@
             </span>
           </div>
           <div class="header-actions">
+            <TalentOverviewColumnSettings v-if="overviewColumns.length && !editing" :columns="configurableColumns" :defaults="defaultColumnKeys" @change="selectedColumnKeys = $event" />
+            <el-button v-if="hasActiveFilters" @click="clearAllFilters">清空筛选</el-button>
             <el-button :loading="poolLoading" :disabled="editing || loading || saving" @click="fetchPoolStatistics">刷新总库统计</el-button>
             <el-button :icon="FullScreen" @click="toggleFullscreen">
               {{ fullscreenActive ? '退出全屏' : '全屏显示' }}
@@ -42,6 +44,7 @@
         合计为原表各单元格相加，不代表去重后的人才人数；空白表示原表未填写，明确的零保留显示为 0。
         <template v-if="editing"> 当前为编辑模式，修改将在点击“保存”后统一生效。</template>
       </div>
+      <div class="overview-note">展开语种可管理多个企微项目大群。项目群人数单独汇总，未去重，各群统计日期可能不同；不计入原表合计或人才总库人数。</div>
 
       <div class="overview-note pool-statistics-note" v-loading="poolLoading">
         <strong>人才总库自动统计：</strong>
@@ -75,7 +78,13 @@
         :height="tableHeight"
         class="overview-table"
       >
-        <el-table-column prop="language" label="语种/方言" width="190" fixed="left" show-overflow-tooltip>
+        <el-table-column type="expand" width="52" fixed="left">
+          <template #default="{ row }">
+            <TalentOverviewWecomGroups v-if="tableRows.some(item => item.overviewKey === row.overviewKey)" :overview-key="row.overviewKey" :language="row.language" :writable="canWrite && !editing" @changed="refreshGroupSummaries" />
+            <p v-else class="overview-note">请先保存新增语种行，再管理企微项目大群。</p>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="editing || isColumnVisible('language')" prop="language" label="语种/方言" width="190" fixed="left" show-overflow-tooltip>
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.language"
@@ -87,7 +96,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="updatedAt" label="更新日期" width="132" fixed="left" align="center">
+        <el-table-column v-if="editing || isColumnVisible('updatedAt')" prop="updatedAt" label="更新日期" width="132" fixed="left" align="center">
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.updatedAt"
@@ -118,13 +127,23 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="人才总库 · 自动统计" header-align="center">
+        <el-table-column v-if="editing || isColumnVisible('poolPeopleCount')" label="人才总库 · 自动统计" header-align="center">
           <el-table-column prop="poolPeopleCount" label="总库人数" width="140" align="right" class-name="pool-statistics-cell">
             <template #header>
               <ConfiguredColumnHeaderFilter v-model="poolCountFilter" :definition="poolCountFilterDefinition" />
             </template>
             <template #default="{ row }">{{ poolStatistics ? formatTalentCount(poolCounts[row.overviewKey] || 0) : '—' }}</template>
           </el-table-column>
+        </el-table-column>
+
+        <el-table-column v-if="!editing && isColumnVisible('wecomGroupCounts')" prop="wecomGroupCounts" label="项目群（已建/未建）" width="175" align="center">
+          <template #default="{ row }">{{ row.wecomSummary?.builtGroupCount || 0 }} / {{ row.wecomSummary?.unbuiltGroupCount || 0 }}</template>
+        </el-table-column>
+        <el-table-column v-if="!editing && isColumnVisible('wecomPeopleCount')" prop="wecomPeopleCount" label="项目群人数（未去重）" width="190" align="right">
+          <template #default="{ row }">{{ formatOverviewCount(row.wecomSummary?.peopleCountTotal) }}<small class="wecom-count-coverage">已登记 {{ row.wecomSummary?.recordedGroupCount || 0 }}/{{ row.wecomSummary?.builtGroupCount || 0 }} 群</small></template>
+        </el-table-column>
+        <el-table-column v-if="!editing && isColumnVisible('wecomStatisticsDate')" prop="wecomStatisticsDate" label="项目群最新统计日期" width="175">
+          <template #default="{ row }">{{ formatOverviewDate(row.wecomSummary?.latestStatisticsDate) }}</template>
         </el-table-column>
 
         <el-table-column
@@ -204,7 +223,7 @@
           <template #default><span class="structure-placeholder">—</span></template>
         </el-table-column>
 
-        <el-table-column prop="rowTotal" label="合计" width="112" fixed="right" align="right" header-align="center">
+        <el-table-column v-if="editing || isColumnVisible('rowTotal')" prop="rowTotal" label="原表合计" width="112" fixed="right" align="right" header-align="center">
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.rowTotal"
@@ -213,6 +232,12 @@
             />
           </template>
           <template #default="{ row }">{{ formatTalentCount(calculateTalentRowTotal(row, displayedColumns)) }}</template>
+        </el-table-column>
+        <el-table-column label="详情" width="108" fixed="right">
+          <template #default="{ row }"><TalentOverviewManagementDetail v-if="tableRows.some(item => item.overviewKey === row.overviewKey)" :overview-key="row.overviewKey" :language="row.language" :reload-token="groupReloadToken" /></template>
+        </el-table-column>
+        <el-table-column v-if="!editing" label="操作" width="108" fixed="right">
+          <template #default="{ row }"><el-button link type="primary" @click="overviewTableRef?.toggleRowExpansion(row)">管理群</el-button></template>
         </el-table-column>
 
         <template v-if="editing" #append>
@@ -282,6 +307,10 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { getTalentOverview, getTalentPoolStatistics, saveTalentOverview } from '@/api/talents'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
+import TalentOverviewWecomGroups from '@/views/resource/components/TalentOverviewWecomGroups.vue'
+import TalentOverviewManagementDetail from '@/views/resource/components/TalentOverviewManagementDetail.vue'
+import TalentOverviewColumnSettings from '@/views/resource/components/TalentOverviewColumnSettings.vue'
+import { formatOverviewDate, formatOverviewCount } from '@/utils/talentOverviewWecom'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute } from '@/utils/dateTime'
 import {
@@ -312,6 +341,18 @@ const saving = ref(false)
 const editing = ref(false)
 const tableRows = ref([])
 const overviewColumns = ref([])
+const groupReloadToken = ref(0)
+const defaultColumnKeys = ['language', 'poolPeopleCount', 'rowTotal', 'wecomGroupCounts', 'wecomPeopleCount', 'wecomStatisticsDate']
+const selectedColumnKeys = ref([...defaultColumnKeys])
+const isColumnVisible = key => selectedColumnKeys.value.includes(key)
+const configurableColumns = computed(() => [
+  { key: 'language', label: '语种/方言' }, { key: 'updatedAt', label: '原表更新日期' },
+  { key: 'poolPeopleCount', label: '总库人数' }, { key: 'rowTotal', label: '原表合计' },
+  { key: 'wecomGroupCounts', label: '项目群（已建/未建）' },
+  { key: 'wecomPeopleCount', label: '项目群人数（未去重）' },
+  { key: 'wecomStatisticsDate', label: '项目群最新统计日期' },
+  ...overviewColumns.value.map(column => ({ key: `source:${column.key}`, label: column.label })),
+])
 const draftRows = ref([])
 const draftColumns = ref([])
 const revision = ref(1)
@@ -333,7 +374,7 @@ const addColumnFormRef = ref(null)
 const addColumnForm = reactive({ label: '', group: 'sheet' })
 const filterValues = reactive({ language: [], updatedAt: [], rowTotal: [], counts: {} })
 
-const groupLabels = { sheet: '人才资料表', wecom: '企业微信' }
+const groupLabels = { sheet: '人才资料表', wecom: '企业微信来源' }
 const canWrite = computed(() => hasPermission(['talents:write', 'translators:write']))
 const displayedRows = computed(() => editing.value ? draftRows.value : tableRows.value)
 const invalidOverviewLanguageLabels = new Set(['中', '英', '无'])
@@ -353,8 +394,8 @@ const filteredRows = computed(() => filterTalentOverviewRows(
 const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label]) => ({
   key,
   label,
-  columns: displayedColumns.value.filter(column => column.group === key),
-})))
+  columns: displayedColumns.value.filter(column => column.group === key && (editing.value || isColumnVisible(`source:${column.key}`))),
+})).filter(group => group.columns.length))
 const draftSignature = computed(() => JSON.stringify({ columns: draftColumns.value, rows: draftRows.value }))
 const isDirty = computed(() => editing.value && draftSignature.value !== draftBaseline.value)
 const fullscreenActive = computed(() => nativeFullscreen.value || fallbackFullscreen.value)
@@ -470,6 +511,18 @@ async function fetchOverview() {
   } finally {
     loading.value = false
   }
+}
+
+let groupSummarySequence = 0
+async function refreshGroupSummaries() {
+  const seq = ++groupSummarySequence
+  try {
+    const result = await getTalentOverview()
+    if (seq !== groupSummarySequence) return
+    groupReloadToken.value++
+    if (editing.value) return
+    applyOverview(result)
+  } catch { ElMessage.error('群已保存，但概览汇总刷新失败，请刷新页面') }
 }
 
 async function fetchPoolStatistics() {
@@ -630,6 +683,11 @@ function clearOverviewFilters() {
   filterValues.counts = {}
 }
 
+function clearAllFilters() {
+  poolCountFilter.value = []
+  clearOverviewFilters()
+}
+
 async function addRow() {
   finishActiveEditor()
   try {
@@ -666,6 +724,15 @@ async function confirmAddRow() {
 
 function summaryMethod({ columns }) {
   return columns.map(column => {
+    if (column.property === 'wecomPeopleCount') {
+      const values = filteredRows.value.map(row => row.wecomSummary?.peopleCountTotal).filter(value => value !== null && value !== undefined)
+      return values.length ? `${formatOverviewCount(values.reduce((sum, value) => sum + value, 0))} 人次` : '-'
+    }
+    if (column.property === 'wecomGroupCounts') {
+      const built = filteredRows.value.reduce((sum, row) => sum + (row.wecomSummary?.builtGroupCount || 0), 0)
+      const unbuilt = filteredRows.value.reduce((sum, row) => sum + (row.wecomSummary?.unbuiltGroupCount || 0), 0)
+      return `${built} / ${unbuilt}`
+    }
     if (column.property === 'poolPeopleCount') return poolStatistics.value
       ? `${formatTalentCount(filteredRows.value.reduce((sum, row) => sum + (poolCounts.value[row.overviewKey] || 0), 0))} 人次`
       : '—'
@@ -731,6 +798,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.wecom-count-coverage { display: block; color: var(--el-text-color-secondary); font-size: 11px; }
 .talent-overview-panel {
   min-height: 0;
   background: var(--el-bg-color-page);

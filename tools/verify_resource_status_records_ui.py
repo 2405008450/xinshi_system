@@ -1,4 +1,4 @@
-"""局域网跨日期开拓列表验收；页面使用隔离接口，不写入真实业务数据。"""
+"""本机跨日期开拓列表验收；页面使用隔离接口，不写入真实业务数据。"""
 import asyncio
 import copy
 import json
@@ -412,8 +412,8 @@ async def run(out):
 
 
 def main():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机执行')
     out = ROOT / '.tmp' / 'resource-status-records-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')

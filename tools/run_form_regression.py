@@ -1,4 +1,4 @@
-"""在局域网隔离目录执行回归；测试连接强制使用专用库和专用端口。"""
+"""在本机隔离目录执行回归；测试连接强制使用专用库和专用端口。"""
 import argparse
 import json
 import os
@@ -14,8 +14,8 @@ def main():
     parser.add_argument('--pg-bin', required=True)
     parser.add_argument('--scope', choices=['all', 'integration', 'ui'], default='all')
     args = parser.parse_args()
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5':
-        parser.error('测试只能在局域网调试机运行')
+    if socket.gethostname().upper() != 'PC':
+        parser.error('测试只能在本机运行')
     from sqlalchemy import create_engine, text
     from sqlalchemy.engine import make_url
     root = Path(__file__).resolve().parents[1]

@@ -1,4 +1,4 @@
-"""公共表单导航组件浏览器回归；只在局域网隔离源码目录运行。"""
+"""公共表单导航组件浏览器回归；只在本机隔离源码目录运行。"""
 from pathlib import Path
 import subprocess
 import time

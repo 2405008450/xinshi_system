@@ -139,19 +139,24 @@ def _editor_name(db: Session, user_id: UUID | None) -> str | None:
     return (user.full_name or user.username) if user else None
 
 
-def get_talent_overview(db: Session | None = None) -> dict:
+def get_talent_overview(db: Session | None = None, *, include_wecom: bool = False) -> dict:
     """读取当前共享快照；尚未持久化时使用仓库内初始数据。"""
     if db is None:
         return {**load_talent_overview_data(), "revision": 1, "updated_at": None, "updated_by_name": None}
     snapshot = _snapshot_row(db)
     if snapshot is None:
-        return {**load_talent_overview_data(), "revision": 1, "updated_at": None, "updated_by_name": None}
-    return {
-        **_with_totals(copy.deepcopy(snapshot.payload)),
-        "revision": snapshot.revision,
-        "updated_at": snapshot.updated_at,
-        "updated_by_name": _editor_name(db, snapshot.updated_by),
-    }
+        result = {**load_talent_overview_data(), "revision": 1, "updated_at": None, "updated_by_name": None}
+    else:
+        result = {
+            **_with_totals(copy.deepcopy(snapshot.payload)),
+            "revision": snapshot.revision,
+            "updated_at": snapshot.updated_at,
+            "updated_by_name": _editor_name(db, snapshot.updated_by),
+        }
+    if include_wecom:
+        from talent_overview_wecom_service import with_wecom_summaries
+        return with_wecom_summaries(db, result)
+    return result
 
 
 def _new_custom_key(key: str, prefix: str) -> bool:
@@ -325,12 +330,13 @@ def save_talent_overview(
     snapshot.updated_at = datetime.now()
     db.commit()
     db.refresh(snapshot)
-    return {
+    from talent_overview_wecom_service import with_wecom_summaries
+    return with_wecom_summaries(db, {
         **saved,
         "revision": snapshot.revision,
         "updated_at": snapshot.updated_at,
         "updated_by_name": _editor_name(db, snapshot.updated_by),
-    }
+    })
 
 
 def _overview_indexes(data: dict) -> tuple[dict[str, dict], dict[str, set[str]]]:

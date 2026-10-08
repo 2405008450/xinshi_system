@@ -4,32 +4,82 @@
 
 | 环境 | 地址 | SSH 端口 | 登录用户 | 用途 |
 | --- | --- | --- | --- | --- |
-| 当前开发机 | 当前工作区所在机器 | - | - | 仅运行 Coding Agent、编辑代码、搜索文件和执行轻量静态检查 |
-| 局域网部署调试机 | `192.168.31.144` | `22` | `Administrator` | 项目目录为 `E:\xinshi_system`；使用项目内 `.conda_env` 环境进行部署调试、接口联调和自动化测试 |
+| 本机开发、部署与验收环境 | 主机名 `PC`；项目 `E:\xinshi_system` | 不需要 SSH | 本机已登录桌面用户 | 源码编辑、项目运行、完整构建、数据库迁移、自动化测试和浏览器验收 |
+| 旧局域网服务器 | `192.168.31.144` | `22` | `Administrator` | 不再作为默认部署或验收机器；原有服务仅按明确的维护需求操作 |
 | 云端生产环境 | `43.132.156.72` | `22` | 以云端实际账号为准 | 线上正式服务，仅执行经过确认的发布、回滚和运维操作 |
 
 ## 默认工作流
 
-1. 在当前开发机使用 Coding Agent 修改代码；不要在本机启动完整前后端或数据库。
-2. 将待验证代码同步到局域网部署调试机的 `E:\xinshi_system`。
-3. 在 `192.168.31.144` 的 `E:\xinshi_system` 中使用已有 Conda 环境 `.conda_env` 完成后端启动、数据库迁移、自动化测试和页面联调；前端使用服务器已有的 Node.js/npm 启动。
-4. 调试机验证通过后形成待发布版本；没有用户明确的发布指令时，不得连接或修改云端生产环境。
+1. 在本机 `PC` 的 `E:\xinshi_system` 修改代码，并核对主机名、项目目录和 Git 提交。
+2. 直接在本机配置依赖、部署运行、完整构建、自动化测试和浏览器验收，不再要求先同步到旧服务器或通过 SSH 执行。
+3. 后端直接使用根目录现有 `.venv\Scripts\python.exe`，前端使用本机 Node.js/npm；缺少依赖时安装到该 `.venv`，不要求创建 Conda 环境，不能回退到旧服务器或其他 Python。数据库迁移前核对目标并备份，自动化回归继续使用隔离测试库。
+4. 本机验证通过后形成待发布版本；没有用户明确的发布指令时，不得连接或修改云端生产环境。
 5. 发布到 `43.132.156.72` 前必须备份数据库，核对环境变量和迁移清单，并保留可回滚版本。
 
 ## Coding Agent 执行约束
 
-- 源码编辑、差异检查和轻量静态分析在当前开发机执行。
-- 所有会启动项目运行时或消耗较多 CPU、内存、磁盘的命令，默认通过远程连接在 `192.168.31.144` 执行，包括 Conda 后端、前端服务、完整构建、完整测试和浏览器联调。
-- 局域网项目不是 Docker 部署，不得使用 `docker compose` 启停或验证该环境。
-- 后端固定使用 `E:\xinshi_system\.conda_env\python.exe`，不得误用 Conda `base`、`fastapi-llm-py311` 或系统 Python。
-- 后端依赖交互式 Windows 登录会话中的 SMB 凭据读取 `\\Win-server` 共享目录。Coding Agent 远程重启时只能启动计划任务 `XinshiDebugBackendInteractive`；禁止使用 WMI/CIM `Win32_Process.Create`、SSH 会话中的 `Start-Process`、Windows 服务或其他会把 Uvicorn 放入 Session 0 的方式。
-- 远程命令必须先确认当前主机名、工作目录为 `E:\xinshi_system`，并核对 Git 提交，避免在错误目录或生产机执行。
-- 局域网调试入口以 `http://192.168.31.144:3000/` 为准；后端端口仅供受控联调，不作为员工正式入口。
+- 当前 PC 性能已升级，源码编辑、项目运行、完整构建、完整测试和浏览器联调均默认在本机执行，不再适用“开发机只做源码编辑与轻量检查”的限制。
+- 本机采用根目录 Python 虚拟环境 `.venv` 和原生 Node.js/npm，不使用 Docker，不得使用 `docker compose` 启停或验证本机环境。
+- 后端运行、迁移及 Python 测试固定使用 `E:\xinshi_system\.venv\Scripts\python.exe`，不得误用系统 Python 或其他虚拟环境。
+- 后端依赖交互式 Windows 登录会话中的 SMB 凭据读取 `\\Win-server` 共享目录。本机在已登录桌面会话中可以直接启动，必须验证进程 SessionId 和同一上下文的实际 UNC 目录枚举；非桌面上下文须检查并使用本机 Interactive 计划任务。禁止使用 WMI/CIM、Windows 服务或其他 Session 0 启动方式。
+- 本机和远程变更命令都必须先确认主机名、项目目录、Git 提交及目标数据库，避免在错误环境执行。工具脚本的默认允许主机为 `PC`，项目路径、隔离目录、测试库名及专用端口限制继续保留；迁移和结构克隆入口只允许连接 `localhost` 或 `127.0.0.1` 数据库。
+- 本机调试入口为 `http://localhost:3000/`，后端为 `http://127.0.0.1:8000/`；同一轮验收保持同一前端来源，避免混用 localhost、IP 与域名。
+- 生产构建验收使用本机构建后的静态资源及同源 `/api` 代理；HTTPS、证书、安全响应头、Cookie 和 `wss` 的部署验收仍需本机 HTTPS 入口，Vite 开发页面不能替代这些检查。
+- 旧服务器的员工入口、DNS、证书、计划任务和业务数据库不会因默认执行机调整而自动迁移；仅在明确维护旧服务器时使用下方保留的远程步骤。
 - 云端 `43.132.156.72` 是生产环境。除非用户明确要求发布或运维，否则只能进行必要的只读核查，不得部署、迁移、重启或修改数据。
+
+## 本机启动与验收
+
+部署或运行前先执行只读检查：
+
+```powershell
+$env:COMPUTERNAME
+Set-Location -LiteralPath 'E:\xinshi_system'
+(Get-Location).Path
+git rev-parse --short HEAD
+Test-Path -LiteralPath '.\.venv\Scripts\python.exe'
+& '.\.venv\Scripts\python.exe' -c 'import sys; print(sys.executable); print(sys.version)'
+node --version
+npm.cmd --version
+```
+
+确认主机名为 `PC`、项目路径及提交正确后，直接使用根目录已有 `.venv`。2026-10-08 已核实该虚拟环境解释器为 Python 3.13.7，且已安装 Uvicorn、FastAPI、SQLAlchemy；无需创建 `.conda_env`。缺少运行或测试依赖时，使用 `.venv\Scripts\python.exe -m pip` 安装到该环境。解释器检查不代表服务已部署或验收通过；数据库与敏感凭据使用受保护的本地配置。
+
+需要读取共享路径时，在启动所在上下文先核对桌面会话并只读枚举实际目录：
+
+```powershell
+(Get-Process -Id $PID).SessionId
+Get-Process -Name explorer | Select-Object Id, SessionId
+Get-Item -LiteralPath '\\Win-server\服务器资料7' -ErrorAction Stop
+Get-ChildItem -LiteralPath '\\Win-server\服务器资料7' -ErrorAction Stop | Select-Object -First 1
+```
+
+当前进程必须属于已登录用户的桌面会话，目录枚举必须成功；业务使用其他共享目录时也需检查实际目录。在该交互式终端启动后端：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system'
+& '.\.venv\Scripts\python.exe' -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+生产模式去掉 `--reload`；也可在本机桌面运行 `start_backend.bat`。若使用 `Start-Process` 启动后台辅助进程，必须设置 `-WindowStyle Hidden` 并确认子进程仍属于同一桌面会话。当前上下文无法继承交互式凭据时，应检查本机 `XinshiDebugBackendInteractive` 任务及活动会话，按下方任务规则启动；任务或会话不符合要求时停止并报告，不得回退到 Session 0。
+
+前端开发启动：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system\frontend'
+npm.cmd ci
+npm.cmd run dev -- --host 127.0.0.1 --port 3000
+```
+
+完整构建使用 `npm.cmd run build`。如果本机 Nginx 正在服务 `frontend/dist`，改用现有两阶段发布脚本 `frontend/tools/publish-lan-frontend.ps1`，不能在服务中的目录直接构建。
+
+启动后确认本机页面和接口可访问、8000 端口进程使用项目 Python，且其 SessionId 与启动所在桌面会话的 explorer.exe 一致。共享目录须在后端相同交互式上下文中只读枚举；其他登录上下文里的 `Test-Path` 不能代替该验证。自动化测试继续使用隔离数据库、专用端口及测试目录。
+
+本机 HTTPS 未配置时先通过 localhost 完成普通功能联调；部署验收需先配置本机静态资源、HTTPS 和同源代理，并核对域名解析指向本机，不得将旧服务器页面记为本机验收结果。
 
 ## SSH 建议配置
 
-在开发机用户级 SSH 配置中维护别名（不要提交包含私钥或密码的文件）：
+以下仅供明确维护旧服务器或云端时使用；本机工作流不需要 SSH。在用户级 SSH 配置中维护别名（不要提交包含私钥或密码的文件）：
 
 ```sshconfig
 Host xinshi-lan
@@ -66,9 +116,9 @@ ssh xinshi-lan
 - 修改 `OPENPATH_ALLOWED_ROOTS` 后需要重新创建后端进程或容器；修改 `VITE_OPENPATH_ALLOWED_ROOTS` 后必须重新构建并发布前端静态资源。
 - 白名单必须配置到共享根目录层级，不得为了兼容保存而允许任意 UNC 主机；路径穿越和可执行文件、脚本、快捷方式仍应被拒绝。
 
-## 远程验证基线
+## 旧服务器远程验证基线
 
-每次部署调试前先执行以下只读检查：
+仅在明确维护旧局域网服务器时，先执行以下只读检查：
 
 ```powershell
 ssh xinshi-lan 'powershell -NoProfile -Command "$env:COMPUTERNAME; Set-Location -LiteralPath ''E:\xinshi_system''; (Get-Location).Path; git rev-parse --short HEAD; & ''.\.conda_env\python.exe'' -c ''import sys; print(sys.executable)''"'
@@ -77,6 +127,8 @@ ssh xinshi-lan 'powershell -NoProfile -Command "$env:COMPUTERNAME; Set-Location 
 确认输出来自 `192.168.31.144`、项目目录为 `E:\xinshi_system` 且提交版本正确后，再执行构建或部署命令。生产环境不得复用调试机命令或调试用环境变量。
 
 ## 局域网启动方式
+
+以下为旧服务器 `192.168.31.144` 的保留操作记录，不用于本机默认部署与验收。本机需通过交互式任务启动时，须先确认本机存在该任务，并执行相同的活动会话、任务主体、Interactive 登录类型、SessionId 与 UNC 验证规则。
 
 后端使用项目已配置好的 Conda 环境。服务器本机人工启动时，可以在已登录的 `Administrator` 桌面会话中执行：
 
@@ -185,10 +237,10 @@ sudo docker-compose --env-file ../.env \
 部署后至少验证 HTTPS 页面、`/api/auth/session` 以及 WebSocket 握手路径。证书续期时只替换
 仓库外的 `.pem` 和 `.key` 文件，并重新创建 `https_gateway` 使新证书生效。
 
-`XinshiDebugBackendInteractive` 调用 `deploy/start_backend_interactive.ps1`。脚本会在启动
+`XinshiDebugBackendInteractive` 调用 `deploy/start_backend_interactive.ps1`。脚本默认使用本机 `.venv\Scripts\python.exe`；明确维护仍使用 Conda 的旧服务器时，任务参数须指定 `-PythonPath '.conda_env\python.exe'`。脚本会在启动
 Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Get-Item` 和一次只读枚举；
 只有验证成功才会启动后端。服务器重启后仍必须先建立 `Administrator` 交互式控制台会话，
-当前机器未配置自动登录；无人登录时交互式后端任务不会启动，也不得改用 Session 0 绕过此限制。
+旧服务器未配置自动登录；无人登录时交互式后端任务不会启动，也不得改用 Session 0 绕过此限制。
 
 ## 沟通图片云端统一存储
 
@@ -198,5 +250,5 @@ Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Ge
 - `CHAT_UPLOADS_PAUSED=true` 可临时禁止本机附件上传（环境变量修改后需按对应环境规范重启）。日常必须为 `false`；维护不影响已有图片读取。
 - 两层云端 Nginx 的附件上传路径均设 `client_max_body_size 12m`，后端仍执行单张 10MB 限制。前端上传/读取超时 60 秒，远程连接超时 5 秒、读写超时 45 秒。
 - `tools/chat_image_inventory.py` 只读输出附件记录及文件大小/SHA-256。合并文件时保留 `storage_name` 和附件 ID；同名不同哈希禁止覆盖，复制后再次盘点。局域网原图作为迁移备份保留。
-- 云端前端可采用 `deploy/Dockerfile.frontend-prebuilt` 封装已在局域网构建和预算校验通过的 `dist/` 与 `nginx.conf`；构建上下文必须保留旧哈希资源，切换前为旧镜像加备份标签，切换后重新加载 HTTPS 网关以更新上游地址。
+- 云端前端可采用 `deploy/Dockerfile.frontend-prebuilt` 封装已在本机构建和预算校验通过的 `dist/` 与 `nginx.conf`；构建上下文必须保留旧哈希资源，切换前为旧镜像加备份标签，切换后重新加载 HTTPS 网关以更新上游地址。
 - 回滚前端可使用旧镜像或旧入口文件；远程图片服务故障时禁止以自动恢复本地写入作为回滚方案，以免产生新的分散文件。

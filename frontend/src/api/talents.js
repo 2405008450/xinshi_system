@@ -17,6 +17,20 @@ export const getTalents = (params, config = {}) => api.get('/talents/', { ...con
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalentOverview = () => api.get('/talents/overview').then(fromApi)
+const overviewLanguagePath = key => `/talents/overview/languages/${encodeURIComponent(key)}`
+const overviewGroupPath = id => `/talents/overview/groups/${id}`
+export const getOverviewLanguageManagement = key => api.get(`${overviewLanguagePath(key)}/management`).then(fromApi)
+export const saveOverviewLanguageManagement = (key, data) => api.put(`${overviewLanguagePath(key)}/management`, toApi(data)).then(fromApi)
+export const getOverviewGroups = (key, includeArchived = false) => api.get(`${overviewLanguagePath(key)}/groups`, { params: { include_archived: includeArchived } }).then(fromApi)
+export const createOverviewGroup = (key, data) => api.post(`${overviewLanguagePath(key)}/groups`, toApi(data)).then(fromApi)
+export const getOverviewGroup = id => api.get(overviewGroupPath(id)).then(fromApi)
+export const updateOverviewGroup = (id, data) => api.put(overviewGroupPath(id), toApi(data)).then(fromApi)
+export const archiveOverviewGroup = (id, data) => api.put(`${overviewGroupPath(id)}/archive`, toApi(data)).then(fromApi)
+export const registerOverviewGroupCount = (id, data) => api.post(`${overviewGroupPath(id)}/counts`, toApi(data)).then(fromApi)
+export const voidOverviewGroupCount = (id, countId, data) => api.put(`${overviewGroupPath(id)}/counts/${countId}/void`, toApi(data)).then(fromApi)
+export const getOverviewGroupCounts = (id, page = 1) => api.get(`${overviewGroupPath(id)}/counts`, { params: { page } }).then(fromApi)
+export const getOverviewGroupHistory = (id, page = 1) => api.get(`${overviewGroupPath(id)}/history`, { params: { page } }).then(fromApi)
+export const getOverviewLanguageHistory = (key, page = 1) => api.get(`${overviewLanguagePath(key)}/history`, { params: { page } }).then(fromApi)
 export const getTalentPoolStatistics = () => api.get('/talents/overview/pool-statistics').then(fromApi)
 export const saveTalentOverview = (data) => api.put('/talents/overview', {
   expected_revision: data.expectedRevision,

@@ -1,10 +1,13 @@
 <template>
   <el-card class="resource-development-page">
-    <div class="development-heading"><div><h2>资源开拓</h2><span class="muted">按日期记录开拓与跟进，添加成功后关联人才总库</span></div><div class="development-actions">
+    <div class="development-heading"><div><h2>资源开拓</h2><span class="muted">按日期统筹平台安排、记录开拓与跟进</span></div><div v-if="activeSection === 'logs'" class="development-actions">
       <el-popover trigger="click" placement="bottom-end" :width="280"><template #reference><el-button>字段设置</el-button></template><div class="development-column-options"><el-checkbox-group v-model="selectedColumns"><el-checkbox v-for="c in developmentColumns" :key="c.key" :value="c.key">{{ c.label }}</el-checkbox></el-checkbox-group></div><el-button text type="primary" @click="selectedColumns = [...defaultDevelopmentColumns]">恢复默认</el-button></el-popover>
       <el-button v-if="!deleteMode" @click="friendPanelRef.open(activeDay || filters.range?.[1])">新增统计</el-button><template v-if="options.can_write"><template v-if="!deleteMode"><el-button @click="settingsRef.open()">平台与选项</el-button><el-button @click="openWork()">每日工作</el-button><el-button type="primary" @click="openEditor()">新增</el-button></template><BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" /></template>
     </div></div>
     <TalentResourceNav />
+    <el-tabs v-model="activeSection" @tab-change="exitDeleteMode"><el-tab-pane label="开拓日志" name="logs" /><el-tab-pane label="每日安排" name="arrangements" /></el-tabs>
+    <DevelopmentArrangementPanel v-if="activeSection === 'arrangements'" :options="options" @add-platform="settingsRef.addPlatform()" />
+    <template v-if="activeSection === 'logs'">
     <div class="development-filters">
       <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" />
       <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
@@ -40,6 +43,7 @@
         </div>
       </div>
     </div>
+    </template>
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
@@ -57,12 +61,14 @@ import DevelopmentWorkEditor from './components/DevelopmentWorkEditor.vue'
 import DevelopmentSettings from './components/DevelopmentSettings.vue'
 import DevelopmentRecordsTable from './components/DevelopmentRecordsTable.vue'
 import DevelopmentStatusRecordsDialog from './components/DevelopmentStatusRecordsDialog.vue'
+import DevelopmentArrangementPanel from './components/DevelopmentArrangementPanel.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
+const activeSection = ref('logs')
 const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref()
 // 默认不限定日期，自动展开最近有开拓记录的日期。
 const { filters, columnFilters, activeColumnKeys, params, setColumnFilter, clearCommonColumn, resetFilters } = useDevelopmentFilters()
@@ -120,7 +126,7 @@ function recordSizeChanged() { recordPage.value = 1; recordPageChanged() }
 function daySizeChanged() { dayPage.value = 1; dayPageChanged() }
 function dayPageChanged() { activeDay.value = ''; reload() }
 async function recordSaved() { await Promise.all([reload(), statusRecordsRef.value?.reload()]) }
-async function openEditor(row, channel, status) { try { await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
+async function openEditor(row, channel, status) { try { await loadOptions(); await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
 onMounted(async () => { try { await loadOptions(); const raw = localStorage.getItem(columnKey()); try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] } catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] } await nextTick(); await reload() } catch (e) { ElMessage.error(e.message) } })

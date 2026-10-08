@@ -1,14 +1,14 @@
 """表单字段「可编辑/只读」配色验收脚本。
 
-后端跑在局域网另一台机器上（frontend/.env 的 VITE_API_PROXY_TARGET），
-本机无法自签 token 过校验，因此不走业务弹窗，而是在已加载全部应用样式的
-页面里注入真实的 Element Plus DOM 结构，实测层叠后的计算样式。
+前后端默认在本机运行（frontend/.env.local 的 VITE_API_PROXY_TARGET）。
+本脚本在已加载全部应用样式的页面里注入真实的 Element Plus DOM 结构，
+实测层叠后的计算样式，不依赖业务数据。
 
 验证对象正是本次改动的三处：theme.css 的变量、common.css 的
 .field-readonly/.field-locked、App.vue 的 hover/focus 规则。
 
 用法：
-    "C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python313\\python.exe" tools/verify_field_states.py
+    .\\.venv\\Scripts\\python.exe tools/verify_field_states.py
 
 可选环境变量：BASE_URL（默认 http://localhost:3000）、HEADED=1、OUT_DIR（默认 test-results）
 """

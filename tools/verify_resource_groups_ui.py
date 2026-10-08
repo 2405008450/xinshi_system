@@ -1,4 +1,4 @@
-"""局域网企微群交互验收：真实构建页面、隔离接口，不修改业务数据。"""
+"""本机企微群交互验收：真实构建页面、隔离接口，不修改业务数据。"""
 import copy
 import argparse
 import json
@@ -19,12 +19,12 @@ BASE = 'http://127.0.0.1:12448'
 
 def run(base_url=None):
     global BASE
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机执行')
     if base_url:
         parsed = urlparse(base_url)
-        if parsed.scheme != 'https' or parsed.hostname != 'oa.xinshify.com.cn' or socket.gethostbyname(parsed.hostname) != '192.168.31.144':
-            raise SystemExit('已发布页面验收仅允许局域网 HTTPS 入口')
+        if parsed.scheme != 'https' or parsed.hostname != 'oa.xinshify.com.cn' or socket.gethostbyname(parsed.hostname) != '127.0.0.1':
+            raise SystemExit('已发布页面验收仅允许本机 HTTPS 入口')
         BASE = base_url.rstrip('/')
     out = ROOT / ('.tmp/resource-groups-ui/live' if base_url else '.tmp/resource-groups-ui')
     out.mkdir(parents=True, exist_ok=True)
@@ -200,5 +200,5 @@ def run(base_url=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--base', help='验收已发布的局域网 HTTPS 页面')
+    parser.add_argument('--base', help='验收已发布的本机 HTTPS 页面')
     run(parser.parse_args().base)

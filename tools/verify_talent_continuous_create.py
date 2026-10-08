@@ -1,4 +1,4 @@
-"""在局域网调试机运行人才连续新增 UI 回归；所有 API 均拦截，不写业务库。"""
+"""在本机运行人才连续新增 UI 回归；所有 API 均拦截，不写业务库。"""
 import argparse
 import json
 import re

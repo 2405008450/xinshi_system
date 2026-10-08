@@ -11,7 +11,7 @@
           <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false)">批量新增子订单</el-button>
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+          <TableColumnSettings v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
           <el-button v-if="canDirectTransferManager && !deleteMode && props.orderScope !== 'child'" @click="managerTransferVisible = true">交接</el-button>
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode && props.orderScope !== 'child'" type="primary" @click="handleAdd">新增标注项目</el-button>
@@ -62,7 +62,13 @@
 
     <el-table ref="projectTableRef" height="100%" :data="tableData" v-loading="loading" row-key="id" :expand-row-keys="expandedProjectIds" @expand-change="handleProjectExpandChange" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column"><template #default="{ row }"><AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision" @create="openChildCreate" /></template></el-table-column>
+      <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column">
+        <template #default="{ row }">
+          <AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision"
+            :show-row-actions="!deleteMode" :row-extra-actions="projectRowExtraActions" :start-request-label="resourceRequestActionLabel"
+            @create="openChildCreate" @start-request="startResourceRequest" @extra-command="handleProjectExtraAction" />
+        </template>
+      </el-table-column>
       <el-table-column v-if="props.orderScope === 'child'" label="母订单" min-width="180"><template #default="{ row }"><el-button link type="primary" @click="openParent(row)">{{ row.parentOrderNo || '-' }}</el-button></template></el-table-column>
       <el-table-column label="序号" :width="56" align="center" fixed="left">
         <template #default="{ row, $index }">
@@ -77,7 +83,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="200" fixed="left">
+      <el-table-column label="订单号" :width="200" fixed="left">
         <template #header>
           <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目管理" /></template>
@@ -226,7 +232,6 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="详情" width="100" fixed="right"><template #default="{ row }"><AnnotationProjectDetailPopover :project-id="row.id" :summary="row" :editable="false"><template #reference><el-button link type="primary">查看详情</el-button></template></AnnotationProjectDetailPopover></template></el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right" align="center">
         <template #default="{ row }">
           <div class="annotation-row-actions">
@@ -576,7 +581,9 @@
         </AppForm>
           </el-tab-pane>
           <el-tab-pane v-if="!form.parentProjectId" label="子订单" name="children" lazy>
-            <AnnotationChildOrderPanel v-if="form.id" :parent="form" :editable="canWrite" :revision="childRevision" @create="openChildCreate" @navigate="dialogVisible=false" />
+            <AnnotationChildOrderPanel v-if="form.id" :parent="form" :editable="canWrite" :revision="childRevision"
+              :row-extra-actions="projectRowExtraActions" :start-request-label="resourceRequestActionLabel"
+              @create="openChildCreate" @navigate="dialogVisible=false" @start-request="startChildResourceRequest" @extra-command="handleChildProjectExtraAction" />
             <el-alert v-else title="请先保存母订单，再创建子订单。" type="info" :closable="false" />
           </el-tab-pane>
         </el-tabs>
@@ -745,6 +752,14 @@ const handleProjectExtraAction = (command, row) => {
     router.push({ name: 'AnnotationProjectDetails', query: { section: 'accounts', projectId: row.id, view: 'project' } })
   }
 }
+const startChildResourceRequest = (row) => {
+  dialogVisible.value = false
+  startResourceRequest(row)
+}
+const handleChildProjectExtraAction = (command, row) => {
+  if (['trial-workspace', 'account-sheet', 'project-chat'].includes(command)) dialogVisible.value = false
+  handleProjectExtraAction(command, row)
+}
 const highlightedProjectId = ref('')
 const managerTransferVisible = ref(false)
 const mailComposerVisible = ref(false)
@@ -780,10 +795,12 @@ const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
 const visibleProjectCustomFields = computed(()=>projectCustomFields.value.filter((field)=>!mergedProjectFieldLabels.has(field.fieldLabel?.trim())))
 const customTableColumns = computed(()=>visibleProjectCustomFields.value.map((field)=>({key:`custom:${field.id}`,label:field.fieldLabel,minWidth:field.dataType==='text'||field.dataType==='url'?160:110,customField:field})))
 const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.value])
+// 订单号承担详情入口，固定显示；其余字段继续保留用户自己的配置。
+const configurableTableColumns = computed(() => tableColumns.value.filter((column) => column.key !== 'orderNo'))
 const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
 const defaultColumns = ['orderNo','projectName','taskDescription','projectManagerName','projectStatus','clientShortName','languageItemsDisplay','taskSubmittedAt']
 const selectedDefaultColumns = props.orderScope === 'child' ? ['orderNo','projectName','languageItemsDisplay','projectStatus','projectManagerName','taskSubmittedAt'] : defaultColumns
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(props.orderScope === 'child' ? 'annotation-child-orders-v1' : 'annotation-details-v6',tableColumns,selectedDefaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(props.orderScope === 'child' ? 'annotation-child-orders-v1' : 'annotation-details-v6',configurableTableColumns,selectedDefaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
 const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)

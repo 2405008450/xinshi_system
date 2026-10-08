@@ -64,7 +64,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", required=True)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--expected-host", default="WIN-LOLJ8UHT2G5")
+    parser.add_argument("--expected-host", default="PC")
     args = parser.parse_args()
     if args.apply and socket.gethostname().casefold() != args.expected_host.casefold():
         raise RuntimeError(f"主机校验失败：当前为 {socket.gethostname()}，预期为 {args.expected_host}")

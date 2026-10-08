@@ -1,4 +1,4 @@
-"""在局域网 Vite 调试服务验证成员选择器，不修改业务数据。"""
+"""在本机 Vite 调试服务验证成员选择器，不修改业务数据。"""
 
 from pathlib import Path
 import subprocess

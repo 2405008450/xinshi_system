@@ -1,4 +1,4 @@
-"""局域网资源开拓交互验收；真实页面配合隔离接口，不修改业务数据。"""
+"""本机资源开拓交互验收；真实页面配合隔离接口，不修改业务数据。"""
 import copy
 import json
 import re
@@ -17,8 +17,8 @@ BASE = 'http://127.0.0.1:12428'
 
 
 def run():
-    if socket.gethostname().upper() != 'WIN-LOLJ8UHT2G5' or str(ROOT).lower() != r'e:\xinshi_system':
-        raise SystemExit('仅允许在局域网调试机执行')
+    if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
+        raise SystemExit('仅允许在本机执行')
     out = ROOT / '.tmp' / 'resource-optimization-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')

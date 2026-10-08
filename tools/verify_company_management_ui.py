@@ -1,4 +1,4 @@
-"""局域网编译页面交互验收，接口使用隔离模拟数据，不修改业务内容。"""
+"""本机编译页面交互验收，接口使用隔离模拟数据，不修改业务内容。"""
 import json
 import socket
 import subprocess
@@ -17,8 +17,8 @@ UID = str(uuid4())
 
 
 def run():
-    if socket.gethostname().upper() != "WIN-LOLJ8UHT2G5" or str(ROOT).lower() != r"e:\xinshi_system":
-        raise SystemExit("仅允许在局域网调试机执行")
+    if socket.gethostname().upper() != "PC" or str(ROOT).lower() != r"e:\xinshi_system":
+        raise SystemExit("仅允许在本机执行")
     out = ROOT / ".tmp" / "company-ui"
     out.mkdir(parents=True, exist_ok=True)
     log = (out / "preview.log").open("w", encoding="utf-8")
