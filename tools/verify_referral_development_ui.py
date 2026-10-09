@@ -1,4 +1,5 @@
 """隔离 PostgreSQL + 真实推荐接口 + 构建页面验收，不启动常驻后端。"""
+import base64
 import json
 from datetime import date
 from io import BytesIO
@@ -91,8 +92,13 @@ def run():
 
             browser = pw.chromium.launch(headless=True, channel='msedge')
             context = browser.new_context(viewport=dict(width=1440, height=900), timezone_id='America/New_York')
+            context.grant_permissions(['clipboard-read', 'clipboard-write'])
             context.route('**/api/**', api)
             context.add_init_script("localStorage.setItem('token','isolated-referral-qa');localStorage.setItem('user_roles','[\"staff\"]');localStorage.setItem('user_permissions','[\"talents:read\",\"talents:write\"]')")
+            context.add_init_script("""window.__referralUrls = new Set();
+                const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL);
+                URL.createObjectURL = value => { const url = create(value); window.__referralUrls.add(url); return url };
+                URL.revokeObjectURL = url => { window.__referralUrls.delete(url); revoke(url) };""")
             page = context.new_page(); page.on('pageerror', lambda error: state['errors'].append(str(error)))
             page.goto(base + '/resource-management/referral-development')
             expect(page.get_by_role('heading', name='推荐拓展')).to_be_visible()
@@ -104,6 +110,7 @@ def run():
             # 等待 Element Plus 入场动画结束，再比较实际位置。
             page.wait_for_timeout(350)
             initial = dialog.bounding_box()
+            page.screenshot(path=str(out / 'empty-form.png'), full_page=True, animations='disabled')
             footer = dialog.locator('.el-dialog__footer')
             expect(footer.get_by_role('button', name='保存', exact=True)).to_be_visible()
             footer.get_by_role('button', name='保存', exact=True).click()
@@ -124,21 +131,87 @@ def run():
             item('发群说明').locator('textarea').fill('微信群推广')
             expect(footer).to_be_visible()
             buffer = BytesIO(); Image.new('RGB', (40, 40), 'white').save(buffer, 'PNG')
+            encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
+
+            def paste_image(target, text=''):
+                page.evaluate("""async ({encoded, text}) => {
+                    const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+                    const contents = {'image/png': new Blob([bytes], {type:'image/png'})};
+                    if (text) contents['text/plain'] = new Blob([text], {type:'text/plain'});
+                    await navigator.clipboard.write([new ClipboardItem(contents)]);
+                }""", dict(encoded=encoded, text=text))
+                target.focus(); page.keyboard.press('Control+V')
+
+            def drop_image(target, name):
+                target.evaluate("""(el, {encoded, name}) => {
+                    const data = new DataTransfer();
+                    data.items.add(new File([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], name, {type:'image/png'}));
+                    el.dispatchEvent(new DragEvent('dragenter', {bubbles:true, cancelable:true, dataTransfer:data}));
+                    el.dispatchEvent(new DragEvent('drop', {bubbles:true, cancelable:true, dataTransfer:data}));
+                }""", dict(encoded=encoded, name=name))
+
+            def assert_released(url):
+                page.wait_for_function('(url) => !window.__referralUrls.has(url)', arg=url)
+
             for label, name in [('拉人凭证','pull'), ('发圈凭证','moments'), ('发群凭证','groups'), ('微信收款码','qr')]:
+                cell = item(label).locator('.referral-evidence-cell')
+                cell.locator('.referral-evidence-hint').click(); expect(cell).to_be_focused()
+                paste_image(cell)
+                expect(cell.locator('.referral-evidence-draft')).to_have_count(1)
+                preview = cell.locator('.referral-evidence-draft .el-image img').get_attribute('src')
+                cell.locator('.referral-evidence-draft .el-image').click()
+                expect(page.locator('.el-image-viewer__wrapper')).to_be_visible()
+                page.locator('.el-image-viewer__close').click()
+                cell.get_by_role('button', name='移除', exact=True).click()
+                expect(cell.locator('.referral-evidence-draft')).to_have_count(0); assert_released(preview)
+                if name != 'qr':
+                    description = item(dict(pull='拉人说明', moments='发圈说明', groups='发群说明')[name]).locator('textarea')
+                    description.focus(); page.keyboard.press('Tab'); expect(cell).to_be_focused()
+                    description.fill('')
+                    paste_image(description, '中文混合说明-' + name)
+                    expect(description).to_have_value('中文混合说明-' + name)
+                    expect(cell.locator('.referral-evidence-draft')).to_have_count(1)
+                    cell.get_by_role('button', name='移除', exact=True).click()
                 upload = dict(name=name + '.png', mimeType='image/png', buffer=buffer.getvalue())
-                item(label).locator('input[type=file]').set_input_files([upload, {**upload, 'name': '第二张.png'}] if name == 'pull' else upload)
+                cell.locator('input[type=file]').set_input_files(upload)
+                expect(cell.locator('.referral-evidence-draft')).to_have_count(1)
+                selected_url = cell.locator('.referral-evidence-draft .el-image img').get_attribute('src')
+                if name != 'qr':
+                    cell.get_by_role('button', name='移除', exact=True).click()
+                drop_image(cell, name + '-拖入.png')
+                expect(cell.locator('.referral-evidence-draft')).to_have_count(1)
+                assert_released(selected_url)
+                if name == 'pull':
+                    cell.locator('input[type=file]').set_input_files({**upload, 'name': '第二张.png'})
+                    expect(cell.locator('.referral-evidence-draft')).to_have_count(2)
+                if name == 'qr':
+                    old_url = cell.locator('.referral-evidence-draft .el-image img').get_attribute('src')
+                    paste_image(cell)
+                    expect(cell.locator('.referral-evidence-draft')).to_have_count(1); assert_released(old_url)
+            # 普通文本字段继续保留原生粘贴，不误分配图片类别。
+            page.evaluate("navigator.clipboard.writeText('qa_new_wechat')")
+            item('推荐人微信').locator('input').fill('')
+            item('推荐人微信').locator('input').focus(); page.keyboard.press('Control+V')
+            expect(item('推荐人微信').locator('input')).to_have_value('qa_new_wechat')
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(5)
             page.screenshot(path=str(out / 'new-form.png'), full_page=True)
             footer.get_by_role('button', name='保存', exact=True).click()
             expect(dialog.get_by_text('验收模拟：此图片上传失败，请重试', exact=False)).to_be_visible(timeout=30000)
             expect(dialog.get_by_role('button', name='保存并重试图片')).to_be_visible()
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(1)
+            expect(dialog.locator('.referral-evidence-draft')).to_contain_text('上传失败')
+            expect(dialog.locator('.referral-images .referral-image-card')).to_have_count(4)
             assert len([r for r in state['requests'] if r[0] == 'POST' and r[1] == '/referral-development/records']) == 1
             dialog.get_by_role('button', name='保存并重试图片').click()
             expect(dialog).to_have_count(0, timeout=30000)
+            uploads = [r for r in state['requests'] if r[0] == 'POST' and r[1].endswith('/images')]
+            assert len(uploads) == 6, uploads
             keyword = page.get_by_placeholder('推荐人姓名、微信')
             keyword.fill('qa_new_wechat'); expect(page.locator('.el-table__body tr')).to_have_count(1)
             expect(page.locator('.el-table__body')).to_contain_text('6.25')
             row = page.locator('.el-table__body tr')
             row.get_by_role('button', name='登记付款').click()
+            expect(dialog.get_by_role('button', name='保存并继续新增')).to_have_count(0)
             expect(dialog).to_contain_text('付款登记／更正')
             expect(item('付款日期').locator('input')).not_to_have_value('')
             dialog.get_by_role('button', name='保存', exact=True).click()
@@ -157,6 +230,8 @@ def run():
             page.screenshot(path=str(out / 'detail.png'), full_page=True)
             page.mouse.click(220, 70)
             row.get_by_role('button', name='编辑', exact=True).click()
+            expect(dialog.get_by_role('button', name='保存并继续新增')).to_have_count(0)
+            expect(dialog.locator('.referral-images .referral-image-card')).to_have_count(5)
             item('金额（元）').locator('input').fill('8.00')
             dialog.get_by_role('button', name='保存', exact=True).click(); expect(dialog).to_have_count(0)
             expect(row).to_contain_text('8.00'); expect(row).to_contain_text('已支付')
@@ -211,6 +286,82 @@ def run():
             expect(page.locator('.el-table__body tr')).to_have_count(20)
             expect(page.locator('.el-pagination .number.is-active')).to_have_text('1')
             page.screenshot(path=str(out / 'list.png'), full_page=True)
+            # 连续新增遇到部分上传失败时停留在原记录，成功后才重置人员和凭证。
+            page.get_by_role('button', name='新增', exact=True).click()
+            item('推广日期').locator('input').fill('2026-09-18'); item('推广日期').locator('input').press('Tab')
+            item('推荐人姓名').locator('input').fill('推广验收-连续一')
+            item('推荐人微信').locator('input').fill('qa_continue_1')
+            item('金额（元）').locator('input').fill('8.00')
+            paste_image(item('拉人凭证').locator('.referral-evidence-cell'))
+            paste_image(item('发群说明').locator('textarea'), '连续登记说明')
+            state['fail_upload'] = True
+            before_uploads = len([r for r in state['requests'] if r[0] == 'POST' and r[1].endswith('/images')])
+            footer.get_by_role('button', name='保存并继续新增').click()
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(1)
+            expect(dialog.get_by_text('验收模拟：此图片上传失败，请重试', exact=False)).to_be_visible(timeout=30000)
+            expect(item('推荐人姓名').locator('input')).to_have_value('推广验收-连续一')
+            expect(footer).to_contain_text('全部成功后继续新增')
+            failed_url = dialog.locator('.referral-evidence-draft .el-image img').get_attribute('src')
+            page.screenshot(path=str(out / 'continue-upload-failure.png'), full_page=True)
+            footer.get_by_role('button', name='保存并重试图片').click()
+            expect(item('推荐人姓名').locator('input')).to_have_value('', timeout=30000)
+            expect(item('推荐人姓名').locator('input')).to_be_focused()
+            expect(item('推广日期').locator('input')).to_have_value('2026-09-18')
+            for label in ['推荐人微信', '金额（元）']:
+                expect(item(label).locator('input')).to_have_value('')
+            for label in ['拉人说明', '发圈说明', '发群说明', '备注']:
+                expect(item(label).locator('textarea')).to_have_value('')
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(0)
+            expect(dialog.locator('.referral-image-card')).to_have_count(0); assert_released(failed_url)
+            after_uploads = len([r for r in state['requests'] if r[0] == 'POST' and r[1].endswith('/images')])
+            assert after_uploads - before_uploads == 3
+            first = client.get('/referral-development/records', params={'keyword': 'qa_continue_1'}).json()['items'][0]
+            first_detail = client.get('/referral-development/records/' + first['id']).json()
+            assert sorted(i['category'] for i in first_detail['images']) == ['groups', 'pull']
+            item('推荐人姓名').locator('input').fill('推广验收-连续二')
+            item('推荐人微信').locator('input').fill('qa_continue_2')
+            item('金额（元）').locator('input').fill('3.00')
+            paste_image(item('拉人凭证').locator('.referral-evidence-cell'))
+            paste_image(item('微信收款码').locator('.referral-evidence-cell'))
+            footer.get_by_role('button', name='保存', exact=True).click(); expect(dialog).to_have_count(0)
+            second = client.get('/referral-development/records', params={'keyword': 'qa_continue_2'}).json()['items'][0]
+            assert first['id'] != second['id'] and second['work_date'] == '2026-09-18'
+            second_detail = client.get('/referral-development/records/' + second['id']).json()
+            assert sorted(i['category'] for i in second_detail['images']) == ['pull', 'qr']
+            # 版本冲突时禁止凭证变更，重新加载后保留待上传图片；编辑仍可替换收款码。
+            keyword.fill('qa_continue_2'); expect(page.locator('.el-table__body tr')).to_have_count(1)
+            page.locator('.el-table__body tr').get_by_role('button', name='编辑', exact=True).click()
+            expect(dialog.locator('.referral-image-card')).to_have_count(2)
+            drop_image(item('发群凭证').locator('.referral-evidence-cell'), '冲突保留.png')
+            retained_url = dialog.locator('.referral-evidence-draft .el-image img').get_attribute('src')
+            external = {k: second_detail[k] for k in ['id', 'revision', 'work_date', 'full_name', 'wechat', 'amount', 'pull_description', 'moments_description', 'groups_description', 'remarks']}
+            external['remarks'] = '其他窗口更正'
+            assert client.post('/referral-development/records', json=external).status_code == 200
+            footer.get_by_role('button', name='保存', exact=True).click()
+            expect(dialog.get_by_role('button', name='重新加载')).to_be_visible()
+            expect(item('发群凭证').locator('input[type=file]')).to_be_disabled()
+            expect(item('发群凭证').locator('.referral-evidence-cell')).to_have_attribute('tabindex', '-1')
+            drop_image(item('发群凭证').locator('.referral-evidence-cell'), '禁止加入.png')
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(1)
+            dialog.get_by_role('button', name='重新加载').click()
+            expect(item('备注').locator('textarea')).to_have_value('其他窗口更正')
+            expect(item('发群凭证').locator('input[type=file]')).to_be_enabled()
+            assert dialog.locator('.referral-evidence-draft .el-image img').get_attribute('src') == retained_url
+            paste_image(item('微信收款码').locator('.referral-evidence-cell'))
+            expect(dialog.get_by_text('新收款码保存成功后替换旧码')).to_be_visible()
+            old_qr = next(i['id'] for i in second_detail['images'] if i['category'] == 'qr')
+            item('拉人凭证').get_by_role('button', name='删除图片').click()
+            page.locator('.el-message-box:visible').get_by_role('button', name='确定', exact=True).click()
+            expect(item('拉人凭证').locator('.referral-image-card')).to_have_count(0)
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(2)
+            footer.get_by_role('button', name='保存', exact=True).click(); expect(dialog).to_have_count(0)
+            final_second = client.get('/referral-development/records/' + second['id']).json()
+            assert sorted(i['category'] for i in final_second['images']) == ['groups', 'qr']
+            assert next(i['id'] for i in final_second['images'] if i['category'] == 'qr') != old_qr
+            for record_id in [first['id'], second['id']]:
+                latest = client.get('/referral-development/records/' + record_id).json()
+                assert client.delete('/referral-development/records/' + record_id, params={'revision': latest['revision']}).status_code == 200
+            keyword.fill(''); expect(page.locator('.el-table__body tr')).to_have_count(20)
             page.get_by_role('button', name='字段设置', exact=True).click()
             page.locator('.referral-column-options .el-checkbox').filter(has_text='推广日期').click()
             expect(page.locator('.el-table__header th')).to_have_count(9)
@@ -233,11 +384,24 @@ def run():
             page.get_by_role('button', name='新增', exact=True).click()
             expect(dialog).to_be_visible(); rect = dialog.bounding_box(); assert rect['width'] <= 569
             expect(footer.get_by_role('button', name='保存', exact=True)).to_be_visible()
+            expect(dialog.locator('.referral-entry-heading')).not_to_be_visible()
+            paste_image(item('发圈凭证').locator('.referral-evidence-cell'))
+            expect(item('发圈凭证').locator('.referral-evidence-draft')).to_have_count(1)
+            small_url = item('发圈凭证').locator('.referral-evidence-draft .el-image img').get_attribute('src')
+            body.evaluate('(el) => { el.scrollTop = el.scrollHeight / 2 }'); expect(footer).to_be_visible()
+            body.evaluate('(el) => { el.scrollTop = el.scrollHeight }'); expect(footer).to_be_visible()
+            assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth')
+            page.screenshot(path=str(out / 'small-form.png'), full_page=True, animations='disabled')
+            dialog.get_by_role('button', name='取消', exact=True).click(); expect(dialog).to_have_count(0); assert_released(small_url)
+            page.get_by_role('button', name='新增', exact=True).click()
+            expect(dialog.locator('.referral-evidence-draft')).to_have_count(0)
             dialog.get_by_role('button', name='取消', exact=True).click()
             assert not state['errors'], state['errors']
             browser.close()
         (out / 'summary.json').write_text(json.dumps(dict(result='passed', console_errors=state['errors'], request_count=len(state['requests']),
-            scenarios=['新增校验与字段定位','分类多图及部分上传重试','付款登记与撤销','已支付金额更正','详情左侧弹出及滚动','图片原图预览',
+            scenarios=['新增校验与字段定位','四类凭证原生Ctrl+V、拖入和文件选择','图文混合粘贴保留说明','待上传缩略图及大图预览','收款码替换及预览资源释放',
+                       '分类多图及部分上传重试','连续新增保留日期且不串人员或图片','冲突禁止变更及重新加载保留待上传图片','已保存图片即时删除',
+                       '付款登记与撤销','已支付金额更正','详情左侧弹出及滚动','图片原图预览',
                        '弹窗拖拽边界及复位','固定底部操作栏','高级条件计数及清空','全部取消列及持久化','用户配置隔离',
                        '批量删除部分失败及末页回退','只读权限','小屏弹窗和筛选']), ensure_ascii=False, indent=2), encoding='utf-8')
         print('推荐拓展真实接口及页面验收通过；浏览器运行错误0')

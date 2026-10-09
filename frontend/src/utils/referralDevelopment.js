@@ -16,9 +16,9 @@ export const referralColumns = [
 ]
 export const defaultReferralColumns = ['work_date', 'full_name', 'amount', 'payment_status', 'payment_date', 'updated_by_name', 'updated_at']
 export const imageCategories = [
-  { key: 'pull', label: '拉人凭证', hint: '参考奖励：3元' },
-  { key: 'moments', label: '发圈凭证', hint: '参考奖励：5元' },
-  { key: 'groups', label: '发群凭证', hint: '参考奖励：5元' },
+  { key: 'pull', label: '拉人凭证' },
+  { key: 'moments', label: '发圈凭证' },
+  { key: 'groups', label: '发群凭证' },
   { key: 'qr', label: '微信收款码', hint: '保留一张当前收款码，上传后替换旧图' },
 ]
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())

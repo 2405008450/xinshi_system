@@ -4,6 +4,7 @@
       <el-image v-if="urls[item.id]" :src="urls[item.id]" :preview-src-list="previewUrls" :initial-index="previewUrls.indexOf(urls[item.id])" preview-teleported fit="contain" :alt="item.name" />
       <div v-else class="referral-image-placeholder"><span>{{ failures[item.id] ? '图片加载失败' : '图片加载中…' }}</span><el-button v-if="failures[item.id]" link @click="load(item)">重试</el-button></div>
       <span class="referral-image-name" :title="item.name">{{ item.name }}</span>
+      <el-tag v-if="showStatus" size="small" type="success" effect="plain">已保存</el-tag>
       <el-button v-if="editable" link type="danger" :disabled="disabled" @click="$emit('remove', item)">删除图片</el-button>
     </div>
     <span v-if="!images.length" class="referral-muted">暂无图片</span>
@@ -13,7 +14,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import { referralApi } from '@/api/referralDevelopment'
-const props = defineProps({ images: { type: Array, default: () => [] }, editable: Boolean, disabled: Boolean })
+const props = defineProps({ images: { type: Array, default: () => [] }, editable: Boolean, disabled: Boolean, showStatus: Boolean })
 defineEmits(['remove'])
 const urls = reactive({}), failures = reactive({})
 const controllers = new Map()

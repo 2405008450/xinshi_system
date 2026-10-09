@@ -20,6 +20,8 @@ FILES = [
     'frontend/src/views/resource/components/ReferralDetailContent.vue',
     'frontend/src/views/resource/components/ReferralImages.vue',
     'frontend/src/views/resource/components/ReferralRecordEditor.vue',
+    'frontend/src/views/resource/components/ReferralEvidenceCell.vue', 'frontend/src/utils/referralImages.js',
+    'frontend/tests/referralImages.test.mjs',
     'tools/verify_referral_development_ui.py',
 ]
 
@@ -67,7 +69,11 @@ def run():
     out = root / '.tmp/referral-verification'
     out.mkdir(parents=True, exist_ok=True)
     data = Path(tempfile.mkdtemp(prefix='pg-', dir=out))
-    pg_bin = Path(r'C:\Program Files\PostgreSQL\18\bin')
+    pg_root = Path(r'C:\Program Files\PostgreSQL')
+    candidates = sorted(pg_root.glob('*/bin'), reverse=True)
+    pg_bin = next((path for path in candidates if (path / 'initdb.exe').is_file() and (path / 'pg_ctl.exe').is_file()), None)
+    if pg_bin is None:
+        raise SystemExit('未找到本机 PostgreSQL 工具，不能回退到业务数据库')
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
 
@@ -93,7 +99,10 @@ def run():
     command(pg_bin / 'pg_ctl.exe', '-D', data, '-l', data / 'server.log', '-o', f'-h 127.0.0.1 -p {port}', '-w', 'start')
     try:
         env = dict(os.environ, DATABASE_URL=f'postgresql+psycopg2://referral_test@127.0.0.1:{port}/postgres',
-                   SECRET_KEY=secrets.token_urlsafe(48), RUN_RESOURCE_DEVELOPMENT_DB_TESTS='1', PYTHONIOENCODING='utf-8', APP_ENV='development')
+                   SECRET_KEY=secrets.token_urlsafe(48), RUN_RESOURCE_DEVELOPMENT_DB_TESTS='1', PYTHONIOENCODING='utf-8', APP_ENV='development',
+                   LOCAL_SCHEMA_MIGRATIONS_ENABLED='false')
+        print(f'验收环境：主机 PC，源码 {PROJECT}，提交 ' + subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], cwd=PROJECT).decode().strip()
+              + f'，隔离数据库 127.0.0.1:{port}/postgres（用户 referral_test）', flush=True)
         setup = """
 import main
 from models import Base
@@ -118,8 +127,9 @@ print('推荐拓展迁移首次及重复执行通过')
         command(sys.executable, '-c', setup, env=env, log_name='migration.log')
         if not args.ui_only:
             command(sys.executable, '-m', 'pytest', 'tests/test_referral_development.py', 'tests/test_resource_follow_up.py', '-q', '--tb=short', env=env, timeout=300, log_name='backend-tests.log')
-            command('node', '--test', 'tests/referralDevelopment.test.mjs', cwd=root / 'frontend', env=env, log_name='frontend-tests.log')
+            command('node', '--test', 'tests/referralDevelopment.test.mjs', 'tests/referralImages.test.mjs', cwd=root / 'frontend', env=env, log_name='frontend-tests.log')
             command('node', 'node_modules/vite/bin/vite.js', 'build', '--outDir', '../.tmp/referral-dist', '--emptyOutDir', cwd=root / 'frontend', env=env, timeout=300, log_name='build.log')
+            command('node', 'tools/check-build-budget.mjs', '--dist-dir', '../.tmp/referral-dist', cwd=root / 'frontend', env=env, log_name='build-budget.log')
         elif not (root / '.tmp/referral-dist/index.html').exists():
             raise SystemExit('尚无完整构建，不能仅运行浏览器验收')
         command(sys.executable, 'tools/verify_referral_development_ui.py', env=env, timeout=300, log_name='ui-tests.log')
