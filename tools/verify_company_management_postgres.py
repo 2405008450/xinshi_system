@@ -45,7 +45,7 @@ def run():
                        'SECRET_KEY': 'isolated-material-test-signing-key-not-for-production', 'PYTHONIOENCODING': 'utf-8',
                        'COMPANY_TEST_DATABASE_URL': f'postgresql+psycopg2://material_test@127.0.0.1:{port}/postgres'}
         with (ROOT / 'company-management-postgres-results.log').open('w', encoding='utf-8') as output:
-            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_company_management.py', 'tests/test_company_management_images.py', 'tests/test_annotation_notices.py', '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
+            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_company_management.py', 'tests/test_company_management_images.py', 'tests/test_company_management_image_storage.py', 'tests/test_annotation_notices.py', '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
         print((ROOT / 'company-management-postgres-results.log').read_text(encoding='utf-8'))
         return result.returncode
     finally:

@@ -3,8 +3,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from company_management_attachment_service import (
@@ -12,6 +13,7 @@ from company_management_attachment_service import (
 )
 from company_management_image_service import save_image, get_image, delete_draft
 from company_management_schemas import CompanyManagementSectionUpdate
+from company_management_image_storage import remote_origin, forward_json, forward_image
 
 from annotation_notice_schemas import (
     AnnotationNoticeReorder,
@@ -118,14 +120,20 @@ def remove_annotation_notice(section_id: UUID, db: Session = Depends(get_db)):
 @router.put(
     "/sections/{section_id}/content", response_model=AnnotationNoticeSectionResponse,
 )
-def save_company_management_content(
+async def save_company_management_content(
     section_id: UUID,
     payload: CompanyManagementSectionUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    origin = remote_origin()
+    if origin:
+        # 共用数据库时正文引用校验及旧图片清理必须在实际存储文件的云端完成。
+        return await forward_json(origin, request, "PUT", f"/sections/{section_id}/content",
+                                  payload=payload.model_dump(mode="json"))
     try:
-        row = update_company_management_content(db, section_id, payload, current_user.id)
+        row = await run_in_threadpool(update_company_management_content, db, section_id, payload, current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if row is None:
@@ -184,15 +192,21 @@ class CompanyImageResponse(CompanyAttachmentResponse):
 
 @router.post("/sections/{section_id}/images", response_model=CompanyImageResponse, status_code=201)
 async def upload_content_image(
-    section_id: UUID, file: UploadFile = File(...), db: Session = Depends(get_db),
+    section_id: UUID, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    origin = remote_origin()
+    if origin:
+        return await forward_json(origin, request, "POST", f"/sections/{section_id}/images", upload=file)
     return await save_image(db, section_id, file, current_user.id)
 
 
 @router.get("/sections/{section_id}/images/{image_id}")
-def read_content_image(section_id: UUID, image_id: UUID, db: Session = Depends(get_db)):
-    row = get_image(db, section_id, image_id)
+async def read_content_image(section_id: UUID, image_id: UUID, request: Request, db: Session = Depends(get_db)):
+    origin = remote_origin()
+    if origin:
+        return await forward_image(origin, request, f"/sections/{section_id}/images/{image_id}")
+    row = await run_in_threadpool(get_image, db, section_id, image_id)
     path = attachment_path(row.storage_name)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="正文图片文件不存在")
@@ -202,8 +216,12 @@ def read_content_image(section_id: UUID, image_id: UUID, db: Session = Depends(g
 
 
 @router.delete("/sections/{section_id}/images/{image_id}", status_code=204)
-def remove_draft_image(
-    section_id: UUID, image_id: UUID, db: Session = Depends(get_db),
+async def remove_draft_image(
+    section_id: UUID, image_id: UUID, request: Request, db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    delete_draft(db, section_id, image_id, current_user.id)
+    origin = remote_origin()
+    if origin:
+        await forward_json(origin, request, "DELETE", f"/sections/{section_id}/images/{image_id}")
+        return
+    await run_in_threadpool(delete_draft, db, section_id, image_id, current_user.id)
