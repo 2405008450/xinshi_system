@@ -58,6 +58,7 @@ class CompanyManagementAttachment(Base):
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_inline_image: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("app_user.id", ondelete="SET NULL")

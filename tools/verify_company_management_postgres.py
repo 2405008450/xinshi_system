@@ -12,7 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def run():
     if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
         raise SystemExit('仅允许在本机隔离验证目录运行')
-    pg_bin = Path(r'C:\Program Files\PostgreSQL\18\bin')
+    pg_root = Path(r'C:\Program Files\PostgreSQL')
+    candidates = sorted((path / 'bin' for path in pg_root.iterdir() if path.name.isdigit()),
+                        key=lambda path: int(path.parent.name), reverse=True)
+    pg_bin = next((path for path in candidates if (path / 'initdb.exe').is_file()), None)
+    if pg_bin is None:
+        raise SystemExit('未找到本机 PostgreSQL initdb，不能回退到业务数据库')
     output_root = ROOT / '.tmp' / 'company-postgres'
     output_root.mkdir(parents=True, exist_ok=True)
     data = Path(tempfile.mkdtemp(prefix='pg-', dir=output_root))
@@ -40,7 +45,7 @@ def run():
                        'SECRET_KEY': 'isolated-material-test-signing-key-not-for-production', 'PYTHONIOENCODING': 'utf-8',
                        'COMPANY_TEST_DATABASE_URL': f'postgresql+psycopg2://material_test@127.0.0.1:{port}/postgres'}
         with (ROOT / 'company-management-postgres-results.log').open('w', encoding='utf-8') as output:
-            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_company_management.py', '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
+            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_company_management.py', 'tests/test_company_management_images.py', 'tests/test_annotation_notices.py', '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
         print((ROOT / 'company-management-postgres-results.log').read_text(encoding='utf-8'))
         return result.returncode
     finally:

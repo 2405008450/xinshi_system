@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import UUID
 from urllib.parse import urlsplit
 
@@ -20,7 +20,7 @@ ALLOWED_MARK_TYPES = {"bold", "italic", "strike", "code", "textColor", "highligh
 MAX_DOCUMENT_BYTES = 512 * 1024
 
 
-def validate_tiptap_document(value: Any) -> dict:
+def validate_tiptap_document(value: Any, *, image_validator: Callable[[dict], None] | None = None) -> dict:
     """仅允许标注须知编辑器支持的结构和格式，拒绝任意 HTML/未知节点。"""
     if not isinstance(value, dict) or value.get("type") != "doc":
         raise ValueError("须知内容格式无效")
@@ -29,12 +29,15 @@ def validate_tiptap_document(value: Any) -> dict:
         raise ValueError("须知内容不能超过 512KB")
 
     def visit(node: Any) -> None:
-        if not isinstance(node, dict) or node.get("type") not in ALLOWED_NODE_TYPES:
+        if not isinstance(node, dict) or (node.get("type") not in ALLOWED_NODE_TYPES
+                and not (node.get("type") == "image" and image_validator is not None)):
             raise ValueError("须知内容包含不支持的节点")
         if node.get("type") == "text" and not isinstance(node.get("text"), str):
             raise ValueError("须知文本格式无效")
         attrs = node.get("attrs")
-        if attrs is not None:
+        if node.get("type") == "image":
+            image_validator(node)
+        elif attrs is not None:
             if node.get("type") == "heading":
                 if not isinstance(attrs, dict) or attrs.get("level") not in {1, 2, 3}:
                     raise ValueError("须知标题级别无效")

@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from company_management_attachment_service import (
     attachment_path, delete_attachment, get_attachment, list_attachments, save_attachment,
 )
+from company_management_image_service import save_image, get_image, delete_draft
+from company_management_schemas import CompanyManagementSectionUpdate
 
 from annotation_notice_schemas import (
     AnnotationNoticeReorder,
@@ -17,7 +19,6 @@ from annotation_notice_schemas import (
     AnnotationNoticeSectionCreate,
     AnnotationNoticeSectionEdit,
     AnnotationNoticeSectionResponse,
-    AnnotationNoticeSectionUpdate,
     AnnotationNoticeTreeNodeResponse,
 )
 from company_management_service import (
@@ -119,7 +120,7 @@ def remove_annotation_notice(section_id: UUID, db: Session = Depends(get_db)):
 )
 def save_company_management_content(
     section_id: UUID,
-    payload: AnnotationNoticeSectionUpdate,
+    payload: CompanyManagementSectionUpdate,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -175,3 +176,34 @@ def download_attachment(section_id: UUID, attachment_id: UUID, db: Session = Dep
 @router.delete("/sections/{section_id}/attachments/{attachment_id}", status_code=204)
 def remove_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
     delete_attachment(db, section_id, attachment_id)
+
+
+class CompanyImageResponse(CompanyAttachmentResponse):
+    src: str
+
+
+@router.post("/sections/{section_id}/images", response_model=CompanyImageResponse, status_code=201)
+async def upload_content_image(
+    section_id: UUID, file: UploadFile = File(...), db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    return await save_image(db, section_id, file, current_user.id)
+
+
+@router.get("/sections/{section_id}/images/{image_id}")
+def read_content_image(section_id: UUID, image_id: UUID, db: Session = Depends(get_db)):
+    row = get_image(db, section_id, image_id)
+    path = attachment_path(row.storage_name)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="正文图片文件不存在")
+    return FileResponse(path, media_type=row.content_type, headers={
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+    })
+
+
+@router.delete("/sections/{section_id}/images/{image_id}", status_code=204)
+def remove_draft_image(
+    section_id: UUID, image_id: UUID, db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    delete_draft(db, section_id, image_id, current_user.id)

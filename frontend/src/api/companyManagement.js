@@ -62,6 +62,11 @@ export const updateCompanyManagementNoticeContent = (sectionId, contentJson, exp
 )
 
 export const adapter = {
+  images: {
+    upload: uploadContentImage,
+    read: readContentImage,
+    removeDraft: removeContentImageDraft
+  },
   tree: getCompanyManagementNoticeTree,
   detail: getCompanyManagementNoticeDetail,
   search: searchCompanyManagementNotices,
@@ -93,3 +98,23 @@ export const downloadAttachment = (sectionId, attachmentId) => api.get(
 export const deleteAttachment = (sectionId, attachmentId) => api.delete(
   `/company-management/sections/${sectionId}/attachments/${attachmentId}`
 )
+
+export function uploadContentImage(sectionId, file, signal) {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/company-management/sections/${sectionId}/images`, form, {
+    headers: { 'Content-Type': undefined }, timeout: 120000, signal
+  }).then(convertKeys)
+}
+
+export function readContentImage(src, signal) {
+  // 只接收本模块的受控地址，避免将登录凭据发送到粘贴来源。
+  if (!/^\/api\/company-management\/sections\/[0-9a-f-]{36}\/images\/[0-9a-f-]{36}$/.test(src)) {
+    return Promise.reject(new Error('正文图片地址无效'))
+  }
+  return api.get(src.slice(4), { responseType: 'blob', timeout: 120000, signal })
+}
+
+export function removeContentImageDraft(sectionId, imageId) {
+  return api.delete(`/company-management/sections/${sectionId}/images/${imageId}`)
+}

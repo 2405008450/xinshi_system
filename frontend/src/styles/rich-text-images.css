@@ -1,0 +1,6 @@
+.rich-text-image{margin:12px 0;max-width:100%;overflow:hidden}
+.rich-text-image img{display:block;max-width:100%;height:auto;object-fit:contain;border-radius:4px}
+.rich-text-image img:not([src]){display:none}
+.rich-text-image__status{padding:10px;border:1px solid var(--el-border-color);border-radius:4px;background:var(--el-fill-color-light);color:var(--el-text-color-secondary);cursor:pointer;font:inherit}
+.rich-text-image__status:disabled{cursor:wait}
+.rich-editor .rich-text-image.ProseMirror-selectednode{outline:2px solid var(--el-color-primary)}

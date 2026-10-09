@@ -14,10 +14,11 @@ from annotation_notice_schemas import (
     AnnotationNoticeReorder,
     AnnotationNoticeSectionCreate,
     AnnotationNoticeSectionEdit,
-    AnnotationNoticeSectionUpdate,
 )
 from concurrency import StaleUpdateError, parse_expected_updated_at
 from annotation_notice_service import extract_notice_text
+from company_management_schemas import CompanyManagementSectionUpdate
+from company_management_image_service import commit_removed_images, validate_content_images
 
 
 def _ordered_rows(rows: list[CompanyManagementSection]) -> list[CompanyManagementSection]:
@@ -281,22 +282,23 @@ def search_company_management_sections(
 def _update_content(
     db: Session,
     row: CompanyManagementSection,
-    payload: AnnotationNoticeSectionUpdate,
+    payload: CompanyManagementSectionUpdate,
     user_id: UUID,
 ) -> dict:
     if not row.has_content:
         raise ValueError("该栏目仅用于分组，不能编辑正文")
     _assert_version(row.updated_at, payload.expected_updated_at)
+    removed_images = validate_content_images(db, row, payload.content_json)
     row.content_json = payload.content_json
     row.search_text = extract_notice_text(payload.content_json)
     row.updated_by = user_id
     row.updated_at = datetime.now()
-    db.commit()
+    commit_removed_images(db, removed_images)
     return get_company_management_section(db, row.id)
 
 
 def update_company_management_content(
-    db: Session, section_id: UUID, payload: AnnotationNoticeSectionUpdate, user_id: UUID
+    db: Session, section_id: UUID, payload: CompanyManagementSectionUpdate, user_id: UUID
 ) -> dict | None:
     row = db.query(CompanyManagementSection).filter(
         CompanyManagementSection.id == section_id,

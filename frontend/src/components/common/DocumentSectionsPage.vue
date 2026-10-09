@@ -126,6 +126,7 @@
           </div>
 
           <RichTextContent
+            :image-api="adapter.images || null"
             enable-links
             v-if="activeNotice.hasContent && hasContent(activeDetail?.contentJson)"
             :document="activeDetail.contentJson"
@@ -151,10 +152,10 @@
     :close-on-click-modal="false"
     :before-close="beforeEditorClose"
   >
-    <RichTextComposer v-if="editorVisible" v-model="draftContent" format-colors plain-text-paste enable-links min-height="360px" placeholder="请输入需要团队注意的事项…" />
+    <RichTextComposer ref="composerRef" v-if="editorVisible" v-model="draftContent" :image-api="adapter.images || null" :image-section-id="activeId" :disabled="saving" @uploading-change="imageUploading = $event" format-colors plain-text-paste enable-links min-height="360px" placeholder="请输入需要团队注意的事项…" />
     <template #footer>
       <el-button :disabled="saving" @click="requestEditorClose">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="saveNotice">保存</el-button>
+      <el-button type="primary" :loading="saving" :disabled="imageUploading" @click="saveNotice">保存</el-button>
     </template>
   </DraggableFormDialog>
   </div>
@@ -187,6 +188,8 @@ const detailLoading = ref(false)
 const loading = ref(false)
 const refreshKey = ref(0)
 const saving = ref(false)
+const composerRef = ref(null)
+const imageUploading = ref(false)
 const editorVisible = ref(false)
 const managerVisible = ref(false)
 const draftContent = ref(emptyDocument())
@@ -221,7 +224,7 @@ function toggleRoot(id) {
 }
 
 function hasContent(document) {
-  const containsText = node => Boolean(node?.text?.trim()) || (node?.content || []).some(containsText)
+  const containsText = node => Boolean(node?.text?.trim()) || node?.type === 'image' || (node?.content || []).some(containsText)
   return Boolean(document && containsText(document))
 }
 
@@ -284,11 +287,12 @@ function openEditor() {
   if (!activeDetail.value) return
   draftContent.value = cloneDocument(activeDetail.value.contentJson)
   originalContent.value = JSON.stringify(draftContent.value)
+  imageUploading.value = false
   editorVisible.value = true
 }
 
 async function confirmDiscard() {
-  if (!isDirty.value) return true
+  if (!isDirty.value && !imageUploading.value) return true
   try {
     await ElMessageBox.confirm('当前修改尚未保存，确定放弃吗？', '放弃修改', {
       type: 'warning', confirmButtonText: '放弃修改', cancelButtonText: '继续编辑'
@@ -300,20 +304,22 @@ async function confirmDiscard() {
 }
 
 async function requestEditorClose() {
+  if (saving.value) return
   if (await confirmDiscard()) editorVisible.value = false
 }
 
 async function beforeEditorClose(done) {
+  if (saving.value && !closingAfterSave) return
   if (closingAfterSave || await confirmDiscard()) done()
 }
 
 async function saveNotice() {
-  if (!activeId.value || saving.value) return
-  if (saving.value) return
+  if (!activeId.value || saving.value || imageUploading.value) return
   saving.value = true
   try {
     const saved = await props.adapter.saveContent(activeId.value, draftContent.value, activeDetail.value?.updatedAt)
     detailCache.value = { ...detailCache.value, [activeId.value]: saved }
+    composerRef.value?.markImagesSaved(saved.contentJson)
     closingAfterSave = true
     editorVisible.value = false
     ElMessage.success(props.pageTitle + '已保存')

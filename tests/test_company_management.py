@@ -43,6 +43,9 @@ def db(tmp_path, monkeypatch):
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as migration:
         migration.exec_driver_sql(sql)
         migration.exec_driver_sql(sql)
+        image_sql = (Path(__file__).resolve().parents[1] / "data/migrations/20261009_company_management_inline_images.sql").read_text(encoding="utf-8")
+        migration.exec_driver_sql(image_sql)
+        migration.exec_driver_sql(image_sql)
     connection = engine.connect()
     transaction = connection.begin()
     session = Session(connection, join_transaction_mode="create_savepoint")

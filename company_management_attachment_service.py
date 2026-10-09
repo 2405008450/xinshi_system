@@ -52,7 +52,8 @@ def list_attachments(db: Session, section_id: UUID) -> list[dict]:
     require_section(db, section_id)
     rows = db.query(CompanyManagementAttachment).options(
         joinedload(CompanyManagementAttachment.uploader)
-    ).filter(CompanyManagementAttachment.section_id == section_id).order_by(
+    ).filter(CompanyManagementAttachment.section_id == section_id,
+             CompanyManagementAttachment.is_inline_image.is_(False)).order_by(
         CompanyManagementAttachment.uploaded_at.desc(), CompanyManagementAttachment.id
     ).all()
     return [serialize_attachment(row) for row in rows]
@@ -64,7 +65,8 @@ async def save_attachment(db: Session, section_id: UUID, upload: UploadFile, use
         # 所有栏目附件写操作先锁父记录，串行检查容量并防止与软删除竞态。
         require_section(db, section_id, lock=True)
         count = db.query(CompanyManagementAttachment).filter(
-            CompanyManagementAttachment.section_id == section_id
+            CompanyManagementAttachment.section_id == section_id,
+            CompanyManagementAttachment.is_inline_image.is_(False),
         ).count()
         if count >= MAX_FILES_PER_SECTION:
             raise HTTPException(status_code=400, detail="每个栏目最多上传50个附件")
@@ -110,6 +112,7 @@ def get_attachment(db: Session, section_id: UUID, attachment_id: UUID, *, lock: 
     row = db.query(CompanyManagementAttachment).filter(
         CompanyManagementAttachment.id == attachment_id,
         CompanyManagementAttachment.section_id == section_id,
+        CompanyManagementAttachment.is_inline_image.is_(False),
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="附件不存在")
