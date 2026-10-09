@@ -45,7 +45,7 @@ def run():
         requests.append((method, path))
         result, status = [], 200
         if path == "/auth/session":
-            result = dict(id=UID, username="qa", full_name="验收人员", roles=["qa"], permissions=route.request.headers.get("x-qa-permission", "").split(",") if "x-qa-permission" in route.request.headers else ["company_management:write", "projects:read", "projects:write"])
+            result = dict(id=UID, username="qa", full_name="验收人员", roles=["qa"], permissions=route.request.headers.get("x-qa-permission", "").split(",") if "x-qa-permission" in route.request.headers else [])
         elif path.endswith("/tree"):
             result = [row for row in rows if row["parent_id"] is None and row["is_active"]]
             for root in result:
@@ -109,10 +109,10 @@ def run():
             page.goto(BASE + "/company-management")
             expect(page.get_by_role("heading", name="公司管理", exact=True)).to_be_visible()
             sidebar = page.locator('.sidebar-menu')
-            sidebar.get_by_role('menuitem', name='个人中心', exact=True).click()
+            sidebar.get_by_text('个人中心', exact=True).click()
             expect(page.get_by_role('heading', name='个人中心', exact=True)).to_be_visible()
             page.wait_for_timeout(350)
-            sidebar.get_by_role('menuitem', name='公司管理', exact=True).click()
+            sidebar.get_by_text('公司管理', exact=True).click()
             expect(page.get_by_role('heading', name='公司管理', exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="编辑内容", exact=True)).to_be_visible()
             # 编辑富文本、拖拽窗口、关闭重开复位，以及固定底部。
@@ -191,7 +191,7 @@ def run():
             dialog.get_by_role("button", name="取消", exact=True).click()
             page.get_by_role("button", name="放弃修改", exact=True).click()
             context.close()
-            # 普通登录用户仍可访问导航与附件，只读权限。
+            # 没有公司管理授权的普通用户仍可编辑；标注须知继续按项目权限控制。
             readonly = browser.new_context(viewport={"width":1440,"height":1000}, extra_http_headers={"x-qa-permission":"projects:read"})
             readonly.route("**/api/**", api)
             readonly.add_init_script("localStorage.setItem('token','isolated-qa');localStorage.setItem('user_roles','[\"qa\"]')")
@@ -199,14 +199,16 @@ def run():
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(BASE + "/company-management")
             expect(page.get_by_role("heading", name="公司管理", exact=True)).to_be_visible()
-            expect(page.get_by_role("button", name="栏目管理", exact=True)).to_have_count(0)
-            expect(page.get_by_role("button", name="上传附件", exact=True)).to_have_count(0)
-            expect(page.get_by_role("button", name="编辑内容", exact=True)).to_have_count(0)
+            expect(page.get_by_role("button", name="栏目管理", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="上传附件", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="编辑内容", exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="下载", exact=True)).to_be_visible()
             # 标注须知公共组件回归。
             page.goto(BASE + "/annotation-details?section=notices")
             expect(page.get_by_role("heading", name="标注须知", exact=True)).to_be_visible()
             expect(page.locator(".notice-nav")).to_contain_text("公司制度")
+            expect(page.get_by_role("button", name="栏目管理", exact=True)).to_have_count(0)
+            expect(page.get_by_role("button", name="编辑内容", exact=True)).to_have_count(0)
             assert not errors, errors
             browser.close()
         print(json.dumps({"passed":True, "requests":len(requests), "screenshots":str(out), "page_errors":errors}, ensure_ascii=False))

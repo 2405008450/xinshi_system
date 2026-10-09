@@ -20,8 +20,11 @@ from company_management_models import CompanyManagementAttachment, CompanyManage
 from concurrency import StaleUpdateError
 from database import get_db
 from models import AppUser, Role, RolePermission, UserRole
+from permission_registry import PERMISSION_CODES
+from permission_service import get_role_permission_codes, get_user_permission_codes, set_role_permission_codes
 from routers.auth import get_current_user
 from routers.company_management import router
+from schemas import RoleResponse
 
 
 
@@ -162,26 +165,48 @@ def test_attachments_validate_ownership_limits_and_cleanup(db, monkeypatch):
         upload(session, root["id"], user)
 
 
-def test_api_login_write_permission_and_download(db):
+def test_api_all_logged_in_users_can_write_and_download(db):
     session, user = db
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: session
     with TestClient(app) as client:
         assert client.get("/company-management/tree").status_code == 401
+        sid, aid = uuid4(), uuid4()
+        # 全部维护接口仍要求登录。
+        anonymous_requests = [
+            ("POST", "/sections", {"json": {"title": "未登录新增"}}),
+            ("PUT", "/sections/reorder", {"json": {"placements": [{"id": str(sid), "sort_order": 1}]}}),
+            ("PATCH", f"/sections/{sid}", {"json": {"title": "未登录编辑", "has_content": True}}),
+            ("DELETE", f"/sections/{sid}", {}),
+            ("PUT", f"/sections/{sid}/content", {"json": {"content_json": doc()}}),
+            ("POST", f"/sections/{sid}/attachments", {"files": {"file": ("test.pdf", b"test")}}),
+            ("DELETE", f"/sections/{sid}/attachments/{aid}", {}),
+        ]
+        for method, path, kwargs in anonymous_requests:
+            assert client.request(method, "/company-management" + path, **kwargs).status_code == 401
         app.dependency_overrides[get_current_user] = lambda: user
         assert client.get("/company-management/tree").status_code == 200
-        assert client.post("/company-management/sections", json={"title": "无权限新增"}).status_code == 403
-        first_id = client.get("/company-management/tree").json()[0]["id"]
-        assert client.post(f"/company-management/sections/{first_id}/attachments", files={"file": ("test.pdf", b"test")}).status_code == 403
-        role = Role(id=uuid4(), role_name="company_qa")
-        session.add(role); session.flush()
-        session.add_all([UserRole(user_id=user.id, role_id=role.id),
-                         RolePermission(role_id=role.id, permission_code="company_management:write")])
-        session.commit()
+        assert get_user_permission_codes(session, user.id) == []
         created = client.post("/company-management/sections", json={"title": "API资料"})
         assert created.status_code == 201
         sid = created.json()["id"]
+        edited = client.patch(f"/company-management/sections/{sid}", json={
+            "title": "普通用户编辑资料", "has_content": True,
+            "expected_structure_updated_at": created.json()["structure_updated_at"],
+        })
+        assert edited.status_code == 200
+        assert edited.json()["title"] == "普通用户编辑资料"
+        saved = client.put(f"/company-management/sections/{sid}/content", json={"content_json": doc("普通用户保存正文")})
+        assert saved.status_code == 200
+        assert saved.json()["updated_by"] == str(user.id)
+        tree = client.get("/company-management/tree").json()
+        reordered = client.put("/company-management/sections/reorder", json={"placements": [
+            dict(id=row["id"], sort_order=index + 1, expected_structure_updated_at=row["structure_updated_at"])
+            for index, row in enumerate(reversed(tree))
+        ]})
+        assert reordered.status_code == 200
+        assert reordered.json()[0]["id"] == sid
         response = client.post(f"/company-management/sections/{sid}/attachments", files={"file": ("中文.pdf", b"test-download", "application/pdf")})
         assert response.status_code == 201
         aid = response.json()["id"]
@@ -190,3 +215,24 @@ def test_api_login_write_permission_and_download(db):
         assert read.status_code == 200 and read.content == b"test-download"
         assert "filename*=utf-8" in read.headers["content-disposition"].lower()
         assert client.delete(f"/company-management/sections/{sid}/attachments/{aid}").status_code == 204
+        assert client.delete(f"/company-management/sections/{sid}").status_code == 204
+        assert client.get(f"/company-management/sections/{sid}").status_code == 404
+
+
+def test_retired_company_permission_does_not_break_role_configuration(db):
+    session, user = db
+    assert "company_management:write" not in PERMISSION_CODES
+    role = Role(id=uuid4(), role_name="company_qa_" + uuid4().hex)
+    session.add(role)
+    session.flush()
+    session.add_all([
+        UserRole(user_id=user.id, role_id=role.id),
+        RolePermission(role_id=role.id, permission_code="company_management:write"),
+        RolePermission(role_id=role.id, permission_code="projects:read"),
+    ])
+    session.commit()
+    # 历史授权不再出现在角色配置中，其他权限可以继续读取和保存。
+    assert get_role_permission_codes(session, role.id) == ["projects:read"]
+    assert RoleResponse.model_validate(role).permissions == ["projects:read"]
+    assert get_user_permission_codes(session, user.id) == ["projects:read"]
+    assert set_role_permission_codes(session, role.id, get_role_permission_codes(session, role.id)) == ["projects:read"]

@@ -100,9 +100,11 @@ class Role(Base):
 
     @property
     def permissions(self) -> list[str]:
+        from permission_registry import PERMISSION_CODES
+
         if self.role_name in ('admin', '超级管理员'):
             return ['*']
-        return sorted(item.permission_code for item in self.role_permissions)
+        return sorted(item.permission_code for item in self.role_permissions if item.permission_code in PERMISSION_CODES)
 
 
 class Client(Base):

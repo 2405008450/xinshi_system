@@ -2,7 +2,7 @@
   <DocumentSectionsPage
     page-title="公司管理"
     description="集中查看公司制度、行政财务规范与常用资料。"
-    write-permission="company_management:write"
+    allow-all-users-edit
     allow-group-selection
     :adapter="adapter"
   >

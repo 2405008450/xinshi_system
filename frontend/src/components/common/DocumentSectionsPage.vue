@@ -174,7 +174,8 @@ const props = defineProps({
   pageTitle: { type: String, required: true },
   description: { type: String, default: '' },
   adapter: { type: Object, required: true },
-  writePermission: { type: String, required: true },
+  writePermission: { type: String, default: '' },
+  allowAllUsersEdit: { type: Boolean, default: false },
   allowGroupSelection: { type: Boolean, default: false }
 })
 const emptyDocument = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
@@ -202,7 +203,7 @@ let detailRequestId = 0
 let closingAfterSave = false
 let firstActivation = true
 
-const canEdit = computed(() => hasPermission(props.writePermission))
+const canEdit = computed(() => props.allowAllUsersEdit || (Boolean(props.writePermission) && hasPermission(props.writePermission)))
 const flatNotices = computed(() => noticeTree.value.flatMap(root => [root, ...(root.children || [])]))
 const activeNotice = computed(() => flatNotices.value.find(item => item.id === activeId.value) || null)
 const activeDetail = computed(() => activeId.value ? detailCache.value[activeId.value] || null : null)

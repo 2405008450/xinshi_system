@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from models import Role, RolePermission, UserRole
-from permission_registry import ALL_PERMISSION, SUPER_ROLE_NAMES, validate_permission_codes
+from permission_registry import ALL_PERMISSION, PERMISSION_CODES, SUPER_ROLE_NAMES, validate_permission_codes
 
 
 def get_role_permission_codes(db: Session, role_id: UUID) -> list[str]:
@@ -12,6 +12,7 @@ def get_role_permission_codes(db: Session, role_id: UUID) -> list[str]:
         for row in (
             db.query(RolePermission.permission_code)
             .filter(RolePermission.role_id == role_id)
+            .filter(RolePermission.permission_code.in_(PERMISSION_CODES))
             .order_by(RolePermission.permission_code)
             .all()
         )
@@ -54,6 +55,7 @@ def get_user_permission_codes(db: Session, user_id: UUID) -> list[str]:
         db.query(RolePermission.permission_code)
         .join(UserRole, UserRole.role_id == RolePermission.role_id)
         .filter(UserRole.user_id == user_id)
+        .filter(RolePermission.permission_code.in_(PERMISSION_CODES))
         .distinct()
         .order_by(RolePermission.permission_code)
         .all()

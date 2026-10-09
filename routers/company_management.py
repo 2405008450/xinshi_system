@@ -32,7 +32,7 @@ from company_management_service import (
 )
 from database import get_db
 from models import AppUser
-from routers.auth import get_current_user, require_any_permission
+from routers.auth import get_current_user
 
 
 router = APIRouter(
@@ -40,7 +40,6 @@ router = APIRouter(
     tags=["company_management"],
     dependencies=[Depends(get_current_user)],
 )
-write_permission = [Depends(require_any_permission("company_management:write"))]
 
 
 @router.get("/tree", response_model=list[AnnotationNoticeTreeNodeResponse])
@@ -63,7 +62,7 @@ def search_company_management(
 
 @router.post(
     "/sections", response_model=AnnotationNoticeSectionResponse,
-    status_code=status.HTTP_201_CREATED, dependencies=write_permission,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_annotation_notice(
     payload: AnnotationNoticeSectionCreate, db: Session = Depends(get_db)
@@ -76,7 +75,6 @@ def create_annotation_notice(
 
 @router.put(
     "/sections/reorder", response_model=list[AnnotationNoticeTreeNodeResponse],
-    dependencies=write_permission,
 )
 def reorder_company_management(payload: AnnotationNoticeReorder, db: Session = Depends(get_db)):
     try:
@@ -95,7 +93,6 @@ def read_annotation_notice(section_id: UUID, db: Session = Depends(get_db)):
 
 @router.patch(
     "/sections/{section_id}", response_model=AnnotationNoticeSectionResponse,
-    dependencies=write_permission,
 )
 def edit_annotation_notice(
     section_id: UUID, payload: AnnotationNoticeSectionEdit, db: Session = Depends(get_db)
@@ -108,7 +105,6 @@ def edit_annotation_notice(
 
 @router.delete(
     "/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=write_permission,
 )
 def remove_annotation_notice(section_id: UUID, db: Session = Depends(get_db)):
     try:
@@ -120,7 +116,6 @@ def remove_annotation_notice(section_id: UUID, db: Session = Depends(get_db)):
 
 @router.put(
     "/sections/{section_id}/content", response_model=AnnotationNoticeSectionResponse,
-    dependencies=write_permission,
 )
 def save_company_management_content(
     section_id: UUID,
@@ -156,7 +151,7 @@ def read_attachments(section_id: UUID, db: Session = Depends(get_db)):
 
 @router.post(
     "/sections/{section_id}/attachments", response_model=CompanyAttachmentResponse,
-    status_code=201, dependencies=write_permission,
+    status_code=201,
 )
 async def upload_attachment(
     section_id: UUID, file: UploadFile = File(...),
@@ -177,6 +172,6 @@ def download_attachment(section_id: UUID, attachment_id: UUID, db: Session = Dep
     )
 
 
-@router.delete("/sections/{section_id}/attachments/{attachment_id}", status_code=204, dependencies=write_permission)
+@router.delete("/sections/{section_id}/attachments/{attachment_id}", status_code=204)
 def remove_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
     delete_attachment(db, section_id, attachment_id)
