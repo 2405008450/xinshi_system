@@ -1,7 +1,7 @@
 import api from './index'
 import { clearIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
 import { invalidateOptionCache } from '@/utils/optionCache'
-import { normalizeBlobApiError } from '@/utils/errorMessages'
+import { exportProjectWorkbook } from './projectExports'
 
 const projectCreateState = { key: '', signature: '' }
 
@@ -40,29 +40,10 @@ export const getProjectPage = (params, config = {}) => {
     return api.get('/projects/translation/page', { ...config, params }).then(res => convertKeys(res, toCamelCase))
 }
 
-const exportTranslationWorkbook = async (path, params) => {
-    try {
-        return await api.get(path, {
-            params,
-            responseType: 'blob',
-            timeout: 120000,
-        })
-    } catch (error) {
-        throw await normalizeBlobApiError(error)
-    }
-}
-
-export const exportTranslationProjects = (params) => (
-    exportTranslationWorkbook('/projects/translation/export', params)
-)
-
-export const exportTranslationReconciliation = (params) => (
-    exportTranslationWorkbook('/projects/translation/reconciliation-export', params)
-)
-
-export const exportTranslationTranslatorReconciliation = (params) => (
-    exportTranslationWorkbook('/projects/translation/translator-reconciliation-export', params)
-)
+// 兼容原有 API 导出名称，下载与错误处理统一使用公共能力。
+export const exportTranslationProjects = (params) => exportProjectWorkbook('translation', 'projects', params)
+export const exportTranslationReconciliation = (params) => exportProjectWorkbook('translation', 'reconciliation', params)
+export const exportTranslationTranslatorReconciliation = (params) => exportProjectWorkbook('translation', 'translator_reconciliation', params)
 
 export const getProject = (id) => {
     return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))

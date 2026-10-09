@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>招聘项目管理</span>
         <div class="header-actions">
+          <ProjectExportMenu v-if="!deleteMode" module="recruitment" :build-filters="buildFilters" />
           <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openAdd">新增招聘项目</el-button>
@@ -356,6 +357,7 @@
 </template>
 
 <script setup>
+import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

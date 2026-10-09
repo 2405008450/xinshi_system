@@ -1,125 +1,142 @@
 <template>
-  <el-popover
-    v-model:visible="visible"
-    trigger="click"
-    :placement="placement"
-    :width="680"
-    popper-class="translator-completion-popover"
-    :disabled="!normalizedTranslators.length"
-    @show="resetDraft"
-    @hide="resetDraft"
-  >
-    <template #reference>
-      <button
-        type="button"
-        class="translator-return-trigger business-clickable-cell"
-        :class="{ 'is-disabled': !normalizedTranslators.length }"
-        :title="normalizedTranslators.length ? '点击编辑译员回稿时间、任务完成情况及价格' : '暂无已指派译员'"
-        @click.stop
-      >
-        <div v-if="deadlineItems.length" class="translator-return-deadlines">
-          <div v-for="item in deadlineItems" :key="item.arrangementId" class="translator-return-deadline">
-            <span class="translator-return-deadline__name">{{ item.translatorName }}</span>
-            <DeadlineHintCell :deadline="item.returnTime" :status="status" mode="translator" />
+  <div class="translator-return-cell">
+    <el-popover
+      v-model:visible="visible"
+      trigger="click"
+      :placement="placement"
+      :width="680"
+      popper-class="translator-completion-popover"
+      :disabled="!normalizedTranslators.length"
+      @show="resetDraft"
+      @hide="resetDraft"
+    >
+      <template #reference>
+        <button
+          type="button"
+          class="translator-return-trigger business-clickable-cell"
+          :class="{ 'is-disabled': !normalizedTranslators.length }"
+          :title="normalizedTranslators.length ? '点击编辑译员回稿时间、任务完成情况及价格' : '暂无已指派译员'"
+          @click.stop
+        >
+          <div
+            v-if="deadlineItems.length"
+            class="translator-return-deadlines"
+            :class="{ 'is-expanded': deadlinesExpanded }"
+          >
+            <div v-for="item in visibleDeadlineItems" :key="item.arrangementId" class="translator-return-deadline">
+              <span class="translator-return-deadline__name">{{ item.translatorName }}</span>
+              <DeadlineHintCell :deadline="item.returnTime" :status="status" mode="translator" />
+            </div>
           </div>
+          <span v-else>-</span>
+        </button>
+      </template>
+
+      <div class="translator-completion-panel">
+        <div class="translator-completion-panel__header">
+          <strong>译员回稿及结算信息</strong>
+          <span>修改会同步回写当前项目对应的稿件安排，并影响回稿提醒和紧急度排序</span>
         </div>
-        <span v-else>-</span>
-      </button>
-    </template>
 
-    <div class="translator-completion-panel">
-      <div class="translator-completion-panel__header">
-        <strong>译员回稿及结算信息</strong>
-        <span>修改会同步回写当前项目对应的稿件安排，并影响回稿提醒和紧急度排序</span>
-      </div>
-
-      <div class="translator-completion-panel__body">
-        <div v-for="item in draft" :key="item.arrangementId" class="translator-completion-row">
-          <div class="translator-completion-row__meta">
-            <strong>{{ item.translatorName }}</strong>
-            <span>当前回稿时间：{{ formatDateTime(item.returnTime) }}</span>
-          </div>
-          <div class="translator-completion-row__fields">
-            <label class="translator-completion-field">
-              <span>译员回稿时间</span>
-              <el-date-picker
-                v-if="editable"
-                v-model="item.returnTime"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                format="YYYY-MM-DD HH:mm"
-                time-format="HH:mm"
-                :clearable="false"
-                :show-now="true"
-                :show-confirm="true"
-                :show-footer="true"
-                style="width: 100%"
-              />
-              <div v-else class="translator-completion-row__readonly">
-                {{ formatDateTime(item.returnTime) }}
-              </div>
-            </label>
-            <div class="translator-completion-row__prices">
+        <div class="translator-completion-panel__body">
+          <div v-for="item in draft" :key="item.arrangementId" class="translator-completion-row">
+            <div class="translator-completion-row__meta">
+              <strong>{{ item.translatorName }}</strong>
+              <span>当前回稿时间：{{ formatDateTime(item.returnTime) }}</span>
+            </div>
+            <div class="translator-completion-row__fields">
               <label class="translator-completion-field">
-                <span>译员单价</span>
-                <el-input-number
+                <span>译员回稿时间</span>
+                <el-date-picker
                   v-if="editable"
-                  v-model="item.translatorUnitPrice"
-                  :min="0"
-                  :precision="4"
-                  :controls="false"
-                  placeholder="请输入单价"
+                  v-model="item.returnTime"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  format="YYYY-MM-DD HH:mm"
+                  time-format="HH:mm"
+                  :clearable="false"
+                  :show-now="true"
+                  :show-confirm="true"
+                  :show-footer="true"
+                  style="width: 100%"
                 />
                 <div v-else class="translator-completion-row__readonly">
-                  {{ formatTranslatorPrice(item.translatorUnitPrice, 4) }}
+                  {{ formatDateTime(item.returnTime) }}
                 </div>
               </label>
+              <div class="translator-completion-row__prices">
+                <label class="translator-completion-field">
+                  <span>译员单价</span>
+                  <el-input-number
+                    v-if="editable"
+                    v-model="item.translatorUnitPrice"
+                    :min="0"
+                    :precision="4"
+                    :controls="false"
+                    placeholder="请输入单价"
+                  />
+                  <div v-else class="translator-completion-row__readonly">
+                    {{ formatTranslatorPrice(item.translatorUnitPrice, 4) }}
+                  </div>
+                </label>
+                <label class="translator-completion-field">
+                  <span>译员总价</span>
+                  <el-input-number
+                    v-if="editable"
+                    v-model="item.translatorTotalPrice"
+                    :min="0"
+                    :precision="2"
+                    :controls="false"
+                    placeholder="请输入总价"
+                  />
+                  <div v-else class="translator-completion-row__readonly">
+                    {{ formatTranslatorPrice(item.translatorTotalPrice, 2) }}
+                  </div>
+                </label>
+              </div>
               <label class="translator-completion-field">
-                <span>译员总价</span>
-                <el-input-number
+                <span>任务完成情况</span>
+                <el-input
                   v-if="editable"
-                  v-model="item.translatorTotalPrice"
-                  :min="0"
-                  :precision="2"
-                  :controls="false"
-                  placeholder="请输入总价"
+                  v-model="item.completionRemarks"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  maxlength="255"
+                  show-word-limit
+                  clearable
+                  placeholder="请输入该译员的任务完成情况"
                 />
                 <div v-else class="translator-completion-row__readonly">
-                  {{ formatTranslatorPrice(item.translatorTotalPrice, 2) }}
+                  {{ item.completionRemarks || '-' }}
                 </div>
               </label>
             </div>
-            <label class="translator-completion-field">
-              <span>任务完成情况</span>
-              <el-input
-                v-if="editable"
-                v-model="item.completionRemarks"
-                type="textarea"
-                :autosize="{ minRows: 2, maxRows: 4 }"
-                maxlength="255"
-                show-word-limit
-                clearable
-                placeholder="请输入该译员的任务完成情况"
-              />
-              <div v-else class="translator-completion-row__readonly">
-                {{ item.completionRemarks || '-' }}
-              </div>
-            </label>
           </div>
         </div>
-      </div>
 
-      <div class="translator-completion-panel__footer">
-        <el-button @click="visible = false">{{ editable ? '取消' : '关闭' }}</el-button>
-        <el-button v-if="editable" type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        <div class="translator-completion-panel__footer">
+          <el-button @click="visible = false">{{ editable ? '取消' : '关闭' }}</el-button>
+          <el-button v-if="editable" type="primary" :loading="saving" @click="handleSave">保存</el-button>
+        </div>
       </div>
-    </div>
-  </el-popover>
+    </el-popover>
+    <button
+      v-if="deadlineItems.length > DEADLINE_PREVIEW_COUNT"
+      type="button"
+      class="translator-return-toggle"
+      :aria-expanded="deadlinesExpanded"
+      @click.stop="deadlinesExpanded = !deadlinesExpanded"
+    >
+      {{ deadlinesExpanded ? `收起（共 ${deadlineItems.length} 位）` : `展开其余 ${deadlineItems.length - DEADLINE_PREVIEW_COUNT} 位` }}
+      <el-icon><ArrowUp v-if="deadlinesExpanded" /><ArrowDown v-else /></el-icon>
+    </button>
+  </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
 import {
@@ -140,10 +157,20 @@ const emit = defineEmits(['saved'])
 const visible = ref(false)
 const saving = ref(false)
 const draft = ref([])
+const DEADLINE_PREVIEW_COUNT = 2
+const deadlinesExpanded = ref(false)
 
 const normalizedTranslators = computed(() => normalizeTranslatorAssignmentDetails(props.translators))
 
 const deadlineItems = computed(() => normalizedTranslators.value.filter((item) => item.returnTime))
+const visibleDeadlineItems = computed(() => (
+  deadlinesExpanded.value ? deadlineItems.value : deadlineItems.value.slice(0, DEADLINE_PREVIEW_COUNT)
+))
+// 切换项目数据后恢复收起状态，避免分页时沿用上一条记录的展开状态。
+watch(
+  () => normalizedTranslators.value.map((item) => item.arrangementId).join('|'),
+  () => { deadlinesExpanded.value = false },
+)
 const formatDateTime = (value) => value ? formatBusinessDateTime(value) : '-'
 
 const resetDraft = () => {
@@ -187,11 +214,16 @@ const handleSave = async () => {
 
 <style>
 .translator-completion-popover { max-width: calc(100vw - 32px) !important; }
+.translator-return-cell { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .translator-return-trigger { width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .translator-return-trigger:hover { color: var(--el-color-primary); }
 .translator-return-trigger.is-disabled { cursor: default; }
 .translator-return-trigger.is-disabled:hover { color: inherit; }
 .translator-return-deadlines { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.translator-return-deadlines.is-expanded { max-height: 240px; overflow-y: auto; overscroll-behavior: contain; }
+.translator-return-toggle { display: inline-flex; align-items: center; align-self: flex-start; gap: 4px; padding: 2px 0; border: 0; background: transparent; color: var(--el-color-primary); font: inherit; font-size: 12px; line-height: 20px; cursor: pointer; }
+.translator-return-toggle:hover { text-decoration: underline; }
+.translator-return-toggle:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 2px; border-radius: 2px; }
 .translator-return-deadline { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: start; gap: 5px; }
 .translator-return-deadline__name { max-width: 72px; overflow: hidden; padding-top: 2px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .translator-completion-panel__header { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--el-border-color-lighter); }

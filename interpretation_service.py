@@ -235,10 +235,11 @@ def get_interpretation_projects(
     sub_client_id: Optional[UUID] = None,
     language_id: Optional[UUID] = None,
     field_filters: Optional[dict] = None,
+    extra_options=(),
 ) -> list[InterpretationProject]:
     query = (
         db.query(InterpretationProject)
-        .options(*_project_options())
+        .options(*_project_options(), *extra_options)
         .outerjoin(Client, InterpretationProject.client_id == Client.id)
         .outerjoin(SubClient, InterpretationProject.sub_client_id == SubClient.id)
     )

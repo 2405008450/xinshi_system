@@ -21,27 +21,29 @@
 
 ## 安装依赖
 
-```bash
-npm install
-# 或
-yarn install
-# 或
-pnpm install
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system\frontend'
+npm.cmd ci
 ```
 
 ## 开发
 
-```bash
-npm run dev
+在本 PC 已登录桌面会话中，先按 [本机启动说明](../docs/infra.md#本机启动与验收) 启动后端，然后执行：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\start_local.ps1 -Service Frontend
 ```
 
-访问 http://localhost:3000
+也可双击 `frontend/start_frontend.bat`。访问 http://localhost:3000；Vite 默认绑定 `127.0.0.1:3000`，端口被占用时直接报错。开发代理 `/api` 默认转发到 `http://127.0.0.1:8000`，支持 WebSocket；需要覆盖时在前端本地配置中设置 `VITE_API_PROXY_TARGET`。
 
 ## 构建
 
-```bash
-npm run build
+```powershell
+npm.cmd run build
 ```
+
+若 Nginx 正在服务 `frontend/dist`，使用 `tools/publish-lan-frontend.ps1` 两阶段发布，避免直接覆盖正在服务的目录。
 
 ## 项目结构
 

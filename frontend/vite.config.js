@@ -19,8 +19,9 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
-      host: '0.0.0.0', // 允许局域网访问
-      port: 12213,
+      host: '127.0.0.1', // 本 PC 默认入口；局域网调试时通过命令行显式指定 host
+      port: 3000,
+      strictPort: true, // 避免端口被占用时静默改到其他地址
       proxy: {
         '/api': {
           target: apiProxyTarget,

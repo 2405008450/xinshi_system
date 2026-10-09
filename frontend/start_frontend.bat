@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo Starting Frontend Server on 192.168.31.144:3000...
-npm run dev -- --host 0.0.0.0 --port 3000
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\deploy\start_local.ps1" -Service Frontend
+set "START_EXIT=%ERRORLEVEL%"
 pause
+exit /b %START_EXIT%

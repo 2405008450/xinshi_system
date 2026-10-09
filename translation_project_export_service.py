@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
 from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from openpyxl import Workbook
-from openpyxl.cell import WriteOnlyCell
-from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
+from project_export_excel import ExportColumn, _safe_text, _cell_value, _make_sheet, _append_row
 from crud import get_translation_projects
 from manuscript_models import ManuscriptArrangement, ManuscriptArrangementFile, ManuscriptDispatch
 
@@ -65,24 +63,12 @@ WORD_COUNT_METRICS = (
 )
 WORD_COUNT_METRIC_LABELS = dict(WORD_COUNT_METRICS)
 
-_ILLEGAL_EXCEL_TEXT = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
-_FORMULA_PREFIXES = ("=", "+", "-", "@")
-
-
 class TranslationExportEmptyError(ValueError):
     """所选条件没有可导出的母订单。"""
 
 
 class TranslationExportLimitError(ValueError):
     """某个工作表超过安全导出行数。"""
-
-
-@dataclass(frozen=True)
-class ExportColumn:
-    label: str
-    getter: Callable[[Any], Any]
-    kind: str = "text"
-    width: int = 18
 
 
 def _read(value: Any, key: str, default: Any = None) -> Any:
@@ -95,13 +81,10 @@ def _attr(name: str) -> Callable[[Any], Any]:
     return lambda item: _read(item, name)
 
 
-def _safe_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = _ILLEGAL_EXCEL_TEXT.sub("", str(value))[:32767]
-    if text.startswith(_FORMULA_PREFIXES):
-        text = f"'{text}"
-    return text
+def _project_file_name(project: Any) -> Any:
+    """项目名称仅取真实文件名，历史业务摘要不作为回退值。"""
+    value = _read(project, "source_file_name")
+    return value if value is not None and str(value).strip() else None
 
 
 def _status_label(value: Any) -> str | None:
@@ -177,15 +160,14 @@ def _word_count_columns() -> list[ExportColumn]:
 
 PROJECT_COLUMNS = [
     ExportColumn("订单号", _attr("order_no"), "identifier", 18),
-    ExportColumn("项目名称", _attr("project_name"), width=32),
-    ExportColumn("文件名称", _attr("source_file_name"), width=36),
+    ExportColumn("项目名称", _project_file_name, "filename", 36),
     ExportColumn("邮件主题预览", _attr("email_subject_preview"), width=36),
     ExportColumn("服务内容", _attr("service_content"), width=24),
     ExportColumn("任务类型", _attr("task_type")),
     ExportColumn("来源咨询 ID", _attr("consultation_id"), "identifier", 38),
-    ExportColumn("母客户全称", _attr("client_name"), width=32),
-    ExportColumn("母客户简称", _attr("client_short_name"), width=24),
-    ExportColumn("母客户编号", _attr("client_code"), "identifier", 18),
+    ExportColumn("客户全称", _attr("client_name"), width=32),
+    ExportColumn("客户简称", _attr("client_short_name"), width=24),
+    ExportColumn("客户编号", _attr("client_code"), "identifier", 18),
     ExportColumn("子客户全称", _attr("sub_client_name"), width=32),
     ExportColumn("子客户简称", _attr("sub_client_short_name"), width=24),
     ExportColumn("子客户编号", _attr("sub_client_code"), "identifier", 20),
@@ -240,9 +222,9 @@ PROJECT_COLUMNS = [
 
 SUB_ORDER_COLUMNS = [
     ExportColumn("母订单号", lambda pair: _read(pair[0], "order_no"), "identifier", 18),
-    ExportColumn("母项目名称", lambda pair: _read(pair[0], "project_name"), width=32),
+    ExportColumn("项目名称", lambda pair: _project_file_name(pair[0]), "filename", 36),
     ExportColumn("子订单号", lambda pair: _read(pair[1], "sub_order_no"), "identifier", 20),
-    ExportColumn("子项目名称", lambda pair: _read(pair[1], "sub_project_name"), width=32),
+    ExportColumn("子订单文件名称", lambda pair: _read(pair[1], "sub_project_name"), "filename", 36),
     ExportColumn("状态", lambda pair: _status_label(_read(pair[1], "status")), width=16),
     ExportColumn("文本类型", lambda pair: _read(pair[1], "file_type_secondary")),
     ExportColumn("翻译方向", lambda pair: _read(pair[1], "language_pair"), width=24),
@@ -279,9 +261,9 @@ SUB_ORDER_COLUMNS = [
 
 CHARGE_COLUMNS = [
     ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 18),
-    ExportColumn("母项目名称", lambda item: _read(item[0], "project_name"), width=32),
+    ExportColumn("项目名称", lambda item: _project_file_name(item[0]), "filename", 36),
     ExportColumn("子订单号", lambda item: _read(item[1], "sub_order_no"), "identifier", 20),
-    ExportColumn("文件/子项目名称", lambda item: _read(item[1], "sub_project_name"), width=32),
+    ExportColumn("子订单文件名称", lambda item: _read(item[1], "sub_project_name"), "filename", 36),
     ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
     ExportColumn("计价模式", lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费", width=14),
     ExportColumn(
@@ -314,9 +296,12 @@ def _effective_file_name(project: Any, detail: Any) -> Any:
     primary = (
         _read(detail, "sub_project_name")
         if _read(detail, "sub_order_no")
-        else _read(project, "source_file_name")
+        else _project_file_name(project)
     )
-    return primary or _read(detail, "reconciliation_file_names")
+    if primary is not None and str(primary).strip():
+        return primary
+    snapshot = _read(detail, "reconciliation_file_names")
+    return snapshot if snapshot is not None and str(snapshot).strip() else None
 
 
 def _reconciliation_file_name(item: tuple[Any, Any, Any | None]) -> Any:
@@ -357,11 +342,6 @@ def _translator_business_order_no(item: tuple[Any, Any, Any]) -> Any:
 
 
 def _translator_project_name(item: tuple[Any, Any, Any]) -> Any:
-    project, _detail, _assignment = item
-    return _read(project, "project_name")
-
-
-def _translator_file_name(item: tuple[Any, Any, Any]) -> Any:
     project, detail, _assignment = item
     return _effective_file_name(project, detail)
 
@@ -384,7 +364,7 @@ def _translator_actual_quantity(item: tuple[Any, Any, Any]) -> str | None:
 
 RECONCILIATION_COLUMNS = [
     ExportColumn("订单号", _reconciliation_business_order_no, "identifier", 20),
-    ExportColumn("文件名称", _reconciliation_file_name, width=36),
+    ExportColumn("项目名称", _reconciliation_file_name, "filename", 36),
     ExportColumn("客户全称", lambda item: _effective_customer_name(item[0]), width=32),
     ExportColumn("客户编号", lambda item: _effective_customer_code(item[0]), "identifier", 20),
     ExportColumn("客户接单时间", lambda item: _read(item[0], "customer_reception_time"), "datetime", 20),
@@ -413,8 +393,7 @@ PENDING_RECONCILIATION_COLUMNS = [
 TRANSLATOR_RECONCILIATION_COLUMNS = [
     ExportColumn("订单号", _translator_business_order_no, "identifier", 20),
     ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
-    ExportColumn("项目名称", _translator_project_name, width=32),
-    ExportColumn("文件名称", _translator_file_name, width=36),
+    ExportColumn("项目名称", _translator_project_name, "filename", 36),
     ExportColumn("客户简称", lambda item: _effective_customer_short_name(item[0]), width=24),
     ExportColumn("状态", _translator_business_status, width=16),
     ExportColumn("译员", lambda item: _read(item[2], "translator_name"), width=18),
@@ -426,82 +405,6 @@ TRANSLATOR_RECONCILIATION_COLUMNS = [
     ExportColumn("派稿补充要求", lambda item: _read(item[2], "remarks"), width=36),
     ExportColumn("任务完成情况", lambda item: _read(item[2], "completion_remarks"), width=36),
 ]
-
-
-def _percent_value(value: Any) -> float | str | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value) / 100
-    normalized = str(value).strip()
-    try:
-        return float(normalized.rstrip("%")) / 100
-    except ValueError:
-        return _safe_text(normalized)
-
-
-def _cell_value(value: Any, kind: str) -> Any:
-    if value is None:
-        return None
-    if kind == "percent":
-        return _percent_value(value)
-    if kind == "integer":
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return _safe_text(value)
-    if kind in {"decimal", "money"}:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return _safe_text(value)
-    if kind == "datetime" and isinstance(value, (date, datetime)):
-        return value
-    return _safe_text(value)
-
-
-def _make_sheet(workbook: Workbook, title: str, columns: Sequence[ExportColumn]):
-    sheet = workbook.create_sheet(title)
-    sheet.sheet_view.showGridLines = False
-    sheet.freeze_panes = "A2"
-    sheet.row_dimensions[1].height = 30
-    for index, column in enumerate(columns, 1):
-        sheet.column_dimensions[get_column_letter(index)].width = min(column.width, 40)
-    headers = []
-    for column in columns:
-        cell = WriteOnlyCell(sheet, value=column.label)
-        cell.font = Font(name="微软雅黑", size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        headers.append(cell)
-    sheet.append(headers)
-    return sheet
-
-
-def _append_row(sheet, columns: Sequence[ExportColumn], item: Any) -> None:
-    cells = []
-    for column in columns:
-        cell = WriteOnlyCell(sheet, value=_cell_value(column.getter(item), column.kind))
-        cell.font = Font(name="微软雅黑", size=10, color="1F2937")
-        cell.alignment = Alignment(
-            horizontal="right" if column.kind in {"integer", "percent", "decimal", "money"} else "left",
-            vertical="top",
-            wrap_text=column.kind not in {"integer", "percent", "datetime"},
-        )
-        if column.kind == "datetime":
-            cell.number_format = "yyyy-mm-dd hh:mm"
-        elif column.kind == "integer":
-            cell.number_format = "#,##0"
-        elif column.kind == "percent":
-            cell.number_format = "0%"
-        elif column.kind == "decimal":
-            cell.number_format = "#,##0.0000"
-        elif column.kind == "money":
-            cell.number_format = "#,##0.00"
-        elif column.kind == "identifier":
-            cell.number_format = "@"
-        cells.append(cell)
-    sheet.append(cells)
 
 
 def translation_projects_to_xlsx(
@@ -580,7 +483,7 @@ def _missing_reconciliation_fields(item: tuple[Any, Any, Any | None]) -> list[st
     project, _detail, charge = item
     missing = []
     for label, value in (
-        ("文件名称", _reconciliation_file_name(item)),
+        ("项目名称", _reconciliation_file_name(item)),
         ("客户全称", _effective_customer_name(project)),
         ("客户编号", _effective_customer_code(project)),
     ):

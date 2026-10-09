@@ -9,12 +9,14 @@ import {
   buildTranslationExportFilename,
   buildTranslationExportParams,
 } from '../src/utils/translationProjectExport.js'
+import { getProjectExportConfig } from '../src/utils/projectExport.js'
 
 
 test('导出参数继承现有筛选并覆盖同一时间口径', () => {
   const params = buildTranslationExportParams({
     keyword: 'TP-260901',
     field_filters: JSON.stringify({
+      source_file_name: { op: 'contains', value: '合同原文.docx' },
       project_status: { op: 'in', value: ['confirmed'] },
       customer_reception_time: { op: 'between', from: '2026-08-01', to: '2026-08-31' },
       customer_deadline_time: { op: 'between', from: '2026-09-15', to: '2026-09-30' },
@@ -26,6 +28,7 @@ test('导出参数继承现有筛选并覆盖同一时间口径', () => {
 
   const filters = JSON.parse(params.field_filters)
   assert.deepEqual(filters.project_status.value, ['confirmed'])
+  assert.deepEqual(filters.source_file_name, { op: 'contains', value: '合同原文.docx' })
   assert.deepEqual(filters.customer_reception_time, {
     op: 'between', from: '2026-09-01', to: '2026-09-10',
   })
@@ -42,6 +45,17 @@ test('按客户导出只提交精确客户 ID', () => {
     buildTranslationClientReconciliationParams('ca7588de-20a4-456f-a767-040a74a622c1'),
     { client_id: 'ca7588de-20a4-456f-a767-040a74a622c1' },
   )
+})
+
+
+test('笔译导出文案沿用客户字段名，并说明文件名和子订单粒度', () => {
+  const config = getProjectExportConfig('translation')
+  assert.equal(config.clientLabel, '客户')
+  assert.doesNotMatch(config.modes[2].hint, /母客户/)
+  assert.match(config.modes[2].hint, /客户及其子客户/)
+  assert.match(config.modes[0].hint, /不受分页和列表字段设置限制/)
+  assert.match(config.modes[0].hint, /项目名称为真实文件名/)
+  assert.match(config.modes[0].hint, /子订单文件名称单独展示/)
 })
 
 
@@ -85,12 +99,12 @@ test('笔译项目页通过统一入口提供四种导出选项', () => {
   )
   const api = fs.readFileSync(new URL('../src/api/projects.js', import.meta.url), 'utf8')
 
-  assert.match(page, /<el-dropdown[\s\S]*?@command="openExportDialog"/)
-  assert.match(page, /<el-dropdown-item command="projects">导出项目 Excel<\/el-dropdown-item>/)
-  assert.match(page, /<el-dropdown-item command="reconciliation">按时间导出客户对账单<\/el-dropdown-item>/)
-  assert.match(page, /<el-dropdown-item command="client_reconciliation">按客户导出客户对账单<\/el-dropdown-item>/)
-  assert.match(page, /<el-dropdown-item command="translator_reconciliation">导出译员对账单<\/el-dropdown-item>/)
-  assert.match(page, /TRANSLATOR_RECONCILIATION/)
-  assert.match(page, /exportTranslationTranslatorReconciliation/)
-  assert.match(api, /\/projects\/translation\/translator-reconciliation-export/)
+  assert.match(page, /<ProjectExportMenu[^>]*module="translation"[^>]*:build-filters="buildFilterParams"[^>]*:sort="sortMode"/)
+  assert.deepEqual(getProjectExportConfig('translation').modes.map(({ type, label }) => [type, label]), [
+    ['projects', '导出项目 Excel'],
+    ['reconciliation', '按时间导出客户对账单'],
+    ['client_reconciliation', '按客户导出客户对账单'],
+    ['translator_reconciliation', '导出译员对账单'],
+  ])
+  assert.match(api, /exportTranslationTranslatorReconciliation[^\n]*exportProjectWorkbook\('translation', 'translator_reconciliation'/)
 })

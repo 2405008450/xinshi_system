@@ -479,11 +479,11 @@ def _apply_filters(
 
 def get_annotation_projects(
     db: Session, *, skip: int = 0, limit: int = 100,
-    sort: str = "order_no_desc", **filters
+    sort: str = "order_no_desc", extra_options=(), **filters
 ) -> list[AnnotationProject]:
     query = (
         db.query(AnnotationProject)
-        .options(*_project_options())
+        .options(*_project_options(), *extra_options)
         .outerjoin(Client, AnnotationProject.client_id == Client.id)
         .outerjoin(SubClient, AnnotationProject.sub_client_id == SubClient.id)
     )

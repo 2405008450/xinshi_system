@@ -218,6 +218,11 @@ def _filters(
     )
 
 
+from project_export_routes import register_project_exports
+
+register_project_exports(router, "annotation", lambda raw, db: _field_filters(raw, db))
+
+
 @router.get("/", response_model=List[AnnotationProjectListResponse], deprecated=True)
 def read_projects(
     skip: int = 0,

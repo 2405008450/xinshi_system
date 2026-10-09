@@ -39,6 +39,7 @@ from mail_inline_image_service import (
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
 from word_count_service import get_word_count_matrix
+from translation_email_subject import build_translation_email_subject
 from user_mail_account_service import (
     display_user,
     project_mail_sender_mode,
@@ -405,7 +406,9 @@ def policy_recipients(db: Session, project_type: str) -> tuple[list[AppUser], li
 
 
 def _project_source(project_type: str, project) -> dict:
-    client = getattr(project, "sub_client", None) or getattr(project, "client", None)
+    client = getattr(project, "client", None) if project_type == "translation" else (
+        getattr(project, "sub_client", None) or getattr(project, "client", None)
+    )
     source = {
         "order_no": getattr(project, "order_no", None),
         "project_name": getattr(project, "project_name", None),
@@ -420,6 +423,11 @@ def _project_source(project_type: str, project) -> dict:
         "recruitment": ("position_title", "job_description", "headcount_min", "headcount_max", "employment_start", "employment_end", "work_location", "target_onboard_date", "service_fee_type", "service_fee_amount", "service_fee_rate", "service_fee_note"),
     }
     source.update({name: getattr(project, name, None) for name in field_names[project_type]})
+    if project_type == "translation":
+        source["sub_order_count"] = len(getattr(project, "sub_orders", []) or [])
+        source["project_name"] = getattr(project, "source_file_name", None)
+        source["source_file_name"] = getattr(project, "source_file_name", None)
+        source["email_subject_preview"] = getattr(project, "email_subject_preview", None)
     if project_type == "interpretation":
         source["time_ranges"] = [
             f"{item.scheduled_start:%Y-%m-%d %H:%M} 至 {item.scheduled_end:%Y-%m-%d %H:%M}"
@@ -552,9 +560,15 @@ def build_preview(
         subject_values.append(values.get("customer_order_no"))
     subject_values.append(project_name)
     subject = "，".join(_clean(item) for item in subject_values if _clean(item))
+    if project_type == "translation":
+        subject = build_translation_email_subject(values)["subject"]
+        # 已保存的主题包含人工修改，仅主动生成主题时更新；打开邮件窗口保留原值。
+        subject = _clean(values.get("email_subject_preview")) or subject
     missing = [label for label, key in CORE_FIELDS[project_type] if not _clean(values.get(key))]
     if not order_no:
         missing.insert(0, "订单号")
+    if project_type == "translation" and "source_file_name" in values:
+        project_name = _clean(values.get("source_file_name")) or "-"
     common = (
         ("项目类型", TYPE_LABELS[project_type]), ("订单号", order_no), ("项目名称", project_name),
         ("客户简称", values.get("client_short_name")), ("客户经理联系方式", values.get("manager_contact")),

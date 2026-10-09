@@ -38,14 +38,14 @@
       label-width="130px"
       class="source-file-name-form"
     >
-      <el-form-item label="母订单文件名称">
+      <el-form-item label="项目名称" data-dialog-field-search-aliases="文件名称,原文文件名">
         <div class="source-file-name-field">
           <el-input
             :model-value="sourceFileName"
             clearable
             maxlength="255"
             show-word-limit
-            placeholder="请输入该母订单对应的真实文件名称，供后续对账使用"
+            placeholder="请输入真实文件名，保留扩展名"
             @update:model-value="emit('update:sourceFileName', $event)"
           />
           <div class="source-file-name-hint">填写原文路径后自动读取当前目录第一层文件；多个文件以中文分号分隔。</div>
@@ -297,10 +297,12 @@ const fileLoading = ref(false)
 const fileLoadError = ref('')
 let fileRequestId = 0
 let loadedProjectId = null
+let fileLoadRequest = null
 const fileSaving = ref(false)
 const sourceNameLoading = ref(false)
-const lastInspectedStoragePath = ref('')
 let sourceNameRequest = null
+let sourceNameRequestPath = ''
+let sourceNameRequestId = 0
 const pathGroupFormRef = ref(null)
 const expandedSections = ref(['classification', 'paths'])
 const pathGroupForm = reactive(createEmptyPathGroup())
@@ -320,36 +322,43 @@ function validateStoragePath(_rule, value, callback) {
 
 function assignPathGroup(source = {}) {
   Object.assign(pathGroupForm, createEmptyPathGroup(), source)
-  lastInspectedStoragePath.value = props.sourceFileName
-    ? String(source.storage_path || '').trim()
-    : ''
   expandedSections.value = ['classification', 'paths']
   pathGroupFormRef.value?.clearValidate()
 }
 
 async function fillSourceFileNameFromPath({ force = false, notifySuccess = true, notifyError = true } = {}) {
+  if (!force && String(props.sourceFileName || '').trim()) return props.sourceFileName
+  const scopeId = sourceNameRequestId
+  if (props.projectId && loadedProjectId !== props.projectId) await loadFiles()
+  if (scopeId !== sourceNameRequestId) return null
   const storagePath = String(pathGroupForm.storage_path || '').trim()
   if (!storagePath) return null
-  if (!force && storagePath === lastInspectedStoragePath.value) return props.sourceFileName || null
-  if (sourceNameRequest) return sourceNameRequest
+  if (!force && String(props.sourceFileName || '').trim()) return props.sourceFileName
+  if (!force && sourceNameRequest && sourceNameRequestPath === storagePath) return sourceNameRequest
 
+  const requestId = ++sourceNameRequestId
+  sourceNameRequestPath = storagePath
   sourceNameLoading.value = true
   sourceNameRequest = inspectProjectSourcePath(storagePath)
     .then((response) => {
+      if (requestId !== sourceNameRequestId || storagePath !== String(pathGroupForm.storage_path || '').trim()) return null
+      if (!force && String(props.sourceFileName || '').trim()) return props.sourceFileName
       emit('update:sourceFileName', response.source_file_name || '')
-      lastInspectedStoragePath.value = storagePath
       if (notifySuccess) {
         ElMessage.success(`已从原文路径读取 ${response.file_count} 个文件名`)
       }
       return response
     })
     .catch((error) => {
+      if (requestId !== sourceNameRequestId) return null
       if (notifyError) ElMessage.error(getLocalizedErrorMessage(error, '读取原文路径中的文件名失败'))
       throw error
     })
     .finally(() => {
-      sourceNameLoading.value = false
-      sourceNameRequest = null
+      if (requestId === sourceNameRequestId) {
+        sourceNameLoading.value = false
+        sourceNameRequest = null
+      }
     })
   return sourceNameRequest
 }
@@ -363,8 +372,12 @@ function handleSourceNameReload() {
 }
 
 function resetPathGroup() {
+  sourceNameRequestId += 1
+  sourceNameRequest = null
+  sourceNameLoading.value = false
   // 重置时使上一次请求失效，避免关闭或切换订单后回填旧数据。
   fileRequestId += 1
+  fileLoadRequest = null
   loadedProjectId = null
   fileLoading.value = false
   fileLoadError.value = ''
@@ -376,22 +389,29 @@ async function loadFiles() {
     resetPathGroup()
     return
   }
+  if (fileLoadRequest) return fileLoadRequest
 
   const projectId = props.projectId
   const requestId = ++fileRequestId
   fileLoading.value = true
   fileLoadError.value = ''
-  try {
-    const response = await getProjectFilesByProject(projectId, { skip: 0, limit: 1 })
-    if (requestId !== fileRequestId || projectId !== props.projectId) return
-    assignPathGroup(Array.isArray(response) && response.length ? response[0] : {})
-    loadedProjectId = projectId
-  } catch (error) {
-    if (requestId !== fileRequestId || projectId !== props.projectId) return
-    fileLoadError.value = getLocalizedErrorMessage(error, '加载项目路径组失败，请重新加载')
-  } finally {
-    if (requestId === fileRequestId) fileLoading.value = false
-  }
+  fileLoadRequest = (async () => {
+    try {
+      const response = await getProjectFilesByProject(projectId, { skip: 0, limit: 1 })
+      if (requestId !== fileRequestId || projectId !== props.projectId) return
+      assignPathGroup(Array.isArray(response) && response.length ? response[0] : {})
+      loadedProjectId = projectId
+    } catch (error) {
+      if (requestId !== fileRequestId || projectId !== props.projectId) return
+      fileLoadError.value = getLocalizedErrorMessage(error, '加载项目路径组失败，请重新加载')
+    } finally {
+      if (requestId === fileRequestId) {
+        fileLoading.value = false
+        fileLoadRequest = null
+      }
+    }
+  })()
+  return fileLoadRequest
 }
 
 async function validatePathGroup() {
@@ -494,7 +514,7 @@ watch(
   { immediate: true }
 )
 
-onBeforeUnmount(() => { fileRequestId += 1 })
+onBeforeUnmount(() => { fileRequestId += 1; sourceNameRequestId += 1 })
 
 watch(
   () => pathGroupForm.translation_domain_level1,

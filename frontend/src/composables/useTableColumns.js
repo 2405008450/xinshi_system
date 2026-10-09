@@ -3,12 +3,17 @@ import { computed, ref, unref, watch } from 'vue'
 export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
   const resolvedColumns = computed(() => unref(columns) || [])
   const validKeys = computed(() => new Set(resolvedColumns.value.map((column) => column.key)))
-  const normalizedDefaults = computed(() => (unref(defaultKeys) || []).filter((key) => validKeys.value.has(key)))
+  const normalizeKeys = (keys) => {
+    const aliases = unref(options.keyAliases) || {}
+    const mapped = keys.map((key) => Object.hasOwn(aliases, key) ? aliases[key] : key)
+    return [...new Set(mapped)].filter((key) => validKeys.value.has(key))
+  }
+  const normalizedDefaults = computed(() => normalizeKeys(unref(defaultKeys) || []))
   const normalizedLegacyDefaults = computed(() => {
     const legacyDefaults = unref(options.legacyDefaultKeys) || []
     const legacyGroups = Array.isArray(legacyDefaults[0]) ? legacyDefaults : [legacyDefaults]
     return legacyGroups
-      .map((keys) => keys.filter((key) => validKeys.value.has(key)))
+      .map(normalizeKeys)
       .filter((keys) => keys.length > 0)
   })
   const userKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
@@ -20,7 +25,7 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
     try {
       const parsed = JSON.parse(raw)
       if (!Array.isArray(parsed)) throw new Error('invalid column settings')
-      const filtered = parsed.filter((key) => validKeys.value.has(key))
+      const filtered = normalizeKeys(parsed)
       const isLegacyDefault = normalizedLegacyDefaults.value.some((legacyKeys) => (
         filtered.length === legacyKeys.length
         && legacyKeys.every((key) => filtered.includes(key))
@@ -29,7 +34,7 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
         localStorage.setItem(storageKey, JSON.stringify(normalizedDefaults.value))
         return [...normalizedDefaults.value]
       }
-      if (filtered.length !== parsed.length) localStorage.setItem(storageKey, JSON.stringify(filtered))
+      if (JSON.stringify(filtered) !== JSON.stringify(parsed)) localStorage.setItem(storageKey, JSON.stringify(filtered))
       return filtered
     } catch {
       localStorage.removeItem(storageKey)
@@ -39,12 +44,12 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
 
   const selectedKeys = ref(readSelection())
   watch(selectedKeys, (value) => {
-    localStorage.setItem(storageKey, JSON.stringify(value.filter((key) => validKeys.value.has(key))))
+    localStorage.setItem(storageKey, JSON.stringify(normalizeKeys(value)))
   }, { deep: true })
 
   watch(resolvedColumns, () => {
-    const filtered = selectedKeys.value.filter((key) => validKeys.value.has(key))
-    if (filtered.length !== selectedKeys.value.length) selectedKeys.value = filtered
+    const filtered = normalizeKeys(selectedKeys.value)
+    if (JSON.stringify(filtered) !== JSON.stringify(selectedKeys.value)) selectedKeys.value = filtered
   }, { deep: true })
 
   const isVisible = (key) => selectedKeys.value.includes(key)

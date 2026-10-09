@@ -186,3 +186,22 @@ def test_legacy_dispatch_payload_does_not_clear_existing_file_name():
 
     assert project.source_file_name == "母稿.docx"
     assert project.updated_at is None
+
+
+def test_project_dispatch_syncs_two_names_without_changing_mail_subject():
+    project = type('Project', (), {
+        'source_file_name': '旧稿.docx', 'project_name': '旧业务摘要',
+        'email_subject_preview': '手工邮件主题', 'updated_at': None,
+    })()
+    payload = ManuscriptDispatchCreate(
+        entity_type='project', translation_project_id=uuid4(), file_name='  新稿.pdf；附件.docx ',
+        arrangements=[ManuscriptAssignmentInput(**_valid_values())],
+    )
+    _sync_entity_file_name(payload, project, None)
+    assert project.project_name == project.source_file_name == '新稿.pdf；附件.docx'
+    assert project.email_subject_preview == '手工邮件主题'
+    assert project.updated_at is not None
+    blank = payload.model_copy(update={'file_name': None})
+    with pytest.raises(ValueError):
+        _sync_entity_file_name(blank, project, None)
+    assert project.source_file_name == '新稿.pdf；附件.docx'

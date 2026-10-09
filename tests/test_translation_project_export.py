@@ -110,10 +110,12 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
 
     assert sum(header.startswith(("我司-", "客户-", "译员预估-")) for header in project_headers) == 18
     assert project_row["订单号"] == "TP-260901-001"
-    assert project_row["文件名称"] == "合同原文.docx"
-    assert project_row["母客户全称"] == "母客户全称"
-    assert project_row["母客户简称"] == "母客户"
-    assert project_row["母客户编号"] == "CL-001"
+    assert project_headers[:2] == ["订单号", "项目名称"]
+    assert project_row["项目名称"] == "合同原文.docx"
+    assert "文件名称" not in project_headers
+    assert project_row["客户全称"] == "母客户全称"
+    assert project_row["客户简称"] == "母客户"
+    assert project_row["客户编号"] == "CL-001"
     assert project_row["子客户全称"] == "子客户全称"
     assert project_row["子客户简称"] == "子客户"
     assert project_row["子客户编号"] == "CL-001.001"
@@ -127,8 +129,10 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert project_row["已分配译员"] == "张三（正文）"
     assert "张三：2026-09-05 18:30" in project_row["译员回稿时间"]
 
-    assert sub_headers[:3] == ["母订单号", "母项目名称", "子订单号"]
+    assert sub_headers[:4] == ["母订单号", "项目名称", "子订单号", "子订单文件名称"]
     assert sub_row["母订单号"] == "TP-260901-001"
+    assert sub_row["项目名称"] == "合同原文.docx"
+    assert sub_row["子订单文件名称"] == "子稿一.docx"
     assert sub_row["子订单号"] == "TP-260901-001.001"
     assert sub_row["我司-字数"] == 500
     assert sub_row["译员交付进度"] == 0.25
@@ -143,7 +147,9 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert remarks_cell.value.startswith("'=")
     assert workbook["母订单"].freeze_panes == "A2"
     assert workbook["子订单"].auto_filter.ref.endswith("2")
-    assert charge_headers[:4] == ["母订单号", "母项目名称", "子订单号", "文件/子项目名称"]
+    assert charge_headers[:4] == ["母订单号", "项目名称", "子订单号", "子订单文件名称"]
+    assert charge_row["项目名称"] == "合同原文.docx"
+    assert charge_row["子订单文件名称"] == "子稿一.docx"
 
 
 def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
@@ -182,14 +188,14 @@ def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
     pending_records = [dict(zip(pending_headers, row)) for row in pending_rows[1:]]
 
     assert formal_headers[:14] == (
-        "订单号", "文件名称", "客户全称", "客户编号", "客户接单时间", "客户交稿时间",
+        "订单号", "项目名称", "客户全称", "客户编号", "客户接单时间", "客户交稿时间",
         "翻译方向", "字数", "含税单价", "不含税单价", "含税总价", "不含税总价",
         "账单月份", "备注",
     )
     assert len(formal_records) == 1
     first_child_row = formal_records[0]
     assert first_child_row["订单号"] == "TP-260901-003.001"
-    assert first_child_row["文件名称"] == "第一份文件.docx"
+    assert first_child_row["项目名称"] == "第一份文件.docx"
     assert first_child_row["客户全称"] == "子客户全称"
     assert first_child_row["客户编号"] == "CL-001.001"
     assert first_child_row["字数"] == 800
@@ -201,10 +207,57 @@ def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
         "TP-260901-002", "TP-260901-003.002",
     }
     parent_row = next(row for row in pending_records if row["订单号"] == "TP-260901-002")
-    assert "缺少文件名称" in parent_row["缺失原因"]
+    assert "缺少项目名称" in parent_row["缺失原因"]
+    assert parent_row["项目名称"] == "-"
     assert "缺少客户收费项" in parent_row["缺失原因"]
     assert workbook["对账单"].freeze_panes == "A2"
     assert workbook["待补数据"].auto_filter.ref.endswith("3")
+
+
+@pytest.mark.parametrize("filename", [None, "", "   ", "长文件名" * 60 + ".docx", "正文.docx;附件.pdf"])
+def test_project_exports_use_file_name_without_legacy_summary_fallback(filename):
+    project = sample_project(project_name="旧客户、翻译方向、交稿时间摘要")
+    project.source_file_name = filename
+    project.email_subject_preview = "手工邮件主题"
+    workbook = load_workbook(BytesIO(export_service.translation_projects_to_xlsx([[project]])))
+    expected = filename if filename and filename.strip() else "-"
+    for sheet in workbook:
+        headers, row = row_by_headers(sheet)
+        assert len(headers) == len(set(headers))
+        assert row["项目名称"] == expected
+        assert "母项目名称" not in headers
+        assert not any(header.startswith("母客户") for header in headers)
+    assert row_by_headers(workbook["母订单"])[1]["邮件主题预览"] == "手工邮件主题"
+    assert row_by_headers(workbook["子订单"])[1]["子订单文件名称"] == "子稿一.docx"
+
+
+def test_missing_file_name_in_translator_export_is_not_replaced_with_legacy_summary():
+    project = sample_project(with_sub_order=False)
+    project.source_file_name = None
+    workbook = load_workbook(BytesIO(export_service.translation_translator_reconciliation_to_xlsx([[project]])))
+    headers, row = row_by_headers(workbook["译员对账单"])
+    assert headers.count("项目名称") == 1
+    assert "文件名称" not in headers
+    assert row["项目名称"] == "-"
+
+
+def test_file_name_formula_is_exported_as_safe_text():
+    project = sample_project(with_sub_order=False)
+    project.source_file_name = '=HYPERLINK("https://example.com").docx'
+    workbook = load_workbook(BytesIO(export_service.translation_projects_to_xlsx([[project]])), data_only=False)
+    cell = workbook["母订单"].cell(2, 2)
+    assert cell.data_type == "s"
+    assert cell.value == "'" + project.source_file_name
+
+
+def test_blank_reconciliation_name_is_pending_even_when_charge_is_complete():
+    project = sample_project()
+    project.sub_orders[0].sub_project_name = "   "
+    workbook = load_workbook(BytesIO(export_service.translation_reconciliation_to_xlsx([[project]])))
+    assert workbook["对账单"].max_row == 1
+    row = row_by_headers(workbook["待补数据"])[1]
+    assert row["项目名称"] == "-"
+    assert row["缺失原因"] == "缺少项目名称"
 
 
 def test_reconciliation_charge_detail_keeps_each_currency_and_numeric_values():
@@ -265,7 +318,7 @@ def test_reconciliation_exports_parent_charge_and_uses_snapshot_file_fallback():
     _headers, row = row_by_headers(workbook["对账单"])
 
     assert row["订单号"] == project.order_no
-    assert row["文件名称"] == "正文.docx、附件.pdf"
+    assert row["项目名称"] == "正文.docx、附件.pdf"
     assert row["客户全称"] == "子客户全称"
     assert row["收费项目"] == "翻译费"
     assert workbook["待补数据"].max_row == 1
@@ -418,8 +471,8 @@ def test_translator_reconciliation_flattens_parent_children_and_all_translators(
     parent_row, child_row = records
     assert parent_row["订单号"] == "TP-260901-001"
     assert parent_row["客户单号"] == "PO-20260901"
-    assert parent_row["项目名称"] == "示例项目"
-    assert parent_row["文件名称"] == "合同原文.docx"
+    assert parent_row["项目名称"] == "合同原文.docx"
+    assert "文件名称" not in headers
     assert parent_row["客户简称"] == "子客户"
     assert parent_row["状态"] == "已确认"
     assert parent_row["译员"] == "王译员"
@@ -428,8 +481,7 @@ def test_translator_reconciliation_flattens_parent_children_and_all_translators(
     assert parent_row["译员总价"] == pytest.approx(61.70)
 
     assert child_row["订单号"] == "TP-260901-001.001"
-    assert child_row["项目名称"] == "示例项目"
-    assert child_row["文件名称"] == "子稿一.docx"
+    assert child_row["项目名称"] == "子稿一.docx"
     assert child_row["状态"] == "已排译员"
     assert child_row["译员"] == "李译员"
     assert child_row["实际数量"] == (

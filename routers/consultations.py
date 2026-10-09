@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
+from translation_email_subject import build_translation_email_subject
 from crud import (
     count_consultations, get_consultation, get_consultations,
     create_consultation, update_consultation, delete_consultation,
@@ -175,6 +176,9 @@ class ConsultationConfirmationPreviewResponse(BaseModel):
     client_short_name: Optional[str] = None
     manager_contact: Optional[str] = None
     project_name: str
+    language_pair: Optional[str] = None
+    customer_deadline_time: Optional[datetime] = None
+    sub_order_count: int = 0
     customer_order_no: Optional[str] = None
     subject_prefix: Optional[str] = None
     subject_parts: List[str]
@@ -384,6 +388,9 @@ def _build_subject_preview(
     manager_contact: Optional[str],
     customer_order_no: Optional[str],
     project_name: Optional[str],
+    language_pair: Optional[str] = None,
+    customer_deadline_time: Optional[datetime | str] = None,
+    sub_order_count: int = 0,
 ) -> tuple[list[str], str, list[str]]:
     values = [
         ("标题前缀", subject_prefix),
@@ -402,6 +409,14 @@ def _build_subject_preview(
         label for label, value in values
         if label not in optional_labels and not _clean_text(value)
     ]
+    if project_type == "translation":
+        result = build_translation_email_subject({
+            "subject_prefix": subject_prefix, "order_no": order_no,
+            "client_short_name": client_short_name, "manager_contact": manager_contact,
+            "language_pair": language_pair, "customer_deadline_time": customer_deadline_time,
+            "sub_order_count": sub_order_count,
+        })
+        return result["parts"], result["subject"], missing
     return parts, "，".join(parts), missing
 
 
@@ -454,6 +469,11 @@ def _confirmation_preview_values(
         generate_order_no(db)
     )
     intake_values = validated_intake(project_type, payload.project_intake)
+    translation_mail_values = {
+        "language_pair": intake_values.get("language_pair", getattr(existing_project, "language_pair", None)),
+        "customer_deadline_time": intake_values.get("customer_deadline_time", getattr(existing_project, "customer_deadline_time", None)),
+        "sub_order_count": len(getattr(existing_project, "sub_orders", []) or []),
+    } if project_type == "translation" else {}
     project_name = _clean_text(payload.project_name) or _clean_text(
         getattr(existing_project, "project_name", None)
     ) or build_auto_project_name(
@@ -461,6 +481,8 @@ def _confirmation_preview_values(
         language_pair=intake_values.get("language_pair") if project_type == "translation" else None,
         customer_deadline_time=intake_values.get("customer_deadline_time") if project_type == "translation" else None,
     )
+    if project_type == "translation" and getattr(existing_project, "source_file_name", None):
+        project_name = existing_project.source_file_name
     customer_order_no = (
         _clean_text(payload.customer_order_no)
         if project_type != "translation"
@@ -477,6 +499,7 @@ def _confirmation_preview_values(
         manager_contact=manager_contact,
         customer_order_no=customer_order_no,
         project_name=project_name,
+        **translation_mail_values,
     )
     source = {
         **intake_values,
@@ -488,7 +511,15 @@ def _confirmation_preview_values(
         "subject_prefix": payload.subject_prefix,
         "consultation_description": payload.consultation_description,
         "remarks": payload.remarks,
+        **translation_mail_values,
     }
+    if project_type == "translation":
+        # 咨询可以先建项目，未提交真实文件名时正文不使用业务摘要冒充文件名。
+        source["source_file_name"] = getattr(existing_project, "source_file_name", None)
+        source["customer_order_no"] = (
+            _clean_text(payload.customer_order_no) or getattr(existing_project, "customer_order_no", None)
+            or getattr(consultation, "customer_order_no", None)
+        )
     # 正式接口始终传入 SQLAlchemy Session；保留轻量级纯函数回退，便于主题生成单元测试。
     if isinstance(db, Session):
         mail_preview = build_mail_preview(
@@ -518,6 +549,7 @@ def _confirmation_preview_values(
         "client_short_name": _clean_text(client_short_name) or None,
         "manager_contact": _clean_text(manager_contact) or None,
         "project_name": project_name,
+        **translation_mail_values,
         "customer_order_no": customer_order_no or None,
         "subject_prefix": _clean_text(payload.subject_prefix) or None,
         "subject_parts": parts,
@@ -609,6 +641,9 @@ def _confirm_consultation_project(
             },
         )
 
+    if preview["project_type"] == "translation" and _clean_text(confirmation.email_subject):
+        preview["email_subject_preview"] = _clean_text(confirmation.email_subject)
+
     # 只有订单号校验通过后才写回咨询，避免并发冲突留下半成品状态。
     consultation.project_name = next_project_name
     consultation.customer_order_no = next_customer_order_no
@@ -638,8 +673,13 @@ def _confirm_consultation_project(
             TranslationProject.consultation_id == consultation.id
         ).first()
         if project:
-            project.project_name = preview["project_name"]
-            project.email_subject_preview = preview["email_subject_preview"]
+            project.project_name = (
+                getattr(project, "source_file_name", None) or preview["project_name"]
+            )
+            project.email_subject_preview = (
+                _clean_text(confirmation.email_subject) or project.email_subject_preview
+                or preview["email_subject_preview"]
+            )
             project.task_type = consultation_task_type_label(consultation.consultation_type)
             project.client_id = consultation.client_id
             project.sub_client_id = consultation.sub_client_id

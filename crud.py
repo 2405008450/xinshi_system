@@ -35,6 +35,7 @@ from mail_group_members import remove_unavailable_user_memberships
 from field_filtering import apply_scalar_specs
 from concurrency import VERSION_FIELD, assert_fresh
 from language_catalog import compact_translation_direction, validate_language_pairs_against_catalog
+from translation_project_identity import normalize_translation_name_payload
 from fastapi import HTTPException
 
 
@@ -1610,48 +1611,6 @@ def _is_auto_project_name(
     )
 
 
-def _sync_project_name_with_sub_order_count(
-    db: Session,
-    project_id: UUID,
-    current_time: Optional[datetime] = None,
-) -> None:
-    """子订单数量变化后，同步母项目名称中的批次。"""
-    project = (
-        db.query(TranslationProject)
-        .options(
-            joinedload(TranslationProject.client),
-            joinedload(TranslationProject.sub_client),
-        )
-        .filter(
-            TranslationProject.id == project_id,
-            TranslationProject.annotation_migrated_at.is_(None),
-        )
-        .first()
-    )
-    if not project:
-        return
-
-    client_short_name = project.client.client_short_name if project.client else None
-    sub_order_count = (
-        db.query(func.count(TranslationSubOrder.id))
-        .filter(TranslationSubOrder.parent_project_id == project_id)
-        .scalar()
-        or 0
-    )
-    generated_name = build_auto_project_name(
-        client_short_name,
-        sub_order_count,
-        current_time,
-        project.language_pair,
-        project.customer_deadline_time,
-    )
-    if generated_name and (
-        not project.project_name
-        or _is_auto_project_name(project.project_name, client_short_name)
-    ):
-        project.project_name = generated_name
-
-
 def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
     project = (
         db.query(TranslationProject)
@@ -2257,6 +2216,8 @@ def create_translation_project(
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
         'word_count_matrix', 'customer_charge_items', 'role_assignments'
     })
+    if 'source_file_name' in project.model_fields_set:
+        normalize_translation_name_payload(project_data)
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2361,6 +2322,9 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
     )
     assert_fresh(db_project, project_update.expected_updated_at)
+    normalize_translation_name_payload(update_data)
+    if 'project_name' in update_data and db_project.source_file_name and 'source_file_name' not in update_data:
+        update_data['project_name'] = db_project.source_file_name
     if 'language_pair' in update_data:
         update_data['language_pair'] = _normalize_catalog_language_pairs(
             db, update_data.get('language_pair')
@@ -3485,7 +3449,6 @@ def create_sub_order(
     idempotency_key: Optional[str] = None,
 ) -> TranslationSubOrder:
     db_sub = _create_sub_order_in_transaction(db, sub_order, idempotency_key=idempotency_key)
-    _sync_project_name_with_sub_order_count(db, sub_order.parent_project_id)
     db.commit()
     return get_sub_order(db, db_sub.id)
 
@@ -3553,8 +3516,6 @@ def create_sub_orders_bulk(
         )
         created.append(_create_sub_order_in_transaction(db, sub_order))
 
-    if created:
-        _sync_project_name_with_sub_order_count(db, payload.parent_project_id)
     db.commit()
     for item in created:
         db.refresh(item)
@@ -3670,9 +3631,7 @@ def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return False
-    parent_project_id = db_sub.parent_project_id
     db.delete(db_sub)
     db.flush()
-    _sync_project_name_with_sub_order_count(db, parent_project_id)
     db.commit()
     return True

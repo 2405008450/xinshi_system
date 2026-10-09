@@ -1,3 +1,5 @@
+import { buildProjectExportParams, buildClientReconciliationParams } from './projectExport.js'
+
 export const TRANSLATION_EXPORT_TIME_OPTIONS = Object.freeze([
   { value: 'customer_reception_time', label: '客户接单时间' },
   { value: 'customer_deadline_time', label: '客户交稿时间' },
@@ -13,39 +15,9 @@ export const TRANSLATION_EXPORT_TYPES = Object.freeze({
   TRANSLATOR_RECONCILIATION: 'translator_reconciliation',
 })
 
-const safeParseFilters = (value) => {
-  if (!value) return {}
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-export function buildTranslationExportParams(listParams, exportForm, sort) {
-  const [dateStart, dateEnd] = exportForm.dateRange || []
-  const filters = safeParseFilters(listParams?.field_filters)
-  filters[exportForm.timeField] = {
-    op: 'between',
-    from: dateStart,
-    to: dateEnd,
-  }
-  return {
-    keyword: listParams?.keyword || undefined,
-    field_filters: JSON.stringify(filters),
-    sort: sort || undefined,
-    time_field: exportForm.timeField,
-    date_start: dateStart,
-    date_end: dateEnd,
-  }
-}
-
-export function buildTranslationClientReconciliationParams(clientId) {
-  return {
-    client_id: clientId,
-  }
-}
+// 保留现有笔译调用接口和文件名规则。
+export const buildTranslationExportParams = buildProjectExportParams
+export const buildTranslationClientReconciliationParams = buildClientReconciliationParams
 
 export function buildTranslationExportFilename(
   timeField,

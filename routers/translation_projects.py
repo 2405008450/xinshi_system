@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 TRANSLATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=255, required=True),
-    "source_file_name": TextFieldRule(max_length=255),
+    "source_file_name": TextFieldRule(max_length=255, required=True),
     "email_subject_preview": TextFieldRule(),
     "task_type": TextFieldRule(max_length=50),
     "service_content": TextFieldRule(max_length=255),
@@ -535,7 +535,17 @@ def update_project_text_field(
     if not project:
         raise HTTPException(status_code=404, detail="笔译项目不存在")
     try:
+        if payload.field == "project_name":
+            payload = payload.model_copy(update={"field": "source_file_name"})
         changed = apply_text_field_update(project, payload, TRANSLATION_TEXT_FIELDS)
+        if payload.field == "source_file_name":
+            from translation_project_identity import sync_translation_file_name
+            alias_changed = sync_translation_file_name(project, project.source_file_name)
+            if alias_changed and not changed:
+                from datetime import datetime, timedelta
+                previous = project.updated_at
+                project.updated_at = max(datetime.now(), previous + timedelta(microseconds=1)) if previous else datetime.now()
+            changed = alias_changed or changed
         if changed:
             db.commit()
     except ValueError as exc:

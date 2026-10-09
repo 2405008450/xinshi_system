@@ -4,6 +4,8 @@
 
 - 当前 PC 已升级，作为项目默认的开发、部署运行和验收机器；源码编辑、完整构建、数据库迁移、自动化测试和浏览器联调均直接在本机 `E:\xinshi_system` 中执行。
 - 本机主机名为 `PC`，前端调试入口为 `http://localhost:3000/`，后端为 `http://127.0.0.1:8000/`。旧局域网服务器 `192.168.31.144` 不再作为默认部署或验收目标，也不再要求先同步代码或通过 SSH 执行检查。
+- 本机启动统一使用 `deploy/start_local.ps1`：先执行 `-CheckOnly`，一键启动不带参数，分终端调试使用 `-Service Backend -Reload` 与 `-Service Frontend`。该入口核对桌面会话、实际 UNC 目录、数据库目标和端口；一键启动后自动核对监听进程会话及页面、数据库和代理健康状态。
+- 当前 PC 运行服务使用已确认的 `43.132.156.72:15432/xinshi_system` 数据库；这只确认日常服务连接目标，不授权额外执行生产部署、结构迁移或维护性数据修改。常驻服务必须关闭 `LOCAL_SCHEMA_MIGRATIONS_ENABLED`，启动不得自动执行迁移或重建数据库。
 - 本机直接使用项目根目录现有 Python 虚拟环境 `E:\xinshi_system\.venv\Scripts\python.exe`，不使用 Docker，也不要求创建 Conda 环境。后端运行、迁移和 Python 测试命令必须使用该解释器，不得误用系统 Python 或其他虚拟环境；前端使用本机 Node.js/npm。缺少依赖时安装到该 `.venv`，不得自动回退到旧服务器。
 - 后端读取 `\\Win-server` 等 UNC 共享路径时，必须继承本机已登录桌面会话的 SMB 凭据。在本机交互式会话中可以直接启动；启动前应核对当前进程与 `explorer.exe` 的 `SessionId` 并对实际 UNC 目录执行只读枚举，启动后核对 8000 端口进程属于同一会话。禁止通过 WMI/CIM `Win32_Process.Create`、Windows 服务或任何 Session 0 方式启动需要共享目录权限的 Uvicorn。
 - 仅在明确维护旧局域网服务器、或本机启动上下文不属于交互式桌面会话时，使用目标机器的 `XinshiDebugBackendInteractive` 计划任务；启动前用 `quser` 确认 `Administrator` 活动交互式会话，并确认任务主体为 `Administrator`、`LogonType=Interactive`。会话或任务不符合要求时停止重启并报告，不得回退到 Session 0；重启后核对后端与 `explorer.exe` 的 `SessionId`，并在同一交互式任务上下文中只读枚举实际 UNC 目录。SSH 会话中的 `Test-Path` 不能替代该验证。

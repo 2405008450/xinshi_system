@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>{{ props.orderScope === 'child' ? '标注子订单管理' : '标注项目管理' }}</span>
         <div class="header-actions">
+          <ProjectExportMenu v-if="!deleteMode" module="annotation" :build-filters="buildFilters" />
           <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回母订单列表</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="goChildManagement()">子订单管理</el-button>
           <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false, true)">分拆母订单</el-button>
@@ -614,6 +615,7 @@
 </template>
 
 <script setup>
+import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { annotationStatusLabel as statusLabel, annotationStatusType as statusType } from '@/utils/annotationStatus'
 import AnnotationChildOrderPanel from '@/components/annotation/AnnotationChildOrderPanel.vue'
 import AnnotationChildCreateDialog from '@/components/annotation/AnnotationChildCreateDialog.vue'

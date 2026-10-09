@@ -132,6 +132,11 @@ def _filters(
     )
 
 
+from project_export_routes import register_project_exports
+
+register_project_exports(router, "recruitment", lambda raw, db: _field_filters(raw))
+
+
 @router.get("/", response_model=List[RecruitmentProjectResponse], deprecated=True)
 def read_projects(
     skip: int = 0,

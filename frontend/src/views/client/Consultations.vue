@@ -1295,6 +1295,7 @@ import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
+import { buildTranslationEmailSubject } from '@/utils/translationEmailSubject'
 import { formatDateTimeMinute as formatDatetime, formatTimeMinute as formatTime } from '@/utils/dateTime'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -1366,6 +1367,7 @@ const confirmationForm = reactive({
 })
 const confirmationPreview = reactive({
   project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+  language_pair: '', customer_deadline_time: null, sub_order_count: 0,
   project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
   to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
   sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
@@ -1877,6 +1879,17 @@ const confirmationAllMembersSelected = computed(() => (
   && confirmationRecipientCount.value >= validInternalUsers.value.length
 ))
 const confirmationSubjectParts = computed(() => {
+  if (confirmationPreview.project_type === 'translation') {
+    return buildTranslationEmailSubject({
+      subjectPrefix: confirmationForm.subjectPrefix,
+      orderNo: confirmationPreview.order_no,
+      clientShortName: confirmationPreview.client_short_name,
+      managerContact: confirmationPreview.manager_contact,
+      languagePair: confirmationForm.languagePair,
+      customerDeadlineTime: confirmationPreview.customer_deadline_time,
+      subOrderCount: confirmationPreview.sub_order_count,
+    }).parts
+  }
   const parts = [
     confirmationForm.subjectPrefix,
     confirmationPreview.order_no,
@@ -2638,6 +2651,9 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
     order_no: preview?.order_no || '',
     client_short_name: preview?.client_short_name || '',
     manager_contact: preview?.manager_contact || '',
+    language_pair: preview?.language_pair || '',
+    customer_deadline_time: preview?.customer_deadline_time || null,
+    sub_order_count: preview?.sub_order_count || 0,
     project_name: preview?.project_name || '',
     customer_order_no: preview?.customer_order_no || '',
     email_subject_preview: preview?.email_subject_preview || '',
@@ -2655,6 +2671,7 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   confirmationForm.projectName = preview?.project_name || confirmationForm.projectName
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
   confirmationForm.managerContact = preview?.manager_contact || ''
+  confirmationForm.languagePair = preview?.language_pair || confirmationForm.languagePair
   confirmationForm.emailSubject = preview?.email_subject_preview || ''
   if (!confirmationForm.inlineImages.length) {
     confirmationForm.emailBody = preview?.email_body || ''
@@ -2786,6 +2803,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   })
   Object.assign(confirmationPreview, {
     project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+    language_pair: '', customer_deadline_time: null, sub_order_count: 0,
     project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
     to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
     sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,

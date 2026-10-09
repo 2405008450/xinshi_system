@@ -220,7 +220,7 @@ def _apply_filters(
     return query
 
 
-def get_recruitment_projects(db: Session, *, skip=0, limit=100, **filters) -> list[RecruitmentProject]:
+def get_recruitment_projects(db: Session, *, skip=0, limit=100, extra_options=(), **filters) -> list[RecruitmentProject]:
     candidate_count = (
         select(func.count(RecruitmentCandidate.id))
         .where(RecruitmentCandidate.project_id == RecruitmentProject.id)
@@ -233,7 +233,7 @@ def get_recruitment_projects(db: Session, *, skip=0, limit=100, **filters) -> li
             candidate_count.label("candidate_count"),
             func.count(RecruitmentProject.id).over().label("_page_total"),
         )
-        .options(*_project_list_options())
+        .options(*_project_list_options(), *extra_options)
         .outerjoin(Client, RecruitmentProject.client_id == Client.id)
         .outerjoin(SubClient, RecruitmentProject.sub_client_id == SubClient.id)
     )

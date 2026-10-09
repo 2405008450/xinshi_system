@@ -463,7 +463,7 @@ class TranslationProject(Base):
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 母订单对应的真实源文件名称；与按业务规则自动生成的项目名称分离。
+    # 笔译项目真实源文件名称；提交文件名时与 project_name 同事务同步。
     source_file_name: Mapped[Optional[str]] = mapped_column(String(255))
     task_type: Mapped[Optional[str]] = mapped_column(String(50))
     consultation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

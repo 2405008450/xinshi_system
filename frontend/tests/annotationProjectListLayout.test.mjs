@@ -14,7 +14,7 @@ test('标注项目名称使用单行省略，避免长名称撑高列表行', ()
 })
 
 test('四类项目列表统一使用紧凑项目名称样式', () => {
-  assert.match(translationPage, /class="project-name-ellipsis" :title="row\.projectName \|\| '-'"/)
+  assert.match(translationPage, /class="project-name-ellipsis" :title="row\.sourceFileName \|\| '-'"/)
   assert.match(interpretationPage, /class="project-name-ellipsis" :title="textValue\(row\.projectName\)"/)
   assert.match(recruitmentPage, /class="project-name-ellipsis business-clickable-cell" :title="row\.projectName \|\| '待生成'"/)
   assert.match(commonStyles, /\.project-detail-list-table \.project-name-ellipsis\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s)

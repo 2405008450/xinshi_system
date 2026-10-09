@@ -624,7 +624,8 @@ def _sync_entity_file_name(
         sub_order.sub_project_name = payload.file_name
         sub_order.updated_at = now
     else:
-        project.source_file_name = payload.file_name
+        from translation_project_identity import sync_translation_file_name
+        sync_translation_file_name(project, payload.file_name)
         project.updated_at = now
 
 

@@ -93,10 +93,13 @@ def test_translation_subject_uses_prefix_and_skips_empty_fields():
         manager_contact=None,
         customer_order_no="不应进入笔译主题",
         project_name="信实客户-260812",
+        language_pair="中文（简体）→英语（美国）",
+        customer_deadline_time="2026-08-12 18:30:00",
+        sub_order_count=2,
     )
 
-    assert parts == ["***急***", "TP-260812-001", "信实客户", "信实客户-260812"]
-    assert subject == "***急***，TP-260812-001，信实客户，信实客户-260812"
+    assert parts == ["***急***", "TP-260812-001", "信实客户", "中译英", "8月12日18点回稿", "2批"]
+    assert subject == "***急***，TP-260812-001，信实客户，中译英，8月12日18点回稿，2批"
     assert missing == []
 
 
@@ -315,7 +318,7 @@ def test_preview_reads_manager_contact_from_linked_client(monkeypatch):
 
     assert preview["client_short_name"] == "客户简称"
     assert preview["manager_contact"] == "负责人联系方式"
-    assert preview["email_subject_preview"] == "TP-260812-009，客户简称，负责人联系方式，测试项目"
+    assert preview["email_subject_preview"] == "TP-260812-009，客户简称，负责人联系方式"
 
 
 def test_preview_prefers_manager_contact_edited_in_consultation_form(monkeypatch):
@@ -338,7 +341,7 @@ def test_preview_prefers_manager_contact_edited_in_consultation_form(monkeypatch
     )
 
     assert preview["manager_contact"] == "表单新联系方式"
-    assert preview["email_subject_preview"] == "TP-260812-011，客户简称，表单新联系方式，测试项目"
+    assert preview["email_subject_preview"] == "TP-260812-011，客户简称，表单新联系方式"
 
 
 def test_order_number_conflict_stops_before_project_mutation(monkeypatch):
@@ -387,6 +390,7 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     sub_client_id = uuid4()
     project = SimpleNamespace(
         id=uuid4(), project_name="旧项目名", email_subject_preview="旧主题",
+        source_file_name="客户合同.pdf；附件.docx",
         task_type=None, project_status="pending",
     )
     consultation = SimpleNamespace(
@@ -437,3 +441,30 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     assert client.manager_contact == "预览中补填的联系方式"
     assert project.client_id == client.id
     assert project.sub_client_id == sub_client_id
+    assert project.project_name == project.source_file_name == "客户合同.pdf；附件.docx"
+    assert project.email_subject_preview == '旧主题'
+
+    _confirm_consultation_project(
+        Db(), consultation,
+        ConsultationConfirmationFields(
+            expected_order_no='TP-260812-012', email_subject='手工确认主题 TP-260812-012',
+        ), uuid4(),
+    )
+    assert project.source_file_name == '客户合同.pdf；附件.docx'
+    assert project.email_subject_preview == '手工确认主题 TP-260812-012'
+
+
+def test_reconfirmation_preview_preserves_file_name_and_uses_existing_mail_metadata(monkeypatch):
+    consultation = SimpleNamespace(id=uuid4(), consultation_type='笔译项目', client_id=uuid4())
+    client = SimpleNamespace(client_short_name='客户', manager_contact='经理')
+    project = SimpleNamespace(order_no='TP-261009-001', project_name='历史摘要',
+        source_file_name='实际文件.docx', language_pair='中文（简体）→英语（美国）',
+        customer_deadline_time=datetime(2026, 10, 9, 18), sub_orders=[object(), object()])
+    monkeypatch.setattr('routers.consultations.get_consultation', lambda *_: consultation)
+    db = SimpleNamespace(query=lambda model: _ClientQuery(client if model is Client else project))
+    preview = _confirmation_preview_values(db, ConsultationConfirmationPreviewRequest(
+        consultation_id=consultation.id, consultation_type='笔译项目', project_name='调用方旧摘要',
+    ))
+    assert preview['project_name'] == '实际文件.docx'
+    assert preview['sub_order_count'] == 2
+    assert preview['email_subject_preview'] == 'TP-261009-001，客户，经理，中译英，10月9日18点回稿，2批'

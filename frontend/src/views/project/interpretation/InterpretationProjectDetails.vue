@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>口译项目管理</span>
         <div class="header-actions">
+          <ProjectExportMenu v-if="!deleteMode" module="interpretation" :build-filters="buildFilters" />
           <TableColumnSettings
             v-model="visibleColumnKeys"
             :columns="tableColumns"
@@ -666,6 +667,7 @@
 </template>
 
 <script setup>
+import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditPen, MagicStick, Plus } from '@element-plus/icons-vue'

@@ -30,46 +30,98 @@
 
 ## 本机启动与验收
 
-部署或运行前先执行只读检查：
+当前 PC 日常服务连接已确认的 `43.132.156.72:15432/xinshi_system`；后端运行在 PC，数据库位于云端。启动不会重建数据库或执行结构迁移；生产部署、数据库迁移及维护性数据修改仍需要单独明确指令。
+
+### 只读检查
+
+在已登录桌面的 PowerShell 中执行统一检查入口：
 
 ```powershell
-$env:COMPUTERNAME
 Set-Location -LiteralPath 'E:\xinshi_system'
-(Get-Location).Path
-git rev-parse --short HEAD
-Test-Path -LiteralPath '.\.venv\Scripts\python.exe'
-& '.\.venv\Scripts\python.exe' -c 'import sys; print(sys.executable); print(sys.version)'
-node --version
-npm.cmd --version
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\start_local.ps1 -CheckOnly
 ```
 
-确认主机名为 `PC`、项目路径及提交正确后，直接使用根目录已有 `.venv`。2026-10-08 已核实该虚拟环境解释器为 Python 3.13.7，且已安装 Uvicorn、FastAPI、SQLAlchemy；无需创建 `.conda_env`。缺少运行或测试依赖时，使用 `.venv\Scripts\python.exe -m pip` 安装到该环境。解释器检查不代表服务已部署或验收通过；数据库与敏感凭据使用受保护的本地配置。
+入口核对主机 `PC`、固定项目目录、Git 提交、项目 Python、数据库地址/端口/库名、基础依赖、当前进程与 `explorer.exe` 的非零 SessionId、实际 UNC 目录只读枚举、Node/npm、前端依赖和端口。检查不连接数据库，不启动或停止服务；已有监听会显示 PID。数据库配置中进程环境变量优先于根目录 `.env`，`DATABASE_URL` 优先于 `DB_*`，输出不含用户名或密码。常驻服务必须关闭 `LOCAL_SCHEMA_MIGRATIONS_ENABLED`。
 
-需要读取共享路径时，在启动所在上下文先核对桌面会话并只读枚举实际目录：
+2026-10-09 已核实 Python 3.13.7、Node.js 22.22.0 和 npm 10.9.4。缺少依赖时安装一次，依赖变更后重新安装，不必每次启动都运行：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system'
+& '.\.venv\Scripts\python.exe' -m pip install -r requirements.txt
+# 需要 Python 测试依赖时：
+& '.\.venv\Scripts\python.exe' -m pip install -r requirements-dev.txt
+Set-Location -LiteralPath 'E:\xinshi_system\frontend'
+npm.cmd ci
+```
+
+不得自动创建或改用其他 Python 环境。凭据使用受保护的 `.env`，不纳入 Git，不能直接使用 `.env.example` 的示例凭据。
+
+UNC 检查优先读取有效配置中的 `OPENPATH_ALLOWED_ROOTS`；未配置时检查 `\\Win-server\服务器资料7` 和 `\\Win-server\服务器资料4`。这是权限检查，不自动修改业务白名单。其他业务目录可在分终端启动后端时通过 `-SharePath '\\server\share'` 指定。手工复核命令如下：
 
 ```powershell
 (Get-Process -Id $PID).SessionId
 Get-Process -Name explorer | Select-Object Id, SessionId
 Get-Item -LiteralPath '\\Win-server\服务器资料7' -ErrorAction Stop
 Get-ChildItem -LiteralPath '\\Win-server\服务器资料7' -ErrorAction Stop | Select-Object -First 1
+Get-Item -LiteralPath '\\Win-server\服务器资料4' -ErrorAction Stop
+Get-ChildItem -LiteralPath '\\Win-server\服务器资料4' -ErrorAction Stop | Select-Object -First 1
 ```
 
-当前进程必须属于已登录用户的桌面会话，目录枚举必须成功；业务使用其他共享目录时也需检查实际目录。在该交互式终端启动后端：
+### 一键启动
 
 ```powershell
 Set-Location -LiteralPath 'E:\xinshi_system'
-& '.\.venv\Scripts\python.exe' -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\start_local.ps1
+# 后端需要热重载时，可在上述命令末尾加 -Reload
 ```
 
-生产模式去掉 `--reload`；也可在本机桌面运行 `start_backend.bat`。若使用 `Start-Process` 启动后台辅助进程，必须设置 `-WindowStyle Hidden` 并确认子进程仍属于同一桌面会话。当前上下文无法继承交互式凭据时，应检查本机 `XinshiDebugBackendInteractive` 任务及活动会话，按下方任务规则启动；任务或会话不符合要求时停止并报告，不得回退到 Session 0。
+也可双击根目录 `start_local.bat`。入口检查通过后，在同一桌面会话通过 `Start-Process -WindowStyle Hidden` 创建两个子终端。它会等待页面、`/health/db`（只执行 `SELECT 1`）及前端 `/api/health/db` 均通过，再核对监听进程属于本轮启动且 SessionId 相同。访问 `http://localhost:3000/`，后端为 `http://127.0.0.1:8000/`；前后端只绑定回环地址。
 
-前端开发启动：
+每轮日志分别保存到 `logs/backend-*.out.log`、`logs/backend-*.err.log`、`logs/frontend-*.out.log` 和 `logs/frontend-*.err.log`。输出含本轮终端 PID、监听 PID 与停止命令。关闭一键启动窗口不会停止隐藏服务；确认没有进行中的业务操作后，使用本轮输出的 `taskkill.exe /PID <终端PID> /T /F` 分别停止前后端进程树。停止前重新核对 PID，不能复用历史 PID 或按所有 Python/Node 进程批量终止。需要通过 `Ctrl+C` 正常退出时，使用下方分终端调试方式。
+
+端口被占用时入口报错并显示 PID，不自动终止已有服务。Vite 启用 `strictPort`，不会悄悄切换到其他端口。启动失败只回收本轮创建的子进程树。
+
+### 分终端调试
+
+分别在两个已登录桌面会话的终端执行，日志直接显示在终端，`Ctrl+C` 停止对应服务。
+
+终端 1 启动后端：
 
 ```powershell
-Set-Location -LiteralPath 'E:\xinshi_system\frontend'
-npm.cmd ci
-npm.cmd run dev -- --host 127.0.0.1 --port 3000
+Set-Location -LiteralPath 'E:\xinshi_system'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\start_local.ps1 -Service Backend -Reload
 ```
+
+稳定运行去掉 `-Reload`；桌面上的 `start_backend.bat` 也复用此入口。
+
+终端 2 启动前端：
+
+```powershell
+Set-Location -LiteralPath 'E:\xinshi_system'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\start_local.ps1 -Service Frontend
+```
+
+`frontend/start_frontend.bat` 同样复用此入口。开发代理支持 `/api` 与 WebSocket，默认目标为 `http://127.0.0.1:8000`；前端 `.env.local` 如配置 `VITE_API_PROXY_TARGET`，应核对其仍为本机目标。
+
+分终端启动后，在第三个相同桌面会话的终端执行：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/health/db'
+Invoke-RestMethod 'http://localhost:3000/api/health/db'
+(Invoke-WebRequest 'http://localhost:3000/' -UseBasicParsing).StatusCode
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -in 3000,8000 |
+    Select-Object LocalAddress,LocalPort,OwningProcess
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -in 3000,8000 |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    ForEach-Object { Get-Process -Id $_ | Select-Object Id,ProcessName,SessionId }
+Get-Process explorer | Select-Object Id,SessionId
+```
+
+两个健康接口应返回 `status=ok`，页面返回 200。实际页面仍需浏览器验收，健康接口不能替代业务验收。
+
+### 非桌面上下文与构建验收
+
+当前上下文无法继承交互式凭据时，先用 `quser` 确认 `Administrator` 活动会话，再核对本机 `XinshiDebugBackendInteractive` 的主体、`LogonType=Interactive` 和 Actions。任务应调用 `deploy/start_backend_interactive.ps1`，PC 分支复用本机启动检查并记录 `logs/backend-interactive-startup.log`。任务不存在或配置不符时停止并报告，不自动创建 Session 0 服务。2026-10-09 核查时本 PC 未配置该任务，已登录桌面可直接启动。
 
 完整构建使用 `npm.cmd run build`。如果本机 Nginx 正在服务 `frontend/dist`，改用现有两阶段发布脚本 `frontend/tools/publish-lan-frontend.ps1`，不能在服务中的目录直接构建。
 
@@ -137,7 +189,7 @@ Set-Location -LiteralPath 'E:\xinshi_system'
 & '.\.conda_env\python.exe' -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-也可以在服务器桌面上运行 `E:\xinshi_system\start_backend.bat`。
+旧服务器使用上方显式 Conda 命令；仓库中的批处理入口现在仅用于 PC。
 
 Coding Agent 通过 SSH 远程重启时，不得直接执行上述 Uvicorn 命令，也不得使用 WMI、CIM 或 `Start-Process` 创建后台进程。必须先确认交互式会话与计划任务：
 
@@ -238,7 +290,7 @@ sudo docker-compose --env-file ../.env \
 仓库外的 `.pem` 和 `.key` 文件，并重新创建 `https_gateway` 使新证书生效。
 
 `XinshiDebugBackendInteractive` 调用 `deploy/start_backend_interactive.ps1`。脚本默认使用本机 `.venv\Scripts\python.exe`；明确维护仍使用 Conda 的旧服务器时，任务参数须指定 `-PythonPath '.conda_env\python.exe'`。脚本会在启动
-Uvicorn 前最多重试 120 秒，对 `\\Win-server\服务器资料7` 执行 `Get-Item` 和一次只读枚举；
+Uvicorn 前最多尝试 24 次、间隔 5 秒，只读检查实际 UNC 目录（文件系统调用耗时另计）；
 只有验证成功才会启动后端。服务器重启后仍必须先建立 `Administrator` 交互式控制台会话，
 旧服务器未配置自动登录；无人登录时交互式后端任务不会启动，也不得改用 Session 0 绕过此限制。
 

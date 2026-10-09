@@ -62,7 +62,7 @@ class _FakeQuery:
 
 class _FakeDb:
     def __init__(self):
-        self.parent = SimpleNamespace(id=uuid4())
+        self.parent = SimpleNamespace(id=uuid4(), source_file_name='合同.docx', project_name='合同.docx', email_subject_preview='人工主题')
         self.existing = [SimpleNamespace(sub_project_name="已有.txt")]
         self.locked = False
         self.commit_count = 0
@@ -96,13 +96,14 @@ def test_bulk_service_locks_parent_and_commits_once(monkeypatch):
         return SimpleNamespace(id=uuid4(), sub_project_name=sub_order.sub_project_name)
 
     monkeypatch.setattr(crud, "_create_sub_order_in_transaction", fake_create)
-    monkeypatch.setattr(crud, "_sync_project_name_with_sub_order_count", lambda *_args: None)
     monkeypatch.setattr(crud, "_attach_manuscript_assignees", lambda *_args, **_kwargs: None)
 
     created, skipped = crud.create_sub_orders_bulk(db, payload, created_by=uuid4())
 
     assert db.locked is True
     assert db.commit_count == 1
+    assert db.parent.project_name == db.parent.source_file_name == '合同.docx'
+    assert db.parent.email_subject_preview == '人工主题'
     assert [item.sub_project_name for item in created] == ["A.docx", "B.pdf"]
     assert [item.priority for item in received] == ["高", "高"]
     assert all(item.word_count_matrix.company.words is None for item in received)
