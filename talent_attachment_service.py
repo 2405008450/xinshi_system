@@ -42,6 +42,11 @@ async def save_talent_attachment(
     uploaded_by: UUID | None,
     certificate_id: UUID | None = None,
 ) -> ResourcePersonAttachment:
+    from resource_service import get_talent
+    from talent_duplicate_service import assert_writable
+    from talent_wechat_accounts import lock_account_writes
+    lock_account_writes(db)
+    assert_writable(db, get_talent(db, person_id))
     if category not in UPLOAD_RULES:
         raise ValueError("不支持的附件分类")
     person = db.query(ResourcePerson.id).filter(ResourcePerson.id == person_id).first()
@@ -107,6 +112,11 @@ async def save_talent_attachment(
 
 
 def delete_talent_attachment(db: Session, person_id: UUID, attachment_id: UUID) -> bool:
+    from resource_service import get_talent
+    from talent_duplicate_service import assert_writable
+    from talent_wechat_accounts import lock_account_writes
+    lock_account_writes(db)
+    assert_writable(db, get_talent(db, person_id))
     row = db.query(ResourcePersonAttachment).filter(
         ResourcePersonAttachment.id == attachment_id,
         ResourcePersonAttachment.person_id == person_id,

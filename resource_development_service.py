@@ -78,7 +78,12 @@ def option(db, option_id, kind):
 
 def snapshot(row):
     from fastapi.encoders import jsonable_encoder
-    return jsonable_encoder({c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != "content"})
+    values = {c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != "content"}
+    if row.__tablename__ in {'resource_development_arrangement', 'resource_development_arrangement_cell'}:
+        from business_time import business_iso
+        # 每日安排既有无时区字段采用 UTC+8 本地时间，仅补接口偏移，不改历史值。
+        values = {key: business_iso(value) if isinstance(value, datetime) else value for key, value in values.items()}
+    return jsonable_encoder(values)
 
 
 def audit(db, user, row, action, before=None):
@@ -139,7 +144,8 @@ def duplicates(db, name, phone, wechat):
             conditions.append(ResourcePerson.primary_phone.is_not(None))
             conditions.append(ResourcePerson.secondary_phone.is_not(None))
     result = []
-    for person in db.query(ResourcePerson).filter(or_(*conditions)).all():
+    from talent_duplicate_service import active_query
+    for person in active_query(db, db.query(ResourcePerson)).filter(or_(*conditions)).all():
         matches = []
         if (person.full_name or "").strip().casefold() == name:
             matches.append("name")

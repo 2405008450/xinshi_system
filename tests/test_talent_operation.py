@@ -58,7 +58,7 @@ def test_full_save_records_actor(monkeypatch, recruitment):
     for name in ("_sync_capabilities", "_sync_profiles", "_sync_annotation_language_skills",
                  "_sync_owned_collections", "_sync_display_name", "_sync_legacy_translator"):
         monkeypatch.setattr(service, name, lambda *_: None)
-    db = SimpleNamespace(flush=lambda: None, commit=lambda: None)
+    db = SimpleNamespace(flush=lambda: None, commit=lambda: None, refresh=lambda *_, **__: None)
     function = service.update_recruitment_talent if recruitment else service.update_talent
     function(db, person.id, ResourcePersonUpdate(full_name="人员"), actor=actor)
     assert person.operated_by == actor.id
@@ -90,7 +90,8 @@ def test_duplicate_failure_preserves_operation(monkeypatch):
     monkeypatch.setattr(service, "find_duplicate_talents", lambda *_, **__: [{"id": str(uuid4())}])
     actor = SimpleNamespace(id=uuid4(), full_name="新操作员", username="new")
     with pytest.raises(service.TalentDuplicateError):
-        service.update_talent(object(), person.id, ResourcePersonUpdate(full_name="人员"), actor=actor)
+        db = SimpleNamespace(refresh=lambda *_, **__: None)
+        service.update_talent(db, person.id, ResourcePersonUpdate(full_name="人员"), actor=actor)
     assert person.operator_name == "原操作员"
     assert person.operated_at == previous_time
 

@@ -1,4 +1,12 @@
 // 目录只作为业务关联，不用于拼接物理存储路径。
+export const DEFAULT_PROJECT_FOLDER_NAME = '1. 项目详情'
+
+// 老项目只读浏览时补充默认目录；编辑保存时再提交，避免浏览操作写库。
+export function withDefaultProjectFolder(folders, defaultId) {
+  if (folders.some(folder => !folder.parent_id && folder.name === DEFAULT_PROJECT_FOLDER_NAME)) return folders
+  return [{ id: defaultId, parent_id: null, name: DEFAULT_PROJECT_FOLDER_NAME, default: true }, ...folders]
+}
+
 export function folderNameError(name, folders, parentId = null) {
   const value = name.trim()
   if (!value || [...value].length > 100 || value === '.' || value === '..') return '文件夹名称不能为空、超过100字符或使用点号路径'

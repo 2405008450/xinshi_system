@@ -1,12 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildFolderTree, folderNameError, folderParentId, folderPath, folderBreadcrumbs, materialFileType, newFolderId } from '../src/utils/annotationMaterialFolders.js'
+import { buildFolderTree, folderNameError, folderParentId, folderPath, folderBreadcrumbs, materialFileType, newFolderId, withDefaultProjectFolder, DEFAULT_PROJECT_FOLDER_NAME } from '../src/utils/annotationMaterialFolders.js'
 
 const folders = [
   { id: 'a', parent_id: null, name: '规范' },
   { id: 'b', parent_id: 'a', name: '中文', pending: true },
   { id: 'c', parent_id: null, name: '交付' },
 ]
+
+test('新项目及旧项目补充默认一级目录，同名二级目录不替代，已保存的默认目录保持原ID', () => {
+  const initial = withDefaultProjectFolder([], 'default-id')
+  assert.deepEqual(initial, [{ id: 'default-id', parent_id: null, name: '1. 项目详情', default: true }])
+  const legacy = [...folders, { id: 'nested', parent_id: 'a', name: DEFAULT_PROJECT_FOLDER_NAME }]
+  assert.equal(withDefaultProjectFolder(legacy, 'default-id').length, legacy.length + 1)
+  const saved = [{ id: 'saved-id', parent_id: null, name: DEFAULT_PROJECT_FOLDER_NAME }, ...legacy]
+  assert.equal(withDefaultProjectFolder(saved, 'default-id'), saved)
+  assert.equal(folderNameError(DEFAULT_PROJECT_FOLDER_NAME, initial), '同一目录下已存在同名文件夹')
+  assert.deepEqual(folderBreadcrumbs(initial, 'default-id'), [{ id: null, name: '项目资料' }, { id: 'default-id', name: DEFAULT_PROJECT_FOLDER_NAME }])
+})
 
 test('目录树包含根目录、空目录及待保存的二级目录', () => {
   const tree = buildFolderTree(folders)

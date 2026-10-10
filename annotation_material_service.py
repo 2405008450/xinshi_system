@@ -15,6 +15,7 @@ from annotation_material_models import (
 
 logger = logging.getLogger(__name__)
 MAX_BYTES = 100 * 1024 * 1024
+DEFAULT_PROJECT_FOLDER_NAME = '1. 项目详情'
 
 
 def storage_mode():
@@ -60,21 +61,39 @@ def folders(db, project_id):
             for row in db.query(Folder).filter_by(project_id=project_id).order_by(Folder.created_at, Folder.id).all()]
 
 
+def ensure_default_folder(db, project_id):
+    """沿用项目保存事务，已有同名一级目录直接复用，不提交独立事务。"""
+    folder = db.query(Folder).filter_by(project_id=project_id, parent_id=None, name=DEFAULT_PROJECT_FOLDER_NAME).first()
+    if folder is None:
+        folder = Folder(project_id=project_id, name=DEFAULT_PROJECT_FOLDER_NAME)
+        db.add(folder)
+        db.flush()
+    return folder
+
+
 def create_folders(db, project_id, creations):
     # 项目保存已持有项目行锁；先建一级，再建二级，允许同次提交父子目录。
+    mapping = {}
     for item in sorted(creations, key=lambda row: row.parent_id is not None):
         if db.get(Folder, item.id) is not None:
             raise ValueError('文件夹ID已存在，请重新加载资料')
-        if item.parent_id is not None:
-            parent = db.query(Folder).filter_by(id=item.parent_id, project_id=project_id).first()
+        parent_id = mapping.get(item.parent_id, item.parent_id)
+        if parent_id is not None:
+            parent = db.query(Folder).filter_by(id=parent_id, project_id=project_id).first()
             if parent is None:
                 raise ValueError('父文件夹不属于当前项目或不存在')
             if parent.parent_id is not None:
                 raise ValueError('最多支持两级文件夹，父文件夹必须为一级')
-        if db.query(Folder.id).filter_by(project_id=project_id, parent_id=item.parent_id, name=item.name).first():
+        existing = db.query(Folder).filter_by(project_id=project_id, parent_id=parent_id, name=item.name).first()
+        # 子订单复制已带出默认目录时，复用它并映射同次提交的二级目录与附件。
+        if existing and parent_id is None and item.name == DEFAULT_PROJECT_FOLDER_NAME:
+            mapping[item.id] = existing.id
+            continue
+        if existing:
             raise ValueError('同一目录下已存在同名文件夹')
-        db.add(Folder(id=item.id, project_id=project_id, parent_id=item.parent_id, name=item.name))
+        db.add(Folder(id=item.id, project_id=project_id, parent_id=parent_id, name=item.name))
         db.flush()
+    return mapping
 
 
 def queue_upload_deletion(db, upload):
@@ -106,15 +125,18 @@ def remove_project_materials(db, project_id):
 
 def apply_changes(db, project_id, changes, user_id):
     if changes is None:
+        ensure_default_folder(db, project_id)
         return
     # 调用者先锁项目，再锁暂存行；清理也锁暂存行，避免保存和清理竞争。
-    create_folders(db, project_id, changes.created_folders)
+    folder_mapping = create_folders(db, project_id, changes.created_folders)
+    ensure_default_folder(db, project_id)
     for file_id in set(changes.removed_file_ids):
         material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
         if material is None:
             raise ValueError('待移除文件不属于当前项目或已被移除')
         remove_material(db, material)
     for item in sorted(changes.additions, key=lambda item: str(item.upload_id)):
+        folder_id = folder_mapping.get(item.folder_id, item.folder_id)
         upload = db.query(Upload).filter_by(id=item.upload_id).with_for_update().populate_existing().first()
         if (upload is None or upload.uploaded_by != user_id or upload.consumed_at is not None
                 or upload.expires_at <= datetime.utcnow()):
@@ -123,12 +145,12 @@ def apply_changes(db, project_id, changes, user_id):
             material = db.query(Material).filter_by(id=item.file_id, project_id=project_id).first()
             if material is None or material.category != item.category:
                 raise ValueError('新版文件不属于当前项目或资料分类不匹配')
-            if item.folder_id is not None and item.folder_id != material.folder_id:
+            if folder_id is not None and folder_id != material.folder_id:
                 raise ValueError('上传新版不能改变文件所属目录')
         else:
-            if item.folder_id is not None and db.query(Folder.id).filter_by(id=item.folder_id, project_id=project_id).first() is None:
+            if folder_id is not None and db.query(Folder.id).filter_by(id=folder_id, project_id=project_id).first() is None:
                 raise ValueError('文件夹不属于当前项目或不存在')
-            material = Material(project_id=project_id, category=item.category, folder_id=item.folder_id)
+            material = Material(project_id=project_id, category=item.category, folder_id=folder_id)
             db.add(material)
             db.flush()
         last = db.query(func.max(Version.version_no)).filter_by(file_id=material.id).scalar() or 0

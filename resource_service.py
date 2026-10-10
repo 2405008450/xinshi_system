@@ -28,6 +28,11 @@ from resource_models import (
 from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
 from field_filtering import apply_scalar_specs
 from talent_wechat_accounts import ACCOUNT_FIELDS, lock_account_writes, write_talent_accounts
+from talent_duplicate_service import (
+    active_query, archive_options, assert_writable, canonical_id, family_ids,
+    prepare_person, review_ready,
+)
+from business_time import business_now
 
 
 PROFILE_FIELDS = {
@@ -129,12 +134,13 @@ def _person_options():
 
 
 def get_talent(db: Session, person_id: UUID) -> Optional[ResourcePerson]:
-    return (
+    return prepare_person(db, (
         db.query(ResourcePerson)
-        .options(*_person_options())
+        .options(*_person_options(), *archive_options(db))
         .filter(ResourcePerson.id == person_id)
+        .populate_existing()
         .first()
-    )
+    ))
 
 
 def _person_reference_labels(db: Session, person_id: UUID) -> list[str]:
@@ -167,9 +173,13 @@ def _person_reference_labels(db: Session, person_id: UUID) -> list[str]:
 
 
 def delete_talent(db: Session, person_id: UUID) -> bool:
+    lock_account_writes(db)
     person = db.query(ResourcePerson).filter(ResourcePerson.id == person_id).first()
     if not person:
         return False
+    assert_writable(db, person)
+    if review_ready(db) and db.query(ResourcePerson.id).filter(ResourcePerson.archived_into_id == person_id).first():
+        raise TalentDeleteConflictError("此人才有归档来源，必须保留核重追溯关系，不能删除")
     references = _person_reference_labels(db, person_id)
     if references:
         raise TalentDeleteConflictError(
@@ -212,7 +222,7 @@ def _education_summary_condition(keyword: str):
     )
 
 
-def _project_situation_condition(keyword: str):
+def _project_situation_condition(keyword: str, *, include_archived: bool = False):
     """在分页前按真实项目关联匹配项目名称或订单号。"""
     from annotation_models import AnnotationProject, AnnotationProjectAssignee
     from annotation_ops_models import AnnotationTrialRecord
@@ -270,6 +280,13 @@ def _project_situation_condition(keyword: str):
             RecruitmentProject.order_no.ilike(pattern),
         )),
     ).subquery("talent_project_people")
+    if include_archived:
+        from sqlalchemy.orm import aliased
+        source = aliased(ResourcePerson)
+        return select(project_people.c.person_id).outerjoin(source, source.id == project_people.c.person_id).where(or_(
+            project_people.c.person_id == ResourcePerson.id,
+            source.archived_into_id == ResourcePerson.id,
+        )).exists()
     return select(project_people.c.person_id).where(
         project_people.c.person_id == ResourcePerson.id
     ).exists()
@@ -326,13 +343,12 @@ def _talent_query(
     field_filters: Optional[dict] = None,
     include_contact_search: bool = True,
 ):
-    query = db.query(ResourcePerson)
+    query = active_query(db, db.query(ResourcePerson))
     if capability_type:
-        query = query.join(
-            ResourceCapability,
-            ResourceCapability.person_id == ResourcePerson.id,
-        ).filter(ResourceCapability.capability_type == capability_type)
-        query = query.filter(ResourceCapability.status == (capability_status or "active"))
+        query = query.filter(ResourcePerson.capabilities.any(and_(
+            ResourceCapability.capability_type == capability_type,
+            ResourceCapability.status == (capability_status or "active"),
+        )))
     if keyword:
         pattern = f"%{keyword.strip()}%"
         keyword_columns = [
@@ -353,6 +369,15 @@ def _talent_query(
                 ResourcePerson.line.ilike(pattern),
                 ResourcePerson.contact_info.ilike(pattern),
             ])
+            if review_ready(db):
+                from sqlalchemy.orm import aliased
+                source = aliased(ResourcePerson)
+                keyword_columns.append(db.query(source.id).filter(
+                    source.archived_into_id == ResourcePerson.id,
+                    or_(*(getattr(source, field).ilike(pattern) for field in (
+                        "primary_phone", "secondary_phone", "primary_email", "secondary_email",
+                        "wechat", "whatsapp", "skype", "line", "contact_info", "other_contact"))),
+                ).exists())
         query = query.filter(or_(*keyword_columns))
     if status:
         query = query.filter(ResourcePerson.status == status)
@@ -361,10 +386,9 @@ def _talent_query(
     if cooperation_type:
         query = query.filter(ResourcePerson.cooperation_type == cooperation_type)
     if industry_keyword:
-        query = query.join(
-            ResourceCareerProfile,
-            ResourceCareerProfile.person_id == ResourcePerson.id,
-        ).filter(ResourceCareerProfile.industries.cast(String).ilike(f"%{industry_keyword.strip()}%"))
+        query = query.filter(ResourcePerson.career_profile.has(
+            ResourceCareerProfile.industries.cast(String).ilike(f"%{industry_keyword.strip()}%")
+        ))
     if review_required is not None:
         query = query.filter(or_(
             ResourcePerson.duplicate_review_required == review_required,
@@ -397,6 +421,8 @@ def _talent_query(
         "collection_score": (ResourcePerson.collection_score, "number"),
         "first_contact_date": (ResourcePerson.first_contact_date, "datetime"),
         "updated_at": (ResourcePerson.updated_at, "datetime"),
+        "operator_name": (ResourcePerson.operator_name, "string"),
+        "operated_at": (ResourcePerson.operated_at, "datetime"),
         "duplicate_review_required": (ResourcePerson.duplicate_review_required, "boolean"),
     })
     for field, descriptor in field_filters.items():
@@ -476,8 +502,9 @@ def _talent_query(
             ))
         elif field == "project_situation":
             value = str(descriptor.get("value") or "").strip()
-            query = query.filter(_project_situation_condition(value))
-    return query.distinct()
+            query = query.filter(_project_situation_condition(value, include_archived=review_ready(db)))
+    # 关联筛选使用 EXISTS，人员主表不会产生重复行；避免对 JSON 字段做 DISTINCT。
+    return query
 
 
 def _talent_ordering(sort: str):
@@ -504,7 +531,7 @@ def get_talents(
     rows = (
         _talent_query(db, **filters)
         .add_columns(func.count(ResourcePerson.id).over().label("_page_total"))
-        .options(*_person_options())
+        .options(*_person_options(), *archive_options(db))
         .order_by(*_talent_ordering(sort))
         .offset(skip)
         .limit(limit)
@@ -512,8 +539,11 @@ def get_talents(
     )
     people = []
     for person, page_total in rows:
+        prepare_person(db, person)
         person.__dict__["_page_total"] = int(page_total or 0)
         people.append(person)
+    from talent_duplicate_service import annotate_review_states
+    annotate_review_states(db, people)
     return people
 
 
@@ -584,6 +614,32 @@ def get_talent_project_histories(
     from recruitment_models import RecruitmentCandidate, RecruitmentProject
 
     requested_ids = list(dict.fromkeys(person_ids))
+    if review_ready(db) and requested_ids:
+        source_map = {source: target for target in requested_ids for source in family_ids(db, target)}
+        # 递归调用只负责旧的真实业务关联读取，最后按业务键归并到有效主档。
+        db.info["talent_history_direct"] = db.info.get("talent_history_direct", False)
+        if not db.info["talent_history_direct"] and set(source_map) != set(requested_ids):
+            db.info["talent_history_direct"] = True
+            try:
+                direct = get_talent_project_histories(db, list(source_map))
+            finally:
+                db.info["talent_history_direct"] = False
+            merged = {target: {} for target in requested_ids}
+            for source, events in direct.items():
+                target = source_map[source]
+                for event in events:
+                    key = (event.get("project_type"), event.get("project_id"), event.get("order_no"))
+                    if key not in merged[target]:
+                        merged[target][key] = event.copy()
+                    else:
+                        current = merged[target][key]
+                        current["trial_count"] = current.get("trial_count", 0) + event.get("trial_count", 0)
+                        for field in ("roles", "participation_sources"):
+                            current[field] = list(dict.fromkeys(current.get(field, []) + event.get(field, [])))
+                        current["role"] = "、".join(current["roles"]) or current.get("role")
+                        if _project_history_sort_value(event) > _project_history_sort_value(current):
+                            current["participated_at"] = event.get("participated_at")
+            return {target: sorted(events.values(), key=_project_history_sort_value, reverse=True) for target, events in merged.items()}
     histories: dict[UUID, dict[tuple, dict]] = {person_id: {} for person_id in requested_ids}
     if not requested_ids:
         return {}
@@ -752,11 +808,12 @@ def get_talent_annotation_project_performance(
     from annotation_ops_models import AnnotationCustomFieldDefinition, AnnotationTrialRecord
 
     project = db.get(AnnotationProject, project_id)
+    related_person_ids = family_ids(db, person_id)
     if not project:
         return None
     trials = db.query(AnnotationTrialRecord).filter(
         AnnotationTrialRecord.project_id == project_id,
-        AnnotationTrialRecord.person_id == person_id,
+        AnnotationTrialRecord.person_id.in_(related_person_ids),
     ).order_by(AnnotationTrialRecord.round_no, AnnotationTrialRecord.sequence_no).all()
     assignments = db.query(AnnotationProjectAssignee).options(
         joinedload(AnnotationProjectAssignee.language_item).joinedload(
@@ -767,7 +824,7 @@ def get_talent_annotation_project_performance(
         ),
     ).filter(
         AnnotationProjectAssignee.project_id == project_id,
-        AnnotationProjectAssignee.person_id == person_id,
+        AnnotationProjectAssignee.person_id.in_(related_person_ids),
     ).order_by(AnnotationProjectAssignee.sequence_no).all()
     if not trials and not assignments:
         return None
@@ -860,6 +917,7 @@ def find_duplicate_talents(
     normalized_email = normalize_email(email)
     if not normalized_phone and not normalized_email:
         return []
+    # 归档来源的联系方式仍指向有效主档，防止同一人被重新建档。
     query = db.query(ResourcePerson)
     conditions = []
     bind = db.get_bind()
@@ -879,13 +937,22 @@ def find_duplicate_talents(
     if exclude_id:
         query = query.filter(ResourcePerson.id != exclude_id)
     result = []
-    for person in query.limit(500 if normalized_phone and not is_postgresql else 20).all():
+    for person in query.limit(500).all():
         match_fields = []
         if normalized_phone in {normalize_phone(person.primary_phone), normalize_phone(person.secondary_phone)}:
             match_fields.append("phone")
         if normalized_email in {normalize_email(person.primary_email), normalize_email(person.secondary_email)}:
             match_fields.append("email")
         if not match_fields:
+            continue
+        effective_id = canonical_id(db, person.id)
+        if exclude_id and effective_id == canonical_id(db, exclude_id):
+            continue
+        if effective_id != person.id:
+            person = get_talent(db, effective_id)
+        existing = next((item for item in result if item["id"] == str(person.id)), None)
+        if existing:
+            existing["match_fields"] = list(dict.fromkeys(existing["match_fields"] + match_fields))
             continue
         result.append({
             "id": str(person.id),
@@ -909,13 +976,13 @@ def _sync_capabilities(db: Session, person: ResourcePerson, payload) -> None:
         if row:
             for key, value in values.items():
                 setattr(row, key, value)
-            row.updated_at = datetime.now()
+            row.updated_at = business_now()
         else:
             person.capabilities.append(ResourceCapability(source="manual", **values))
     for capability_type, row in existing.items():
         if capability_type not in incoming:
             row.status = "inactive"
-            row.updated_at = datetime.now()
+            row.updated_at = business_now()
 
 
 def _sync_profiles(db: Session, person: ResourcePerson, payload) -> None:
@@ -1083,7 +1150,7 @@ def _record_talent_operation(person: ResourcePerson, actor) -> None:
         return
     person.operated_by = actor.id
     person.operator_name = (actor.full_name or "").strip() or actor.username
-    person.operated_at = datetime.now()
+    person.operated_at = business_now()
 
 
 def create_talent(
@@ -1128,13 +1195,15 @@ def update_talent_name(
     db: Session, person_id: UUID, full_name: str, *, actor=None,
 ) -> Optional[ResourcePerson]:
     """只修改姓名，避免账号页快速纠错时覆盖人才档案的其他字段。"""
+    lock_account_writes(db)
     person = get_talent(db, person_id)
+    assert_writable(db, person)
     if not person:
         return None
     if person.full_name != full_name:
         _record_talent_operation(person, actor)
         person.full_name = full_name
-        person.updated_at = datetime.now()
+        person.updated_at = business_now()
         db.flush()
         _sync_legacy_translator(db, person)
         db.commit()
@@ -1145,13 +1214,15 @@ def update_talent_name(
 def update_talent_status(
     db: Session, person_id: UUID, status: str, *, actor=None,
 ) -> Optional[ResourcePerson]:
+    lock_account_writes(db)
     person = get_talent(db, person_id)
+    assert_writable(db, person)
     if not person:
         return None
     if person.status != status:
         _record_talent_operation(person, actor)
         person.status = status
-        person.updated_at = datetime.now()
+        person.updated_at = business_now()
         db.flush()
         _sync_legacy_translator(db, person)
         db.commit()
@@ -1169,6 +1240,7 @@ def update_talent(
 ) -> Optional[ResourcePerson]:
     lock_account_writes(db)
     person = get_talent(db, person_id)
+    assert_writable(db, person)
     if not person:
         return None
     db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
@@ -1199,7 +1271,7 @@ def update_talent(
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
     _record_talent_operation(person, actor)
-    person.updated_at = datetime.now()
+    person.updated_at = business_now()
     db.flush()
     _sync_legacy_translator(db, person)
     db.commit()
@@ -1217,6 +1289,7 @@ def update_recruitment_talent(
     """招聘端只更新人员主档与职业档案，不改写专业能力。"""
     lock_account_writes(db)
     person = get_talent(db, person_id)
+    assert_writable(db, person)
     if not person:
         return None
     db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
@@ -1250,7 +1323,7 @@ def update_recruitment_talent(
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
     _record_talent_operation(person, actor)
-    person.updated_at = datetime.now()
+    person.updated_at = business_now()
     db.flush()
     _sync_legacy_translator(db, person)
     db.commit()
@@ -1283,7 +1356,9 @@ def translator_has_capability(db: Session, translator_id: UUID, capability_type:
 
 def sync_legacy_translator_to_talent(db: Session, translator) -> ResourcePerson:
     """旧译员接口新增或修改后同步统一人才主档。"""
+    lock_account_writes(db)
     person = db.query(ResourcePerson).filter(ResourcePerson.id == translator.id).first()
+    assert_writable(db, person)
     if person is None:
         person = ResourcePerson(id=translator.id, full_name=translator.translator_name)
         db.add(person)

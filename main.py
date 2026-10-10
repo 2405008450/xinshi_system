@@ -275,6 +275,8 @@ app.include_router(project_files.router)
 app.include_router(clients.router)
 app.include_router(client_contacts.router)
 app.include_router(translators.router)
+from routers import talent_duplicate_review
+app.include_router(talent_duplicate_review.router)
 app.include_router(talents.router)
 app.include_router(talent_overview_wecom.router)
 app.include_router(talents.recruitment_router)

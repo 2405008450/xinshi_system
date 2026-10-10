@@ -22,6 +22,90 @@ def test_target_validation_and_no_actor_spoofing():
         ArrangementWrite(revision=0, cells=[dict(platform_id=platform), dict(platform_id=platform)])
 
 
+def test_role_tag_normalization_and_limits():
+    platform = uuid4()
+    value = ArrangementCellWrite(platform_id=platform, role_tags=[' HR ', '', '客服', 'HR', '  '])
+    assert value.role_tags == ['HR', '客服']
+    assert 'role_tags' not in ArrangementCellWrite(platform_id=platform).model_fields_set
+    assert 'role_tags' in ArrangementCellWrite(platform_id=platform, role_tags=[]).model_fields_set
+    assert ArrangementCellWrite(platform_id=platform, role_tags=['岗' * 100]).role_tags == ['岗' * 100]
+    for tags in [['岗' * 101], ['岗'] * 101, None, [123]]:
+        with pytest.raises(ValidationError):
+            ArrangementCellWrite(platform_id=platform, role_tags=tags)
+
+
+def test_arrangement_business_clock_and_snapshot(monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    import business_time
+    from resource_development_models import DevelopmentArrangementCell
+    from resource_development_service import snapshot
+
+    class ServerUtcClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 10, 9, 9, 18, 43, 787825, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(business_time, 'datetime', ServerUtcClock)
+    stored = business_time.business_now()
+    assert stored == datetime(2026, 10, 9, 17, 18, 43, 787825) and stored.tzinfo is None
+    assert business_time.business_iso(stored) == '2026-10-09T17:18:43.787825+08:00'
+    assert business_time.business_iso(datetime(2026, 10, 9, 9, 18, 43, 787825, tzinfo=timezone.utc)) == business_time.business_iso(stored)
+    table = DevelopmentArrangementCell.__table__
+    cell = SimpleNamespace(__table__=table, __tablename__=table.name, **{column.name: None for column in table.columns})
+    cell.completed_at = stored
+    assert snapshot(cell)['completed_at'] == '2026-10-09T17:18:43.787825+08:00'
+    assert cell.completed_at == stored
+
+
+def test_roles_legacy_write_completion_reorder_and_partial_update(db, context):
+    from resource_arrangement_service import complete_arrangement, get_cells, read_arrangement
+    manager, owner, other, platforms, _ = context
+    payload = dict(platform_id=platforms[0].id, owner_id=owner.id, role_tags=[' HR ', '客服', 'HR'])
+    day = save(db, context, cells=[payload, dict(platform_id=platforms[1].id, owner_id=other.id, role_tags=['译员'])])
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    first = next(c for c in get_cells(db, day) if c.platform_id == platforms[0].id)
+    assert first.role_tags == ['HR', '客服'] and first.completed
+    # 旧客户端只更新备注，不能意外清除岗位或完成信息。
+    save(db, context, revision=day.revision, user=owner, cells=[dict(platform_id=platforms[0].id, owner_id=owner.id, remarks='补充备注')])
+    assert first.role_tags == ['HR', '客服'] and first.completed
+    save(db, context, revision=day.revision, user=owner, cells=[payload | dict(role_tags=['客服', 'HR'], remarks='补充备注')])
+    assert first.completed and first.role_tags == ['客服', 'HR']
+    save(db, context, revision=day.revision, user=owner, cells=[payload | dict(role_tags=['译员'])])
+    assert not first.completed and first.completed_at is None and first.completed_by is None
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    save(db, context, revision=day.revision, user=owner, cells=[payload | dict(role_tags=[])])
+    assert first.role_tags == [] and not first.completed
+    result = read_arrangement(db, manager, day.work_date)
+    assert next(c for c in result['cells'] if c['platform_id'] == str(platforms[1].id))['role_tags'] == ['译员']
+
+
+def test_role_only_carry_permissions_conflict_and_audit(db, context):
+    from resource_arrangement_service import carry_preview, complete_arrangement, read_arrangement
+    from resource_development_models import DevelopmentAudit
+    manager, owner, other, platforms, _ = context
+    payload = dict(platform_id=platforms[0].id, owner_id=owner.id, role_tags=['HR', '英语客服'])
+    day = save(db, context, cells=[payload])
+    assert read_arrangement(db, manager, day.work_date)['cells'][0]['targets'] == []
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    revision = day.revision
+    preview = carry_preview(db, manager, date(2026, 10, 9))
+    assert preview['cells'][0]['role_tags'] == ['HR', '英语客服']
+    assert not preview['cells'][0]['completed'] and preview['cells'][0]['completed_at'] is None
+    assert read_arrangement(db, manager, date(2026, 10, 9))['revision'] == 0
+    for actor in [other]:
+        with pytest.raises(HTTPException) as error:
+            save(db, context, user=actor, revision=day.revision, cells=[payload | dict(role_tags=['越权'])])
+        assert error.value.status_code == 403
+    save(db, context, user=owner, revision=day.revision, cells=[payload | dict(role_tags=['法语译员'])])
+    with pytest.raises(HTTPException) as error:
+        save(db, context, revision=revision, cells=[payload])
+    assert error.value.status_code == 409
+    changes = db.query(DevelopmentAudit).filter_by(entity_type='arrangement_cell').all()
+    assert any(a.before.get('role_tags') == ['HR', '英语客服'] and a.after.get('role_tags') == ['法语译员'] for a in changes)
+
+
 @pytest.fixture
 def db():
     if os.getenv('RUN_RESOURCE_DEVELOPMENT_DB_TESTS') != '1':
@@ -270,6 +354,8 @@ def test_http_routes_permissions_and_incremental_save(db,context,monkeypatch):
         complete=client.patch(path+f'/cells/{platforms[0].id}/completion',json={'revision':1,'completed':True})
         assert complete.status_code==200,complete.text
         assert complete.json()['cells'][0]['completed_by']==str(owner.id)
+        assert complete.json()['cells'][0]['completed_at'].endswith('+08:00')
+        assert complete.json()['updated_at'].endswith('+08:00')
         assert client.put(path,json={'revision':1,'cells':[]}).status_code==409
         assert client.put(path,json={'revision':2,'cells':[{'platform_id':str(platforms[0].id),'owner_id':str(other.id)}]}).status_code==403
         current['codes']=[]

@@ -1,6 +1,5 @@
 """平台账号每日统筹；候选读取实时需求，历史内容保存名称快照。"""
 from copy import deepcopy
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -12,6 +11,7 @@ from resource_development_models import DevelopmentArrangement as Day, Developme
 from resource_development_service import active_user, audit, can_delegate, lock_writes, snapshot, user_name
 from resource_request_models import ResourceRequest
 from resource_request_service import SOURCE_MODELS, _request_options, list_source_project_options
+from business_time import business_now, business_iso
 
 
 def target_key(target):
@@ -98,7 +98,7 @@ def serialize_cell(db, cell, user):
 def read_arrangement(db, user, work_date, day=None):
     day = day or get_day(db, work_date)
     return {'work_date': work_date.isoformat(), 'revision': day.revision if day else 0,
-            'remarks': day.remarks if day else '', 'updated_at': day.updated_at if day else None,
+            'remarks': day.remarks if day else '', 'updated_at': business_iso(day.updated_at) if day else None,
             'updated_by_name': user_name(db, day.updated_by) if day else '',
             'can_manage': can_delegate(db, user),
             'cells': [serialize_cell(db, cell, user) for cell in get_cells(db, day)]}
@@ -276,16 +276,20 @@ def save_arrangement(db: Session, user, work_date, payload):
             owner_label = cell.owner_name if cell and value.owner_id else ''
         targets = normalize_targets(db, value.targets, cell.targets if cell else [])
         projects = normalize_projects(db, value.projects, cell.projects if cell else [])
+        # 老客户端未传岗位字段时保留已有内容，显式空数组才表示清空。
+        role_tags = value.role_tags if 'role_tags' in value.model_fields_set else (cell.role_tags if cell else [])
         before = snapshot(cell) if cell else None
         if not cell:
             cell = Cell(arrangement_id=day.id, platform_id=platform.id, platform_name=platform.name,
-                        owner_name='', targets=[], projects=[], remarks='', completed=False, completed_by_name='')
+                        owner_name='', targets=[], role_tags=[], projects=[], remarks='', completed=False, completed_by_name='')
             db.add(cell)
         business_changed = (cell.owner_id != value.owner_id
                             or {target_key(t) for t in cell.targets} != {target_key(t) for t in targets}
+                            or set(cell.role_tags) != set(role_tags)
                             or {project_key(p) for p in cell.projects} != {project_key(p) for p in projects})
         cell.owner_id, cell.owner_name = value.owner_id, owner_label
         cell.targets, cell.projects, cell.remarks = targets, projects, value.remarks
+        cell.role_tags = list(role_tags)
         if business_changed:
             reset_completion(cell)
         if before is None or before != snapshot(cell):
@@ -297,7 +301,7 @@ def save_arrangement(db: Session, user, work_date, payload):
     if changed:
         if before_day:
             day.revision += 1
-        day.updated_by, day.updated_at = user.id, datetime.now()
+        day.updated_by, day.updated_at = user.id, business_now()
         audit(db, user, day, 'carry' if payload.carried_from else ('update' if before_day else 'create'),
               (before_day or {}) | ({'carried_from': payload.carried_from.isoformat()} if payload.carried_from else {}))
     db.flush()
@@ -321,13 +325,13 @@ def complete_arrangement(db, user, work_date, platform_id, payload):
         before = snapshot(cell)
         if payload.completed:
             cell.completed, cell.completed_by = True, user.id
-            cell.completed_by_name, cell.completed_at = user_name(db, user.id), datetime.now()
+            cell.completed_by_name, cell.completed_at = user_name(db, user.id), business_now()
         else:
             reset_completion(cell)
         audit(db, user, cell, 'complete' if payload.completed else 'reopen', before)
         before_day = snapshot(day)
         day.revision += 1
-        day.updated_by, day.updated_at = user.id, datetime.now()
+        day.updated_by, day.updated_at = user.id, business_now()
         audit(db, user, day, 'update', before_day)
     db.flush()
     return day

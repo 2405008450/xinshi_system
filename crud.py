@@ -713,6 +713,13 @@ def _apply_translator_filters(
     stale_only: bool = False,
     stale_days: int = 4,
 ):
+    from resource_models import ResourcePerson
+    from talent_duplicate_service import review_ready
+    if review_ready(db):
+        query = query.filter(~db.query(ResourcePerson.id).filter(
+            ResourcePerson.id == Translator.resource_person_id,
+            ResourcePerson.archived_into_id.is_not(None),
+        ).exists())
     if capability_type:
         from resource_models import ResourceCapability
         query = query.join(

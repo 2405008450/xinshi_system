@@ -396,7 +396,7 @@ def test_folder_tree_and_files_saved_together(env):
     ])
     service.apply_changes(db, project, changes, user.id); db.commit()
     assert {row['folder_id'] for row in service.versions(db, project)} == {None, root, child}
-    assert {row['name'] for row in service.folders(db, project)} == {'标注规范', '中文规范', '空目录'}
+    assert {row['name'] for row in service.folders(db, project)} == {'标注规范', '中文规范', '空目录', '1. 项目详情'}
     assert db.get(Folder, child).parent_id == root
 
 
@@ -446,7 +446,7 @@ def test_folder_depth_missing_parent_and_rollback(env):
             additions=[{'upload_id': uuid4(), 'category': 'project', 'folder_id': new_root}]), user.id)
     db.rollback()
     assert db.get(Folder, new_root) is None
-    assert len(service.folders(db, project)) == 2
+    assert len(service.folders(db, project)) == 3
 
 
 def test_folder_replacement_preserves_directory_and_categories(env):
@@ -486,7 +486,7 @@ def test_folder_copy_and_shared_file_cleanup(env):
     upload_id, key = upload.id, upload.storage_key
     copy_materials(db, project, child_project); db.commit()
     copied = service.folders(db, child_project)
-    assert len(copied) == 3
+    assert len(copied) == 4
     assert not {row['id'] for row in copied} & {root, child, empty}
     copied_root = next(row['id'] for row in copied if row['name'] == '规范')
     copied_child = next(row for row in copied if row['name'] == '中文')
@@ -518,6 +518,59 @@ def test_folder_list_api_empty_and_populated(env, monkeypatch):
         assert result.status_code == 200
         assert result.json()[0]['id'] == str(folder_id)
         assert result.json()[0]['parent_id'] is None
+
+
+def test_default_folder_saved_without_material_changes_and_reused(env):
+    db, user, project, _ = env
+    service.apply_changes(db, project, None, user.id)
+    db.commit()
+    original = service.folders(db, project)
+    assert len(original) == 1 and original[0]['name'] == '1. 项目详情'
+    assert original[0]['parent_id'] is None
+    service.apply_changes(db, project, MaterialChanges(), user.id)
+    db.commit()
+    assert service.folders(db, project) == original
+
+
+def test_default_folder_creation_rolls_back_with_failed_save(env):
+    db, user, project, _ = env
+    with pytest.raises(ValueError, match='暂存文件'):
+        service.apply_changes(db, project, MaterialChanges(additions=[{'upload_id': uuid4(), 'category': 'project'}]), user.id)
+    db.rollback()
+    assert service.folders(db, project) == []
+
+
+def test_copied_default_folder_remaps_new_children_and_files(env):
+    from annotation_child_copy_service import copy_materials
+    db, user, project, child_project = env
+    service.apply_changes(db, project, None, user.id)
+    copy_materials(db, project, child_project)
+    db.commit()
+    default = service.folders(db, child_project)[0]
+    assert default['id'] != service.folders(db, project)[0]['id']
+    upload = stage(db, user)
+    proposed_default, nested = uuid4(), uuid4()
+    service.apply_changes(db, child_project, MaterialChanges(created_folders=[
+        {'id': proposed_default, 'name': '1. 项目详情'},
+        {'id': nested, 'parent_id': proposed_default, 'name': '客户要求'},
+    ], additions=[{'upload_id': upload.id, 'category': 'project', 'folder_id': proposed_default}]), user.id)
+    db.commit()
+    assert len(service.folders(db, child_project)) == 2
+    assert db.get(Folder, nested).parent_id == default['id']
+    assert service.versions(db, child_project)[0]['folder_id'] == default['id']
+
+
+def test_existing_files_keep_root_when_default_folder_added(env):
+    db, user, project, _ = env
+    upload = stage(db, user)
+    material = Material(project_id=project, category='project')
+    db.add(material); db.flush()
+    db.add(Version(file_id=material.id, upload_id=upload.id, version_no=1))
+    db.commit()
+    assert service.folders(db, project) == []
+    service.apply_changes(db, project, None, user.id); db.commit()
+    assert service.versions(db, project)[0]['folder_id'] is None
+    assert service.folders(db, project)[0]['name'] == '1. 项目详情'
 
 
 def test_postgres_folder_migration_preserves_existing_files(env):

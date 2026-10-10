@@ -1,5 +1,8 @@
 <template>
   <div class="talent-detail-content">
+    <el-alert v-if="detail.archivedIntoId" title="此档案已归档，原资料只读，历史业务关联保留。" type="info" :closable="false">
+      <template #default><el-button link type="primary" @click="openRetained">打开保留档案</el-button></template>
+    </el-alert>
     <section v-if="shows('identity')">
       <h4>姓名与联系方式</h4>
       <el-descriptions :column="2" border size="small">
@@ -17,6 +20,13 @@
         <el-descriptions-item label="Line"><SensitiveContactValue :value="detail.line" :restricted="contactRestricted" /></el-descriptions-item>
         <el-descriptions-item label="其他联系方式" :span="2"><SensitiveContactValue :value="detail.otherContact || detail.contactInfo" :restricted="contactRestricted" /></el-descriptions-item>
       </el-descriptions>
+      <el-descriptions v-if="!contactRestricted && detail.inheritedContacts?.length" :column="1" border size="small" class="inherited-details">
+        <el-descriptions-item v-for="(contact,index) in detail.inheritedContacts" :key="index" :label="`${contact.sourceCode || contact.sourceId.slice(0,8)} · ${contact.label}`"><SensitiveContactValue :value="contact.value" :restricted="false" /></el-descriptions-item>
+      </el-descriptions>
+      <div v-if="detail.inheritedAttachments?.length" class="inherited-details">
+        <h4>来源附件（只读）</h4>
+        <div v-for="attachment in detail.inheritedAttachments" :key="attachment.id"><el-button link type="primary" @click="downloadInherited(attachment)">{{ attachment.originalName }}</el-button><span> · {{ attachment.sourceCode || attachment.sourceId.slice(0,8) }}</span></div>
+      </div>
     </section>
 
     <section v-if="shows('basic')">
@@ -134,6 +144,15 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { getTalentAttachmentBlob } from '@/api/talents'
+const router = useRouter()
+function openRetained() { router.push({ name: 'Talents', query: { openTalent: props.detail.archivedIntoId } }) }
+async function downloadInherited(attachment) {
+  try { const blob = await getTalentAttachmentBlob(attachment.sourceId, attachment.id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = attachment.originalName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 10000) }
+  catch { ElMessage.error('来源附件读取失败') }
+}
 import { formatWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'

@@ -223,6 +223,12 @@ const routes = [
             meta: { title: '人才总库', roles: ['*'] }
           },
           {
+            path: 'talent-duplicate-review',
+            name: 'TalentDuplicateReview',
+            component: () => import('../views/resource/TalentDuplicateReview.vue'),
+            meta: { title: '同名核重', roles: ['*'] }
+          },
+          {
             path: 'translators',
             name: 'Translators',
             component: () => import('../views/resource/TalentPool.vue'),

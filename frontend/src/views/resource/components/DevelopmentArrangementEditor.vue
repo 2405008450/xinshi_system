@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" width="min(960px, calc(100vw - 32px))" top="5vh" class="development-dialog arrangement-editor" destroy-on-close :close-on-click-modal="false" :before-close="beforeClose">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`${form.work_date} · 每日安排`" placeholder="搜索字段，如负责人、开拓方向" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`${form.work_date} · 每日安排`" placeholder="搜索字段，如负责人、岗位目标" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef">
       <el-alert v-if="form.carried_from" :title="`已沿用 ${form.carried_from} 的安排，保存后生效`" type="info" :closable="false" />
       <el-alert v-for="warning in warnings" :key="warning" :title="warning" type="warning" :closable="false" />
@@ -8,6 +8,10 @@
       <AppForm ref="formRef" :model="form" label-position="top">
         <section v-for="(cell, index) in form.cells" :key="cell.platform_id" class="arrangement-edit-cell" data-dialog-field-search-group>
           <h3 data-dialog-field-search-group-title>{{ cell.platform_name }}</h3>
+          <el-form-item label="平台情况说明" :prop="`cells.${index}.platform_description`">
+            <ReadonlyField :model-value="platformDescription(cell.platform_id)" source="auto" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="平台尚未填写情况说明" />
+            <small class="muted"><el-icon><MagicStick /></el-icon> 从平台情况说明自动带出（只读），可记录年付情况、赠送额度及使用规则。</small>
+          </el-form-item>
           <el-form-item label="负责人" :prop="`cells.${index}.owner_id`">
             <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_delegate" placeholder="暂未分配">
               <el-option v-for="person in ownerOptions(cell)" :key="person.id" :label="person.name" :value="person.id" :disabled="person.inactive" />
@@ -20,6 +24,12 @@
               <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
             </el-select>
             <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向保留供追溯，也可以手动取消选择。</small>
+          </el-form-item>
+          <el-form-item label="岗位目标" :prop="`cells.${index}.role_tags`" :rules="roleRules">
+            <el-select v-model="cell.role_tags" multiple filterable allow-create default-first-option clearable :reserve-keyword="false" placeholder="输入岗位后回车添加，如 HR、客服、译员">
+              <el-option v-for="role in cell.role_tags" :key="role" :label="role" :value="role" />
+            </el-select>
+            <small class="muted">岗位与语种可分别填写；本账号当天的全部目标统一确认完成。</small>
           </el-form-item>
           <div class="arrangement-auto-projects" data-dialog-field-search-label="需求关联项目"><span>需求关联项目：</span><DevelopmentArrangementProject v-for="project in automaticProjects(cell)" :key="arrangementProjectKey(project)" :project="project" /><span v-if="!automaticProjects(cell).length">-</span></div>
           <el-form-item label="手动关联项目" :prop="`cells.${index}.manual_projects`">
@@ -40,9 +50,11 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { MagicStick } from '@element-plus/icons-vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
-import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey } from '@/utils/resourceArrangements'
+import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, normalizeArrangementRoles } from '@/utils/resourceArrangements'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
 const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), conflict = ref(false), wholeDay = ref(false), warnings = ref([])
@@ -51,6 +63,11 @@ const form = reactive({ work_date: '', revision: 0, remarks: '', cells: [], carr
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const projectType = ref('annotation'), projectOptions = ref([]), projectsLoading = ref(false)
 const platforms = computed(() => props.options.options.filter(o => o.kind === 'platform'))
+const platformDescription = id => platforms.value.find(p => p.id === id)?.description || ''
+const roleRules = [{ validator: (_rule, value, callback) => {
+  const tags = normalizeArrangementRoles(value)
+  callback(tags.length > 100 || tags.some(tag => [...tag].length > 100) ? new Error('岗位目标最多100项，每项最多100个字符') : undefined)
+}, trigger: 'change' }]
 let baseline = {}, originalDay, editingPlatform, targetController, projectController, targetSeq = 0, projectSeq = 0, openingSeq = 0
 const clone = value => JSON.parse(JSON.stringify(value))
 function ownerOptions(cell) { return props.options.users.some(p => p.id === cell.owner_id) || !cell.owner_id ? props.options.users : [...props.options.users, { id: cell.owner_id, name: `${cell.owner_name}（已停用）`, inactive: true }] }
@@ -79,7 +96,7 @@ function applyDay(day, platformId) {
   const byId = new Map(day.cells.map(c => [c.platform_id, c])), definitions = new Map(platforms.value.map(p => [p.id, p.name]))
   for (const c of day.cells) definitions.set(c.platform_id, c.platform_name)
   Object.assign(form, { work_date: day.work_date, revision: day.revision, remarks: day.remarks, carried_from: day.carried_from || null,
-    cells: [...definitions].filter(([id]) => !platformId || id === platformId).map(([id, name]) => clone(byId.get(id) || { platform_id:id, platform_name:name, owner_id:null, targets:[], manual_projects:[], remarks:'' })) })
+    cells: [...definitions].filter(([id]) => !platformId || id === platformId).map(([id, name]) => ({ ...clone(byId.get(id) || { platform_id:id, platform_name:name, owner_id:null, targets:[], manual_projects:[], remarks:'' }), role_tags:normalizeArrangementRoles(byId.get(id)?.role_tags) })) })
   wholeDay.value = !platformId; warnings.value = day.warnings || []; conflict.value = false
   baseline = clone(form); clearFieldSearch()
 }
@@ -99,7 +116,8 @@ async function save() {
   } catch (e) {
     await formRef.value?.applyServerErrors(e)
     if ((e.status === 409 || e.response?.status === 409) && /这一天|该日期|目标日期/.test(e.message)) conflict.value = true
-    if (/所选需求|语种|方言/.test(e.message)) await locateDialogFieldByLabel('开拓方向')
+    if (/岗位/.test(e.message)) await locateDialogFieldByLabel('岗位目标')
+    else if (/所选需求|语种|方言/.test(e.message)) await locateDialogFieldByLabel('开拓方向')
     else if (/关联项目/.test(e.message)) await locateDialogFieldByLabel('手动关联项目')
     ElMessage.error(e.message)
   }

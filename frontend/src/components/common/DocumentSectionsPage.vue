@@ -170,6 +170,7 @@ import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { hasPermission } from '@/utils/permission'
+import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 
 const props = defineProps({
   pageTitle: { type: String, required: true },
@@ -226,16 +227,6 @@ function toggleRoot(id) {
 function hasContent(document) {
   const containsText = node => Boolean(node?.text?.trim()) || node?.type === 'image' || (node?.content || []).some(containsText)
   return Boolean(document && containsText(document))
-}
-
-function formatDateTime(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-  }).format(date)
 }
 
 async function loadTree() {

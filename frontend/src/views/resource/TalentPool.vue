@@ -7,6 +7,7 @@
           <span class="page-subtitle">人员基础资料统一维护，专业能力按需启用</span>
         </div>
         <div class="header-actions">
+          <el-button v-if="!deleteMode" @click="openDuplicateReview()">同名核重</el-button>
           <TableColumnSettings v-model="settingsVisibleColumnKeys" :columns="settingsColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openCreate">新增人才</el-button>
@@ -66,7 +67,7 @@
             <template #reference>
               <span class="talent-name-cell" @click.stop>
                 <el-button type="primary" link class="talent-name-link business-clickable-cell" :title="`${displayTalentName(row)}（点击查看详情）`">{{ displayTalentName(row) }}</el-button>
-                <el-tag v-if="row.nameDuplicate" type="warning" size="small" title="人才总库中存在相同姓名；重名不代表同一人，请结合资源编号和详情区分。">同名</el-tag>
+                <el-tag v-if="row.nameDuplicate" :type="row.nameReviewState === 'different' ? 'info' : 'warning'" size="small" class="duplicate-review-link" title="点击进入同名核重，比较资料并确认身份" @click.stop="openDuplicateReview(row)">{{ row.nameReviewState === 'different' ? '同名·已区分' : '同名' }}</el-tag>
               </span>
             </template>
             <TalentDetailContent v-loading="detailLoadingId === row.id" :detail="detailFor(row)" section="identity" />
@@ -292,7 +293,7 @@
 
 <script setup>
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
@@ -326,6 +327,9 @@ import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills
 import { focusFormTarget } from '@/utils/formNavigation'
 
 const route = useRoute()
+const router = useRouter()
+function duplicateNameKey(value) { const normalized = String(value || '').replace(/\s+/g, ' ').trim(); return (normalized.replace(/(?:\s*[(（][^()（）]*[)）]\s*)+$/, '').trim() || normalized).toLowerCase() }
+function openDuplicateReview(row) { router.push({ name: 'TalentDuplicateReview', query: { return: route.fullPath, ...(row ? { name: duplicateNameKey(row.fullName) } : {}) } }) }
 const pageTitle = computed(() => route.meta.title || '人才总库')
 const capabilityType = computed(() => route.meta.capabilityType || '')
 const isRecruitmentPool = computed(() => route.meta.talentApiScope === 'recruitment')
@@ -515,6 +519,7 @@ const talentFilterFields=[
   {key:'collectionScore',label:'采集评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
   {key:'languageSkills',label:'语言能力',type:'text'},{key:'certificateReceived',label:'证书已收到',type:'boolean'},
   {key:'firstContactDate',label:'首次联系时间',type:'date-range',wide:true},{key:'updatedAt',label:'最近更新',type:'date-range',wide:true},
+  {key:'operatorName',label:'操作人',type:'text'},{key:'operatedAt',label:'操作时间',type:'date-range',wide:true},
   {key:'duplicateReviewRequired',label:'核重状态',type:'boolean'},
 ].filter(item=>canViewContacts.value||!contactColumnKeys.has(item.key))
 Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})
@@ -658,7 +663,7 @@ async function openCreate() {
   await beginDraft('create')
 }
 function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,wechatAccounts:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsOriginal:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsRevision:d.wechatAccountsRevision||1,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
-async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
+async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;if(detail.archivedIntoId){ElMessage.info('此档案已归档，请打开保留档案');return}pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
   const result={
@@ -813,7 +818,15 @@ async function submit(continueCreating = false) {
     }
   }
 }
-watch(()=>route.path,()=>{pagination.page=1;fetchData()});onMounted(async()=>{const results=await Promise.allSettled([getProjectLanguages(),fetchData()]);languages.value=results[0].status==='fulfilled'?results[0].value:[]});onBeforeUnmount(()=>{clearTimeout(timer);clearTimeout(languageSearchTimer);controller?.abort()})
+async function showLinkedTalent() {
+  if (!route.query.openTalent) return
+  const person = await loadDetail(String(route.query.openTalent))
+  if (!person) return
+  search.keyword = person.resourceCode || person.fullName
+  pagination.page = 1
+  await fetchData()
+}
+watch(()=>route.path,()=>{pagination.page=1;fetchData()});watch(()=>route.query.openTalent,showLinkedTalent);onMounted(async()=>{const results=await Promise.allSettled([getProjectLanguages(),fetchData()]);languages.value=results[0].status==='fulfilled'?results[0].value:[];await showLinkedTalent()});onBeforeUnmount(()=>{clearTimeout(timer);clearTimeout(languageSearchTimer);controller?.abort()})
 </script>
 
 <style scoped>

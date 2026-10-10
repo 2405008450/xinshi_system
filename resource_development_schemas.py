@@ -2,7 +2,7 @@
 from datetime import date, time
 from typing import Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CleanModel(BaseModel):
@@ -142,8 +142,17 @@ class ArrangementCellWrite(CleanModel):
     platform_id: UUID
     owner_id: UUID | None = None
     targets: list[ArrangementTargetWrite] = Field(default_factory=list, max_length=100)
+    role_tags: list[str] = Field(default_factory=list, max_length=100)
     projects: list[ArrangementProjectWrite] = Field(default_factory=list, max_length=100)
     remarks: str = Field(default="", max_length=20000)
+
+    @field_validator('role_tags')
+    @classmethod
+    def normalize_role_tags(cls, tags):
+        tags = list(dict.fromkeys(tag.strip() for tag in tags if tag.strip()))
+        if any(len(tag) > 100 for tag in tags):
+            raise ValueError("每个岗位目标最多100个字符")
+        return tags
 
     @model_validator(mode="after")
     def unique_sources(self):

@@ -96,7 +96,8 @@ def get_pool_language_statistics(db):
     data = get_synced_talent_overview(db, include_wecom=True)
     languages = db.query(InterpretationLanguage).options(selectinload(InterpretationLanguage.aliases)).all()
     # 只读取统计所需标识，不加载姓名、联系方式等个人资料。
-    skills = db.query(ResourceLanguageSkill.person_id, ResourceLanguageSkill.language_id,
-                      ResourceLanguageSkill.role).distinct().all()
-    total = db.query(func.count(ResourcePerson.id)).scalar()
+    from talent_duplicate_service import active_query
+    skills = active_query(db, db.query(ResourceLanguageSkill.person_id, ResourceLanguageSkill.language_id,
+                      ResourceLanguageSkill.role).join(ResourcePerson)).distinct().all()
+    total = active_query(db, db.query(func.count(ResourcePerson.id))).scalar()
     return {**summarize_language_people(data, languages, skills, total), 'overview': data}

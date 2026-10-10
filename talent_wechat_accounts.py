@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from resource_models import ResourcePerson
 from resource_development_models import DevelopmentAudit, DevelopmentRecord, DevelopmentOption
+from business_time import business_now
 
 
 DELETED_MARKERS = {"wechat": "已删微信", "enterprise": "已删企微"}
@@ -27,7 +28,7 @@ def person_accounts(person):
 
 def lock_account_writes(db):
     # 与开拓保存共用事务锁，所有入口保持相同的加锁顺序。
-    if db.get_bind().dialect.name == "postgresql":
+    if hasattr(db, "get_bind") and db.get_bind().dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(724092401)"))
 
 
@@ -48,7 +49,7 @@ def store_accounts(db, person, values, *, actor=None, source="talent", force=Fal
     person.wechat_account = "、".join(values) or None
     person.wechat_accounts_revision = (person.wechat_accounts_revision or 1) + (values != old)
     if values != old:
-        person.updated_at = datetime.now()
+        person.updated_at = business_now()
         audit_accounts(db, actor, person, "account_merge" if source in {"development", "migration"} else "accounts_update",
                        {"wechat_accounts": old}, {"wechat_accounts": values, "source": source,
                                                   "source_record_ids": source_record_ids or []})
@@ -67,7 +68,8 @@ def sync_channel(db, person, channel, status, *, actor=None, source="talent", so
     person.updated_at = now
     audit_accounts(db, actor, person, "contact_sync", {"contact_state": before}, {"contact_state": person.wechat_contact_state})
     db.flush()
-    for row in db.query(DevelopmentRecord).filter_by(person_id=person.id).order_by(DevelopmentRecord.id).all():
+    from talent_duplicate_service import family_ids
+    for row in db.query(DevelopmentRecord).filter(DevelopmentRecord.person_id.in_(family_ids(db, person.id))).order_by(DevelopmentRecord.id).all():
         old = dict(row.contact_state or {})
         row.contact_state = {**old, channel: state}
         if source_record is None or row.id != source_record.id:
@@ -102,7 +104,8 @@ def write_talent_accounts(db, person, payload, *, actor=None, creating=False):
 def merge_development_accounts(db, row, *, actor=None):
     if not row.person_id:
         return
-    person = db.get(ResourcePerson, row.person_id)
+    from talent_duplicate_service import canonical_id
+    person = db.get(ResourcePerson, canonical_id(db, row.person_id))
     account = db.get(DevelopmentOption, row.account_id) if row.account_id else None
     values = [account.name] if account else []
     values.extend(row.friend_accounts or [])
@@ -113,7 +116,8 @@ def merge_development_accounts(db, row, *, actor=None):
 def sync_development_channels(db, row, changes, *, actor=None):
     if not row.person_id:
         return
-    person = db.get(ResourcePerson, row.person_id)
+    from talent_duplicate_service import canonical_id
+    person = db.get(ResourcePerson, canonical_id(db, row.person_id))
     for channel, status in changes.items():
         if channel not in DELETED_MARKERS or status not in {"已添加", "（对方）已删"}:
             continue

@@ -1268,6 +1268,8 @@ def ensure_annotation_project_for_consultation(
         assignment_source="consultation_confirmation",
         assigned_by=created_by,
     )
+    from annotation_material_service import ensure_default_folder
+    ensure_default_folder(db, project.id)
     record_project_operation(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source="consultation_confirmation",

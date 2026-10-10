@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
 
 
 CapabilityType = Literal["written_translation", "interpretation", "annotation"]
@@ -468,6 +468,14 @@ class TalentAnnotationProjectPerformanceResponse(BaseModel):
 
 
 class ResourcePersonListResponse(BaseModel):
+    archived_into_id: Optional[UUID] = None
+    archived_at: Optional[datetime] = None
+    name_review_state: Optional[str] = None
+
+    @field_serializer("archived_at")
+    def serialize_archive_time(self, value):
+        from business_time import business_iso
+        return business_iso(value)
     @model_validator(mode="after")
     def compatible_wechat_accounts(self):
         if not self.wechat_accounts and self.wechat_account:
@@ -542,6 +550,8 @@ class TalentOptionResponse(BaseModel):
 
 
 class ResourcePersonDetailResponse(ResourcePersonListResponse):
+    inherited_contacts: list[dict] = Field(default_factory=list)
+    inherited_attachments: list[dict] = Field(default_factory=list)
     other_names: list[str] = Field(default_factory=list)
     contact_info: Optional[str] = None
     secondary_phone: Optional[str] = None

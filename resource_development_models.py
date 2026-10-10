@@ -5,6 +5,7 @@ from uuid import uuid4
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import mapped_column
 from models import Base
+from business_time import business_now
 
 
 class DevelopmentOption(Base):
@@ -143,7 +144,7 @@ class DevelopmentAudit(Base):
     action = mapped_column(String(30), nullable=False)
     before = mapped_column(JSON, nullable=False, default=dict)
     after = mapped_column(JSON, nullable=False, default=dict)
-    created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+    created_at = mapped_column(DateTime, nullable=False, default=business_now)
 
 
 class DevelopmentFriendDaily(Base):
@@ -169,8 +170,8 @@ class DevelopmentArrangement(Base):
     revision = mapped_column(Integer, nullable=False, default=1)
     created_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
     updated_by = mapped_column(Uuid, ForeignKey("app_user.id"), nullable=False)
-    created_at = mapped_column(DateTime, nullable=False, default=datetime.now)
-    updated_at = mapped_column(DateTime, nullable=False, default=datetime.now)
+    created_at = mapped_column(DateTime, nullable=False, default=business_now)
+    updated_at = mapped_column(DateTime, nullable=False, default=business_now)
 
 
 class DevelopmentArrangementCell(Base):
@@ -184,6 +185,7 @@ class DevelopmentArrangementCell(Base):
     owner_name = mapped_column(String(255), nullable=False, default="")
     # 名称快照由服务端生成，取消需求或改字典名称不会改写历史。
     targets = mapped_column(JSON, nullable=False, default=list)
+    role_tags = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     projects = mapped_column(JSON, nullable=False, default=list)
     remarks = mapped_column(Text, nullable=False, default="")
     completed = mapped_column(Boolean, nullable=False, default=False)

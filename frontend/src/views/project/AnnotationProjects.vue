@@ -98,7 +98,7 @@
             <div class="order-cell-secondary">
               <el-tag v-if="row.parentProjectId" size="small" type="warning">子订单</el-tag>
               <el-button v-else link type="primary" @click="goChildManagement(row.id)">子订单 {{ row.childCount || 0 }}</el-button>
-              <el-popover trigger="click" placement="left" :width="760" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
+              <el-popover trigger="click" placement="left" :width="760" :popper-options="materialPopoverOptions" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
             </div>
           </div>
         </template>
@@ -871,6 +871,8 @@ const orderNoRules={
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const materialEditorRef=ref(), materialViewId=ref(null)
+// 左侧空间不足时仍把整个资料小窗约束在视口内。
+const materialPopoverOptions = { modifiers: [{ name: 'preventOverflow', options: { rootBoundary: 'viewport', altAxis: true, tether: false, padding: 16 } }] }
 const expandedProjectIds = ref([])
 const handleProjectExpandChange = (_row, expandedRows) => {
   expandedProjectIds.value = expandedRows.filter((row) => !row.parentProjectId && row.childCount > 0).map((row) => row.id)

@@ -101,7 +101,7 @@ TALENT_FILTER_FIELDS = {
     "certificate_type", "certificate_name", "certificate_language", "certificate_issuer",
     "region_summary", "education_summary", "language_summary", "project_situation",
     "overall_score", "overall_rating", "audio_annotation_score",
-    "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
+    "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at", "operator_name", "operated_at",
     "duplicate_review_required",
 }
 
@@ -150,7 +150,7 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
         )
     ranges = {
         "years_experience", "age", "overall_score", "audio_annotation_score",
-        "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at",
+        "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at", "operated_at",
         "education_graduation_year",
     }
     enums = {
@@ -386,10 +386,13 @@ def read_talent(
     person = get_talent(db, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="人才档案不存在")
-    return serialize_with_contact_access(
+    data = serialize_with_contact_access(
         person, ResourcePersonDetailResponse, RESOURCE_CONTACT_FIELDS,
         contacts_visible=can_view_talent_contacts(db, current_user),
     )
+    from talent_duplicate_service import detail_inheritance
+    data.update(detail_inheritance(db, person_id, can_view_talent_contacts(db, current_user)))
+    return data
 
 
 @router.get("/{person_id}/projects", response_model=List[TalentProjectHistoryResponse])

@@ -1,7 +1,7 @@
 <template>
   <div class="dialog-field-search-header">
     <div class="dialog-field-search-header__heading">
-      <span class="dialog-field-search-header__title">{{ title }}</span>
+      <span class="dialog-field-search-header__title" :class="{ 'is-copyable-title': copyableTitle }" @mousedown="copyableTitle && $event.stopPropagation()">{{ title }}</span>
       <span v-if="subtitle" class="dialog-field-search-header__subtitle">{{ subtitle }}</span>
     </div>
     <div class="dialog-field-search-header__search" @mousedown.stop>
@@ -37,6 +37,7 @@ import { ref } from 'vue'
 
 defineProps({
   title: { type: String, required: true },
+  copyableTitle: { type: Boolean, default: false },
   subtitle: { type: String, default: '' },
   modelValue: { type: String, default: '' },
   fetchSuggestions: { type: Function, required: true },
@@ -50,6 +51,7 @@ defineExpose({ blur: () => autocompleteRef.value?.blur?.() })
 </script>
 
 <style scoped>
+.is-copyable-title { user-select: text; cursor: text; }
 .dialog-field-search-header {
   display: flex;
   align-items: center;

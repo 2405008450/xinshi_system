@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import or_
@@ -19,6 +19,14 @@ from concurrency import StaleUpdateError, parse_expected_updated_at
 from annotation_notice_service import extract_notice_text
 from company_management_schemas import CompanyManagementSectionUpdate
 from company_management_image_service import commit_removed_images, validate_content_images
+
+
+BUSINESS_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def _business_now() -> datetime:
+    """无时区数据库字段统一保存 UTC+8，避免依赖服务器的系统时区。"""
+    return datetime.now(BUSINESS_TIMEZONE).replace(tzinfo=None)
 
 
 def _ordered_rows(rows: list[CompanyManagementSection]) -> list[CompanyManagementSection]:
@@ -53,7 +61,11 @@ def _serialize(row: CompanyManagementSection, labels: dict[UUID, str], *, includ
         "content_json": row.content_json if include_content else None,
         "updated_by": row.updated_by,
         "updated_by_name": (editor.full_name or editor.username) if editor else None,
-        "updated_at": row.updated_at,
+        "updated_at": (
+            row.updated_at.replace(tzinfo=BUSINESS_TIMEZONE)
+            if row.updated_at is not None and row.updated_at.tzinfo is None
+            else row.updated_at
+        ),
         "structure_updated_at": row.structure_updated_at,
     }
 
@@ -81,7 +93,7 @@ def ensure_company_management_sections(db: Session) -> None:
             db.add(CompanyManagementSection(
                 id=uuid4(), section_key=key, title=title, sort_order=order,
                 has_content=True, is_active=True, search_text="",
-                structure_updated_at=datetime.now(),
+                structure_updated_at=_business_now(),
             ))
     db.commit()
 
@@ -124,7 +136,7 @@ def create_company_management_section(
         CompanyManagementSection.parent_id == payload.parent_id,
         CompanyManagementSection.is_active.is_(True),
     ).all()
-    now = datetime.now()
+    now = _business_now()
     row = CompanyManagementSection(
         section_key=f"custom_{uuid4().hex}",
         title=payload.title,
@@ -150,7 +162,7 @@ def update_company_management_structure(
     _assert_version(row.structure_updated_at, payload.expected_structure_updated_at)
     row.title = payload.title
     row.has_content = payload.has_content
-    row.structure_updated_at = datetime.now()
+    row.structure_updated_at = _business_now()
     db.commit()
     return get_company_management_section(db, row.id)
 
@@ -166,7 +178,7 @@ def delete_company_management_section(db: Session, section_id: UUID) -> bool:
     if has_children:
         raise ValueError("该一级栏目下仍有二级栏目，请先移动或删除二级栏目")
     row.is_active = False
-    row.structure_updated_at = datetime.now()
+    row.structure_updated_at = _business_now()
     db.commit()
     return True
 
@@ -204,7 +216,7 @@ def reorder_company_management_sections(db: Session, payload: AnnotationNoticeRe
         row.sort_order = temporary_start + offset
     db.flush()
 
-    now = datetime.now()
+    now = _business_now()
     for item in payload.placements:
         row = by_id[item.id]
         row.parent_id = item.parent_id
@@ -292,7 +304,7 @@ def _update_content(
     row.content_json = payload.content_json
     row.search_text = extract_notice_text(payload.content_json)
     row.updated_by = user_id
-    row.updated_at = datetime.now()
+    row.updated_at = _business_now()
     commit_removed_images(db, removed_images)
     return get_company_management_section(db, row.id)
 

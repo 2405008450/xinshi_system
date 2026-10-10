@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import sys
 import time
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
@@ -19,16 +20,18 @@ BASE='http://127.0.0.1:12457'
 
 
 def run():
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     if socket.gethostname().upper()!='PC' or str(ROOT).lower()!=r'e:\xinshi_system':
         raise SystemExit('仅允许在本机执行')
     out=ROOT/'.tmp/resource-arrangements-ui'; out.mkdir(parents=True,exist_ok=True)
     today=datetime.now(ZoneInfo('Asia/Hong_Kong')).date()
     previous=(today-timedelta(days=1)).isoformat(); today=today.isoformat()
     manager,owner,language,request,project=[str(uuid4()) for _ in range(5)]
-    platforms=[dict(id=str(uuid4()),kind='platform',category='national',name=name) for name in ['Boss1','Boss2','智联1']]
+    platforms=[dict(id=str(uuid4()),kind='platform',category='national',name=name,description='年付账号，每月赠送打招呼额度，按平台规则使用。') for name in ['Boss1','Boss2','智联1']]
     source=dict(source_type='annotation',project_id=project,order_no='AP-测试-01',project_name='温州话子订单',parent_project_id=str(uuid4()))
     target=dict(kind='request',request_id=request,language_id=language,label='温州话',request_no='RR-测试',source_name='温州话子订单',project=source,active=True,inactive_reason='')
-    initial_cell=dict(platform_id=platforms[0]['id'],platform_name='Boss1',owner_id=owner,owner_name='负责人',targets=[target],projects=[source],manual_projects=[],remarks='昨日账号备注',completed=True,completed_by=manager,completed_by_name='实际操作人',completed_at=previous+'T10:30:00',can_edit=True)
+    initial_cell=dict(platform_id=platforms[0]['id'],platform_name='Boss1',owner_id=owner,owner_name='负责人',targets=[target],role_tags=['HR'],projects=[source],manual_projects=[],remarks='昨日账号备注',completed=True,completed_by=manager,completed_by_name='实际操作人',completed_at=previous+'T10:30:00',can_edit=True)
     days={previous:dict(work_date=previous,revision=1,remarks='昨日每日备注',cells=[initial_cell],can_manage=True)}
     mode=['manager']; errors=[]; writes=[]; cancelled=[False]; conflict=[False]
 
@@ -71,7 +74,7 @@ def run():
                     if old is None: result['cells'].append(cell)
                 days[day]=copy.deepcopy(result)
             elif req.method=='PATCH':
-                result=copy.deepcopy(days[day]); cell=next(c for c in result['cells'] if c['platform_id']==parts[5]); cell.update(completed=req.post_data_json['completed'],completed_by=user,completed_by_name='实际操作人',completed_at=day+'T14:30:00'); result['revision']+=1; days[day]=copy.deepcopy(result)
+                result=copy.deepcopy(days[day]); cell=next(c for c in result['cells'] if c['platform_id']==parts[5]); completed=req.post_data_json['completed']; cell.update(completed=completed,completed_by=user if completed else None,completed_by_name='实际操作人' if completed else '',completed_at=day+'T14:30:00+08:00' if completed else None); result['revision']+=1; days[day]=copy.deepcopy(result)
             else: result=copy.deepcopy(days.get(day,dict(work_date=day,revision=0,remarks='',cells=[],can_manage=mode[0]=='manager')))
         elif path.endswith('/unread-count'): result=dict(count=0)
         else: result={}
@@ -97,11 +100,19 @@ def run():
             def open_panel():
                 page.goto(BASE+'/resource-management/resource-development'); page.get_by_role('tab',name='每日安排',exact=True).click()
                 expect(page.locator('.arrangement-table')).to_be_visible()
-            open_panel(); expect(page.get_by_text('尚未保存',exact=True)).to_be_visible()
+            open_panel(); expect(page.locator('.arrangement-table').get_by_text('尚未保存',exact=True)).to_be_visible()
             assert not writes
             page.get_by_role('button',name='沿用最近一次安排',exact=True).click()
             dialog=page.locator('.arrangement-editor:visible'); expect(dialog).to_contain_text('保存后生效')
-            expect(dialog.locator('textarea').first).to_have_value('昨日账号备注')
+            def field(section, label):
+                return section.locator('.el-form-item').filter(has=page.get_by_text(label,exact=True))
+            section=dialog.locator('.arrangement-edit-cell').first
+            account_remark=field(section,'账号备注').locator('textarea')
+            expect(account_remark).to_have_value('昨日账号备注')
+            platform_description=field(section,'平台情况说明').locator('textarea')
+            expect(platform_description).to_have_value(platforms[0]['description'])
+            assert platform_description.get_attribute('readonly') is not None
+            expect(field(section,'岗位目标')).to_contain_text('HR')
             assert not writes and today not in days
             # 标题拖动、视口约束、关闭按钮与再次打开复位。
             header=dialog.locator('.el-dialog__header'); before=dialog.bounding_box(); box=header.bounding_box()
@@ -113,34 +124,75 @@ def run():
             page.get_by_role('button',name='沿用最近一次安排',exact=True).click(); expect(dialog).to_be_visible()
             reopened=dialog.bounding_box(); assert abs(reopened['x']-before['x'])<3
             # 保存沿用后的草稿，只提交业务字段。
-            dialog.locator('textarea').first.fill('当天可调整备注'); dialog.get_by_role('button',name='保存',exact=True).click()
+            account_remark.fill('当天可调整备注'); dialog.get_by_role('button',name='保存',exact=True).click()
             expect(dialog).not_to_be_visible(); assert today in days and not days[today]['cells'][0]['completed']
             assert writes[-1]['carried_from']==previous and 'completed_by' not in writes[-1]['cells'][0]
+            assert writes[-1]['cells'][0]['role_tags']==['HR']
             # 多选、自选、内部招聘、手动关联及字段搜索。
             page.get_by_role('button',name='编辑当日',exact=True).click(); expect(dialog).to_be_visible()
             section=dialog.locator('.arrangement-edit-cell').first
-            direction=section.locator('.el-form-item').nth(1).locator('.el-select')
+            direction=field(section,'开拓方向（语种／方言）').locator('.el-select')
             direction.click(); page.get_by_role('option',name='温州话（自选）',exact=True).click(); page.get_by_role('option',name='内部招聘',exact=True).click()
             page.keyboard.press('Escape')
+            roles=field(section,'岗位目标').locator('.el-select')
+            invalid_role='岗'*101
+            roles.locator('input').fill(invalid_role); page.keyboard.press('Enter'); page.keyboard.press('Escape')
+            dialog.get_by_role('button',name='保存',exact=True).click()
+            expect(dialog).to_be_visible()
+            expect(field(section,'岗位目标')).to_contain_text('每项最多100个字符')
+            expect(roles.locator('.el-select__wrapper')).to_be_focused()
+            expect(dialog.locator('.el-dialog__footer').get_by_role('button',name='保存',exact=True)).to_be_visible()
+            roles.locator('.el-tag').filter(has_text=invalid_role).locator('.el-tag__close').click()
+            roles.locator('input').fill('客服'); page.keyboard.press('Enter'); page.keyboard.press('Escape')
+            expect(roles).to_contain_text('客服')
+            dialog.locator('.el-dialog__body').evaluate('(el)=>el.scrollTop=0')
+            page.wait_for_function("document.getAnimations().every(a => a.playState !== 'running')")
+            page.screenshot(path=str(out/'editor.png'),full_page=True)
             project_selector=section.locator('.arrangement-project-selector .el-select').last
             project_selector.click(); page.get_by_role('option',name='AP-测试-01 · 温州话子订单',exact=True).click()
             expect(dialog).to_be_visible()
             search=dialog.locator('.dialog-field-search-header input')
+            search.fill('岗位'); page.locator('.project-field-search-popper:visible').get_by_text('岗位目标',exact=True).first.click()
+            expect(roles.locator('.el-select__wrapper')).to_be_focused()
             search.fill('账号备注'); page.locator('.project-field-search-popper:visible').get_by_text('账号备注',exact=True).first.click()
-            expect(section.locator('textarea')).to_be_focused()
+            expect(account_remark).to_be_focused()
             dialog.get_by_role('button',name='保存',exact=True).click(); expect(dialog).not_to_be_visible()
             assert {t['kind'] for t in writes[-1]['cells'][0]['targets']}=={'request','manual','internal'}
             assert writes[-1]['cells'][0]['projects'][0]['project_id']==project
-            page.locator('.arrangement-owner .el-checkbox').first.click(); expect(page.get_by_text('实际操作人 ·',exact=False)).to_be_visible()
+            assert writes[-1]['cells'][0]['role_tags']==['HR','客服']
+            expect(page.locator('.arrangement-roles').first).to_contain_text('客服')
+            page.reload(); page.get_by_role('tab',name='每日安排',exact=True).click()
+            expect(page.locator('.arrangement-roles').first).to_contain_text('客服')
+            page.locator('.arrangement-owner .el-checkbox').first.click()
+            expect(page.locator('.arrangement-owner .el-checkbox input').first).to_be_checked()
+            # 右侧详情收纳长内容，真实左向 Popover 支持内部滚动。
+            page.get_by_role('button',name='查看详情',exact=True).first.click()
+            arrangement_detail=page.locator('.arrangement-detail:visible')
+            expect(arrangement_detail).to_contain_text('实际操作人')
+            expect(arrangement_detail).to_contain_text('14:30:00')
+            expect(arrangement_detail).to_contain_text('当天可调整备注')
+            expect(arrangement_detail).to_have_attribute('data-popper-placement','left')
+            assert 'el-popover' in arrangement_detail.get_attribute('class')
+            detail_body=arrangement_detail.locator('.development-detail-body')
+            assert detail_body.evaluate('(el)=>el.scrollHeight>el.clientHeight')
+            detail_body.evaluate('(el)=>el.scrollTop=el.scrollHeight')
+            assert detail_body.evaluate('(el)=>el.scrollTop>0')
+            detail_body.evaluate('(el)=>el.scrollTop=0')
+            page.wait_for_function("document.getAnimations().every(a => a.playState !== 'running')")
+            page.screenshot(path=str(out/'details.png'),full_page=True)
             # 真实 Popover 及准确子订单关联。
-            page.locator('.arrangement-linked-projects button').first.click(); popover=page.locator('.development-detail:visible'); expect(popover).to_contain_text('温州话子订单'); assert 'el-popover' in popover.get_attribute('class')
+            arrangement_detail.locator('.arrangement-project-link').first.click(); popover=page.locator('.development-detail:visible').filter(has=page.get_by_text('关联项目详情',exact=True)); expect(popover).to_contain_text('温州话子订单'); assert 'el-popover' in popover.get_attribute('class')
             expect(popover).to_have_attribute('data-popper-placement','left')
             popover_box=popover.bounding_box(); assert popover_box['x']>=0 and popover_box['x']+popover_box['width']<=1442
-            page.mouse.click(600,220)
+            page.get_by_role('heading',name='资源开拓',exact=True).click()
+            expect(arrangement_detail).not_to_be_visible()
+            expect(popover).not_to_be_visible()
+            page.locator('.arrangement-owner .el-checkbox').first.click()
+            expect(page.locator('.arrangement-owner .el-checkbox input').first).not_to_be_checked()
             # 修改、冲突、草稿保留。
             page.get_by_role('button',name='编辑当日',exact=True).click(); expect(dialog).to_be_visible()
-            dialog.locator('textarea').first.fill('冲突时保留的草稿'); conflict[0]=True; dialog.get_by_role('button',name='保存',exact=True).click()
-            expect(dialog).to_contain_text('当前草稿已保留'); expect(dialog.locator('textarea').first).to_have_value('冲突时保留的草稿')
+            account_remark.fill('冲突时保留的草稿'); conflict[0]=True; dialog.get_by_role('button',name='保存',exact=True).click()
+            expect(dialog).to_contain_text('当前草稿已保留'); expect(account_remark).to_have_value('冲突时保留的草稿')
             dialog.get_by_role('button',name='取消',exact=True).click(); page.get_by_role('button',name='放弃修改',exact=True).click(); expect(dialog).not_to_be_visible()
             cancelled[0]=True; page.get_by_role('button',name='查询',exact=True).click(); expect(page.get_by_text('需求已取消',exact=False).first).to_be_visible()
             # 新平台通过共享配置增加，动态列立即更新；嵌套弹窗保持焦点。
@@ -154,22 +206,36 @@ def run():
             page.get_by_role('button',name='新增／编辑安排',exact=True).click(); expect(dialog).to_be_visible()
             page.set_viewport_size(dict(width=600,height=700)); footer=dialog.locator('.el-dialog__footer'); body=dialog.locator('.el-dialog__body')
             body.evaluate('(el)=>el.scrollTop=el.scrollHeight'); expect(footer.get_by_role('button',name='保存',exact=True)).to_be_visible()
+            body.evaluate('(el)=>el.scrollTop=el.scrollHeight/2'); expect(footer.get_by_role('button',name='保存',exact=True)).to_be_visible()
+            body.evaluate('(el)=>el.scrollTop=el.scrollHeight')
             bounds=dialog.bounding_box(); assert bounds['width']<=570 and bounds['height']<=632
             assert body.evaluate('(el)=>el.scrollHeight>el.clientHeight')
             page.wait_for_function("document.getAnimations().filter(a => a.effect?.target?.closest?.('.el-overlay')).every(a => a.playState !== 'running')")
+            expect(page.locator('.el-message')).to_have_count(0)
             page.screenshot(path=str(out/'small-screen.png'),full_page=True)
             dialog.get_by_role('button',name='取消',exact=True).click(); expect(dialog).not_to_be_visible()
             page.set_viewport_size(dict(width=1440,height=900))
             page.wait_for_function("document.getAnimations().every(a => a.playState !== 'running')")
             page.screenshot(path=str(out/'desktop.png'),full_page=True)
+            # 无记录的新日期与历史缺少岗位字段均可打开，不产生隐式写入。
+            date_input=page.locator('.arrangement-panel .development-filters .el-date-editor input').last
+            next_date=(datetime.fromisoformat(today).date()+timedelta(days=1)).isoformat()
+            date_input.fill(next_date); date_input.press('Enter'); page.get_by_role('button',name='新增／编辑安排',exact=True).click()
+            expect(dialog).to_be_visible()
+            body.evaluate('(el)=>el.scrollTop=el.scrollHeight/2'); expect(footer.get_by_role('button',name='保存',exact=True)).to_be_visible()
+            body.evaluate('(el)=>el.scrollTop=el.scrollHeight'); expect(footer.get_by_role('button',name='保存',exact=True)).to_be_visible()
+            assert next_date not in days
+            dialog.get_by_role('button',name='取消',exact=True).click(); expect(dialog).not_to_be_visible()
+            days[today]['cells'][0].pop('role_tags')
             mode[0]='owner'; open_panel(); expect(page.get_by_role('button',name='新增／编辑安排',exact=True)).to_have_count(0)
             page.get_by_role('button',name='编辑安排',exact=True).first.click(); expect(dialog).to_be_visible()
             assert dialog.locator('.arrangement-edit-cell .el-select').first.locator('input').is_disabled()
+            expect(field(dialog.locator('.arrangement-edit-cell').first,'岗位目标').locator('.el-tag')).to_have_count(0)
             dialog.get_by_role('button',name='取消',exact=True).click(); expect(dialog).not_to_be_visible()
             mode[0]='readonly'; open_panel(); expect(page.get_by_role('button',name='新增／编辑安排',exact=True)).to_have_count(0)
             assert page.locator('.arrangement-owner .el-checkbox input').first.is_disabled()
             assert not errors,errors
-            (out/'result.json').write_text(json.dumps(dict(passed=True,writes=len(writes),errors=errors,scenarios=['空白读取','沿用草稿','调整保存','多选开拓方向','手动项目关联','字段搜索','平台新增及嵌套弹窗','完成检查','项目Popover','并发冲突','需求取消','弹窗拖动和复位','小屏固定底栏','普通人员及只读权限']),ensure_ascii=False,indent=2),encoding='utf-8')
+            (out/'result.json').write_text(json.dumps(dict(passed=True,writes=len(writes),errors=errors,scenarios=['空白读取','沿用草稿与岗位','调整保存','多选开拓方向','岗位创建与刷新','岗位长度校验及首错焦点','平台说明只读','手动项目关联','字段搜索与岗位定位','平台新增及嵌套弹窗','完成与撤销','每日安排详情Popover','项目Popover','并发冲突','需求取消','弹窗拖动和复位','小屏固定底栏','新增状态固定底栏','旧记录缺少岗位字段','普通人员及只读权限']),ensure_ascii=False,indent=2),encoding='utf-8')
             browser.close()
         print('每日安排页面验收通过')
     finally:

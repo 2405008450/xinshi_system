@@ -67,13 +67,16 @@ import AppForm from '@/components/common/AppForm.vue'
 import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
 import * as api from '@/api/annotationMaterials'
 import { formatDateTimeMinute } from '@/utils/dateTime'
-import { folderNameError, folderParentId, newFolderId } from '@/utils/annotationMaterialFolders'
+import { folderNameError, folderParentId, newFolderId, withDefaultProjectFolder } from '@/utils/annotationMaterialFolders'
 
 const props = defineProps({ projectId: { type: String, default: '' }, readonly: Boolean, active: { type: Boolean, default: true }, disabled: Boolean })
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
 const rows = ref([]), pending = ref([]), removed = ref([]), loading = ref(false), loadError = ref('')
 const savedFolders = ref([]), createdFolders = ref([]), selectedFolderId = ref(null)
-const allFolders = computed(() => [...savedFolders.value, ...createdFolders.value.map(folder => ({ ...folder, pending: true }))])
+const defaultFolderId = ref(newFolderId())
+const allFolders = computed(() => withDefaultProjectFolder([
+  ...savedFolders.value, ...createdFolders.value.map(folder => ({ ...folder, pending: true })),
+], defaultFolderId.value))
 const rootFolders = computed(() => allFolders.value.filter(folder => !folder.parent_id))
 const folderCreatorVisible = ref(false), folderLevel = ref(1), folderFormRef = ref(null)
 const folderForm = reactive({ name: '', parentId: null })
@@ -109,7 +112,7 @@ async function confirmFolder() {
   try {
     const valid = await folderFormRef.value?.validate().catch(() => false)
     if (!valid || session !== generation || !folderCreatorVisible.value) return
-    if (createdFolders.value.length >= 200) { ElMessage.warning('每次保存最多创建200个文件夹'); return }
+    if (allFolders.value.filter(folder => folder.pending || folder.default).length >= 200) { ElMessage.warning('每次保存最多创建200个文件夹'); return }
     const id = newFolderId()
     createdFolders.value.push({ id, parent_id: folderLevel.value === 2 ? folderForm.parentId : null, name: folderForm.name.trim() })
     selectedFolderId.value = id; folderCreatorVisible.value = false
@@ -136,6 +139,7 @@ function reset() {
   pending.value.forEach(item => { item.controller?.abort(); release(item.upload?.id) })
   pending.value = []; removed.value = []; rows.value = []; historyVisible.value = false; loadError.value = ''; loading.value = false
   savedFolders.value = []; createdFolders.value = []; selectedFolderId.value = null; folderCreatorVisible.value = false
+  defaultFolderId.value = newFolderId()
 }
 async function send(item) {
   if (pending.value.filter(row => row !== item && row.status === 'uploading').length >= 3) { item.status = 'queued'; return }
@@ -192,7 +196,7 @@ function validate() {
   return true
 }
 function changes() {
-  return { additions: pending.value.map(item => ({ uploadId: item.upload.id, category: item.category, fileId: item.fileId, folderId: item.folder_id })), removedFileIds: [...removed.value], createdFolders: createdFolders.value.map(folder => ({ id: folder.id, parentId: folder.parent_id, name: folder.name })) }
+  return { additions: pending.value.map(item => ({ uploadId: item.upload.id, category: item.category, fileId: item.fileId, folderId: item.folder_id })), removedFileIds: [...removed.value], createdFolders: allFolders.value.filter(folder => folder.pending || folder.default).map(folder => ({ id: folder.id, parentId: folder.parent_id, name: folder.name })) }
 }
 function saved() { pending.value = []; removed.value = []; createdFolders.value = []; void reload() }
 watch(() => [props.projectId, props.active], () => { reset(); if (props.active) void reload() }, { immediate: true })

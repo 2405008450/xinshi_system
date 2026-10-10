@@ -361,6 +361,9 @@ class EnsureQuery:
     def filter(self, *_args):
         return self
 
+    def filter_by(self, **_kwargs):
+        return self
+
     def first(self):
         if self.target is AnnotationProject:
             return self.db.annotation_project
@@ -414,7 +417,10 @@ def test_confirmed_annotation_consultation_creation_is_idempotent(monkeypatch):
     assert created_again is False
     assert project is same_project
     assert project.project_status == "initial_consultation"
-    assert len(db.added) == 3
+    from annotation_material_models import AnnotationMaterialFolder
+    assert len(db.added) == 4
+    folder = next(item for item in db.added if isinstance(item, AnnotationMaterialFolder))
+    assert folder.name == '1. 项目详情' and folder.parent_id is None
     reservation = next(item for item in db.added if isinstance(item, ProjectOrderNoReservation))
     assert reservation.order_no_key == "AP-260811-001"
     audit = next(item for item in db.added if isinstance(item, ProjectOperationAudit))

@@ -38,6 +38,7 @@ RESOURCE_STATUSES = ("active", "standby", "inactive")
 
 class ResourcePerson(Base):
     __tablename__ = "resource_person"
+    __mapper_args__ = {"eager_defaults": False}
     __table_args__ = (
         PrimaryKeyConstraint("id", name="resource_person_pkey"),
         UniqueConstraint("resource_code", name="uq_resource_person_code"),
@@ -96,6 +97,9 @@ class ResourcePerson(Base):
     name_duplicate: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), server_onupdate=FetchedValue()
     )
+    # 延迟加载使未执行显式迁移的现有服务仍可读取普通人才列表。
+    archived_into_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, deferred=True, server_default=FetchedValue())
+    archived_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), deferred=True, server_default=FetchedValue())
     chinese_name: Mapped[Optional[str]] = mapped_column(String(255))
     english_name: Mapped[Optional[str]] = mapped_column(String(255))
     nickname: Mapped[Optional[str]] = mapped_column(String(255))

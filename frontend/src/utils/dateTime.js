@@ -1,5 +1,25 @@
 const pad = value => String(value).padStart(2, '0')
 
+const businessDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+})
+
+/** 文档编辑时间按 UTC+8 展示；历史无时区值按业务本地时间解析。 */
+export function formatBusinessDateTime(value) {
+  if (value === null || value === undefined || value === '') return '-'
+  let normalized = value
+  if (typeof value === 'string') {
+    normalized = value.trim().replace(/^(\d{4}-\d{2}-\d{2}) /, '$1T')
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(normalized)) {
+      normalized += '+08:00'
+    }
+  }
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? '-' : businessDateTimeFormatter.format(date)
+}
+
 function parseDateTime(value) {
   if (value instanceof Date) return value
   const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} /.test(value)
