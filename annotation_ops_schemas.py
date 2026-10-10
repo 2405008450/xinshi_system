@@ -508,7 +508,8 @@ class StatusHistoryResponse(BaseModel):
     id: UUID
     project_id: UUID
     from_status: Optional[str] = None
-    to_status: str
+    to_status: Optional[str] = None
+    track: str = "project"
     effective_on: datetime
     changed_at: datetime
     changed_by: Optional[UUID] = None
@@ -518,11 +519,23 @@ class StatusHistoryResponse(BaseModel):
     updated_at: Optional[datetime] = None
     updated_by: Optional[UUID] = None
 
+    @field_validator("effective_on", "changed_at", "updated_at")
+    @classmethod
+    def normalize_progress_time(cls, value):
+        from annotation_progress_time import business_datetime
+        return business_datetime(value)
+
 
 class StatusHistoryProgressUpdate(BaseModel):
     effective_on: datetime
     change_note: str = Field(min_length=1, max_length=10000)
     expected_updated_at: Optional[datetime] = None
+
+    @field_validator("effective_on")
+    @classmethod
+    def normalize_progress_time(cls, value):
+        from annotation_progress_time import project_progress_datetime
+        return project_progress_datetime(value)
 
     @field_validator("change_note")
     @classmethod

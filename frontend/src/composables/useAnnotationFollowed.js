@@ -1,10 +1,12 @@
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { annotationChatRequest } from '@/api/projectChat'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { chatRequest } from '@/api/projectChat'
 import { subscribe, ensureConnected } from '@/utils/realtimeSocket'
-import { hasPermission } from '@/utils/permission'
-import { isChatWindowVisible, useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 
-const followed = ref([])
+const sessions = ref([])
+const followed = computed(() => sessions.value.filter(s => s.kind === 'annotation' && s.following !== false).map(s => ({ ...s, projectName: s.title, orderNo: s.subtitle })))
+const mentionTotal = ref(0)
+const phaseOneEnabled = ref(false)
 const total = ref(0)
 const error = ref('')
 let users = 0
@@ -12,26 +14,34 @@ let timer = 0
 let pending = false
 let rerun = false
 let cleanup = []
+let generation = 0
+let controller
 
 async function refresh() {
-  if (!hasPermission('projects:read')) return
+  if (!localStorage.getItem('user_id')) return
   if (pending) {
     rerun = true
     return
   }
   pending = true
+  const version = generation
+  const userId = localStorage.getItem('user_id')
+  controller = new AbortController()
   try {
-    const data = await annotationChatRequest('', 'unread')
-    followed.value = data.followedItems || []
-    total.value = data.total || 0
+    const data = await chatRequest('sessions', { signal: controller.signal })
+    if (version !== generation || userId !== localStorage.getItem('user_id')) return
+    sessions.value = data.items || []
+    phaseOneEnabled.value = !!data.phaseOneEnabled
+    mentionTotal.value = data.mentionTotal || 0
+    total.value = followed.value.reduce((sum, item) => sum + (item.unread || 0), 0)
     error.value = ''
     const { state } = useProjectChatDock()
-    state.windows.filter(item => item.projectType === 'annotation').forEach((item) => {
-      const unread = data.items.find(row => String(row.projectId) === String(item.projectId))?.unread || 0
-      item.unread = isChatWindowVisible(item) ? 0 : unread
+    state.windows.forEach((item) => {
+      const session = sessions.value.find(row => row.key === item.key)
+      if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread }
     })
   } catch {
-    error.value = '未读消息暂时无法加载'
+    if (version === generation && !controller.signal.aborted) error.value = '未读消息暂时无法加载'
   } finally {
     pending = false
     if (rerun) {
@@ -47,6 +57,10 @@ function start() {
   ensureConnected()
   cleanup = [
     subscribe('annotation_chat_changed', refresh),
+    subscribe('direct_chat_changed', refresh),
+    subscribe('chat_sessions_changed', refresh),
+    subscribe('chat_message', refresh),
+    subscribe('notification', refresh),
     subscribe('connected', refresh),
   ]
   timer = window.setInterval(refresh, 15000)
@@ -54,6 +68,12 @@ function start() {
 
 function stop() {
   if (users !== 0) return
+  ++generation
+  controller?.abort()
+  sessions.value = []
+  total.value = 0
+  mentionTotal.value = 0
+  phaseOneEnabled.value = false
   window.clearInterval(timer)
   cleanup.forEach(fn => fn())
   cleanup = []
@@ -68,5 +88,5 @@ export function useAnnotationFollowed() {
     users -= 1
     stop()
   })
-  return { followed, total, error, refresh }
+  return { followed, sessions, total, mentionTotal, phaseOneEnabled, error, refresh }
 }

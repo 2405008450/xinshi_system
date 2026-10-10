@@ -88,7 +88,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
-          <el-button v-if="canViewProjects" class="header-chat-entry" text aria-label="聊天大屏" title="打开聊天大屏" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span></el-button>
+          <el-button class="header-chat-entry" text aria-label="聊天大屏" title="打开聊天大屏" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span></el-button>
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">

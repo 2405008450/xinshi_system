@@ -32,6 +32,8 @@ def run():
     operation = dict(id=str(uuid4()), action="merge", name_key="王测试", person_ids=[a, b], target_id=a,
                      actor_name="验收人员", created_at="2026-10-09T20:00:00+08:00", undone_at=None)
     history = []
+    agent_suggestion = dict(person_ids=[a,b], classification="same", confidence="high", bucket="high_same",
+                            reason="合成数据中的独立联系方式匹配；本对仍有字段冲突待确认。", cautions=["只针对这两条，不传递合并其他成员。"])
 
     def api(route):
         req = route.request
@@ -56,9 +58,11 @@ def run():
             if query.get("keyword") == ["慢查询"]:
                 deferred.append(route)
                 return
-            result = dict(items=[group], total=1, counts=dict(pending=1, different=0, deferred=0), ready=readiness[0])
+            result = dict(items=[dict(group, agent_review=dict(state="reviewed",buckets=["high_same"]))], total=1, counts=dict(pending=1, different=0, deferred=0), ready=readiness[0],
+                          agent_summary=dict(created_at="2026-10-10T15:00:00+08:00", counts=dict(high_same=1,uncertain=0),reviewer="当前 Agent"))
         elif path.startswith("/talents/duplicate-review/groups/"):
-            result = dict(key="王测试", members=members, fields=fields if not restricted[0] else fields[:2], pairs=[dict(person_ids=[a, b], contact_matches=[] if restricted[0] else ["email"], identity_conflicts=["性别不同"], complement_count=1, decision=None)], recommended_target_id=b, ready=readiness[0], can_commit=not restricted[0] and readiness[0])
+            result = dict(key="王测试", members=members, fields=fields if not restricted[0] else fields[:2], pairs=[dict(person_ids=[a, b], contact_matches=[] if restricted[0] else ["email"], identity_conflicts=["性别不同"], complement_count=1, decision=None)], recommended_target_id=b, ready=readiness[0], can_commit=not restricted[0] and readiness[0],
+                          **({"agent_review":dict(state="reviewed", pairs=[agent_suggestion],buckets=["high_same"])} if not restricted[0] else {}))
         elif path == "/talents/duplicate-review/preview":
             payload = req.post_data_json
             chosen = payload.get("decisions", {}).get("gender")
@@ -100,9 +104,14 @@ def run():
             expect(page.get_by_role("heading", name="王测试 · 2 条档案")).to_be_visible()
             expect(page.locator(".comparison-matrix")).to_contain_text("现居地")
             expect(page.locator(".comparison-matrix")).not_to_contain_text("synthetic@example.org")
+            page.locator(".review-query .el-form-item").filter(has_text="Agent 初筛").locator(".el-select").click()
+            page.get_by_role("option", name="高置信度同一人", exact=True).click()
+            page.wait_for_timeout(350)
+            assert any(request[2].get("agent_bucket") == ["high_same"] for request in requests if request[1] == "/talents/duplicate-review/groups")
             page.locator(".comparison-controls .el-switch").click()
             expect(page.locator(".comparison-matrix")).to_contain_text("synthetic@example.org")
-            page.get_by_role("button", name="合并资料", exact=True).click()
+            expect(page.locator(".agent-results")).to_contain_text("独立联系方式匹配")
+            page.get_by_role("button", name="按这两条预览合并", exact=True).click()
             dialog = page.locator(".review-action-dialog").filter(has=page.locator(".action-body"))
             expect(dialog.locator(".conflict-item")).to_have_count(1)
             page.wait_for_timeout(350)
@@ -186,13 +195,15 @@ def run():
             readiness[0], restricted[0] = True, True
             page.reload()
             expect(page.get_by_text("当前账号仅可查看脱敏比对", exact=False)).to_be_visible()
+            expect(page.locator(".agent-results")).to_have_count(0)
+            expect(page.locator(".agent-summary")).to_have_count(0)
             expect(page.get_by_role("button", name="合并资料", exact=True)).to_have_count(0)
             page.get_by_role("button", name="处理历史", exact=True).click()
             expect(history_dialog.get_by_role("button", name="档案 1 详情", exact=True)).to_have_count(0)
             expect(history_dialog.get_by_role("button", name="撤销处理", exact=True)).to_have_count(0)
             assert not errors, errors
             browser.close()
-        print(json.dumps({"ok": True, "checks": ["列表入口与同名标签", "差异矩阵与互补", "字段冲突及最终预览", "合并提交与幂等键", "处理历史与撤销", "归档详情小窗", "跨时区展示", "拖动与视口边界", "关闭与复位", "小屏固定底栏", "400ms防抖", "清空及旧响应保护", "加载失败重试", "迁移前只读", "普通用户只读"], "screenshots": str(output)}, ensure_ascii=False))
+        print(json.dumps({"ok": True, "checks": ["列表入口与同名标签", "Agent分类筛选", "Agent建议仅选择本对并打开预览", "差异矩阵与互补", "字段冲突及最终预览", "合并提交与幂等键", "处理历史与撤销", "归档详情小窗", "跨时区展示", "拖动与视口边界", "关闭与复位", "小屏固定底栏", "400ms防抖", "清空及旧响应保护", "加载失败重试", "迁移前只读", "普通用户不能查看Agent结果"], "screenshots": str(output)}, ensure_ascii=False))
     finally:
         process.terminate()
         try:

@@ -27,6 +27,12 @@ export const annotationChatRequest = (projectId, suffix, { method = 'get', data,
     ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
   }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
 
+export const chatRequest = (suffix, { method = 'get', data, params, signal, responseType } = {}) =>
+  api.request({ url: `/chat/${suffix}`, method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase),
+    params, signal, responseType, ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
+  }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
+export const directChatRequest = (id, suffix, options) => chatRequest(`direct/${id}/${suffix}`, options)
+
 export const getProjectChatSettings = (projectId) => {
   return api.get(`/project-chat/${projectId}/settings`).then(res => convertKeys(res, toCamelCase))
 }
@@ -36,7 +42,7 @@ export const updateProjectChatSettings = (projectId, data) => {
 }
 
 const messageBasePath = (projectId, projectType = 'translation') => (
-  projectType === 'annotation'
+  projectType === 'direct' ? `/chat/direct/${projectId}` : projectType === 'annotation'
     ? `/project-chat/annotation/${projectId}`
     : `/project-chat/${projectId}`
 )

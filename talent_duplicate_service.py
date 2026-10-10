@@ -305,8 +305,11 @@ def _decision_query(db):
     ))
 
 
-def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=False):
+def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=False, agent_bucket="all"):
     from resource_service import _person_options
+    from talent_agent_review_service import load_report, group_review, BUCKETS
+    agent_report = load_report() if contacts_visible else {}
+    agent_counts = dict.fromkeys(BUCKETS, 0)
     ready = review_ready(db)
     query = active_query(db, db.query(ResourcePerson))
     if ready and db.get_bind().dialect.name == "postgresql":
@@ -335,6 +338,12 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
         if keyword.strip().lower() and not any(keyword.strip().lower() in str(value or "").lower()
                                              for person in members for value in (person.full_name, person.resource_code)):
             continue
+        agent = group_review(agent_report, key, members, conclusions=decisions) if contacts_visible else None
+        if agent:
+            for bucket in agent["buckets"]:
+                agent_counts[bucket] += 1
+        if agent_bucket != "all" and (not agent or agent_bucket not in agent["buckets"]):
+            continue
         counts[state] += 1
         if status != "all" and state != status:
             continue
@@ -346,10 +355,13 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
                          for field in comparison_values[0]
                          if contacts_visible or field in PUBLIC_COMPARE_FIELDS)
         items.append({"key": key, "name": members[0].full_name, "count": len(members), "status": state,
+                      **({"agent_review": {"state": agent["state"], "buckets": agent["buckets"]}} if agent else {}),
                       "summary": "存在联系方式匹配，需结合身份核对" if contact_match else "资料存在互补，请逐条核对" if complement else "仅姓名相同，请核对身份",
                       "priority": 0 if contact_match else 1 if complement else 2})
     items.sort(key=lambda item: (item["priority"], -item["count"], item["key"]))
-    return {"items": items[skip:skip + limit], "total": len(items), "counts": counts, "ready": ready}
+    return {"items": items[skip:skip + limit], "total": len(items), "counts": counts, "ready": ready,
+            **({"agent_summary": {"counts": agent_counts, "created_at": agent_report.get("created_at"),
+                                   "reviewer": agent_report.get("reviewer")}} if contacts_visible else {})}
 
 
 def group_detail(db, key, contacts_visible=False):
@@ -405,7 +417,11 @@ def group_detail(db, key, contacts_visible=False):
         evidence = pair_evidence(a, b) if contacts_visible else {"person_ids": [str(a.id), str(b.id)]}
         evidence["decision"] = decisions.get(tuple(sorted((str(a.id), str(b.id)))))
         pairs.append(evidence)
-    return {"key": key, "members": serialized, "fields": rows, "pairs": pairs, "recommended_target_id": str(members[0].id),
+    agent = {}
+    if contacts_visible:
+        from talent_agent_review_service import load_report, group_review
+        agent["agent_review"] = group_review(load_report(), key, members, conclusions=decisions)
+    return {"key": key, "members": serialized, "fields": rows, "pairs": pairs, **agent, "recommended_target_id": str(members[0].id),
             "ready": review_ready(db), "can_commit": contacts_visible and review_ready(db)}
 
 

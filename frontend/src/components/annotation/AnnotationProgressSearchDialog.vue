@@ -13,10 +13,17 @@
           v-model="filters.keyword"
           clearable
           maxlength="100"
-          placeholder="检索具体进度或状态变更说明"
+          placeholder="检索项目进度、客户进度或状态变更说明"
           @input="handleKeywordInput"
           @keyup.enter="search(true, false)"
         />
+      </el-form-item>
+      <el-form-item label="进度线" class="progress-search-track">
+        <el-select v-model="filters.track" style="width:130px" @change="search(true, true)">
+          <el-option label="全部" value="all" />
+          <el-option label="项目进度" value="project" />
+          <el-option label="客户进度" value="customer" />
+        </el-select>
       </el-form-item>
       <el-form-item label="节点时间" class="progress-search-range">
         <el-date-picker
@@ -51,7 +58,7 @@
 
     <div ref="resultsRef" v-loading="loading" class="progress-search-results">
       <template v-if="rows.length">
-        <article v-for="row in rows" :key="row.id" class="progress-search-item">
+        <article v-for="row in rows" :key="`${row.track || 'project'}:${row.id}`" class="progress-search-item">
           <div class="progress-search-item__header">
             <div class="progress-search-project">
               <b>{{ row.projectOrderNo }}</b>
@@ -65,8 +72,9 @@
             </template>
           </div>
           <div class="progress-search-item__meta">
-            <el-tag size="small" effect="plain">{{ row.recordType === 'progress' ? '具体进度' : '状态变更' }}</el-tag>
-            <el-tag size="small" :type="statusType(row.toStatus)">{{ statusLabel(row.toStatus) }}</el-tag>
+            <el-tag size="small" effect="plain">{{ row.track === 'customer' ? '客户进度' : '项目进度' }}</el-tag>
+            <el-tag v-if="row.track !== 'customer'" size="small" effect="plain">{{ row.recordType === 'progress' ? '具体进度' : '状态变更' }}</el-tag>
+            <el-tag v-if="row.track !== 'customer'" size="small" :type="statusType(row.toStatus)">{{ statusLabel(row.toStatus) }}</el-tag>
             <span>客户经理：{{ row.clientManagerName || '未分配' }}</span>
             <span>项目经理：{{ row.projectManagerName || '未分配' }}</span>
             <span>节点时间：{{ formatDateTime(row.effectiveOn) }}</span>
@@ -106,7 +114,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as annotationOpsApi from '@/api/annotationOps'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { defaultProgressSearchRange, isProgressSearchRangeValid, splitKeywordMatches } from '@/utils/annotationProgressSearch'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
@@ -128,7 +136,7 @@ const STATUS_LABELS = {
   project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈',
   cancelled: '已取消', partially_cancelled: '已部分取消', paused: '暂停', actively_abandoned: '主动放弃', ended: '已结束',
 }
-const filters = reactive({ keyword: '', dateRange: defaultProgressSearchRange() })
+const filters = reactive({ keyword: '', track: 'all', dateRange: defaultProgressSearchRange() })
 const pagination = reactive({ page: 1, limit: 10, total: 0 })
 const pageSizeMode = ref(10)
 const rows = ref([])
@@ -197,13 +205,14 @@ const requestPage = async ({ mode = viewMode.value, append = false } = {}) => {
           dateTo: filters.dateRange[1],
           skip,
           limit,
+          track: filters.track,
         }, config)
-      : await annotationOpsApi.getRecentStatusHistory({ skip, limit }, config)
+      : await annotationOpsApi.getRecentStatusHistory({ skip, limit, track: filters.track }, config)
     if (current !== requestId) return
     const items = Array.isArray(page?.items) ? page.items : []
     if (append) {
-      const existingIds = new Set(rows.value.map((item) => String(item.id)))
-      rows.value = [...rows.value, ...items.filter((item) => !existingIds.has(String(item.id)))]
+      const existingIds = new Set(rows.value.map((item) => `${item.track || 'project'}:${item.id}`))
+      rows.value = [...rows.value, ...items.filter((item) => !existingIds.has(`${item.track || 'project'}:${item.id}`))]
     } else {
       rows.value = items
     }
@@ -267,6 +276,7 @@ const handlePageChange = async () => {
 const resetSearch = () => {
   clearTimeout(searchTimer)
   filters.keyword = ''
+  filters.track = 'all'
   filters.dateRange = defaultProgressSearchRange()
   pagination.page = 1
   loadRecent(true)
@@ -303,6 +313,7 @@ watch(() => props.modelValue, (isOpen) => {
     return
   }
   filters.keyword = ''
+  filters.track = 'all'
   filters.dateRange = defaultProgressSearchRange()
   pageSizeMode.value = 10
   pagination.page = 1

@@ -11,9 +11,11 @@
     <AppForm :inline="true" class="review-query" :model="filters">
       <el-form-item label="姓名／编号"><el-input v-model="filters.keyword" clearable placeholder="搜索姓名或人才编号" @input="onInput" @keyup.enter="searchNow" /></el-form-item>
       <el-form-item label="处理状态"><el-select v-model="filters.status" @change="searchNow" style="width:150px"><el-option label="待核对" value="pending" /><el-option label="已区分" value="different" /><el-option label="暂缓处理" value="deferred" /><el-option label="全部" value="all" /></el-select></el-form-item>
+      <el-form-item v-if="canOperate" label="Agent 初筛"><el-select v-model="filters.agent_bucket" @change="searchNow" style="width:190px"><el-option v-for="(label,key) in agentBucketLabels" :key="key" :label="label" :value="key" /></el-select></el-form-item>
       <el-form-item><el-button type="primary" @click="searchNow">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </AppForm>
     <div class="group-counts">待核对 {{ counts.pending || 0 }} 组 · 已区分 {{ counts.different || 0 }} 组 · 暂缓 {{ counts.deferred || 0 }} 组</div>
+    <div v-if="canOperate && agentSummary?.created_at" class="agent-summary">当前 Agent 已初筛 · {{ formatBusinessDateTime(agentSummary.created_at) }} · 高置信度同一人 {{ agentSummary.counts.high_same || 0 }} 组 · 二次核对 {{ agentSummary.counts.uncertain || 0 }} 组（同组可包含不同结论）</div>
     <div v-if="pageError" class="load-error"><el-alert :title="pageError" type="error" :closable="false" /><el-button @click="searchNow">重新加载</el-button></div>
     <div class="review-layout">
       <aside v-loading="loading" class="group-pane">
@@ -21,6 +23,8 @@
         <button v-for="group in items" :key="group.key" class="group-item" :class="{ active: currentKey === group.key }" @click="selectGroup(group.key)">
           <div><strong>{{ group.name }}</strong><el-tag size="small">{{ group.count }} 条</el-tag></div>
           <div>{{ reviewStateLabels[group.status] }}</div><small>{{ group.summary }}</small>
+          <el-tag v-if="group.agent_review?.buckets.includes('high_same')" size="small" type="success">Agent：有高置信度重复</el-tag>
+          <el-tag v-else-if="group.agent_review?.state === 'stale'" size="small" type="warning">初筛已过期，需重新核对</el-tag>
         </button>
         <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="prev, pager, next" small @current-change="loadGroups" />
       </aside>
@@ -37,6 +41,14 @@
             </el-checkbox-group>
           </div>
           <div class="comparison-controls"><span>已选择 {{ selectedIds.length }} 条；请选择至少两条进行处理</span><el-switch v-model="differencesOnly" active-text="只看差异（含互补）" /></div>
+          <div v-if="canOperate && detail.agent_review" class="agent-results">
+            <el-alert v-if="detail.agent_review.state === 'stale'" title="资料或组成员已变化，旧初筛建议已失效。" type="warning" :closable="false" />
+            <template v-for="(suggestion,index) in detail.agent_review.pairs" :key="index">
+              <div class="agent-pair"><el-tag :type="suggestion.bucket === 'high_same' ? 'success' : 'warning'" size="small">{{ agentBucketLabels[suggestion.bucket] }}</el-tag> {{ suggestion.person_ids.map(memberLabel).join(' ↔ ') }}</div>
+              <div class="agent-reason">{{ suggestion.reason }}<div v-for="caution in suggestion.cautions" :key="caution">需核对：{{ caution }}</div></div>
+              <el-button v-if="suggestion.classification === 'same'" :disabled="suggestion.confidence === 'high' && !ready" link type="primary" @click="useAgentSuggestion(suggestion)">{{ suggestion.confidence === 'high' ? '按这两条预览合并' : '选中这两条继续核对' }}</el-button>
+            </template>
+          </div>
           <div class="evidence-list">
             <div v-for="(pair, index) in visiblePairs" :key="index" class="pair-evidence">
               <span>{{ pair.person_ids.map(memberLabel).join(' ↔ ') }}</span>
@@ -136,7 +148,8 @@ const route = useRoute(), router = useRouter()
 const actionBodyRef = ref(null)
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(actionBodyRef)
 const canOperate = computed(() => isSuperAdmin())
-const filters = reactive({ keyword: '', status: 'pending' }), counts = ref({})
+const agentBucketLabels = { all:'全部结果', high_same:'高置信度同一人', likely_same:'可能同一人，需复核', different:'疑似不同人，需复核', uncertain:'证据不足，二次核对', unreviewed:'未初筛／资料已变化' }
+const filters = reactive({ keyword: '', status: 'pending', agent_bucket: 'all' }), counts = ref({}), agentSummary = ref(null)
 const items = ref([]), total = ref(0), page = ref(1), loading = ref(false), ready = ref(true), pageError = ref('')
 const detail = ref(null), currentKey = ref(''), detailLoading = ref(false), detailError = ref(''), selectedIds = ref([]), differencesOnly = ref(true)
 const contactLabels = { phone: '电话', email: '邮箱', wechat: '个人微信', whatsapp: 'WhatsApp', skype: 'Skype', line: 'Line' }
@@ -154,13 +167,14 @@ async function loadGroups() {
     const result = await getDuplicateGroups({ ...filters, skip: (page.value - 1) * 20, limit: 20 }, listController.signal)
     if (sequence !== listSequence) return
     items.value = result.items; total.value = result.total; counts.value = result.counts; ready.value = result.ready
+    agentSummary.value = result.agent_summary || null
     if (!items.value.length && page.value > 1 && total.value) { page.value = Math.max(1, Math.ceil(total.value / 20)); return loadGroups() }
   } catch (error) { if (!cancelled(error) && sequence === listSequence) pageError.value = errorText(error) }
   finally { if (sequence === listSequence) loading.value = false }
 }
 function searchNow() { clearTimeout(timer); page.value = 1; loadGroups() }
 function onInput(value) { clearTimeout(timer); if (!value) searchNow(); else timer = setTimeout(searchNow, 400) }
-function reset() { filters.keyword = ''; filters.status = 'pending'; searchNow() }
+function reset() { filters.keyword = ''; filters.status = 'pending'; filters.agent_bucket = 'all'; searchNow() }
 async function selectGroup(key) {
   detailController?.abort(); detailController = new AbortController(); const sequence = ++detailSequence
   currentKey.value = key; detail.value = null; selectedIds.value = []; detailLoading.value = true; detailError.value = ''; clearPreview()
@@ -180,7 +194,8 @@ const unresolvedCount = computed(() => (previewResult.value?.conflicts || []).fi
 function invalidatePreview() { previewDirty.value = true; acknowledged.value = false; ++previewSequence; previewLoading.value = false; idempotencyKey = '' }
 function clearPreview() { previewResult.value = null; decisions.value = {}; choiceIds.value = {}; customValues.value = {}; acknowledged.value = false; previewDirty.value = false; ++previewSequence; previewLoading.value = false; idempotencyKey = '' }
 function targetChanged() { clearPreview(); refreshPreview() }
-async function beginAction(value) { action.value = value; clearPreview(); note.value = ''; targetId.value = selectedIds.value.includes(detail.value.recommended_target_id) ? detail.value.recommended_target_id : selectedIds.value[0]; actionVisible.value = true; await refreshPreview() }
+async function beginAction(value) { action.value = value; clearPreview(); note.value = ''; targetId.value = selectedIds.value.includes(detail.value.recommended_target_id) ? detail.value.recommended_target_id : selectedMembers.value[0].id; actionVisible.value = true; await refreshPreview() }
+async function useAgentSuggestion(suggestion) { selectedIds.value = [...suggestion.person_ids]; clearPreview(); if (suggestion.confidence === 'high') await beginAction('merge') }
 function chooseConflict(conflict, index) {
   choiceIds.value[conflict.key] = index
   if (index === 'custom') { decisions.value[conflict.key] = { value: null }; customValues.value[conflict.key] = '' }
@@ -219,6 +234,7 @@ onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); detailCont
 <style scoped>
 .review-header,.comparison-controls { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap }
 .subtitle { margin-left:16px; color:#64748b; font-size:13px }
+.agent-summary { margin-bottom:14px; color:#475569; font-size:13px }.agent-results { max-height:260px; overflow:auto; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:14px }.agent-pair { font-size:13px; margin-top:8px }.agent-reason { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.6; color:#64748b; margin:6px 0 }
 .review-query { margin-top:16px }.group-counts { color:#64748b; margin-bottom:14px }.review-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:20px }.group-pane { min-width:0 }.group-item { display:block; text-align:left; width:100%; border:1px solid #e2e8f0; background:#fff; border-radius:8px; padding:12px; margin-bottom:10px; cursor:pointer; color:#334155 }.group-item.active { border-color:#3b82f6; background:#eff6ff }.group-item>div:first-child { display:flex; justify-content:space-between; gap:8px }.group-item small { display:block; margin-top:6px; color:#64748b }.comparison-pane { min-width:0 }.member-selection { max-height:180px; overflow:auto; border-bottom:1px solid #e2e8f0; padding-bottom:10px }.member-selection :deep(.el-checkbox-group) { display:flex; flex-direction:column }.comparison-controls { margin:14px 0; font-size:13px; color:#64748b }.pair-evidence { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:12px; margin-bottom:8px }.evidence-list { max-height:160px; overflow:auto; margin-bottom:12px }.matrix-container { min-width:0 }.matrix-value,.choice-value { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6 }.review-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; padding:14px 0; position:sticky; bottom:0; background:#fff; border-top:1px solid #e2e8f0 }.review-actions :deep(.el-button) { margin-left:0 }.conflict-item { border:1px solid #fecaca; border-radius:8px; padding:12px; margin:12px 0 }.conflict-item :deep(.el-radio-group) { display:flex; flex-direction:column; align-items:flex-start; margin-top:10px; gap:10px }.conflict-item :deep(.el-radio) { height:auto; white-space:normal; align-items:flex-start; max-width:100%; margin-right:0 }.conflict-item :deep(.el-radio__label) { white-space:normal; min-width:0 }.conflict-item :deep(.el-radio__input) { margin-top:4px }.choice-value { color:#475569; padding:4px 0 }.action-body>div,.action-body>p { margin-bottom:12px }.load-error { display:flex; gap:10px; margin-bottom:12px }.omitted-fields { padding:12px; background:#fff7ed; border-radius:8px }
 @media(max-width:800px) { .review-layout { grid-template-columns:1fr }.group-pane { max-height:260px; overflow:auto }.subtitle { display:block; margin:6px 0 }.review-header>div:last-child { display:flex; flex-wrap:wrap; gap:6px } }
 </style>

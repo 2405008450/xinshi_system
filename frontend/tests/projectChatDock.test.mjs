@@ -8,7 +8,7 @@ const dockStore = readFileSync(new URL('../src/composables/useProjectChatDock.js
 const workspace = readFileSync(new URL('../src/components/chat/ChatWorkspace.vue', import.meta.url), 'utf8')
 const windowMenu = readFileSync(new URL('../src/components/chat/ChatWindowStateMenu.vue', import.meta.url), 'utf8')
 const historyPanel = readFileSync(new URL('../src/components/chat/ChatHistorySearchPanel.vue', import.meta.url), 'utf8')
-const annotationChat = readFileSync(new URL('../src/components/chat/AnnotationGroupChat.vue', import.meta.url), 'utf8')
+const annotationChat = readFileSync(new URL('../src/components/chat/ChatConversation.vue', import.meta.url), 'utf8')
 const followedStore = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
 const chatPanel = readFileSync(new URL('../src/components/ProjectChatPanel.vue', import.meta.url), 'utf8')
 const annotationPage = readFileSync(new URL('../src/views/project/AnnotationProjects.vue', import.meta.url), 'utf8')
@@ -217,9 +217,9 @@ test('聊天通知和群邀请统一打开聊天小窗且不再跳转页面', ()
   assert.match(notificationBell, /CHAT_NOTIFICATION_TYPES = \['project_chat', 'project_chat_mention', 'annotation_project_chat_mention', 'annotation_project_chat_invite'\]/)
   assert.match(notificationBell, /const projectType = item\.related_project_type \|\| 'translation'/)
   assert.match(notificationBell, /const projectId = item\.related_entity_id \|\| item\.related_project_id/)
-  assert.match(notificationBell, /openChat\(\{ projectId, projectType \}\)/)
+  assert.match(notificationBell, /openChat\(\{ projectId, projectType, messageId \}\)/)
   assert.match(notificationBell, /if \(!projectId\) return false/)
-  assert.match(notificationBell, /if \(isChatNotification\(item\) && openChatNotification\(item\)\) return/)
+  assert.match(notificationBell, /if \(isChatNotification\(item\) && await openChatNotification\(item\)\) return/)
 })
 
 test('提醒卡片改为白底轻阴影并提供独立关闭按钮与打开提示', () => {
@@ -258,7 +258,7 @@ test('会话模式输入区支持 @ 多选标签、Enter 发送与发送禁用',
   assert.match(chatPanel, /event\.key !== 'Enter' \|\| event\.shiftKey \|\| event\.isComposing/)
   assert.match(chatPanel, /Enter 发送，Shift\+Enter 换行/)
   assert.match(chatPanel, /:disabled="sending \|\| imagesBlocked \|\| \(!composer\.content\.trim\(\) && !pendingImages\.length\)"/)
-  assert.match(chatPanel, /defineExpose\(\{ toggleFilters, openSearch, locateMessage \}\)/)
+  assert.match(chatPanel, /defineExpose\(\{ toggleFilters, openSearch, locateMessage, locate: locateMessage \}\)/)
 })
 
 test('沟通窗口支持小中大三档、会话列表布局，并按用户记住选择', () => {
@@ -286,7 +286,7 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(workspace, /未读/)
   assert.match(workspace, /setTimeout\(applyKeyword, 400\)/)
   assert.match(workspace, /if \(!value\)/)
-  assert.match(followedStore, /annotationChatRequest\('', 'unread'\)/)
+  assert.match(followedStore, /chatRequest\('sessions', \{ signal: controller\.signal \}\)/)
   assert.match(followedStore, /setInterval\(refresh, 15000\)/)
   assert.match(historyPanel, /全部/)
   assert.match(historyPanel, /图片/)

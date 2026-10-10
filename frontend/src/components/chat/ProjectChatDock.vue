@@ -13,6 +13,7 @@
           :session-width="workspaceNarrow ? 240 : sidebarWidth"
           :title="activeWindow?.title || '沟通'"
           :subtitle="activeWindow?.subtitle || ''"
+          :project-id="activeWindow?.projectId || ''"
           :project-type="activeWindow?.projectType || ''"
           :meta-loading="!!activeWindow?.metaLoading"
           :dragging="draggingKey === '__workspace__'"
@@ -32,6 +33,7 @@
           @header-mousedown="startWorkspaceDrag"
           @header-dblclick="onWorkspaceDblClick"
           @retry="refreshFollowed"
+          @preference="updatePreference"
         />
       </div>
 
@@ -55,13 +57,16 @@
             <div class="project-chat-window__title-row">
               <strong :title="chatWindow.title">{{ chatWindow.title }}</strong>
               <el-tag size="small" effect="plain" :type="chatWindow.projectType === 'annotation' ? 'success' : 'primary'">
-                {{ chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
+                {{ chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
               </el-tag>
             </div>
-            <span v-if="chatWindow.metaLoading" class="project-chat-window__subtitle">正在加载项目信息…</span>
-            <span v-else-if="chatWindow.subtitle" class="project-chat-window__subtitle" :title="chatWindow.subtitle">
-              {{ chatWindow.subtitle }}
-            </span>
+            <div class="project-chat-window__subtitle-row">
+              <span v-if="chatWindow.metaLoading" class="project-chat-window__subtitle">正在加载项目信息…</span>
+              <span v-else-if="chatWindow.subtitle" class="project-chat-window__subtitle" :title="chatWindow.subtitle">
+                {{ chatWindow.subtitle }}
+              </span>
+              <ChatProjectActions :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
+            </div>
           </div>
           <div class="project-chat-window__actions">
             <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
@@ -78,9 +83,10 @@
         </header>
         <div class="project-chat-window__body">
           <component
-            :is="chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
+            :is="chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
+            :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"
             :active="isChatWindowVisible(chatWindow)"
             :history-placement="historyPlacement(chatWindow)"
@@ -103,7 +109,7 @@
             @click="restoreWorkspace"
           >
             <el-icon><ChatDotRound /></el-icon>
-            <span>沟通</span>
+            <span>沟通</span><span v-if="mentionTotal" class="project-chat-task__unread">@</span>
             <span v-if="workspaceUnread" class="project-chat-task__unread">
               {{ workspaceUnread > 99 ? '99+' : workspaceUnread }}
             </span>
@@ -131,9 +137,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
+import { chatRequest } from '@/api/projectChat'
+import { ElMessage } from 'element-plus'
+import DirectChat from './DirectChat.vue'
+import ChatProjectActions from './ChatProjectActions.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
@@ -172,7 +183,7 @@ const {
   restoreWorkspace,
   ensurePreferences,
 } = useProjectChatDock()
-const { followed, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
+const { sessions: followed, mentionTotal, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
 
 const COMPACT_SCREEN_WIDTH = 768
 const WORKSPACE_HEADER = 52
@@ -209,36 +220,25 @@ const sidebarWidth = computed(() => {
 })
 const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey) || null)
 const sessions = computed(() => {
-  const openedAnnotation = new Set()
-  const rows = state.windows.map((item) => {
-    if (item.projectType === 'annotation') openedAnnotation.add(String(item.projectId))
-    const followedUnread = item.projectType === 'annotation'
-      ? followed.value.find(project => String(project.projectId) === String(item.projectId))?.unread || 0
-      : 0
-    return {
-      key: item.key,
-      projectId: item.projectId,
-      projectType: item.projectType,
-      title: item.title,
-      subtitle: item.subtitle,
-      unread: isChatWindowVisible(item) ? 0 : Math.max(item.unread || 0, followedUnread),
-      opened: true,
-    }
-  })
-  followed.value.forEach((item) => {
-    if (openedAnnotation.has(String(item.projectId))) return
-    rows.push({
-      key: `annotation:${item.projectId}`,
-      projectId: item.projectId,
-      projectType: 'annotation',
-      title: item.projectName || '未命名项目',
-      subtitle: item.orderNo || '',
-      unread: item.unread || 0,
-      opened: false,
-    })
-  })
+  const rows = followed.value.map(s => ({ ...s, projectType: s.kind, opened: state.windows.some(w => w.key === s.key) }))
+  for (const item of state.windows) {
+    if (!rows.some(s => s.key === item.key)) rows.push({ ...item, opened: true })
+  }
   return rows
 })
+async function updatePreference({ session, data }) {
+  try { await chatRequest(`sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
+  catch (e) { ElMessage.error(e.detail || e.message || '更新会话偏好失败') }
+}
+function updateTitle() {
+  const cleanTitle = document.title.replace(/^\[有人@我\]\s*/, '')
+  document.title = mentionTotal.value && !document.hasFocus() ? `[有人@我] ${cleanTitle}` : cleanTitle
+}
+watch(mentionTotal, updateTitle)
+const route = useRoute()
+watch(() => route.fullPath, () => nextTick(updateTitle))
+onMounted(() => { window.addEventListener('focus', updateTitle); window.addEventListener('blur', updateTitle) })
+onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window.removeEventListener('blur', updateTitle); document.title = document.title.replace(/^\[有人@我\]\s*/, '') })
 const workspaceUnread = computed(() => sessions.value.reduce((sum, item) => sum + (Number(item.unread) || 0), 0))
 const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
 const workspaceShellStyle = computed(() => {
@@ -292,7 +292,7 @@ const maximizeChat = (key) => {
 const openFollowed = (session) => {
   openChat({
     projectId: session.projectId,
-    projectType: 'annotation',
+    projectType: session.projectType,
     title: session.title,
     subtitle: session.subtitle,
   })
@@ -536,6 +536,22 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-chat-window__subtitle-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-chat-window__subtitle-row .project-chat-window__subtitle,
+.project-chat-window__title-row strong {
+  min-width: 0;
+}
+
+.project-chat-window__title-row .el-tag {
+  flex-shrink: 0;
 }
 
 .project-chat-window__subtitle {

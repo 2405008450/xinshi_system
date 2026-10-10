@@ -28,6 +28,8 @@
         </el-descriptions-item>
         <el-descriptions-item label="订单号">{{ textValue(displayRow.orderNo) }}</el-descriptions-item>
         <el-descriptions-item label="项目进度"><el-tag :type="statusType(displayRow.projectStatus)">{{ statusLabel(displayRow.projectStatus) }}</el-tag></el-descriptions-item>
+        <el-descriptions-item label="最新客户进度" :span="2">{{ textValue(displayRow.latestCustomerProgressNote) }}</el-descriptions-item>
+        <el-descriptions-item label="客户进度时间">{{ formatCustomerProgressTime(displayRow.latestCustomerProgressEffectiveOn) }}</el-descriptions-item>
         <el-descriptions-item label="优先次序"><el-tag :type="priorityType(displayRow.priority)">{{ priorityLabel(displayRow.priority) }}</el-tag></el-descriptions-item>
         <el-descriptions-item label="状态生效时间">{{ formatDateTime(displayRow.statusEffectiveOn) }}</el-descriptions-item>
         <el-descriptions-item label="语言地区"><InlineTextField :model-value="displayRow.languageRegion" :editable="editable" label="语言地区" :maxlength="255" :save-field="(value) => saveText('languageRegion', value)" @conflict="load" /></el-descriptions-item>
@@ -93,7 +95,8 @@ import InlineTextField from '@/components/common/InlineTextField.vue'
 import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
 const materialsActive = ref(false)
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatCustomerProgressTime } from '@/utils/dateTime'
 
 const props = defineProps({
   projectId: { type: [String, Number], required: true },

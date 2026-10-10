@@ -1,10 +1,10 @@
 <template>
   <el-popover
     trigger="click"
-    placement="left"
+    :placement="placement"
     :width="760"
     :title="title"
-    popper-class="business-detail-popover"
+    :popper-class="popperClass"
     @show="emit('show')"
     @hide="handleHide"
   >
@@ -55,6 +55,8 @@ import InlineTextField from './InlineTextField.vue'
 const emit = defineEmits(['show', 'hide', 'field-saved', 'conflict'])
 
 const props = defineProps({
+  placement: { type: String, default: 'left' },
+  popperClass: { type: String, default: 'business-detail-popover' },
   row: { type: Object, required: true },
   title: { type: String, default: '详情' },
   items: { type: Array, default: () => [] },

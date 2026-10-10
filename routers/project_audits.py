@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
+from annotation_progress_time import business_datetime
 from project_audit_schemas import ProjectOperationAuditListResponse
 from project_audit_service import list_project_operation_audits
 from routers.auth import require_permission
@@ -23,7 +24,7 @@ router = APIRouter(
 def read_project_operation_audits(
     keyword: Optional[str] = None,
     project_type: Optional[Literal["translation", "interpretation", "annotation", "recruitment"]] = None,
-    operation_type: Optional[Literal["create", "delete", "order_no_change"]] = None,
+    operation_type: Optional[Literal["create", "delete", "order_no_change", "progress_delete"]] = None,
     operator_keyword: Optional[str] = None,
     occurred_from: Optional[datetime] = None,
     occurred_to: Optional[datetime] = None,
@@ -37,8 +38,8 @@ def read_project_operation_audits(
         project_type=project_type,
         operation_type=operation_type,
         operator_keyword=operator_keyword,
-        occurred_from=occurred_from,
-        occurred_to=occurred_to,
+        occurred_from=business_datetime(occurred_from),
+        occurred_to=business_datetime(occurred_to),
         skip=skip,
         limit=limit,
     )

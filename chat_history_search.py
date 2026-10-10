@@ -74,8 +74,8 @@ def _filtered_messages(
     include_user_messages: bool,
 ):
     query = db.query(ChatProjectMessage).filter(ChatProjectMessage.recalled_at.is_(None))
-    if project_type == 'annotation':
-        query = query.filter(ChatProjectMessage.annotation_project_id == project_id)
+    if project_type in {'annotation', 'direct'}:
+        query = query.filter((ChatProjectMessage.direct_conversation_id if project_type == 'direct' else ChatProjectMessage.annotation_project_id) == project_id)
     elif project_type == 'translation':
         query = query.filter(ChatProjectMessage.project_id == project_id)
         if not include_user_messages:
@@ -132,7 +132,7 @@ def _link_query(message_query, keyword: str):
 
 
 def _message_cursor(message: ChatProjectMessage, project_type: str, **extra) -> dict:
-    if project_type == 'annotation':
+    if project_type in {'annotation', 'direct'}:
         payload = {'sequence_no': int(message.sequence_no or 0)}
     else:
         payload = {
@@ -144,13 +144,13 @@ def _message_cursor(message: ChatProjectMessage, project_type: str, **extra) -> 
 
 
 def _order_messages(query, project_type: str):
-    if project_type == 'annotation':
+    if project_type in {'annotation', 'direct'}:
         return query.order_by(ChatProjectMessage.sequence_no.desc(), ChatProjectMessage.id.desc())
     return query.order_by(ChatProjectMessage.created_at.desc(), ChatProjectMessage.id.desc())
 
 
 def _before_message(query, project_type: str, cursor: dict, *, inclusive: bool):
-    if project_type == 'annotation':
+    if project_type in {'annotation', 'direct'}:
         sequence_no = int(cursor['sequence_no'])
         if inclusive:
             return query.filter(ChatProjectMessage.sequence_no <= sequence_no)
@@ -167,7 +167,7 @@ def _before_message(query, project_type: str, cursor: dict, *, inclusive: bool):
 
 
 def _same_message(message: ChatProjectMessage, cursor: dict, project_type: str) -> bool:
-    if project_type == 'annotation':
+    if project_type in {'annotation', 'direct'}:
         return int(message.sequence_no or 0) == int(cursor.get('sequence_no', -1))
     return (
         (message.created_at.isoformat() if message.created_at else '') == cursor.get('created_at')
@@ -209,7 +209,7 @@ def _page_messages(query, project_type: str, cursor: dict | None, limit: int):
 
 def _page_attachments(query, project_type: str, cursor: dict | None, limit: int, kind: str):
     ordered = query
-    if project_type == 'annotation':
+    if project_type in {'annotation', 'direct'}:
         ordered = ordered.order_by(ChatProjectMessage.sequence_no.desc(), ChatProjectAttachment.id.desc())
     else:
         ordered = ordered.order_by(
@@ -219,7 +219,7 @@ def _page_attachments(query, project_type: str, cursor: dict | None, limit: int,
         )
     if cursor:
         attachment_id = UUID(cursor['attachment_id'])
-        if project_type == 'annotation':
+        if project_type in {'annotation', 'direct'}:
             sequence_no = int(cursor['sequence_no'])
             ordered = ordered.filter(or_(
                 ChatProjectMessage.sequence_no < sequence_no,

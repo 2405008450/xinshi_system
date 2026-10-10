@@ -4,7 +4,7 @@ import logging
 from annotation_trial_errors import trial_integrity_detail
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
@@ -45,6 +45,12 @@ from annotation_arrangement_note_service import (
     list_arrangement_daily_notes,
     get_arrangement_daily_note, save_arrangement_daily_note,
 )
+from annotation_customer_progress_schemas import CustomerProgressDelete, CustomerProgressResponse, CustomerProgressUpdate, CustomerProgressWrite
+from annotation_customer_progress_service import (
+    CustomerProgressUnavailable, create_customer_progress, delete_customer_progress,
+    list_customer_progress, search_progress_records, update_customer_progress,
+)
+from concurrency import StaleUpdateError
 from annotation_ops_service import (
     account_stats, assign_account, batch_save_accounts, count_accounts, count_platforms, count_trials,
     delete_account, delete_annotation_workflow, delete_assignee_rate, delete_platform, delete_trial,
@@ -439,6 +445,46 @@ def status_history(project_id: UUID, db: Session = Depends(get_db)):
     return list_status_history(db, project_id)
 
 
+def _customer_progress_run(db, callback):
+    try:
+        result = callback()
+    except CustomerProgressUnavailable as exc:
+        db.rollback()
+        raise HTTPException(503, str(exc))
+    except StaleUpdateError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc))
+    except (ValueError, IntegrityError) as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc) if isinstance(exc, ValueError) else "客户进度数据不符合保存要求")
+    if result is None or result is False:
+        raise HTTPException(404, "项目或客户进度记录不存在")
+    return result
+
+
+@project_router.get("/projects/{project_id}/customer-progress", response_model=List[CustomerProgressResponse])
+def customer_progress_list(project_id: UUID, db: Session = Depends(get_db)):
+    return _customer_progress_run(db, lambda: list_customer_progress(db, project_id))
+
+
+@project_router.post("/projects/{project_id}/customer-progress", response_model=CustomerProgressResponse, status_code=201,
+                     dependencies=[Depends(require_any_permission("projects:write"))])
+def customer_progress_create(project_id: UUID, payload: CustomerProgressWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return _customer_progress_run(db, lambda: create_customer_progress(db, project_id, payload, user.id))
+
+
+@project_router.patch("/customer-progress/{record_id}", response_model=CustomerProgressResponse,
+                     dependencies=[Depends(require_any_permission("projects:write"))])
+def customer_progress_edit(record_id: UUID, payload: CustomerProgressUpdate, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return _customer_progress_run(db, lambda: update_customer_progress(db, record_id, payload, user.id))
+
+
+@project_router.delete("/customer-progress/{record_id}", status_code=204,
+                      dependencies=[Depends(require_any_permission("projects:write"))])
+def customer_progress_remove(record_id: UUID, payload: CustomerProgressDelete, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    _customer_progress_run(db, lambda: delete_customer_progress(db, record_id, payload, user.id))
+
+
 @project_router.patch(
     "/status-history/{history_id}/progress", response_model=List[StatusHistoryResponse],
     dependencies=[Depends(require_any_permission("projects:write"))],
@@ -675,7 +721,10 @@ def recent_status_history(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
+    track: Literal["project", "customer", "all"] = "project",
 ):
+    if track != "project":
+        return _customer_progress_run(db, lambda: search_progress_records(db, track=track, skip=skip, limit=limit))
     return list_recent_status_history(db, skip=skip, limit=limit)
 
 
@@ -687,6 +736,7 @@ def status_history_search(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    track: Literal["project", "customer", "all"] = "project",
 ):
     normalized_keyword = keyword.strip()
     if not normalized_keyword:
@@ -695,6 +745,9 @@ def status_history_search(
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     if (date_to - date_from).days + 1 > 366:
         raise HTTPException(status_code=422, detail="单次检索的时间范围不能超过 366 天")
+    if track != "project":
+        return _customer_progress_run(db, lambda: search_progress_records(db, track=track, keyword=normalized_keyword,
+                                    date_from=date_from, date_to=date_to, skip=skip, limit=limit))
     return search_status_history(
         db,
         keyword=normalized_keyword,

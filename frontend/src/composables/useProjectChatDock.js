@@ -33,7 +33,7 @@ const state = reactive({
   viewportHeight: typeof window === 'undefined' ? 800 : window.innerHeight,
 })
 
-const sizePreference = { translation: 'small', annotation: 'small' }
+const sizePreference = { translation: 'small', annotation: 'small', direct: 'small' }
 let maximizedRestoreX = 0
 let maximizedRestoreY = 0
 let maximizedRestoreReady = false
@@ -253,12 +253,13 @@ const activateWorkspace = (key) => {
   focusWorkspace()
 }
 
-const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '' }) => {
+const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '' }) => {
   if (!projectId) return null
   ensurePreferences()
   const key = `${projectType}:${projectId}`
   const existing = state.windows.find(item => item.key === key)
   if (existing) {
+    if (messageId) existing.targetMessageId = messageId
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
     existing.minimized = false
@@ -272,12 +273,13 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     return key
   }
 
-  const needsMeta = !title || !subtitle
+  const needsMeta = projectType !== 'direct' && (!title || !subtitle)
   const sizeMode = normalizeSize(sizePreference[projectType])
   const chatWindow = reactive({
     key,
     projectId: String(projectId),
     projectType,
+    targetMessageId: messageId,
     title: title || (needsMeta ? '正在加载项目信息…' : '项目沟通'),
     subtitle,
     minimized: false,

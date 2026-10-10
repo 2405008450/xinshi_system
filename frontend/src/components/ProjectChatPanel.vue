@@ -121,6 +121,7 @@
       </AppForm>
 
       <div v-if="conversationMode" class="chat-conversation-wrap">
+        <el-button v-if="unreadMentions.length" class="chat-mention-jump" size="small" type="warning" @click="nextUnreadMention">{{ unreadMentions.length }} 条消息@了你</el-button>
         <el-scrollbar ref="chatListRef" v-loading="messagesLoading" class="chat-list chat-list--conversation" @scroll="handleConversationScroll">
           <div v-if="messages.length" class="chat-conversation">
             <div v-if="loadingEarlier" class="chat-conversation__notice">正在加载更早的消息…</div>
@@ -147,7 +148,7 @@
                 v-else
                 class="chat-conversation-item"
                 :data-message-id="item.message.id"
-                :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart, 'chat-conversation-item--highlight': highlightedMessageId === String(item.message.id) }"
+                :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart, 'chat-conversation-item--highlight': highlightedMessageId === String(item.message.id), 'chat-conversation-item--mentioned': mentionsMe(item.message) }"
               >
                 <div v-if="!item.isOwn" class="chat-conversation-item__avatar">
                   <span v-if="item.groupStart" class="chat-avatar">{{ avatarText(item.message.senderName) }}</span>
@@ -176,7 +177,7 @@
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }">
                       <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
-                      <RichTextContent v-else :document="item.message.contentJson" :fallback="item.message.content" />
+                      <RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" />
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
                           <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
@@ -624,7 +625,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ElMessage } from 'element-plus'
 import { CirclePlus, CopyDocument, Finished, Star, StarFilled } from '@element-plus/icons-vue'
 import { getUsers } from '@/api/users'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
+import { chatRequest } from '@/api/projectChat'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
+import { mentionedDocument } from '@/utils/chatMentions'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
@@ -647,6 +651,7 @@ import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
 
 const props = defineProps({
+  targetMessageId: { type: String, default: '' },
   projectId: { type: [String, Number], default: '' },
   projectType: { type: String, default: 'translation' },
   active: { type: Boolean, default: false },
@@ -710,6 +715,43 @@ const progressTextMenu = reactive({ visible: false, left: 0, top: 0, message: nu
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 const conversationPageSize = 20
 const currentUserId = String(localStorage.getItem('user_id') || '')
+const { sessions: chatSessions, phaseOneEnabled, refresh: refreshSessions } = useAnnotationFollowed()
+const chatSession = computed(() => chatSessions.value.find(s => s.key === `${props.projectType}:${props.projectId}`))
+const seenMentions = ref([])
+const unreadMentions = computed(() => (chatSession.value?.mentionMessageIds || []).filter(id => !seenMentions.value.includes(id)))
+const mentionsMe = message => (message.mentions || []).some(m => String(m.mentionedUserId) === currentUserId)
+const highlightedMentionDocument = message => mentionedDocument(message, currentUserId)
+let readTimer = 0, readBusy = false, lastReadSequence = 0
+async function nextUnreadMention() {
+  const id = unreadMentions.value[0]
+  if (!id) return
+  await locateMessage(id)
+  if (!props.active || !document.hasFocus()) return
+  try {
+    await chatRequest(`sessions/${props.projectType}/${props.projectId}/preferences`, { method: 'put', data: { readMessageId: id } })
+    seenMentions.value.push(id); await refreshSessions()
+  } catch (e) { ElMessage.error(getLocalizedErrorMessage(e, '更新已读失败')) }
+}
+function scheduleRead() { window.clearTimeout(readTimer); readTimer = window.setTimeout(markVisibleRead, 350) }
+async function markVisibleRead() {
+  if (!phaseOneEnabled.value || !props.active || !props.conversationMode || readBusy || unreadMentions.value.length || document.visibilityState !== 'visible' || !document.hasFocus()) return
+  const wrap = getScrollWrap()
+  if (!wrap) return
+  const bounds = wrap.getBoundingClientRect()
+  const visibleIds = [...wrap.querySelectorAll('[data-message-id]')].filter(el => {
+    const box = el.getBoundingClientRect()
+    return box.bottom > bounds.top && box.top < bounds.bottom
+  }).map(el => el.dataset.messageId)
+  const message = messages.value.filter(m => visibleIds.includes(String(m.id))).sort((a,b) => b.sequenceNo - a.sequenceNo)[0]
+  if (!message || message.sequenceNo <= lastReadSequence) return
+  readBusy = true
+  try {
+    await chatRequest(`sessions/${props.projectType}/${props.projectId}/preferences`, { method: 'put', data: { readMessageId: message.id } })
+    lastReadSequence = message.sequenceNo; await refreshSessions()
+  } catch { /* 下次回到前台时重试，不提前消除未读。 */ }
+  finally { readBusy = false }
+}
+watch(() => props.targetMessageId, id => { if (id) locateMessage(id) })
 const conversationFiltersVisible = ref(false)
 const mentionPopoverVisible = ref(false)
 const automaticMentionActive = ref(false)
@@ -984,6 +1026,7 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
   } finally {
     messagesLoading.value = false
+    scheduleRead()
   }
 }
 
@@ -1091,6 +1134,7 @@ const handleConversationScroll = ({ scrollTop }) => {
   if (!props.conversationMode) return
   if (scrollTop <= 2) loadEarlierMessages()
   if (isConversationAtBottom()) pendingNewCount.value = 0
+  scheduleRead()
 }
 
 const handleNewMessageTipClick = async () => {
@@ -1099,20 +1143,19 @@ const handleNewMessageTipClick = async () => {
   scrollConversationToBottom()
 }
 
-const conversationDayKey = (value) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+const businessDate = value => {
+  const raw = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+08:00` : value
+  return new Date(raw)
 }
-
-const formatConversationDateSeparator = (value) => {
-  const date = new Date(value)
+const dayFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' })
+const conversationDayKey = value => { const date = businessDate(value); return Number.isNaN(date.getTime()) ? '' : dayFormatter.format(date) }
+const formatConversationDateSeparator = value => {
+  const date = businessDate(value)
   if (Number.isNaN(date.getTime())) return ''
   const today = new Date()
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
   if (conversationDayKey(date) === conversationDayKey(today)) return '今天'
-  if (conversationDayKey(date) === conversationDayKey(yesterday)) return '昨天'
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+  if (conversationDayKey(date) === conversationDayKey(new Date(today.getTime() - 86400000))) return '昨天'
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
 }
 
 const avatarText = (name) => String(name || '?').trim().slice(0, 1) || '?'
@@ -1166,6 +1209,7 @@ const locateMessage = async (messageId) => {
     ElMessage.error(getLocalizedErrorMessage(error, '定位消息失败'))
   } finally {
     messagesLoading.value = false
+    scheduleRead()
   }
 }
 
@@ -1265,7 +1309,7 @@ const handleComposerKeydown = (event) => {
   handleSend()
 }
 
-defineExpose({ toggleFilters, openSearch, locateMessage })
+defineExpose({ toggleFilters, openSearch, locateMessage, locate: locateMessage })
 
 const resetChatState = () => {
   settings.enabled = props.alwaysEnabled
@@ -1384,6 +1428,7 @@ const loadMessages = async () => {
     ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
   } finally {
     messagesLoading.value = false
+    scheduleRead()
   }
 }
 
@@ -1684,6 +1729,9 @@ watch(() => props.canAddToProgress, canAdd => {
 })
 
 onMounted(() => {
+  if (props.targetMessageId) locateMessage(props.targetMessageId)
+  document.addEventListener('visibilitychange', scheduleRead)
+  window.addEventListener('focus', scheduleRead)
   ensureUsersLoaded()
   unsubscribeChatMessage = subscribe('chat_message', handleRealtimeChatMessage)
   unsubscribeChatAcknowledgement = subscribe('chat_message_acknowledgement', handleRealtimeChatAcknowledgement)
@@ -1696,6 +1744,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.clearTimeout(readTimer)
+  document.removeEventListener('visibilitychange', scheduleRead)
+  window.removeEventListener('focus', scheduleRead)
   clearComposerImages()
   unsubscribeChatMessage?.()
   unsubscribeChatAcknowledgement?.()
@@ -2610,4 +2661,7 @@ onBeforeUnmount(() => {
     justify-content: flex-end;
   }
 }
+</style>
+<style scoped>
+.chat-mention-jump{position:absolute;right:12px;top:48px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:#fff8db;border-left:3px solid #e9ac24}
 </style>

@@ -1,15 +1,16 @@
-const padDatePart = (value) => String(value).padStart(2, '0')
+import { businessDateTimeInputValue } from './dateTime.js'
 
 export const formatLocalDate = (value) => (
-  `${value.getFullYear()}-${padDatePart(value.getMonth() + 1)}-${padDatePart(value.getDate())}`
+  businessDateTimeInputValue(value).slice(0, 10)
 )
 
 export const defaultProgressSearchRange = (reference = new Date()) => {
-  const end = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
-  const targetMonth = reference.getMonth() - 3
-  const lastDay = new Date(reference.getFullYear(), targetMonth + 1, 0).getDate()
-  const start = new Date(reference.getFullYear(), targetMonth, Math.min(reference.getDate(), lastDay))
-  return [formatLocalDate(start), formatLocalDate(end)]
+  const businessDate = formatLocalDate(reference)
+  const [year, month, day] = businessDate.split('-').map(Number)
+  const targetMonth = month - 1 - 3
+  const lastDay = new Date(Date.UTC(year, targetMonth + 1, 0)).getUTCDate()
+  const start = new Date(Date.UTC(year, targetMonth, Math.min(day, lastDay)))
+  return [start.toISOString().slice(0, 10), businessDate]
 }
 
 export const isProgressSearchRangeValid = (range, maxDays = 366) => {

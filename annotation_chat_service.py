@@ -105,6 +105,7 @@ def message_query(db, project_id):
 
 
 def serialize_many(db, rows, user):
+    from chat_time import api_time
     from routers.project_chat import _serialize_message
     from project_chat_crud import get_chat_message_favorite_times
     favorites = get_chat_message_favorite_times(db, [row.id for row in rows], user.id)
@@ -126,7 +127,7 @@ def serialize_many(db, rows, user):
             data.update(content='', content_json=None, attachments=[], mentions=[], reply=None,
                         acknowledgements=[], acknowledgement_count=0, is_acknowledged=False,
                         is_favorited=False, favorited_at=None, mentioned_user_id=None, mentioned_user_name=None)
-        result.append(data)
+        result.append(api_time(data))
     return result
 
 
@@ -146,6 +147,9 @@ def send_message(db, project_id, user, payload):
             raise HTTPException(400, '引用消息不存在、已撤回或属于其他项目')
     attachment_ids = list(dict.fromkeys(payload.attachment_ids))
     attachments = db.query(ChatProjectAttachment).filter(ChatProjectAttachment.id.in_(attachment_ids)).with_for_update().all() if attachment_ids else []
+    from chat_schema import phase_one_ready
+    if phase_one_ready(db) and any(a.direct_conversation_id for a in attachments):
+        raise HTTPException(400, '私聊附件不能绑定到项目群，请重新上传')
     if len(attachments) != len(attachment_ids) or any(a.uploaded_by != user.id or (a.annotation_project_id and a.annotation_project_id != project_id) for a in attachments):
         raise HTTPException(400, '附件不存在或不属于当前用户')
     if attachment_ids and db.query(ChatProjectMessageAttachment).filter(
@@ -180,6 +184,8 @@ def send_message(db, project_id, user, payload):
             title='标注项目沟通提醒', content=f'{message.sender_name} 在项目 {project.order_no} / {project.project_name or "-"} 中 @了你，点击查看消息',
             notification_type='annotation_project_chat_mention', related_project_type='annotation',
             related_entity_id=project_id, commit=False)
+    from chat_notification_target import link_notifications
+    link_notifications(db, notifications, message.id)
     db.commit()
     _push_notifications(notifications)
     publish(db, project_id, 'message', message.id)
@@ -221,6 +227,11 @@ def authorize_attachment(db, attachment_id, user):
     attachment = db.get(ChatProjectAttachment, attachment_id)
     if not attachment:
         raise HTTPException(404, '附件不存在')
+    from chat_schema import phase_one_ready
+    ready = phase_one_ready(db)
+    if ready and attachment.direct_conversation_id:
+        from direct_chat_service import authorize_attachment as authorize_direct
+        return authorize_direct(db, attachment_id, user)
     links = db.query(ChatProjectMessage).join(ChatProjectMessageAttachment,
         ChatProjectMessageAttachment.message_id == ChatProjectMessage.id).filter(
         ChatProjectMessageAttachment.attachment_id == attachment_id).all()
@@ -233,6 +244,6 @@ def authorize_attachment(db, attachment_id, user):
             raise HTTPException(403, '没有访问附件的权限')
         if attachment.annotation_project_id:
             require_project(db, attachment.annotation_project_id, user)
-    elif not any(not row.recalled_at and can_view(db, user) for row in links):
+    elif not any((not ready or not row.direct_conversation_id) and not row.recalled_at and can_view(db, user) for row in links):
         raise HTTPException(404, '附件已撤回或不可访问')
     return attachment

@@ -9,7 +9,7 @@ const auditPage = readFileSync(new URL('../src/views/system/ProjectOperationAudi
 test('人工补充的具体进度提供删除入口，状态流转说明不可删除', () => {
   assert.match(page, /v-if="canWrite && child\.kind === 'progress'"/)
   assert.match(page, /@click="openProgressDeleteDialog\(child\)"/)
-  assert.match(page, /title="删除具体进度"/)
+  assert.ok(page.includes("'删除客户进度' : '删除具体进度'"))
 })
 
 test('删除具体进度必须填写原因并提交并发版本', () => {

@@ -10,7 +10,7 @@ test('项目进度记录入口和分页接口已接入', () => {
   assert.match(page, />进度记录<\/el-button>/)
   assert.match(dialog, /title="项目进度记录"/)
   assert.match(api, /getRecentStatusHistory = \(params = \{\}, config = \{\}\)/)
-  assert.match(dialog, /getRecentStatusHistory\(\{ skip, limit \}, config\)/)
+  assert.match(dialog, /getRecentStatusHistory\(\{ skip, limit, track: filters\.track \}, config\)/)
 })
 
 test('提供10、20、50、100和全部五个显示档位', () => {
@@ -27,7 +27,7 @@ test('全部档位每批100条并在接近末尾时自动追加', () => {
   assert.match(dialog, /append \? rows\.value\.length : 0/)
   assert.match(dialog, /new IntersectionObserver/)
   assert.match(dialog, /rootMargin: '200px 0px'/)
-  assert.match(dialog, /existingIds\.has\(String\(item\.id\)\)/)
+  assert.ok(dialog.includes("existingIds.has(`${item.track || 'project'}:${item.id}`)"))
   assert.match(dialog, /allLoadError\.value = true/)
   assert.match(dialog, /const retryLoadAll = \(\) =>/)
 })

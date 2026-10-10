@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from annotation_progress_time import business_datetime
 
 
 class ProjectOperationAuditResponse(BaseModel):
@@ -22,6 +23,11 @@ class ProjectOperationAuditResponse(BaseModel):
     change_reason: Optional[str] = None
     project_snapshot: dict[str, Any]
     occurred_at: datetime
+
+    @field_validator("occurred_at")
+    @classmethod
+    def normalize_audit_time(cls, value):
+        return business_datetime(value)
 
     model_config = ConfigDict(from_attributes=True)
 

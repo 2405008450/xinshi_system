@@ -96,6 +96,34 @@ def test_group_order_search_counts_and_audit_filters(db):
     assert [item.id for item in dated] == [row.id]
 
 
+def test_agent_review_filter_privacy_and_group_version(db, tmp_path, monkeypatch):
+    import json
+    import talent_agent_review_service as agent
+    from talent_duplicate_service import comparison_fingerprint
+    a, b, c = person(db), person(db), person(db)
+    output = tmp_path / "latest.json"
+    report = {"format_version": 1, "created_at": "2026-10-10T15:00:00+08:00", "reviewer": "当前 Agent", "groups": [{
+        "key": "王测试", "fingerprints": {str(p.id): comparison_fingerprint(p) for p in [a, b, c]}, "pairs": [
+            {"person_ids": [str(a.id), str(b.id)], "classification": "same", "confidence": "high", "reason": "合成测试的独立证据"},
+            {"person_ids": [str(a.id), str(c.id)], "classification": "uncertain", "confidence": "low", "reason": "信息不足"}]}]}
+    output.write_text(json.dumps(report), encoding="utf-8")
+    monkeypatch.setattr(agent, "REVIEW_PATH", output)
+    assert groups(db, contacts_visible=True, agent_bucket="high_same")["total"] == 1
+    detail = group_detail(db, "王测试", contacts_visible=True)
+    assert len(detail["agent_review"]["pairs"]) == 2
+    assert detail["agent_review"]["pairs"][0]["person_ids"] == [str(a.id), str(b.id)]
+    assert "agent_review" not in group_detail(db, "王测试", contacts_visible=False)
+    assert "agent_summary" not in groups(db, contacts_visible=False)
+    process(db, [a.id, b.id], action="different")
+    assert groups(db, contacts_visible=True, agent_bucket="high_same")["total"] == 0
+    assert len(group_detail(db, "王测试", contacts_visible=True)["agent_review"]["pairs"]) == 1
+    c.residence_address = "上海"
+    db.commit()
+    assert group_detail(db, "王测试", contacts_visible=True)["agent_review"]["state"] == "stale"
+    assert groups(db, contacts_visible=True, agent_bucket="high_same")["total"] == 0
+    assert groups(db, contacts_visible=True, agent_bucket="unreviewed")["total"] == 1
+
+
 def test_migration_is_repeatable(db):
     a, b = person(db), person(db)
     script = (Path(__file__).resolve().parents[1] / "data/migrations/20261009_talent_duplicate_review.sql").read_text(encoding="utf-8")

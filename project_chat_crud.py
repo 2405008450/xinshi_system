@@ -281,6 +281,11 @@ def _broadcast_chat_acknowledgement(
     acknowledged: bool,
     acknowledged_at: Optional[dt.datetime] = None,
 ) -> None:
+    from chat_schema import phase_one_ready
+    if phase_one_ready(db) and message.direct_conversation_id:
+        from direct_chat_service import publish
+        publish(db, message.direct_conversation_id, 'acknowledgement', message.id)
+        return
     project_type = 'annotation' if message.annotation_project_id else 'translation'
     project_id = message.annotation_project_id or message.project_id
     participants = _chat_participant_user_ids(
@@ -839,6 +844,9 @@ def create_project_chat_message(
         )
         if len(attachments) != len(attachment_ids):
             raise ValueError('附件不存在或不属于当前用户')
+        from chat_schema import phase_one_ready
+        if phase_one_ready(db) and any(a.direct_conversation_id for a in attachments):
+            raise ValueError('私聊附件不能绑定到项目群，请重新上传')
         db.add_all(
             ChatProjectMessageAttachment(message_id=message.id, attachment_id=attachment.id)
             for attachment in attachments
@@ -905,6 +913,9 @@ def create_project_chat_message(
             commit=True,
         ))
     if notifications:
+        from chat_notification_target import link_notifications
+        link_notifications(db, notifications, created.id)
+        db.commit()
         _push_notifications(notifications)
 
     _broadcast_chat_message(

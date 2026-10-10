@@ -51,6 +51,11 @@ def require_chat_access(request: Request, db: Session = Depends(get_db), user: A
     if message_id:
         try:
             message = db.get(ChatProjectMessage, UUID(str(message_id)))
+            from chat_schema import phase_one_ready
+            if message and phase_one_ready(db) and message.direct_conversation_id:
+                from direct_chat_service import require_project
+                require_project(db, message.direct_conversation_id, user)
+                return
             annotation = bool(message and message.annotation_project_id)
         except ValueError:
             pass
@@ -106,6 +111,7 @@ def _serialize_message(
     favorited_at: datetime | None = None,
     current_user_id: UUID | None = None,
 ) -> ProjectChatMessageResponse:
+    from chat_time import api_time
     mention_rows = sorted(
         getattr(message, 'mentions', None) or [],
         key=lambda item: (item.created_at is None, item.created_at or datetime.min, str(item.id)),
@@ -127,7 +133,7 @@ def _serialize_message(
         ProjectChatAcknowledgementItemResponse(
             user_id=acknowledgement.user_id,
             user_name=acknowledgement.user_name,
-            acknowledged_at=acknowledgement.created_at,
+            acknowledged_at=api_time(acknowledgement.created_at),
         )
         for acknowledgement in acknowledgement_rows
     ]
@@ -137,14 +143,15 @@ def _serialize_message(
             original_name=link.attachment.original_name,
             content_type=link.attachment.content_type,
             file_size=link.attachment.file_size,
-            created_at=link.attachment.created_at,
+            created_at=api_time(link.attachment.created_at),
         )
         for link in attachment_links
         if link.attachment
     ]
     return ProjectChatMessageResponse(
+        sequence_no=message.sequence_no,
         id=message.id,
-        project_id=message.annotation_project_id if project_type == 'annotation' else message.project_id,
+        project_id=(message.direct_conversation_id if project_type == 'direct' else message.annotation_project_id if project_type == 'annotation' else message.project_id),
         project_type=project_type,
         sender_user_id=message.sender_user_id,
         sender_name=message.sender_name,
@@ -152,13 +159,13 @@ def _serialize_message(
         content_json=None if getattr(message, 'recalled_at', None) else message.content_json,
         message_type=message.message_type,
         metadata=message.event_data or {},
-        created_at=message.created_at,
-        updated_at=message.updated_at,
+        created_at=api_time(message.created_at),
+        updated_at=api_time(message.updated_at),
         mentioned_user_id=mention.mentioned_user_id if mention else None,
         mentioned_user_name=mention.mentioned_user_name if mention else None,
         mentions=mentions,
         is_favorited=favorited_at is not None,
-        favorited_at=favorited_at,
+        favorited_at=api_time(favorited_at),
         acknowledgements=acknowledgements,
         acknowledgement_count=len(acknowledgements),
         is_acknowledged=any(item.user_id == current_user_id for item in acknowledgement_rows),
@@ -171,11 +178,12 @@ def _serialize_acknowledgement_response(
     rows,
     current_user_id: UUID,
 ) -> ProjectChatAcknowledgementResponse:
+    from chat_time import api_time
     acknowledgements = [
         ProjectChatAcknowledgementItemResponse(
             user_id=item.user_id,
             user_name=item.user_name,
-            acknowledged_at=item.created_at,
+            acknowledged_at=api_time(item.created_at),
         )
         for item in rows
     ]
@@ -218,6 +226,11 @@ def _require_visible_message(db: Session, message_id: UUID) -> ChatProjectMessag
 
     if message.annotation_project_id is not None:
         _require_annotation_project(db, message.annotation_project_id)
+        return message
+
+    from chat_schema import phase_one_ready
+    if phase_one_ready(db) and message.direct_conversation_id is not None:
+        # 成员校验由路由依赖 require_chat_access 在进入端点前完成。
         return message
 
     if message.project_id is None:

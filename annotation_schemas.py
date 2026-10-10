@@ -5,6 +5,7 @@ from decimal import Decimal
 import re
 from typing import Optional
 from uuid import UUID
+from annotation_progress_time import business_now, project_progress_datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from path_security import validate_managed_path
@@ -380,9 +381,14 @@ class AnnotationProjectOrderNoUpdate(BaseModel):
 
 class AnnotationProjectStatusUpdate(BaseModel):
     project_status: str
-    effective_on: datetime = Field(default_factory=datetime.now)
+    effective_on: datetime = Field(default_factory=lambda: project_progress_datetime(business_now()))
     change_note: str = Field(min_length=1, max_length=10000)
     progress_only: bool = False
+
+    @field_validator("effective_on")
+    @classmethod
+    def normalize_progress_time(cls, value):
+        return project_progress_datetime(value)
 
     @field_validator("project_status")
     @classmethod
@@ -474,6 +480,8 @@ class AnnotationProjectListResponse(BaseModel):
     arrangement_included: bool = False
     arrangement_membership_updated_at: Optional[datetime] = None
     arrangement_membership_note: Optional[str] = None
+    latest_customer_progress_note: Optional[str] = None
+    latest_customer_progress_effective_on: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

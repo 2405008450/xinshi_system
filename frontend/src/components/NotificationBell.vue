@@ -247,11 +247,19 @@ const CHAT_NOTIFICATION_TYPES = ['project_chat', 'project_chat_mention', 'annota
 const isChatNotification = (item) => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
 
 // 聊天类通知统一打开聊天小窗，不再跳转项目页面；缺少项目关联时走原跳转兜底。
-const openChatNotification = (item) => {
+  const openChatNotification = async (item) => {
   const projectType = item.related_project_type || 'translation'
   const projectId = item.related_entity_id || item.related_project_id
   if (!projectId) return false
-  openChat({ projectId, projectType })
+    let messageId = ''
+    if (isMentionNotification(item)) {
+      try {
+        const { chatRequest } = await import('@/api/projectChat')
+        const target = await chatRequest(`mentions/${item.id}/target`)
+        messageId = target.messageId || ''
+      } catch { /* 目标已删除时仍可打开会话查看当前记录。 */ }
+    }
+    openChat({ projectId, projectType, messageId })
   popoverVisible.value = false
   return true
 }
@@ -261,7 +269,7 @@ const navigateToNotification = async (item) => {
     await router.push('/workbench')
     return
   }
-  if (isChatNotification(item) && openChatNotification(item)) return
+    if (isChatNotification(item) && await openChatNotification(item)) return
   if (item.related_project_type && item.related_entity_id) {
     const routeName = {
       translation: 'TranslationProjectDetails',
@@ -580,6 +588,8 @@ onBeforeUnmount(() => {
 }
 
 :global(.el-notification.mention-notification) {
+    z-index: 100000 !important;
+    margin-top: 64px;
   width: min(380px, calc(100vw - 32px));
   border: 1px solid var(--el-border-color-lighter);
   background: var(--el-bg-color);

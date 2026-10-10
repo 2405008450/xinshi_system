@@ -889,24 +889,31 @@ class ChatProjectEnabled(Base):
 
 class ChatProjectMessage(Base):
     __tablename__ = 'chat_project_message'
+    __mapper_args__ = {'eager_defaults': False}
     __table_args__ = (
         ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='CASCADE', name='fk_chat_project_message_project'),
         ForeignKeyConstraint(['annotation_project_id'], ['annotation_project.id'], ondelete='CASCADE', name='fk_chat_project_message_annotation_project'),
+        ForeignKeyConstraint(['direct_conversation_id'], ['chat_direct_conversation.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['sender_user_id'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_project_message_sender'),
         PrimaryKeyConstraint('id', name='chat_project_message_pkey'),
         CheckConstraint(
             '(CASE WHEN project_id IS NOT NULL THEN 1 ELSE 0 END + '
-            'CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END) = 1',
+            'CASE WHEN annotation_project_id IS NOT NULL THEN 1 ELSE 0 END + '
+            'CASE WHEN direct_conversation_id IS NOT NULL THEN 1 ELSE 0 END) = 1',
             name='ck_chat_project_message_exactly_one_project',
         ),
         Index('ix_chat_project_message_project_created_at', 'project_id', 'created_at'),
         Index('ix_chat_project_message_annotation_created_at', 'annotation_project_id', 'created_at'),
         Index('ix_chat_project_message_sender_user_id', 'sender_user_id'),
+        Index('ix_direct_chat_sequence', 'direct_conversation_id', 'sequence_no'),
+        Index('uq_direct_chat_client', 'direct_conversation_id', 'sender_user_id', 'client_message_id',
+              unique=True, postgresql_where=text('client_message_id IS NOT NULL')),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    direct_conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, deferred=True, server_default=text('NULL'))
     sender_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sender_name: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -946,6 +953,7 @@ class ChatProjectMessage(Base):
 class AnnotationChatMember(Base):
     """关注与阅读位置独立保存；退订记录不得由自动加入覆盖。"""
     __tablename__ = 'annotation_chat_member'
+    __mapper_args__ = {'eager_defaults': False}
     __table_args__ = (
         ForeignKeyConstraint(['project_id'], ['annotation_project.id'], ondelete='CASCADE'),
         ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE'),
@@ -953,9 +961,54 @@ class AnnotationChatMember(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     following: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'), deferred=True)
+    starred: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'), deferred=True)
     explicit_unfollow: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
     last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text('0'))
     joined_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class ChatDirectConversation(Base):
+    __tablename__ = 'chat_direct_conversation'
+    __table_args__ = (
+        ForeignKeyConstraint(['user_low_id'], ['app_user.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['user_high_id'], ['app_user.id'], ondelete='CASCADE'),
+        UniqueConstraint('user_low_id', 'user_high_id', name='uq_chat_direct_pair'),
+        CheckConstraint('user_low_id < user_high_id', name='ck_chat_direct_pair_order'),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    user_low_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    user_high_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_message_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ChatDirectMember(Base):
+    __tablename__ = 'chat_direct_member'
+    __table_args__ = (
+        ForeignKeyConstraint(['conversation_id'], ['chat_direct_conversation.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE'),
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text('0'))
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    starred: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    muted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    hidden_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ChatProjectMemberPref(Base):
+    __tablename__ = 'chat_project_member_pref'
+    __table_args__ = (
+        ForeignKeyConstraint(['project_id'], ['translation_project.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['user_id'], ['app_user.id'], ondelete='CASCADE'),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text('0'))
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    starred: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
 
 
 class ChatProjectMention(Base):
@@ -1049,14 +1102,17 @@ class ChatProjectMessageAcknowledgement(Base):
 
 class ChatProjectAttachment(Base):
     __tablename__ = 'chat_project_attachment'
+    __mapper_args__ = {'eager_defaults': False}
     __table_args__ = (
         ForeignKeyConstraint(['uploaded_by'], ['app_user.id'], ondelete='SET NULL', name='fk_chat_attachment_uploader'),
+        ForeignKeyConstraint(['direct_conversation_id'], ['chat_direct_conversation.id'], ondelete='CASCADE'),
         PrimaryKeyConstraint('id', name='chat_project_attachment_pkey'),
         Index('ix_chat_project_attachment_created_at', 'created_at'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    direct_conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, deferred=True, server_default=text('NULL'))
     annotation_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
@@ -1069,6 +1125,16 @@ class ChatProjectAttachment(Base):
         back_populates='attachment',
         cascade='all, delete-orphan',
     )
+
+
+class ChatMentionNotificationTarget(Base):
+    __tablename__ = 'chat_mention_notification_target'
+    __table_args__ = (
+        ForeignKeyConstraint(['notification_id'], ['app_notification.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['message_id'], ['chat_project_message.id'], ondelete='CASCADE'),
+    )
+    notification_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 
 
 class ChatProjectMessageAttachment(Base):

@@ -140,7 +140,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjectOperationAudits } from '@/api/projectAudits'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 const projectTypeOptions = [
   { value: 'translation', label: '笔译' },
@@ -155,6 +155,7 @@ const sourceLabels = {
   legacy_import: '历史导入',
   project_order_no_change: '订单号修改',
   progress_record_delete: '项目进度记录',
+  customer_progress_record_delete: '客户进度记录',
 }
 const fieldLabels = {
   id: '项目 ID', order_no: '订单号', project_name: '项目名称', project_status: '项目状态',

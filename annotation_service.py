@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 from annotation_manager_change_service import record_annotation_manager_change
+from annotation_customer_progress_service import attach_customer_progress_summary
+from annotation_progress_time import business_now
 from annotation_custom_field_image_service import delete_custom_field_image_files
 
 from concurrency import VERSION_FIELD, assert_fresh
@@ -219,6 +221,7 @@ def get_annotation_project(
     if project:
         project.auto_created_child_count = 0
         _attach_child_statistics(db, [project])
+        attach_customer_progress_summary(db, [project])
         if not project.parent_project_id:
             from annotation_direction_service import direction_state
             project.direction_summary = direction_state(db, project)[1]
@@ -508,6 +511,7 @@ def get_annotation_projects(
         project.__dict__["latest_progress_changed_at"] = latest_changed_at
         projects.append(project)
     _attach_child_statistics(db, projects)
+    attach_customer_progress_summary(db, projects)
     return projects
 
 
@@ -1007,7 +1011,7 @@ def update_annotation_project_status(
         history_from_status = previous_status
         project.project_status = project_status
         project.status_effective_on = effective_on
-    project.updated_at = datetime.now()
+    project.updated_at = business_now().replace(tzinfo=None)
     db.add(AnnotationProjectStatusHistory(
         project_id=project.id,
         from_status=history_from_status,
@@ -1016,6 +1020,8 @@ def update_annotation_project_status(
         changed_by=changed_by,
         change_note=change_note,
         entry_kind="progress" if progress_only else "status",
+        changed_at=business_now().replace(tzinfo=None),
+        updated_at=business_now().replace(tzinfo=None),
     ))
     if not progress_only:
         from project_workbench_service import ensure_active_project_responsibilities

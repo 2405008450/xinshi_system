@@ -27,6 +27,7 @@ from annotation_ops_models import (
 )
 from annotation_schemas import AnnotationProjectListResponse
 from concurrency import assert_fresh
+from annotation_progress_time import business_now
 from models import AppUser, Client, Role, SubClient, UserRole
 from project_audit_service import record_project_operation
 from resource_models import ResourceAnnotationLanguageSkill, ResourceCapability, ResourcePerson
@@ -1374,7 +1375,7 @@ def update_progress_history(db: Session, history_id: UUID, payload, user_id: UUI
     row.change_note = payload.change_note
     row.entry_kind = "progress"
     row.updated_by = user_id
-    row.updated_at = datetime.now()
+    row.updated_at = business_now().replace(tzinfo=None)
     db.commit()
     return list_status_history(db, row.project_id)
 

@@ -10,13 +10,17 @@
         <div class="chat-workspace__title-row">
           <strong :title="title">{{ title || '沟通' }}</strong>
           <el-tag v-if="projectType" size="small" effect="plain" :type="projectType === 'annotation' ? 'success' : 'primary'">
-            {{ projectType === 'annotation' ? '标注' : '笔译' }}
+            {{ projectType === 'direct' ? '单聊' : projectType === 'annotation' ? '标注' : '笔译' }}
           </el-tag>
         </div>
-        <span v-if="metaLoading" class="chat-workspace__subtitle">正在加载项目信息…</span>
-        <span v-else-if="subtitle" class="chat-workspace__subtitle" :title="subtitle">{{ subtitle }}</span>
+        <div class="chat-workspace__subtitle-row">
+          <span v-if="metaLoading" class="chat-workspace__subtitle">正在加载项目信息…</span>
+          <span v-else-if="subtitle" class="chat-workspace__subtitle" :title="subtitle">{{ subtitle }}</span>
+          <ChatProjectActions v-if="!narrow" :project-id="projectId" :project-type="projectType" />
+        </div>
       </div>
       <div class="chat-workspace__actions">
+        <ChatProjectActions v-if="narrow" :project-id="projectId" :project-type="projectType" />
         <el-button v-if="narrow" link aria-label="会话列表" title="会话列表" @click="emit('toggle-sidebar')">会话</el-button>
         <el-button v-if="activeKey" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')">
           <el-icon><Search /></el-icon>
@@ -38,10 +42,13 @@
       <aside v-show="!narrow || sidebarOpen" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
         <div class="chat-workspace__session-tools">
           <div v-if="maximized" class="chat-workspace__brand"><el-icon><ChatDotRound /></el-icon><strong>项目沟通</strong><span>{{ sessions.length }} 个会话</span></div>
-          <div class="chat-workspace__search"><el-input v-model="keyword" clearable size="small" placeholder="搜索项目名称、订单号" :prefix-icon="Search" @keyup.enter="applyKeyword" /><el-button size="small" @click="applyKeyword">查询</el-button></div>
-          <div class="chat-workspace__tabs" role="tablist">
-            <button type="button" :class="{ 'is-active': tab === 'all' }" @click="tab = 'all'">消息</button>
-            <button type="button" :class="{ 'is-active': tab === 'unread' }" @click="tab = 'unread'">未读</button>
+          <div class="chat-workspace__search"><el-input v-model="keyword" clearable size="small" placeholder="搜索名称、订单号、消息" :prefix-icon="Search" @keyup.enter="applyKeyword" /><el-button size="small" @click="applyKeyword">查询</el-button></div>
+          <div class="chat-workspace__tabs">
+            <el-popover trigger="click" placement="bottom-start" :width="220" popper-class="chat-session-popover">
+              <template #reference><el-button size="small">{{ groups.find(g => g.key === tab)?.label }} ▾</el-button></template>
+              <div class="chat-session-groups"><el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key">{{ group.label }} ({{ groupCount(group.key) }})</el-button></div>
+            </el-popover>
+            <StartDirectChat />
           </div>
         </div>
         <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
@@ -63,12 +70,22 @@
               <span class="chat-workspace__session-title">
                 <strong :title="session.title">{{ session.title || '未命名项目' }}</strong>
                 <el-tag size="small" effect="plain" :type="session.projectType === 'annotation' ? 'success' : 'primary'">
-                  {{ session.projectType === 'annotation' ? '标注' : '笔译' }}
+                  {{ session.projectType === 'direct' ? '单聊' : session.projectType === 'annotation' ? '标注' : '笔译' }}
                 </el-tag>
               </span>
               <small v-if="session.subtitle">{{ session.subtitle }}</small>
+              <small class="chat-session-preview" :title="session.lastMessage ? `${session.lastMessage.senderName}：${session.lastMessage.preview}` : ''"><b v-if="session.mentionUnread" class="chat-mention-label">[有人@我] </b><mark v-else-if="session.lastMessage?.mentionsMe" class="chat-mention-preview">[@我]</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${session.lastMessage.preview}` : '暂无消息' }}</small>
             </span>
+            <span v-if="session.pinned" title="已置顶">↑</span><span v-if="session.starred" title="特别关注">★</span><b v-if="session.mentionUnread" class="chat-mention-label">@</b>
             <el-badge :value="session.unread" :max="99" :hidden="!session.unread" />
+            <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover">
+              <template #reference><el-button link aria-label="会话操作" @click.stop @keydown.stop>⋯</el-button></template>
+              <div class="chat-session-groups">
+                <el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button>
+                <el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button>
+                <el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button>
+              </div>
+            </el-popover>
             <span
               v-if="session.opened"
               class="chat-workspace__session-close"
@@ -94,9 +111,12 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ChatDotRound, Close, Minus, Position, Search } from '@element-plus/icons-vue'
+import StartDirectChat from './StartDirectChat.vue'
+import ChatProjectActions from './ChatProjectActions.vue'
 import ChatWindowStateMenu from './ChatWindowStateMenu.vue'
 
 const props = defineProps({
+  projectId: { type: String, default: '' },
   sessions: { type: Array, default: () => [] },
   activeKey: { type: String, default: '' },
   error: { type: String, default: '' },
@@ -112,11 +132,25 @@ const props = defineProps({
   dragging: { type: Boolean, default: false },
 })
 const emit = defineEmits([
-  'select', 'open', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
+  'preference', 'select', 'open', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen',
 ])
 
-const tab = ref('all')
+const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
+const storageKey = `xinshi.chatGroup.${localStorage.getItem('user_id') || 'anonymous'}`
+let saved = 'all'
+try { saved = localStorage.getItem(storageKey) || 'all' } catch { /* 存储不可用时使用默认分组。 */ }
+const tab = ref(groups.some(g => g.key === saved) ? saved : 'all')
+watch(tab, value => { try { localStorage.setItem(storageKey, value) } catch { /* 本次选择仍然生效。 */ } })
+function inGroup(session, key) {
+  if (key === 'all') return true
+  if (key === 'mention') return !!session.mentionUnread
+  if (key === 'creator') return !!session.isCreator
+  if (key === 'project') return session.projectType !== 'direct'
+  if (['direct', 'annotation', 'translation'].includes(key)) return session.projectType === key
+  return !!session[key]
+}
+const groupCount = key => props.sessions.filter(s => inGroup(s, key)).length
 const keyword = ref('')
 const appliedKeyword = ref('')
 let keywordTimer = 0
@@ -136,10 +170,10 @@ watch(keyword, (value) => {
 })
 
 const visibleSessions = computed(() => props.sessions.filter((session) => {
-  if (tab.value === 'unread' && !session.unread) return false
+  if (!inGroup(session, tab.value)) return false
   if (!appliedKeyword.value) return true
-  return `${session.title || ''} ${session.subtitle || ''}`.toLowerCase().includes(appliedKeyword.value)
-}))
+  return `${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`.toLowerCase().includes(appliedKeyword.value)
+}).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || (Date.parse(b.lastMessage?.createdAt || '') || 0) - (Date.parse(a.lastMessage?.createdAt || '') || 0)))
 onBeforeUnmount(() => window.clearTimeout(keywordTimer))
 </script>
 
@@ -232,10 +266,27 @@ onBeforeUnmount(() => window.clearTimeout(keywordTimer))
 .chat-workspace__heading {
   display: flex;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
   cursor: text;
   user-select: text;
+}
+
+.chat-workspace__subtitle-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-workspace__subtitle-row .chat-workspace__subtitle,
+.chat-workspace__title-row strong {
+  min-width: 0;
+}
+
+.chat-workspace__title-row .el-tag {
+  flex-shrink: 0;
 }
 
 .chat-workspace__title-row,
@@ -464,4 +515,8 @@ onBeforeUnmount(() => window.clearTimeout(keywordTimer))
   color: var(--el-color-danger);
   text-align: left;
 }
+</style>
+<style scoped>
+.chat-session-groups{display:flex;flex-direction:column;align-items:stretch;max-height:400px;overflow:auto}.chat-session-groups .el-button{margin:0;justify-content:flex-start;padding:8px}.chat-mention-label{color:#dc2626}.chat-session-preview{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
+.chat-mention-preview{margin-right:4px;padding:0 3px;border-radius:3px;background:#fef3c7;color:#92400e}
 </style>

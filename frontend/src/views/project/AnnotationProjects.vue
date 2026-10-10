@@ -129,6 +129,7 @@
               <el-icon class="status-switch-caret"><EditPen /></el-icon>
             </el-tag>
           </el-button>
+          <el-button v-else-if="column.key === 'latestCustomerProgressNote'" link type="primary" class="customer-progress-summary-link" @click.stop="openProgress(row, '', 'progress', 'customer')">{{ row.latestCustomerProgressNote || '-' }}</el-button>
           <el-dropdown
             v-else-if="column.key === 'priority' && canWrite"
             trigger="click"
@@ -221,6 +222,7 @@
             </div>
           </el-popover>
           <span v-else-if="column.key === 'taskSubmittedAt' && !row.taskSubmittedAt">待定</span>
+          <span v-else-if="column.key === 'latestCustomerProgressEffectiveOn'">{{ formatDateTime(row.latestCustomerProgressEffectiveOn) }}</span>
           <el-tooltip
             v-else-if="column.type === 'datetime'"
             :content="formatDateTime(row[column.key])"
@@ -276,7 +278,7 @@
       @project-change-rejected="arrangementProject = $event"
     />
 
-    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" @closed="resetProgressDialog">
+    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" :before-close="closeProgressDialog" @closed="resetProgressDialog">
       <template #header>
         <div class="progress-dialog-heading">
           <span class="progress-dialog-title">项目进度</span>
@@ -295,6 +297,14 @@
       </template>
       <el-tabs v-model="progressDialogTab" class="annotation-progress-tabs">
         <el-tab-pane label="进度记录" name="progress">
+      <div class="progress-track-switch">
+        <el-radio-group v-model="progressTrack" :disabled="progressBusy" size="small">
+          <el-radio-button value="project">项目进度</el-radio-button>
+          <el-radio-button value="customer">客户进度</el-radio-button>
+        </el-radio-group>
+        <span>{{ progressTrack === 'customer' ? '记录本项目的客户确认、反馈和后续安排' : '记录项目执行情况和状态流转' }}</span>
+      </div>
+      <div v-show="progressTrack === 'project'">
       <section v-if="canWrite" ref="progressEntryPanelRef" class="progress-entry-panel">
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
@@ -303,16 +313,17 @@
           </div>
           <div class="progress-entry-mode">
             <span class="progress-entry-mode__label">记录类型</span>
-            <el-radio-group v-model="statusEntryMode" size="small" @change="handleStatusEntryModeChange">
+            <el-radio-group v-model="statusEntryMode" :disabled="progressBusy" size="small" @change="handleStatusEntryModeChange">
               <el-radio-button value="progress">补充进度</el-radio-button>
               <el-radio-button value="status">切换状态</el-radio-button>
             </el-radio-group>
           </div>
         </div>
         <div v-if="progressDraftSource" class="progress-chat-source">
-          已从项目沟通带入：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
+          已从项目沟通带入项目进度：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
+          <el-button link type="primary" :disabled="progressBusy" @click="transferProjectDraftToCustomer">转到客户进度</el-button>
         </div>
-        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="76px" size="small" class="progress-entry-form">
+        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressBusy" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
@@ -344,7 +355,7 @@
             <div class="progress-stage-title">
               <b>{{ statusLabel(group.status) }}</b>
               <el-tag v-if="group.isCurrent" size="small" type="primary" effect="plain">当前状态</el-tag>
-              <el-button v-if="canWrite" type="primary" link size="small" class="progress-stage-add" @click="selectProgressStage(group)">补充进度</el-button>
+              <el-button v-if="canWrite" type="primary" link size="small" class="progress-stage-add" :disabled="progressBusy" @click="selectProgressStage(group)">补充进度</el-button>
             </div>
             <div class="progress-stage-meta">
               <span>{{ formatDateTime(group.effectiveOn) }}</span>
@@ -360,7 +371,8 @@
               :key="child.key"
               class="progress-child-item"
               :class="{ 'is-progress-search-target': String(child.id) === targetProgressRecordId }"
-              :data-progress-record-id="child.id"
+                  :data-progress-record-id="child.id"
+                  data-progress-track="project"
             >
               <span class="progress-child-dot" />
               <div class="progress-child-content">
@@ -375,6 +387,7 @@
                     link
                     size="small"
                     class="progress-child-delete"
+                    :disabled="progressBusy"
                     @click="openProgressDeleteDialog(child)"
                   >删除</el-button>
                 </div>
@@ -385,9 +398,20 @@
         </el-timeline-item>
       </el-timeline>
       <el-empty v-if="!progressLoading && !progressGroups.length" description="暂无项目进度记录" :image-size="80" />
+      </div>
+      <AnnotationCustomerProgress
+        v-if="activeProgressProject?.id" v-show="progressTrack === 'customer'" ref="customerProgressRef"
+        :key="activeProgressProject.id" :project-id="activeProgressProject.id"
+        :active="progressVisible && progressDialogTab === 'progress' && progressTrack === 'customer'"
+        :can-write="canWrite" :busy="statusSubmitting || progressDeleteSubmitting"
+        :target-record-id="progressTrack === 'customer' ? targetProgressRecordId : ''"
+        @busy="customerProgressSubmitting = $event" @changed="refreshCustomerProgressSummary"
+        @delete="openProgressDeleteDialog" @transfer="transferCustomerDraftToProject"
+      />
         </el-tab-pane>
         <el-tab-pane label="项目沟通" name="chat">
           <ProjectChatPanel
+            v-if="activeProgressProject?.id"
             :key="activeProgressProject?.id"
             :project-id="activeProgressProject?.id"
             project-type="annotation"
@@ -402,16 +426,17 @@
         </el-tab-pane>
       </el-tabs>
       <template #footer>
-        <el-button v-if="progressSearchReturnAvailable" @click="returnToProgressSearch">返回检索结果</el-button>
-        <el-button @click="progressVisible=false">关闭</el-button>
+        <el-button v-if="progressSearchReturnAvailable" :disabled="progressBusy" @click="returnToProgressSearch">返回检索结果</el-button>
+        <el-button :disabled="progressBusy" @click="closeProgressDialog">关闭</el-button>
       </template>
     </DraggableFormDialog>
 
     <DraggableFormDialog
       v-model="progressDeleteVisible"
-      title="删除具体进度"
+      :title="progressDeleteTarget?.track === 'customer' ? '删除客户进度' : '删除具体进度'"
       width="min(560px, calc(100vw - 32px))"
       append-to-body
+      :before-close="closeProgressDeleteDialog"
       @closed="resetProgressDeleteDialog"
     >
       <el-alert title="删除后无法恢复；原记录、删除原因和操作人将永久保留在项目操作审计中。" type="warning" :closable="false" show-icon />
@@ -425,7 +450,7 @@
         </el-form-item>
       </AppForm>
       <template #footer>
-        <el-button @click="progressDeleteVisible=false">取消</el-button>
+        <el-button :disabled="progressDeleteSubmitting" @click="progressDeleteVisible=false">取消</el-button>
         <el-button type="danger" :loading="progressDeleteSubmitting" @click="confirmProgressDelete">确认删除</el-button>
       </template>
     </DraggableFormDialog>
@@ -652,6 +677,8 @@ import InternalProjectRolesForm from '@/components/common/InternalProjectRolesFo
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
+import AnnotationCustomerProgress from '@/components/annotation/AnnotationCustomerProgress.vue'
+import { appendProgressDraft, progressChatDraft } from '@/utils/annotationCustomerProgress'
 import AnnotationProjectArrangementQuickDialog from '@/components/annotation/AnnotationProjectArrangementQuickDialog.vue'
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
 import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
@@ -669,7 +696,7 @@ import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/email
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 
 
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { businessDateTimeInputValue, formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
@@ -790,7 +817,7 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:110,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看全部语言及人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:110,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看全部语言及人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -845,6 +872,8 @@ const progressSortActive=computed(()=>listSort.value==='latest_progress_desc')
 let submitLocked=false
 const statusSubmitting=ref(false), statusFormRef=ref(), statusEntryMode=ref('progress'), progressEntryPanelRef=ref(), progressNoteInputRef=ref()
 const progressDraftSource=ref(null)
+const progressTrack=ref('project'), customerProgressRef=ref(), customerProgressSubmitting=ref(false)
+const progressBusy=computed(()=>statusSubmitting.value || customerProgressSubmitting.value || progressDeleteSubmitting.value)
 const statusForm=reactive({projectStatus:'',effectiveOn:'',changeNote:''})
 const statusRules={
   projectStatus:[
@@ -901,9 +930,10 @@ let autoNameTimer
 const nameManuallyEdited=ref(false)
 
 const padDatePart=(value)=>String(value).padStart(2,'0')
-const localDateValue=(value=new Date())=>`${value.getFullYear()}-${padDatePart(value.getMonth()+1)}-${padDatePart(value.getDate())}`
+const localDateValue=(value=new Date())=>businessDateTimeInputValue(value).slice(0,10)
 const today=()=>localDateValue()
-const localDateTimeValue=(value=new Date())=>`${localDateValue(value)} ${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}:00`
+const localDateTimeValue=businessDateTimeInputValue
+
 const projectNameDate=()=>{const matched=String(form.orderNo||'').match(/^AP-(\d{2})(\d{2})(\d{2})-\d+$/);return matched?`20${matched[1]}-${matched[2]}-${matched[3]}`:today()}
 const emptyLanguageItem=()=>({mode:'single',sourceLanguageId:'',targetLanguageId:''})
 const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:localDateTimeValue(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',taskSubmittedAtPending:false,clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
@@ -1004,16 +1034,100 @@ const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFie
 const resetSearch=()=>{searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),getProjectRoleCandidatesAPI('project_manager')]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];projectManagerOptions.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[]}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
-const resetProgressDialog=()=>{const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';selectedProgressStageKey.value='';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;progressDraftSource.value=null;statusEntryMode.value='progress';Object.assign(statusForm,{projectStatus:'',effectiveOn:'',changeNote:''});statusFormRef.value?.clearValidate();if(route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn){progressSearchDialogRef.value?.preserveNextOpen();progressSearchVisible.value=true}}
+const resetProgressDialog=()=>{progressTrack.value='project';customerProgressSubmitting.value=false;customerProgressRef.value?.clearDraft();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';selectedProgressStageKey.value='';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;progressDraftSource.value=null;statusEntryMode.value='progress';Object.assign(statusForm,{projectStatus:'',effectiveOn:'',changeNote:''});statusFormRef.value?.clearValidate();if(route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn){progressSearchDialogRef.value?.preserveNextOpen();progressSearchVisible.value=true}}
 const handleStatusEntryModeChange=(mode)=>{selectedProgressStageKey.value='';progressDraftSource.value=null;statusForm.projectStatus=mode==='progress'?(activeProgressProject.value?.projectStatus||''):'';statusForm.effectiveOn=localDateTimeValue();statusForm.changeNote='';statusFormRef.value?.clearValidate()}
 const handleProgressStatusSelect=()=>{if(statusEntryMode.value==='progress')selectedProgressStageKey.value=''}
 const selectProgressStage=async(group)=>{statusEntryMode.value='progress';selectedProgressStageKey.value=group.key;progressDraftSource.value=null;Object.assign(statusForm,{projectStatus:group.status,effectiveOn:localDateTimeValue(),changeNote:''});statusFormRef.value?.clearValidate();await nextTick();progressEntryPanelRef.value?.scrollIntoView({behavior:'smooth',block:'nearest'});progressNoteInputRef.value?.focus?.()}
-const handleChatMessageToProgress=async(messages)=>{const sourceMessages=(Array.isArray(messages)?messages:[messages]).map((message,index)=>{const content=String(message?.content||'').trim();const createdAt=new Date(message?.createdAt);return {message,content,index,createdAt,validDate:!Number.isNaN(createdAt.getTime())}}).filter(item=>item.content).sort((a,b)=>a.validDate&&b.validDate?a.createdAt-b.createdAt:a.validDate?-1:b.validDate?1:a.index-b.index);if(!sourceMessages.length)return ElMessage.warning('请先选择包含文字内容的沟通消息');const content=sourceMessages.map(({message,content:messageContent})=>`【${message?.senderName||'未知用户'}】\n${messageContent}`).join('\n\n');if(content.length>10000)return ElMessage.warning(`所选消息整理后共 ${content.length} 字，超过具体进度 10000 字限制，请减少选择`);const existing=String(statusForm.changeNote||'').trim();if(existing&&existing!==content){try{await ElMessageBox.confirm('具体进度中已有未保存内容，是否使用所选消息替换？','替换具体进度',{type:'warning',confirmButtonText:'替换',cancelButtonText:'取消'})}catch{return}}const validDates=sourceMessages.filter(item=>item.validDate).map(item=>item.createdAt);const effectiveDate=validDates.length?validDates[validDates.length-1]:new Date();const senderNames=[...new Set(sourceMessages.map(({message})=>message?.senderName||'未知用户'))];statusEntryMode.value='progress';selectedProgressStageKey.value='';progressDraftSource.value={messageCount:sourceMessages.length,senderSummary:senderNames.join('、')};Object.assign(statusForm,{projectStatus:activeProgressProject.value?.projectStatus||'',effectiveOn:localDateTimeValue(effectiveDate),changeNote:content});progressDialogTab.value='progress';await nextTick();statusFormRef.value?.clearValidate();progressEntryPanelRef.value?.scrollIntoView({behavior:'smooth',block:'nearest'});progressNoteInputRef.value?.focus?.();ElMessage.success(`已带入 ${sourceMessages.length} 条沟通消息，请确认后保存`)}
-const locateTargetProgressRecord=async()=>{if(!targetProgressRecordId.value)return;await nextTick();document.querySelector(`[data-progress-record-id="${targetProgressRecordId.value}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})}
-const openProgress=async(row,targetRecordId='',initialTab='progress')=>{targetProgressRecordId.value=String(targetRecordId||'');progressDialogTab.value=initialTab;activeProgressProject.value=row;progressRows.value=[];progressDraftSource.value=null;statusEntryMode.value='progress';Object.assign(statusForm,{projectStatus:row.projectStatus||'',effectiveOn:localDateTimeValue(),changeNote:''});progressVisible.value=true;progressLoading.value=true;await nextTick();statusFormRef.value?.clearValidate();try{const [detail,history]=await Promise.all([loadDetail(row.id),annotationOpsApi.getStatusHistory(row.id)]);if(detail){activeProgressProject.value=detail;statusForm.projectStatus=detail.projectStatus||statusForm.projectStatus}progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[row.id]=progressRows.value;await locateTargetProgressRecord()}catch(error){ElMessage.error(error?.detail||'进度记录加载失败')}finally{progressLoading.value=false}}
+const handleChatMessageToProgress=async(messages)=>{
+  if(progressBusy.value)return
+  try{
+    const draft=progressChatDraft(messages)
+    const existing=progressTrack.value==='customer'?customerProgressRef.value?.getDraft()?.changeNote:statusForm.changeNote
+    if(String(existing||'').trim()){
+      await ElMessageBox.confirm('当前进度线有未保存内容，是否将所选沟通消息追加到草稿？','追加沟通消息',{confirmButtonText:'追加',cancelButtonText:'保留草稿',type:'warning'})
+    }
+    progressDialogTab.value='progress'
+    await nextTick()
+    if(progressTrack.value==='customer')await customerProgressRef.value?.acceptDraft(draft)
+    else await acceptProjectChatDraft(draft)
+    ElMessage.success(`已带入 ${draft.source.messageCount} 条沟通消息，请确认所属进度线后保存`)
+  }catch(error){if(error==='cancel'||error==='close')return;ElMessage.warning(error?.message||'沟通消息带入失败')}
+}
+const acceptProjectChatDraft=async(draft)=>{
+  if(statusEntryMode.value==='status'&&String(statusForm.changeNote||'').trim())throw new Error('请先保存当前状态变更说明，再带入沟通消息')
+  const note=appendProgressDraft(statusForm.changeNote,draft.changeNote)
+  if(!String(statusForm.changeNote||'').trim()){
+    statusForm.projectStatus=activeProgressProject.value?.projectStatus||''
+    statusForm.effectiveOn=draft.effectiveOn
+  }
+  statusEntryMode.value='progress';selectedProgressStageKey.value='';statusForm.changeNote=note
+  const previous=progressDraftSource.value
+  progressDraftSource.value=previous&&draft.source?{
+    messageCount:previous.messageCount+draft.source.messageCount,
+    senderSummary:[...new Set([...previous.senderSummary.split('、'),...draft.source.senderSummary.split('、')])].join('、'),
+  }:draft.source||previous
+  await nextTick();statusFormRef.value?.clearValidate();progressEntryPanelRef.value?.scrollIntoView({behavior:'smooth',block:'nearest'});progressNoteInputRef.value?.focus?.()
+}
+const transferProjectDraftToCustomer=async()=>{
+  if(progressBusy.value)return
+  try{
+    const existing=customerProgressRef.value?.getDraft()
+    if(existing?.editingId)throw new Error('请先保存或取消客户进度编辑，再转入草稿')
+    appendProgressDraft(existing?.changeNote,statusForm.changeNote)
+    if(existing?.changeNote?.trim())await ElMessageBox.confirm('客户进度已有草稿，是否追加这份项目沟通草稿？','转到客户进度',{confirmButtonText:'追加并转入',cancelButtonText:'取消',type:'warning'})
+    progressTrack.value='customer';await nextTick()
+    await customerProgressRef.value.acceptDraft({...statusForm,source:progressDraftSource.value})
+    statusForm.changeNote='';progressDraftSource.value=null
+  }catch(error){if(error==='cancel'||error==='close')return;ElMessage.warning(error?.message||'转入客户进度失败')}
+}
+const transferCustomerDraftToProject=async(draft)=>{
+  if(progressBusy.value)return
+  try{
+    appendProgressDraft(statusForm.changeNote,draft.changeNote)
+    if(String(statusForm.changeNote||'').trim())await ElMessageBox.confirm('项目进度已有草稿，是否追加这份客户沟通草稿？','转到项目进度',{confirmButtonText:'追加并转入',cancelButtonText:'取消',type:'warning'})
+    progressTrack.value='project';await nextTick()
+    await acceptProjectChatDraft(draft)
+    customerProgressRef.value.clearDraft()
+  }catch(error){if(error==='cancel'||error==='close')return;ElMessage.warning(error?.message||'转入项目进度失败')}
+}
+const closeProgressDialog=async(done)=>{
+  if(progressBusy.value){ElMessage.warning('进度正在保存，请稍候');return false}
+  if(String(statusForm.changeNote||'').trim()||(statusEntryMode.value==='status'&&statusForm.projectStatus)||customerProgressRef.value?.hasDraft()){
+    try{await ElMessageBox.confirm('有未保存的进度内容，关闭后将丢失，是否关闭？','未保存的进度',{confirmButtonText:'放弃并关闭',cancelButtonText:'继续填写',type:'warning'})}catch{return false}
+  }
+  if(typeof done==='function')done();else progressVisible.value=false
+  return true
+}
+const closeProgressDeleteDialog=(done)=>{if(!progressDeleteSubmitting.value)done()}
+const refreshCustomerProgressSummary=async()=>{
+  const id=activeProgressProject.value?.id
+  if(!id)return
+  delete detailCache[id];childRevision.value++
+  const detail=await loadDetail(id,true)
+  if(detail&&activeProgressProject.value?.id===id)activeProgressProject.value=detail
+  await fetchData()
+}
+
+const locateTargetProgressRecord=async()=>{if(!targetProgressRecordId.value)return;await nextTick();document.querySelector(`[data-progress-track="${progressTrack.value}"][data-progress-record-id="${targetProgressRecordId.value}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})}
+
+const openProgress=async(row,targetRecordId='',initialTab='progress',initialTrack='project')=>{
+  targetProgressRecordId.value=String(targetRecordId||'');progressDialogTab.value=initialTab;progressTrack.value=initialTrack
+  activeProgressProject.value=row;progressRows.value=[];progressDraftSource.value=null;statusEntryMode.value='progress'
+  Object.assign(statusForm,{projectStatus:row.projectStatus||'',effectiveOn:localDateTimeValue(),changeNote:''})
+  progressVisible.value=true;progressLoading.value=true;await nextTick();customerProgressRef.value?.clearDraft();statusFormRef.value?.clearValidate()
+  try{
+    const [detail,history]=await Promise.all([loadDetail(row.id),annotationOpsApi.getStatusHistory(row.id)])
+    if(activeProgressProject.value?.id!==row.id)return
+    if(detail){activeProgressProject.value=detail;statusForm.projectStatus=detail.projectStatus||statusForm.projectStatus}
+    progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[row.id]=progressRows.value
+    await locateTargetProgressRecord()
+  }catch(error){if(activeProgressProject.value?.id===row.id)ElMessage.error(error?.detail||'进度记录加载失败')}finally{if(activeProgressProject.value?.id===row.id)progressLoading.value=false}
+}
+
 const queueProgressSearchContext=(item)=>{queuedProgressSearchItem.value=item;progressSearchVisible.value=false}
-const openQueuedProgressContext=()=>{const item=queuedProgressSearchItem.value;if(!item)return;queuedProgressSearchItem.value=null;progressSearchReturnAvailable.value=true;void openProgress({id:item.projectId,orderNo:item.projectOrderNo,projectName:item.projectName,projectStatus:item.projectCurrentStatus},item.id)}
-const returnToProgressSearch=()=>{returnToSearchAfterProgressClose.value=true;progressVisible.value=false}
+const openQueuedProgressContext=()=>{const item=queuedProgressSearchItem.value;if(!item)return;queuedProgressSearchItem.value=null;progressSearchReturnAvailable.value=true;void openProgress({id:item.projectId,orderNo:item.projectOrderNo,projectName:item.projectName,projectStatus:item.projectCurrentStatus},item.id,'progress',item.track||'project')}
+const returnToProgressSearch=async()=>{if(await closeProgressDialog()){returnToSearchAfterProgressClose.value=true}}
+
 const loadAssignmentCustomFields=async()=>{assignmentCustomFields.value=form.id?await annotationOpsApi.getCustomFields('assignment',form.id):[]}
 const projectRowClass=({row})=>String(row.id)===highlightedProjectId.value?'workbench-target-row':''
 const focusRouteProject=async(editorReady=Promise.resolve())=>{const projectId=String(route.query.projectId||'');if(!projectId)return;const detail=await loadDetail(projectId);if(!detail)return;if(detail.parentProjectId && props.orderScope !== 'child'){await router.replace({name:'AnnotationChildOrders',query:{...route.query,parentProjectId:detail.parentProjectId}});return;}highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;const listPromise=fetchData();if(route.query.tab==='chat'){await listPromise;await openProgress(detail,'','chat')}else if(route.query.openProgress==='1'){await listPromise;await openProgress(detail);const query={...route.query};delete query.openProgress;await router.replace({query})}else if(route.query.openEditor==='1'){await editorReady;await handleEdit(detail,true);const query={...route.query};delete query.openEditor;await router.replace({query})}await Promise.all([listPromise,editorReady])}
@@ -1049,16 +1163,33 @@ const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;editorTab
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(projectSaved?'项目已保存，但后续操作失败，请刷新列表确认。'+getLocalizedErrorMessage(error,''):getLocalizedErrorMessage(error,'保存失败'))}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
-const confirmStatusChange=async()=>{const project=activeProgressProject.value;if(!project)return;const valid=await statusFormRef.value?.validate().catch(()=>false);if(!valid)return;const progressOnly=statusEntryMode.value==='progress';const selectedStatus=statusForm.projectStatus;if (statusSubmitting.value) return
+const confirmStatusChange=async()=>{if(progressBusy.value)return;const project=activeProgressProject.value;if(!project)return;const valid=await statusFormRef.value?.validate().catch(()=>false);if(!valid)return;const progressOnly=statusEntryMode.value==='progress';const selectedStatus=statusForm.projectStatus;if (statusSubmitting.value) return
   statusSubmitting.value=true;setProjectStatusSaving(project.id,true);try{const updated=await annotationApi.updateAnnotationProjectStatus(project.id,{...statusForm,changeNote:statusForm.changeNote.trim(),progressOnly});const row=tableData.value.find((item)=>item.id===project.id);if(row)Object.assign(row,updated);activeProgressProject.value=updated;detailCache[project.id]=updated;const history=await annotationOpsApi.getStatusHistory(project.id);progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[project.id]=progressRows.value;statusForm.projectStatus=progressOnly?selectedStatus:updated.projectStatus;statusForm.changeNote='';progressDraftSource.value=null;await nextTick();statusFormRef.value?.clearValidate();ElMessage.success(progressOnly?'具体进度已添加':'项目状态已更新');await fetchData()}catch(error){
         await statusFormRef.value?.applyServerErrors(error)
 ElMessage.error(error?.detail||(progressOnly?'添加具体进度失败':'项目状态更新失败'))}finally{statusSubmitting.value=false;setProjectStatusSaving(project.id,false)}}
 const resetProgressDeleteDialog=()=>{progressDeleteTarget.value=null;progressDeleteForm.reason='';progressDeleteFormRef.value?.clearValidate()}
 const openProgressDeleteDialog=(row)=>{progressDeleteTarget.value=row;progressDeleteForm.reason='';progressDeleteVisible.value=true;nextTick(()=>progressDeleteFormRef.value?.clearValidate())}
-const confirmProgressDelete=async()=>{const target=progressDeleteTarget.value;const project=activeProgressProject.value;if(!target||!project)return;const valid=await progressDeleteFormRef.value?.validate().catch(()=>false);if(!valid)return;if (progressDeleteSubmitting.value) return
-  progressDeleteSubmitting.value=true;try{const history=await annotationOpsApi.deleteStatusHistoryProgress(target.id,{reason:progressDeleteForm.reason.trim(),expectedUpdatedAt:target.updatedAt||null});progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[project.id]=progressRows.value;progressDeleteVisible.value=false;ElMessage.success('具体进度已删除，操作记录已留存');await fetchData()}catch(error){
-        await progressDeleteFormRef.value?.applyServerErrors(error)
-ElMessage.error(getLocalizedErrorMessage(error,'具体进度删除失败'))}finally{progressDeleteSubmitting.value=false}}
+const confirmProgressDelete=async()=>{
+  const target=progressDeleteTarget.value,project=activeProgressProject.value
+  if(!target||!project||progressBusy.value)return
+  if(!await progressDeleteFormRef.value?.validate().catch(()=>false))return
+  progressDeleteSubmitting.value=true
+  try{
+    const payload={reason:progressDeleteForm.reason.trim(),expectedUpdatedAt:target.updatedAt||null}
+    if(target.track==='customer'){
+      await annotationOpsApi.deleteCustomerProgress(target.id,payload)
+      progressDeleteVisible.value=false
+      await customerProgressRef.value?.reload();await refreshCustomerProgressSummary()
+    }else{
+      const history=await annotationOpsApi.deleteStatusHistoryProgress(target.id,payload)
+      progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[project.id]=progressRows.value
+      delete detailCache[project.id];progressDeleteVisible.value=false;await fetchData()
+    }
+    ElMessage.success('进度已删除，操作记录已留存')
+  }catch(error){await progressDeleteFormRef.value?.applyServerErrors(error);ElMessage.error(getLocalizedErrorMessage(error,'进度删除失败'))}
+  finally{progressDeleteSubmitting.value=false}
+}
+
 const setPrioritySaving=(id,saving)=>{const next=new Set(prioritySavingIds.value);if(saving)next.add(id);else next.delete(id);prioritySavingIds.value=next}
 const updatePriority=async(row,priority)=>{if(!priority||priority===row.priority)return;setPrioritySaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectPriority(row.id,priority);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('优先次序已更新');if(searchForm.priority?.length&&!searchForm.priority.includes(updated.priority))await fetchData()}catch(error){ElMessage.error(error?.detail||'优先次序更新失败')}finally{setPrioritySaving(row.id,false)}}
 const setManagerSaving=(id,saving)=>{const next=new Set(managerSavingIds.value);if(saving)next.add(id);else next.delete(id);managerSavingIds.value=next}
@@ -1126,7 +1257,7 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
 .project-progress-link{height:auto;padding:0}
 .annotation-progress-tabs{min-height:360px}.annotation-progress-tabs :deep(.el-tab-pane){padding-top:4px}
-.progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
+.progress-track-switch{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}.progress-track-switch>span{font-size:12px;color:var(--el-text-color-secondary)}.customer-progress-summary-link{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
 .progress-child-delete{margin-left:auto}.progress-delete-preview{margin-top:14px;padding:10px 12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.progress-delete-preview__meta{color:var(--el-text-color-secondary);font-size:12px}.progress-delete-preview__note{margin-top:6px;max-height:120px;overflow-y:auto;color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-delete-form{margin-top:18px}
 .progress-chat-source{margin:-2px 0 10px;padding:7px 10px;border:1px solid var(--el-color-primary-light-7);border-radius:6px;color:var(--el-color-primary-dark-2);background:rgba(255,255,255,.72);font-size:12px;line-height:1.5}
 .inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}

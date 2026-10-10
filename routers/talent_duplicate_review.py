@@ -1,6 +1,6 @@
 """核重读取沿用人才总库登录权限，所有写入强制超级管理员。"""
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from routers.auth import get_current_user, require_super_admin
@@ -14,9 +14,13 @@ router = APIRouter(prefix="/talents/duplicate-review", tags=["talent_duplicate_r
 
 @router.get("/groups")
 def read_groups(keyword: str = "", status: str = Query("pending", pattern="^(pending|different|deferred|all)$"),
+                agent_bucket: str = Query("all", pattern="^(all|high_same|likely_same|different|uncertain|unreviewed)$"),
                 skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
                 db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return groups(db, keyword, status, skip, limit, can_view_talent_contacts(db, user))
+    visible = can_view_talent_contacts(db, user)
+    if agent_bucket != "all" and not visible:
+        raise HTTPException(403, "Agent 初筛结果仅超级管理员可查看")
+    return groups(db, keyword, status, skip, limit, visible, agent_bucket)
 
 
 @router.get("/groups/{key:path}")

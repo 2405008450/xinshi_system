@@ -20,6 +20,26 @@ export function formatBusinessDateTime(value) {
   return Number.isNaN(date.getTime()) ? '-' : businessDateTimeFormatter.format(date)
 }
 
+/** 表单、进度和业务日期固定使用香港时间，不依赖浏览器时区。 */
+export function businessDateTimeInputValue(value = new Date()) {
+  if (value === null || value === '') return ''
+  let normalized = value
+  if (typeof value === 'string') {
+    normalized = value.trim().replace(' ', 'T')
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(normalized)) normalized += '+08:00'
+  }
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return ''
+  const shifted = new Date(date.getTime() + 8 * 3600000)
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`
+}
+
+export function formatBusinessDateTimeMinute(value, emptyText = '-') {
+  if (value === null || value === undefined || value === '') return emptyText
+  const formatted = businessDateTimeInputValue(value)
+  return formatted ? formatted.slice(0, 16).replace(/^(\d{4})-(\d{2})-(\d{2}) /, '$1年$2月$3日 ') : emptyText
+}
+
 function parseDateTime(value) {
   if (value instanceof Date) return value
   const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} /.test(value)
