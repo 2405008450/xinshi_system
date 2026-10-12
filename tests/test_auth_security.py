@@ -162,9 +162,10 @@ def test_forwarded_address_is_used_only_for_trusted_proxy(monkeypatch):
 
 def test_revoked_access_token_is_rejected(monkeypatch):
     sessions = _session_factory()
-    user = type("User", (), {"is_active": True})()
+    user = type("User", (), {"is_active": True, "id": "11111111-1111-1111-1111-111111111111",
+                             "username": "gray_user", "password_hash": "test-hash"})()
     monkeypatch.setattr(auth_router, "get_user_by_username", lambda *_args, **_kwargs: user)
-    token = auth_router.create_access_token({"sub": "gray_user"})
+    token = auth_router.create_user_access_token(user)
     payload = auth_router.jwt.decode(
         token, auth_router.SECRET_KEY, algorithms=[auth_router.ALGORITHM]
     )

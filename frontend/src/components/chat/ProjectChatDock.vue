@@ -4,6 +4,7 @@
       <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
         <ChatWorkspace
           :sessions="sessions"
+          :mention-history-total="mentionHistoryTotal"
           :active-key="state.activeKey"
           :error="followedError"
           :narrow="workspaceNarrow"
@@ -19,6 +20,7 @@
           :dragging="draggingKey === '__workspace__'"
           @select="selectWorkspaceSession($event.key)"
           @open="openFollowed"
+          @locate-mention="locateMention"
           @close="closeChat($event.key)"
           @close-active="activeWindow && closeChat(activeWindow.key)"
           @minimize="minimizeWorkspace"
@@ -34,6 +36,7 @@
           @header-dblclick="onWorkspaceDblClick"
           @retry="refreshFollowed"
           @preference="updatePreference"
+          @contact-opened="onContactOpened"
         />
       </div>
 
@@ -60,19 +63,23 @@
                 {{ chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
               </el-tag>
             </div>
-            <div class="project-chat-window__subtitle-row">
+            <div class="project-chat-window__subtitle-row" :title="chatWindow.subtitle">
               <span v-if="chatWindow.metaLoading" class="project-chat-window__subtitle">正在加载项目信息…</span>
               <span v-else-if="chatWindow.subtitle" class="project-chat-window__subtitle" :title="chatWindow.subtitle">
                 {{ chatWindow.subtitle }}
               </span>
-              <ChatProjectActions :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
+
             </div>
           </div>
           <div class="project-chat-window__actions">
+            <div :id="`chat-tools-${chatWindow.key.replace(':', '-')}`" class="chat-header-session-tools" />
+            <ChatTopicNavigation compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
+            <ChatProjectActions icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
               <el-icon><Search /></el-icon>
             </el-button>
-            <ChatWindowStateMenu v-if="!isCompactScreen" :size-mode="chatWindow.sizeMode" :pinned="state.pinnedKey === chatWindow.key" @resize="setSize(chatWindow.key, $event)" @workspace="setLayout('workspace')" @fullscreen="maximizeChat(chatWindow.key)" @pin="pinChat(chatWindow.key)" />
+            <span class="chat-header-divider" />
+            <ChatWindowStateMenu icon-only v-if="!isCompactScreen" :size-mode="chatWindow.sizeMode" :pinned="state.pinnedKey === chatWindow.key" @resize="setSize(chatWindow.key, $event)" @workspace="setLayout('workspace')" @fullscreen="maximizeChat(chatWindow.key)" @pin="pinChat(chatWindow.key)" />
             <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
               <el-icon><Minus /></el-icon>
             </el-button>
@@ -90,6 +97,7 @@
             :project-type="chatWindow.projectType"
             :active="isChatWindowVisible(chatWindow)"
             :history-placement="historyPlacement(chatWindow)"
+            :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replace(':', '-')}`"
             conversation-mode
             compact
             :text-only="chatWindow.projectType === 'annotation'"
@@ -147,8 +155,10 @@ import DirectChat from './DirectChat.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import ChatTopicNavigation from './ChatTopicNavigation.vue'
 import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
+import { useChatNotifications } from '@/composables/useChatNotifications'
 import {
   isChatWindowVisible,
   resolveChatSize,
@@ -156,6 +166,7 @@ import {
 } from '@/composables/useProjectChatDock'
 
 defineProps({ hasExtraTasks: { type: Boolean, default: false } })
+useChatNotifications()
 
 const {
   state,
@@ -183,11 +194,12 @@ const {
   restoreWorkspace,
   ensurePreferences,
 } = useProjectChatDock()
-const { sessions: followed, mentionTotal, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
+const { sessions: followed, mentionTotal, mentionHistoryTotal, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
 
 const COMPACT_SCREEN_WIDTH = 768
 const WORKSPACE_HEADER = 52
 const isCompactScreen = ref(false)
+const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
 const draggingKey = ref('')
 const sidebarOpen = ref(true)
 const panelRefs = new Map()
@@ -197,7 +209,7 @@ const setPanelRef = (key, el) => {
   else panelRefs.delete(key)
 }
 
-const workspaceNarrow = computed(() => resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width < 640)
+const workspaceNarrow = computed(() => viewportSize.value.width < 640 || resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width < 640)
 const workspaceVisible = computed(() => (
   state.layout === 'workspace'
   && !state.workspaceMinimized
@@ -216,7 +228,7 @@ const minimizedWindows = computed(() => (
 const sidebarWidth = computed(() => {
   if (!workspaceVisible.value) return 0
   if (workspaceNarrow.value) return 0
-  return state.workspaceMaximized ? 280 : 240
+  return state.workspaceMaximized ? 300 : 280
 })
 const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey) || null)
 const sessions = computed(() => {
@@ -242,6 +254,8 @@ onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window
 const workspaceUnread = computed(() => sessions.value.reduce((sum, item) => sum + (Number(item.unread) || 0), 0))
 const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
 const workspaceShellStyle = computed(() => {
+  // 视口变化也须使尺寸计算失效，不能只依赖窗口档位。
+  void viewportSize.value
   const size = resolveChatSize(workspaceFrameMode.value)
   return {
     left: `${state.workspaceX}px`,
@@ -252,8 +266,9 @@ const workspaceShellStyle = computed(() => {
   }
 })
 const contentRect = computed(() => {
+  void viewportSize.value
   const size = resolveChatSize(workspaceFrameMode.value)
-  const side = sidebarWidth.value
+  const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 56 : 0)
   return {
     x: state.workspaceX + side,
     y: state.workspaceY + WORKSPACE_HEADER,
@@ -301,6 +316,20 @@ const openFollowed = (session) => {
 
 const selectWorkspaceSession = (key) => {
   selectSession(key)
+  if (workspaceNarrow.value) sidebarOpen.value = false
+}
+
+const locateMention = async (item) => {
+  const existing = state.windows.find(row => row.key === item.key)
+  const repeated = existing?.targetMessageId === item.messageId
+  const key = openChat({ projectId: item.projectId, projectType: item.projectType,
+    title: item.title, subtitle: item.subtitle, messageId: item.messageId })
+  if (workspaceNarrow.value) sidebarOpen.value = false
+  // 再次点击同一条提及时，属性值未变化，仍需重新定位并高亮。
+  if (repeated) { await nextTick(); await panelRefs.get(key)?.locate?.(item.messageId) }
+}
+
+const onContactOpened = () => {
   if (workspaceNarrow.value) sidebarOpen.value = false
 }
 
@@ -400,6 +429,7 @@ const enforceSoloWindow = () => {
 }
 
 const syncViewportState = () => {
+  viewportSize.value = { width: window.innerWidth, height: window.innerHeight }
   isCompactScreen.value = (Number(window.innerWidth) || 0) < COMPACT_SCREEN_WIDTH
   clampAllPositions()
   enforceSoloWindow()
@@ -466,7 +496,7 @@ onBeforeUnmount(() => {
 
 .project-chat-window--immersive :deep(.group-timeline),
 .project-chat-window--immersive :deep(.chat-conversation) {
-  padding: 24px 32px;
+  padding: 20px 28px;
   background: var(--el-fill-color-light);
 }
 
@@ -678,4 +708,12 @@ onBeforeUnmount(() => {
 .project-chat-window--solo .project-chat-window__header {
   cursor: default;
 }
+</style>
+
+<style scoped>
+.project-chat-window__header{height:52px;min-height:52px;box-sizing:border-box;padding:0 8px 0 12px;gap:6px;background:white}
+.project-chat-window__heading{flex:1}.project-chat-window__subtitle-row{display:none}.project-chat-window__title-row strong{font-size:13px}.project-chat-window__title-row .el-tag{font-size:10px}
+.project-chat-window__actions :deep(.el-button){margin:0;width:28px;height:28px;padding:4px}.chat-header-session-tools{display:flex;align-items:center;flex:none}.chat-header-divider{width:1px;height:20px;background:#e2e8f0;margin:0 5px}
+.project-chat-window--immersive :deep(.chat-composer--conversation){margin:10px 24px 16px;padding:10px 12px}
+@media(max-width:600px){.project-chat-window__title-row .el-tag{display:none}.project-chat-window__actions :deep(.el-button){width:25px}.project-chat-window__header{gap:4px;padding:0 5px}}
 </style>

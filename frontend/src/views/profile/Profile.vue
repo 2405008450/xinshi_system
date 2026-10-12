@@ -5,7 +5,7 @@
         <div class="card-header">
           <div>
             <h2>个人中心</h2>
-            <p>查看个人账号及项目、工作报告所使用的发件邮箱状态。</p>
+            <p>管理登录密码，查看个人账号和发件邮箱状态。</p>
           </div>
           <el-tag :type="statusType" effect="plain">{{ statusLabel }}</el-tag>
         </div>
@@ -68,16 +68,91 @@
           show-icon
         />
       </AppForm>
+
+      <el-divider content-position="left">修改登录密码</el-divider>
+      <p class="password-hint">新密码为 8～128 个字符。修改成功后将退出登录，其他设备也需使用新密码重新登录。</p>
+      <AppForm
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        :disabled="passwordSubmitting"
+        label-position="top"
+        class="password-form"
+        @submit.prevent="submitPassword"
+      >
+        <el-form-item label="当前密码" prop="current_password">
+          <el-input v-model="passwordForm.current_password" type="password" show-password
+            autocomplete="current-password" placeholder="请输入当前登录密码" :maxlength="1024" />
+        </el-form-item>
+        <el-row :gutter="18">
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="新密码" prop="new_password">
+              <el-input v-model="passwordForm.new_password" type="password" show-password
+                autocomplete="new-password" placeholder="请输入至少 8 位的新密码" :maxlength="128" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item label="确认新密码" prop="confirm_password">
+              <el-input v-model="passwordForm.confirm_password" type="password" show-password
+                autocomplete="new-password" placeholder="请再次输入新密码" :maxlength="128" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <div class="password-actions">
+          <el-button type="primary" native-type="submit" :loading="passwordSubmitting">修改密码</el-button>
+          <el-button :disabled="passwordSubmitting" @click="passwordFormRef?.resetFields()">清空</el-button>
+        </div>
+      </AppForm>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
-import { getCurrentSession, getPersonalMailAccount } from '@/api/auth'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { getCurrentSession, getPersonalMailAccount, changePersonalPassword } from '@/api/auth'
+import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { clearAuthSession } from '@/utils/authSession'
+
+const router = useRouter()
+const passwordFormRef = ref(null)
+const passwordSubmitting = ref(false)
+const passwordForm = reactive({ current_password: '', new_password: '', confirm_password: '' })
+const passwordRules = {
+  current_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  new_password: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 8, max: 128, message: '新密码长度应为 8 到 128 个字符', trigger: 'blur' },
+    { validator: (_rule, value, callback) => callback(value && value === passwordForm.current_password
+      ? new Error('新密码不能与当前密码相同') : undefined), trigger: 'blur' },
+  ],
+  confirm_password: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    { validator: (_rule, value, callback) => callback(value !== passwordForm.new_password
+      ? new Error('两次输入的新密码不一致') : undefined), trigger: 'blur' },
+  ],
+}
+
+async function submitPassword() {
+  if (passwordSubmitting.value || !passwordFormRef.value) return
+  try { await passwordFormRef.value.validate() } catch { return }
+  passwordSubmitting.value = true
+  try {
+    await changePersonalPassword({ ...passwordForm })
+  } catch (error) {
+    passwordSubmitting.value = false
+    await nextTick()
+    await passwordFormRef.value?.applyServerErrors(error)
+    return
+  }
+  passwordFormRef.value.resetFields()
+  clearAuthSession()
+  sessionStorage.setItem('password-change-completed', '1')
+  // 整页跳转同时关闭当前页的聊天连接和后台轮询。
+  window.location.replace(router.resolve('/login').href)
+}
 
 const session = reactive({ username: '', full_name: '' })
 const mailAccount = reactive({
@@ -109,7 +184,7 @@ async function load() {
     Object.assign(session, sessionData)
     Object.assign(mailAccount, accountData)
   } catch (error) {
-    ElMessage.error(error?.detail || '加载个人邮箱配置失败')
+    ElMessage.error(error?.detail || '加载个人中心信息失败')
   }
 }
 
@@ -123,6 +198,9 @@ onMounted(load)
 .card-header h2 { margin: 0; color: var(--el-text-color-primary); font-size: 20px; }
 .card-header p { margin: 6px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
 .profile-form { margin-top: 20px; }
+.password-hint { margin: 0 0 18px; font-size: 13px; color: var(--el-text-color-secondary); line-height: 1.6; }
+.password-actions { display: flex; gap: 12px; }
+.password-actions .el-button + .el-button { margin-left: 0; }
 @media (max-width: 600px) {
   .card-header { align-items: stretch; flex-direction: column; }
 }

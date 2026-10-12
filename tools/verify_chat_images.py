@@ -11,7 +11,7 @@ import main  # noqa: F401，注册项目模型并读取环境配置
 from database import SessionLocal
 from models import AppUser, ChatProjectAttachment
 from permission_service import user_has_permission
-from routers.auth import create_access_token
+from routers.auth import create_user_access_token
 from routers.project_chat import get_chat_upload_dir
 from sqlalchemy import text
 from playwright.sync_api import sync_playwright, expect
@@ -28,7 +28,7 @@ def main_test():
         users = db.query(AppUser).filter(AppUser.is_active.is_(True)).all()
         sender = next(user for user in users if user.username == 'admin')
         receiver = next(user for user in users if user.id != sender.id and user_has_permission(db, user.id, 'projects:read'))
-        tokens = [create_access_token({'sub': user.username}, timedelta(minutes=15)) for user in (sender, receiver)]
+        tokens = [create_user_access_token(user, timedelta(minutes=15)) for user in (sender, receiver)]
         db.execute(text('INSERT INTO annotation_project (id, order_no, project_name, created_by) VALUES (:id, :order, :name, :owner)'),
                    {'id': project_id, 'order': marker, 'name': marker, 'owner': receiver.id})
         db.commit()

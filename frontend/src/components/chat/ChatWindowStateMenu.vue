@@ -2,7 +2,7 @@
   <el-popover v-model:visible="visible" trigger="click" placement="bottom-end" :width="244" popper-class="chat-window-state-menu">
     <template #reference>
       <el-button class="chat-window-state-trigger" size="small" aria-label="窗口状态" title="选择窗口大小与显示方式">
-        <el-icon><FullScreen /></el-icon><span>{{ maximized ? '大屏' : pinned ? '固定小窗' : '窗口' }}</span><el-icon><ArrowDown /></el-icon>
+        <el-icon><FullScreen /></el-icon><span v-if="!iconOnly">{{ maximized ? '大屏' : pinned ? '固定小窗' : '窗口' }}</span><el-icon v-if="!iconOnly"><ArrowDown /></el-icon>
       </el-button>
     </template>
     <div class="chat-window-state-menu__label">窗口大小</div>
@@ -21,6 +21,7 @@ import { ArrowDown, ChatDotRound, FullScreen, Position as Pin } from '@element-p
 defineProps({
   sizeMode: { type: String, default: 'small' },
   maximized: Boolean,
+  iconOnly: Boolean,
   pinned: Boolean,
   workspace: Boolean,
   hasSession: { type: Boolean, default: true },
@@ -32,7 +33,7 @@ const choose = (action, value) => { visible.value = false; emit(action, value) }
 </script>
 
 <style>
-.chat-window-state-menu { max-width: calc(100vw - 24px); }
+.chat-window-state-menu { max-width: calc(100vw - 24px); z-index: 100003 !important; }
 </style>
 <style scoped>
 .chat-window-state-trigger { gap: 5px; }

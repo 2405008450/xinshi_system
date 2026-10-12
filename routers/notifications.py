@@ -9,11 +9,14 @@ from crud import (
     mark_all_notifications_read,
     mark_notification_read,
 )
+import asyncio
+
 from database import SessionLocal, get_db
 from models import AppUser
 from notification_ws import notification_manager
 from routers.auth import get_current_user, get_user_from_token_value
 from schemas import NotificationResponse
+from notification_channels import NotificationChannel
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -23,6 +26,7 @@ def list_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     unread_only: bool = False,
+    channel: NotificationChannel = 'all',
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -32,15 +36,17 @@ def list_notifications(
         skip=skip,
         limit=limit,
         unread_only=unread_only,
+        channel=channel,
     )
 
 
 @router.get("/unread-count")
 def unread_count(
+    channel: NotificationChannel = 'all',
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    return {"count": count_unread_notifications(db, current_user.id)}
+    return {"count": count_unread_notifications(db, current_user.id, channel=channel)}
 
 
 @router.post("/{notification_id}/read", response_model=NotificationResponse)
@@ -57,10 +63,11 @@ def read_notification(
 
 @router.post("/read-all")
 def read_all_notifications(
+    channel: NotificationChannel = 'all',
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    updated = mark_all_notifications_read(db, current_user.id)
+    updated = mark_all_notifications_read(db, current_user.id, channel=channel)
     return {"updated": updated}
 
 
@@ -83,15 +90,28 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
         # 因此只复制后续所需的标量值，并在进入收包循环前结束事务、归还连接。
         user_id = user.id
         unread = count_unread_notifications(db, user_id)
+        business_unread = count_unread_notifications(db, user_id, channel='business')
         db.rollback()
         db.close()
         db_released = True
 
         await notification_manager.connect(user_id, websocket)
-        await websocket.send_json({"type": "snapshot", "unread_count": unread})
+        await websocket.send_json({"type": "snapshot", "unread_count": unread, "business_unread_count": business_unread})
 
         while True:
-            message = await websocket.receive_text()
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=25)
+            except asyncio.TimeoutError:
+                message = None
+            # 即使客户端不发送心跳，也定期重新鉴权，关闭改密后已失效的连接。
+            with SessionLocal() as check_db:
+                valid = get_user_from_token_value(check_db, token) is not None
+            if not valid:
+                notification_manager.disconnect(user_id, websocket)
+                await websocket.close(code=1008)
+                return
+            if message is None:
+                continue
             if message == 'ping':
                 await websocket.send_json({"type": "pong"})
             else:

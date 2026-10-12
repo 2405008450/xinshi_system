@@ -1,0 +1,35 @@
+.el-notification.mention-notification {
+    z-index: 100000 !important;
+    margin-top: 64px;
+  width: min(380px, calc(100vw - 32px));
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+  cursor: pointer;
+}
+
+.mention-notification .el-notification__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.mention-notification .el-notification__content {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.mention-notification__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.mention-notification__hint {
+  margin-top: 6px;
+  color: var(--el-color-primary);
+  font-size: 12px;
+}

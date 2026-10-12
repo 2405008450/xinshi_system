@@ -88,7 +88,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
-          <el-button class="header-chat-entry" text aria-label="聊天大屏" title="打开聊天大屏" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span></el-button>
+          <el-badge :value="chatUnreadTotal" :max="99" :hidden="!chatUnreadTotal" class="header-chat-badge"><el-button class="header-chat-entry" text aria-label="聊天大屏" title="群聊与私聊；未读消息和提及提醒" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
@@ -148,6 +148,7 @@ import {
 import NotificationBell from '../components/NotificationBell.vue'
 import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useResourceIssues } from '@/composables/useResourceIssues'
@@ -155,6 +156,7 @@ import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'
+import { clearAuthSession } from '@/utils/authSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -163,6 +165,8 @@ const issueCollectorLoaded = ref(false)
 const ChatIssueCollector = defineAsyncComponent(() => import('@/components/chat/ChatIssueCollector.vue'))
 watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.value = true })
 const { openFullscreen } = useProjectChatDock()
+const { sessions: chatSessions, mentionTotal: chatMentionTotal } = useAnnotationFollowed()
+const chatUnreadTotal = computed(() => chatSessions.value.reduce((sum, row) => sum + (Number(row.unread) || 0), 0))
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
 const canEditNotes = computed(() => hasPermission('projects:write'))
@@ -372,12 +376,7 @@ const handleLogout = async () => {
     } catch {
       // 即使服务端暂时不可用，也要完成本地退出。
     }
-    localStorage.removeItem('token')
-    localStorage.removeItem('user_roles')
-    localStorage.removeItem('user_permissions')
-    localStorage.removeItem('user_name')
-    localStorage.removeItem('user_id')
-    localStorage.removeItem('user_full_name')
+    clearAuthSession()
     router.push('/login')
   } catch {
     // 用户取消
@@ -836,3 +835,5 @@ const handleLogout = async () => {
   }
 }
 </style>
+
+<style scoped>.header-chat-mention{color:var(--el-color-danger);font-size:12px;margin-left:4px}.header-chat-badge{display:inline-flex;align-items:center}</style>

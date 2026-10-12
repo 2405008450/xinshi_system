@@ -244,6 +244,91 @@ def test_session_mention_preview_and_read_state_in_both_schemas(environment, mig
         assert not any(r['project_id'] == project.id for r in data['items'])
 
 
+@pytest.mark.parametrize('migrated', [False, True])
+def test_mention_history_preserves_read_unfollowed_and_older_messages(environment, migrated):
+    db, users, engine = environment
+    from annotation_models import AnnotationProject
+    from models import AnnotationChatMember
+    from schemas import AnnotationProjectChatMessageCreate
+    from routers.chat_sessions import sessions, preferences, PreferenceRequest
+    from chat_mention_history import list_mentions
+    import annotation_chat_service as annotation
+    if not migrated:
+        remove_phase_one_columns(db, engine)
+    project = AnnotationProject(order_no='MENTION-' + uuid4().hex[:12], project_name='历史提及群', project_types=[])
+    db.add(project); db.commit()
+    member = annotation.add_member(db, project.id, users[1].id, following=False, baseline=0)
+    member.explicit_unfollow = True; db.commit()
+    first = annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(
+        content='@聊天测试1 需要确认旧消息', mentioned_user_ids=[users[1].id]))
+    second = annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(
+        content='@聊天测试1 需要确认新消息', mentioned_user_ids=[users[1].id, users[2].id]))
+    annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(content='普通末条消息'))
+    data = list_mentions(db, users[1], limit=1)
+    assert data['total'] == 2 and data['has_more']
+    assert data['items'][0]['message_id'] == second.id and data['items'][0]['unread']
+    assert data['items'][0]['created_at'].utcoffset() == timedelta(hours=8)
+    older = list_mentions(db, users[1], before=data['next_before'], limit=1)
+    assert older['total'] == 2 and not older['has_more']
+    assert older['items'][0]['message_id'] == first.id
+    # 新消息到达不能使第二页重复；翻页计数始终包含同一筛选下的全部历史。
+    third = annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(
+        content='@聊天测试1 分页期间新消息', mentioned_user_ids=[users[1].id]))
+    assert list_mentions(db, users[1], before=data['next_before'], limit=1)['items'][0]['message_id'] == first.id
+    preferences('annotation', project.id, PreferenceRequest(mark_read=True), db, users[1])
+    rows = list_mentions(db, users[1])
+    assert rows['total'] == 3 and not any(row['unread'] for row in rows['items'])
+    assert sessions(db, users[1])['mention_history_total'] == 3
+    assert sessions(db, users[1])['mention_total'] == 0
+    assert not db.get(AnnotationChatMember, (project.id, users[1].id)).following
+    assert not any(row['project_id'] == project.id for row in sessions(db, users[1])['items'])
+    assert list_mentions(db, users[2])['total'] == 1
+    assert list_mentions(db, users[3])['total'] == 0
+    assert list_mentions(db, users[0])['total'] == 0
+    for keyword in ('历史提及群', project.order_no, '聊天测试0', '需要确认旧消息'):
+        assert list_mentions(db, users[1], keyword=keyword)['total'] >= 1
+    assert list_mentions(db, users[1], keyword='%')['total'] == 0
+    assert list_mentions(db, users[1], keyword='_')['total'] == 0
+    annotation.recall_message(db, project.id, third.id, users[0])
+    assert list_mentions(db, users[1])['total'] == 2
+
+
+def test_mention_history_translation_permissions_disabled_groups_and_api(environment):
+    db, users, engine = environment
+    from models import TranslationProject, ChatProjectMessage, ChatProjectMention, ChatProjectEnabled, UserRole
+    from chat_mention_history import list_mentions
+    from database import get_db
+    from routers.auth import get_current_user
+    import main
+    projects = [TranslationProject(order_no='MH-' + uuid4().hex[:12], project_name=name) for name in ('启用群', '关闭群')]
+    db.add_all(projects); db.flush()
+    db.add_all(ChatProjectEnabled(project_id=p.id, enabled=i == 0) for i, p in enumerate(projects))
+    for project in projects:
+        message = ChatProjectMessage(project_id=project.id, sender_user_id=users[0].id,
+                                     sender_name='测试发件人', content='请确认笔译附件', message_type='user')
+        db.add(message); db.flush()
+        db.add(ChatProjectMention(message_id=message.id, mentioned_user_id=users[1].id, mentioned_user_name='聊天测试1'))
+    db.commit()
+    result = list_mentions(db, users[1])
+    assert result['total'] == 1 and result['items'][0]['project_type'] == 'translation'
+    assert result['items'][0]['project_id'] == projects[0].id
+    assert result['items'][0]['preview'] == '请确认笔译附件'  # 身份关联优先于正文中是否出现 @名字。
+    main.app.dependency_overrides[get_db] = lambda: db
+    actor = [users[1]]
+    main.app.dependency_overrides[get_current_user] = lambda: actor[0]
+    client = TestClient(main.app)
+    response = client.get('/chat/mentions', params={'limit': 1})
+    assert response.status_code == 200, response.text
+    assert response.json()['total'] == 1
+    assert response.json()['items'][0]['created_at'].endswith('+08:00')
+    assert client.get('/chat/mentions', params={'before': 0}).status_code == 422
+    assert client.get('/chat/mentions', params={'limit': 101}).status_code == 422
+    actor[0] = users[2]
+    assert client.get('/chat/mentions').json()['total'] == 0
+    db.query(UserRole).filter_by(user_id=users[1].id).delete(); db.commit()
+    assert list_mentions(db, users[1])['total'] == 0
+
+
 def test_message_retry_concurrency_and_recall_deadline(environment):
     db, users, engine = environment
     import direct_chat_service as service
@@ -282,6 +367,75 @@ def test_exact_notification_target_and_foreign_read_are_rejected(environment):
     with pytest.raises(HTTPException): preferences('direct', cid, PreferenceRequest(read_message_id=first.id), db, users[1])
 
 
+def test_directory_users_departments_keyword_and_recent(environment):
+    db, users, _engine = environment
+    from datetime import timedelta
+    from models import AppUser, ChatDirectConversation
+    from routers.chat_sessions import users as list_users
+    from chat_time import now
+    import direct_chat_service as service
+
+    me, peer, inactive, blank = users
+    me.department = '项目部'
+    peer.full_name = '张三'
+    peer.department = 'DeptB'
+    inactive.department = 'DeptB'
+    inactive.is_active = False
+    blank.full_name = '李四'
+    blank.department = '   '
+    alpha = [
+        AppUser(username='dir-wang-' + uuid4().hex[:8], password_hash='disabled', full_name='王安', is_active=True, department='DeptA'),
+        AppUser(username='dir-zhao-' + uuid4().hex[:8], password_hash='disabled', full_name='赵六', is_active=True, department='DeptA'),
+    ]
+    db.add_all(alpha)
+    db.commit()
+
+    limited = list_users(keyword='', limit=1, scope='search', db=db, user=me)
+    assert len(limited['items']) == 1 and {'id', 'name', 'username', 'department'} <= limited['items'][0].keys()
+    data = list_users(keyword='', limit=1, scope='directory', db=db, user=me)
+    assert [item['name'] for item in data['items']] == ['王安', '赵六', '张三', '李四']
+    assert [item['department'] for item in data['items']] == ['DeptA', 'DeptA', 'DeptB', None]
+    assert me.id not in [item['id'] for item in data['items']]
+    assert inactive.id not in [item['id'] for item in data['items']]
+    assert data['self']['id'] == me.id and data['self']['department'] == '项目部'
+    assert [item['id'] for item in list_users(keyword='deptb', limit=50, scope='search', db=db, user=me)['items']] == [peer.id]
+    assert [item['name'] for item in list_users(keyword='王安', limit=50, scope='search', db=db, user=me)['items']] == ['王安']
+    assert list_users(keyword='%', limit=50, scope='search', db=db, user=me)['items'] == []
+
+    partners = [AppUser(username=f'dir-recent-{index}-' + uuid4().hex[:8], password_hash='disabled', full_name=f'最近{index}', is_active=True, department='Recent') for index in range(9)]
+    outsider_left = AppUser(username='dir-left-' + uuid4().hex[:8], password_hash='disabled', full_name='外部甲', is_active=True)
+    outsider_right = AppUser(username='dir-right-' + uuid4().hex[:8], password_hash='disabled', full_name='外部乙', is_active=True)
+    quiet = AppUser(username='dir-quiet-' + uuid4().hex[:8], password_hash='disabled', full_name='无消息', is_active=True)
+    db.add_all([*partners, outsider_left, outsider_right, quiet])
+    db.commit()
+    base = now()
+    opened = []
+    for index, person in enumerate(partners):
+        conversation_id = service.open_conversation(db, me, person.id)['id']
+        send(db, conversation_id, me)
+        conversation = db.get(ChatDirectConversation, conversation_id)
+        conversation.last_message_at = base + timedelta(minutes=index)
+        opened.append((person, conversation))
+    foreign_id = service.open_conversation(db, outsider_left, outsider_right.id)['id']
+    send(db, foreign_id, outsider_left)
+    service.open_conversation(db, me, quiet.id)
+    db.commit()
+
+    recent = list_users(keyword='', limit=50, scope='directory', db=db, user=me)['recent']
+    assert [item['user_id'] for item in recent] == [person.id for person, _conversation in reversed(opened[1:])]
+    assert opened[0][0].id not in [item['user_id'] for item in recent]
+    assert quiet.id not in [item['user_id'] for item in recent]
+    assert outsider_left.id not in [item['user_id'] for item in recent] and outsider_right.id not in [item['user_id'] for item in recent]
+    matched = next(item for item in list_users(keyword='', limit=50, scope='directory', db=db, user=me)['items'] if item['id'] == opened[-1][0].id)
+    assert matched['conversation_id'] == opened[-1][1].id
+    opened[-1][0].is_active = False
+    db.commit()
+    after_disable = [item['user_id'] for item in list_users(keyword='', limit=50, scope='recent', db=db, user=me)['recent']]
+    assert opened[-1][0].id not in after_disable
+    assert after_disable[0] == opened[-2][0].id and opened[0][0].id in after_disable
+    assert set(list_users(keyword='', limit=50, scope='recent', db=db, user=me)) == {'recent'}
+
+
 def test_unfollowed_mention_still_appears_without_changing_follow_preference(environment):
     db, users, engine = environment
     from annotation_models import AnnotationProject
@@ -300,3 +454,49 @@ def test_unfollowed_mention_still_appears_without_changing_follow_preference(env
     assert not db.get(AnnotationChatMember, (project.id, users[1].id)).following
     read(project.id, ReadRequest(message_id=message.id), db, users[1])
     assert not any(r['project_id'] == project.id for r in sessions(db, users[1])['items'])
+
+
+def test_notification_channels_filter_before_pagination_and_read_independently(environment):
+    db, users, _engine = environment
+    from models import AppNotification
+    from crud import get_notifications, count_unread_notifications, mark_all_notifications_read
+    from notification_channels import CHAT_NOTIFICATION_TYPES
+    from chat_time import now
+    from database import get_db
+    from routers.auth import get_current_user
+    import main
+    business = AppNotification(recipient_user_id=users[0].id, title='待接收交接', content='交接内容', notification_type='workflow_handover_pending', created_at=now().replace(tzinfo=None) - timedelta(hours=1))
+    foreign = AppNotification(recipient_user_id=users[1].id, title='其他人的交接', content='隔离', notification_type='workflow_handover_pending')
+    chats = [AppNotification(recipient_user_id=users[0].id, title=kind, content='聊天', notification_type=kind) for kind in CHAT_NOTIFICATION_TYPES]
+    db.add_all([business, foreign, *chats]); db.commit()
+    assert get_notifications(db, users[0].id, limit=1, channel='business') == [business]
+    assert count_unread_notifications(db, users[0].id, 'business') == 1
+    assert count_unread_notifications(db, users[0].id, 'chat') == len(chats)
+    main.app.dependency_overrides[get_db] = lambda: db
+    main.app.dependency_overrides[get_current_user] = lambda: users[0]
+    client = TestClient(main.app)
+    response = client.get('/notifications/', params={'channel': 'business', 'limit': 1})
+    assert response.status_code == 200 and [row['id'] for row in response.json()] == [str(business.id)]
+    assert client.get('/notifications/unread-count?channel=business').json() == {'count': 1}
+    assert client.get('/notifications/?channel=invalid').status_code == 422
+    assert client.post('/notifications/read-all?channel=business').json() == {'updated': 1}
+    assert business.is_read and not foreign.is_read and all(not row.is_read for row in chats)
+    assert count_unread_notifications(db, users[0].id, 'business') == 0
+    assert count_unread_notifications(db, users[0].id, 'chat') == len(chats)
+    assert mark_all_notifications_read(db, users[0].id, 'chat') == len(chats)
+    assert count_unread_notifications(db, users[1].id) == 1
+
+
+def test_chat_summary_does_not_count_workbench_handover_records(environment):
+    db, users, _engine = environment
+    from models import TranslationProject, ChatProjectMessage
+    from routers.chat_sessions import summaries
+    project = TranslationProject(order_no='NOTICE-' + uuid4().hex[:16], project_name='业务与聊天分离')
+    db.add(project); db.flush()
+    chat = ChatProjectMessage(project_id=project.id, sender_user_id=users[0].id, sender_name='用户甲', content='群聊消息', message_type='user')
+    handover = ChatProjectMessage(project_id=project.id, sender_user_id=users[0].id, sender_name='用户甲', content='工作台交接记录', message_type='handover')
+    db.add(chat); db.flush(); db.add(handover); db.commit()
+    row = summaries(db, ChatProjectMessage.project_id, [project.id], {project.id: 0}, users[1].id)[project.id]
+    assert row['unread'] == 1 and row['last_message']['id'] == chat.id
+    row = summaries(db, ChatProjectMessage.project_id, [project.id], {project.id: chat.sequence_no}, users[1].id)[project.id]
+    assert row['unread'] == 0

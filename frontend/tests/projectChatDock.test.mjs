@@ -14,6 +14,7 @@ const chatPanel = readFileSync(new URL('../src/components/ProjectChatPanel.vue',
 const annotationPage = readFileSync(new URL('../src/views/project/AnnotationProjects.vue', import.meta.url), 'utf8')
 const layout = readFileSync(new URL('../src/layout/index.vue', import.meta.url), 'utf8')
 const notificationBell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
+const chatNotifications = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
 
 // 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
@@ -214,19 +215,18 @@ test('最小化会话在任务栏胶囊展示未读并在恢复时清零', () =>
 })
 
 test('聊天通知和群邀请统一打开聊天小窗且不再跳转页面', () => {
-  assert.match(notificationBell, /CHAT_NOTIFICATION_TYPES = \['project_chat', 'project_chat_mention', 'annotation_project_chat_mention', 'annotation_project_chat_invite'\]/)
-  assert.match(notificationBell, /const projectType = item\.related_project_type \|\| 'translation'/)
-  assert.match(notificationBell, /const projectId = item\.related_entity_id \|\| item\.related_project_id/)
-  assert.match(notificationBell, /openChat\(\{ projectId, projectType, messageId \}\)/)
-  assert.match(notificationBell, /if \(!projectId\) return false/)
-  assert.match(notificationBell, /if \(isChatNotification\(item\) && await openChatNotification\(item\)\) return/)
+  assert.match(chatNotifications, /const projectId = item\.related_entity_id \|\| item\.related_project_id/)
+  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId \}\)/)
+  assert.match(chatNotifications, /if \(!projectId\)/)
+  assert.match(dock, /useChatNotifications\(\)/)
+  assert.doesNotMatch(notificationBell, /openChatNotification/)
 })
 
 test('提醒卡片改为白底轻阴影并提供独立关闭按钮与打开提示', () => {
-  assert.match(notificationBell, /showClose: true/)
-  assert.match(notificationBell, /点击打开沟通/)
-  assert.match(notificationBell, /mention-notification__summary/)
-  assert.match(notificationBell, /mention-notification__hint/)
+  assert.match(chatNotifications, /showClose: true/)
+  assert.match(chatNotifications, /点击打开沟通/)
+  assert.match(chatNotifications, /mention-notification__summary/)
+  assert.match(chatNotifications, /mention-notification__hint/)
   assert.doesNotMatch(notificationBell, /border: 2px solid var\(--el-color-warning\)/)
 })
 

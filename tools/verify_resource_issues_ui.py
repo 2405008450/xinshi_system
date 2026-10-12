@@ -157,7 +157,8 @@ def run():
             window=page.locator('.project-chat-window').filter(has=page.locator('[data-message-id="'+fixtures['messages'][kind]+'"]')).last
             expect(window).to_be_visible()
             message=window.locator('[data-message-id="'+fixtures['messages'][kind]+'"]');message.hover()
-            message.get_by_role('button',name='收录到开拓问题',exact=True).click()
+            message.get_by_role('button',name='消息操作',exact=True).click()
+            page.get_by_role('menu',name='消息操作菜单',exact=True).get_by_role('menuitem',name='收录到开拓问题',exact=True).click()
             page.get_by_role('menuitem',name='想法类',exact=True).click()
             collector=page.get_by_role('dialog',name='收录到开拓问题',exact=True)
             expect(collector).to_be_visible();footer(collector)

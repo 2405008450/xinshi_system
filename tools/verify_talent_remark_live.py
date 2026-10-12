@@ -43,7 +43,7 @@ def main():
     from database import SessionLocal, engine
     from models import AppUser
     from permission_service import get_user_permission_codes
-    from routers.auth import create_access_token
+    from routers.auth import create_user_access_token
     from talent_privacy import can_view_talent_contacts
     from crud import get_user_roles_with_role_names
     if engine.url.host != plan["database"]["host"] or engine.url.database != plan["database"]["name"]:
@@ -55,7 +55,7 @@ def main():
             if not ({"*", "talents:read", "talents:write"} & set(permissions)): continue
             kind = "visible" if can_view_talent_contacts(db, user) else "restricted"
             if kind not in credentials:
-                credentials[kind] = {"token": create_access_token({"sub": user.username, "user_id": str(user.id)}, timedelta(minutes=45)), "roles": get_user_roles_with_role_names(db, user.id), "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+                credentials[kind] = {"token": create_user_access_token(user, timedelta(minutes=45)), "roles": get_user_roles_with_role_names(db, user.id), "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
     if set(credentials) != {"visible", "restricted"}: raise RuntimeError("缺少现有的两种权限账号，禁止创建或提权")
     def api(path, kind="visible"):
         request = Request("http://127.0.0.1:8000" + path, headers={"Authorization": "Bearer " + credentials[kind]["token"]})

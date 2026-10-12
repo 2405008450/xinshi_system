@@ -2,7 +2,7 @@
   <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode, 'project-chat-panel--search-side': searchOpen && historyPlacement === 'side' }]">
     <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
     <div v-else class="project-chat-panel__main">
-      <div class="chat-toolbar">
+      <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="chat-toolbar" :class="{ 'chat-toolbar--header': toolbarTarget }">
         <div class="chat-toolbar__title">
           <span v-if="!conversationMode">项目沟通</span>
           <el-tag v-if="!alwaysEnabled" :type="settings.enabled ? 'success' : 'info'" effect="plain">
@@ -76,8 +76,8 @@
             @change="handleToggle"
           />
         </div>
-      </div>
-      <div v-if="!alwaysEnabled" class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
+      </div></Teleport>
+      <div v-if="!alwaysEnabled && !conversationMode" class="chat-toolbar__hint">交接与继承记录始终可见；普通留言由管理员或项目经理开启。</div>
 
       <el-alert
         v-if="!alwaysEnabled && !settings.enabled"
@@ -156,7 +156,7 @@
                 <div class="chat-conversation-item__main">
                   <div v-if="item.groupStart" class="chat-conversation-item__meta">
                     <strong v-if="!item.isOwn">{{ item.message.senderName || '未知用户' }}</strong>
-                    <span class="chat-conversation-item__time">{{ formatDateTime(item.message.createdAt) }}</span>
+                    <span class="chat-conversation-item__time" :title="formatDateTime(item.message.createdAt)">{{ chatClock(item.message.createdAt) }}</span>
                     <el-tag
                       v-for="mention in messageMentions(item.message).slice(0, 3)"
                       :key="mention.mentionedUserId"
@@ -175,7 +175,7 @@
                     </el-tooltip>
                   </div>
                   <div class="chat-conversation-item__bubble-row">
-                    <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }">
+                    <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
                       <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
                       <RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" />
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
@@ -195,20 +195,7 @@
                       </div>
                     </div>
                     <div class="chat-conversation-item__tools">
-                      <ChatMessageTopic :message="item.message" :show-tag="false" />
-                      <ChatIssueMenu :message="item.message" />
-                      <el-tooltip :content="item.message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
-                        <el-button
-                          link
-                          :type="item.message.isFavorited ? 'warning' : 'info'"
-                          :class="{ 'is-favorited': item.message.isFavorited }"
-                          :loading="favoriteSavingIds.has(item.message.id)"
-                          :aria-label="item.message.isFavorited ? '取消收藏' : '收藏'"
-                          @click.stop="handleFavoriteToggle(item.message)"
-                        >
-                          <el-icon><StarFilled v-if="item.message.isFavorited" /><Star v-else /></el-icon>
-                        </el-button>
-                      </el-tooltip>
+                      <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenuRef.open($event,item.message)">⋯</button>
                     </div>
                   </div>
                   <div
@@ -295,10 +282,11 @@
               :class="{
                 'chat-message-card--selected': isProgressMessageSelected(message),
                 'chat-message-card--selectable': progressSelectionMode && String(message.content || '').trim(),
-                'chat-message-card--context-active': progressTextMenu.visible && String(progressTextMenu.message?.id) === String(message.id)
+                'chat-message-card--context-active': messageMenuRef?.activeMessageId === String(message.id)
               }"
               @click="handleProgressMessageCardClick($event, message)"
-              @contextmenu="handleMessageContextMenu($event, message)"
+               :data-message-id="message.id" tabindex="0" data-message-menu-anchor
+              @contextmenu="messageMenuRef.open($event,message)" @keydown="messageMenuRef.openKeyboard($event,message)"
             >
               <div class="chat-message-card__meta">
                 <div class="chat-message-card__author">
@@ -332,20 +320,8 @@
                 </div>
                 <div class="chat-message-card__tools">
                   <span>{{ formatDateTime(message.createdAt) }}</span>
-                  <el-tooltip :content="message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
-                    <el-button
-                      link
-                      :type="message.isFavorited ? 'warning' : 'info'"
-                      :loading="favoriteSavingIds.has(message.id)"
-                      :aria-label="message.isFavorited ? '取消收藏' : '收藏'"
-                      class="chat-message-card__favorite"
-                      @click.stop="handleFavoriteToggle(message)"
-                    >
-                      <el-icon><StarFilled v-if="message.isFavorited" /><Star v-else /></el-icon>
-                    </el-button>
-                  </el-tooltip>
-                  <ChatIssueMenu :message="message" />
-                  <ChatMessageTopic :message="message" />
+                  <el-tag v-if="message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ message.topicPath }}</el-tag>
+                  <button type="button" class="chat-message-more" aria-label="消息操作" @click.stop="messageMenuRef.open($event,message)">⋯</button>
                 </div>
               </div>
               <div
@@ -444,7 +420,7 @@
         </div>
 
         <div v-if="settings.enabled && !conversationMode" class="chat-composer">
-          <div class="chat-topic-compose"><ChatTopicNavigation compact :project-id="projectId" :project-type="projectType" /><ChatTopicSelect v-model="sendTopicId" :disabled="sending" /></div>
+          <div class="chat-topic-compose"><ChatTopicSelect v-model="sendTopicId" :disabled="sending" /></div>
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -500,7 +476,8 @@
         </div>
 
         <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" @paste.capture="handleComposerPaste">
-          <div class="chat-topic-compose"><ChatTopicNavigation compact :project-id="projectId" :project-type="projectType" /><ChatTopicSelect v-model="sendTopicId" :disabled="sending" size="small" /></div>
+          <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="startComposerResize" @keydown="resizeComposerByKeyboard" />
+          <div class="chat-topic-compose"><ChatTopicSelect v-model="sendTopicId" :disabled="sending" size="small" /></div>
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
               v-for="userId in composer.mentionedUserIds"
@@ -549,7 +526,7 @@
               v-model="composer.content"
               :disabled="sending"
               type="textarea"
-              :autosize="{ minRows: 1, maxRows: 6 }"
+              :rows="3" :input-style="composerInputStyle" resize="none"
               maxlength="10000"
               placeholder="Enter 发送，Shift+Enter 换行"
               @input="handleComposerInput"
@@ -587,38 +564,7 @@
       :placement="historyPlacement"
       @locate="locateMessage"
     />
-    <Teleport to="body">
-      <div
-        v-if="canAddToProgress && progressTextMenu.visible"
-        ref="progressTextMenuRef"
-        class="chat-selection-menu"
-        role="menu"
-        :style="{ left: `${progressTextMenu.left}px`, top: `${progressTextMenu.top}px` }"
-        @mousedown.stop
-        @contextmenu.prevent
-      >
-        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextMessageAddToProgress">
-          <el-icon class="chat-selection-menu__icon"><CirclePlus /></el-icon>
-          <span>{{ progressTextMenu.isExcerpt ? '添加选中内容为进度' : '添加为进度' }}</span>
-        </button>
-        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextMessageCopy">
-          <el-icon class="chat-selection-menu__icon"><CopyDocument /></el-icon>
-          <span>{{ progressTextMenu.isExcerpt ? '复制选中内容' : '复制' }}</span>
-        </button>
-        <div class="chat-selection-menu__divider" role="separator"></div>
-        <button type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextFavoriteToggle">
-          <el-icon class="chat-selection-menu__icon">
-            <StarFilled v-if="progressTextMenu.message?.isFavorited" />
-            <Star v-else />
-          </el-icon>
-          <span>{{ progressTextMenu.message?.isFavorited ? '取消收藏' : '收藏' }}</span>
-        </button>
-        <button v-if="!progressSelectionMode" type="button" class="chat-selection-menu__item" role="menuitem" @click="handleContextStartMultiSelect">
-          <el-icon class="chat-selection-menu__icon"><Finished /></el-icon>
-          <span>多选</span>
-        </button>
-      </div>
-    </Teleport>
+    <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
   </div>
 </template>
 
@@ -628,17 +574,16 @@ let projectChatUsersRequest = null
 </script>
 
 <script setup>
-import ChatIssueMenu from './chat/ChatIssueMenu.vue'
-import ChatMessageTopic from './chat/ChatMessageTopic.vue'
-import ChatTopicNavigation from './chat/ChatTopicNavigation.vue'
+import ChatMessageContextMenu from './chat/ChatMessageContextMenu.vue'
+import { chatAvatarText, chatClock, chatDayKey, chatDateLabel, chatGroupStart } from '@/utils/chatLayout'
 import ChatTopicSelect from './chat/ChatTopicSelect.vue'
 import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CirclePlus, CopyDocument, Finished, Star, StarFilled } from '@element-plus/icons-vue'
 import { getUsers } from '@/api/users'
+import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import { chatRequest } from '@/api/projectChat'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
@@ -676,6 +621,7 @@ const props = defineProps({
   collapsibleFilters: { type: Boolean, default: false },
   canAddToProgress: { type: Boolean, default: false },
   conversationMode: { type: Boolean, default: false },
+  toolbarTarget: { type: String, default: '' },
   historyPlacement: { type: String, default: 'overlay' }
 })
 
@@ -728,8 +674,7 @@ const filterPopoverVisible = ref(false)
 const progressSelectionMode = ref(false)
 const selectedProgressMessageIds = ref(new Set())
 const lastSelectedProgressMessageId = ref('')
-const progressTextMenuRef = ref(null)
-const progressTextMenu = reactive({ visible: false, left: 0, top: 0, message: null, text: '', isExcerpt: false })
+const messageMenuRef = ref(null)
 const pagination = reactive({ page: 1, limit: 20, total: 0 })
 const conversationPageSize = 20
 const currentUserId = String(localStorage.getItem('user_id') || '')
@@ -880,74 +825,26 @@ const handleAddSelectedToProgress = () => {
   emit('add-to-progress', [...selectedProgressMessages.value])
 }
 
-const closeProgressTextMenu = () => {
-  progressTextMenu.visible = false
-  progressTextMenu.message = null
-  progressTextMenu.text = ''
-  progressTextMenu.isExcerpt = false
-}
-
-const handleMessageContextMenu = (event, message) => {
-  if (!props.canAddToProgress || !String(message?.content || '').trim()) return
-  if (event.target.closest('button, a, input, label, [role="button"], [role="checkbox"]')) return
-  const selection = window.getSelection?.()
-  const contentElement = event.currentTarget.querySelector('.chat-message-card__content')
-  let selectedText = ''
-  if (selection && !selection.isCollapsed && selection.rangeCount && contentElement) {
-    const range = selection.getRangeAt(0)
-    if (contentElement.contains(range.startContainer) && contentElement.contains(range.endContainer)) selectedText = selection.toString().trim()
-  }
-  event.preventDefault()
-  event.stopPropagation()
-  const menuWidth = 210
-  const menuHeight = progressSelectionMode.value ? 142 : 182
-  progressTextMenu.left = Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))
-  progressTextMenu.top = Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
-  progressTextMenu.message = message
-  progressTextMenu.text = selectedText || String(message.content).trim()
-  progressTextMenu.isExcerpt = !!selectedText
-  progressTextMenu.visible = true
-}
-
-const handleContextMessageAddToProgress = () => {
-  if (!progressTextMenu.message || !progressTextMenu.text) return
-  emit('add-to-progress', [{ ...progressTextMenu.message, content: progressTextMenu.text }])
-  closeProgressTextMenu()
-  window.getSelection?.()?.removeAllRanges()
-}
-
-const handleContextStartMultiSelect = () => {
-  const message = progressTextMenu.message
-  closeProgressTextMenu()
-  if (!message) return
-  progressSelectionMode.value = true
-  handleProgressMessageSelection(message, true)
-  window.getSelection?.()?.removeAllRanges()
-}
-
-const handleContextMessageCopy = async () => {
-  const successMessage = progressTextMenu.isExcerpt ? '选中内容已复制' : '消息已复制'
-  const copied = await copyTextToClipboard(progressTextMenu.text)
-  if (copied) ElMessage.success(successMessage)
-  else ElMessage.error('复制失败，请使用 Ctrl+C')
-  closeProgressTextMenu()
-}
-
-const handleContextFavoriteToggle = async () => {
-  const message = progressTextMenu.message
-  closeProgressTextMenu()
-  if (message) await handleFavoriteToggle(message)
-}
-
-const handleProgressTextMenuPointerDown = event => {
-  if (progressTextMenu.visible && !progressTextMenuRef.value?.contains(event.target)) closeProgressTextMenu()
-}
-
-const handleProgressTextMenuKeydown = event => {
-  if (event.key !== 'Escape' || !progressTextMenu.visible) return
-  event.preventDefault()
-  event.stopImmediatePropagation()
-  closeProgressTextMenu()
+const closeProgressTextMenu = () => messageMenuRef.value?.close()
+const messageMenuHandlers = {
+  copy: async (message, excerpt) => {
+    const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(file => file.originalName).join('\n'))
+    copied ? ElMessage.success('已复制') : ElMessage.error('复制失败，请使用 Ctrl+C')
+  },
+  favorite: message => handleFavoriteToggle(message),
+  acknowledge: message => handleAcknowledgementToggle(message),
+  canAcknowledge: message => canAcknowledgeMessage(message),
+  progress: (message, excerpt) => {
+    const content = excerpt || message.content
+    if (content.length > 10000) return ElMessage.warning('消息超过具体进度 10000 字限制，请先选择部分文字')
+    emit('add-to-progress', [{ ...message, content }])
+    window.getSelection?.()?.removeAllRanges()
+  },
+  select: message => {
+    progressSelectionMode.value = true
+    handleProgressMessageSelection(message, true)
+    window.getSelection?.()?.removeAllRanges()
+  },
 }
 
 const clearPolling = () => {
@@ -1162,22 +1059,9 @@ const handleNewMessageTipClick = async () => {
   scrollConversationToBottom()
 }
 
-const businessDate = value => {
-  const raw = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+08:00` : value
-  return new Date(raw)
-}
-const dayFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' })
-const conversationDayKey = value => { const date = businessDate(value); return Number.isNaN(date.getTime()) ? '' : dayFormatter.format(date) }
-const formatConversationDateSeparator = value => {
-  const date = businessDate(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const today = new Date()
-  if (conversationDayKey(date) === conversationDayKey(today)) return '今天'
-  if (conversationDayKey(date) === conversationDayKey(new Date(today.getTime() - 86400000))) return '昨天'
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
-}
-
-const avatarText = (name) => String(name || '?').trim().slice(0, 1) || '?'
+const conversationDayKey = chatDayKey
+const formatConversationDateSeparator = value => chatDateLabel(value, new Date(), true)
+const avatarText = chatAvatarText
 
 // 时间正序 + 日期分隔线 + 同发送人连续消息合并头像与姓名。
 const conversationItems = computed(() => {
@@ -1191,9 +1075,9 @@ const conversationItems = computed(() => {
     const isSystem = !!message.messageType && message.messageType !== 'user'
     const sender = String(message.senderUserId || '')
     const isOwn = !isSystem && sender === currentUserId
-    const groupStart = isSystem || !previous || previous.isSystem || previous.sender !== sender || previous.day !== day
+    const groupStart = isSystem || !previous || previous.isSystem || chatGroupStart(message, previous.message)
     items.push({ type: 'message', key: `message-${message.id}`, message, isOwn, isSystem, groupStart })
-    previous = { day, sender, isSystem }
+    previous = { day, sender, isSystem, message }
   })
   return items
 })
@@ -1327,6 +1211,10 @@ const handleComposerKeydown = (event) => {
   event.preventDefault()
   handleSend()
 }
+
+const headerReady = ref(false)
+onMounted(() => { headerReady.value = true })
+const { inputStyle: composerInputStyle, start: startComposerResize, resizeByKeyboard: resizeComposerByKeyboard } = useChatComposerHeight()
 
 defineExpose({ toggleFilters, openSearch, locateMessage, locate: locateMessage })
 
@@ -1773,10 +1661,6 @@ onMounted(() => {
   unsubscribeChatAcknowledgement = subscribe('chat_message_acknowledgement', handleRealtimeChatAcknowledgement)
   unsubscribeSocketConnected = subscribe('connected', handleSocketConnected)
   ensureConnected()
-  document.addEventListener('mousedown', handleProgressTextMenuPointerDown)
-  document.addEventListener('scroll', closeProgressTextMenu, true)
-  window.addEventListener('resize', closeProgressTextMenu)
-  window.addEventListener('keydown', handleProgressTextMenuKeydown, true)
 })
 
 onBeforeUnmount(() => {
@@ -1791,14 +1675,11 @@ onBeforeUnmount(() => {
   unsubscribeSocketConnected?.()
   clearPolling()
   clearAttachmentUrls()
-  document.removeEventListener('mousedown', handleProgressTextMenuPointerDown)
-  document.removeEventListener('scroll', closeProgressTextMenu, true)
-  window.removeEventListener('resize', closeProgressTextMenu)
-  window.removeEventListener('keydown', handleProgressTextMenuKeydown, true)
 })
 </script>
 
 <style scoped>
+.chat-bubble:focus-visible,.chat-message-card:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}
 .project-chat-panel {
   position: relative;
   display: flex;
@@ -2066,54 +1947,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-selection-menu {
-  position: fixed;
-  z-index: 5000;
-  display: flex;
-  min-width: 210px;
-  flex-direction: column;
-  padding: 6px 0;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
-  background: var(--el-bg-color-overlay);
-  box-shadow: var(--el-box-shadow-light);
-}
-
-.chat-selection-menu__item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 16px;
-  border: 0;
-  color: var(--el-text-color-regular);
-  background: transparent;
-  font: inherit;
-  line-height: 1.3;
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-selection-menu__item:hover,
-.chat-selection-menu__item:focus-visible {
-  outline: none;
-  background: var(--el-fill-color-light);
-}
-
-.chat-selection-menu__icon {
-  width: 18px;
-  font-size: 17px;
-  color: var(--el-text-color-secondary);
-  flex: none;
-}
-
-.chat-selection-menu__divider {
-  height: 1px;
-  margin: 5px 12px;
-  background: var(--el-border-color-lighter);
 }
 
 .chat-batch-action-bar {
@@ -2534,18 +2367,8 @@ onBeforeUnmount(() => {
 }
 
 .chat-conversation-item__tools {
-  visibility: hidden;
-  flex: none;
-}
-
-.chat-conversation-item:hover .chat-conversation-item__tools,
-.chat-conversation-item__tools:has(.is-favorited) {
   visibility: visible;
-}
-
-.chat-conversation-item__tools .el-button {
-  padding: 2px;
-  font-size: 15px;
+  flex: none;
 }
 
 .chat-new-message-tip {
@@ -2706,4 +2529,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat-topic-compose{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}.chat-topic-compose>.el-select{width:min(230px,100%)}.chat-visible-topic{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
+</style>
+
+<style scoped>
+.chat-toolbar--header{padding:0!important;border:0!important;flex:none;gap:4px}.chat-toolbar--header .chat-toolbar__title .el-tag{font-size:10px;height:20px}.chat-toolbar--header .chat-toolbar__actions{flex-wrap:nowrap}
+.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-topic-compose{display:flex;align-items:center;gap:6px}.chat-topic-compose :deep(.el-select){width:180px}.chat-conversation-item__time{opacity:0}.chat-conversation-item:hover .chat-conversation-item__time,.chat-conversation-item:focus-within .chat-conversation-item__time{opacity:1}
 </style>

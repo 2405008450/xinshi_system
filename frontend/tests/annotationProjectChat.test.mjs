@@ -6,6 +6,7 @@ const annotationPage = readFileSync(new URL('../src/views/project/AnnotationProj
 const chatPanel = readFileSync(new URL('../src/components/ProjectChatPanel.vue', import.meta.url), 'utf8')
 const chatApi = readFileSync(new URL('../src/api/projectChat.js', import.meta.url), 'utf8')
 const notificationBell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
+const chatNotifications = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')
 
 test('标注项目进度弹窗提供纯文本项目沟通页签', () => {
   assert.match(annotationPage, /class="progress-dialog-project__label">订单号<\/span>/)
@@ -28,8 +29,9 @@ test('标注文字编辑模式支持独立图片附件', () => {
   assert.match(chatApi, /\/project-chat\/annotation\/\$\{projectId\}/)
 })
 
-test('标注聊天提醒可以直达项目沟通页签', () => {
-  assert.match(notificationBell, /includes\('project_chat'\).*query\.tab = 'chat'/)
+test('标注聊天提醒独立打开会话，同时保留项目沟通页签入口', () => {
+  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId \}\)/)
+  assert.doesNotMatch(notificationBell, /query\.tab = 'chat'/)
   assert.match(annotationPage, /route\.query\.tab==='chat'/)
   assert.match(annotationPage, /openProgress\(detail,'','chat'\)/)
 })
@@ -54,7 +56,7 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
   assert.match(chatPanel, /messageMentions\(message\)\.slice\(0, 3\)/)
   assert.match(chatPanel, /只看收藏/)
   assert.match(chatPanel, /favorites_only: filters\.favoritesOnly/)
-  assert.match(chatPanel, /收藏（仅自己可见）/)
+  assert.match(chatPanel, /已收藏，仅自己可见/)
   assert.match(chatApi, /put\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
   assert.match(chatApi, /delete\(`\/project-chat\/messages\/\$\{messageId\}\/favorite`\)/)
 })
@@ -126,24 +128,13 @@ test('多条沟通消息按发送人整理后预填补充进度并保留两条�
   assert.match(annotationPage, /progressOnly=statusEntryMode\.value==='progress'/)
 })
 
-test('消息右键使用微信式操作菜单、高亮当前消息并支持多选和精确摘录', () => {
-  assert.match(chatPanel, /@contextmenu="handleMessageContextMenu\(\$event, message\)"/)
-  assert.match(chatPanel, /'chat-message-card--context-active': progressTextMenu\.visible/)
-  assert.match(chatPanel, /\.chat-message-card--context-active\s*\{[\s\S]*border-color: var\(--el-color-primary\);/)
-  assert.match(chatPanel, /添加选中内容为进度/)
-  assert.match(chatPanel, /'添加为进度'/)
-  assert.match(chatPanel, /<CirclePlus \/>/)
-  assert.match(chatPanel, /<CopyDocument \/>/)
-  assert.match(chatPanel, /class="chat-selection-menu__divider" role="separator"/)
-  assert.match(chatPanel, /handleContextFavoriteToggle/)
-  assert.match(chatPanel, /progressTextMenu\.message\?\.isFavorited \? '取消收藏' : '收藏'/)
-  assert.match(chatPanel, /<span>多选<\/span>/)
+test('笔译聊天接入公共消息菜单并保留进度、多选、私有收藏处理', () => {
+  assert.match(chatPanel, /<ChatMessageContextMenu/)
+  assert.match(chatPanel, /@contextmenu="messageMenuRef.open\(\$event,message\)"/)
+  assert.match(chatPanel, /'chat-message-card--context-active': messageMenuRef\?\.activeMessageId/)
+  assert.match(chatPanel, /progress: \(message, excerpt\) =>/)
+  assert.match(chatPanel, /emit\('add-to-progress', \[\{ \.\.\.message, content \}\]\)/)
   assert.match(chatPanel, /handleProgressMessageSelection\(message, true\)/)
-  assert.match(chatPanel, /event\.stopImmediatePropagation\(\)/)
-  assert.match(chatPanel, /window\.addEventListener\('keydown', handleProgressTextMenuKeydown, true\)/)
-  assert.match(chatPanel, /const handleMessageContextMenu = \(event, message\) =>/)
-  assert.match(chatPanel, /contentElement\.contains\(range\.startContainer\)/)
-  assert.match(chatPanel, /event\.preventDefault\(\)/)
-  assert.match(chatPanel, /content: progressTextMenu\.text/)
-  assert.match(chatPanel, /copyTextToClipboard\(progressTextMenu\.text\)/)
+  assert.match(chatPanel, /favorite: message => handleFavoriteToggle\(message\)/)
+  assert.match(chatPanel, /copyTextToClipboard\(excerpt \|\| message.content/)
 })

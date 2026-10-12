@@ -16,7 +16,7 @@ from playwright.sync_api import sync_playwright, expect
 from database import SessionLocal
 from models import AppUser, Role, UserRole, RolePermission, AppNotification
 from annotation_models import AnnotationProject
-from routers.auth import create_access_token
+from routers.auth import create_user_access_token
 
 BASE = 'http://127.0.0.1:3000'
 API = 'http://127.0.0.1:8000'
@@ -58,7 +58,7 @@ def main_test():
     db.add_all(UserRole(role_id=role.id, user_id=u.id) for u in users)
     db.commit()
     pid, uid, role_id = str(project.id), [u.id for u in users], role.id
-    tokens = [create_access_token({'sub': u.username, 'user_id': str(u.id)}, expires_delta=timedelta(minutes=30)) for u in users]
+    tokens = [create_user_access_token(u, expires_delta=timedelta(minutes=30)) for u in users]
     results, errors = {}, []
 
     def call(index, method, suffix, data=None):

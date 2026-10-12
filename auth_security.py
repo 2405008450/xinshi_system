@@ -387,6 +387,11 @@ def _add_audit_event(
     )
 
 
+def record_password_change(db: Session, context: LoginAttemptContext) -> None:
+    """改密审计与密码更新在同一事务提交，不记录新旧密码。"""
+    _add_audit_event(db, "password_changed", context, LoginThrottleDecision(blocked=False))
+
+
 def throttle_exception(decision: LoginThrottleDecision) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,

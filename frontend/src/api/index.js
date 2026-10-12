@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { normalizeApiError } from '@/utils/errorMessages'
+import { clearAuthSession } from '@/utils/authSession'
 
 const api = axios.create({
   baseURL: '/api',
@@ -30,12 +31,7 @@ api.interceptors.response.use(
   },
   error => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user_roles')
-      localStorage.removeItem('user_permissions')
-      localStorage.removeItem('user_name')
-      localStorage.removeItem('user_id')
-      localStorage.removeItem('user_full_name')
+      clearAuthSession()
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

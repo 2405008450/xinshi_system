@@ -141,6 +141,10 @@ const enableCaptcha = async ({ focus = false } = {}) => {
 }
 
 onMounted(() => {
+  if (sessionStorage.getItem('password-change-completed') === '1') {
+    sessionStorage.removeItem('password-change-completed')
+    ElMessage.success('密码修改成功，请使用新密码重新登录')
+  }
   // 探测失败不阻塞登录：真正需要验证码时后端会在登录响应头中告知。
   checkCaptchaRequired()
     .then((res) => (res?.required ? enableCaptcha() : null))

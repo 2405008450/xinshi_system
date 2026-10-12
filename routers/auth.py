@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import hashlib
+import hmac
 
 from auth_security import (
     GENERIC_CREDENTIAL_ERROR,
@@ -18,6 +19,7 @@ from auth_security import (
     peek_source_failure_count,
     record_login_failure,
     record_login_success,
+    record_password_change,
     throttle_exception,
 )
 from login_captcha import (
@@ -34,7 +36,8 @@ from auth_security_models import RevokedAccessToken
 from crud import get_user_by_username, get_user_roles_with_role_names
 from permission_service import get_user_permission_codes, user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
-from schemas import AuthSession, CaptchaChallenge, CaptchaRequirement, Token, LoginRequest
+from schemas import AuthSession, CaptchaChallenge, CaptchaRequirement, Token, LoginRequest, PersonalPasswordChange
+from models import AppUser
 from user_mail_account_service import (
     delete_mail_account,
     save_mail_account,
@@ -160,6 +163,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+def password_version(user) -> str:
+    """口令版本使用带密钥摘要，JWT 不携带密码或数据库密码哈希。"""
+    value = f"password-version:v1:{user.id}:{user.password_hash}"
+    return hmac.new(SECRET_KEY.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_user_access_token(user, expires_delta: Optional[timedelta] = None):
+    return create_access_token(
+        {"sub": user.username, "user_id": str(user.id), "pwdv": password_version(user)},
+        expires_delta=expires_delta,
+    )
+
+
 
 def get_user_from_token_value(db: Session, token: str):
     try:
@@ -175,6 +191,11 @@ def get_user_from_token_value(db: Session, token: str):
 
     user = get_user_by_username(db, username=username)
     if user is None or not user.is_active:
+        return None
+    version = payload.get("pwdv")
+    if payload.get("user_id") != str(user.id) or not isinstance(version, str):
+        return None
+    if not hmac.compare_digest(version.encode("utf-8"), password_version(user).encode("ascii")):
         return None
     return user
 
@@ -323,6 +344,47 @@ def read_current_session(
     }
 
 
+def _password_field_error(field: str, message: str, status_code: int = 400):
+    return HTTPException(status_code=status_code, detail=[{
+        "loc": ["body", field], "msg": message, "type": "value_error",
+    }])
+
+
+@router.put("/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_personal_password(
+    payload: PersonalPasswordChange,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
+):
+    """任意启用账号仅能修改自己的密码；改密后全部旧凭证失效。"""
+    if payload.new_password != payload.confirm_password:
+        raise _password_field_error("confirm_password", "两次输入的新密码不一致")
+    if payload.new_password == payload.current_password:
+        raise _password_field_error("new_password", "新密码不能与当前密码相同")
+    context, decision = begin_login_attempt(db, f"password-change:{current_user.id}", request)
+    if decision.blocked:
+        raise throttle_exception(decision)
+    # 锁定并重新读取，防止与其他改密、管理员重置或停用账号并发覆盖。
+    user = db.query(AppUser).filter(AppUser.id == current_user.id).populate_existing().with_for_update().first()
+    if user is None or get_user_from_token_value(db, token) is None:
+        raise HTTPException(status_code=401, detail="登录凭证无效或已过期")
+    if not verify_password(payload.current_password, user.password_hash):
+        failure = record_login_failure(db, context)
+        if failure.blocked:
+            raise throttle_exception(failure)
+        raise _password_field_error("current_password", "当前密码不正确")
+    user.password_hash = hash_password(payload.new_password)
+    # 现有 updated_at 为香港本地时间的无时区字段，与数据库会话保持一致。
+    user.updated_at = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
+    record_login_success(db, context)
+    record_password_change(db, context)
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+
+
 def _mail_account_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, MailDeliveryError):
         return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
@@ -395,8 +457,8 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     role_names = get_user_roles_with_role_names(db, user.id)
     permissions = get_user_permission_codes(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username, "user_id": str(user.id)},
+    access_token = create_user_access_token(
+        user,
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
@@ -435,8 +497,8 @@ def login_json(request: Request, login_data: LoginRequest, db: Session = Depends
     role_names = get_user_roles_with_role_names(db, user.id)
     permissions = get_user_permission_codes(db, user.id)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username, "user_id": str(user.id)},
+    access_token = create_user_access_token(
+        user,
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}

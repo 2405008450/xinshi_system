@@ -9,7 +9,7 @@
   >
     <template #reference>
       <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
-        <el-button class="notification-trigger" circle text>
+        <el-button class="notification-trigger" circle text aria-label="业务通知" title="业务通知：交接、待处理事项及关键业务动态">
           <el-icon :size="18"><Bell /></el-icon>
         </el-button>
       </el-badge>
@@ -17,7 +17,7 @@
 
     <div class="notification-panel">
       <div class="notification-panel__header">
-        <span>通知</span>
+        <span>业务通知</span>
         <el-button
           v-if="unreadCount > 0"
           text
@@ -28,6 +28,7 @@
         </el-button>
       </div>
 
+      <p class="notification-panel__hint">交接、待处理事项及关键业务动态；群聊和私聊消息请查看“聊天”。</p>
       <div class="desktop-notification-card" :class="`desktop-notification-card--${desktopStatus.type}`">
         <div class="desktop-notification-card__content">
           <div class="desktop-notification-card__title">
@@ -87,13 +88,13 @@
 </template>
 
 <script setup>
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
-import { formatDateTimeMinute as formatTime } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
-import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { isBusinessNotification } from '@/utils/notificationChannels'
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -111,7 +112,6 @@ import {
 } from '../utils/desktopNotifications'
 
 const router = useRouter()
-const { openChat } = useProjectChatDock()
 const notifications = ref([])
 const unreadCount = ref(0)
 const popoverVisible = ref(false)
@@ -124,12 +124,8 @@ let unsubscribeSnapshot = null
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
-const activeMentionNotifications = new Map()
 const MAX_SEEN_NOTIFICATIONS = 200
 const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
-
-const isMentionNotification = (notification) =>
-  String(notification?.notification_type || '').endsWith('_mention')
 
 const desktopStatus = computed(() => {
   const state = desktopNotificationState.value
@@ -170,8 +166,8 @@ const rememberNotification = (notificationId) => {
 
 const loadNotifications = async () => {
   try {
-    const data = await getNotifications({ limit: 10 })
-    notifications.value = Array.isArray(data) ? data : []
+    const data = await getNotifications({ limit: 10, channel: 'business' })
+    notifications.value = Array.isArray(data) ? data.filter(isBusinessNotification) : []
     notifications.value.forEach((item) => rememberNotification(item.id))
   } catch (error) {
     console.error('加载通知失败', error)
@@ -180,44 +176,16 @@ const loadNotifications = async () => {
 
 const loadUnreadCount = async () => {
   try {
-    const data = await getUnreadNotificationCount()
+    const data = await getUnreadNotificationCount({ channel: 'business' })
     unreadCount.value = Number(data?.count || 0)
   } catch (error) {
     console.error('加载未读数失败', error)
   }
 }
 
-const loadUnreadMentionNotifications = async () => {
-  try {
-    const data = await getNotifications({ limit: 100, unread_only: true })
-    const unreadMentions = (Array.isArray(data) ? data : []).filter(isMentionNotification)
-    unreadMentions.slice().reverse().forEach((item) => {
-      rememberNotification(item.id)
-      displayMentionNotification(item)
-    })
-  } catch (error) {
-    console.error('加载未读 @ 通知失败', error)
-  }
-}
-
 const upsertNotification = (notification) => {
   const current = notifications.value.filter((item) => item.id !== notification.id)
   notifications.value = [notification, ...current].slice(0, 10)
-}
-
-const closeMentionNotification = (notificationId) => {
-  if (!notificationId) return
-  const id = String(notificationId)
-  const instance = activeMentionNotifications.get(id)
-  if (!instance) return
-  activeMentionNotifications.delete(id)
-  instance.close()
-}
-
-const closeAllMentionNotifications = () => {
-  const instances = [...activeMentionNotifications.values()]
-  activeMentionNotifications.clear()
-  instances.forEach((instance) => instance.close())
 }
 
 const markItemRead = async (item, showError = false) => {
@@ -231,7 +199,6 @@ const markItemRead = async (item, showError = false) => {
     const listItem = notifications.value.find((candidate) => String(candidate.id) === id)
     if (listItem) listItem.is_read = true
     unreadCount.value = Math.max(0, unreadCount.value - 1)
-    closeMentionNotification(item.id)
     return true
   } catch (error) {
     console.error('标记通知已读失败', error)
@@ -242,34 +209,11 @@ const markItemRead = async (item, showError = false) => {
   }
 }
 
-const CHAT_NOTIFICATION_TYPES = ['project_chat', 'project_chat_mention', 'annotation_project_chat_mention', 'annotation_project_chat_invite']
-
-const isChatNotification = (item) => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
-
-// 聊天类通知统一打开聊天小窗，不再跳转项目页面；缺少项目关联时走原跳转兜底。
-  const openChatNotification = async (item) => {
-  const projectType = item.related_project_type || 'translation'
-  const projectId = item.related_entity_id || item.related_project_id
-  if (!projectId) return false
-    let messageId = ''
-    if (isMentionNotification(item)) {
-      try {
-        const { chatRequest } = await import('@/api/projectChat')
-        const target = await chatRequest(`mentions/${item.id}/target`)
-        messageId = target.messageId || ''
-      } catch { /* 目标已删除时仍可打开会话查看当前记录。 */ }
-    }
-    openChat({ projectId, projectType, messageId })
-  popoverVisible.value = false
-  return true
-}
-
 const navigateToNotification = async (item) => {
   if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
     await router.push('/workbench')
     return
   }
-    if (isChatNotification(item) && await openChatNotification(item)) return
   if (item.related_project_type && item.related_entity_id) {
     const routeName = {
       translation: 'TranslationProjectDetails',
@@ -279,13 +223,12 @@ const navigateToNotification = async (item) => {
     }[item.related_project_type]
     if (routeName) {
       const query = { projectId: item.related_entity_id }
-      if (String(item.notification_type || '').includes('project_chat')) query.tab = 'chat'
       await router.push({ name: routeName, query })
       return
     }
   }
   if (item.related_project_id) {
-    const targetTab = String(item.notification_type || '').startsWith('project_chat') ? 'chat' : 'overview'
+    const targetTab = 'overview'
     await router.push({ path: '/translation', query: { projectId: item.related_project_id, tab: targetTab } })
     return
   }
@@ -296,6 +239,7 @@ const activateNotification = async (item, showError = false) => {
   window.focus()
   await markItemRead(item, showError)
   try {
+    popoverVisible.value = false
     await navigateToNotification(item)
   } catch (error) {
     console.error('跳转通知目标失败', error)
@@ -304,35 +248,9 @@ const activateNotification = async (item, showError = false) => {
   }
 }
 
-const displayMentionNotification = (notification) => {
-  if (!notification?.id || notification.is_read) return
-  const id = String(notification.id)
-  if (activeMentionNotifications.has(id)) return
-
-  const instance = ElNotification({
-    title: notification.title || '有人在项目沟通中 @了你',
-    message: h('div', { class: 'mention-notification__body' }, [
-      h('div', { class: 'mention-notification__summary' }, notification.content || ''),
-      h('div', { class: 'mention-notification__hint' }, '点击打开沟通'),
-    ]),
-    type: 'info',
-    position: 'top-right',
-    duration: 0,
-    showClose: true,
-    customClass: 'mention-notification',
-    onClick: () => activateNotification(notification, true),
-    onClose: () => activeMentionNotifications.delete(id),
-  })
-  activeMentionNotifications.set(id, instance)
-}
-
 const displayIncomingNotification = (notification) => {
+  if (!isBusinessNotification(notification) || notification.is_read) return
   const displayed = showDesktopNotification(notification, () => activateNotification(notification))
-
-  if (isMentionNotification(notification)) {
-    displayMentionNotification(notification)
-    return
-  }
 
   if (displayed) return
   ElNotification({
@@ -349,14 +267,13 @@ const pollNotifications = async () => {
 
   notificationPollInFlight = true
   try {
-    const data = await getNotifications({ limit: 10 })
-    const latestNotifications = Array.isArray(data) ? data : []
+    const data = await getNotifications({ limit: 10, channel: 'business' })
+    const latestNotifications = Array.isArray(data) ? data.filter(isBusinessNotification) : []
     const incomingNotifications = latestNotifications.filter((item) => rememberNotification(item.id))
 
     notifications.value = latestNotifications
-    if (!incomingNotifications.length) return
-
     await loadUnreadCount()
+    if (!incomingNotifications.length) return
     // 接口按时间倒序返回；按正序弹出，避免多条提醒遮挡时顺序颠倒。
     incomingNotifications.slice().reverse().forEach(displayIncomingNotification)
   } catch (error) {
@@ -378,12 +295,13 @@ const stopNotificationPolling = () => {
 }
 
 const handleSocketSnapshot = (payload) => {
-  unreadCount.value = Number(payload?.unread_count || 0)
+  if (payload?.business_unread_count === undefined) { loadUnreadCount(); return }
+  unreadCount.value = Number(payload.business_unread_count || 0)
 }
 
 const handleSocketNotification = (payload) => {
   const notification = payload?.notification
-  if (!notification || !rememberNotification(notification.id)) return
+  if (!notification || !isBusinessNotification(notification) || !rememberNotification(notification.id)) return
   upsertNotification(notification)
   unreadCount.value += notification.is_read ? 0 : 1
   if (notification.notification_type === 'workflow_handover_pending') {
@@ -441,10 +359,9 @@ const handleDisableDesktopNotifications = () => {
 
 const handleMarkAllRead = async () => {
   try {
-    await markAllNotificationsRead()
+    await markAllNotificationsRead({ channel: 'business' })
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
-    closeAllMentionNotifications()
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '批量已读失败'))
   }
@@ -454,7 +371,6 @@ onMounted(() => {
   syncDesktopNotificationState()
   loadNotifications()
   loadUnreadCount()
-  loadUnreadMentionNotifications()
   unsubscribeSnapshot = subscribe('snapshot', handleSocketSnapshot)
   unsubscribeNotification = subscribe('notification', handleSocketNotification)
   ensureConnected()
@@ -467,7 +383,6 @@ onBeforeUnmount(() => {
   unsubscribeNotification?.()
   closeSocket()
   stopNotificationPolling()
-  closeAllMentionNotifications()
   window.removeEventListener('focus', syncDesktopNotificationState)
 })
 
@@ -587,39 +502,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
 }
 
-:global(.el-notification.mention-notification) {
-    z-index: 100000 !important;
-    margin-top: 64px;
-  width: min(380px, calc(100vw - 32px));
-  border: 1px solid var(--el-border-color-lighter);
-  background: var(--el-bg-color);
-  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
-  cursor: pointer;
-}
-
-:global(.mention-notification .el-notification__title) {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-:global(.mention-notification .el-notification__content) {
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--color-text-secondary);
-}
-
-:global(.mention-notification__summary) {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-:global(.mention-notification__hint) {
-  margin-top: 6px;
-  color: var(--el-color-primary);
-  font-size: 12px;
-}
 </style>
+
+<style scoped>.notification-panel__hint{margin:0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.6}</style>
+<style>.notification-popover{z-index:100001!important;max-width:calc(100vw - 32px)}</style>

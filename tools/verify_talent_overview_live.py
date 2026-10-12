@@ -26,7 +26,7 @@ def main():
     from models import AppUser
     from interpretation_models import InterpretationLanguage
     from talent_overview_service import get_talent_overview
-    from routers.auth import create_access_token
+    from routers.auth import create_user_access_token
 
     with SessionLocal() as db:
         if args.backup:
@@ -39,7 +39,7 @@ def main():
             return
         user = db.query(AppUser).filter(AppUser.username == 'admin').one()
         # 短期验收凭证仅保存在内存，沿用该账号现有权限，不写入文件或日志。
-        token = create_access_token({'sub': user.username, 'user_id': str(user.id)}, timedelta(minutes=15))
+        token = create_user_access_token(user, timedelta(minutes=15))
 
     def api(path):
         request = Request('http://127.0.0.1:8000' + path, headers={'Authorization': 'Bearer ' + token})

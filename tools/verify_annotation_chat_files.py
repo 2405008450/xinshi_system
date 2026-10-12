@@ -17,7 +17,7 @@ import httpx
 from database import SessionLocal
 from models import AppUser, Role, RolePermission, UserRole, AppNotification, ChatProjectAttachment
 from annotation_models import AnnotationProject
-from routers.auth import create_access_token
+from routers.auth import create_user_access_token
 
 
 def run():
@@ -30,7 +30,7 @@ def run():
     db.add(RolePermission(role_id=role.id, permission_code='projects:read'))
     db.add_all(UserRole(role_id=role.id, user_id=user.id) for user in users); db.commit()
     user_ids, project_id, role_id = [u.id for u in users], project.id, role.id
-    tokens = [create_access_token({'sub': u.username, 'user_id': str(u.id)}, expires_delta=timedelta(minutes=20)) for u in users]
+    tokens = [create_user_access_token(u, expires_delta=timedelta(minutes=20)) for u in users]
     lan = 'http://127.0.0.1:8000'
     cloud = 'https://www.oa.xinshify.com.cn/api'
     root = f'/project-chat/annotation/{project.id}'

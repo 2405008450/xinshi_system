@@ -31,7 +31,8 @@ def open_conversation(db, user, target_id):
     db.get(ChatDirectMember, (conversation.id, user.id), populate_existing=True).hidden_at = None
     db.commit()
     publish(db, conversation.id, 'state')
-    return {'id': conversation.id, 'title': target.full_name or target.username, 'subtitle': '内部私聊'}
+    department = (target.department or '').strip()
+    return {'id': conversation.id, 'title': target.full_name or target.username, 'subtitle': department, 'department': department or None}
 
 
 def message_query(db, project_id):

@@ -122,6 +122,12 @@ class AppUserPasswordReset(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class PersonalPasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=8, max_length=128)
+    confirm_password: str = Field(min_length=8, max_length=128)
+
+
 class AppUserResponse(AppUserBase):
     id: UUID
     mail_profile_configured: bool = False

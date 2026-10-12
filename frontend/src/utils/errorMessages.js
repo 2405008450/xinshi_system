@@ -4,6 +4,9 @@ export const getRawErrorDetail = error => error?.rawDetail ?? error?.response?.d
 const FIELD_LABELS = {
   username: '用户名',
   password: '密码',
+  current_password: '当前密码',
+  new_password: '新密码',
+  confirm_password: '确认新密码',
   email: '邮箱',
   client_id: '客户',
   client_name: '客户名称',

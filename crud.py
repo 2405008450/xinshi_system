@@ -2561,22 +2561,26 @@ def get_notifications(
     skip: int = 0,
     limit: int = 20,
     unread_only: bool = False,
+    channel: str = 'all',
 ) -> List[AppNotification]:
+    from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
+    query = filter_notification_channel(query, AppNotification, channel)
     if unread_only:
         query = query.filter(AppNotification.is_read == False)
     return query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
 
 
-def count_unread_notifications(db: Session, recipient_user_id: UUID) -> int:
-    return (
+def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: str = 'all') -> int:
+    from notification_channels import filter_notification_channel
+    query = (
         db.query(AppNotification.id)
         .filter(
             AppNotification.recipient_user_id == recipient_user_id,
             AppNotification.is_read == False,
         )
-        .count()
     )
+    return filter_notification_channel(query, AppNotification, channel).count()
 
 
 def create_notification(
@@ -2665,18 +2669,20 @@ def mark_notification_read(db: Session, notification_id: UUID, recipient_user_id
     return notification
 
 
-def mark_all_notifications_read(db: Session, recipient_user_id: UUID) -> int:
-    notifications = (
+def mark_all_notifications_read(db: Session, recipient_user_id: UUID, channel: str = 'all') -> int:
+    from notification_channels import filter_notification_channel
+    query = (
         db.query(AppNotification)
         .filter(
             AppNotification.recipient_user_id == recipient_user_id,
             AppNotification.is_read == False,
         )
-        .all()
     )
+    notifications = filter_notification_channel(query, AppNotification, channel).all()
     if not notifications:
         return 0
-    now = dt.datetime.utcnow()
+    # read_at 延续既有 UTC 无时区存储语义，避免更改历史数据含义。
+    now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     for notification in notifications:
         notification.is_read = True
         notification.read_at = now

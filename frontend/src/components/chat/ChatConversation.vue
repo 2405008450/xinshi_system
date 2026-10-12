@@ -1,9 +1,9 @@
 <template>
-  <section class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
+  <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
-    <div class="group-toolbar">
-      <el-popover trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
-        <template #reference><el-button text size="small" class="group-participants" :icon="User">参与人 <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
+    <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget }">
+      <el-popover v-if="!isDirect" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
+        <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人"><template v-if="!toolbarTarget">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">{{ isDirect ? '仅双方可以访问此会话。' : '有项目查看权限的用户均可发言，参与人会持续收到未读提醒。' }}</p>
         <div class="group-members"><el-button v-for="member in group.members" :key="member.id" link :disabled="member.id === currentUserId" @click="startDirect(member)">{{ member.name }}</el-button></div>
         <el-select v-if="!isDirect" v-model="inviteIds" multiple filterable :teleported="false" placeholder="选择邀请用户" style="width:100%">
@@ -11,11 +11,12 @@
         </el-select>
         <el-button type="primary" size="small" v-if="!isDirect" :loading="inviting" :disabled="!inviteIds.length" @click="invite">邀请参与</el-button>
       </el-popover>
-      <span class="group-toolbar-spacer" />
-      <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow">{{ group.following ? '已关注' : '关注' }}</el-button>
-      <el-button text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
+      <span v-if="!toolbarTarget" class="group-toolbar-spacer" />
+      <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget">{{ group.following ? '已关注' : '关注' }}</template></el-button>
+      <el-button v-if="!toolbarTarget" text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
       <el-button v-if="canAddToProgress" size="small" :disabled="!selected.length" @click="toProgress">转进度 {{ selected.length || '' }}</el-button>
-    </div>
+    </div></Teleport>
+    <div v-if="draggingFiles" class="chat-file-drop">松开鼠标，添加图片或文件</div>
     <el-button v-if="unreadMentions.length" class="group-mention-jump" size="small" type="warning" @click="nextMention">{{ unreadMentions.length }} 条消息@了你</el-button>
     <div v-if="error" class="group-error" role="alert">{{ error }} <el-button link @click="search">重新加载</el-button></div>
     <ChatTimeline />
@@ -56,10 +57,21 @@ const props = defineProps({
   projectId: [String, Number],
   active: Boolean,
   conversationMode: Boolean,
+  toolbarTarget: { type: String, default: '' },
   canAddToProgress: Boolean,
   historyPlacement: { type: String, default: 'overlay' },
 })
+const draggingFiles = ref(false)
+let dragDepth = 0
+function dragEnter(event) { if ([...(event.dataTransfer?.types || [])].includes('Files')) { dragDepth++; draggingFiles.value = true } }
+function dragOver(event) { if (event.dataTransfer && draggingFiles.value) event.dataTransfer.dropEffect = sending.value || retryPayload.value ? 'none' : 'copy' }
+function dragLeave() { if (--dragDepth <= 0) { dragDepth = 0; draggingFiles.value = false } }
+function dropFiles(event) { dragDepth = 0; draggingFiles.value = false; addFiles([...(event.dataTransfer?.files || [])]) }
+watch(() => props.active, active => { if (!active) { dragDepth = 0; draggingFiles.value = false } })
 const isDirect = computed(() => props.projectType === 'direct')
+// 首次直接打开浮动会话时，等待外层标题栏插入 DOM 后再传送工具栏。
+const headerReady = ref(false)
+onMounted(() => { headerReady.value = true })
 const request = (...args) => (isDirect.value ? directChatRequest : annotationChatRequest)(...args)
 const emit = defineEmits(['add-to-progress', 'unread'])
 const currentUserId = localStorage.getItem('user_id') || ''
@@ -231,7 +243,7 @@ async function invite() {
   try { const data = await request(props.projectId, 'invitations', { method: 'post', data: { userIds: inviteIds.value } }); inviteIds.value = []; await loadGroup(); ElMessage.success(`已邀请 ${data.invitedCount} 人；已关注或主动取消关注的用户保持原状态`) }
   catch (e) { ElMessage.error(detail(e)) } finally { inviting.value = false }
 }
-async function copy(message) { await copyTextToClipboard(message.content || (message.attachments || []).map(f => f.originalName).join('\n')); ElMessage.success('已复制') }
+async function copy(message, excerpt = '') { const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(f => f.originalName).join('\n')); copied ? ElMessage.success('已复制') : ElMessage.error('复制失败，请使用 Ctrl+C') }
 async function favorite(message) {
   try { const result = await (message.isFavorited ? unfavoriteProjectChatMessage : favoriteProjectChatMessage)(message.id); Object.assign(message, result) } catch (e) { ElMessage.error(detail(e)) }
 }
@@ -244,8 +256,8 @@ async function recall(message) {
     const data = await request(props.projectId, `messages/${message.id}/recall`, { method: 'post' }); merge([data]); await sync()
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(detail(e)) }
 }
-function toProgress() {
-  const rows = messages.value.filter(m => selected.value.includes(m.id) && !m.recalledAt && m.content)
+function toProgress(customRows) {
+  const rows = Array.isArray(customRows) ? customRows : messages.value.filter(m => selected.value.includes(m.id) && !m.recalledAt && m.content)
   if (rows.reduce((sum, m) => sum + m.content.length + m.senderName.length + 6, 0) > 10000) return ElMessage.warning('所选消息超过具体进度10000字限制')
   emit('add-to-progress', rows)
 }
@@ -385,7 +397,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { props, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { props, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, toggleFilters: openSearch })
 </script>
 
@@ -398,4 +410,8 @@ defineExpose({ openSearch, locate, toggleFilters: openSearch })
 </style>
 <style scoped>
 .group-mention-jump{position:absolute;right:12px;top:48px;z-index:2}
+</style>
+
+<style scoped>
+.group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:28px;height:28px;padding:4px;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed #409eff;border-radius:12px;background:#edf5fff2;color:#2563eb;font-size:15px}.group-mention-jump{top:8px}
 </style>

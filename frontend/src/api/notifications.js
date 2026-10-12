@@ -1,9 +1,9 @@
 import api from './index'
 
-export const getNotifications = (params = {}) => api.get('/notifications/', { params })
-export const getUnreadNotificationCount = () => api.get('/notifications/unread-count')
+export const getNotifications = (params = {}, config = {}) => api.get('/notifications/', { ...config, params })
+export const getUnreadNotificationCount = (params = {}) => api.get('/notifications/unread-count', { params })
 export const markNotificationRead = (notificationId) => api.post(`/notifications/${notificationId}/read`)
-export const markAllNotificationsRead = () => api.post('/notifications/read-all')
+export const markAllNotificationsRead = (params = {}) => api.post('/notifications/read-all', null, { params })
 
 export const createNotificationSocket = (token) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'

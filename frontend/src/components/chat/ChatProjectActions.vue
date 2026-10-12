@@ -1,18 +1,19 @@
 <template>
   <div v-if="projectId && projectType !== 'direct'" class="chat-project-actions" @mousedown.stop @dblclick.stop>
     <AnnotationProjectDetailPopover v-if="projectType === 'annotation'" :project-id="projectId" :editable="false" trigger="click" placement="bottom-end" popper-class="chat-project-popover">
-      <template #reference><el-button link size="small">项目详情</el-button></template>
+      <template #reference><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly"><Document /></el-icon><template v-else>项目详情</template></el-button></template>
     </AnnotationProjectDetailPopover>
     <BusinessDetailPopover v-else :row="project" title="笔译项目详情" placement="bottom-end" popper-class="business-detail-popover chat-project-popover" :items="translationFields" :loading="loading" @show="loadProject">
-      <template #reference><el-button link size="small">项目详情</el-button></template>
+      <template #reference><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly"><Document /></el-icon><template v-else>项目详情</template></el-button></template>
     </BusinessDetailPopover>
     <el-popover v-if="projectType === 'annotation'" trigger="click" placement="bottom-end" :width="760" title="项目资料" popper-class="chat-project-popover" @show="materials = true" @hide="materials = false">
-      <template #reference><el-button link size="small">项目资料</el-button></template>
+      <template #reference><el-button link size="small" aria-label="项目资料" title="项目资料"><el-icon v-if="iconOnly"><FolderOpened /></el-icon><template v-else>项目资料</template></el-button></template>
       <div class="chat-project-materials"><AnnotationMaterialManager v-if="materials" :project-id="projectId" readonly /></div>
     </el-popover>
   </div>
 </template>
 <script setup>
+import { Document, FolderOpened } from '@element-plus/icons-vue'
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
@@ -20,7 +21,7 @@ import AnnotationMaterialManager from '@/components/annotation/AnnotationMateria
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { getProject } from '@/api/projects'
 import { formatBusinessDateTime } from '@/utils/dateTime'
-const props = defineProps({ projectId: String, projectType: String })
+const props = defineProps({ projectId: String, projectType: String, iconOnly: Boolean })
 const project = ref({}), materials = ref(false), loading = ref(false)
 let version = 0
 const translationFields = [

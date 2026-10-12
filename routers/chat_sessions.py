@@ -16,24 +16,87 @@ from notification_ws import broadcast_to_users
 import annotation_chat_service as annotation
 import direct_chat_service as direct
 from chat_schema import phase_one_ready, require_phase_one
+from chat_mention_history import list_mentions, mention_count
 
 router = APIRouter(prefix='/chat', tags=['chat_sessions'])
 
+DIRECTORY_LIMIT = 1000
+RECENT_LIMIT = 8
+
+
+def _department(value):
+    text = (value or '').strip()
+    return text or None
+
+
+def _user_item(row, conversation_id=None):
+    item = {'id': row.id, 'name': row.full_name or row.username, 'username': row.username, 'department': _department(row.department)}
+    if conversation_id:
+        item['conversation_id'] = conversation_id
+    return item
+
+
+def _peer_id(row, user_id):
+    return row.user_high_id if row.user_low_id == user_id else row.user_low_id
+
+
+def _direct_conversations(db, user):
+    if not phase_one_ready(db):
+        return []
+    return db.query(ChatDirectConversation).filter(or_(
+        ChatDirectConversation.user_low_id == user.id, ChatDirectConversation.user_high_id == user.id)).all()
+
+
+def _recent_contacts(db, user, conversations):
+    ordered = sorted((row for row in conversations if row.last_message_at), key=lambda row: (row.last_message_at, row.id), reverse=True)
+    peer_ids = [_peer_id(row, user.id) for row in ordered]
+    active = {uid for (uid,) in db.query(AppUser.id).filter(AppUser.id.in_(peer_ids), AppUser.is_active.is_(True))} if peer_ids else set()
+    result = []
+    for row in ordered:
+        peer = _peer_id(row, user.id)
+        if peer not in active:
+            continue
+        result.append({'user_id': peer, 'conversation_id': row.id, 'last_message_at': api_time(row.last_message_at)})
+        if len(result) >= RECENT_LIMIT:
+            break
+    return result
+
 
 @router.get('/users')
-def users(keyword: str = '', limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+def users(keyword: str = '', limit: int = Query(50, ge=1, le=100), scope: str = Query('search'), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    conversations = _direct_conversations(db, user)
+    recent = _recent_contacts(db, user, conversations)
+    if scope == 'recent':
+        return {'recent': recent}
     query = db.query(AppUser).filter(AppUser.is_active.is_(True), AppUser.id != user.id)
     if keyword.strip():
         text = '%' + keyword.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
-        query = query.filter(or_(AppUser.full_name.ilike(text, escape='\\'), AppUser.username.ilike(text, escape='\\')))
-    return {'items': [{'id': u.id, 'name': u.full_name or u.username, 'username': u.username}
-        for u in query.order_by(AppUser.full_name, AppUser.username, AppUser.id).limit(limit)]}
+        query = query.filter(or_(
+            AppUser.full_name.ilike(text, escape='\\'),
+            AppUser.username.ilike(text, escape='\\'),
+            AppUser.department.ilike(text, escape='\\'),
+        ))
+    if scope == 'directory':
+        department_key = func.nullif(func.btrim(AppUser.department), '')
+        query = query.order_by(department_key.asc().nullslast(), AppUser.full_name.asc().nullslast(), AppUser.username.asc(), AppUser.id.asc())
+        cap = DIRECTORY_LIMIT
+    else:
+        query = query.order_by(AppUser.full_name.asc().nullslast(), AppUser.username.asc(), AppUser.id.asc())
+        cap = limit
+    conversation_ids = {_peer_id(row, user.id): row.id for row in conversations}
+    items = [_user_item(row, conversation_ids.get(row.id)) for row in query.limit(cap)]
+    return {
+        'items': items,
+        'recent': recent,
+        'self': _user_item(user),
+        'truncated': scope == 'directory' and len(items) >= DIRECTORY_LIMIT,
+    }
 
 
 def summaries(db, column, ids, baselines, user_id):
     if not ids:
         return {}
-    latest = db.query(column.label('scope_id'), func.max(ChatProjectMessage.sequence_no).label('seq')).filter(column.in_(ids)).group_by(column).subquery()
+    latest = db.query(column.label('scope_id'), func.max(ChatProjectMessage.sequence_no).label('seq')).filter(column.in_(ids), ChatProjectMessage.message_type == 'user').group_by(column).subquery()
     last = db.query(ChatProjectMessage).join(latest, and_(column == latest.c.scope_id, ChatProjectMessage.sequence_no == latest.c.seq)).all()
     last_mentions = {mid for (mid,) in db.query(ChatProjectMention.message_id).filter(
         ChatProjectMention.message_id.in_([row.id for row in last]),
@@ -42,7 +105,7 @@ def summaries(db, column, ids, baselines, user_id):
     unread_rows = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
         ChatProjectMention.mentioned_user_id).outerjoin(ChatProjectMention,
         and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).filter(
-        column.in_(ids), ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
+        column.in_(ids), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
         or_(*[and_(column == uid, ChatProjectMessage.sequence_no > baseline) for uid, baseline in baselines.items()])).order_by(ChatProjectMessage.sequence_no).all()
     result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
     for uid, seq, mid, mentioned in unread_rows:
@@ -61,6 +124,7 @@ def summaries(db, column, ids, baselines, user_id):
 @router.get('/sessions')
 def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
+    history_total = mention_count(db, user)
     rows = []
     if annotation.can_view(db, user):
         # 保留已有自动关注和主动退订规则。
@@ -82,14 +146,14 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
                 subtitle=p.order_no, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
-        return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows),
+        return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
             'mention_total': sum(r['mention_unread'] for r in rows)}
     if annotation.can_view(db, user):
         prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
         projects = db.query(TranslationProject).outerjoin(ChatProjectEnabled,
             ChatProjectEnabled.project_id == TranslationProject.id).filter(or_(ChatProjectEnabled.enabled.is_(True),
             TranslationProject.id.in_(prefs), TranslationProject.created_by == user.id,
-            TranslationProject.id.in_(db.query(ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None))))).all()
+            TranslationProject.id.in_(db.query(ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None), ChatProjectMessage.message_type == 'user')))).all()
         stats = summaries(db, ChatProjectMessage.project_id, [p.id for p in projects], {p.id: prefs[p.id].last_read_sequence if p.id in prefs else 0 for p in projects}, user.id)
         for p in projects:
             m = prefs.get(p.id)
@@ -105,8 +169,14 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     for p, m in conversations:
         target = targets[p.user_high_id if p.user_low_id == user.id else p.user_low_id]
         rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
-            subtitle='内部私聊' + ('' if target.is_active else '（账号已停用）'), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
-    return {'phase_one_enabled': True, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_total': sum(r['mention_unread'] for r in rows)}
+            subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
+    return {'phase_one_enabled': True, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows)}
+
+
+@router.get('/mentions')
+def mentions(keyword: str = Query('', max_length=200), before: int | None = Query(None, ge=1),
+             limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return list_mentions(db, user, keyword=keyword, before=before, limit=limit)
 
 
 class PreferenceRequest(BaseModel):
