@@ -72,6 +72,7 @@ def _filtered_messages(
     date_to: dt.datetime | None,
     favorites_only: bool,
     include_user_messages: bool,
+    topic_id: UUID | None = None,
 ):
     query = db.query(ChatProjectMessage).filter(ChatProjectMessage.recalled_at.is_(None))
     if project_type in {'annotation', 'direct'}:
@@ -90,6 +91,9 @@ def _filtered_messages(
         query = query.filter(ChatProjectMessage.created_at <= date_to)
     if favorites_only:
         query = query.filter(ChatProjectMessage.favorites.any(ChatProjectMessageFavorite.user_id == user_id))
+    if topic_id:
+        from chat_topic_service import filter_topic
+        query = filter_topic(db, query, topic_id)
     return query
 
 
@@ -176,7 +180,10 @@ def _same_message(message: ChatProjectMessage, cursor: dict, project_type: str) 
 
 
 def _sender(message: ChatProjectMessage) -> dict:
+    from chat_topic_service import message_metadata
+    topic = message_metadata(message, None)
     return {
+        'topic_id': topic['topic_id'], 'topic_path': topic['topic_path'],
         'message_id': message.id,
         'sequence_no': int(message.sequence_no or 0),
         'sender_user_id': message.sender_user_id,
@@ -311,6 +318,7 @@ def search_chat_history(
     cursor: str | None = None,
     limit: int = 30,
     include_user_messages: bool = True,
+    topic_id: UUID | None = None,
 ) -> dict:
     normalized_kind = KIND_ALIASES.get(kind or 'all')
     if normalized_kind is None:
@@ -327,6 +335,7 @@ def search_chat_history(
         date_to=date_to,
         favorites_only=favorites_only,
         include_user_messages=include_user_messages,
+        topic_id=topic_id,
     )
     messages = _with_text_keyword(_filtered_messages(db, **filters), keyword_text) if keyword_text else _filtered_messages(db, **filters)
     images = _attachment_query(_filtered_messages(db, **filters), images=True, keyword=keyword_text)

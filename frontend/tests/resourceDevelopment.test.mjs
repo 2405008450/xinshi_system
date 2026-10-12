@@ -9,10 +9,10 @@ test('字段配置允许全部隐藏并过滤失效字段', () => { assert.deepE
 test('连续录入仅保留四个批次字段，个人联系方式与状态不复用', () => {
   assert.deepEqual(continueDevelopmentValues({ platform_id: 'p', work_date: '2026-09-24', owner_id: 'u', account_id: 'a', full_name: '旧姓名', phone: '123', wechat: '旧微信', xiaohongshu: '旧小红书', actions: [{}] }), { platform_id: 'p', work_date: '2026-09-24', owner_id: 'u', account_id: 'a' })
 })
-test('独立进展显示日期和实际操作人员', () => {
-  assert.equal(progressText({ progress: { group: { status: '已邀进群', action_date: '2026-09-09', operator_name: '宇琪' } } }, 'group'), '已拉群 · 09-09 · 宇琪')
+test('列表进展只显示业务状态，省略操作日期和人员', () => {
+  assert.equal(progressText({ progress: { group: { status: '已邀进群', action_date: '2026-09-09', operator_name: '宇琪' } } }, 'group'), '已拉群')
   assert.equal(progressText({}, 'project'), '未处理')
-  assert.equal(progressText({ progress: { wechat: { status: '已添加', action_date: null, operator_name: '原表未填写' } } }, 'wechat'), '已添加 · 原表未填日期 · 原表未填写')
+  assert.equal(progressText({ progress: { wechat: { status: '已添加', action_date: null, operator_name: '原表未填写' } } }, 'wechat'), '已添加')
   assert.deepEqual(progressStatuses('project'), ['未处理', '已入项'])
 })
 test('批次按当天及账号隔离，撤销代录权限后不沿用他人归属', () => {

@@ -173,7 +173,7 @@
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="subOrderForm.remarks" type="textarea" :rows="3" /></el-form-item></el-col>
         </el-row>
-        <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" :word-count-matrix="subOrderForm.wordCountMatrix" />
+        <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" v-model:word-count-matrix="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" @saved="fetchSubOrders" />
       </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>

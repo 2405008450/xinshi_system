@@ -1,11 +1,13 @@
 <template>
   <el-popover
+    ref="popoverRef"
     v-model:visible="visible"
     trigger="click"
     placement="bottom-end"
     width="min(960px, calc(100vw - 32px))"
     popper-class="word-count-matrix-popper"
     :teleported="true"
+    :popper-options="popperOptions"
     @show="loadMatrix"
     @hide="discardDraft"
   >
@@ -24,7 +26,7 @@
         <el-tag size="small" type="info">{{ hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存') }}</el-tag>
       </div>
 
-      <div v-loading="loading" class="word-count-matrix__body">
+      <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
         <table>
           <thead>
             <tr>
@@ -38,7 +40,12 @@
                 <span>{{ row.label }}</span>
                 <small v-if="row.hint">{{ row.hint }}</small>
               </th>
-              <td v-for="metric in WORD_COUNT_METRICS" :key="metric.key">
+              <td
+                v-for="metric in WORD_COUNT_METRICS"
+                :key="metric.key"
+                :data-word-count-cell="`${row.key}-${metric.key}`"
+                :class="{ 'is-word-count-target': row.scope === 'entity' && row.dimension === initialDimension && metric.key === initialMetricType }"
+              >
                 <el-input-number
                   v-model="row.values[metric.key]"
                   :disabled="readOnly"
@@ -62,7 +69,7 @@
         <span>{{ hybridMode ? '项目级数据立即保存；新译员数据随外层表单提交' : (localMode ? '应用后仍需保存外层表单' : '保存后立即同步到项目详情与稿件安排') }}</span>
         <div>
           <el-button @click="visible = false">取消</el-button>
-          <el-button v-if="!readOnly" type="primary" :loading="saving" @click="saveMatrix">
+          <el-button v-if="!readOnly" type="primary" :loading="saving" :disabled="loading || !draft" @click="saveMatrix">
             {{ hybridMode ? '保存并应用' : (localMode ? '应用到新建表单' : '保存') }}
           </el-button>
         </div>
@@ -72,9 +79,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
+import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import {
   WORD_COUNT_METRICS,
   createEmptyWordCountMatrix,
@@ -91,6 +99,8 @@ const props = defineProps({
   translators: { type: Array, default: () => [] },
   modelValue: { type: Object, default: () => createEmptyWordCountMatrix() },
   title: { type: String, default: '字数统计' },
+  initialDimension: { type: String, default: '' },
+  initialMetricType: { type: String, default: '' },
   readOnly: { type: Boolean, default: false }
 })
 
@@ -100,6 +110,12 @@ const loading = ref(false)
 const saving = ref(false)
 const draft = ref(null)
 const original = ref(null)
+const matrixBody = ref(null)
+const popoverRef = ref(null)
+const popperOptions = {
+  modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 16 } }]
+}
+let loadSequence = 0
 const localMode = computed(() => props.local || !props.entityId)
 const hybridMode = computed(() => localMode.value && Boolean(props.entityId))
 const summary = computed(() => formatWordCountMatrix(props.modelValue))
@@ -149,6 +165,7 @@ const rows = computed(() => {
 })
 
 async function loadMatrix() {
+  const sequence = ++loadSequence
   loading.value = true
   try {
     if (localMode.value) {
@@ -160,20 +177,43 @@ async function loadMatrix() {
       })
     } else {
       const params = props.dispatchId ? { dispatch_id: props.dispatchId } : {}
-      draft.value = normalizeResponse(await getWordCountMatrix(props.entityType, props.entityId, params))
+      const response = await getWordCountMatrix(props.entityType, props.entityId, params)
+      if (sequence !== loadSequence || !visible.value) return
+      draft.value = normalizeResponse(response)
     }
     original.value = clone(draft.value)
   } catch (error) {
+    if (sequence !== loadSequence) return
     ElMessage.error(error.detail || '加载字数统计失败')
     visible.value = false
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) loading.value = false
   }
+  if (sequence === loadSequence && visible.value) await focusInitialCell()
+}
+
+async function focusInitialCell() {
+  await nextTick()
+  // 异步加载后表格高度会变化，重新定位并把操作栏限制在视口内。
+  await popoverRef.value?.popperRef?.popperInstanceRef?.update()
+  const body = matrixBody.value
+  const target = body?.querySelector('.is-word-count-target')
+  if (!visible.value || !target) return
+  // 复用公共字段导航；横向定位只滚动统计表，不带动外层长表单。
+  if (body.scrollHeight > body.clientHeight) scrollFormTarget(target, body)
+  if (body.scrollWidth > body.clientWidth) {
+    const bodyRect = body.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    body.scrollTo({ left: Math.max(0, body.scrollLeft + targetRect.left - bodyRect.left - (body.clientWidth - targetRect.width) / 2) })
+  }
+  if (!props.readOnly) focusFormTarget(target)
 }
 
 function discardDraft() {
+  loadSequence += 1
   draft.value = null
   original.value = null
+  loading.value = false
 }
 
 function buildChanges() {
@@ -291,6 +331,7 @@ th:last-child, td:last-child { border-right: 0; }
 .word-count-matrix__row-title small { display: block; margin-top: 3px; color: var(--el-text-color-secondary); font-weight: 400; }
 td :deep(.el-input-number) { width: 100%; }
 td :deep(.el-input__wrapper) { min-height: 28px; padding: 0 5px; border-radius: 0; box-shadow: none; }
+.is-word-count-target :deep(.el-input__wrapper) { box-shadow: inset 0 0 0 2px var(--el-color-primary); }
 .word-count-matrix__empty { padding: 28px; text-align: center; color: var(--el-text-color-secondary); }
 .word-count-matrix__footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }
 .word-count-matrix__footer > span { color: var(--el-text-color-secondary); font-size: 12px; }

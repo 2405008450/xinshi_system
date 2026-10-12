@@ -24,6 +24,8 @@ PERMISSION_GROUPS = [
         "group": "项目管理",
         "permissions": [
             {"code": "projects:read", "name": "查看项目（笔译/口译/标注/招聘）"},
+            {"code": "chat_topics:manage", "name": "维护团队讨论主题菜单"},
+            {"code": "chat_topics:classify", "name": "整理可访问消息的讨论主题"},
             {"code": "projects:write", "name": "管理项目（笔译/口译/标注/招聘）"},
             {"code": "projects:order_no:write", "name": "修改项目订单号"},
             {"code": "workflow:operate", "name": "执行项目工作流"},

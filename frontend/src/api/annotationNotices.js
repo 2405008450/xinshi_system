@@ -1,5 +1,31 @@
 import api from './index'
 
+export const listNoticeAttachments = (sectionId, signal) => api.get(
+  `/annotation-notices/sections/${sectionId}/attachments`, { signal }
+).then(convertKeys)
+
+export function uploadNoticeAttachment(sectionId, file, onUploadProgress, signal) {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post(`/annotation-notices/sections/${sectionId}/attachments`, form, {
+    headers: { 'Content-Type': undefined }, timeout: 120000, onUploadProgress, signal
+  }).then(convertKeys)
+}
+
+export const downloadNoticeAttachment = (sectionId, attachmentId, signal) => api.get(
+  `/annotation-notices/sections/${sectionId}/attachments/${attachmentId}`,
+  { responseType: 'blob', timeout: 120000, signal }
+)
+
+export const deleteNoticeAttachment = (sectionId, attachmentId, signal) => api.delete(
+  `/annotation-notices/sections/${sectionId}/attachments/${attachmentId}`, { signal }
+)
+
+export const attachmentAdapter = {
+  list: listNoticeAttachments, upload: uploadNoticeAttachment,
+  download: downloadNoticeAttachment, remove: deleteNoticeAttachment
+}
+
 const toCamelCase = value => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const convertKeys = value => {
   if (Array.isArray(value)) return value.map(convertKeys)

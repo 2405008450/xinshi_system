@@ -457,6 +457,7 @@ def test_translator_reconciliation_flattens_parent_children_and_all_translators(
     }
     project.assigned_translators = [parent_assignment]
     project.sub_orders[0].assigned_translators = [child_assignment]
+    project.sub_orders[0].language_pair = "英译中"
 
     content = export_service.translation_translator_reconciliation_to_xlsx([[project]])
     workbook = load_workbook(BytesIO(content), data_only=False)
@@ -475,6 +476,7 @@ def test_translator_reconciliation_flattens_parent_children_and_all_translators(
     assert "文件名称" not in headers
     assert parent_row["客户简称"] == "子客户"
     assert parent_row["状态"] == "已确认"
+    assert parent_row["翻译方向"] == "中译英"
     assert parent_row["译员"] == "王译员"
     assert parent_row["实际数量"] == "字数：0；字符数（不计空格）：1200；页数：3"
     assert parent_row["译员单价"] == pytest.approx(0.1234)
@@ -483,6 +485,7 @@ def test_translator_reconciliation_flattens_parent_children_and_all_translators(
     assert child_row["订单号"] == "TP-260901-001.001"
     assert child_row["项目名称"] == "子稿一.docx"
     assert child_row["状态"] == "已排译员"
+    assert child_row["翻译方向"] == "英译中"
     assert child_row["译员"] == "李译员"
     assert child_row["实际数量"] == (
         "字数：800；中文字符和朝鲜语单词：700；外文字数：600；份数：2；页数：4"

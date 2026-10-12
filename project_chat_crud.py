@@ -797,6 +797,8 @@ def create_project_chat_message(
     bypass_enabled: bool = False,
     commit: bool = True,
     notify: bool = True,
+    topic_id: Optional[UUID] = None,
+    client_message_id: Optional[UUID] = None,
 ) -> ChatProjectMessage:
     settings = get_project_chat_settings(db, project_id)
     if not bypass_enabled and (settings is None or not settings.enabled):
@@ -810,6 +812,14 @@ def create_project_chat_message(
     )
     if project is None:
         raise ValueError('项目不存在')
+
+    if client_message_id:
+        # 与标注和单聊一致，按项目锁串行化幂等发送及主题写入。
+        db.query(TranslationProject).filter_by(id=project_id).with_for_update().one()
+        existing = db.query(ChatProjectMessage).filter_by(project_id=project_id, sender_user_id=sender.id,
+                                                         client_message_id=client_message_id).first()
+        if existing:
+            return existing
 
     normalized_json = normalize_rich_text_json(content_json)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
@@ -828,10 +838,15 @@ def create_project_chat_message(
         content=plain_content,
         content_json=normalized_json,
         message_type=message_type,
+        client_message_id=client_message_id,
         event_data=event_data or {},
     )
     db.add(message)
     db.flush()
+
+    if topic_id:
+        from chat_topic_service import set_message_topic
+        set_message_topic(db, sender, message, topic_id)
 
     if attachment_ids:
         attachments = (

@@ -6,7 +6,7 @@ import datetime
 import uuid
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, String, Text, Uuid, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -46,3 +46,22 @@ class AnnotationNoticeSection(Base):
     structure_updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
     editor: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[updated_by])
+
+
+class AnnotationNoticeAttachment(Base):
+    """栏目附件；内部存储名不进入公开响应。"""
+
+    __tablename__ = "annotation_notice_attachment"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    section_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("annotation_notice_section.id"), nullable=False, index=True
+    )
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid, ForeignKey("app_user.id", ondelete="SET NULL")
+    )
+    uploaded_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    uploader: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[uploaded_by])

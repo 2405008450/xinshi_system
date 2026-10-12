@@ -112,6 +112,7 @@ def _serialize_message(
     current_user_id: UUID | None = None,
 ) -> ProjectChatMessageResponse:
     from chat_time import api_time
+    from chat_topic_service import message_metadata
     mention_rows = sorted(
         getattr(message, 'mentions', None) or [],
         key=lambda item: (item.created_at is None, item.created_at or datetime.min, str(item.id)),
@@ -149,6 +150,7 @@ def _serialize_message(
         if link.attachment
     ]
     return ProjectChatMessageResponse(
+        **message_metadata(message, current_user_id),
         sequence_no=message.sequence_no,
         id=message.id,
         project_id=(message.direct_conversation_id if project_type == 'direct' else message.annotation_project_id if project_type == 'annotation' else message.project_id),
@@ -461,6 +463,7 @@ def _history_bounds(date_from: str | None, date_to: str | None):
 @router.get('/{project_id}/history')
 def translation_history_endpoint(
     project_id: UUID,
+    topic_id: UUID | None = None,
     kind: str = Query('all', pattern='^(all|image|link|file)$'),
     keyword: str | None = None,
     sender_user_id: UUID | None = None,
@@ -490,6 +493,7 @@ def translation_history_endpoint(
             cursor=cursor,
             limit=limit,
             include_user_messages=bool(settings and settings.enabled),
+            topic_id=topic_id,
         )
     except ChatHistoryError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -589,6 +593,8 @@ def create_message_endpoint(
             mentioned_user_id=payload.mentioned_user_id,
             mentioned_user_ids=payload.mentioned_user_ids,
             attachment_ids=payload.attachment_ids,
+            topic_id=payload.topic_id,
+            client_message_id=payload.client_message_id,
         )
     except ValueError as exc:
         db.rollback()

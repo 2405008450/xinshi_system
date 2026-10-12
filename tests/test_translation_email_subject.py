@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -10,6 +11,15 @@ from routers.consultations import _build_subject_preview
 from translation_email_subject import build_translation_email_subject
 
 CASES = json.loads((Path(__file__).parent / 'fixtures' / 'translation_email_subject_cases.json').read_text(encoding='utf-8'))
+
+
+@pytest.mark.parametrize('value', [
+    datetime(2026, 10, 12, 17, 30),
+    datetime.fromisoformat('2026-10-12T09:30:00+00:00'),
+    datetime.fromisoformat('2026-10-12T17:30:00+08:00'),
+])
+def test_datetime_deadline_preserves_minutes_in_business_timezone(value):
+    assert build_translation_email_subject({'customer_deadline_time': value})['subject'] == '10月12日17点30分回稿'
 
 
 @pytest.mark.parametrize('case', CASES)

@@ -118,12 +118,14 @@ class LanguageWrite(CleanModel):
 
 
 class ArrangementTargetWrite(CleanModel):
-    kind: Literal["request", "manual", "internal"]
+    kind: Literal["request", "request_project", "manual", "internal"]
     request_id: UUID | None = None
     language_id: UUID | None = None
 
     @model_validator(mode="after")
     def validate_source(self):
+        if self.kind == "request_project" and (not self.request_id or self.language_id):
+            raise ValueError("项目需求必须且只能包含需求编号")
         if self.kind == "request" and (not self.request_id or not self.language_id):
             raise ValueError("需求开拓方向必须包含需求和语种")
         if self.kind == "manual" and (not self.language_id or self.request_id):
@@ -179,3 +181,15 @@ class ArrangementWrite(CleanModel):
 class ArrangementCompletionWrite(CleanModel):
     revision: int = Field(ge=1)
     completed: bool
+
+
+class RequestArrangementWrite(CleanModel):
+    revision: int = Field(ge=0)
+    platform_ids: list[UUID] = Field(max_length=200)
+
+    @field_validator('platform_ids')
+    @classmethod
+    def unique_accounts(cls, values):
+        if len(values) != len(set(values)):
+            raise ValueError("平台账号不能重复")
+        return values

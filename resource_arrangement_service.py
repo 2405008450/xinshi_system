@@ -3,6 +3,7 @@ from copy import deepcopy
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import Text, cast, or_
 from sqlalchemy.orm import Session
 
 from interpretation_models import InterpretationLanguage
@@ -59,6 +60,115 @@ def request_project(db, request):
     return source_snapshot(db, request.source_type, project_id) if project_id else None
 
 
+def request_project_target(db, request):
+    project = request_project(db, request)
+    if request.source_type in SOURCE_MODELS and not project:
+        raise HTTPException(409, '来源项目不存在，请检查需求')
+    return {'kind': 'request_project', 'request_id': str(request.id), 'language_id': None,
+            'label': project['project_name'] if project else request.other_source_name or request.source_project_name_snapshot or request.request_no,
+            'request_no': request.request_no, 'source_name': request.source_project_name_snapshot,
+            'project': project}
+
+
+def request_arrangements(db, request_ids):
+    """批量反查本页需求，来源以需求 ID 为准，同项目不同需求互不混淆。"""
+    ids = {str(value) for value in request_ids}
+    result = {value: [] for value in ids}
+    if not ids:
+        return result
+    from resource_channel_service import arrangement_platforms
+    definitions = {p['id']: p for p in arrangement_platforms(db)}
+    query = db.query(Cell, Day.work_date).join(Day, Day.id == Cell.arrangement_id).filter(
+        or_(*(cast(Cell.targets, Text).contains(value) for value in ids))
+    ).order_by(Day.work_date.desc(), Cell.platform_name, Cell.id)
+    for cell, work_date in query:
+        definition = definitions.get(str(cell.platform_id), {})
+        matches = {str(t.get('request_id')) for t in cell.targets if t.get('request_id')} & ids
+        for request_id in matches:
+            result[request_id].append({'work_date': work_date.isoformat(), 'platform_id': str(cell.platform_id),
+                                      'platform_name': definition.get('parent_name') or definition.get('name') or cell.platform_name,
+                                      'account_name': cell.platform_name if definition.get('parent_id') else '单账号',
+                                      'owner_name': cell.owner_name, 'completed': cell.completed,
+                                      'active': all(target_status(db, t)[0] for t in cell.targets if str(t.get('request_id')) == request_id)})
+    return result
+
+
+def request_summary(db, request, arrangements):
+    project = request_project(db, request)
+    return {'id': str(request.id), 'request_no': request.request_no, 'source_type': request.source_type,
+            'order_no': project['order_no'] if project else request.source_order_no_snapshot or '',
+            'project_name': project['project_name'] if project else request.other_source_name or request.source_project_name_snapshot or '',
+            'project': project, 'request_detail': request.request_detail or '',
+            'languages': list(dict.fromkeys(label for item in request.items for label in item.language_labels)),
+            'request_status': request.request_status, 'demand_status': request.demand_status,
+            'arrangements': arrangements}
+
+
+def list_arrangement_requests(db, keyword=None, skip=0, limit=5):
+    query = db.query(ResourceRequest).options(*_request_options()).filter(
+        ResourceRequest.demand_status == 'confirmed', ResourceRequest.request_status != 'cancelled')
+    if keyword and keyword.strip():
+        pattern = '%' + keyword.strip() + '%'
+        fields = [ResourceRequest.request_no, ResourceRequest.source_order_no_snapshot,
+                  ResourceRequest.source_project_name_snapshot, ResourceRequest.other_source_name]
+        for model, field in SOURCE_MODELS.values():
+            query = query.outerjoin(model, getattr(ResourceRequest, field) == model.id)
+            fields.extend([model.order_no, model.project_name])
+        query = query.filter(or_(*(field.ilike(pattern) for field in fields)))
+    total = query.count()
+    requests = query.order_by(ResourceRequest.requested_at.desc(), ResourceRequest.id).offset(skip).limit(limit).all()
+    arrangements = request_arrangements(db, [r.id for r in requests])
+    return {'items': [request_summary(db, r, arrangements[str(r.id)]) for r in requests], 'total': total}
+
+
+def arrangement_request_detail(db, request_id):
+    request = db.query(ResourceRequest).options(*_request_options()).filter_by(id=request_id).one_or_none()
+    if not request:
+        raise HTTPException(404, '需求不存在')
+    return request_summary(db, request, request_arrangements(db, [request_id])[str(request_id)])
+
+
+def assign_request(db, user, request_id, work_date, payload):
+    from resource_development_schemas import ArrangementWrite
+    from resource_channel_service import arrangement_platforms
+    if not can_delegate(db, user):
+        raise HTTPException(403, '分配项目需求需要资源开拓代录权限')
+    lock_writes(db)
+    day = get_day(db, work_date, locked=True)
+    check_day_revision(day, payload.revision)
+    request = db.query(ResourceRequest).options(*_request_options()).filter_by(id=request_id).with_for_update().populate_existing().one_or_none()
+    if not request_active(request):
+        raise HTTPException(409, '需求已取消或尚未发送，请刷新后重试')
+    request_project_target(db, request)
+    cells = {str(c.platform_id): c for c in get_cells(db, day)}
+    selected = {str(value) for value in payload.platform_ids}
+    linked = {key for key, cell in cells.items() if any(str(t.get('request_id')) == str(request_id) for t in cell.targets)}
+    definitions = {p['id']: p for p in arrangement_platforms(db)}
+    for key in selected:
+        definition = definitions.get(key)
+        if not definition or definition['kind'] != 'platform' or (definition.get('has_accounts') and key not in linked):
+            raise HTTPException(422, '请选择有效的具体平台账号')
+    if not day and not selected:
+        raise HTTPException(422, '请至少选择一个平台账号')
+    writes = []
+    for key in sorted(selected | linked):
+        cell = cells.get(key)
+        targets = deepcopy(cell.targets) if cell else []
+        if key in selected:
+            if not any(t['kind'] == 'request_project' and str(t.get('request_id')) == str(request_id) for t in targets):
+                targets.append({'kind': 'request_project', 'request_id': str(request_id)})
+        else:
+            targets = [t for t in targets if str(t.get('request_id')) != str(request_id)]
+        if len(targets) > 100:
+            raise HTTPException(422, '该账号的开拓方向已达100项，请先整理已有安排')
+        writes.append({'platform_id': key, 'owner_id': cell.owner_id if cell else None,
+                       'targets': [{k: t.get(k) for k in ('kind', 'request_id', 'language_id')} for t in targets],
+                       'role_tags': cell.role_tags if cell else [],
+                       'projects': [{k: p[k] for k in ('source_type', 'project_id')} for p in cell.projects] if cell else [],
+                       'remarks': cell.remarks if cell else ''})
+    return save_arrangement(db, user, work_date, ArrangementWrite(revision=payload.revision, cells=writes))
+
+
 def target_status(db, target):
     if target['kind'] == 'internal':
         return True, ''
@@ -72,6 +182,10 @@ def target_status(db, target):
         return False, '需求已取消'
     if not request_active(request):
         return False, '需求尚未发送'
+    if target['kind'] == 'request_project':
+        if request.source_type in SOURCE_MODELS and not request_project(db, request):
+            return False, '来源项目已删除'
+        return True, ''
     if not language_in_request(request, target['language_id']):
         return False, '需求语种已调整'
     language = db.get(InterpretationLanguage, UUID(target['language_id']))
@@ -122,9 +236,10 @@ def arrangement_options(db, source_type=None, keyword=None):
     requests = db.query(ResourceRequest).options(*_request_options()).filter(
         ResourceRequest.demand_status == 'confirmed', ResourceRequest.request_status != 'cancelled'
     ).order_by(ResourceRequest.requested_at.desc(), ResourceRequest.id).all()
-    targets = []
+    targets, request_projects = [], []
     for request in requests:
         project = request_project(db, request)
+        request_projects.append(request_project_target(db, request))
         seen = set()
         for item in request.items:
             for language_id, label in zip(item.language_ids, item.language_labels):
@@ -140,7 +255,7 @@ def arrangement_options(db, source_type=None, keyword=None):
             raise HTTPException(422, '不支持的项目类型')
         for project in list_source_project_options(db, source_type, keyword=keyword, limit=50):
             projects.append(source_snapshot(db, source_type, project['id']))
-    return {'targets': targets, 'projects': projects}
+    return {'targets': targets, 'request_projects': request_projects, 'projects': projects}
 
 
 def carry_preview(db, user, work_date):
@@ -197,6 +312,12 @@ def normalize_targets(db, payloads, existing):
             continue
         if payload.kind == 'internal':
             result.append(value | {'label': '内部招聘'})
+            continue
+        if payload.kind == 'request_project':
+            request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
+            if not request_active(request):
+                raise HTTPException(409, '所选需求已取消，请刷新后重试')
+            result.append(request_project_target(db, request))
             continue
         language = db.get(InterpretationLanguage, payload.language_id)
         if not language or not language.is_active:
@@ -348,7 +469,11 @@ def project_detail(db, source_type, project_id):
     requests = db.query(ResourceRequest).options(*_request_options()).filter(
         getattr(ResourceRequest, field) == project_id
     ).order_by(ResourceRequest.updated_at.desc()).all()
+    arrangements = request_arrangements(db, [r.id for r in requests])
     return project | {'project_status': row.project_status,
+                      'arrangements': [item | {'request_no': r.request_no}
+                                       for r in requests
+                                       for item in arrangements[str(r.id)]],
                       'requirements': [{'request_no': r.request_no, 'demand_status': r.demand_status,
                                         'request_status': r.request_status,
                                         'languages': list(dict.fromkeys(label for item in r.items for label in item.language_labels))}

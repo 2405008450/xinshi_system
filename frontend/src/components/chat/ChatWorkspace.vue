@@ -52,6 +52,7 @@
           </div>
         </div>
         <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
+        <ChatTopicNavigation :project-id="projectId" :project-type="projectType" all-allowed @annotation="tab = 'annotation'" />
         <div class="chat-workspace__list">
           <el-empty v-if="!visibleSessions.length" :description="tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
           <div
@@ -109,11 +110,12 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChatDotRound, Close, Minus, Position, Search } from '@element-plus/icons-vue'
 import StartDirectChat from './StartDirectChat.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import ChatWindowStateMenu from './ChatWindowStateMenu.vue'
+import ChatTopicNavigation from './ChatTopicNavigation.vue'
 
 const props = defineProps({
   projectId: { type: String, default: '' },
@@ -174,7 +176,9 @@ const visibleSessions = computed(() => props.sessions.filter((session) => {
   if (!appliedKeyword.value) return true
   return `${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`.toLowerCase().includes(appliedKeyword.value)
 }).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || (Date.parse(b.lastMessage?.createdAt || '') || 0) - (Date.parse(a.lastMessage?.createdAt || '') || 0)))
-onBeforeUnmount(() => window.clearTimeout(keywordTimer))
+function showAnnotation() { tab.value = 'annotation' }
+onMounted(() => window.addEventListener('chat-topic-show-annotation', showAnnotation))
+onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventListener('chat-topic-show-annotation', showAnnotation) })
 </script>
 
 <style scoped>

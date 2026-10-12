@@ -64,7 +64,25 @@
     </section>
 
     <template v-else>
-      <el-select v-model="activeId" class="notice-page__mobile-select" placeholder="请选择主题" @change="selectSectionById">
+      <el-breadcrumb v-if="isDrilldown" separator="/" class="notice-breadcrumb" aria-label="栏目路径">
+        <el-breadcrumb-item>
+          <button v-if="activeNotice" type="button" class="notice-breadcrumb__link" @click="navigateSection(null)">{{ pageTitle }}</button>
+          <span v-else aria-current="page">{{ pageTitle }}</span>
+        </el-breadcrumb-item>
+        <el-breadcrumb-item v-for="(item, index) in activePath" :key="item.id">
+          <button v-if="index < activePath.length - 1" type="button" class="notice-breadcrumb__link" @click="navigateSection(item.id)">{{ item.title }}</button>
+          <span v-else aria-current="page">{{ item.title }}</span>
+        </el-breadcrumb-item>
+      </el-breadcrumb>
+
+      <div v-if="isDrilldown && !activeNotice && noticeTree.length" class="notice-section-cards" aria-label="一级栏目">
+        <button v-for="root in noticeTree" :key="root.id" type="button" class="notice-section-card" @click="selectSection(root)">
+          <span class="notice-section-card__title">{{ root.title }}</span>
+          <span class="notice-section-card__hint">{{ root.children?.length ? `${root.children.length} 个子栏目 · 点击进入` : '查看内容与附件' }}</span>
+        </button>
+      </div>
+
+      <el-select v-if="!isDrilldown" v-model="activeId" class="notice-page__mobile-select" placeholder="请选择主题" @change="selectSectionById">
         <template v-for="root in noticeTree" :key="root.id">
           <el-option v-if="root.hasContent || allowGroupSelection" :label="root.title" :value="root.id" />
           <el-option-group v-if="root.children?.length" :label="root.title">
@@ -73,8 +91,8 @@
         </template>
       </el-select>
 
-      <div v-if="activeNotice" class="notice-layout">
-        <nav class="notice-nav" :aria-label="`${pageTitle}主题`">
+      <div v-if="activeNotice" class="notice-layout" :class="{ 'notice-layout--drilldown': isDrilldown }">
+        <nav v-if="!isDrilldown" class="notice-nav" :aria-label="`${pageTitle}主题`">
           <div v-for="root in noticeTree" :key="root.id" class="notice-nav__root">
             <div class="notice-nav__row">
               <button
@@ -112,10 +130,16 @@
         </nav>
 
         <section class="notice-content" v-loading="detailLoading">
+          <div v-if="isDrilldown && activeNotice.children?.length" class="notice-section-cards notice-section-cards--children" aria-label="二级栏目">
+            <button v-for="child in activeNotice.children" :key="child.id" type="button" class="notice-section-card" @click="selectSection(child)">
+              <span class="notice-section-card__title">{{ child.title }}</span>
+              <span class="notice-section-card__hint">查看内容与附件</span>
+            </button>
+          </div>
           <div class="notice-content__heading">
             <div>
               <h3>{{ activeNotice.title }}</h3>
-              <div class="notice-content__meta">
+              <div v-if="activeNotice.hasContent" class="notice-content__meta">
                 <template v-if="activeDetail?.updatedAt">
                   最近由 {{ activeDetail.updatedByName || '未知用户' }} 编辑于 {{ formatDateTime(activeDetail.updatedAt) }}
                 </template>
@@ -136,7 +160,7 @@
           <slot name="attachments" :section="activeNotice" :can-edit="canEdit" :refresh-key="refreshKey" />
         </section>
       </div>
-      <el-empty v-else-if="!loading" :description="`${pageTitle}暂无栏目，请通过栏目管理添加`" />
+      <el-empty v-else-if="!loading && (!isDrilldown || !noticeTree.length)" :description="`${pageTitle}暂无栏目，请通过栏目管理添加`" />
     </template>
   </el-card>
 
@@ -162,7 +186,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onActivated, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onMounted, onActivated, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import DocumentSectionManager from '@/components/common/DocumentSectionManager.vue'
@@ -171,6 +196,7 @@ import RichTextContent from '@/components/RichTextContent.vue'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { hasPermission } from '@/utils/permission'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
+import { sectionPath, sectionQuery } from '@/utils/documentSectionNavigation'
 
 const props = defineProps({
   pageTitle: { type: String, required: true },
@@ -178,8 +204,17 @@ const props = defineProps({
   adapter: { type: Object, required: true },
   writePermission: { type: String, default: '' },
   allowAllUsersEdit: { type: Boolean, default: false },
-  allowGroupSelection: { type: Boolean, default: false }
+  allowGroupSelection: { type: Boolean, default: false },
+  navigationMode: { type: String, default: 'drilldown' },
+  sectionQueryKey: { type: String, default: 'documentSectionId' },
+  routeSection: { type: String, default: '' }
 })
+const route = useRoute()
+const router = useRouter()
+const pagePath = route.path
+const isCurrentPage = computed(() => route.path === pagePath && (!props.routeSection || route.query.section === props.routeSection))
+const isDrilldown = computed(() => props.navigationMode === 'drilldown')
+const treeReady = ref(false)
 const emptyDocument = () => ({ type: 'doc', content: [{ type: 'paragraph' }] })
 const noticeTree = ref([])
 const activeId = ref(null)
@@ -210,6 +245,7 @@ let firstActivation = true
 const canEdit = computed(() => props.allowAllUsersEdit || (Boolean(props.writePermission) && hasPermission(props.writePermission)))
 const flatNotices = computed(() => noticeTree.value.flatMap(root => [root, ...(root.children || [])]))
 const activeNotice = computed(() => flatNotices.value.find(item => item.id === activeId.value) || null)
+const activePath = computed(() => sectionPath(noticeTree.value, activeId.value))
 const activeDetail = computed(() => activeId.value ? detailCache.value[activeId.value] || null : null)
 const isDirty = computed(() => editorVisible.value && JSON.stringify(draftContent.value) !== originalContent.value)
 const searchActive = computed(() => Boolean(searchKeyword.value.trim()))
@@ -236,10 +272,15 @@ async function loadTree() {
   try {
     const result = await props.adapter.tree()
     noticeTree.value = Array.isArray(result) ? result : []
+    treeReady.value = true
     expandedIds.value = new Set(noticeTree.value.filter(item => item.children?.length).map(item => item.id))
-    const activeStillExists = flatNotices.value.some(item => item.id === activeId.value && (item.hasContent || props.allowGroupSelection))
-    if (!activeStillExists) activeId.value = flatNotices.value.find(item => item.hasContent || props.allowGroupSelection)?.id || null
-    if (activeId.value) await loadDetail(activeId.value)
+    if (isDrilldown.value) {
+      await syncRouteSection()
+    } else {
+      const activeStillExists = flatNotices.value.some(item => item.id === activeId.value && (item.hasContent || props.allowGroupSelection))
+      if (!activeStillExists) activeId.value = flatNotices.value.find(item => item.hasContent || props.allowGroupSelection)?.id || null
+      if (activeId.value) await loadDetail(activeId.value)
+    }
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, props.pageTitle + '加载失败'))
   } finally {
@@ -264,10 +305,28 @@ async function loadDetail(id, force = false) {
 
 async function selectSection(item) {
   if (!item) return
+  if (isDrilldown.value) return navigateSection(item.id)
   if (!item.hasContent && !props.allowGroupSelection) return toggleRoot(item.id)
   activeId.value = item.id
   await loadDetail(item.id)
 }
+
+async function navigateSection(id) {
+  await router.push({ path: route.path, query: sectionQuery(route.query, id, props.sectionQueryKey) })
+}
+
+async function syncRouteSection() {
+  if (!isDrilldown.value || !treeReady.value || !isCurrentPage.value) return
+  const requested = route.query[props.sectionQueryKey]
+  const path = sectionPath(noticeTree.value, requested)
+  activeId.value = path.at(-1)?.id || null
+  if (requested != null && !path.length) {
+    await router.replace({ path: route.path, query: sectionQuery(route.query, null, props.sectionQueryKey) })
+  }
+  await loadDetail(activeId.value)
+}
+
+watch(() => [route.query[props.sectionQueryKey], route.query.section, route.path], syncRouteSection)
 
 function selectSectionById(id) {
   const item = flatNotices.value.find(row => row.id === id)
@@ -293,6 +352,17 @@ async function confirmDiscard() {
     return false
   }
 }
+
+async function guardEditorNavigation(to) {
+  if (!isDrilldown.value || !editorVisible.value) return true
+  if (to.path === route.path && to.query.section === route.query.section && to.query[props.sectionQueryKey] === route.query[props.sectionQueryKey]) return true
+  if (saving.value || !await confirmDiscard()) return false
+  editorVisible.value = false
+  return true
+}
+
+onBeforeRouteUpdate(guardEditorNavigation)
+onBeforeRouteLeave(guardEditorNavigation)
 
 async function requestEditorClose() {
   if (saving.value) return
@@ -391,7 +461,7 @@ async function openSearchResult(row) {
   if (parent) expandedIds.value = new Set([...expandedIds.value, parent.id])
   searchKeyword.value = ''
   clearSearch()
-  if (item.hasContent || props.allowGroupSelection) await selectSection(item)
+  if (isDrilldown.value || item.hasContent || props.allowGroupSelection) await selectSection(item)
   else if (!isExpanded(item.id)) toggleRoot(item.id)
 }
 
@@ -414,6 +484,19 @@ onActivated(() => {
 </script>
 
 <style scoped>
+.notice-breadcrumb{display:flex;flex-wrap:wrap;gap:8px 0;margin:20px 0;line-height:1.6}
+.notice-breadcrumb :deep(.el-breadcrumb__inner){white-space:normal;overflow-wrap:anywhere}
+.notice-breadcrumb__link{padding:0;border:0;background:transparent;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}
+.notice-breadcrumb__link:hover{text-decoration:underline}
+.notice-section-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:14px}
+.notice-section-cards--children{margin-bottom:24px}
+.notice-section-card{display:flex;flex-direction:column;gap:10px;padding:20px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-bg-color);text-align:left;font:inherit;cursor:pointer;min-width:0}
+.notice-section-card:hover,.notice-section-card:focus-visible{border-color:var(--el-color-primary);background:var(--el-color-primary-light-9)}
+.notice-section-card__title{font-weight:600;color:var(--el-text-color-primary);overflow-wrap:anywhere}
+.notice-section-card__hint{font-size:13px;color:var(--el-text-color-secondary)}
+.notice-layout.notice-layout--drilldown{display:block;min-height:0}
+.notice-layout--drilldown .notice-content__document{min-height:0}
+@media(max-width:768px){.notice-section-cards{grid-template-columns:minmax(0,1fr)}}
 .notice-page__header,.notice-page__actions,.notice-search,.notice-search-results__heading,.notice-search-result__heading,.notice-search-result__heading>div,.notice-nav__row{display:flex;align-items:center}.notice-page__header{justify-content:space-between;gap:16px;flex-wrap:wrap}.notice-page__header>div{min-width:0}.notice-page__header h2{margin:0;font-size:20px}.notice-page__header p{margin:6px 0 0;color:var(--el-text-color-secondary);font-size:13px}.notice-page__actions{gap:10px}.notice-search{gap:10px;margin-bottom:14px}.notice-search .el-input{max-width:520px;min-width:0}.notice-layout{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:520px;border:1px solid var(--el-border-color-lighter);border-radius:8px;overflow:hidden}.notice-nav{padding:10px;background:var(--el-fill-color-lighter);border-right:1px solid var(--el-border-color-lighter);overflow-y:auto}.notice-nav__row{gap:2px}.notice-nav__item,.notice-nav__group,.notice-nav__toggle{border:0;border-radius:6px;background:transparent;color:var(--el-text-color-regular);font:inherit;cursor:pointer}.notice-nav__item,.notice-nav__group{display:flex;align-items:center;width:100%;padding:11px 12px;text-align:left}.notice-nav__item:hover,.notice-nav__group:hover,.notice-nav__toggle:hover{background:var(--el-fill-color)}.notice-nav__group.is-active,.notice-nav__item.is-active{background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-weight:600}.notice-nav__group{justify-content:space-between;font-weight:600}.notice-nav__group.has-active-child{color:var(--el-color-primary)}.notice-nav__toggle{display:flex;flex:0 0 34px;align-items:center;justify-content:center;height:34px}.notice-nav__arrow{transition:transform .2s ease}.notice-nav__arrow.is-expanded{transform:rotate(180deg)}.notice-nav__children{padding:2px 0 4px 10px}.notice-nav__item--child{padding:9px 10px;font-size:14px}.notice-content{min-width:0;padding:24px}.notice-content__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--el-border-color-lighter)}.notice-content__heading h3{margin:0;font-size:20px;overflow-wrap:anywhere}.notice-content__heading>div{min-width:0}.notice-content__meta{margin-top:7px;color:var(--el-text-color-secondary);font-size:13px}.notice-content__document{min-height:300px;padding:22px 4px}.notice-page__mobile-select{display:none;width:100%;margin-bottom:14px}.notice-search-results{min-height:420px;padding:18px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.notice-search-results__heading{justify-content:space-between;margin-bottom:14px;font-weight:600}.notice-search-results__heading span+span{color:var(--el-text-color-secondary);font-size:13px;font-weight:400}.notice-search-result{padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.notice-search-result+.notice-search-result{margin-top:10px}.notice-search-result__heading{justify-content:space-between;gap:12px}.notice-search-result__heading>div{min-width:0;gap:10px}.notice-search-result__heading span{overflow:hidden;color:var(--el-text-color-secondary);font-size:13px;text-overflow:ellipsis;white-space:nowrap}.notice-search-result p{margin:10px 0;line-height:1.65;white-space:pre-wrap}.notice-search-result mark{padding:0 2px;background:var(--el-color-warning-light-7);color:inherit}.notice-search-result__tags{display:flex;gap:6px}.notice-search-results .el-pagination{justify-content:flex-end;margin-top:16px}:deep(.notice-content__document ul),:deep(.notice-content__document ol){padding-left:24px}:deep(.notice-content__document h1),:deep(.notice-content__document h2),:deep(.notice-content__document h3){margin:14px 0 8px}:deep(.notice-content__document blockquote){margin:12px 0;padding-left:14px;border-left:3px solid var(--el-border-color);color:var(--el-text-color-secondary)}
 @media(max-width:768px){.notice-page__mobile-select{display:block}.notice-layout{display:block;min-height:420px}.notice-nav{display:none}.notice-content{padding:18px}.notice-content__heading{align-items:center}.notice-page__header p{display:none}.notice-search-result__heading,.notice-search-result__heading>div{align-items:flex-start;flex-direction:column}.notice-search-result__heading span{white-space:normal}}
 </style>

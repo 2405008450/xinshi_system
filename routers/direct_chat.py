@@ -81,6 +81,7 @@ def recall(project_id: UUID, message_id: UUID, db: Session = Depends(get_db), us
 
 @router.get('/{project_id}/history')
 def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link|file)$'), keyword: str = '',
+    topic_id: UUID | None = None,
     sender_user_id: UUID | None = None, favorites_only: bool = False, date_from: str | None = None,
     date_to: str | None = None, cursor: str | None = None, limit: int = Query(30, ge=1, le=50),
     db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
@@ -89,7 +90,7 @@ def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link
         return api_time(search_chat_history(db, project_type='direct', project_id=project_id, user_id=user.id,
             kind=kind, keyword=keyword, sender_user_id=sender_user_id, favorites_only=favorites_only,
             date_from=datetime.fromisoformat(date_from) if date_from else None,
-            date_to=datetime.fromisoformat(date_to) if date_to else None, cursor=cursor, limit=limit))
+            date_to=datetime.fromisoformat(date_to) if date_to else None, cursor=cursor, limit=limit, topic_id=topic_id))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 

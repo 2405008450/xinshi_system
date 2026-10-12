@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from business_time import business_now
 from database import get_db
 from interpretation_models import InterpretationLanguage
 from models import AppUser
@@ -20,7 +21,7 @@ from resource_development_service import can_delegate, can_delete_record
 from routers.resource_arrangements import router as arrangement_router
 from routers.resource_channels import router as channel_router
 from resource_channel_schemas import ChannelWrite
-from resource_channel_service import save_channel, save_description
+from resource_channel_service import arrangement_platforms, save_channel, save_description
 
 
 router = APIRouter(prefix="/resource-development", tags=["resource_development"],
@@ -32,13 +33,15 @@ router.include_router(channel_router)
 
 @router.get("/options")
 def options(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return {"options": [snapshot(o) for o in db.query(Option).order_by(Option.kind, Option.category, Option.name)],
+    # 品牌分组仅用于渠道总览，原 platform 账号仍作为每日安排和开拓记录的引用对象。
+    return {"options": [snapshot(o) for o in db.query(Option).filter(Option.kind != "channel_group").order_by(Option.kind, Option.category, Option.name)],
+            "arrangement_platforms": arrangement_platforms(db),
             "users": [{"id": str(u.id), "name": u.full_name or u.username} for u in db.query(AppUser).filter(AppUser.is_active.is_(True)).order_by(AppUser.full_name)],
             "languages": [{"id": str(l.id), "label": l.label, "language_type": l.language_type} for l in db.query(InterpretationLanguage).filter(InterpretationLanguage.is_active.is_(True)).order_by(InterpretationLanguage.label)],
             "user_id": str(user.id), "is_admin": is_admin(db, user),
             "can_delegate": can_delegate(db, user),
             "can_write": can_delegate(db, user) or user_has_permission(db, user.id, "talents:write") or user_has_permission(db, user.id, "translators:write"),
-            "default_date": previous_workday(date.today()).isoformat()}
+            "default_date": previous_workday(business_now().date()).isoformat()}
 
 
 @router.post("/options", dependencies=[write])

@@ -5,7 +5,8 @@
       <el-button v-if="!deleteMode" @click="friendPanelRef.open(activeDay || filters.range?.[1])">新增统计</el-button><template v-if="options.can_write"><template v-if="!deleteMode"><el-button @click="settingsRef.open()">平台与选项</el-button><el-button @click="openWork()">每日工作</el-button><el-button type="primary" @click="openEditor()">新增</el-button></template><BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" /></template>
     </div></div>
     <TalentResourceNav />
-    <el-tabs v-model="activeSection" @tab-change="exitDeleteMode"><el-tab-pane label="开拓日志" name="logs" /><el-tab-pane label="每日安排" name="arrangements" /></el-tabs>
+    <el-tabs v-model="activeSection" @tab-change="sectionChanged"><el-tab-pane v-if="issueAccess.can_resource" label="开拓日志" name="logs" /><el-tab-pane v-if="issueAccess.can_resource" label="每日安排" name="arrangements" /><el-tab-pane v-if="issueAccess.can_enter" label="开拓问题" name="issues" /></el-tabs>
+    <DevelopmentIssuePanel v-if="activeSection === 'issues'" />
     <DevelopmentArrangementPanel v-if="activeSection === 'arrangements'" :options="options" @add-platform="settingsRef.addPlatform()" />
     <template v-if="activeSection === 'logs'">
     <div class="development-filters">
@@ -44,15 +45,19 @@
       </div>
     </div>
     </template>
+    <template v-if="issueAccess.can_resource">
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
     <DevelopmentSettings ref="settingsRef" :options="options" @saved="loadOptions" />
+    </template>
   </el-card>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useResourceIssues } from '@/composables/useResourceIssues'
 import { ElMessage } from 'element-plus'
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import DevelopmentFriendDailyPanel from './components/DevelopmentFriendDailyPanel.vue'
@@ -62,13 +67,18 @@ import DevelopmentSettings from './components/DevelopmentSettings.vue'
 import DevelopmentRecordsTable from './components/DevelopmentRecordsTable.vue'
 import DevelopmentStatusRecordsDialog from './components/DevelopmentStatusRecordsDialog.vue'
 import DevelopmentArrangementPanel from './components/DevelopmentArrangementPanel.vue'
+import DevelopmentIssuePanel from './components/DevelopmentIssuePanel.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
-const activeSection = ref('logs')
+const route = useRoute(), router = useRouter()
+const { access: issueAccess, refreshIssueAccess } = useResourceIssues()
+const activeSection = ref(route.query.section === 'issues' ? 'issues' : 'logs')
+function sectionChanged(value) { exitDeleteMode(); router.replace({ query: { ...route.query, section: value } }) }
+watch(() => route.query.section, value => { activeSection.value = !issueAccess.can_resource ? 'issues' : ['logs','arrangements','issues'].includes(value) ? value : 'logs' })
 const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref()
 // 默认不限定日期，自动展开最近有开拓记录的日期。
 const { filters, columnFilters, activeColumnKeys, params, setColumnFilter, clearCommonColumn, resetFilters } = useDevelopmentFilters()
@@ -129,7 +139,7 @@ async function recordSaved() { await Promise.all([reload(), statusRecordsRef.val
 async function openEditor(row, channel, status) { try { await loadOptions(); await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
-onMounted(async () => { try { await loadOptions(); const raw = localStorage.getItem(columnKey()); try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] } catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] } await nextTick(); await reload() } catch (e) { ElMessage.error(e.message) } })
+onMounted(async () => { try { await refreshIssueAccess(true); if (!issueAccess.can_resource) { activeSection.value = 'issues'; return } await loadOptions(); const raw = localStorage.getItem(columnKey()); try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] } catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] } await nextTick(); await reload() } catch (e) { ElMessage.error(e.message) } })
 onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++ })
 </script>
 

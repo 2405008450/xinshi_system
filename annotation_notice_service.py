@@ -18,6 +18,7 @@ from annotation_notice_schemas import (
     AnnotationNoticeSectionUpdate,
 )
 from concurrency import StaleUpdateError, parse_expected_updated_at
+from business_time import business_now
 
 
 # 保留该常量，兼容既有调用和固定栏目顺序测试；数据库初始化后不再覆盖用户调整。
@@ -238,7 +239,10 @@ def update_annotation_notice_structure(
 
 
 def delete_annotation_notice_section(db: Session, section_id: UUID) -> bool:
-    row = db.get(AnnotationNoticeSection, section_id)
+    # 与附件写操作共用父记录锁，避免上传与软删除同时通过校验。
+    row = db.query(AnnotationNoticeSection).filter(
+        AnnotationNoticeSection.id == section_id
+    ).with_for_update().first()
     if not row or not row.is_active:
         return False
     has_children = db.query(AnnotationNoticeSection.id).filter(
@@ -248,7 +252,7 @@ def delete_annotation_notice_section(db: Session, section_id: UUID) -> bool:
     if has_children:
         raise ValueError("该一级栏目下仍有二级栏目，请先移动或删除二级栏目")
     row.is_active = False
-    row.structure_updated_at = datetime.now()
+    row.structure_updated_at = business_now()
     db.commit()
     return True
 

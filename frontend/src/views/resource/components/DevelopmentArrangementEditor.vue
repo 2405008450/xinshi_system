@@ -6,40 +6,47 @@
       <el-alert v-for="warning in warnings" :key="warning" :title="warning" type="warning" :closable="false" />
       <el-alert v-if="conflict" title="服务器记录已变化，当前草稿已保留。可重新加载后编辑，或先复制需要保留的内容。" type="warning" :closable="false"><el-button text @click="reloadDraft">重新加载</el-button></el-alert>
       <AppForm ref="formRef" :model="form" label-position="top">
-        <section v-for="(cell, index) in form.cells" :key="cell.platform_id" class="arrangement-edit-cell" data-dialog-field-search-group>
-          <h3 data-dialog-field-search-group-title>{{ cell.platform_name }}</h3>
-          <el-form-item label="平台情况说明" :prop="`cells.${index}.platform_description`">
-            <ReadonlyField :model-value="platformDescription(cell.platform_id)" source="auto" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="平台尚未填写情况说明" />
-            <small class="muted"><el-icon><MagicStick /></el-icon> 从平台情况说明自动带出（只读），可记录年付情况、赠送额度及使用规则。</small>
-          </el-form-item>
-          <el-form-item label="负责人" :prop="`cells.${index}.owner_id`">
-            <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_delegate" placeholder="暂未分配">
-              <el-option v-for="person in ownerOptions(cell)" :key="person.id" :label="person.name" :value="person.id" :disabled="person.inactive" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="开拓方向（语种／方言）" :prop="`cells.${index}.targets`">
-            <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable :loading="targetsLoading" placeholder="选择已发送需求、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => opened && refreshTargets().catch(() => {})">
-              <el-option-group label="已发送需求"><el-option v-for="target in requestOptions(cell)" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="targetLabel(target)" :disabled="target.active === false" /></el-option-group>
-              <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell)" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
-              <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
-            </el-select>
-            <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向保留供追溯，也可以手动取消选择。</small>
-          </el-form-item>
-          <el-form-item label="岗位目标" :prop="`cells.${index}.role_tags`" :rules="roleRules">
-            <el-select v-model="cell.role_tags" multiple filterable allow-create default-first-option clearable :reserve-keyword="false" placeholder="输入岗位后回车添加，如 HR、客服、译员">
-              <el-option v-for="role in cell.role_tags" :key="role" :label="role" :value="role" />
-            </el-select>
-            <small class="muted">岗位与语种可分别填写；本账号当天的全部目标统一确认完成。</small>
-          </el-form-item>
-          <div class="arrangement-auto-projects" data-dialog-field-search-label="需求关联项目"><span>需求关联项目：</span><DevelopmentArrangementProject v-for="project in automaticProjects(cell)" :key="arrangementProjectKey(project)" :project="project" /><span v-if="!automaticProjects(cell).length">-</span></div>
-          <el-form-item label="手动关联项目" :prop="`cells.${index}.manual_projects`">
-            <div class="arrangement-project-selector">
-              <el-select v-model="projectType" aria-label="项目类型" @change="searchProjects('')"><el-option v-for="type in arrangementProjectTypes" :key="type.value" :label="type.label" :value="type.value" /></el-select>
-              <el-select :model-value="null" remote filterable clearable :remote-method="searchProjects" :loading="projectsLoading" placeholder="搜索订单号、项目名称，选择后添加" @update:model-value="key => addProject(cell, key)" @visible-change="opened => opened && searchProjects('')"><el-option v-for="project in projectOptions" :key="arrangementProjectKey(project)" :value="arrangementProjectKey(project)" :label="`${project.order_no} · ${project.project_name}`" /></el-select>
-            </div>
-            <div class="arrangement-project-tags"><el-tag v-for="project in cell.manual_projects" :key="arrangementProjectKey(project)" closable @close="cell.manual_projects = cell.manual_projects.filter(p => arrangementProjectKey(p) !== arrangementProjectKey(project))">{{ project.order_no || project.project_name }}</el-tag></div>
-          </el-form-item>
-          <el-form-item label="账号备注" :prop="`cells.${index}.remarks`"><el-input v-model="cell.remarks" type="textarea" :rows="3" maxlength="20000" /></el-form-item>
+        <section v-for="group in editorGroups" :key="group.value" class="arrangement-edit-category">
+          <h2>{{ group.label }}</h2>
+          <p v-if="!group.platforms.length" class="muted">暂无平台</p>
+          <section v-for="platform in group.platforms" :key="platform.id" class="arrangement-edit-platform">
+            <h3>{{ platform.name }}</h3>
+            <section v-for="{ cell, index, id, path } in platform.accounts" :key="id" class="arrangement-edit-cell" data-dialog-field-search-group>
+              <h4 data-dialog-field-search-group-title>{{ path }}</h4>
+              <el-form-item label="平台情况说明" :prop="`cells.${index}.platform_description`">
+                <ReadonlyField :model-value="platformDescription(cell.platform_id)" source="auto" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="平台尚未填写情况说明" />
+                <small class="muted"><el-icon><MagicStick /></el-icon> 从平台情况说明自动带出（只读），可记录年付情况、赠送额度及使用规则。</small>
+              </el-form-item>
+              <el-form-item label="负责人" :prop="`cells.${index}.owner_id`">
+                <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_delegate" placeholder="暂未分配">
+                  <el-option v-for="person in ownerOptions(cell)" :key="person.id" :label="person.name" :value="person.id" :disabled="person.inactive" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="开拓方向（语种／方言）" :prop="`cells.${index}.targets`">
+                <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable :loading="targetsLoading" placeholder="选择已发送需求、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => opened && refreshTargets().catch(() => {})">
+                  <el-option-group label="已发送需求"><el-option v-for="target in requestOptions(cell)" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="targetLabel(target)" :disabled="target.active === false" /></el-option-group>
+                  <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell)" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
+                  <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
+                </el-select>
+                <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向保留供追溯，也可以手动取消选择。</small>
+              </el-form-item>
+              <el-form-item label="岗位目标" :prop="`cells.${index}.role_tags`" :rules="roleRules">
+                <el-select v-model="cell.role_tags" multiple filterable allow-create default-first-option clearable :reserve-keyword="false" placeholder="输入岗位后回车添加，如 HR、客服、译员">
+                  <el-option v-for="role in cell.role_tags" :key="role" :label="role" :value="role" />
+                </el-select>
+                <small class="muted">岗位与语种可分别填写；本账号当天的全部目标统一确认完成。</small>
+              </el-form-item>
+              <div class="arrangement-auto-projects" data-dialog-field-search-label="需求关联项目"><span>需求关联项目：</span><DevelopmentArrangementProject v-for="project in automaticProjects(cell)" :key="arrangementProjectKey(project)" :project="project" /><span v-if="!automaticProjects(cell).length">-</span></div>
+              <el-form-item label="手动关联项目" :prop="`cells.${index}.manual_projects`">
+                <div class="arrangement-project-selector">
+                  <el-select v-model="projectType" aria-label="项目类型" @change="searchProjects('')"><el-option v-for="type in arrangementProjectTypes" :key="type.value" :label="type.label" :value="type.value" /></el-select>
+                  <el-select :model-value="null" remote filterable clearable :remote-method="searchProjects" :loading="projectsLoading" placeholder="搜索订单号、项目名称，选择后添加" @update:model-value="key => addProject(cell, key)" @visible-change="opened => opened && searchProjects('')"><el-option v-for="project in projectOptions" :key="arrangementProjectKey(project)" :value="arrangementProjectKey(project)" :label="`${project.order_no} · ${project.project_name}`" /></el-select>
+                </div>
+                <div class="arrangement-project-tags"><el-tag v-for="project in cell.manual_projects" :key="arrangementProjectKey(project)" closable @close="cell.manual_projects = cell.manual_projects.filter(p => arrangementProjectKey(p) !== arrangementProjectKey(project))">{{ project.order_no || project.project_name }}</el-tag></div>
+              </el-form-item>
+              <el-form-item label="账号备注" :prop="`cells.${index}.remarks`"><el-input v-model="cell.remarks" type="textarea" :rows="3" maxlength="20000" /></el-form-item>
+            </section>
+          </section>
         </section>
         <el-form-item v-if="wholeDay && options.can_delegate" label="每日备注" prop="remarks"><el-input v-model="form.remarks" type="textarea" :rows="3" maxlength="20000" /></el-form-item>
       </AppForm>
@@ -54,7 +61,7 @@ import { MagicStick } from '@element-plus/icons-vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
-import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, normalizeArrangementRoles } from '@/utils/resourceArrangements'
+import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, normalizeArrangementRoles, arrangementDefinitions, groupArrangementAccounts, arrangementTableRows } from '@/utils/resourceArrangements'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
 const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), conflict = ref(false), wholeDay = ref(false), warnings = ref([])
@@ -62,7 +69,8 @@ const bodyRef = ref(), formRef = ref(), requestTargets = ref([]), targetsLoading
 const form = reactive({ work_date: '', revision: 0, remarks: '', cells: [], carried_from: null })
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const projectType = ref('annotation'), projectOptions = ref([]), projectsLoading = ref(false)
-const platforms = computed(() => props.options.options.filter(o => o.kind === 'platform'))
+const platforms = computed(() => arrangementDefinitions(props.options))
+const editorGroups = computed(() => groupArrangementAccounts(props.options, form.cells, { includeUnarranged: false, includeEmpty: wholeDay.value }))
 const platformDescription = id => platforms.value.find(p => p.id === id)?.description || ''
 const roleRules = [{ validator: (_rule, value, callback) => {
   const tags = normalizeArrangementRoles(value)
@@ -72,7 +80,7 @@ let baseline = {}, originalDay, editingPlatform, targetController, projectContro
 const clone = value => JSON.parse(JSON.stringify(value))
 function ownerOptions(cell) { return props.options.users.some(p => p.id === cell.owner_id) || !cell.owner_id ? props.options.users : [...props.options.users, { id: cell.owner_id, name: `${cell.owner_name}（已停用）`, inactive: true }] }
 function languageOptions(cell) { const map = new Map(props.options.languages.map(l => [l.id,l])); for (const t of cell.targets) if (t.kind === 'manual' && !map.has(t.language_id)) map.set(t.language_id,{id:t.language_id,label:t.label,inactive:true}); return [...map.values()] }
-function requestOptions(cell) { const map = new Map(requestTargets.value.map(t => [arrangementTargetKey(t), t])); for (const t of cell.targets) if (t.kind === 'request' && !map.has(arrangementTargetKey(t))) map.set(arrangementTargetKey(t), { ...t, active: false, inactive_reason: t.inactive_reason || '需求已取消或语种已调整' }); return [...map.values()] }
+function requestOptions(cell) { const map = new Map(requestTargets.value.map(t => [arrangementTargetKey(t), t])); for (const t of cell.targets) if (['request', 'request_project'].includes(t.kind) && !map.has(arrangementTargetKey(t))) map.set(arrangementTargetKey(t), { ...t, active: false, inactive_reason: t.inactive_reason || '需求已取消或语种已调整' }); return [...map.values()] }
 function targetLabel(t) { return `${t.label} · ${t.project?.order_no || t.request_no} · ${t.project?.project_name || t.source_name || ''}${t.active === false ? `（${t.inactive_reason}）` : ''}` }
 function setTargets(cell, keys) {
   const map = new Map([...cell.targets, ...requestTargets.value, ...props.options.languages.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
@@ -81,7 +89,7 @@ function setTargets(cell, keys) {
 function automaticProjects(cell) { return [...new Map(cell.targets.filter(t => t.project).map(t => [arrangementProjectKey(t.project), t.project])).values()] }
 async function refreshTargets() {
   targetController?.abort(); targetController = new AbortController(); const seq = ++targetSeq; targetsLoading.value = true
-  try { const data = await api.arrangementOptions({}, targetController.signal); if (seq === targetSeq) requestTargets.value = data.targets }
+  try { const data = await api.arrangementOptions({}, targetController.signal); if (seq === targetSeq) requestTargets.value = [...data.targets, ...(data.request_projects || [])] }
   catch (e) { if (seq === targetSeq && e.code !== 'ERR_CANCELED') { ElMessage.error(e.message); throw e } }
   finally { if (seq === targetSeq) targetsLoading.value = false }
 }
@@ -93,10 +101,9 @@ async function searchProjects(keyword) {
 }
 function addProject(cell, key) { const project = projectOptions.value.find(p => arrangementProjectKey(p) === key); if (project && !cell.manual_projects.some(p => arrangementProjectKey(p) === key)) cell.manual_projects.push(clone(project)) }
 function applyDay(day, platformId) {
-  const byId = new Map(day.cells.map(c => [c.platform_id, c])), definitions = new Map(platforms.value.map(p => [p.id, p.name]))
-  for (const c of day.cells) definitions.set(c.platform_id, c.platform_name)
+  const accounts = arrangementTableRows(groupArrangementAccounts(props.options, day.cells, { includeEmpty: false }))
   Object.assign(form, { work_date: day.work_date, revision: day.revision, remarks: day.remarks, carried_from: day.carried_from || null,
-    cells: [...definitions].filter(([id]) => !platformId || id === platformId).map(([id, name]) => ({ ...clone(byId.get(id) || { platform_id:id, platform_name:name, owner_id:null, targets:[], manual_projects:[], remarks:'' }), role_tags:normalizeArrangementRoles(byId.get(id)?.role_tags) })) })
+    cells: accounts.filter(account => !account.placeholder && (!platformId || account.id === platformId)).map(account => ({ ...clone(account.cell || { platform_id:account.id, platform_name:account.name, owner_id:null, targets:[], manual_projects:[], remarks:'' }), role_tags:normalizeArrangementRoles(account.cell?.role_tags) })) })
   wholeDay.value = !platformId; warnings.value = day.warnings || []; conflict.value = false
   baseline = clone(form); clearFieldSearch()
 }
@@ -128,5 +135,6 @@ defineExpose({ open })
 </script>
 <style>
 .arrangement-edit-cell{border-bottom:1px solid var(--el-border-color-light);padding:0 0 16px;margin-bottom:16px}.arrangement-edit-cell .el-select{width:100%}.arrangement-edit-cell h3{margin:12px 0}.arrangement-project-selector{display:grid;grid-template-columns:180px minmax(0,1fr);gap:10px;width:100%}.arrangement-project-tags,.arrangement-auto-projects{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.arrangement-warning{color:var(--el-color-warning);display:block}.arrangement-editor .el-alert{margin:8px 0}.arrangement-project-link{white-space:normal;height:auto;text-align:left}
+.arrangement-edit-category>h2{font-size:17px;padding:10px 12px;margin:16px 0;background:var(--el-fill-color-light);border-left:3px solid var(--el-color-primary)}.arrangement-edit-platform>h3{font-size:15px;margin:14px 0 10px}.arrangement-edit-cell>h4{font-size:13px;color:var(--el-text-color-secondary);margin:10px 0 16px;overflow-wrap:anywhere}
 @media(max-width:600px){.arrangement-project-selector{grid-template-columns:1fr}}
 </style>

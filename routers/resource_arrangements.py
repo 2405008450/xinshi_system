@@ -8,14 +8,38 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from routers.auth import get_current_user, require_any_permission
-from resource_development_schemas import ArrangementWrite, ArrangementCompletionWrite
+from resource_development_schemas import ArrangementWrite, ArrangementCompletionWrite, RequestArrangementWrite
 from resource_arrangement_service import (
     arrangement_options, carry_preview, complete_arrangement, list_arrangements,
     project_detail, read_arrangement, save_arrangement,
+    list_arrangement_requests, arrangement_request_detail, assign_request,
 )
 
 router = APIRouter()
 write = Depends(require_any_permission('talents:write', 'translators:write', 'resource_development:delegate'))
+
+
+@router.get('/arrangement-requests')
+def read_requests(keyword: str | None = Query(None, max_length=255), skip: int = Query(0, ge=0),
+                  limit: int = Query(5, ge=1, le=100), db: Session = Depends(get_db)):
+    return list_arrangement_requests(db, keyword, skip, limit)
+
+
+@router.get('/arrangement-requests/{request_id}')
+def read_request(request_id: UUID, db: Session = Depends(get_db)):
+    return arrangement_request_detail(db, request_id)
+
+
+@router.put('/arrangement-requests/{request_id}/dates/{work_date}', dependencies=[write])
+def assign_request_date(request_id: UUID, work_date: date, payload: RequestArrangementWrite,
+                        db: Session = Depends(get_db), user=Depends(get_current_user)):
+    try:
+        day = assign_request(db, user, request_id, work_date, payload)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, '这一天刚刚被其他人保存，请重新加载后重试') from exc
+    return read_arrangement(db, user, work_date, day)
 
 
 @router.get('/arrangement-options')

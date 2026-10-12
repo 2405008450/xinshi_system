@@ -2,6 +2,8 @@
     <div ref="composer" class="group-composer">
       <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ replyTo.content || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="replyTo=null">取消引用</el-button></div>
       <div class="group-compose-tools">
+        <ChatTopicNavigation compact :project-id="props.projectId" :project-type="props.projectType" />
+        <ChatTopicSelect v-model="sendTopicId" :disabled="sending || !!retryPayload" size="small" class="chat-send-topic" />
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" title="发送图片或文件">图片 / 文件</el-button></el-upload>
       </div>
       <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? '上传中…' : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
@@ -20,7 +22,11 @@
 <script setup>
 import { inject } from 'vue'
 import { Paperclip } from '@element-plus/icons-vue'
+import ChatTopicNavigation from './ChatTopicNavigation.vue'
+import ChatTopicSelect from './ChatTopicSelect.vue'
+const sendTopicId = inject('chatSendTopic')
 const { props, composer, replyTo, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
 </script>
 <style scoped src="./chatConversation.css" />
+<style scoped>.group-compose-tools{flex-wrap:wrap;gap:6px}.chat-send-topic{width:min(230px,100%)}</style>
 

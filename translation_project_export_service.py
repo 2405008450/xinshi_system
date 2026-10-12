@@ -396,6 +396,7 @@ TRANSLATOR_RECONCILIATION_COLUMNS = [
     ExportColumn("项目名称", _translator_project_name, "filename", 36),
     ExportColumn("客户简称", lambda item: _effective_customer_short_name(item[0]), width=24),
     ExportColumn("状态", _translator_business_status, width=16),
+    ExportColumn("翻译方向", lambda item: _detail_value(item, "language_pair"), width=24),
     ExportColumn("译员", lambda item: _read(item[2], "translator_name"), width=18),
     ExportColumn("实际数量", _translator_actual_quantity, width=38),
     ExportColumn("译员计价方式", lambda item: _read(item[2], "translator_pricing_method"), width=18),

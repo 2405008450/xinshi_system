@@ -20,6 +20,7 @@
 </template>
 
 <script setup>
+import './channelDialog.css'
 import { onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { developmentApi as api } from '@/api/resourceDevelopment'
@@ -61,11 +62,6 @@ defineExpose({ open })
 </script>
 
 <style>
-.channel-dialog { display:flex; flex-direction:column; max-height:90vh; overflow:hidden; }
-.channel-dialog>.el-dialog__header,.channel-dialog>.el-dialog__footer { flex-shrink:0; }
-.channel-dialog>.el-dialog__body { flex:1; min-height:0; overflow-y:auto; }
-.channel-dialog>.el-dialog__footer { background:#f8fafc; border-top:1px solid var(--el-border-color-light); }
-.channel-dialog .el-alert { margin-bottom:16px; }
 .channel-dialog-title { user-select:text; cursor:text; overflow-wrap:anywhere; }
 .channel-long-text { white-space:pre-wrap; overflow-wrap:anywhere; width:100%; }
 </style>

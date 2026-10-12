@@ -3,7 +3,7 @@
     <div class="charge-editor__header">
       <div>
         <strong>客户收费明细</strong>
-        <span>计量收费的数量取自当前订单“客户字数”；含税与不含税金额分别维护。</span>
+        <span>点击数量可填报当前订单“客户字数”；含税与不含税金额分别维护。</span>
       </div>
       <el-button type="primary" link @click="addItem">新增收费项</el-button>
     </div>
@@ -44,7 +44,30 @@
         </template>
       </el-table-column>
       <el-table-column label="数量" width="92" align="right">
-        <template #default="{ row }">{{ quantityText(row) }}</template>
+        <template #default="{ row }">
+          <WordCountMatrixPopover
+            v-if="row.pricingMode === 'metric'"
+            :model-value="wordCountMatrix"
+            :entity-type="entityType"
+            :entity-id="entityId"
+            :title="entityType === 'suborder' ? '子订单字数统计' : '项目字数统计'"
+            initial-dimension="customer"
+            :initial-metric-type="row.metricType"
+            @update:model-value="emit('update:wordCountMatrix', $event)"
+            @saved="emit('saved', $event)"
+          >
+            <template #reference>
+              <el-button
+                type="primary"
+                link
+                class="charge-editor__quantity"
+                :aria-label="`填报客户${metricLabel(row.metricType)}`"
+                :title="`点击填报客户${metricLabel(row.metricType)}`"
+              >{{ quantityText(row) }}</el-button>
+            </template>
+          </WordCountMatrixPopover>
+          <span v-else>-</span>
+        </template>
       </el-table-column>
       <el-table-column label="每计价单位" width="112">
         <template #default="{ row }">
@@ -123,13 +146,16 @@
 
 <script setup>
 import { computed, watch } from 'vue'
+import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import { WORD_COUNT_METRICS, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
   wordCountMatrix: { type: Object, default: () => ({}) },
+  entityType: { type: String, default: 'project' },
+  entityId: { type: [String, Number], default: '' },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'update:wordCountMatrix', 'saved'])
 
 const customerValues = computed(() => normalizeWordCountMatrix(props.wordCountMatrix).customer)
 const defaultUnitSize = (metric) => ['documents', 'pages'].includes(metric) ? 1 : 1000
@@ -216,8 +242,9 @@ function fillSuggestedTotals(row) {
 }
 function quantityText(row) {
   const value = quantity(row)
-  return value == null ? '-' : Number(value).toLocaleString('zh-CN')
+  return value == null ? '填报' : Number(value).toLocaleString('zh-CN')
 }
+const metricLabel = (key) => WORD_COUNT_METRICS.find((metric) => metric.key === key)?.label || '字数'
 function suggestedText(row, kind) {
   const value = suggestedTotal(row, kind)
   return value == null ? '请输入金额' : `建议 ${value.toFixed(2)}`
@@ -240,5 +267,6 @@ const totalSummary = computed(() => {
 .charge-editor__header > div { display: flex; flex-direction: column; gap: 2px; }
 .charge-editor__header span { color: var(--el-text-color-secondary); font-size: 12px; }
 .charge-editor :deep(.el-input-number) { width: 100%; }
+.charge-editor__quantity { max-width: 100%; height: auto; padding: 0; white-space: normal; overflow-wrap: anywhere; }
 .charge-editor__total { margin-top: 8px; text-align: right; font-weight: 600; }
 </style>

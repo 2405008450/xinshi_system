@@ -8,12 +8,12 @@ test('旧跟进字段配置合并且不产生重复列', () => {
   assert.equal(developmentColumns.some(column => column.key === 'follow_up'), false)
 })
 
-test('操作时间始终按香港时区显示到秒，并兼容历史原文', () => {
+test('历史操作时间按香港时区显示，列表只显示跟进摘要并兼容历史原文', () => {
   assert.equal(followUpTime('2026-10-07T16:01:02Z'), '2026年10月08日 00:01:02')
   assert.equal(followUpTime(null), '-')
   assert.equal(followUpText({ follow_up: '旧文本' }), '旧文本')
   assert.equal(followUpText({}), '')
-  assert.equal(followUpText({ latest_follow_up_entry: { content: '回复\n待确认', operator_name: '实际保存人', created_at: '2026-10-08T13:04:05+08:00' } }), '回复 待确认 · 实际保存人 · 2026年10月08日 13:04:05')
+  assert.equal(followUpText({ latest_follow_up_entry: { content: '回复\n待确认', operator_name: '实际保存人', created_at: '2026-10-08T13:04:05+08:00' } }), '回复 待确认')
   const long = followUpText({ latest_follow_up_entry: { content: '文'.repeat(20000), operator_name: '操作人', created_at: '2026-10-08T13:04:05+08:00' } })
-  assert.equal(long, `${'文'.repeat(100)}… · 操作人 · 2026年10月08日 13:04:05`)
+  assert.equal(long, `${'文'.repeat(100)}…`)
 })

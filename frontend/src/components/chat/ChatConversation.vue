@@ -77,6 +77,7 @@ const mentionCandidates = computed(() => group.eligibleUsers.filter(u => u.name.
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
+const sendTopicId = ref(null)
 const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
@@ -210,6 +211,7 @@ function observeMessage(el) {
 }
 function scheduleRead() { clearTimeout(readTimer); readTimer = setTimeout(markRead, 350) }
 async function markRead() {
+  if (document.querySelector('.chat-topic-results-dialog')) return
   if (!props.active || document.visibilityState !== 'visible' || !document.hasFocus() || readBusy || (!isDirect.value && unreadMentions.value.length > 0)) return
   const visible = [...visibleMessages.entries()].filter(([id]) => messages.value.some(m => m.id === id)).sort((a, b) => b[1] - a[1])[0]
   if (!visible || visible[1] <= lastRead) return
@@ -334,10 +336,10 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { topicId: sendTopicId.value, content: content.value, mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
-    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []; sendTopicId.value = null
     if (viewingHistory.value) await search()
     merge([message]); await bottom(); await loadGroup()
   } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
@@ -349,7 +351,7 @@ async function cancelRetry() {
   try {
     const result = await request(props.projectId, `sent/${retryPayload.value.clientMessageId}`)
     if (result.message) {
-      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []; sendTopicId.value = null
       ElMessage.success('已确认上一条消息发送成功')
     }
     retryPayload.value = null; sendError.value = ''
@@ -357,8 +359,11 @@ async function cancelRetry() {
   finally { sending.value = false }
 }
 function foreground() { scheduleRead(); sync() }
+function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
+provide('chatSendTopic', sendTopicId)
 watch(() => props.active, active => { if (active) { sync(); scheduleRead() } else closeMention() })
 onMounted(async () => {
+  window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
   cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
@@ -371,6 +376,7 @@ onMounted(async () => {
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('chat-topic-message-changed', topicChanged)
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
   unwatch?.(); cleanup.forEach(fn => fn()); observer?.disconnect()
   document.removeEventListener('visibilitychange', foreground); window.removeEventListener('focus', foreground)

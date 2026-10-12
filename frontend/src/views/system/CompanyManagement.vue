@@ -4,6 +4,8 @@
     description="集中查看公司制度、行政财务规范与常用资料。"
     allow-all-users-edit
     allow-group-selection
+    navigation-mode="drilldown"
+    section-query-key="companySectionId"
     :adapter="adapter"
   >
     <template #attachments="{ section, canEdit, refreshKey }">

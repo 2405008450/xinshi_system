@@ -5,7 +5,6 @@
       <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="value in progressStatuses(channel)" :key="value" :command="value" :disabled="value === status">{{ value }}</el-dropdown-item></el-dropdown-menu></template>
     </el-dropdown>
     <span v-else>{{ status }}</span>
-    <small v-if="progress">{{ date(progress.action_date) }} · {{ progress.operator_name || '-' }}</small>
     <el-popover trigger="click" placement="left" :width="760" :title="`${row.full_name} · ${label}操作历史`" popper-class="development-group-history" @show="loadHistory">
       <template #reference><el-button link type="primary" size="small">查看历史</el-button></template>
       <div v-loading="historyLoading" class="group-history-body">
@@ -71,7 +70,7 @@ onBeforeUnmount(clearHistory)
 
 <style scoped>
 .development-group-progress{display:flex;flex-direction:column;align-items:flex-start;gap:3px;line-height:1.5}
-.development-group-progress small{font-size:12px;color:var(--el-text-color-secondary);white-space:normal;overflow-wrap:anywhere}.group-arrow{margin-left:6px}
+.group-arrow{margin-left:6px}
 .group-history-body{max-height:min(560px,calc(100vh - 160px));overflow-y:auto;overflow-wrap:anywhere}.group-history-record{margin-bottom:12px}
 </style>
 <style>

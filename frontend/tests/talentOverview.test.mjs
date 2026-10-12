@@ -68,7 +68,8 @@ test('人才资源导航把人才概览放在人才总库左侧', () => {
   assert.equal(TALENT_RESOURCE_VIEWS[0].path, '/resource-management/talent-overview')
   assert.equal(TALENT_RESOURCE_VIEWS[2].path, '/resource-management/resource-development')
   assert.equal(TALENT_RESOURCE_VIEWS[3].path, '/resource-management/resource-channels')
-  assert.deepEqual(TALENT_RESOURCE_VIEWS[1].children.map(item => item.label), ['笔译资源', '口译资源', '标注资源', '全职资源'])
+  assert.deepEqual(TALENT_RESOURCE_VIEWS[1].children.map(item => item.label), ['笔译资源', '口译资源', '标注资源', '全职资源', '团队资源'])
+  assert.equal(TALENT_RESOURCE_VIEWS[1].children.at(-1).path, '/resource-management/teams')
 })
 
 test('新增来源列追加到所属分组末尾并为已有行补充空单元格', () => {

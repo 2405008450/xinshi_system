@@ -18,7 +18,7 @@
   </DraggableFormDialog>
 </template>
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { categoryOptions } from '@/utils/resourceDevelopment'
@@ -32,7 +32,18 @@ function create(kind, category = '') { if (kind === 'platform') return channelRe
 function edit(p) { if (p) return descriptionRef.value.open(p) }
 async function saved() { emit('saved'); try { currentOptions.value = await api.options() } catch (error) { ElMessage.error(error.message) } }
 async function open() { try { currentOptions.value = await api.options(); visible.value = true } catch (error) { ElMessage.error(error.message) } }
-async function addPlatform() { await open(); if (visible.value) { tab.value = 'platform'; create('platform', 'national') } }
+let openingPlatform = false
+async function addPlatform() {
+  if (openingPlatform) return
+  openingPlatform = true
+  try {
+    currentOptions.value = await api.options()
+    await nextTick()
+    // 每日安排入口直接打开新增表单，不叠加平台维护窗口。
+    await create('platform', 'national')
+  } catch (error) { ElMessage.error(error.message) }
+  finally { openingPlatform = false }
+}
 async function save() {
   if (!await formRef.value.validate().catch(() => false)) return
   if (saving.value) return

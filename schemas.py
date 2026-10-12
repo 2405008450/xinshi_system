@@ -742,6 +742,7 @@ class TranslationProjectBase(BaseModel):
     quotation_path: Optional[str] = None
     customer_requirement_professional: Optional[str] = None
     customer_requirement_special: Optional[str] = None
+    remarks: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
     sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
@@ -830,6 +831,7 @@ class TranslationProjectUpdate(BaseModel):
     quotation_path: Optional[str] = None
     customer_requirement_professional: Optional[str] = None
     customer_requirement_special: Optional[str] = None
+    remarks: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
     sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
@@ -1483,6 +1485,8 @@ class ProjectChatSettingsResponse(BaseModel):
 
 
 class ProjectChatMessageCreate(BaseModel):
+    topic_id: Optional[UUID] = None
+    client_message_id: Optional[UUID] = None
     content: str = Field(default='', max_length=10000)
     content_json: Optional[dict] = None
     mentioned_user_id: Optional[UUID] = None
@@ -1494,6 +1498,7 @@ class AnnotationProjectChatMessageCreate(BaseModel):
     """标注沟通支持文字和图片附件，不接收富文本。"""
 
     content: str = Field(default='', max_length=10000)
+    topic_id: Optional[UUID] = None
     client_message_id: Optional[UUID] = None
     reply_to_message_id: Optional[UUID] = None
     mentioned_user_id: Optional[UUID] = None
@@ -1541,6 +1546,10 @@ class ProjectChatAcknowledgementResponse(BaseModel):
 
 
 class ProjectChatMessageResponse(BaseModel):
+    topic_id: Optional[UUID] = None
+    topic_path: Optional[str] = None
+    topic_revision: int = 0
+    can_classify: bool = False
     sequence_no: Optional[int] = None
     client_message_id: Optional[UUID] = None
     recalled_at: Optional[datetime] = None

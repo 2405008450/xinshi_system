@@ -1,5 +1,5 @@
 <template>
-  <div class="inline-text-field" :class="{ 'is-editing': editing }">
+  <div class="inline-text-field" :class="{ 'is-editing': editing, 'is-multiline': multiline }">
     <template v-if="editing">
       <el-input
         ref="inputRef"
@@ -197,6 +197,7 @@ onBeforeUnmount(() => {
 }
 .inline-text-field__trigger:disabled { cursor: default; }
 .inline-text-field__value { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+.inline-text-field.is-multiline .inline-text-field__value { white-space: pre-wrap; }
 .inline-text-field__edit-icon { flex: none; margin-top: 4px; color: var(--el-color-primary); opacity: .65; }
 .inline-text-field__trigger:hover .inline-text-field__edit-icon,
 .inline-text-field__trigger:focus-visible .inline-text-field__edit-icon { opacity: 1; }

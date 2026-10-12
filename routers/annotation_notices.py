@@ -2,10 +2,12 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from annotation_notice_schemas import (
+    AnnotationNoticeAttachmentResponse,
     AnnotationNoticeReorder,
     AnnotationNoticeSearchResponse,
     AnnotationNoticeSectionCreate,
@@ -27,6 +29,9 @@ from annotation_notice_service import (
     update_annotation_notice_structure,
 )
 from database import get_db
+from annotation_notice_attachment_service import (
+    attachment_path, delete_attachment, get_attachment, list_attachments, save_attachment,
+)
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access
 
@@ -131,6 +136,42 @@ def save_annotation_notice_content(
     if row is None:
         raise HTTPException(status_code=404, detail="标注须知栏目不存在")
     return row
+
+
+@router.get("/sections/{section_id}/attachments", response_model=list[AnnotationNoticeAttachmentResponse])
+def read_attachments(section_id: UUID, db: Session = Depends(get_db)):
+    return list_attachments(db, section_id)
+
+
+@router.post(
+    "/sections/{section_id}/attachments", response_model=AnnotationNoticeAttachmentResponse,
+    status_code=status.HTTP_201_CREATED, dependencies=write_permission,
+)
+async def upload_attachment(
+    section_id: UUID, file: UploadFile = File(...),
+    db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
+):
+    return await save_attachment(db, section_id, file, current_user.id)
+
+
+@router.get("/sections/{section_id}/attachments/{attachment_id}")
+def download_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
+    row = get_attachment(db, section_id, attachment_id)
+    path = attachment_path(row.storage_name)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="附件文件不存在")
+    return FileResponse(
+        path, filename=row.original_name, media_type="application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+    )
+
+
+@router.delete(
+    "/sections/{section_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT, dependencies=write_permission,
+)
+def remove_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
+    delete_attachment(db, section_id, attachment_id)
 
 
 # 兼容旧版平铺读取和按固定 section_key 保存正文。

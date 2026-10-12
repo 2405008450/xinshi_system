@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from business_time import BUSINESS_TIMEZONE
 from language_catalog import compact_translation_direction
 
 
@@ -12,7 +13,12 @@ def build_translation_email_subject(source: dict) -> dict:
             deadline = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
         except ValueError:
             deadline = None
-    deadline_text = f"{deadline.month}月{deadline.day}日{deadline.hour}点回稿" if deadline else ""
+    deadline_text = ""
+    if deadline:
+        # 现有无时区交稿时间为 UTC+8 本地时间；带偏移值按实际时刻转换。
+        deadline = deadline.replace(tzinfo=BUSINESS_TIMEZONE) if deadline.tzinfo is None else deadline.astimezone(BUSINESS_TIMEZONE)
+        minute_text = f"{deadline.minute}分" if deadline.minute else ""
+        deadline_text = f"{deadline.month}月{deadline.day}日{deadline.hour}点{minute_text}回稿"
     direction = compact_translation_direction(source.get("language_pair"))
     fields = [
         ("标题前缀", source.get("subject_prefix")),

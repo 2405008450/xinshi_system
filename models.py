@@ -482,6 +482,8 @@ class TranslationProject(Base):
     quotation_path: Mapped[Optional[str]] = mapped_column(Text)
     customer_requirement_professional: Mapped[Optional[str]] = mapped_column(Text)
     customer_requirement_special: Mapped[Optional[str]] = mapped_column(Text)
+    # 笔译母项目备注，与子订单及稿件安排的备注分别保存。
+    remarks: Mapped[Optional[str]] = mapped_column(Text)
     
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

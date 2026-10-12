@@ -14,7 +14,7 @@
         <el-button v-else-if="!crossDate && column.key === 'platform_name' && options.can_write && !deleteMode" link type="primary" @click="$emit('platform', row.platform_id)">{{ row.platform_name }}</el-button>
         <el-button v-else-if="!crossDate && column.key === 'owner_name' && editable(row)" link type="primary" :aria-label="`填写${row.owner_name}的每日工时`" @click="$emit('work', row.work_date, row.owner_id)">{{ display(row, column.key) }}</el-button>
         <el-button v-else-if="!crossDate && column.key === 'work_date'" link type="primary" @click="$emit('statistic', row.work_date)">{{ display(row, column.key) }}</el-button>
-        <el-button v-else-if="column.key === 'latest_follow_up' && editable(row)" link type="primary" class="development-progress" :title="row.latest_follow_up || row.follow_up || ''" @click="$emit('edit', row, 'follow_up')">{{ followUpText(row) || '填写后续跟进情况' }}</el-button>
+        <el-button v-else-if="column.key === 'latest_follow_up' && editable(row)" link type="primary" class="development-progress" :title="row.latest_follow_up_entry?.content ?? row.latest_follow_up ?? row.follow_up ?? ''" @click="$emit('edit', row, 'follow_up')">{{ followUpText(row) || '填写后续跟进情况' }}</el-button>
         <span v-else>{{ display(row, column.key) }}</span>
       </template>
     </el-table-column>
@@ -91,3 +91,8 @@ async function loadDetail(row) {
 onBeforeUnmount(invalidateDetails)
 defineExpose({ invalidateDetails, clearSelection: () => tableRef.value?.clearSelection(), toggleRowSelection: (...args) => tableRef.value?.toggleRowSelection(...args) })
 </script>
+
+<style scoped>
+.development-progress{max-width:100%;min-width:0;white-space:nowrap;text-align:left}
+.development-progress :deep(> span){display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>

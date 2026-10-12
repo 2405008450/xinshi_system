@@ -134,6 +134,7 @@ def read(project_id: UUID, payload: ReadRequest, db: Session = Depends(get_db), 
 
 @router.get('/{project_id}/history')
 def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link|file)$'),
+            topic_id: UUID | None = None,
             keyword: str = '', sender_user_id: UUID | None = None, favorites_only: bool = False,
             date_from: str | None = None, date_to: str | None = None, cursor: str | None = None,
             limit: int = Query(30, ge=1, le=50),
@@ -147,6 +148,7 @@ def history(project_id: UUID, kind: str = Query('all', pattern='^(all|image|link
             db, project_type='annotation', project_id=project_id, user_id=user.id, kind=kind,
             keyword=keyword, sender_user_id=sender_user_id, date_from=parsed_from, date_to=parsed_to,
             favorites_only=favorites_only, cursor=cursor, limit=limit,
+            topic_id=topic_id,
         )
     except ValueError as exc:
         status_code = 400 if isinstance(exc, ChatHistoryError) or '日期' in str(exc) else 400

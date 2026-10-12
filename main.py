@@ -266,6 +266,12 @@ app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
 from routers import resource_development
 app.include_router(resource_development.router)
+from routers import resource_issues
+app.include_router(resource_issues.router)
+from routers import chat_topics
+app.include_router(chat_topics.router)
+from routers import teams
+app.include_router(teams.router)
 from routers import referral_development
 app.include_router(referral_development.router)
 app.include_router(recruitment_projects.router)

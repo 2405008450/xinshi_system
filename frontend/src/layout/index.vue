@@ -41,7 +41,7 @@
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
         <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
-        <SidebarNavigationItem v-if="showResourceRequests" index="/resource-requests" :icon="Tickets" label="资源需求管理" />
+        <SidebarNavigationItem v-if="showResourceRequests" index="/resource-requests" :icon="Tickets" label="需求管理" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="人才资源管理" />
 
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
@@ -131,6 +131,7 @@
         </button>
       </template>
     </ProjectChatDock>
+    <ChatIssueCollector v-if="issueCollectorLoaded" />
   </el-container>
 </template>
 
@@ -149,6 +150,7 @@ import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
+import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
 import { useUiZoom } from '../composables/useUiZoom'
@@ -156,6 +158,10 @@ import { logout } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
+const { access: issueAccess, collector: issueCollector, refreshIssueAccess } = useResourceIssues()
+const issueCollectorLoaded = ref(false)
+const ChatIssueCollector = defineAsyncComponent(() => import('@/components/chat/ChatIssueCollector.vue'))
+watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.value = true })
 const { openFullscreen } = useProjectChatDock()
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
@@ -197,6 +203,7 @@ onMounted(() => {
     if (saved !== null) preferredCollapse.value = saved === '1'
   } catch {}
   syncFromStorage()
+  refreshIssueAccess().catch(() => {})
   syncResponsiveSidebar()
   window.addEventListener('resize', syncResponsiveSidebar)
 })
@@ -221,8 +228,8 @@ const canViewAnnotation = computed(() => hasPermission([
 const canViewManuscript = computed(() => canViewManuscriptArrangements())
 const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
-const showResourceManagement = computed(() => canViewTalentResourceLibrary())
-const resourceManagementPath = '/resource-management/talent-overview'
+const showResourceManagement = computed(() => canViewTalentResourceLibrary() || issueAccess.can_enter)
+const resourceManagementPath = computed(() => canViewTalentResourceLibrary() ? '/resource-management/talent-overview' : '/resource-management/resource-development?section=issues')
 const showResourceRequests = computed(() => canViewProjects.value)
 const showBusinessGroup = computed(() => (
   showConsultations.value || canViewProjects.value || canViewAnnotation.value
@@ -276,7 +283,7 @@ const resolveActiveMenu = (path) => {
   if (path === '/annotation' || path.startsWith('/annotation-')) return '/annotation-details'
   if (path === '/recruitment' || path.startsWith('/recruitment-details')) return '/recruitment-details'
   if (path === '/resource-management' || path.startsWith('/resource-management/')) {
-    return resourceManagementPath
+    return resourceManagementPath.value
   }
   return path
 }

@@ -90,13 +90,13 @@ export function uploadAttachment(sectionId, file, onUploadProgress, signal) {
   }).then(convertKeys)
 }
 
-export const downloadAttachment = (sectionId, attachmentId) => api.get(
+export const downloadAttachment = (sectionId, attachmentId, signal) => api.get(
   `/company-management/sections/${sectionId}/attachments/${attachmentId}`,
-  { responseType: 'blob', timeout: 120000 }
+  { responseType: 'blob', timeout: 120000, signal }
 )
 
-export const deleteAttachment = (sectionId, attachmentId) => api.delete(
-  `/company-management/sections/${sectionId}/attachments/${attachmentId}`
+export const deleteAttachment = (sectionId, attachmentId, signal) => api.delete(
+  `/company-management/sections/${sectionId}/attachments/${attachmentId}`, { signal }
 )
 
 export function uploadContentImage(sectionId, file, signal) {

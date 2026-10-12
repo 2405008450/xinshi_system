@@ -4,8 +4,8 @@ export const developmentColumns = [
   ['account_name', '交换账号', 130],
   ['friend_accounts_text', '加微账号', 180],
   ['wechat_status', '添加微信', 140], ['enterprise_status', '添加企微', 140],
-  ['latest_follow_up', '后续跟进情况', 320],
-  ['group_status', '企微小群', 180], ['group_large_status', '企微大群', 180], ['communication_status', '沟通', 140], ['project_status', '入项', 140],
+  ['latest_follow_up', '后续跟进情况', 220],
+  ['group_status', '企微小群', 140], ['group_large_status', '企微大群', 140], ['communication_status', '沟通', 140], ['project_status', '入项', 140],
   ['greeting_no', '招呼编号', 190],
   ['phone', '资源手机', 150], ['resource_code', '资源编号', 160],
   ['work_date', '日期', 130], ['remarks', '备注', 240], ['updated_at', '更新时间', 190],
@@ -22,7 +22,7 @@ export const groupStatusLabel = (status, channel) => channel === 'group' && stat
 export const progressStatuses = channel => ({ group: ['未处理', '已拉群', '已进群', '已退群'], group_large: ['未处理', '已拉群', '已发码', '已进群', '已退群'], communication: ['未处理', '已沟通'], project: ['未处理', '已入项'] })[channel] || statusOptions
 export const progressText = (row, channel) => {
   const p = row.progress?.[channel]
-  return p ? `${groupStatusLabel(p.status, channel)} · ${p.action_date ? p.action_date.slice(5) : '原表未填日期'} · ${p.operator_name}${p.synchronized ? ' · 联系状态同步' : ''}` : '未处理'
+  return p ? `${groupStatusLabel(p.status, channel)}${p.synchronized ? ' · 联系状态同步' : ''}` : '未处理'
 }
 export const continueDevelopmentValues = form => ({ ...Object.fromEntries(['platform_id', 'work_date', 'owner_id', 'account_id'].map(key => [key, form[key]])), ...(Array.isArray(form.friend_accounts) ? { friend_accounts: [...form.friend_accounts] } : {}) })
 // 只保留本次浏览器会话、当天的批次设置，不缓存姓名或联系方式。
@@ -82,9 +82,8 @@ const followUpSummary = value => {
   const text = (value || '').replace(/\s+/g, ' ').trim()
   return text.length > 100 ? `${text.slice(0, 100)}…` : text
 }
-export const followUpText = row => row.latest_follow_up_entry
-  ? `${followUpSummary(row.latest_follow_up_entry.content)} · ${row.latest_follow_up_entry.operator_name} · ${followUpTime(row.latest_follow_up_entry.created_at)}`
-  : followUpSummary(row.latest_follow_up || row.follow_up)
+// 列表仅显示内容摘要，操作人与时间在详情的历史跟进记录中查看。
+export const followUpText = row => followUpSummary(row.latest_follow_up_entry ? row.latest_follow_up_entry.content : row.latest_follow_up || row.follow_up)
 
 export const developmentDateShortcuts = [
   { key: 'yesterday', label: '昨日', hint: '昨天' },

@@ -23,6 +23,10 @@ export const TALENT_RESOURCE_VIEWS = Object.freeze([
         label: '全职资源',
         path: '/resource-management/recruitment-talents',
       },
+      {
+        label: '团队资源',
+        path: '/resource-management/teams',
+      },
     ],
   },
   {

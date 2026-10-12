@@ -50,6 +50,7 @@ TRANSLATION_TEXT_FIELDS = {
     "customer_requirement_professional": TextFieldRule(),
     "customer_requirement_special": TextFieldRule(),
     "client_feedback": TextFieldRule(),
+    "remarks": TextFieldRule(),
 }
 
 TRANSLATION_FILTER_FIELDS = {
@@ -63,7 +64,7 @@ TRANSLATION_FILTER_FIELDS = {
     "sent_to_client_time", "major_project_manager_confirmation", "translator_id", "translator_name",
     "translator_assignment_time", "translator_delivery_progress", "pre_review_qc_progress",
     "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress",
-    "consolidation_progress", "client_feedback", "created_at", "updated_at",
+    "consolidation_progress", "client_feedback", "remarks", "created_at", "updated_at",
     "project_specialist_name", "project_assistant_name", "layout_specialist_name",
     "project_specialist_id", "project_assistant_id", "layout_specialist_id",
     "project_file_translation_domain_level1", "project_file_translation_domain_level2",

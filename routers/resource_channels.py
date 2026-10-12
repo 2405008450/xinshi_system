@@ -12,7 +12,7 @@ from models import AppUser
 from resource_development_models import DevelopmentChannelMember
 from routers.auth import get_current_user, require_any_permission
 from resource_channel_schemas import ChannelWrite, ChannelDescriptionWrite
-from resource_channel_service import list_channels, read_channel, save_channel, save_description
+from resource_channel_service import account_options, list_channels, read_channel, save_channel, save_description
 
 router = APIRouter(prefix="/channels")
 write = Depends(require_any_permission("talents:write", "translators:write", "resource_development:delegate"))
@@ -32,6 +32,11 @@ def read_people(db: Session = Depends(get_db)):
     return [{"id": str(person.id), "name": person.full_name or person.username, "is_active": person.is_active} for person in rows]
 
 
+@router.get("/account-options")
+def read_account_options(db: Session = Depends(get_db)):
+    return account_options(db)
+
+
 @router.get("/{platform_id}")
 def read_detail(platform_id: UUID, db: Session = Depends(get_db)):
     return read_channel(db, platform_id)
@@ -45,7 +50,7 @@ def commit_channel(db, user, payload, platform_id=None):
     except IntegrityError as error:
         db.rollback()
         constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
-        if constraint in {"uq_resource_channel_name_normalized", "resource_development_option_kind_name_key"}:
+        if constraint in {"uq_resource_channel_name_normalized", "uq_resource_channel_group_name_normalized", "resource_development_option_kind_name_key"}:
             raise HTTPException(409, "已有同名渠道，请使用现有渠道或修改名称") from error
         raise
 

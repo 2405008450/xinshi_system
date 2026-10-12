@@ -360,3 +360,150 @@ def test_http_routes_permissions_and_incremental_save(db,context,monkeypatch):
         assert client.put(path,json={'revision':2,'cells':[{'platform_id':str(platforms[0].id),'owner_id':str(other.id)}]}).status_code==403
         current['codes']=[]
         assert client.get(path).status_code==403
+
+
+def assign(db, context, request, accounts, revision=0, day=date(2026, 10, 12), user=None):
+    from resource_arrangement_service import assign_request
+    from resource_development_schemas import RequestArrangementWrite
+    return assign_request(db, user or context[0], request.id, day,
+                          RequestArrangementWrite(revision=revision, platform_ids=accounts))
+
+
+def test_request_batch_assignment_preserves_other_work_and_is_idempotent(db, context):
+    from resource_arrangement_service import get_cells, list_arrangement_requests, arrangement_request_detail, read_arrangement
+    manager, owner, _, platforms, language = context
+    request, project = request_context(db, context, child=True)
+    other_request, _ = request_context(db, context)
+    day = save(db, context, day=date(2026, 10, 12), remarks='每日备注', cells=[{
+        'platform_id': platforms[0].id, 'owner_id': owner.id, 'role_tags': ['HR'], 'remarks': '账号备注',
+        'projects': [{'source_type': 'annotation', 'project_id': project.id}],
+        'targets': [{'kind': 'request', 'request_id': other_request.id, 'language_id': language.id}],
+    }])
+    day = assign(db, context, request, [p.id for p in platforms], day.revision)
+    first = next(c for c in get_cells(db, day) if c.platform_id == platforms[0].id)
+    assert first.owner_id == owner.id and first.role_tags == ['HR'] and first.remarks == '账号备注'
+    assert first.projects[0]['project_id'] == str(project.id) and day.remarks == '每日备注'
+    assert len(first.targets) == 2
+    version = day.revision
+    day = assign(db, context, request, [p.id for p in platforms], version)
+    assert day.revision == version
+    assert len(arrangement_request_detail(db, request.id)['arrangements']) == 2
+    assert len(list_arrangement_requests(db, keyword=project.order_no)['items']) == 1
+    assert list_arrangement_requests(db, keyword='精确子订单')['items'][0]['id'] == str(request.id)
+    rendered = read_arrangement(db, manager, day.work_date)
+    assert all(any(p['project_id'] == str(project.id) for p in c['projects']) for c in rendered['cells'])
+    day = assign(db, context, request, [platforms[1].id], day.revision)
+    assert len(first.targets) == 1 and first.targets[0]['request_id'] == str(other_request.id)
+    assert first.projects[0]['project_id'] == str(project.id)
+    assert len(arrangement_request_detail(db, request.id)['arrangements']) == 1
+
+
+def test_request_without_language_and_multiple_requests_for_same_project(db, context):
+    from resource_arrangement_service import get_cells, arrangement_request_detail, carry_preview
+    from resource_request_models import ResourceRequest
+    request, project = request_context(db, context)
+    request.items = []
+    second = ResourceRequest(id=uuid4(), request_no='RR-'+uuid4().hex, source_type='annotation',
+                             request_category='annotation_formal', annotation_project_id=project.id,
+                             source_project_name_snapshot=project.project_name,
+                             request_detail='无语种项目需求', demand_status='confirmed', request_status='submitted')
+    db.add(second); db.flush()
+    account = context[3][0].id
+    day = assign(db, context, request, [account])
+    day = assign(db, context, second, [account], day.revision)
+    assert len(get_cells(db, day)[0].targets) == 2
+    day = assign(db, context, request, [], day.revision)
+    assert get_cells(db, day)[0].targets[0]['request_id'] == str(second.id)
+    assert arrangement_request_detail(db, request.id)['arrangements'] == []
+    preview = carry_preview(db, context[0], date(2026, 10, 13))
+    assert preview['cells'][0]['targets'][0]['request_id'] == str(second.id)
+    second.demand_status = 'cancelled'; db.flush()
+    detail = arrangement_request_detail(db, second.id)
+    assert detail['arrangements'][0]['active'] is False
+    assert carry_preview(db, context[0], date(2026, 10, 13))['cells'][0]['targets'] == []
+
+
+def test_request_assignment_permissions_conflicts_and_cancelled(db, context):
+    request, _ = request_context(db, context)
+    account = context[3][0].id
+    for user in context[1:3]:
+        with pytest.raises(HTTPException) as error:
+            assign(db, context, request, [account], user=user)
+        assert error.value.status_code == 403
+    day = assign(db, context, request, [account])
+    with pytest.raises(HTTPException) as error:
+        assign(db, context, request, [], 0)
+    assert error.value.status_code == 409
+    request.demand_status = 'cancelled'; db.flush()
+    with pytest.raises(HTTPException) as error:
+        assign(db, context, request, [account], day.revision)
+    assert error.value.status_code == 409
+
+
+def test_request_list_pagination_drafts_and_live_project_names(db, context):
+    from resource_arrangement_service import list_arrangement_requests
+    values = [request_context(db, context) for _ in range(7)]
+    draft, _ = request_context(db, context, status='draft')
+    values[0][0].demand_status = 'cancelled'
+    values[1][1].project_name = '新名称专用关键字'; db.flush()
+    page = list_arrangement_requests(db)
+    assert page['total'] == 6 and len(page['items']) == 5
+    following = list_arrangement_requests(db, skip=5)
+    assert len(following['items']) == 1
+    assert set(r['id'] for r in page['items']).isdisjoint(r['id'] for r in following['items'])
+    assert list_arrangement_requests(db, keyword='新名称专用关键字')['total'] == 1
+    assert list_arrangement_requests(db, keyword=draft.request_no)['total'] == 0
+
+
+def test_request_assignment_resets_completion_and_preserves_it_on_repeat(db, context):
+    from resource_arrangement_service import complete_arrangement, get_cells
+    request, _ = request_context(db, context)
+    platform = context[3][0]
+    day = save(db, context, day=date(2026, 10, 12), cells=[dict(platform_id=platform.id, owner_id=context[1].id)])
+    complete_arrangement(db, context[1], day.work_date, platform.id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    day = assign(db, context, request, [platform.id], day.revision)
+    assert not get_cells(db, day)[0].completed
+    complete_arrangement(db, context[1], day.work_date, platform.id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    revision = day.revision
+    assign(db, context, request, [platform.id], revision)
+    assert get_cells(db, day)[0].completed and day.revision == revision
+
+
+def test_request_assignment_http_and_snapshot_validation(db, context, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers.auth import get_current_user
+    from routers.resource_development import router
+    import routers.auth as auth
+    request, _ = request_context(db, context)
+    codes = ['talents:read', 'talents:write']
+    monkeypatch.setattr(auth, 'get_user_permission_codes', lambda *_: codes)
+    app = FastAPI(); app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: context[0]
+    with TestClient(app) as client:
+        base = '/resource-development/arrangement-requests'
+        assert client.get(base).json()['total'] == 1
+        path = f'{base}/{request.id}/dates/2026-10-12'
+        payload = dict(revision=0, platform_ids=[str(p.id) for p in context[3]])
+        assert client.put(path, json=payload | {'project_name': '伪造快照'}).status_code == 422
+        assert client.put(path, json=payload | {'platform_ids': payload['platform_ids'] * 2}).status_code == 422
+        response = client.put(path, json=payload)
+        assert response.status_code == 200, response.text
+        assert response.json()['updated_at'].endswith('+08:00')
+        assert len(client.get(f'{base}/{request.id}').json()['arrangements']) == 2
+        codes.remove('talents:write')
+        assert client.put(path, json=payload).status_code == 403
+
+
+def test_sent_project_request_enters_arrangement_queue(db, context):
+    from resource_arrangement_service import list_arrangement_requests, arrangement_request_detail
+    from resource_request_service import send_resource_request
+    request, project = request_context(db, context, status='draft', child=True)
+    assert list_arrangement_requests(db)['total'] == 0
+    send_resource_request(db, request.id, context[0].id)
+    row = list_arrangement_requests(db)['items'][0]
+    assert row['id'] == str(request.id) and row['order_no'] == project.order_no
+    assign(db, context, request, [p.id for p in context[3]])
+    assert len(arrangement_request_detail(db, request.id)['arrangements']) == 2

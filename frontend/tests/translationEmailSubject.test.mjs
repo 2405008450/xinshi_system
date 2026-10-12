@@ -15,6 +15,24 @@ for (const item of cases) {
   })
 }
 
+test('浏览器时区不影响交稿时间，Date 输入也保留分钟', () => {
+  const previous = process.env.TZ
+  try {
+    for (const zone of ['UTC', 'America/Los_Angeles', 'Asia/Hong_Kong']) {
+      process.env.TZ = zone
+      for (const item of cases) {
+        assert.equal(buildTranslationEmailSubject(camel(item.source)).subject, item.subject)
+      }
+      assert.equal(buildTranslationEmailSubject({
+        customerDeadlineTime: new Date('2026-10-12T09:30:00Z'),
+      }).subject, '10月12日17点30分回稿')
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+})
+
 test('新主题和名称已经改为文件名的历史主题都能恢复前缀', () => {
   const source = camel(cases[0].source)
   source.subjectPrefix = ''

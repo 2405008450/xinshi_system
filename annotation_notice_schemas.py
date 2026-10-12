@@ -11,6 +11,24 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from business_time import business_iso
+
+
+class AnnotationNoticeAttachmentResponse(BaseModel):
+    id: UUID
+    section_id: UUID
+    original_name: str
+    file_size: int
+    content_type: str
+    uploaded_by: UUID | None
+    uploaded_by_name: str | None
+    uploaded_at: datetime
+
+    @field_validator("uploaded_at")
+    @classmethod
+    def business_upload_time(cls, value: datetime) -> datetime:
+        return datetime.fromisoformat(business_iso(value))
+
 
 ALLOWED_NODE_TYPES = {
     "doc", "paragraph", "text", "heading", "bulletList", "orderedList",

@@ -14,6 +14,7 @@ from concurrency import StaleUpdateError
 from inline_text_update import TextFieldUpdate
 from models import TranslationProject
 from schemas import TranslationProjectCreate, TranslationProjectUpdate
+from schemas import TranslationProjectResponse
 from manuscript_schemas import ManuscriptDispatchCreate
 from manuscript_service import _sync_entity_file_name
 
@@ -43,6 +44,55 @@ def create(db, **values):
     return crud.create_translation_project(db, TranslationProjectCreate(
         project_name='旧客户，中译英，10月9日18点回稿', **values,
     ), order_no=f'TP-261009-{uuid4().hex[:6]}')
+
+
+def remarks_response(row):
+    # 此隔离库只建主项目表；接口旁支的关联集合由响应模型使用默认值。
+    return TranslationProjectResponse.model_validate({
+        column.key: getattr(row, column.key) for column in row.__table__.columns
+    })
+
+
+def test_project_remarks_create_edit_read_and_clear_in_isolated_database(isolated_db):
+    db = isolated_db
+    content = '客户确认：保留格式与术语。\n第二行备注，English / 日本語。' + '长备注' * 150
+    row = create(db, source_file_name='合同.docx', remarks=content)
+    key = row.id
+    db.expire_all()
+    persisted = db.get(TranslationProject, key)
+    assert persisted.remarks == content
+    assert remarks_response(persisted).remarks == content
+
+    crud.update_translation_project(db, key, TranslationProjectUpdate(remarks='修改后的备注\n保留换行'))
+    db.expire_all()
+    assert db.get(TranslationProject, key).remarks == '修改后的备注\n保留换行'
+    crud.update_translation_project(db, key, TranslationProjectUpdate(priority='高'))
+    db.expire_all()
+    assert db.get(TranslationProject, key).remarks == '修改后的备注\n保留换行'
+    crud.update_translation_project(db, key, TranslationProjectUpdate(remarks=None))
+    db.expire_all()
+    assert remarks_response(db.get(TranslationProject, key)).remarks is None
+
+
+def test_legacy_project_without_remarks_and_detail_inline_update(isolated_db):
+    db = isolated_db
+    row = create(db)
+    assert remarks_response(row).remarks is None
+    version = row.updated_at
+    router.update_project_text_field(row.id, TextFieldUpdate(
+        field='remarks', value='  详情修改\n第二行  ', expected_updated_at=version,
+    ), db)
+    db.expire_all()
+    assert db.get(TranslationProject, row.id).remarks == '详情修改\n第二行'
+    with pytest.raises(StaleUpdateError):
+        router.update_project_text_field(row.id, TextFieldUpdate(
+            field='remarks', value='旧版本覆盖', expected_updated_at=version - timedelta(seconds=2),
+        ), db)
+    router.update_project_text_field(row.id, TextFieldUpdate(
+        field='remarks', value='', expected_updated_at=row.updated_at,
+    ), db)
+    db.expire_all()
+    assert db.get(TranslationProject, row.id).remarks is None
 
 
 def test_full_create_and_edit_persist_two_names_without_overwriting_subject(isolated_db):

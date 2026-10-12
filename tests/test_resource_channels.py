@@ -1,4 +1,4 @@
-"""渠道资料回归，数据库测试仅在局域网隔离环境运行，逐例回滚。"""
+"""渠道资料回归，数据库测试仅在本机隔离环境运行，逐例回滚。"""
 import os
 from uuid import uuid4
 
@@ -23,11 +23,11 @@ def test_validation_and_member_deduplication():
 @pytest.fixture
 def db():
     if os.getenv("RUN_RESOURCE_DEVELOPMENT_DB_TESTS") != "1":
-        pytest.skip("数据库回归需在局域网显式启用")
+        pytest.skip("数据库回归需在本机隔离库显式启用")
     import main  # noqa: F401
     from database import engine
     from sqlalchemy.orm import Session
-    assert engine.url.host in {"localhost", "127.0.0.1", "192.168.31.144"}, "禁止连接生产数据库"
+    assert engine.url.host in {"localhost", "127.0.0.1"}, "只允许本机隔离数据库"
     with engine.connect() as connection:
         transaction = connection.begin()
         session = Session(bind=connection, join_transaction_mode="create_savepoint")
@@ -52,6 +52,47 @@ def new_channel(db, people, **fields):
     payload = ChannelWrite(**(dict(name="渠道测试" + uuid4().hex, category="national", purpose="招聘与寻访", description="原说明",
                                   maintainer_ids=[people[1].id], user_ids=[people[1].id, people[2].id]) | fields))
     return save_channel(db, people[0], payload)
+
+
+def test_arrangement_platform_metadata_is_readonly_and_compatible(db, people, monkeypatch):
+    import resource_channel_service as service
+    from resource_development_models import DevelopmentOption
+    from routers.resource_development import options
+
+    one = new_channel(db, people, category="local", description="账号自身说明")
+    two = new_channel(db, people, category="international")
+    parent = new_channel(db, people, is_group=True, category="national", account_ids=[one["id"], two["id"]],
+                         account_revisions={one["id"]: 1, two["id"]: 1})
+    standalone = new_channel(db, people, category="local")
+    stored = db.get(DevelopmentOption, one["id"])
+    before = (stored.category, stored.revision, stored.code, stored.description)
+    result = options(db, people[0])
+    metadata = {item["id"]: item for item in result["arrangement_platforms"]}
+    assert metadata[one["id"]]["parent_id"] == parent["id"]
+    assert metadata[one["id"]]["parent_name"] == parent["name"]
+    assert metadata[one["id"]]["category"] == "national"
+    assert metadata[one["id"]]["description"] == "账号自身说明"
+    assert metadata[parent["id"]]["has_accounts"] is True
+    assert metadata[parent["id"]]["kind"] == "channel_group"
+    assert metadata[standalone["id"]]["parent_id"] is None
+    assert metadata[standalone["id"]]["category"] == "local"
+    legacy = {item["id"]: item for item in result["options"]}
+    assert legacy[one["id"]]["category"] == "local" and parent["id"] not in legacy
+    assert (stored.category, stored.revision, stored.code, stored.description) == before
+
+    # 未迁移归属关系表的环境只读取原账号，不访问关系表或猜测归属。
+    monkeypatch.setattr(service, "hierarchy_available", lambda _: False)
+    fallback = {item["id"]: item for item in service.arrangement_platforms(db)}
+    assert fallback[one["id"]]["parent_id"] is None
+    assert fallback[one["id"]]["category"] == "local"
+    assert fallback[parent["id"]]["has_accounts"] is False
+
+
+def test_options_default_date_uses_business_clock(db, people, monkeypatch):
+    from datetime import datetime
+    import routers.resource_development as route
+    monkeypatch.setattr(route, "business_now", lambda: datetime(2026, 10, 13, 0, 1))
+    assert route.options(db, people[0])["default_date"] == "2026-10-12"
 
 
 def test_shared_description_preserves_members_and_audits(db, people):
@@ -166,3 +207,112 @@ def test_account_cannot_be_read_as_channel(db, people):
     with pytest.raises(HTTPException) as error:
         read_channel(db, account.id)
     assert error.value.status_code == 404
+
+
+def channel_payload(row, **fields):
+    return ChannelWrite(**(dict(name=row['name'], category=row['category'], purpose=row['purpose'], description=row['description'],
+                               revision=row['revision'], maintainer_ids=[p['id'] for p in row['direct_maintainers']],
+                               user_ids=[p['id'] for p in row['direct_users']]) | fields))
+
+
+def test_account_group_preserves_history_and_deduplicates_roles(db, people):
+    from datetime import date
+    from resource_channel_service import save_channel, read_channel, list_channels
+    from resource_development_models import DevelopmentOption, DevelopmentRecord, DevelopmentArrangement, DevelopmentArrangementCell
+    from resource_development_service import allocate_greeting
+    from routers.resource_development import options
+    one = new_channel(db, people, name='BOSS 1 ' + uuid4().hex)
+    two = new_channel(db, people, name='BOSS 2 ' + uuid4().hex)
+    stored = db.get(DevelopmentOption, one['id'])
+    record = DevelopmentRecord(platform_id=stored.id, greeting_no=allocate_greeting(db, stored, date(2026, 10, 12)),
+                               work_date=date(2026, 10, 12), owner_id=people[0].id, full_name='历史人员', created_by=people[0].id, updated_by=people[0].id)
+    day = DevelopmentArrangement(work_date=date(2040, 10, 12), created_by=people[0].id, updated_by=people[0].id)
+    db.add_all([record, day]); db.flush()
+    cell = DevelopmentArrangementCell(arrangement_id=day.id, platform_id=stored.id, platform_name=one['name'], remarks='历史备注', completed=True)
+    db.add(cell); db.flush()
+    old = (record.platform_id, record.greeting_no, cell.platform_id, cell.platform_name, cell.remarks, cell.completed, stored.code)
+    parent = new_channel(db, people, name='BOSS直聘 ' + uuid4().hex, is_group=True,
+                         account_ids=[one['id'], two['id']], account_revisions={one['id']: 1, two['id']: 1},
+                         maintainer_ids=[people[0].id], user_ids=[])
+    assert parent['kind'] == 'channel_group' and len(parent['accounts']) == 2
+    assert [p['id'] for p in parent['maintainers']] == [str(people[1].id)]
+    assert {p['id'] for p in parent['users']} == {str(people[1].id), str(people[2].id)}
+    assert all(a['description'] == '原说明' and a['parent_id'] == parent['id'] for a in parent['accounts'])
+    assert read_channel(db, one['id'])['id'] == one['id']
+    assert (record.platform_id, record.greeting_no, cell.platform_id, cell.platform_name, cell.remarks, cell.completed, stored.code) == old
+    result = list_channels(db, keyword=one['name'])
+    assert result['total'] == 1 and result['items'][0]['id'] == parent['id'] and result['items'][0]['expand_accounts']
+    choices = options(db, people[0])['options']
+    assert one['id'] in {o['id'] for o in choices} and parent['id'] not in {o['id'] for o in choices}
+    assert parent['created_at'].endswith('+08:00')
+
+
+def test_group_filters_use_effective_roles_and_restore_direct_members(db, people):
+    from resource_channel_service import save_channel, read_channel, list_channels
+    from resource_development_models import DevelopmentOption
+    one = new_channel(db, people)
+    parent = new_channel(db, people, maintainer_ids=[people[0].id], user_ids=[])
+    parent = save_channel(db, people[0], channel_payload(parent, account_ids=[one['id']], account_revisions={one['id']: 1}), parent['id'])
+    assert parent['direct_maintainers'][0]['id'] == str(people[0].id)
+    assert list_channels(db, keyword=parent['name'], maintainer_ids=[people[0].id])['total'] == 0
+    assert list_channels(db, keyword=parent['name'], maintainer_ids=[people[1].id], user_ids=[people[2].id])['total'] == 1
+    assert list_channels(db, keyword=parent['name'], maintainer_ids=[people[1].id], user_ids=[people[0].id])['total'] == 0
+    parent = save_channel(db, people[0], channel_payload(parent, account_ids=[], account_revisions={one['id']: 2}), parent['id'])
+    assert not parent['accounts'] and parent['maintainers'][0]['id'] == str(people[0].id)
+    assert read_channel(db, one['id'])['parent_id'] is None
+    assert db.get(DevelopmentOption, one['id']) is not None
+
+
+def test_group_transfer_versions_and_legacy_child_write(db, people):
+    from resource_channel_service import save_channel, read_channel, save_description
+    from resource_channel_models import ChannelAccountLink
+    one = new_channel(db, people)
+    parent = new_channel(db, people, is_group=True, account_ids=[one['id']], account_revisions={one['id']: 1})
+    # 旧客户端不携带归属字段时保持关系，修改子账号同步使父平台版本过期。
+    child = read_channel(db, one['id'])
+    child = save_channel(db, people[0], channel_payload(child, user_ids=[people[0].id]), child['id'])
+    assert child['parent_id'] == parent['id']
+    latest_parent = read_channel(db, parent['id'])
+    assert latest_parent['revision'] == parent['revision'] + 1
+    assert latest_parent['users'][0]['id'] == str(people[0].id)
+    with pytest.raises(HTTPException) as stale:
+        save_channel(db, people[0], channel_payload(parent, account_ids=[]), parent['id'])
+    assert stale.value.status_code == 409
+    target = new_channel(db, people, is_group=True)
+    with pytest.raises(HTTPException) as stale_account:
+        save_channel(db, people[0], channel_payload(target, account_ids=[one['id']], account_revisions={one['id']: 2}), target['id'])
+    assert stale_account.value.status_code == 409
+    moved = save_channel(db, people[0], channel_payload(target, account_ids=[one['id']], account_revisions={one['id']: child['revision']}), target['id'])
+    assert moved['accounts'][0]['id'] == one['id'] and not read_channel(db, parent['id'])['accounts']
+    assert db.query(ChannelAccountLink).filter_by(account_id=one['id']).count() == 1
+    child = read_channel(db, one['id'])
+    saved = save_description(db, people[0], child['id'], '账号独立说明', child['revision'])
+    assert saved['description'] == '账号独立说明'
+    assert read_channel(db, target['id'])['description'] == target['description']
+
+
+def test_group_prevents_cycles_nested_groups_and_invalid_accounts(db, people):
+    from resource_channel_service import save_channel
+    one = new_channel(db, people)
+    parent = new_channel(db, people, is_group=True, account_ids=[one['id']], account_revisions={one['id']: 1})
+    for ids in [[parent['id']], [uuid4()]]:
+        with pytest.raises(HTTPException) as error:
+            save_channel(db, people[0], channel_payload(parent, account_ids=ids), parent['id'])
+        assert error.value.status_code == 422
+    child = parent['accounts'][0]
+    with pytest.raises(HTTPException) as nested:
+        save_channel(db, people[0], channel_payload(child, account_ids=[parent['id']]), child['id'])
+    assert nested.value.status_code == 422
+
+
+def test_hierarchy_missing_table_legacy_read_and_write(db, people, monkeypatch):
+    import resource_channel_service as service
+    monkeypatch.setattr(service, 'hierarchy_available', lambda _: False)
+    row = new_channel(db, people)
+    result = service.list_channels(db, keyword=row['name'])
+    assert result['total'] == 1 and not result['hierarchy_available'] and not result['items'][0]['accounts']
+    updated = service.save_channel(db, people[0], channel_payload(row, description='兼容说明'), row['id'])
+    assert updated['description'] == '兼容说明'
+    with pytest.raises(HTTPException) as blocked:
+        service.save_channel(db, people[0], channel_payload(updated, account_ids=[uuid4()]), row['id'])
+    assert blocked.value.status_code == 503

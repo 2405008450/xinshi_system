@@ -8,7 +8,7 @@
         :class="{ 'is-current': isActiveView(item) }"
         :aria-current="route.path === item.path ? 'page' : undefined"
         text
-        @click="router.push(item.path)"
+        @click="router.push(item.path === developmentPath && !issueAccess.can_resource ? `${item.path}?section=issues` : item.path)"
       >
         {{ item.label }}
       </el-button>
@@ -30,14 +30,18 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { TALENT_RESOURCE_VIEWS } from '@/config/talentResourceViews'
 import { hasPermission } from '@/utils/permission'
+import { useResourceIssues } from '@/composables/useResourceIssues'
 
 const route = useRoute()
 const router = useRouter()
-const visibleViews = computed(() => TALENT_RESOURCE_VIEWS.filter(item => !item.permissions || hasPermission(item.permissions)))
+const { access: issueAccess, refreshIssueAccess } = useResourceIssues()
+const developmentPath = '/resource-management/resource-development'
+onMounted(() => refreshIssueAccess().catch(() => {}))
+const visibleViews = computed(() => TALENT_RESOURCE_VIEWS.filter(item => !item.permissions || hasPermission(item.permissions) || (item.path === developmentPath && issueAccess.can_enter)))
 const isActiveView = item => route.path === item.path || item.children?.some(child => route.path === child.path)
 const activeChildren = computed(() => TALENT_RESOURCE_VIEWS.find(isActiveView)?.children ?? [])
 </script>

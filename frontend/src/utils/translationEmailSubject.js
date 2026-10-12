@@ -1,8 +1,19 @@
-import { formatProjectNameDeadline, formatProjectNameLanguagePair } from './projectNaming.js'
+import { formatProjectNameLanguagePair } from './projectNaming.js'
+import { businessDateTimeInputValue } from './dateTime.js'
 import { extractSubjectPrefix } from './emailSubject.js'
 
+function formatSubjectDeadline(value) {
+  if (!value) return ''
+  // 无时区表单值按业务本地时间处理，带偏移值统一转换为 UTC+8。
+  const normalized = businessDateTimeInputValue(value)
+  if (!normalized) return ''
+  const [, month, day, hour, minute] = normalized.match(/^\d{4}-(\d{2})-(\d{2}) (\d{2}):(\d{2})/)
+  const minuteText = Number(minute) ? `${Number(minute)}分` : ''
+  return `${Number(month)}月${Number(day)}日${Number(hour)}点${minuteText}`
+}
+
 export function buildTranslationEmailSubject(source = {}) {
-  const deadline = formatProjectNameDeadline(source.customerDeadlineTime)
+  const deadline = formatSubjectDeadline(source.customerDeadlineTime)
   const fields = [
     ['标题前缀', source.subjectPrefix],
     ['订单号', source.orderNo],

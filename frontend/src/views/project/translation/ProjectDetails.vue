@@ -668,9 +668,15 @@
                 <el-form-item label="客户特殊要求" data-field-key="customerRequirementSpecial">
                   <el-input v-model="form.customerRequirementSpecial" type="textarea" :rows="2" placeholder="请输入客户特殊要求" />
                 </el-form-item>
+                <el-form-item label="备注" prop="remarks" data-field-key="remarks">
+                  <el-input v-model="form.remarks" type="textarea" :rows="3" placeholder="请输入项目备注" />
+                </el-form-item>
                 <CustomerChargeEditor
                   v-model="form.customerChargeItems"
-                  :word-count-matrix="form.wordCountMatrix"
+                  v-model:word-count-matrix="form.wordCountMatrix"
+                  entity-type="project"
+                  :entity-id="form.id"
+                  @saved="handleProjectWordCountSaved"
                 />
                     </div>
                   </el-collapse-item>
@@ -967,7 +973,7 @@
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="网络文件路径"><el-input v-model="subOrderForm.networkFilePath" type="textarea" :rows="3" /></el-form-item></el-col>
                 </el-row>
-                <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" :word-count-matrix="subOrderForm.wordCountMatrix" />
+                <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" v-model:word-count-matrix="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" @saved="handleSubOrderWordCountSaved" />
               </div>
             </el-tab-pane>
 
@@ -1204,6 +1210,7 @@ const projectDetailItems = [
   { label: '报价单路径', key: 'quotationPath', span: 2, editable: true, multiline: true },
   { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2, editable: true, multiline: true },
   { label: '客户特殊要求', key: 'customerRequirementSpecial', span: 2, editable: true, multiline: true },
+  { label: '备注', key: 'remarks', span: 2, editable: true, multiline: true },
   { label: '翻译方向', key: 'languagePair' },
   { label: '优先级', key: 'priority' },
   { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
@@ -1255,7 +1262,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1360,6 +1367,7 @@ const translationFilterFields = [
   { key: 'quotationStatus', label: '报价单状态', type: 'text' },
   { key: 'customerRequirementProfessional', label: '客户专业要求', type: 'text' },
   { key: 'customerRequirementSpecial', label: '客户特殊要求', type: 'text' },
+  { key: 'remarks', label: '备注', type: 'text' },
   { key: 'languagePair', label: '翻译方向', type: 'text' },
   { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
   { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司'},{value:'customer',label:'客户'},{value:'translator_estimate',label:'译员预估'}] },
@@ -1422,6 +1430,7 @@ const tableColumnOverrides = {
   quotationPath: { minWidth: 240 },
   customerRequirementProfessional: { minWidth: 240 },
   customerRequirementSpecial: { minWidth: 240 },
+  remarks: { minWidth: 240 },
   languagePair: { width: 110, minWidth: 100, showOverflowTooltip: false },
   priority: { minWidth: 80 },
   wordCountMatrix: { label: '字数统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目字数统计' },

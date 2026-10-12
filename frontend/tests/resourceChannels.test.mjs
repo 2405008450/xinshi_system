@@ -1,12 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cleanChannelColumns, channelMembersText, channelParams, defaultChannelColumns } from '../src/utils/resourceChannels.js'
+import { aggregateChannelMembers, channelDateTime, cleanChannelColumns, channelMembersText, channelParams, defaultChannelColumns } from '../src/utils/resourceChannels.js'
 
 test('渠道字段配置保留全取消并过滤过时字段和重复键', () => {
   assert.deepEqual(cleanChannelColumns([]), [])
   assert.deepEqual(cleanChannelColumns(['name', 'unknown', 'name', 'users']), ['name', 'users'])
   assert.throws(() => cleanChannelColumns({ name: true }))
-  assert.deepEqual(defaultChannelColumns, ['name', 'category', 'purpose', 'maintainers', 'users'])
+  assert.deepEqual(defaultChannelColumns, ['name', 'category', 'purpose', 'maintainers', 'users', 'description'])
+})
+
+test('账号人员按身份去重，维护人与使用人分别汇总，同名不同人保留', () => {
+  const a = { id: 'a', name: '甲', is_active: true }, b = { id: 'b', name: '甲', is_active: false }
+  const accounts = [{ maintainers: [a, b], users: [b] }, { maintainers: [a], users: [] }]
+  assert.deepEqual(aggregateChannelMembers(accounts, 'maintainers'), [a, b])
+  assert.deepEqual(aggregateChannelMembers(accounts, 'users'), [b])
+  assert.deepEqual(aggregateChannelMembers([], 'maintainers'), [])
+})
+
+test('渠道时间按香港时区展示，不依赖浏览器默认时区', () => {
+  assert.equal(channelDateTime('2026-10-12T08:00:00Z'), channelDateTime('2026-10-12T16:00:00+08:00'))
+  assert.equal(channelDateTime(null), '-')
 })
 
 test('人员展示区分停用人员和空值', () => {

@@ -6,6 +6,7 @@ import {
   setStoredAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
+import { refreshIssueAccess } from '@/composables/useResourceIssues'
 
 const routes = [
   {
@@ -106,6 +107,7 @@ const routes = [
         name: 'AnnotationProjectDetails',
         component: () => import('../views/project/AnnotationWorkspace.vue'),
         meta: {
+          chatContext: 'annotation',
           title: '标注项目管理',
           permissions: ['projects:read', 'annotation_accounts:read', 'annotation_accounts:write']
         }
@@ -114,7 +116,7 @@ const routes = [
         path: 'annotation-child-orders',
         name: 'AnnotationChildOrders',
         component: () => import('../views/project/AnnotationChildOrders.vue'),
-        meta: { title: '标注子订单管理', permissions: ['projects:read'] }
+        meta: { title: '标注子订单管理', permissions: ['projects:read'], chatContext: 'annotation' }
       },
       {
         path: 'annotation-arrangements',
@@ -140,7 +142,7 @@ const routes = [
         path: 'resource-requests',
         name: 'ResourceRequests',
         component: () => import('../views/resource/ResourceRequests.vue'),
-        meta: { title: '资源需求管理', permissions: ['projects:read'] }
+        meta: { title: '资源需求管理', permissions: ['projects:read'], chatContext: 'resource' }
       },
       {
         path: 'recruitment',
@@ -188,6 +190,7 @@ const routes = [
         component: () => import('../views/resource/ResourceManagement.vue'),
         redirect: '/resource-management/talent-overview',
         meta: {
+          chatContext: 'resource',
           title: '资源管理',
           roles: ['*']
         },
@@ -257,6 +260,12 @@ const routes = [
             name: 'Suppliers',
             component: () => import('../views/resource/Suppliers.vue'),
             meta: { title: '供应商' }
+          },
+          {
+            path: 'teams',
+            name: 'TeamResources',
+            component: () => import('../views/resource/TeamResources.vue'),
+            meta: { title: '团队资源', roles: ['*'] }
           }
         ]
       },
@@ -425,6 +434,18 @@ router.beforeEach(async (to, from, next) => {
   if (to.path === '/') {
     next(getDefaultRoute())
     return
+  }
+
+  if (to.name === 'ResourceDevelopment') {
+    try {
+      const access = await refreshIssueAccess(true)
+      if (!access.can_enter) { next(getDefaultRoute()); return }
+      if (!access.can_resource && to.query.section !== 'issues') { next({ path: to.path, query: { ...to.query, section: 'issues' } }); return }
+      next(); return
+    } catch {
+      // 尚未更新接口时，旧资源用户仍按原路由权限进入。
+      if (!canAccessRoute(to)) { next(getDefaultRoute()); return }
+    }
   }
 
   if (!canAccessRoute(to)) {

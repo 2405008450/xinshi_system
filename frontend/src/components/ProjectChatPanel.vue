@@ -178,6 +178,7 @@
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }">
                       <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
                       <RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" />
+                      <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
                           <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
@@ -194,6 +195,8 @@
                       </div>
                     </div>
                     <div class="chat-conversation-item__tools">
+                      <ChatMessageTopic :message="item.message" :show-tag="false" />
+                      <ChatIssueMenu :message="item.message" />
                       <el-tooltip :content="item.message.isFavorited ? '取消收藏（仅自己可见）' : '收藏（仅自己可见）'" placement="top">
                         <el-button
                           link
@@ -341,6 +344,8 @@
                       <el-icon><StarFilled v-if="message.isFavorited" /><Star v-else /></el-icon>
                     </el-button>
                   </el-tooltip>
+                  <ChatIssueMenu :message="message" />
+                  <ChatMessageTopic :message="message" />
                 </div>
               </div>
               <div
@@ -439,6 +444,7 @@
         </div>
 
         <div v-if="settings.enabled && !conversationMode" class="chat-composer">
+          <div class="chat-topic-compose"><ChatTopicNavigation compact :project-id="projectId" :project-type="projectType" /><ChatTopicSelect v-model="sendTopicId" :disabled="sending" /></div>
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -494,6 +500,7 @@
         </div>
 
         <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" @paste.capture="handleComposerPaste">
+          <div class="chat-topic-compose"><ChatTopicNavigation compact :project-id="projectId" :project-type="projectType" /><ChatTopicSelect v-model="sendTopicId" :disabled="sending" size="small" /></div>
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
               v-for="userId in composer.mentionedUserIds"
@@ -621,6 +628,13 @@ let projectChatUsersRequest = null
 </script>
 
 <script setup>
+import ChatIssueMenu from './chat/ChatIssueMenu.vue'
+import ChatMessageTopic from './chat/ChatMessageTopic.vue'
+import ChatTopicNavigation from './chat/ChatTopicNavigation.vue'
+import ChatTopicSelect from './chat/ChatTopicSelect.vue'
+import { topicApi } from '@/api/chatTopics'
+import { useChatTopics } from '@/composables/useChatTopics'
+import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CirclePlus, CopyDocument, Finished, Star, StarFilled } from '@element-plus/icons-vue'
@@ -675,6 +689,10 @@ const chatListRef = ref(null)
 const composerInputRef = ref(null)
 const mentionSelectRef = ref(null)
 const sending = ref(false)
+const sendTopicId = ref(null)
+const { topics } = useChatTopics()
+let sendFingerprint = '', sendRequestId = ''
+let unsubscribeTopicChanged
 const pendingImages = reactive([])
 const attachmentsEnabled = computed(() => !props.textOnly || props.projectType === 'annotation')
 const imagesBlocked = computed(() => pendingImages.some(item => item.status !== 'ready'))
@@ -734,6 +752,7 @@ async function nextUnreadMention() {
 }
 function scheduleRead() { window.clearTimeout(readTimer); readTimer = window.setTimeout(markVisibleRead, 350) }
 async function markVisibleRead() {
+  if (document.querySelector('.chat-topic-results-dialog')) return
   if (!phaseOneEnabled.value || !props.active || !props.conversationMode || readBusy || unreadMentions.value.length || document.visibilityState !== 'visible' || !document.hasFocus()) return
   const wrap = getScrollWrap()
   if (!wrap) return
@@ -1508,9 +1527,13 @@ const handleSend = async () => {
           mentionedUserIds: composer.mentionedUserIds,
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
-    await createProjectChatMessage(props.projectId, payload, props.projectType)
+    const fingerprint = JSON.stringify({ ...payload, topicId: sendTopicId.value })
+    if (fingerprint !== sendFingerprint) { sendRequestId = newChatRequestId(); sendFingerprint = fingerprint }
+    await createProjectChatMessage(props.projectId, { ...payload, topicId: sendTopicId.value, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
     composer.content = ''
+    sendTopicId.value = null
+    sendRequestId = ''; sendFingerprint = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserIds = []
     clearComposerImages()
@@ -1618,6 +1641,9 @@ const handleRealtimeChatMessage = async (payload) => {
     || !payload?.message?.id
   ) return
   if (messages.value.some(item => String(item.id) === String(payload.message.id))) return
+  if (topics.ready) {
+    try { Object.assign(payload.message, messageTopicPatch(await topicApi.message(payload.message.id))) } catch { /* 下次刷新补偿分类更新。 */ }
+  }
   if (props.conversationMode) {
     if (!props.active) emit('unread')
     if (activeFilterCount.value || viewingHistory.value) {
@@ -1685,6 +1711,13 @@ const handleSocketConnected = () => {
   else loadMessages()
 }
 
+function localTopicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
+async function realtimeTopicChanged(event) {
+  if (event.projectType !== props.projectType || String(event.projectId) !== String(props.projectId)) return
+  const row = messages.value.find(value => value.id === event.messageId)
+  if (row) { try { Object.assign(row, messageTopicPatch(await topicApi.message(row.id))) } catch { /* 后续刷新再次同步。 */ } }
+}
+
 const setupPolling = () => {
   clearPolling()
   if (!props.active || !props.projectId) return
@@ -1695,6 +1728,7 @@ const setupPolling = () => {
 }
 
 watch(() => [props.projectId, props.projectType], async () => {
+  sendTopicId.value = null; sendFingerprint = ''; sendRequestId = ''
   resetChatState()
   if (props.projectId) {
     await refreshChat()
@@ -1729,6 +1763,8 @@ watch(() => props.canAddToProgress, canAdd => {
 })
 
 onMounted(() => {
+  window.addEventListener('chat-topic-message-changed', localTopicChanged)
+  unsubscribeTopicChanged = subscribe('chat_message_topic_changed', realtimeTopicChanged)
   if (props.targetMessageId) locateMessage(props.targetMessageId)
   document.addEventListener('visibilitychange', scheduleRead)
   window.addEventListener('focus', scheduleRead)
@@ -1744,6 +1780,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('chat-topic-message-changed', localTopicChanged)
+  unsubscribeTopicChanged?.()
   window.clearTimeout(readTimer)
   document.removeEventListener('visibilitychange', scheduleRead)
   window.removeEventListener('focus', scheduleRead)
@@ -2664,4 +2702,8 @@ onBeforeUnmount(() => {
 </style>
 <style scoped>
 .chat-mention-jump{position:absolute;right:12px;top:48px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:#fff8db;border-left:3px solid #e9ac24}
+</style>
+
+<style scoped>
+.chat-topic-compose{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}.chat-topic-compose>.el-select{width:min(230px,100%)}.chat-visible-topic{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 </style>

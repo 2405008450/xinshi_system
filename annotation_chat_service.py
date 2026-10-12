@@ -175,6 +175,9 @@ def send_message(db, project_id, user, payload):
         event_data={})
     db.add(message)
     db.flush()
+    if payload.topic_id:
+        from chat_topic_service import set_message_topic
+        set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
     mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids))
     notifications = []

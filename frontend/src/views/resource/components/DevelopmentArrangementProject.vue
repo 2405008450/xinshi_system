@@ -1,6 +1,6 @@
 <template>
   <el-popover trigger="click" placement="left" :width="760" :popper-options="popoverOptions" title="关联项目详情" popper-class="development-detail" @show="load">
-    <template #reference><el-button link type="primary" class="arrangement-project-link">{{ project.order_no || project.project_name }}</el-button></template>
+    <template #reference><el-button link type="primary" class="arrangement-project-link">{{ showName ? [project.order_no, project.project_name].filter(Boolean).join(' · ') : project.order_no || project.project_name }}</el-button></template>
     <div v-loading="loading" class="development-detail-body">
       <el-alert v-if="error" :title="error" type="warning" :closable="false" />
       <el-descriptions :column="2" border size="small">
@@ -14,6 +14,7 @@
           <el-descriptions-item label="语种／方言" :span="2">{{ request.languages.join('、') || '-' }}</el-descriptions-item>
         </template>
       </el-descriptions>
+      <RequestArrangementHistory :items="detail?.arrangements || []" />
       <el-button v-if="detail" link type="primary" @click="router.push(arrangementProjectRoute(project))">进入项目</el-button>
     </div>
   </el-popover>
@@ -22,13 +23,13 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { arrangementProjectRoute, arrangementProjectTypes } from '@/utils/resourceArrangements'
+import { arrangementProjectRoute, arrangementProjectTypes, arrangementPopoverOptions as popoverOptions } from '@/utils/resourceArrangements'
 import { getProjectStatusLabel } from '@/utils/projectStatus'
-const props = defineProps({ project: { type: Object, required: true } })
+import RequestArrangementHistory from './RequestArrangementHistory.vue'
+const props = defineProps({ project: { type: Object, required: true }, showName: Boolean })
 const router = useRouter(), loading = ref(false), error = ref(''), detail = ref(null)
 const typeLabel = computed(() => arrangementProjectTypes.find(t => t.value === props.project.source_type)?.label || '-')
 const demandLabels = { confirmed: '需求已发送', cancelled: '需求已取消', draft: '草稿' }
-const popoverOptions = { modifiers: [{name:'flip',options:{fallbackPlacements:[]}}, {name:'preventOverflow',options:{altAxis:true,tether:false,padding:16}}] }
 let controller, sequence = 0
 async function load() {
   controller?.abort(); controller = new AbortController(); const seq = ++sequence

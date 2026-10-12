@@ -4,6 +4,7 @@ export const developmentApi = {
   options: () => api.get(`${base}/options`),
   channels: (params, signal) => api.get(`${base}/channels`, { params, signal, paramsSerializer: { indexes: null } }),
   channelPeople: () => api.get(`${base}/channels/people`),
+  channelAccountOptions: signal => api.get(`${base}/channels/account-options`, { signal }),
   channel: (id, signal) => api.get(`${base}/channels/${id}`, { signal }),
   saveChannel: (data, id) => id ? api.put(`${base}/channels/${id}`, data) : api.post(`${base}/channels`, data),
   saveChannelDescription: (id, data) => api.put(`${base}/channels/${id}/description`, data),
@@ -32,4 +33,7 @@ export const developmentApi = {
   completeArrangement: (day, platform, data) => api.patch(`${base}/arrangements/${day}/cells/${platform}/completion`, data),
   arrangementOptions: (params, signal) => api.get(`${base}/arrangement-options`, { params, signal }),
   arrangementProject: (params, signal) => api.get(`${base}/arrangement-project-detail`, { params, signal }),
+  arrangementRequests: (params, signal) => api.get(`${base}/arrangement-requests`, { params, signal }),
+  arrangementRequest: (id, signal) => api.get(`${base}/arrangement-requests/${id}`, { signal }),
+  assignRequest: (id, day, data) => api.put(`${base}/arrangement-requests/${id}/dates/${day}`, data),
 }
