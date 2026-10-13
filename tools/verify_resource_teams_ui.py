@@ -250,6 +250,72 @@ def run():
         restricted_context.close()
         results.append('联系人查看小窗、编辑回显、取消丢弃、移除、重开复位、缓存清理及受限用户姓名编辑保护联系方式')
 
+        page.get_by_role('button', name='上传/查看（0）', exact=True).click()
+        attachment_dialog = page.locator('.team-attachments-dialog:visible')
+        expect(attachment_dialog.get_by_text('暂无附件', exact=True)).to_be_visible()
+        files = [{'name': '团队简介.pdf', 'mimeType': 'application/pdf', 'buffer': b'%PDF-1.4\nisolated-team-document'},
+                 {'name': '服务清单.txt', 'mimeType': 'text/plain', 'buffer': '中文资料附件验收'.encode('utf-8')}]
+        attachment_dialog.locator('input[type=file]').set_input_files(files)
+        expect(attachment_dialog.locator('.el-table__body tr')).to_have_count(2)
+        with page.expect_download() as downloaded:
+            attachment_dialog.locator('.el-table__body tr').filter(has_text='团队简介.pdf').get_by_role('button', name='下载', exact=True).click()
+        download = downloaded.value
+        assert download.suggested_filename == '团队简介.pdf'
+        download.save_as(str(OUTPUT / 'team-document-download.pdf'))
+        assert (OUTPUT / 'team-document-download.pdf').read_bytes() == files[0]['buffer']
+        fail_once = [True]
+        def attachment_failure(route):
+            if route.request.method == 'POST' and fail_once[0]:
+                fail_once[0] = False
+                route.fulfill(status=503, content_type='application/json', body='{"detail":"模拟上传失败"}')
+            else: route.continue_()
+        page.route('**/api/teams/*/attachments', attachment_failure)
+        attachment_dialog.locator('input[type=file]').set_input_files({'name': '重试资料.txt', 'mimeType': 'text/plain', 'buffer': b'retry-file'})
+        expect(attachment_dialog.get_by_role('button', name='重试', exact=True)).to_be_visible()
+        attachment_dialog.get_by_role('button', name='关闭', exact=True).click()
+        warning = page.locator('.el-message-box:visible')
+        expect(warning).to_contain_text('未成功上传')
+        warning.get_by_role('button', name='取消', exact=True).click()
+        attachment_dialog.get_by_role('button', name='重试', exact=True).click()
+        expect(attachment_dialog.locator('.el-table__body tr')).to_have_count(3)
+        page.unroute('**/api/teams/*/attachments', attachment_failure)
+        footer_check(attachment_dialog)
+        page.screenshot(path=str(OUTPUT / 'team-attachments.png'))
+        page.set_viewport_size({'width':390,'height':700}); footer_check(attachment_dialog)
+        bounds = attachment_dialog.bounding_box(); assert bounds['width'] <= 358 and bounds['y'] + bounds['height'] <= 701
+        page.screenshot(path=str(OUTPUT / 'team-attachments-mobile.png'))
+        page.set_viewport_size({'width':1440,'height':900}); page.wait_for_timeout(300)
+        attachment_original = attachment_dialog.bounding_box(); handle = attachment_dialog.locator('.el-dialog__header').bounding_box()
+        page.mouse.move(handle['x']+6,handle['y']+6); page.mouse.down(); page.mouse.move(handle['x']+106,handle['y']+46,steps=10); page.mouse.up()
+        assert abs(attachment_dialog.bounding_box()['x'] - attachment_original['x']) > 30
+        handle = attachment_dialog.locator('.el-dialog__header').bounding_box()
+        page.mouse.move(handle['x']+6,handle['y']+6); page.mouse.down(); page.mouse.move(3000,3000,steps=10); page.mouse.up()
+        bounds = attachment_dialog.bounding_box(); assert bounds['x'] >= -1 and bounds['y'] >= -1 and bounds['x']+bounds['width'] <=1441 and bounds['y']+bounds['height'] <=901
+        attachment_dialog.locator('.el-dialog__headerbtn').click(); expect(attachment_dialog).not_to_be_visible()
+        expect(page.get_by_role('button', name='上传/查看（3）', exact=True)).to_be_visible()
+        page.get_by_role('button', name='上传/查看（3）', exact=True).click(); expect(attachment_dialog).to_be_visible(); page.wait_for_timeout(300)
+        assert abs(attachment_dialog.bounding_box()['x'] - attachment_original['x']) < 2
+        attachment_dialog.locator('.el-table__body tr').filter(has_text='服务清单.txt').get_by_role('button',name='删除',exact=True).click()
+        page.locator('.el-message-box:visible').get_by_role('button',name='删除',exact=True).click()
+        expect(attachment_dialog.locator('.el-table__body tr')).to_have_count(2)
+        attachment_dialog.get_by_role('button',name='关闭',exact=True).click(); expect(attachment_dialog).not_to_be_visible()
+        expect(page.get_by_role('button',name='上传/查看（2）',exact=True)).to_be_visible()
+        page.get_by_role('button',name='编辑',exact=True).click(); target=dialog()
+        target.get_by_role('button',name='管理资料附件',exact=True).click(); expect(attachment_dialog).to_be_visible()
+        expect(attachment_dialog.locator('.el-table__body tr')).to_have_count(2)
+        attachment_dialog.get_by_role('button',name='关闭',exact=True).click(); expect(attachment_dialog).not_to_be_visible(); expect(target).to_be_visible()
+        target.get_by_role('button',name='取消',exact=True).click(); expect(target).not_to_be_visible()
+        file_reader_context, file_reader = new_context('isolated-team-reader')
+        file_reader.get_by_placeholder('团队简称或全称').fill('新增验收团队'); expect(file_reader.locator('.el-table__body tr')).to_have_count(1)
+        file_reader.get_by_role('button',name='查看附件（2）',exact=True).click()
+        reader_files = file_reader.locator('.team-attachments-dialog:visible')
+        expect(reader_files.locator('.el-table__body tr')).to_have_count(2)
+        expect(reader_files.get_by_role('button',name='上传附件',exact=True)).to_have_count(0)
+        expect(reader_files.get_by_role('button',name='删除',exact=True)).to_have_count(0)
+        expect(reader_files.get_by_role('button',name='下载',exact=True)).to_have_count(2)
+        file_reader_context.close()
+        results.append('公共附件组件、中文多文件上传、下载内容校验、失败重试、未上传关闭保护、计数刷新、编辑嵌套入口、拖拽复位、小屏固定底部和只读权限')
+
         # 空白新增表单便于验证拖动后关闭及再次打开的位置。
         page.get_by_role("button", name="新增团队", exact=True).click(); target = dialog(); page.wait_for_timeout(300)
         original = target.bounding_box(); handle = target.locator(".el-dialog__header").bounding_box()
@@ -283,22 +349,22 @@ def run():
         page.get_by_role("button", name="字段设置", exact=True).click()
         columns = page.locator(".table-column-settings-popover:visible")
         expect(columns).to_be_visible()
-        expect(columns.locator(".el-checkbox.is-checked")).to_have_count(8)
+        expect(columns.locator(".el-checkbox.is-checked")).to_have_count(9)
         while columns.locator(".el-checkbox.is-checked").count():
             columns.locator(".el-checkbox.is-checked").first.click()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         page.get_by_role("heading", name="团队资源", exact=True).click(); page.reload()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         page.evaluate("localStorage.setItem('token', 'isolated-team-other')"); page.reload()
-        expect(page.locator(".el-table__header th")).to_have_count(11)
+        expect(page.locator(".el-table__header th")).to_have_count(12)
         page.evaluate("localStorage.setItem('token', 'isolated-team-editor')"); page.reload()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         other_context, other_page = new_context("isolated-team-other", "America/Los_Angeles")
-        expect(other_page.locator(".el-table__header th")).to_have_count(11)
+        expect(other_page.locator(".el-table__header th")).to_have_count(12)
         other_context.close()
         page.get_by_role("button", name="字段设置", exact=True).click()
         page.locator(".table-column-settings-popover:visible").get_by_role("button", name="恢复默认", exact=True).click()
-        expect(page.locator(".el-table__header th")).to_have_count(11)
+        expect(page.locator(".el-table__header th")).to_have_count(12)
         page.get_by_role("heading", name="团队资源", exact=True).click()
         results.append("全部取消、刷新保留、用户隔离及恢复默认")
 

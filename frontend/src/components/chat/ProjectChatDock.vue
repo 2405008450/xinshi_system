@@ -310,6 +310,7 @@ const openFollowed = (session) => {
     projectType: session.projectType,
     title: session.title,
     subtitle: session.subtitle,
+    projectStatus: session.projectStatus,
   })
   if (workspaceNarrow.value) sidebarOpen.value = false
 }

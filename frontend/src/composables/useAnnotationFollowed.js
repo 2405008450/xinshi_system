@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { subscribe, ensureConnected } from '@/utils/realtimeSocket'
-import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useProjectChatDock, refreshOpenAnnotationStatuses } from '@/composables/useProjectChatDock'
 
 const sessions = ref([])
 const followed = computed(() => sessions.value.filter(s => s.kind === 'annotation' && s.following !== false).map(s => ({ ...s, projectName: s.title, orderNo: s.subtitle })))
@@ -40,8 +40,9 @@ async function refresh() {
     const { state } = useProjectChatDock()
     state.windows.forEach((item) => {
       const session = sessions.value.find(row => row.key === item.key)
-      if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread }
+      if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || '' }
     })
+    await refreshOpenAnnotationStatuses(sessions.value)
   } catch {
     if (version === generation && !controller.signal.aborted) error.value = '未读消息暂时无法加载'
   } finally {

@@ -9,7 +9,7 @@ from models import (AnnotationChatMember, ChatProjectEnabled, ChatProjectMemberP
                     ChatProjectMessage, ChatProjectMention, TranslationProject)
 
 
-def mention_query(db, user, keyword=''):
+def mention_query(db, user, keyword='', *, project_type=None, project_status=None):
     message = ChatProjectMessage
     ready = phase_one_ready(db)
     annotation_scope = message.annotation_project_id.is_not(None)
@@ -38,6 +38,13 @@ def mention_query(db, user, keyword=''):
         return query.filter(false())
     query = query.filter(or_(AnnotationProject.id.is_not(None),
                             and_(TranslationProject.id.is_not(None), ChatProjectEnabled.enabled.is_(True))))
+    if project_type == 'annotation':
+        query = query.filter(annotation_scope)
+    elif project_type == 'translation':
+        query = query.filter(message.project_id.is_not(None))
+    if project_status:
+        # 按项目当前状态筛选历史提及；总数与游标分页共用同一查询。
+        query = query.filter(AnnotationProject.project_status == project_status)
     if keyword.strip():
         pattern = '%' + keyword.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
         query = query.filter(or_(*(column.ilike(pattern, escape='\\') for column in
@@ -49,8 +56,8 @@ def mention_count(db, user):
     return mention_query(db, user).with_entities(ChatProjectMessage.id).count()
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50):
-    query = mention_query(db, user, keyword)
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None):
+    query = mention_query(db, user, keyword, project_type=project_type, project_status=project_status)
     total = query.with_entities(ChatProjectMessage.id).count()
     if before is not None:
         query = query.filter(ChatProjectMessage.sequence_no < before)

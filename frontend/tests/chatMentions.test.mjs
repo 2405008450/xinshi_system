@@ -19,19 +19,43 @@ function harness() {
     chatRequest: (path, options) => new Promise((resolve, reject) => requests.push({ path, ...options, resolve, reject })),
   }
   runInNewContext(source.replace(/^import .+\n/gm, '').replace('export function', 'function'), context)
-  const keyword = { value: '' }, active = { value: true }
-  const state = context.useChatMentions(keyword, active)
+  const keyword = { value: '' }, active = { value: true }, filters = { value: {} }
+  const state = context.useChatMentions(keyword, active, filters)
   const change = async (target, value) => {
     target.value = value
     watches.find(item => item.target === target).callback(value)
     await settle()
   }
-  return { state, requests, events, keyword, active, change, mount: () => mounted.forEach(fn => fn()),
+  return { state, requests, events, keyword, active, filters, change, mount: () => mounted.forEach(fn => fn()),
     stop: () => unmounted.forEach(fn => fn()), fire: () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach(fn => fn()) } }
 }
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 const data = (items, more = false, total = items.length) => ({ items, total, hasMore: more, nextBefore: more ? items.at(-1).sequenceNo : null })
 const message = seq => ({ messageId: `m${seq}`, sequenceNo: seq })
+
+test('状态与关键词共同分页，切换状态取消旧请求，返回全局提及移除状态限制', async () => {
+  const h = harness(); h.keyword.value = '确认'
+  h.filters.value = { projectType: 'annotation', projectStatus: 'trial_in_progress' }; h.mount()
+  h.requests[0].resolve(data([message(80)], true, 2)); await settle()
+  const more = h.state.loadMore()
+  assert.equal(h.requests[1].params.project_type, 'annotation')
+  assert.equal(h.requests[1].params.project_status, 'trial_in_progress')
+  assert.equal(h.requests[1].params.keyword, '确认')
+  assert.equal(h.requests[1].params.before, 80)
+  await h.change(h.filters, { projectType: 'annotation', projectStatus: 'client_feedback' })
+  assert.equal(h.requests[1].signal.aborted, true)
+  assert.equal(h.requests[2].params.before, null)
+  assert.equal(h.state.total.value, 0)
+  h.requests[2].resolve(data([message(50)])); await settle()
+  h.requests[1].resolve(data([message(79)])); await more
+  assert.deepEqual(Array.from(h.state.items.value, row => row.messageId), ['m50'])
+  await h.change(h.filters, {})
+  assert.equal(h.requests[3].params.project_type, undefined)
+  assert.equal(h.requests[3].params.project_status, undefined)
+  h.requests[3].resolve(data([message(90), message(50)])); await settle()
+  assert.equal(h.state.total.value, 2)
+  h.stop()
+})
 
 test('历史提及搜索取消前一请求，迟到响应不能覆盖最新结果', async () => {
   const h = harness(); h.mount()

@@ -2,7 +2,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { subscribe } from '@/utils/realtimeSocket'
 
-export function useChatMentions(keyword, active) {
+export function useChatMentions(keyword, active, filters = ref({})) {
   const items = ref([])
   const total = ref(0)
   const loading = ref(false)
@@ -22,6 +22,8 @@ export function useChatMentions(keyword, active) {
     controller = current
     const version = ++generation
     const userId = localStorage.getItem('user_id')
+    const params = { keyword: keyword.value, project_type: filters.value.projectType || undefined,
+      project_status: filters.value.projectStatus || undefined }
     const target = background ? Math.max(50, items.value.length) : 50
     const collected = []
     let before = append ? nextBefore : null
@@ -32,7 +34,7 @@ export function useChatMentions(keyword, active) {
       let data
       // 实时刷新保留已展开的历史范围，避免浏览旧消息时突然跳回第一页。
       do {
-        data = await chatRequest('mentions', { params: { keyword: keyword.value, before, limit: 50 }, signal: current.signal })
+        data = await chatRequest('mentions', { params: { ...params, before, limit: 50 }, signal: current.signal })
         if (version !== generation || userId !== localStorage.getItem('user_id')) return
         collected.push(...(data.items || []))
         before = data.nextBefore
@@ -55,6 +57,7 @@ export function useChatMentions(keyword, active) {
   }
   function cancel() { ++generation; controller?.abort(); clearTimeout(eventTimer); loading.value = false }
   watch(keyword, () => load())
+  watch(filters, () => load(), { deep: true })
   watch(active, value => { if (value) load(); else cancel() })
   onMounted(() => {
     if (active.value) load()

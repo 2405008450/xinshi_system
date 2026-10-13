@@ -29,20 +29,22 @@
           <template #reference><el-button link type="primary">{{ row.contacts?.length ? teamContactSummary(row.contacts) : '查看对接人' }}</el-button></template>
           <template #content><el-alert v-if="detailErrors[row.id]" :title="detailErrors[row.id]" type="error" :closable="false" /><el-button v-if="detailErrors[row.id]" link type="primary" @click="loadDetail(row.id)">重新加载</el-button><TeamContactDetails v-else-if="detailCache[row.id]" :contacts="detailCache[row.id].contacts" :restricted="detailCache[row.id].contact_restricted" /></template>
         </BusinessDetailPopover>
+        <el-button v-else-if="column.key === 'attachment_count'" link type="primary" @click="openAttachments(row)">{{ options.can_write && !deleteMode ? '上传/查看' : '查看附件' }}（{{ row.attachment_count || 0 }}）</el-button>
         <template v-else>{{ teamDisplay(row, column.key, options) }}</template>
       </template></el-table-column>
       <el-table-column label="详情" width="110" fixed="right"><template #default="{ row }">
         <BusinessDetailPopover :row="detailCache[row.id] || {}" :items="detailCache[row.id] ? detailItems : []" :loading="Boolean(detailLoading[row.id])" title="团队详情" popper-class="business-detail-popover team-details" @show="loadDetail(row.id)">
           <template #content>
             <template v-if="detailErrors[row.id]"><el-alert :title="detailErrors[row.id]" type="error" :closable="false" /><el-button link type="primary" @click="loadDetail(row.id)">重新加载</el-button></template>
-            <el-descriptions v-else-if="detailCache[row.id]" :column="2" border size="small"><el-descriptions-item v-for="item in detailItems" :key="item.key" :label="item.label" :span="item.span"><TeamContactDetails v-if="item.key === 'contacts'" :contacts="detailCache[row.id].contacts" :restricted="detailCache[row.id].contact_restricted" /><span v-else class="business-detail-popover__value">{{ teamDisplay(detailCache[row.id], item.key, options) }}</span></el-descriptions-item></el-descriptions>
+            <el-descriptions v-else-if="detailCache[row.id]" :column="2" border size="small"><el-descriptions-item v-for="item in detailItems" :key="item.key" :label="item.label" :span="item.span"><TeamContactDetails v-if="item.key === 'contacts'" :contacts="detailCache[row.id].contacts" :restricted="detailCache[row.id].contact_restricted" /><el-button v-else-if="item.key === 'attachment_count'" link type="primary" @click="openAttachments(detailCache[row.id])">查看附件（{{ detailCache[row.id].attachment_count || 0 }}）</el-button><span v-else class="business-detail-popover__value">{{ teamDisplay(detailCache[row.id], item.key, options) }}</span></el-descriptions-item></el-descriptions>
           </template>
         </BusinessDetailPopover>
       </template></el-table-column>
       <el-table-column v-if="options.can_write && !deleteMode" label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openEditor(row)">编辑</el-button></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="[10,20,50,100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper" @current-change="loadList" @size-change="query" />
-    <TeamResourceEditor ref="editorRef" :options="options" @saved="saved" />
+    <TeamResourceEditor ref="editorRef" :options="options" @saved="saved" @attachments="openAttachments" />
+    <TeamAttachmentsDialog ref="attachmentsRef" :can-edit="options.can_write && !deleteMode" @changed="attachmentsChanged" />
   </el-card>
 </template>
 
@@ -59,12 +61,14 @@ import { cleanTeamColumns, defaultTeamColumns, emptyTeamFilters, personLabel, te
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import TeamResourceEditor from './components/TeamResourceEditor.vue'
 import TeamContactDetails from './components/TeamContactDetails.vue'
+import TeamAttachmentsDialog from './components/TeamAttachmentsDialog.vue'
 
 const options = reactive({ team_types: [], resource_types: [], people: [], user_id: '', can_write: false, can_view_contacts: false })
 const filters = reactive(emptyTeamFilters()), pagination = reactive({ page: 1, limit: 20, total: 0 })
 const rows = ref([]), loading = ref(false), advanced = ref(false), moduleError = ref(''), tableRef = ref(null), editorRef = ref(null)
 const selectedColumns = ref([...defaultTeamColumns]), detailCache = reactive({}), detailErrors = reactive({}), detailLoading = reactive({})
 const detailRequests = new Map()
+const attachmentsRef = ref(null)
 const visibleColumns = computed(() => teamColumns.filter(column => selectedColumns.value.includes(column.key)))
 const detailItems = teamColumns.map(column => ({ ...column, span: ['contacts', 'introduction', 'resource_situation', 'remarks', 'other_resource_description'].includes(column.key) ? 2 : 1 }))
 const advancedCount = computed(() => Number(Boolean(filters.contact_user_id)) + Number(Boolean(filters.follow_up_user_id)) + Number(Boolean(filters.contact_dates?.length)))
@@ -102,6 +106,12 @@ function keywordChanged(value) { filters.keyword = value; clearTimeout(timer); r
 function clearAdvanced() { filters.contact_user_id = ''; filters.follow_up_user_id = ''; filters.contact_dates = []; query() }
 function reset() { Object.assign(filters, emptyTeamFilters()); query() }
 function openEditor(row) { editorRef.value.open(row) }
+function openAttachments(row) { attachmentsRef.value.open(row) }
+function attachmentsChanged(id, count) {
+  const row = rows.value.find(item => item.id === id)
+  if (row) row.attachment_count = count
+  invalidateDetail(id)
+}
 async function saved(row) {
   invalidateDetail(row.id); await loadList()
   try { await loadOptions(false) } catch (error) { if (!cancelled(error)) ElMessage.error(error.message) }

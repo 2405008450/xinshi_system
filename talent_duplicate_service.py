@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import MetaData, Table, func, inspect, or_, select, text
+from sqlalchemy import Column, MetaData, Table, func, inspect, or_, select, text
 from sqlalchemy.exc import NoInspectionAvailable, UnboundExecutionError
 from sqlalchemy.orm import load_only, undefer
 from sqlalchemy.orm.attributes import set_committed_value
@@ -195,16 +195,30 @@ def comparison_fingerprint(person):
 def _references(db, identifiers):
     """沿真实外键收集业务记录与下游明细，撤销时检测任何关联变化。"""
     from resource_service import _OWNED_PERSON_TABLES
-    inspector = inspect(db.get_bind())
+    inspector = inspect(db.connection())
     graph = []
-    for table_name in inspector.get_table_names():
+    foreign_keys = inspector.get_multi_foreign_keys()
+    for (_, table_name), constraints in foreign_keys.items():
         if table_name in {"resource_person", "talent_duplicate_operation"}:
             continue
-        for fk in inspector.get_foreign_keys(table_name):
+        for fk in constraints:
             if len(fk.get("constrained_columns", [])) == 1:
                 graph.append((table_name, fk["constrained_columns"][0], fk["referred_table"], fk["referred_columns"][0]))
     values = {("resource_person", "id"): set(identifiers)}
     gathered, metadata, processed = {}, MetaData(), {}
+    # 批量反射真实列和主键，不逐表递归反射索引及外键。云端数据库的往返
+    # 次数由数百次降为几次；每次快照仍重新读取结构，不缓存业务关联。
+    table_names = sorted({edge[0] for edge in graph})
+    columns = inspector.get_multi_columns(filter_names=table_names) if table_names else {}
+    primary_keys = inspector.get_multi_pk_constraint(filter_names=table_names) if table_names else {}
+    tables = {}
+    for table_name in table_names:
+        catalog_key = (None, table_name)
+        primary_columns = set(primary_keys[catalog_key].get("constrained_columns", []))
+        tables[table_name] = Table(table_name, metadata, *[
+            Column(column["name"], column["type"], primary_key=column["name"] in primary_columns)
+            for column in columns[catalog_key]
+        ])
     while True:
         changed = False
         for table_name, column, parent, parent_column in graph:
@@ -213,7 +227,7 @@ def _references(db, identifiers):
             if not todo:
                 continue
             processed.setdefault((table_name, column), set()).update(todo)
-            table = Table(table_name, metadata, autoload_with=db.get_bind(), extend_existing=True)
+            table = tables[table_name]
             rows = db.execute(select(table).where(table.c[column].in_(list(todo)))).mappings().all()
             for row in rows:
                 encoded = plain(dict(row))
@@ -227,9 +241,16 @@ def _references(db, identifiers):
     return {key: sorted(rows.values(), key=digest) for key, rows in sorted(gathered.items())}
 
 
+def _load_people(db, ids):
+    """一次批量读取档案及明细，每次调用仍刷新 ORM 状态。"""
+    from resource_service import _person_options
+    return {person.id: person for person in db.query(ResourcePerson).filter(ResourcePerson.id.in_(ids))
+            .options(*_person_options(), *archive_options(db)).populate_existing().all()}
+
+
 def full_snapshot(db, ids):
-    from resource_service import get_talent
-    people = {str(identifier): person_snapshot(get_talent(db, identifier)) for identifier in sorted(ids, key=str)}
+    loaded = _load_people(db, ids)
+    people = {str(identifier): person_snapshot(loaded[identifier]) for identifier in sorted(ids, key=str)}
     return {"people": people, "references": _references(db, ids)}
 
 
@@ -536,8 +557,8 @@ def _validated_payload(values, target):
 
 def preview(db, request):
     require_ready(db)
-    from resource_service import get_talent
-    people = [get_talent(db, identifier) for identifier in request.person_ids]
+    loaded = _load_people(db, request.person_ids)
+    people = [loaded.get(identifier) for identifier in request.person_ids]
     if any(person is None or person.archived_into_id for person in people):
         raise HTTPException(409, "选中档案不存在或已归档，请刷新同名组")
     keys = {name_key(person.full_name) for person in people}
@@ -610,12 +631,30 @@ def _apply_merge(db, target, payload, actor):
         # 保留原主档明细 ID，来源明细创建独立副本，避免移动原始资料。
         by_identity = {_collection_key(key, plain({k: v for k, v in _columns(row).items() if k not in SYSTEM_FIELDS})): row for row in existing}
         selected = []
+        assignments = []
         for index, incoming in enumerate(getattr(payload, key)):
             data = incoming.model_dump(exclude={"id"})
             identity = _collection_key(key, plain({k: v for k, v in data.items() if k not in SYSTEM_FIELDS}))
             row = by_identity.get(identity)
             if row is None:
                 row = model(id=uuid4(), person_id=target.id)
+            selected.append(row)
+            assignments.append((index, row, data))
+        removed = False
+        for row in existing:
+            if row not in selected:
+                if key == "certificates" and any(attachment.certificate_id == row.id for attachment in target.attachments):
+                    # 已有证书附件依附明细，保留重复证书的原明细，不能级联删除材料。
+                    continue
+                getattr(target, key).remove(row)
+                removed = True
+        if removed:
+            # 同语种可有多个角色／顺位。先删除未保留明细，再改写选中行，
+            # 避免 ORM 先 UPDATE 后 DELETE 时与旧行的唯一键发生临时冲突。
+            # 此次 flush 仍处于核重事务内，后续失败会整体回滚。
+            db.flush()
+        for index, row, data in assignments:
+            if row not in existing:
                 getattr(target, key).append(row)
             for field, value in data.items():
                 setattr(row, field, value)
@@ -627,13 +666,6 @@ def _apply_merge(db, target, payload, actor):
                 row.created_at = business_now()
             if hasattr(row, "updated_at"):
                 row.updated_at = business_now()
-            selected.append(row)
-        for row in existing:
-            if row not in selected:
-                if key == "certificates" and any(attachment.certificate_id == row.id for attachment in target.attachments):
-                    # 已有证书附件依附明细，保留重复证书的原明细，不能级联删除材料。
-                    continue
-                getattr(target, key).remove(row)
     _sync_display_name(target)
     target.updated_at = business_now()
     target.operated_at = business_now()
@@ -707,19 +739,21 @@ def commit(db, request, actor, audit_metadata=None):
         raise HTTPException(409, "资料或业务关联已变化，请重新预览后确认")
     if current["conflicts"]:
         raise HTTPException(422, "请先解决所有字段冲突")
-    from resource_service import get_talent
-    fingerprints = {str(identifier): comparison_fingerprint(get_talent(db, identifier)) for identifier in request.person_ids}
+    # 保持批量加载对象的强引用，后续留存、指纹及归档复用同一批明细。
+    # 查询在写锁内进行，不跨事务缓存资料。
+    loaded = _load_people(db, ids)
+    fingerprints = {str(identifier): comparison_fingerprint(loaded[identifier]) for identifier in request.person_ids}
     retention = None
     if request.action in {"keep", "merge"}:
         from talent_retention_service import prepare_retention
-        retention = prepare_retention(db, current)
+        retention = prepare_retention(db, current, people=loaded)
     if request.action in {"keep", "merge"}:
-        target = get_talent(db, request.target_id)
+        target = loaded[request.target_id]
         if request.action == "merge":
             _apply_merge(db, target, _validated_payload(current["final_values"], target), actor)
         now = datetime.now(BUSINESS_TIMEZONE)
         for identifier in ids - {request.target_id}:
-            source = get_talent(db, identifier)
+            source = loaded[identifier]
             source.archived_into_id = request.target_id
             source.archived_at = source.archived_at or now
         db.flush()

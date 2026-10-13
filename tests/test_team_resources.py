@@ -35,6 +35,174 @@ def test_contact_contract():
         payload(contacts=[{"id": contact_id, "name": "甲"}, {"id": contact_id, "name": "乙"}])
 
 
+@pytest.fixture
+def attachment_dir(tmp_path, monkeypatch):
+    directory = tmp_path / 'team-uploads'
+    monkeypatch.setenv('TEAM_UPLOAD_DIR', str(directory))
+    return directory
+
+
+def test_attachment_api_permissions_ownership_download_and_audit(db, people, attachment_dir, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers import auth, teams
+    from team_resource_models import TeamResourceAudit
+    rights = []
+    monkeypatch.setattr(auth, 'get_user_permission_codes', lambda *_: rights)
+    app = FastAPI(); app.include_router(teams.router)
+    app.dependency_overrides[get_db] = lambda: db
+    client = TestClient(app)
+    team = create(db, people)
+    other = create(db, people, short_name='另一个团队')
+    path = f'/teams/{team["id"]}/attachments'
+    assert client.get(path).status_code == 401
+    app.dependency_overrides[auth.get_current_user] = lambda: people[0]
+    assert client.get(path).json() == []
+    assert client.post(path, files={'file': ('资料.pdf', b'file')}).status_code == 403
+    rights.append('talents:write')
+    response = client.post(path, files={'file': ('中文资料.PDF', b'file-content', 'application/pdf')})
+    assert response.status_code == 201, response.text
+    saved = response.json(); assert saved['uploaded_by_name'] == '操作人' and saved['uploaded_at'].endswith('+08:00')
+    assert 'storage_name' not in saved
+    assert client.get('/teams/' + team['id']).json()['attachment_count'] == 1
+    assert next(row for row in client.get('/teams').json()['items'] if row['id'] == team['id'])['attachment_count'] == 1
+    assert client.get(f'/teams/{other["id"]}/attachments/{saved["id"]}').status_code == 404
+    rights.clear()
+    download = client.get(path + '/' + saved['id'])
+    assert download.status_code == 200 and download.content == b'file-content'
+    assert 'filename*=utf-8' in download.headers['content-disposition'].lower() and download.headers['x-content-type-options'] == 'nosniff'
+    assert client.delete(path + '/' + saved['id']).status_code == 403
+    rights.append('translators:write')
+    assert client.delete(path + '/' + saved['id']).status_code == 204
+    assert client.get(path + '/' + saved['id']).status_code == 404
+    assert list(attachment_dir.iterdir()) == []
+    audits = db.query(TeamResourceAudit).filter_by(team_id=team['id']).order_by(TeamResourceAudit.occurred_at).all()
+    assert [row.action for row in audits] == ['create', 'attachment_upload', 'attachment_delete']
+
+
+def test_attachment_validation_partial_write_and_commit_failure(db, people, attachment_dir, monkeypatch):
+    import asyncio
+    import io
+    from fastapi import UploadFile
+    import team_attachment_service as files
+    team = create(db, people)
+    def upload(name='中文资料.pdf', data=b'file-content'):
+        return asyncio.run(files.save_attachment(db, team['id'], UploadFile(filename=name, file=io.BytesIO(data)), people[0]))
+    first = upload(r'C:\temporary\中文资料.PDF')
+    assert first['original_name'] == '中文资料.PDF'
+    for name, data, status in [('bad.exe', b'x', 400), ('空.txt', b'', 400), ('x' * 256 + '.pdf', b'x', 400), ('big.pdf', b'x' * (20 * 1024 * 1024 + 1), 413)]:
+        with pytest.raises(HTTPException) as error:
+            upload(name, data)
+        assert error.value.status_code == status
+    for name in ['../escape.pdf', r'..\escape.pdf']:
+        with pytest.raises(ValueError):
+            files.attachment_path(name)
+    interrupted = UploadFile(filename='中断.pdf', file=io.BytesIO(b'x'))
+    async def cancelled_read(_):
+        raise asyncio.CancelledError()
+    interrupted.read = cancelled_read
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(files.save_attachment(db, team['id'], interrupted, people[0]))
+    commit = db.commit
+    def fail():
+        raise RuntimeError('模拟提交失败')
+    monkeypatch.setattr(db, 'commit', fail)
+    with pytest.raises(RuntimeError): upload()
+    with pytest.raises(RuntimeError): files.delete_attachment(db, team['id'], first['id'], people[0])
+    with pytest.raises(RuntimeError): files.delete_team_with_attachments(db, people[0], team['id'], team['revision'])
+    monkeypatch.setattr(db, 'commit', commit)
+    assert len(files.list_attachments(db, team['id'])) == 1 and len(list(attachment_dir.iterdir())) == 1
+    row = files.get_attachment(db, team['id'], first['id'])
+    assert files.attachment_path(row.storage_name).read_bytes() == b'file-content'
+    files.delete_team_with_attachments(db, people[0], team['id'], team['revision'])
+    assert list(attachment_dir.iterdir()) == []
+    from team_resource_models import TeamResourceAttachment, TeamResourceAudit
+    assert db.query(TeamResourceAttachment).filter_by(team_id=team['id']).count() == 0
+    deletion = db.query(TeamResourceAudit).filter_by(team_id=team['id'], action='delete').one()
+    assert deletion.before['attachments'][0]['id'] == first['id']
+
+
+def test_attachment_module_uninitialized_preserves_team_list(db, people):
+    from sqlalchemy import text
+    from team_resource_service import list_teams
+    import team_attachment_service as files
+    team = create(db, people)
+    db.execute(text('ALTER TABLE resource_team_attachment RENAME TO resource_team_attachment_hidden'))
+    assert list_teams(db)['items'][0]['attachment_count'] == 0
+    with pytest.raises(HTTPException) as error:
+        files.list_attachments(db, team['id'])
+    assert error.value.status_code == 503
+    db.execute(text('ALTER TABLE resource_team_attachment_hidden RENAME TO resource_team_attachment'))
+
+
+def test_attachment_limit(db, people, attachment_dir):
+    import asyncio
+    import io
+    from fastapi import UploadFile
+    import team_attachment_service as files
+    from team_resource_models import TeamResourceAttachment
+    from datetime import datetime
+    from business_time import BUSINESS_TIMEZONE
+    team = create(db, people)
+    for index in range(50):
+        db.add(TeamResourceAttachment(id=uuid4(), team_id=team['id'], original_name=f'{index}.pdf', storage_name=f'{index}.pdf', content_type='application/pdf', file_size=1, uploaded_at=datetime.now(BUSINESS_TIMEZONE)))
+    db.commit()
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(files.save_attachment(db, team['id'], UploadFile(filename='资料.pdf', file=io.BytesIO(b'x')), people[0]))
+    assert error.value.status_code == 400 and '50' in error.value.detail
+    assert not attachment_dir.exists()
+
+
+def test_concurrent_attachments_cannot_exceed_limit(attachment_dir):
+    if os.getenv('RUN_TEAM_RESOURCE_DB_TESTS') != '1':
+        pytest.skip('并发验收仅允许专用本机隔离库')
+    import asyncio
+    import io
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from datetime import datetime
+    from fastapi import UploadFile
+    from sqlalchemy import delete
+    from sqlalchemy.orm import Session
+    from database import engine
+    from business_time import BUSINESS_TIMEZONE
+    from models import AppUser
+    from team_resource_models import TeamResourceAttachment, TeamResourceAudit
+    from team_resource_service import save_team
+    import team_attachment_service as files
+    assert engine.url.host == '127.0.0.1' and engine.url.username == 'team_test' and engine.url.database == 'teams_test'
+    actor_id = uuid4()
+    with Session(engine) as session:
+        actor = AppUser(id=actor_id, username='attachment_concurrent_' + uuid4().hex, full_name='并发附件验收', password_hash='unused', is_active=True)
+        session.add(actor); session.flush()
+        team = save_team(session, actor, payload(short_name='并发附件团队' + uuid4().hex))
+        for index in range(49):
+            session.add(TeamResourceAttachment(id=uuid4(), team_id=team['id'], original_name=f'{index}.pdf', storage_name=uuid4().hex + '.pdf', content_type='application/pdf', file_size=1, uploaded_at=datetime.now(BUSINESS_TIMEZONE)))
+        session.commit()
+    start = Barrier(2)
+    def attempt(index):
+        with Session(engine) as session:
+            actor = session.get(AppUser, actor_id)
+            start.wait(timeout=10)
+            try:
+                asyncio.run(files.save_attachment(session, team['id'], UploadFile(filename=f'{index}.txt', file=io.BytesIO(b'concurrent-file')), actor))
+                return 201
+            except HTTPException as error:
+                return error.status_code
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(attempt, range(2))) == [201, 400]
+        with Session(engine) as session:
+            assert len(files.list_attachments(session, team['id'])) == 50
+        assert len(list(attachment_dir.iterdir())) == 1
+    finally:
+        with Session(engine) as session:
+            files.delete_team_with_attachments(session, session.get(AppUser, actor_id), team['id'], 1)
+            session.execute(delete(TeamResourceAudit).where(TeamResourceAudit.team_id == team['id']))
+            session.execute(delete(AppUser).where(AppUser.id == actor_id)); session.commit()
+
+
 def test_contact_privacy_preparation():
     from team_resource_service import prepare_contacts
     existing = [{"id": str(uuid4()), "name": "甲", "nickname": "小甲", "contact_info": "secret-phone"},

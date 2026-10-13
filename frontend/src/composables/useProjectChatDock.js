@@ -191,9 +191,9 @@ const nextCascadePosition = (mode = 'small') => {
   )
 }
 
-const resolveProjectMeta = async (projectType, projectId) => {
+const resolveProjectMeta = async (projectType, projectId, refresh = false) => {
   const cacheKey = `${projectType}:${projectId}`
-  if (projectMetaCache.has(cacheKey)) return projectMetaCache.get(cacheKey)
+  if (!refresh && projectMetaCache.has(cacheKey)) return projectMetaCache.get(cacheKey)
   if (!projectMetaRequests.has(cacheKey)) {
     const loader = projectMetaLoaders[projectType]
     if (!loader) return null
@@ -204,6 +204,7 @@ const resolveProjectMeta = async (projectType, projectId) => {
           const meta = {
             title: data?.projectName || '',
             subtitle: data?.orderNo || '',
+            projectStatus: data?.projectStatus || '',
           }
           projectMetaCache.set(cacheKey, meta)
           return meta
@@ -219,22 +220,28 @@ const resolveProjectMeta = async (projectType, projectId) => {
   return projectMetaRequests.get(cacheKey)
 }
 
-const fillChatWindowMeta = async (chatWindow) => {
-  if (chatWindow.metaLoaded || chatWindow.metaLoading) return
+const fillChatWindowMeta = async (chatWindow, refresh = false) => {
+  if ((!refresh && chatWindow.metaLoaded) || chatWindow.metaLoading) return
   chatWindow.metaLoading = true
-  const meta = await resolveProjectMeta(chatWindow.projectType, chatWindow.projectId)
+  const meta = await resolveProjectMeta(chatWindow.projectType, chatWindow.projectId, refresh)
   if (state.windows.includes(chatWindow)) {
     chatWindow.metaLoading = false
     chatWindow.metaLoaded = true
     if (meta) {
       chatWindow.title = meta.title || chatWindow.title
       chatWindow.subtitle = meta.subtitle
+      chatWindow.projectStatus = meta.projectStatus
     } else if (chatWindow.title === '正在加载项目信息…') {
       // 项目信息加载失败（无权限或已删除）仍允许查看聊天。
       chatWindow.title = '项目沟通'
     }
   }
 }
+
+// 未关注但临时打开的项目不会进入会话接口，随已有刷新周期补齐其当前状态。
+export const refreshOpenAnnotationStatuses = sessions => Promise.all(state.windows
+  .filter(item => item.projectType === 'annotation' && !sessions.some(session => session.key === item.key))
+  .map(item => fillChatWindowMeta(item, true)))
 
 const focusWorkspace = () => {
   state.workspaceZ = ++zSequence
@@ -253,7 +260,7 @@ const activateWorkspace = (key) => {
   focusWorkspace()
 }
 
-const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '' }) => {
+const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '' }) => {
   if (!projectId) return null
   ensurePreferences()
   const key = `${projectType}:${projectId}`
@@ -262,6 +269,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     if (messageId) existing.targetMessageId = messageId
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
+    if (projectStatus) existing.projectStatus = projectStatus
     existing.minimized = false
     if (state.pinnedKey && state.layout === 'float') state.pinnedKey = key
     existing.unread = 0
@@ -269,16 +277,17 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     focusChat(key)
     activateWorkspace(key)
     enforceExpandedLimit(key)
-    if (!title || !subtitle) fillChatWindowMeta(existing)
+    if (!title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
     return key
   }
 
-  const needsMeta = projectType !== 'direct' && (!title || !subtitle)
+  const needsMeta = projectType !== 'direct' && (!title || !subtitle || (projectType === 'annotation' && !projectStatus))
   const sizeMode = normalizeSize(sizePreference[projectType])
   const chatWindow = reactive({
     key,
     projectId: String(projectId),
     projectType,
+    projectStatus,
     targetMessageId: messageId,
     title: title || (needsMeta ? '正在加载项目信息…' : '项目沟通'),
     subtitle,

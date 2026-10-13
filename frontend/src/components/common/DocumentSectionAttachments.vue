@@ -1,12 +1,13 @@
 <template>
   <section class="document-section-attachments company-attachments" v-loading="loading">
     <div class="company-attachments__heading">
-      <h4>栏目附件 <span>({{ attachments.length }}/50)</span></h4>
+      <h4>{{ title }} <span>({{ attachments.length }}/50)</span></h4>
       <el-button v-if="canEdit" type="primary" plain :disabled="loading || !!loadError || attachments.length >= 50" @click="inputRef.click()">上传附件</el-button>
       <input ref="inputRef" type="file" multiple :accept="extensions.join(',')" class="company-attachments__input" @change="selectFiles" />
     </div>
-    <p v-if="canEdit" class="company-attachments__hint">支持办公文档、PDF、TXT、CSV、常见图片及 ZIP/RAR/7Z；单个文件不超过20MB，每栏目最多50个。</p>
+    <p v-if="canEdit" class="company-attachments__hint">支持办公文档、PDF、TXT、CSV、常见图片及 ZIP/RAR/7Z；单个文件不超过20MB，每{{ entityLabel }}最多50个。</p>
     <el-alert v-if="loadError" :title="loadError" type="warning" :closable="false" show-icon />
+    <el-button v-if="loadError" link type="primary" :disabled="loading" @click="load">重新加载</el-button>
     <div v-for="item in queue" :key="item.id" class="company-attachments__upload">
       <span class="company-attachments__name">{{ item.file.name }}</span>
       <el-progress v-if="item.status === 'uploading'" :percentage="item.progress" :stroke-width="6" />
@@ -31,7 +32,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -39,8 +40,11 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 const props = defineProps({
   sectionId: { type: String, required: true },
   adapter: { type: Object, required: true },
-  canEdit: { type: Boolean, default: false }
+  canEdit: { type: Boolean, default: false },
+  title: { type: String, default: '栏目附件' },
+  entityLabel: { type: String, default: '栏目' }
 })
+const emit = defineEmits(['changed'])
 const extensions = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pdf', '.txt', '.csv', '.jpg', '.jpeg', '.png', '.webp', '.zip', '.rar', '.7z']
 const attachments = ref([])
 const queue = ref([])
@@ -59,11 +63,12 @@ const formatTime = formatBusinessDateTime
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const result = await props.adapter.list(props.sectionId, controller.signal)
-    if (!disposed) attachments.value = result
+    if (!disposed) { attachments.value = result; emit('changed', result) }
   } catch (error) {
-    if (!disposed) loadError.value = error?.response?.status === 503 ? '栏目附件尚未启用' : getLocalizedErrorMessage(error, '附件加载失败')
+    if (!disposed) loadError.value = error?.response?.status === 503 ? `${props.title}尚未启用` : getLocalizedErrorMessage(error, '附件加载失败')
   } finally {
     loading.value = false
   }
@@ -104,7 +109,7 @@ async function processQueue() {
       if (!item) break
       if (attachments.value.length >= 50) {
         item.status = 'failed'
-        item.message = '每个栏目最多上传50个附件'
+        item.message = `每个${props.entityLabel}最多上传50个附件`
         continue
       }
       item.status = 'uploading'
@@ -118,6 +123,7 @@ async function processQueue() {
         item.message = '上传成功'
         item.progress = 100
         attachments.value = [saved, ...attachments.value]
+        emit('changed', attachments.value)
       } catch (error) {
         if (disposed) break
         item.status = 'failed'
@@ -159,6 +165,7 @@ async function remove(row) {
     await props.adapter.remove(props.sectionId, row.id, controller.signal)
     if (disposed) return
     attachments.value = attachments.value.filter(item => item.id !== row.id)
+    emit('changed', attachments.value)
     ElMessage.success('附件已删除')
   } catch (error) {
     if (!disposed) ElMessage.error(getLocalizedErrorMessage(error, '附件删除失败'))
@@ -169,6 +176,10 @@ async function remove(row) {
 
 onMounted(load)
 onBeforeUnmount(() => { disposed = true; controller.abort() })
+defineExpose({
+  isBusy: computed(() => uploading.value || deleting.value.size > 0),
+  hasPendingFiles: computed(() => queue.value.some(item => ['pending', 'failed'].includes(item.status)))
+})
 </script>
 
 <style scoped>

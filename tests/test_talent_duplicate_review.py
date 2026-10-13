@@ -27,6 +27,106 @@ from talent_duplicate_service import (commit, undo, preview, groups, group_detai
 ACTOR = SimpleNamespace(id=uuid4(), username="qa", full_name="核重测试员")
 
 
+def test_slow_worker_preserves_audit_and_retries_idempotently(db):
+    from models import AppUser, Role, UserRole
+    from tools.run_talent_name_merge_slow import candidate_keys, propose, execute_one
+    from talent_retention_service import original_data
+    actor = AppUser(id=uuid4(), username='slow_qa', password_hash='synthetic', is_active=True)
+    role = Role(id=uuid4(), role_name='超级管理员')
+    db.add_all([actor, role]); db.flush()
+    db.add(UserRole(id=uuid4(), user_id=actor.id, role_id=role.id)); db.commit()
+    a, b = person(db), person(db, remarks='来源原文\n第二行')
+    assert candidate_keys(db) == ['王测试']
+    request = propose(db, '王测试')
+    db.rollback()
+    with Session(db.get_bind()) as worker:
+        result = execute_one(worker, request, 'slow_qa')
+    with Session(db.get_bind()) as worker:
+        assert execute_one(worker, request, 'slow_qa')['id'] == result['id']
+    assert db.query(TalentDuplicateOperation).count() == 1
+    archived = get_talent(db, b.id)
+    assert archived.archived_into_id == a.id
+    frozen = original_data(db, UUID(result['id']), b.id)
+    assert frozen['integrity_recorded']
+    assert frozen['snapshot']['person']['remarks'] == '来源原文\n第二行'
+
+
+def test_slow_worker_yields_to_online_write_lock_and_rejects_non_admin(db):
+    from models import AppUser, Role, UserRole
+    from tools.run_talent_name_merge_slow import propose, execute_one, PauseTask
+    actor = AppUser(id=uuid4(), username='slow_lock_qa', password_hash='synthetic', is_active=True)
+    ordinary = AppUser(id=uuid4(), username='ordinary_qa', password_hash='synthetic', is_active=True)
+    role = Role(id=uuid4(), role_name='超级管理员')
+    db.add_all([actor, ordinary, role]); db.flush()
+    db.add(UserRole(id=uuid4(), user_id=actor.id, role_id=role.id)); db.commit()
+    a, b = person(db), person(db)
+    request = propose(db, '王测试'); db.rollback()
+    with Session(db.get_bind()) as worker:
+        with pytest.raises(PauseTask, match='有效超级管理员'):
+            execute_one(worker, request, 'ordinary_qa')
+    with Session(db.get_bind()) as online:
+        online.execute(text('SELECT pg_advisory_xact_lock(724092401)'))
+        with Session(db.get_bind()) as worker:
+            with pytest.raises(PauseTask, match='本任务让行'):
+                execute_one(worker, request, 'slow_lock_qa')
+        online.rollback()
+    assert db.query(TalentDuplicateOperation).count() == 0
+    assert not get_talent(db, b.id).archived_into_id
+
+
+def test_two_worker_queue_merges_once_and_resumes_out_of_order(db, tmp_path):
+    from models import AppUser, Role, UserRole
+    from tools.run_talent_name_merge_slow import run_queue, candidate_keys
+    actor = AppUser(id=uuid4(), username='two_worker_qa', password_hash='synthetic', is_active=True)
+    role = Role(id=uuid4(), role_name='超级管理员')
+    db.add_all([actor, role]); db.flush()
+    db.add(UserRole(id=uuid4(), user_id=actor.id, role_id=role.id)); db.commit()
+    for name in ['甲测试', '乙测试', '丙测试', '丁测试']:
+        person(db, name); person(db, name)
+    keys = candidate_keys(db); db.rollback()
+    state = {'keys': keys, 'requests': {}, 'results': [], 'index': 0, 'operator': actor.username,
+             'status': 'running', 'started_at': '2026-10-13T12:00:00+08:00', 'workers': 2,
+             'interval_seconds': 0.2}
+    path = tmp_path/'status.json'
+    run_queue(db.get_bind(), state, path, tmp_path/'STOP', actor.username, 2, 0.2)
+    assert state['index'] == 4 and len(state['processed_keys']) == 4
+    assert {result['worker_id'] for result in state['results']} == {1, 2}
+    assert len({result['id'] for result in state['results']}) == 4
+    assert db.query(TalentDuplicateOperation).count() == 4
+    # 前缀未追上但乱序完成项已记录时，续跑仍不得重复提交或遗漏。
+    state['index'] = 0
+    run_queue(db.get_bind(), state, path, tmp_path/'STOP', actor.username, 2, 0.2)
+    assert db.query(TalentDuplicateOperation).count() == 4
+
+
+def test_two_workers_stop_before_commit_on_failure(tmp_path, monkeypatch):
+    from tools import run_talent_name_merge_slow as runner
+    from contextlib import nullcontext
+    monkeypatch.setattr(runner, 'Session', lambda _: nullcontext(SimpleNamespace(execute=lambda _: None, rollback=lambda: None)))
+    monkeypatch.setattr(runner, 'read_pressure', lambda _: {'connections': 0, 'active': 0, 'idle_transactions': 0, 'old_transactions': 0})
+    def failure(*args):
+        raise runner.PauseTask('模拟线上负载升高')
+    monkeypatch.setattr(runner, 'propose', failure)
+    commits = []
+    monkeypatch.setattr(runner, 'execute_one', lambda *args: commits.append(args))
+    state = {'keys': ['甲测试', '乙测试'], 'index': 0, 'requests': {}, 'results': []}
+    with pytest.raises(runner.PauseTask, match='模拟线上负载升高'):
+        runner.run_queue(None, state, tmp_path/'status.json', tmp_path/'STOP', 'qa', 2, 0.1)
+    assert not commits and state['index'] == 0
+
+
+@pytest.mark.parametrize('pressure', [
+    {'connections': 40, 'active': 0, 'idle_transactions': 0, 'old_transactions': 0},
+    {'connections': 15, 'active': 5, 'idle_transactions': 0, 'old_transactions': 0},
+    {'connections': 15, 'active': 0, 'idle_transactions': 3, 'old_transactions': 0},
+    {'connections': 15, 'active': 0, 'idle_transactions': 0, 'old_transactions': 1},
+])
+def test_slow_worker_pauses_under_database_pressure(pressure):
+    from tools.run_talent_name_merge_slow import assert_quiet, PauseTask
+    with pytest.raises(PauseTask, match='数据库负载升高'):
+        assert_quiet(pressure)
+
+
 @pytest.fixture(autouse=True)
 def isolated_retention_files(tmp_path, monkeypatch):
     monkeypatch.setenv("TALENT_UPLOAD_DIR", str(tmp_path / "uploads"))
@@ -559,6 +659,36 @@ def test_name_merge_collection_conflict_keeps_master_attachments_and_capacity(db
     assert attachment_field["value"][0]["readonly"] and attachment_field["value"][0]["id"] == str(attachment.id)
     assert get_talent(db, b.id).language_skills[0].role == "foreign"
     assert detail_inheritance(db, a.id, True)["inherited_attachments"][0]["readonly"]
+
+
+def test_name_merge_multiple_roles_for_same_language_preserves_originals_and_undo(db):
+    from interpretation_models import InterpretationLanguage
+    from talent_name_merge_service import list_groups, preview_group, commit_group
+    from talent_duplicate_schemas import NameMergePreviewRequest, NameMergeCommitRequest
+    language = InterpretationLanguage(id=uuid4(), label="合成多角色语言")
+    db.add(language); db.commit()
+    a, b = person(db), person(db)
+    for role, priority in [("native", 0), ("foreign", 0), ("dialect_ethnic", 0)]:
+        a.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id,
+                                                       role=role, priority=priority))
+    b.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id,
+                                                   role="foreign", priority=1))
+    db.commit()
+    before = full_snapshot(db, [a.id, b.id])
+    group = list_groups(db)["items"][0]
+    request = NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"])
+    proposed = preview_group(db, request)
+    chosen = proposed["final_values"]["language_skills"][0]
+    result = commit_group(db, NameMergeCommitRequest(**request.model_dump(),
+                         preview_token=proposed["preview_token"], idempotency_key=str(uuid4())), ACTOR)
+    merged = get_talent(db, a.id)
+    assert len(merged.language_skills) == 1
+    assert (merged.language_skills[0].role, merged.language_skills[0].priority) == (chosen["role"], chosen["priority"])
+    assert get_talent(db, b.id).language_skills[0].priority == 1
+    operation = db.get(TalentDuplicateOperation, UUID(result["id"]))
+    assert operation.before_snapshot == before
+    undo(db, operation.id, ACTOR)
+    assert full_snapshot(db, [a.id, b.id]) == before
 
 
 def test_name_merge_handles_empty_profile_lists_when_master_has_no_profile(db):

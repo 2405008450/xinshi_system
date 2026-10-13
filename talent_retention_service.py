@@ -81,12 +81,15 @@ def _preserve_file(attachment):
             temporary.unlink(missing_ok=True)
 
 
-def prepare_retention(db, proposed):
+def prepare_retention(db, proposed, *, people=None):
     """在修改人员前制作留存；数据库失败可能留下未引用内容副本，不自动删除共享文件。"""
-    from resource_service import get_talent
+    from talent_duplicate_service import _load_people
+    from uuid import UUID
     labels, attachments = {}, []
+    if people is None:
+        people = _load_people(db, [UUID(identifier) for identifier in proposed["before_snapshot"]["people"]])
     for identifier, snapshot in proposed["before_snapshot"]["people"].items():
-        person = get_talent(db, snapshot["person"]["id"])
+        person = people[UUID(identifier)]
         # 语种等目录名称只在本次留存时读取；以后查看历史不按新目录重写旧名称。
         for key in COLLECTIONS:
             for row in getattr(person, key):

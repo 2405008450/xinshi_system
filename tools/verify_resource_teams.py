@@ -67,6 +67,7 @@ def run():
     command(pg / "pg_ctl.exe", "-D", data, "-l", data / "postgres.log", "-o", f"-h 127.0.0.1 -p {pg_port}", "-w", "start", log_name="postgres-start.log")
     env = dict(os.environ, DATABASE_URL=f"postgresql+psycopg2://team_test@127.0.0.1:{pg_port}/teams_test", SECRET_KEY=secrets.token_urlsafe(48),
                PYTHONUTF8="1", RUN_TEAM_RESOURCE_DB_TESTS="1", TEAM_RESOURCE_QA="1", LOCAL_SCHEMA_MIGRATIONS_ENABLED="false",
+               TEAM_UPLOAD_DIR=str(output / 'attachment-uploads'),
                VITE_API_PROXY_TARGET=f"http://127.0.0.1:{backend_port}", TEAM_UI_BASE=f"http://localhost:{frontend_port}")
     try:
         command(pg / "createdb.exe", "-h", "127.0.0.1", "-p", pg_port, "-U", "team_test", "teams_test", log_name="createdb.log")
@@ -84,11 +85,13 @@ assert engine.url.host == '127.0.0.1' and engine.url.database == 'teams_test'
 AppUser.__table__.create(engine)
 sql = Path('data/migrations/20261012_resource_teams.sql').read_text(encoding='utf-8')
 contacts_sql = Path('data/migrations/20261013_resource_team_contacts.sql').read_text(encoding='utf-8')
+attachments_sql = Path('data/migrations/20261013_resource_team_attachments.sql').read_text(encoding='utf-8')
 import team_resource_service
 team_resource_service.can_view_talent_contacts = lambda _db, _user: True
 with engine.begin() as connection:
     connection.exec_driver_sql(sql)
     connection.exec_driver_sql(contacts_sql)
+    connection.exec_driver_sql(attachments_sql)
 with Session(engine) as db:
     people = [AppUser(id=UUID(int=i), username=f'team_qa_{i}', full_name=name, is_active=active, password_hash='isolated-no-login')
               for i, name, active in [(101,'验收对接人',True),(102,'只读验收人',True),(103,'其他跟进人',True),(104,'历史停用人',False)]]
@@ -100,6 +103,7 @@ with Session(engine) as db:
 with engine.begin() as connection:
     connection.exec_driver_sql(sql)
     connection.exec_driver_sql(contacts_sql)
+    connection.exec_driver_sql(attachments_sql)
     assert connection.execute(text('SELECT count(*) FROM resource_team')).scalar() == 24
     assert connection.execute(text('SELECT count(*) FROM resource_team_audit')).scalar() == 24
     assert connection.execute(text("SELECT count(*) FROM resource_team WHERE contacts = '[]'::jsonb")).scalar() == 24
@@ -108,6 +112,8 @@ print('迁移首次与重复执行通过，既有团队及审计保留')
         print(command(sys.executable, "-c", setup, env=env, log_name="migration.log"), flush=True)
         if "--ui-only" not in sys.argv:
             print(command(sys.executable, "-m", "pytest", "tests/test_team_resources.py", "tests/test_talent_pool_statistics.py", "tests/test_talent_list_query.py", "-q", "--tb=short", env=env, log_name="pytest.log"), flush=True)
+        if "--backend-only" in sys.argv:
+            return
         start([sys.executable, "-m", "uvicorn", "tools.teams_isolated_app:app", "--host", "127.0.0.1", "--port", backend_port], env, ROOT, "backend.log")
         ready(f"http://127.0.0.1:{backend_port}/openapi.json")
         start(["node", "node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", frontend_port, "--strictPort"], env, ROOT / "frontend", "frontend.log")

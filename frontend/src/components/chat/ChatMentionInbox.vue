@@ -20,15 +20,17 @@
 </template>
 
 <script setup>
-import { ref, toRef } from 'vue'
+import { ref, toRef, watch } from 'vue'
 import { useChatMentions } from '@/composables/useChatMentions'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 
-const props = defineProps({ keyword: { type: String, default: '' }, active: { type: Boolean, default: true } })
-const emit = defineEmits(['locate'])
+const props = defineProps({ keyword: { type: String, default: '' }, active: { type: Boolean, default: true }, filters: { type: Object, default: () => ({}) } })
+const emit = defineEmits(['locate', 'total'])
 const selectedMessageId = ref('')
-const { items, total, loading, error, hasMore, reload, loadMore } = useChatMentions(toRef(props, 'keyword'), toRef(props, 'active'))
+const { items, total, loading, error, hasMore, reload, loadMore } = useChatMentions(toRef(props, 'keyword'), toRef(props, 'active'), toRef(props, 'filters'))
+watch(total, value => emit('total', value), { immediate: true })
+watch([() => props.keyword, () => props.filters], () => { selectedMessageId.value = '' })
 function select(item) { selectedMessageId.value = item.messageId; emit('locate', item) }
 </script>
 

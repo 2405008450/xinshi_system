@@ -14,6 +14,9 @@
         <section class="form-section"><h3>团队对接人</h3>
           <el-form-item label="团队对接人" prop="contacts"><div class="team-text-field"><p>{{ teamContactSummary(form.contacts) }}</p><el-button @click="contactsEditorRef.open(form.contacts)">编辑团队对接人</el-button></div></el-form-item>
         </section>
+        <section class="form-section"><h3>资料附件</h3>
+          <el-form-item label="资料附件"><el-button v-if="editId" :disabled="loading || saving" @click="emit('attachments', { id: editId, short_name: form.short_name })">管理资料附件</el-button><span v-else>保存团队后，可在列表的“资料附件”中上传资料。</span></el-form-item>
+        </section>
         <section class="form-section"><h3>资源说明</h3>
           <el-form-item label="团队简介" prop="introduction"><div class="team-text-field"><p>{{ form.introduction || '暂未填写' }}</p><el-button @click="textEditorRef.open('introduction', '编辑简介', form.introduction)">编辑简介</el-button></div></el-form-item>
           <el-form-item label="资源情况" prop="resource_situation"><div class="team-text-field"><p>{{ form.resource_situation || '暂未填写' }}</p><el-button @click="textEditorRef.open('resource_situation', '编辑资源情况', form.resource_situation)">编辑资源情况</el-button></div></el-form-item>
@@ -49,7 +52,7 @@ import TeamTextEditor from './TeamTextEditor.vue'
 import TeamContactsEditor from './TeamContactsEditor.vue'
 
 const props = defineProps({ options: { type: Object, required: true } })
-const emit = defineEmits(['saved'])
+const emit = defineEmits(['saved', 'attachments'])
 const visible = ref(false), editId = ref(null), loading = ref(false), saving = ref(false), conflict = ref(false), failed = ref(false), draft = ref(null)
 const dialogRef = ref(null), formRef = ref(null), bodyRef = ref(null), textEditorRef = ref(null), retained = ref([])
 const form = reactive(emptyTeam())

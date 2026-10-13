@@ -32,11 +32,14 @@ def people_options(db):
 
 
 def serialize_many(db, rows, *, contacts_visible=False):
+    from team_attachment_service import attachment_counts
+    counts = attachment_counts(db, [row.id for row in rows])
     ids = {getattr(row, key) for row in rows for key in ("contact_user_id", "follow_up_user_id", "created_by", "updated_by") if getattr(row, key)}
     users = {p.id: p for p in db.query(AppUser).filter(AppUser.id.in_(ids)).all()} if ids else {}
     result = []
     for row in rows:
         data = {key: getattr(row, key) for key in BUSINESS_FIELDS}
+        data["attachment_count"] = counts.get(row.id, 0)
         data["contact_restricted"] = not contacts_visible
         data["contacts"] = [dict(item, contact_info=(item.get("contact_info", "") if contacts_visible else CONTACT_MASK if item.get("contact_info") else "")) for item in row.contacts or []]
         for key in ("contact_user_id", "follow_up_user_id"):
@@ -159,5 +162,9 @@ def save_team(db, user, payload, team_id=None):
 def delete_team(db, user, team_id, revision):
     row = get_team(db, team_id, lock=True)
     check_revision(row, revision)
-    audit(db, user, row, "delete", before=serialize_many(db, [row])[0])
+    from team_attachment_service import is_ready, list_attachments
+    before = serialize_many(db, [row])[0]
+    if is_ready(db):
+        before["attachments"] = list_attachments(db, team_id)
+    audit(db, user, row, "delete", before=before)
     db.delete(row)

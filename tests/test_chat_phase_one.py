@@ -329,6 +329,83 @@ def test_mention_history_translation_permissions_disabled_groups_and_api(environ
     assert list_mentions(db, users[1])['total'] == 0
 
 
+@pytest.mark.parametrize('migrated', [False, True])
+def test_annotation_status_mentions_filter_count_pagination_and_current_state(environment, migrated):
+    db, users, engine = environment
+    from annotation_models import AnnotationProject
+    from models import ChatProjectMessage, ChatProjectMention, ChatProjectEnabled, TranslationProject
+    from chat_mention_history import list_mentions
+    from routers.chat_sessions import sessions, preferences, PreferenceRequest
+    from schemas import AnnotationProjectChatMessageCreate
+    import annotation_chat_service as annotation
+    if not migrated:
+        remove_phase_one_columns(db, engine)
+    projects = [AnnotationProject(order_no='STATUS-' + uuid4().hex[:12], project_name=name,
+                                 project_types=[], project_status=status)
+                for name, status in [('试标项目', 'trial_in_progress'), ('反馈项目', 'client_feedback'), ('暂停项目', 'paused')]]
+    db.add_all(projects); db.commit()
+    messages = []
+    for project in projects:
+        annotation.add_member(db, project.id, users[1].id, baseline=0); db.commit()
+        for content in ('需要确认', '确认附件', '其他消息'):
+            messages.append(annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(
+                content=content, mentioned_user_ids=[users[1].id])))
+    translation = TranslationProject(order_no='STATUS-TP-' + uuid4().hex[:12], project_name='笔译项目')
+    db.add(translation); db.flush()
+    db.add(ChatProjectEnabled(project_id=translation.id, enabled=True))
+    message = ChatProjectMessage(project_id=translation.id, sender_user_id=users[0].id,
+                                 sender_name='发件人', content='需要确认', message_type='user')
+    db.add(message); db.flush()
+    db.add(ChatProjectMention(message_id=message.id, mentioned_user_id=users[1].id, mentioned_user_name='聊天测试1'))
+    db.commit()
+    filters = dict(project_type='annotation', project_status='trial_in_progress', keyword='确认', limit=1)
+    first = list_mentions(db, users[1], **filters)
+    assert first['total'] == 2 and first['has_more']
+    assert first['items'][0]['message_id'] == messages[1].id
+    second = list_mentions(db, users[1], before=first['next_before'], **filters)
+    assert second['total'] == 2 and not second['has_more']
+    assert second['items'][0]['message_id'] == messages[0].id
+    assert list_mentions(db, users[1], project_type='annotation')['total'] == 9
+    assert list_mentions(db, users[1], project_type='translation')['total'] == 1
+    assert list_mentions(db, users[1])['total'] == 10
+    assert list_mentions(db, users[1], project_status='paused')['total'] == 3
+    assert list_mentions(db, users[1], project_status='trial_preparation')['total'] == 0
+    assert list_mentions(db, users[2], **filters)['total'] == 0
+    assert list_mentions(db, users[3], **filters)['total'] == 0
+    preferences('annotation', projects[0].id, PreferenceRequest(mark_read=True), db, users[1])
+    read = list_mentions(db, users[1], **filters)
+    assert read['total'] == 2 and not read['items'][0]['unread']
+    group = next(row for row in sessions(db, users[1])['items'] if row['project_id'] == projects[0].id)
+    assert group['project_status'] == 'trial_in_progress' and group['mention_unread'] == 0
+    projects[0].project_status = 'client_feedback'; db.commit()
+    assert list_mentions(db, users[1], **filters)['total'] == 0
+    assert list_mentions(db, users[1], project_status='client_feedback')['total'] == 6
+    assert next(row for row in sessions(db, users[1])['items'] if row['project_id'] == projects[0].id)['project_status'] == 'client_feedback'
+    annotation.recall_message(db, projects[0].id, messages[0].id, users[0])
+    assert list_mentions(db, users[1], project_status='client_feedback')['total'] == 5
+
+
+def test_mention_status_api_validation_and_filtering(environment):
+    db, users, _engine = environment
+    from annotation_models import AnnotationProject
+    from schemas import AnnotationProjectChatMessageCreate
+    from database import get_db
+    from routers.auth import get_current_user
+    import annotation_chat_service as annotation
+    import main
+    project = AnnotationProject(order_no='API-' + uuid4().hex[:12], project_name='接口筛选', project_types=[], project_status='paused')
+    db.add(project); db.commit()
+    annotation.send_message(db, project.id, users[0], AnnotationProjectChatMessageCreate(content='确认', mentioned_user_ids=[users[1].id]))
+    main.app.dependency_overrides[get_db] = lambda: db
+    main.app.dependency_overrides[get_current_user] = lambda: users[1]
+    client = TestClient(main.app)
+    response = client.get('/chat/mentions', params={'project_type': 'annotation', 'project_status': 'paused', 'keyword': '确认'})
+    assert response.status_code == 200 and response.json()['total'] == 1
+    assert client.get('/chat/mentions', params={'project_status': 'trial_in_progress'}).json()['total'] == 0
+    for params in ({'project_status': 'unknown'}, {'project_type': 'direct'}, {'project_type': 'translation', 'project_status': 'paused'}):
+        assert client.get('/chat/mentions', params=params).status_code == 422
+
+
 def test_message_retry_concurrency_and_recall_deadline(environment):
     db, users, engine = environment
     import direct_chat_service as service

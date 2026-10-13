@@ -18,7 +18,7 @@ def run():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     print(f"主机={socket.gethostname()} 项目={root} 提交={commit} 数据库={engine.url.host}:{engine.url.port}/{engine.url.database}")
     with engine.begin() as connection:
-        for name in ("20261012_resource_teams.sql", "20261013_resource_team_contacts.sql"):
+        for name in ("20261012_resource_teams.sql", "20261013_resource_team_contacts.sql", "20261013_resource_team_attachments.sql"):
             connection.exec_driver_sql((root / "data/migrations" / name).read_text(encoding="utf-8"))
     print("团队资源迁移完成（可重复执行）")
 

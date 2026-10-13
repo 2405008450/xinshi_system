@@ -2,15 +2,17 @@
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
 from permission_service import user_has_permission
 from routers.auth import get_current_user, require_any_permission
 from team_resource_schemas import ResourceType, TeamType, TeamWrite
-from team_resource_service import TEAM_TYPES, RESOURCE_TYPES, delete_team, ensure_schema, get_team, list_teams, people_options, save_team, serialize_many
+from team_resource_service import TEAM_TYPES, RESOURCE_TYPES, ensure_schema, get_team, list_teams, people_options, save_team, serialize_many
 from talent_privacy import can_view_talent_contacts
+import team_attachment_service as attachments
 
 router = APIRouter(prefix="/teams", tags=["teams"], dependencies=[Depends(get_current_user)])
 write = Depends(require_any_permission("talents:write", "translators:write"))
@@ -58,6 +60,30 @@ def update(team_id: UUID, payload: TeamWrite, db: Session = Depends(initialized_
 
 @router.delete("/{team_id}", dependencies=[write], status_code=204)
 def delete(team_id: UUID, revision: int = Query(..., ge=1), db: Session = Depends(initialized_db), user=Depends(get_current_user)):
-    delete_team(db, user, team_id, revision)
-    db.commit()
+    attachments.delete_team_with_attachments(db, user, team_id, revision)
+    return Response(status_code=204)
+
+
+@router.get("/{team_id}/attachments")
+def read_attachments(team_id: UUID, db: Session = Depends(initialized_db)):
+    return attachments.list_attachments(db, team_id)
+
+
+@router.post("/{team_id}/attachments", dependencies=[write], status_code=201)
+async def upload_attachment(team_id: UUID, file: UploadFile = File(...), db: Session = Depends(initialized_db), user=Depends(get_current_user)):
+    return await attachments.save_attachment(db, team_id, file, user)
+
+
+@router.get("/{team_id}/attachments/{attachment_id}")
+def download_attachment(team_id: UUID, attachment_id: UUID, db: Session = Depends(initialized_db)):
+    row = attachments.get_attachment(db, team_id, attachment_id)
+    path = attachments.attachment_path(row.storage_name)
+    if not path.is_file():
+        raise HTTPException(404, "团队附件文件不存在")
+    return FileResponse(path, filename=row.original_name, media_type="application/octet-stream", headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+
+
+@router.delete("/{team_id}/attachments/{attachment_id}", dependencies=[write], status_code=204)
+def remove_attachment(team_id: UUID, attachment_id: UUID, db: Session = Depends(initialized_db), user=Depends(get_current_user)):
+    attachments.delete_attachment(db, team_id, attachment_id, user)
     return Response(status_code=204)

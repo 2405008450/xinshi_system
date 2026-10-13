@@ -6,6 +6,7 @@ export const teamColumns = [
   { key: 'team_type', label: '团队类型', width: 130 },
   { key: 'resource_types', label: '资源类型', width: 180 },
   { key: 'contacts', label: '团队对接人', width: 160 },
+  { key: 'attachment_count', label: '资料附件', width: 165 },
   { key: 'introduction', label: '团队简介', width: 220 },
   { key: 'other_resource_description', label: '其他资源说明', width: 180 },
   { key: 'resource_situation', label: '资源情况', width: 220 },
@@ -18,13 +19,13 @@ export const teamColumns = [
   { key: 'updated_by_name', label: '修改人', width: 110 },
   { key: 'updated_at', label: '更新时间', width: 190 },
 ]
-export const defaultTeamColumns = ['short_name', 'full_name', 'team_type', 'resource_types', 'contacts', 'contact_user', 'contact_date', 'follow_up_user']
+export const defaultTeamColumns = ['short_name', 'full_name', 'team_type', 'resource_types', 'contacts', 'attachment_count', 'contact_user', 'contact_date', 'follow_up_user']
 export const cleanTeamColumns = value => {
   if (!Array.isArray(value)) throw new Error('无效字段配置')
   const selected = teamColumns.map(c => c.key).filter(key => value.includes(key))
-  const previousDefaults = defaultTeamColumns.filter(key => key !== 'contacts')
+  const historicalDefaults = [defaultTeamColumns.filter(key => !['contacts', 'attachment_count'].includes(key)), defaultTeamColumns.filter(key => key !== 'attachment_count')]
   // 旧默认组合补上新列；用户自定义组合和全部隐藏保持原选择。
-  return selected.length === previousDefaults.length && previousDefaults.every(key => selected.includes(key)) ? [...defaultTeamColumns] : selected
+  return historicalDefaults.some(keys => selected.length === keys.length && keys.every(key => selected.includes(key))) ? [...defaultTeamColumns] : selected
 }
 export const personLabel = person => person ? `${person.name}${person.is_active === false ? '（已停用）' : ''}` : '-'
 export const emptyTeamContact = () => ({ id: null, name: '', nickname: '', contact_info: '' })
@@ -54,6 +55,7 @@ export function teamParams(filters, page, limit) {
   return params
 }
 export function teamDisplay(row, key, options) {
+  if (key === 'attachment_count') return `${row.attachment_count || 0} 个附件`
   if (key === 'contacts') return row.contacts?.length ? teamContactSummary(row.contacts) : '-'
   if (key === 'team_type') return options.team_types.find(item => item.value === row[key])?.label || '-'
   if (key === 'resource_types') return (row[key] || []).map(value => options.resource_types.find(item => item.value === value)?.label || value).join('、') || '-'

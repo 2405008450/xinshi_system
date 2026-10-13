@@ -18,19 +18,34 @@ const chatNotifications = readFileSync(new URL('../src/composables/useChatNotifi
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
 
 // 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
-function createDockHarness(storage = new Map()) {
+function createDockHarness(storage = new Map(), annotationLoader = async () => ({ projectName: '标注项目', orderNo: 'A-001', projectStatus: 'trial_preparation' })) {
   const viewport = { innerWidth: 1440, innerHeight: 950 }
   const source = dockStore.replace(/^import .*\r?\n/gm, '').replace(/export const /g, 'const ')
-  const { dock: instance, size, visible } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible })`, {
+  const { dock: instance, size, visible, refreshStatuses } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible, refreshStatuses: refreshOpenAnnotationStatuses })`, {
     reactive: value => value,
     getProject: async () => ({ projectName: '笔译项目', orderNo: 'T-001' }),
-    getAnnotationProject: async () => ({ projectName: '标注项目', orderNo: 'A-001' }),
+    getAnnotationProject: annotationLoader,
     window: viewport,
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
     console,
   })
-  return { dock: instance, size, visible, viewport, storage }
+  return { dock: instance, size, visible, viewport, storage, refreshStatuses }
 }
+
+test('临时标注会话即使已有名称也补齐状态，并在后续刷新时读取当前状态', async () => {
+  let status = 'trial_preparation', calls = 0
+  const h = createDockHarness(new Map(), async () => { calls++; return { projectName: '测试项目', orderNo: 'A-001', projectStatus: status } })
+  h.dock.openChat({ projectId: '1', projectType: 'annotation', title: '测试项目', subtitle: 'A-001' })
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+  assert.equal(h.dock.state.windows[0].projectStatus, 'trial_preparation')
+  status = 'client_feedback'
+  await h.refreshStatuses([])
+  assert.equal(h.dock.state.windows[0].projectStatus, 'client_feedback')
+  assert.equal(calls, 2)
+  await h.refreshStatuses([{ key: 'annotation:1' }])
+  assert.equal(calls, 2)
+  h.dock.closeAllChats()
+})
 
 function workspaceVisibility(state, followedItems = [{ projectId: 'followed-project' }]) {
   const source = dock.slice(dock.indexOf('const workspaceVisible = computed'), dock.indexOf('const minimizedWindows = computed'))

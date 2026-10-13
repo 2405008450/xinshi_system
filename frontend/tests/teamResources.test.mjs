@@ -6,8 +6,10 @@ test('团队字段配置过滤旧键，允许全部取消且不改变默认配�
   assert.deepEqual(cleanTeamColumns(['unknown', 'short_name', 'short_name']), ['short_name'])
   assert.deepEqual(cleanTeamColumns([]), [])
   assert.throws(() => cleanTeamColumns({}))
-  assert.equal(defaultTeamColumns.length, 8)
-  assert.deepEqual(cleanTeamColumns(defaultTeamColumns.filter(key => key !== 'contacts')), defaultTeamColumns)
+  assert.equal(defaultTeamColumns.length, 9)
+  assert.deepEqual(cleanTeamColumns(defaultTeamColumns.filter(key => !['contacts', 'attachment_count'].includes(key))), defaultTeamColumns)
+  assert.deepEqual(cleanTeamColumns(defaultTeamColumns.filter(key => key !== 'attachment_count')), defaultTeamColumns)
+  assert.equal(teamDisplay({ attachment_count: 2 }, 'attachment_count', {}), '2 个附件')
 })
 test('联系人按稳定标识提交，受限用户不回传脱敏联系方式', () => {
   const contacts = [emptyTeamContact(), { id: 'saved-id', name: ' 张三 ', nickname: ' 小张 ', contact_info: '******' }]

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models import Base
 
@@ -53,3 +53,20 @@ class TeamResourceAudit(Base):
     before: Mapped[dict | None] = mapped_column(JSONB)
     after: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class TeamResourceAttachment(Base):
+    __tablename__ = "resource_team_attachment"
+    __table_args__ = (
+        CheckConstraint("file_size > 0 AND file_size <= 20971520", name="ck_resource_team_attachment_size"),
+        Index("ix_resource_team_attachment_team_time", "team_id", "uploaded_at"),
+    )
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    team_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("resource_team.id", ondelete="CASCADE"), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("app_user.id", ondelete="SET NULL"))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    uploader = relationship("AppUser", foreign_keys=[uploaded_by])

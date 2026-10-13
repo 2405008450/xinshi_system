@@ -1,5 +1,6 @@
 """统一会话目录、用户搜索和用户级偏好。"""
 from uuid import UUID
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_, and_
@@ -10,6 +11,7 @@ from routers.auth import get_current_user
 from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatDirectMember,
     ChatProjectMemberPref, ChatProjectMessage, ChatProjectMention, TranslationProject, ChatProjectEnabled)
 from annotation_models import AnnotationProject
+from annotation_schemas import ANNOTATION_PROJECT_STATUSES
 from chat_time import api_time
 from permission_service import user_has_permission
 from notification_ws import broadcast_to_users
@@ -144,7 +146,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, m in projects], {p.id: m.last_read_sequence if m else 0 for p, m in projects}, user.id)
         for p, m in projects:
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
-                subtitle=p.order_no, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
+                subtitle=p.order_no, project_status=p.project_status, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
         return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
             'mention_total': sum(r['mention_unread'] for r in rows)}
@@ -175,8 +177,15 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
 
 @router.get('/mentions')
 def mentions(keyword: str = Query('', max_length=200), before: int | None = Query(None, ge=1),
-             limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    return list_mentions(db, user, keyword=keyword, before=before, limit=limit)
+             limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation'] | None = None,
+             project_status: str | None = None,
+             db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if project_status is not None and project_status not in ANNOTATION_PROJECT_STATUSES:
+        raise HTTPException(422, '无效的标注项目状态')
+    if project_status and project_type == 'translation':
+        raise HTTPException(422, '标注项目状态不能用于笔译项目')
+    return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
+                         project_type=project_type, project_status=project_status)
 
 
 class PreferenceRequest(BaseModel):
