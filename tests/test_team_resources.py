@@ -14,6 +14,86 @@ def payload(**fields):
     return TeamWrite(**({"short_name": "测试团队", "team_type": "small_team", "resource_types": ["annotation"]} | fields))
 
 
+@pytest.fixture(autouse=True)
+def contact_permissions(monkeypatch):
+    import team_resource_service
+    from routers import teams
+    monkeypatch.setattr(team_resource_service, "can_view_talent_contacts", lambda *_: True)
+    monkeypatch.setattr(teams, "can_view_talent_contacts", lambda *_: True)
+
+
+def test_contact_contract():
+    assert payload(contacts=[{"name": " 张三 ", "nickname": " 小张 "}]).contacts[0].name == "张三"
+    assert payload(contacts=[{"nickname": "小张"}]).contacts[0].name == ""
+    assert payload().contacts is None
+    for contacts in [[{}], [{"contact_info": "123"}], [{"name": "甲"}] * 4, [{"name": "字" * 101}],
+                     [{"name": "甲", "contact_info": "字" * 1001}], [{"id": str(uuid4()), "name": "甲", "unknown": "字段"}]]:
+        with pytest.raises(ValidationError):
+            payload(contacts=contacts)
+    contact_id = str(uuid4())
+    with pytest.raises(ValidationError):
+        payload(contacts=[{"id": contact_id, "name": "甲"}, {"id": contact_id, "name": "乙"}])
+
+
+def test_contact_privacy_preparation():
+    from team_resource_service import prepare_contacts
+    existing = [{"id": str(uuid4()), "name": "甲", "nickname": "小甲", "contact_info": "secret-phone"},
+                {"id": str(uuid4()), "name": "乙", "nickname": "", "contact_info": "secret-email"}]
+    changed = [{"id": item["id"], "name": item["name"] + "修改"} for item in reversed(existing)]
+    retained = prepare_contacts(payload(contacts=changed), existing, contacts_visible=False)
+    assert [item["contact_info"] for item in retained] == ["secret-email", "secret-phone"]
+    assert prepare_contacts(payload(), existing, contacts_visible=False) == existing
+    for contacts in [[], [{"name": "新联系人", "contact_info": "illegal"}], [changed[0]], [{"id": str(uuid4()), "name": "伪造"}]]:
+        with pytest.raises(HTTPException):
+            prepare_contacts(payload(contacts=contacts), existing, contacts_visible=False)
+    assert prepare_contacts(payload(contacts=[]), existing, contacts_visible=True) == []
+
+
+def test_contact_api_privacy_and_audit(db, people, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers import auth, teams
+    import team_resource_service as service
+    from team_resource_models import TeamResourceAudit
+    visible = [True]
+    monkeypatch.setattr(auth, "get_user_permission_codes", lambda *_: ["talents:write"])
+    monkeypatch.setattr(teams, "user_has_permission", lambda *_: True)
+    monkeypatch.setattr(teams, "can_view_talent_contacts", lambda *_: visible[0])
+    monkeypatch.setattr(service, "can_view_talent_contacts", lambda *_: visible[0])
+    app = FastAPI(); app.include_router(teams.router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[auth.get_current_user] = lambda: people[0]
+    client = TestClient(app)
+    row = client.post('/teams', json=payload(contacts=[{"name": "张三", "nickname": "小张", "contact_info": "private-phone"}]).model_dump(mode='json')).json()
+    assert row['contacts'][0]['contact_info'] == 'private-phone'
+    contact_id = row['contacts'][0]['id']
+    assert client.get('/teams/' + row['id']).json()['contacts'][0]['contact_info'] == 'private-phone'
+    visible[0] = False
+    assert client.get('/teams/options').json()['can_view_contacts'] is False
+    for path in ['/teams', '/teams/' + row['id']]:
+        response = client.get(path)
+        assert 'private-phone' not in response.text
+        data = response.json()['items'][0] if path == '/teams' else response.json()
+        assert data['contact_restricted'] is True and data['contacts'][0]['contact_info'] == '******'
+    changed = payload(revision=1, contacts=[{"id": contact_id, "name": "李三", "nickname": "小李"}]).model_dump(mode='json')
+    saved = client.put('/teams/' + row['id'], json=changed)
+    assert saved.status_code == 200 and 'private-phone' not in saved.text
+    assert service.get_team(db, row['id']).contacts[0]['contact_info'] == 'private-phone'
+    # 老客户端省略联系人仍须保留，不能把隐藏明文覆盖为脱敏占位符。
+    legacy = payload(revision=2).model_dump(mode='json'); legacy.pop('contacts')
+    assert client.put('/teams/' + row['id'], json=legacy).status_code == 200
+    for contacts in [[], [{"id": contact_id, "name": "李三", "contact_info": "******"}]]:
+        response = client.put('/teams/' + row['id'], json=payload(revision=3, contacts=contacts).model_dump(mode='json'))
+        assert response.status_code == 403
+    assert client.post('/teams', json=payload(short_name='禁止录入', contacts=[{'name': '甲', 'contact_info': 'illegal'}]).model_dump(mode='json')).status_code == 403
+    audits = db.query(TeamResourceAudit).filter_by(team_id=row['id']).all()
+    assert all('private-phone' not in str(a.before) + str(a.after) for a in audits)
+    visible[0] = True
+    assert client.get('/teams/' + row['id']).json()['contacts'][0]['contact_info'] == 'private-phone'
+    assert client.put('/teams/' + row['id'], json=payload(revision=3, contacts=[]).model_dump(mode='json')).status_code == 200
+
+
 def test_contract_and_conditional_validation():
     row = payload(short_name="  中文团队  ", resource_types=["annotation", "annotation"], introduction="第一行\n第二行", other_resource_description="旧说明")
     assert row.short_name == "中文团队" and row.resource_types == ["annotation"]

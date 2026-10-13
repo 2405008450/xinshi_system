@@ -16,6 +16,7 @@ from database import engine, get_db  # noqa: E402
 from error_localization import localize_http_detail, localize_validation_errors  # noqa: E402
 from models import AppUser  # noqa: E402
 from routers import auth, teams  # noqa: E402
+import team_resource_service  # noqa: E402
 
 if engine.url.host != "127.0.0.1" or engine.url.username != "team_test" or engine.url.database != "teams_test":
     raise RuntimeError("验收入口仅允许专用本机团队隔离库")
@@ -37,6 +38,7 @@ def permissions(_, user_id):
 # 权限及身份替身局限于专用验收进程，团队接口与数据库服务使用真实实现。
 auth.get_user_permission_codes = permissions
 teams.user_has_permission = lambda db, uid, code: code in permissions(db, uid)
+teams.can_view_talent_contacts = team_resource_service.can_view_talent_contacts = lambda _db, user: user.id == IDS['isolated-team-editor']
 app = FastAPI()
 app.dependency_overrides[auth.get_current_user] = current_user
 app.include_router(teams.router)

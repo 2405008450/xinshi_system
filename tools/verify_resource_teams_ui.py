@@ -16,7 +16,7 @@ def run():
     if os.getenv("TEAM_RESOURCE_QA") != "1" or urlparse(BASE).hostname != "localhost" or urlparse(BASE).port in {None, 3000, 8000}:
         raise SystemExit("仅允许连接本机专用团队隔离服务")
     errors, results, requests = [], [], []
-    fields = ["short_name", "full_name", "team_type", "introduction", "resource_types", "other_resource_description", "resource_situation", "remarks", "contact_user_id", "contact_date", "follow_up_user_id", "revision"]
+    fields = ["short_name", "full_name", "team_type", "introduction", "resource_types", "other_resource_description", "resource_situation", "remarks", "contacts", "contact_user_id", "contact_date", "follow_up_user_id", "revision"]
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, channel="msedge")
 
@@ -124,6 +124,38 @@ def run():
         target.get_by_role("button", name="保存", exact=True).click()
         expect(form_item(target, "其他资源说明").locator("input")).to_be_focused()
         form_item(target, "其他资源说明").locator("input").fill("多语种采集")
+        target.get_by_role('button', name='编辑团队对接人', exact=True).click()
+        contacts_dialog = page.locator('.team-contacts-dialog:visible')
+        expect(contacts_dialog.locator('.team-contact-section')).to_have_count(1)
+        contacts_dialog.get_by_role('button', name=re.compile('增加对接人')).click()
+        contacts_dialog.get_by_role('button', name=re.compile('增加对接人')).click()
+        expect(contacts_dialog.locator('.team-contact-section')).to_have_count(3)
+        expect(contacts_dialog.get_by_role('button', name=re.compile('增加对接人'))).to_be_disabled()
+        for index, section in enumerate(contacts_dialog.locator('.team-contact-section').all()):
+            section.locator('textarea').fill(f'private-contact-{index + 1}\n微信：测试账号')
+        contacts_dialog.get_by_role('button', name='确定', exact=True).click()
+        expect(contacts_dialog.locator('.team-contact-section').first.locator('input').first).to_be_focused()
+        for index, section in enumerate(contacts_dialog.locator('.team-contact-section').all()):
+            section.locator('input').nth(0).fill(f'联系人{index + 1}')
+            section.locator('input').nth(1).fill(f'昵称{index + 1}')
+        page.get_by_placeholder('搜索字段，如昵称').fill('昵称')
+        page.locator('.el-autocomplete-suggestion:visible li').filter(has_text='对接人3').first.click()
+        expect(contacts_dialog.locator('.team-contact-section').nth(2).locator('.el-form-item').nth(1)).to_have_class(re.compile('is-dialog-field-search-highlight'))
+        footer_check(contacts_dialog)
+        page.set_viewport_size({'width':390,'height':700}); footer_check(contacts_dialog)
+        bounds = contacts_dialog.bounding_box(); assert bounds['width'] <= 358 and bounds['y'] + bounds['height'] <= 701
+        page.screenshot(path=str(OUTPUT / 'team-contacts-mobile.png'))
+        page.set_viewport_size({'width':1440,'height':900}); page.wait_for_timeout(300)
+        original = contacts_dialog.bounding_box(); handle = contacts_dialog.locator('.el-dialog__header').bounding_box()
+        page.mouse.move(handle['x'] + 6, handle['y'] + 6); page.mouse.down(); page.mouse.move(handle['x'] + 66, handle['y'] + 26, steps=10); page.mouse.up()
+        assert abs(contacts_dialog.bounding_box()['x'] - original['x']) > 30
+        handle = contacts_dialog.locator('.el-dialog__header').bounding_box()
+        page.mouse.move(handle['x'] + 6, handle['y'] + 6); page.mouse.down(); page.mouse.move(3000,3000,steps=10); page.mouse.up()
+        bounds = contacts_dialog.bounding_box(); assert bounds['x'] >= -1 and bounds['y'] >= -1 and bounds['x'] + bounds['width'] <= 1441 and bounds['y'] + bounds['height'] <= 901
+        contacts_dialog.get_by_role('button', name='确定', exact=True).click()
+        expect(contacts_dialog).not_to_be_visible(); expect(target).to_be_visible()
+        assert list_rows('新增验收团队') == [], '联系人子弹窗不得单独写库'
+        results.append('联系人默认一位、上限三位、姓名昵称校验、重复字段搜索、嵌套拖拽边界、小屏固定底部及草稿回填')
         target.get_by_role("button", name="编辑简介", exact=True).click()
         nested = page.locator(".team-form-dialog").filter(has=page.locator(".el-dialog__title", has_text="编辑简介"))
         nested.locator("textarea").fill("团队简介第一行\n团队简介第二行")
@@ -146,16 +178,36 @@ def run():
         row = list_rows("新增验收团队")[0]
         assert row["introduction"] == "团队简介第一行\n团队简介第二行" and row["resource_situation"] == ""
         assert row["contact_user_id"] == row["follow_up_user_id"]
+        assert len(row['contacts']) == 3 and row['contacts'][2]['nickname'] == '昵称3'
         results.append("新增校验定位、其他条件必填、文本草稿、嵌套取消、小屏固定底部与同人对接跟进")
 
         search.fill("新增验收团队"); expect(page.locator(".el-table__body tr")).to_have_count(1)
+        page.get_by_role('button', name='联系人1 等3人', exact=True).click()
+        contact_popover = page.locator('.team-contacts-popover:visible')
+        expect(contact_popover.locator('.el-descriptions')).to_have_count(3)
+        expect(contact_popover).to_contain_text('private-contact-1')
+        assert contact_popover.get_attribute('data-popper-placement').startswith('left')
+        page.screenshot(path=str(OUTPUT / 'team-contacts-details.png'))
+        page.get_by_role('heading', name='团队资源', exact=True).click()
         page.get_by_role("button", name="查看详情", exact=True).click()
-        details = page.locator(".team-details:visible")
+        details = page.locator(".team-details:not(.team-contacts-popover):visible")
         expect(details.get_by_text("团队简介第一行\n团队简介第二行", exact=True)).to_be_visible()
         assert "el-popper" in details.get_attribute("class") and details.get_attribute("data-popper-placement").startswith("left")
         page.keyboard.press("Escape"); page.get_by_role("heading", name="团队资源", exact=True).click()
         page.get_by_role("button", name="编辑", exact=True).click(); target = dialog(); expect(target).to_be_visible(); footer_check(target)
         expect(form_item(target, "团队全称").locator("input")).to_have_value("新增验收公司")
+        target.get_by_role('button', name='编辑团队对接人', exact=True).click()
+        contacts_dialog = page.locator('.team-contacts-dialog:visible'); page.wait_for_timeout(300)
+        expect(contacts_dialog.locator('.team-contact-section').first.locator('input').first).to_have_value('联系人1')
+        assert abs(contacts_dialog.bounding_box()['x'] - original['x']) < 2
+        contacts_dialog.locator('.team-contact-section').nth(2).locator('input').nth(1).fill('丢弃昵称')
+        contacts_dialog.locator('.el-dialog__headerbtn').click()
+        page.locator('.el-message-box:visible').get_by_role('button', name='确定', exact=True).click()
+        target.get_by_role('button', name='编辑团队对接人', exact=True).click()
+        contacts_dialog = page.locator('.team-contacts-dialog:visible')
+        expect(contacts_dialog.locator('.team-contact-section').nth(2).locator('input').nth(1)).to_have_value('昵称3')
+        contacts_dialog.get_by_role('button', name='移除对接人3', exact=True).click()
+        contacts_dialog.get_by_role('button', name='确定', exact=True).click()
         page.get_by_placeholder("搜索字段，如资源情况").fill("情况")
         suggestion = page.locator(".el-autocomplete-suggestion:visible li").filter(has_text="资源情况").first
         expect(suggestion).to_be_visible(); suggestion.click()
@@ -172,9 +224,31 @@ def run():
         target.get_by_role("button", name="保存", exact=True).click(); expect(target).not_to_be_visible()
         assert list_rows("新增验收团队")[0]["revision"] == latest["revision"] + 1
         page.get_by_role("button", name="查看详情", exact=True).click()
-        expect(page.locator(".team-details:visible").get_by_text("本地草稿保留", exact=True)).to_be_visible()
+        expect(page.locator(".team-details:not(.team-contacts-popover):visible").get_by_text("本地草稿保留", exact=True)).to_be_visible()
+        expect(page.locator('.team-details:not(.team-contacts-popover):visible .team-contact-details section')).to_have_count(2)
         page.get_by_role("heading", name="团队资源", exact=True).click()
         results.append("详情按需加载、左弹出、编辑回显、字段搜索、真实版本冲突、恢复草稿及详情缓存刷新")
+
+        restricted_context, restricted_page = new_context('isolated-team-other')
+        restricted_page.get_by_placeholder('团队简称或全称').fill('新增验收团队')
+        expect(restricted_page.locator('.el-table__body tr')).to_have_count(1)
+        restricted_page.get_by_role('button', name='联系人1 等2人', exact=True).click()
+        expect(restricted_page.locator('.team-contacts-popover:visible')).to_contain_text('******')
+        assert 'private-contact' not in restricted_page.locator('.team-contacts-popover:visible').inner_text()
+        restricted_page.get_by_role('heading', name='团队资源', exact=True).click()
+        restricted_page.get_by_role('button', name='编辑', exact=True).click()
+        restricted_main = restricted_page.locator('.team-form-dialog:visible').first
+        restricted_main.get_by_role('button', name='编辑团队对接人', exact=True).click()
+        restricted_contacts = restricted_page.locator('.team-contacts-dialog:visible')
+        expect(restricted_contacts.locator('textarea')).to_have_count(0)
+        expect(restricted_contacts.get_by_role('button', name='移除对接人2', exact=True)).to_be_disabled()
+        restricted_contacts.locator('.team-contact-section').first.locator('input').nth(1).fill('普通用户改昵称')
+        restricted_contacts.get_by_role('button', name='确定', exact=True).click()
+        restricted_main.get_by_role('button', name='保存', exact=True).click(); expect(restricted_main).not_to_be_visible()
+        updated_contacts = list_rows('新增验收团队')[0]['contacts']
+        assert updated_contacts[0]['nickname'] == '普通用户改昵称' and updated_contacts[0]['contact_info'].startswith('private-contact-1')
+        restricted_context.close()
+        results.append('联系人查看小窗、编辑回显、取消丢弃、移除、重开复位、缓存清理及受限用户姓名编辑保护联系方式')
 
         # 空白新增表单便于验证拖动后关闭及再次打开的位置。
         page.get_by_role("button", name="新增团队", exact=True).click(); target = dialog(); page.wait_for_timeout(300)
@@ -209,22 +283,22 @@ def run():
         page.get_by_role("button", name="字段设置", exact=True).click()
         columns = page.locator(".table-column-settings-popover:visible")
         expect(columns).to_be_visible()
-        expect(columns.locator(".el-checkbox.is-checked")).to_have_count(7)
+        expect(columns.locator(".el-checkbox.is-checked")).to_have_count(8)
         while columns.locator(".el-checkbox.is-checked").count():
             columns.locator(".el-checkbox.is-checked").first.click()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         page.get_by_role("heading", name="团队资源", exact=True).click(); page.reload()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         page.evaluate("localStorage.setItem('token', 'isolated-team-other')"); page.reload()
-        expect(page.locator(".el-table__header th")).to_have_count(10)
+        expect(page.locator(".el-table__header th")).to_have_count(11)
         page.evaluate("localStorage.setItem('token', 'isolated-team-editor')"); page.reload()
         expect(page.locator(".el-table__header th")).to_have_count(3)
         other_context, other_page = new_context("isolated-team-other", "America/Los_Angeles")
-        expect(other_page.locator(".el-table__header th")).to_have_count(10)
+        expect(other_page.locator(".el-table__header th")).to_have_count(11)
         other_context.close()
         page.get_by_role("button", name="字段设置", exact=True).click()
         page.locator(".table-column-settings-popover:visible").get_by_role("button", name="恢复默认", exact=True).click()
-        expect(page.locator(".el-table__header th")).to_have_count(10)
+        expect(page.locator(".el-table__header th")).to_have_count(11)
         page.get_by_role("heading", name="团队资源", exact=True).click()
         results.append("全部取消、刷新保留、用户隔离及恢复默认")
 
@@ -268,8 +342,8 @@ def run():
         expect(reader_page.locator(".el-table__body tr")).to_have_count(20)
         expect(reader_page.locator(".el-table__body tr").first).to_contain_text("验收公司全称")
         reader_page.get_by_role("button", name="查看详情", exact=True).first.click()
-        expect(reader_page.locator(".team-details:visible .el-descriptions")).to_be_visible()
-        details = reader_page.locator(".team-details .business-detail-popover__content:visible")
+        expect(reader_page.locator(".team-details:not(.team-contacts-popover):visible .el-descriptions")).to_be_visible()
+        details = reader_page.locator(".team-details:not(.team-contacts-popover) .business-detail-popover__content:visible")
         assert details.evaluate("el => el.scrollHeight > el.clientHeight")
         reader_page.screenshot(path=str(OUTPUT / "team-details.png"), full_page=True)
         reader_context.close(); context.close(); browser.close()

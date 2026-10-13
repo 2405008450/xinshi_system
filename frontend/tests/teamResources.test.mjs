@@ -1,12 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cleanTeamColumns, defaultTeamColumns, emptyTeam, emptyTeamFilters, teamDisplay, teamParams, teamPayload } from '../src/utils/teamResources.js'
+import { cleanTeamColumns, defaultTeamColumns, emptyTeam, emptyTeamFilters, teamDisplay, teamParams, teamPayload, teamContactSummary, emptyTeamContact, cleanTeamContacts } from '../src/utils/teamResources.js'
 
 test('团队字段配置过滤旧键，允许全部取消且不改变默认配置', () => {
   assert.deepEqual(cleanTeamColumns(['unknown', 'short_name', 'short_name']), ['short_name'])
   assert.deepEqual(cleanTeamColumns([]), [])
   assert.throws(() => cleanTeamColumns({}))
-  assert.equal(defaultTeamColumns.length, 7)
+  assert.equal(defaultTeamColumns.length, 8)
+  assert.deepEqual(cleanTeamColumns(defaultTeamColumns.filter(key => key !== 'contacts')), defaultTeamColumns)
+})
+test('联系人按稳定标识提交，受限用户不回传脱敏联系方式', () => {
+  const contacts = [emptyTeamContact(), { id: 'saved-id', name: ' 张三 ', nickname: ' 小张 ', contact_info: '******' }]
+  assert.deepEqual(cleanTeamContacts(contacts, false), [{ id: 'saved-id', name: '张三', nickname: '小张' }])
+  const result = teamPayload({ ...emptyTeam(), contacts }, false)
+  assert.equal(result.contacts[0].contact_info, undefined)
+  assert.equal(teamContactSummary(result.contacts), '张三')
+  assert.equal(teamContactSummary([...result.contacts, { nickname: '小李' }]), '张三 等2人')
+  assert.equal(teamDisplay({ contacts: [] }, 'contacts', {}), '-')
 })
 test('表单只提交业务字段并清理其他说明与空人员', () => {
   const result = teamPayload({ ...emptyTeam(), resource_types: ['annotation', 'annotation'], other_resource_description: '旧说明', contact_user_id: '', created_at: '旧时间' })

@@ -83,8 +83,12 @@ from team_resource_service import save_team
 assert engine.url.host == '127.0.0.1' and engine.url.database == 'teams_test'
 AppUser.__table__.create(engine)
 sql = Path('data/migrations/20261012_resource_teams.sql').read_text(encoding='utf-8')
+contacts_sql = Path('data/migrations/20261013_resource_team_contacts.sql').read_text(encoding='utf-8')
+import team_resource_service
+team_resource_service.can_view_talent_contacts = lambda _db, _user: True
 with engine.begin() as connection:
     connection.exec_driver_sql(sql)
+    connection.exec_driver_sql(contacts_sql)
 with Session(engine) as db:
     people = [AppUser(id=UUID(int=i), username=f'team_qa_{i}', full_name=name, is_active=active, password_hash='isolated-no-login')
               for i, name, active in [(101,'验收对接人',True),(102,'只读验收人',True),(103,'其他跟进人',True),(104,'历史停用人',False)]]
@@ -95,8 +99,10 @@ with Session(engine) as db:
     db.commit()
 with engine.begin() as connection:
     connection.exec_driver_sql(sql)
+    connection.exec_driver_sql(contacts_sql)
     assert connection.execute(text('SELECT count(*) FROM resource_team')).scalar() == 24
     assert connection.execute(text('SELECT count(*) FROM resource_team_audit')).scalar() == 24
+    assert connection.execute(text("SELECT count(*) FROM resource_team WHERE contacts = '[]'::jsonb")).scalar() == 24
 print('迁移首次与重复执行通过，既有团队及审计保留')
 '''
         print(command(sys.executable, "-c", setup, env=env, log_name="migration.log"), flush=True)

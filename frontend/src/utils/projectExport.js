@@ -40,7 +40,7 @@ const modules = {
   annotation: {
     name: '标注项目',
     timeOptions: [...commonTimeOptions, { value: 'task_dispatched_at', label: '任务派发时间' }, { value: 'task_submitted_at', label: '任务提交时间' }],
-    projectHint: '继承当前全部筛选；母单页包含命中母单及全部子单，子单页仅包含命中子单。导出语言项、客户单价、人员安排及自定义字段。',
+    projectHint: '继承当前全部筛选；订单页包含命中订单及其下级，子订单页包含命中子订单及其三级订单，三级订单页仅包含命中三级订单。工作表按“订单、子订单、三级订单”区分，并导出语言项、客户单价、人员安排及自定义字段。',
     fourthType: 'personnel_reconciliation',
     fourthLabel: '导出人员对账单',
     fourthHint: '保留未取消人员安排的单价、币种、单位及已有工作量；缺少结算依据的记录进入“待补数据”，不使用试标报价或推算总额。',

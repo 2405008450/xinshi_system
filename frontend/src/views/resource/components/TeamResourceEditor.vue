@@ -11,6 +11,9 @@
           <el-form-item label="资源类型" prop="resource_types"><el-select v-model="form.resource_types" multiple placeholder="请选择资源类型"><el-option v-for="item in options.resource_types" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
           <el-form-item v-if="form.resource_types.includes('other')" label="其他资源说明" prop="other_resource_description" class="team-wide"><el-input v-model="form.other_resource_description" maxlength="500" show-word-limit /></el-form-item>
         </div></section>
+        <section class="form-section"><h3>团队对接人</h3>
+          <el-form-item label="团队对接人" prop="contacts"><div class="team-text-field"><p>{{ teamContactSummary(form.contacts) }}</p><el-button @click="contactsEditorRef.open(form.contacts)">编辑团队对接人</el-button></div></el-form-item>
+        </section>
         <section class="form-section"><h3>资源说明</h3>
           <el-form-item label="团队简介" prop="introduction"><div class="team-text-field"><p>{{ form.introduction || '暂未填写' }}</p><el-button @click="textEditorRef.open('introduction', '编辑简介', form.introduction)">编辑简介</el-button></div></el-form-item>
           <el-form-item label="资源情况" prop="resource_situation"><div class="team-text-field"><p>{{ form.resource_situation || '暂未填写' }}</p><el-button @click="textEditorRef.open('resource_situation', '编辑资源情况', form.resource_situation)">编辑资源情况</el-button></div></el-form-item>
@@ -31,6 +34,7 @@
     </template>
   </DraggableFormDialog>
   <TeamTextEditor ref="textEditorRef" @confirmed="(key, value) => form[key] = value" />
+  <TeamContactsEditor ref="contactsEditorRef" :can-view-contacts="options.can_view_contacts" @confirmed="value => form.contacts = value" />
 </template>
 
 <script setup>
@@ -40,14 +44,16 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { teamApi } from '@/api/teams'
 import { getRawErrorDetail } from '@/utils/errorMessages'
-import { emptyTeam, personLabel, teamPayload } from '@/utils/teamResources'
+import { emptyTeam, personLabel, teamPayload, teamContactSummary } from '@/utils/teamResources'
 import TeamTextEditor from './TeamTextEditor.vue'
+import TeamContactsEditor from './TeamContactsEditor.vue'
 
 const props = defineProps({ options: { type: Object, required: true } })
 const emit = defineEmits(['saved'])
 const visible = ref(false), editId = ref(null), loading = ref(false), saving = ref(false), conflict = ref(false), failed = ref(false), draft = ref(null)
 const dialogRef = ref(null), formRef = ref(null), bodyRef = ref(null), textEditorRef = ref(null), retained = ref([])
 const form = reactive(emptyTeam())
+const contactsEditorRef = ref(null)
 const people = computed(() => [...new Map([...props.options.people, ...retained.value].map(person => [person.id, person])).values()])
 const rules = {
   short_name: [{ required: true, whitespace: true, message: '请填写团队简称', trigger: 'blur' }],
@@ -57,7 +63,7 @@ const rules = {
 }
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 let request, sequence = 0, original = ''
-const signature = () => JSON.stringify(teamPayload(form))
+const signature = () => JSON.stringify(teamPayload(form, props.options.can_view_contacts))
 async function beforeClose(done) {
   if (saving.value) return
   if (signature() !== original) {
@@ -89,7 +95,7 @@ async function save() {
   if (saving.value || loading.value || conflict.value || failed.value) return
   if (!await formRef.value.validate().catch(() => false)) return
   saving.value = true
-  const payload = teamPayload(form)
+  const payload = teamPayload(form, props.options.can_view_contacts)
   try {
     let saved
     try { saved = await teamApi.save(payload, editId.value) }
@@ -102,7 +108,7 @@ async function save() {
     }
     visible.value = false; emit('saved', saved); ElMessage.success('团队资料已保存')
   } catch (error) {
-    if (getRawErrorDetail(error)?.code === 'team_revision_conflict') { conflict.value = true; draft.value = payload }
+    if (getRawErrorDetail(error)?.code === 'team_revision_conflict') { conflict.value = true; draft.value = teamPayload(form) }
     await formRef.value?.applyServerErrors(error); ElMessage.error(error.message)
   } finally { saving.value = false }
 }

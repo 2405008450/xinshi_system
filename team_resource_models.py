@@ -30,6 +30,7 @@ class TeamResource(Base):
     other_resource_description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     resource_situation: Mapped[str] = mapped_column(Text, nullable=False, default="")
     remarks: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    contacts: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     contact_user_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("app_user.id", ondelete="SET NULL"), index=True)
     contact_date: Mapped[date | None] = mapped_column(Date, index=True)
     follow_up_user_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("app_user.id", ondelete="SET NULL"), index=True)

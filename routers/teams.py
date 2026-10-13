@@ -10,6 +10,7 @@ from permission_service import user_has_permission
 from routers.auth import get_current_user, require_any_permission
 from team_resource_schemas import ResourceType, TeamType, TeamWrite
 from team_resource_service import TEAM_TYPES, RESOURCE_TYPES, delete_team, ensure_schema, get_team, list_teams, people_options, save_team, serialize_many
+from talent_privacy import can_view_talent_contacts
 
 router = APIRouter(prefix="/teams", tags=["teams"], dependencies=[Depends(get_current_user)])
 write = Depends(require_any_permission("talents:write", "translators:write"))
@@ -23,6 +24,7 @@ def initialized_db(db: Session = Depends(get_db)):
 @router.get("/options")
 def options(db: Session = Depends(initialized_db), user=Depends(get_current_user)):
     return {"team_types": TEAM_TYPES, "resource_types": RESOURCE_TYPES, "people": people_options(db), "user_id": str(user.id),
+            "can_view_contacts": can_view_talent_contacts(db, user),
             "can_write": user_has_permission(db, user.id, "talents:write") or user_has_permission(db, user.id, "translators:write")}
 
 
@@ -30,14 +32,14 @@ def options(db: Session = Depends(initialized_db), user=Depends(get_current_user
 def read_list(keyword: str | None = Query(None, max_length=255), team_type: TeamType | None = None,
               resource_types: list[ResourceType] | None = Query(None, max_length=5), contact_user_id: UUID | None = None,
               follow_up_user_id: UUID | None = None, contact_start: date | None = None, contact_end: date | None = None,
-              skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), db: Session = Depends(initialized_db)):
-    return list_teams(db, skip, limit, keyword=keyword, team_type=team_type, resource_types=resource_types,
+              skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), db: Session = Depends(initialized_db), user=Depends(get_current_user)):
+    return list_teams(db, skip, limit, contacts_visible=can_view_talent_contacts(db, user), keyword=keyword, team_type=team_type, resource_types=resource_types,
                       contact_user_id=contact_user_id, follow_up_user_id=follow_up_user_id, contact_start=contact_start, contact_end=contact_end)
 
 
 @router.get("/{team_id}")
-def detail(team_id: UUID, db: Session = Depends(initialized_db)):
-    return serialize_many(db, [get_team(db, team_id)])[0]
+def detail(team_id: UUID, db: Session = Depends(initialized_db), user=Depends(get_current_user)):
+    return serialize_many(db, [get_team(db, team_id)], contacts_visible=can_view_talent_contacts(db, user))[0]
 
 
 @router.post("", dependencies=[write], status_code=201)

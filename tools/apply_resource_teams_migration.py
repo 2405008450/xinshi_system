@@ -17,9 +17,9 @@ def run():
         raise SystemExit("此迁移入口仅允许本机数据库，禁止迁移云端业务库")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     print(f"主机={socket.gethostname()} 项目={root} 提交={commit} 数据库={engine.url.host}:{engine.url.port}/{engine.url.database}")
-    sql = (root / "data/migrations/20261012_resource_teams.sql").read_text(encoding="utf-8")
     with engine.begin() as connection:
-        connection.exec_driver_sql(sql)
+        for name in ("20261012_resource_teams.sql", "20261013_resource_team_contacts.sql"):
+            connection.exec_driver_sql((root / "data/migrations" / name).read_text(encoding="utf-8"))
     print("团队资源迁移完成（可重复执行）")
 
 

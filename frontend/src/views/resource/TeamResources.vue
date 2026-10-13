@@ -24,10 +24,19 @@
     <el-table ref="tableRef" v-loading="loading" :data="rows" border row-key="id" empty-text="暂无符合条件的团队资源" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" />
       <el-table-column label="序号" width="70"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip><template #default="{ row }">{{ teamDisplay(row, column.key, options) }}</template></el-table-column>
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip><template #default="{ row }">
+        <BusinessDetailPopover v-if="column.key === 'contacts'" :row="detailCache[row.id] || {}" :loading="Boolean(detailLoading[row.id])" title="团队对接人详情" popper-class="business-detail-popover team-details team-contacts-popover" @show="loadDetail(row.id)">
+          <template #reference><el-button link type="primary">{{ row.contacts?.length ? teamContactSummary(row.contacts) : '查看对接人' }}</el-button></template>
+          <template #content><el-alert v-if="detailErrors[row.id]" :title="detailErrors[row.id]" type="error" :closable="false" /><el-button v-if="detailErrors[row.id]" link type="primary" @click="loadDetail(row.id)">重新加载</el-button><TeamContactDetails v-else-if="detailCache[row.id]" :contacts="detailCache[row.id].contacts" :restricted="detailCache[row.id].contact_restricted" /></template>
+        </BusinessDetailPopover>
+        <template v-else>{{ teamDisplay(row, column.key, options) }}</template>
+      </template></el-table-column>
       <el-table-column label="详情" width="110" fixed="right"><template #default="{ row }">
         <BusinessDetailPopover :row="detailCache[row.id] || {}" :items="detailCache[row.id] ? detailItems : []" :loading="Boolean(detailLoading[row.id])" title="团队详情" popper-class="business-detail-popover team-details" @show="loadDetail(row.id)">
-          <template v-if="detailErrors[row.id]" #content><el-alert :title="detailErrors[row.id]" type="error" :closable="false" /><el-button link type="primary" @click="loadDetail(row.id)">重新加载</el-button></template>
+          <template #content>
+            <template v-if="detailErrors[row.id]"><el-alert :title="detailErrors[row.id]" type="error" :closable="false" /><el-button link type="primary" @click="loadDetail(row.id)">重新加载</el-button></template>
+            <el-descriptions v-else-if="detailCache[row.id]" :column="2" border size="small"><el-descriptions-item v-for="item in detailItems" :key="item.key" :label="item.label" :span="item.span"><TeamContactDetails v-if="item.key === 'contacts'" :contacts="detailCache[row.id].contacts" :restricted="detailCache[row.id].contact_restricted" /><span v-else class="business-detail-popover__value">{{ teamDisplay(detailCache[row.id], item.key, options) }}</span></el-descriptions-item></el-descriptions>
+          </template>
         </BusinessDetailPopover>
       </template></el-table-column>
       <el-table-column v-if="options.can_write && !deleteMode" label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openEditor(row)">编辑</el-button></template></el-table-column>
@@ -46,17 +55,18 @@ import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { teamApi } from '@/api/teams'
 import { getRawErrorDetail } from '@/utils/errorMessages'
-import { cleanTeamColumns, defaultTeamColumns, emptyTeamFilters, personLabel, teamColumns, teamDisplay, teamParams } from '@/utils/teamResources'
+import { cleanTeamColumns, defaultTeamColumns, emptyTeamFilters, personLabel, teamColumns, teamDisplay, teamParams, teamContactSummary } from '@/utils/teamResources'
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import TeamResourceEditor from './components/TeamResourceEditor.vue'
+import TeamContactDetails from './components/TeamContactDetails.vue'
 
-const options = reactive({ team_types: [], resource_types: [], people: [], user_id: '', can_write: false })
+const options = reactive({ team_types: [], resource_types: [], people: [], user_id: '', can_write: false, can_view_contacts: false })
 const filters = reactive(emptyTeamFilters()), pagination = reactive({ page: 1, limit: 20, total: 0 })
 const rows = ref([]), loading = ref(false), advanced = ref(false), moduleError = ref(''), tableRef = ref(null), editorRef = ref(null)
 const selectedColumns = ref([...defaultTeamColumns]), detailCache = reactive({}), detailErrors = reactive({}), detailLoading = reactive({})
 const detailRequests = new Map()
 const visibleColumns = computed(() => teamColumns.filter(column => selectedColumns.value.includes(column.key)))
-const detailItems = teamColumns.map(column => ({ ...column, span: ['introduction', 'resource_situation', 'remarks', 'other_resource_description'].includes(column.key) ? 2 : 1, formatter: (_, row) => teamDisplay(row, column.key, options) }))
+const detailItems = teamColumns.map(column => ({ ...column, span: ['contacts', 'introduction', 'resource_situation', 'remarks', 'other_resource_description'].includes(column.key) ? 2 : 1 }))
 const advancedCount = computed(() => Number(Boolean(filters.contact_user_id)) + Number(Boolean(filters.follow_up_user_id)) + Number(Boolean(filters.contact_dates?.length)))
 const columnKey = () => `resource-teams:columns:${options.user_id}`
 let columnsReady = false, request, sequence = 0, timer, optionsRequest
