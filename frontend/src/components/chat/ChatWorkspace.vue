@@ -36,11 +36,17 @@
             <div class="chat-workspace__tabs"><el-popover v-model:visible="groupsVisible" trigger="click" placement="bottom-end" :width="220" popper-class="chat-session-popover"><template #reference><el-button text size="small" class="chat-workspace__filter" :aria-label="`会话分组 ${groups.find(g => g.key === tab)?.label || '消息'}`" :title="groups.find(g => g.key === tab)?.label"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ groups.find(g => g.key === tab)?.label }}</span></el-button></template><div class="chat-session-groups"><el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupsVisible = false">{{ group.label }} ({{ groupCount(group.key) }})</el-button></div></el-popover></div>
           </div>
           <div v-if="tab === 'annotation'" class="chat-workspace__annotation-filters">
-            <div class="chat-workspace__status-options" role="group" aria-label="标注项目状态">
-              <button v-for="status in commonStatusOptions" :key="status.value" type="button" :aria-pressed="annotationStatus === status.value" :class="{ 'is-active': annotationStatus === status.value }" @click="annotationStatus = status.value">{{ status.label }}</button>
-              <el-popover v-model:visible="moreStatusesVisible" trigger="click" placement="bottom-start" :width="220" popper-class="chat-session-popover chat-status-popover">
-                <template #reference><button type="button" :aria-pressed="isMoreStatus" :class="{ 'is-active': isMoreStatus }">{{ isMoreStatus ? annotationStatusLabel(annotationStatus) : '更多状态' }}<span aria-hidden="true"> ▾</span></button></template>
-                <div class="chat-session-groups" role="group" aria-label="更多标注项目状态"><el-button v-for="status in moreStatusOptions" :key="status.value" link :type="annotationStatus === status.value ? 'primary' : ''" :aria-pressed="annotationStatus === status.value" @click="selectMoreStatus(status.value)">{{ status.label }}</el-button></div>
+            <button type="button" class="chat-workspace__status-toggle" :aria-expanded="statusOptionsExpanded" aria-controls="chat-annotation-status-options" :aria-label="statusOptionsExpanded ? '收起状态筛选' : '展开状态筛选'" :title="statusFilterSummary" @click="toggleStatusOptions">
+              <span class="chat-workspace__status-caption">状态</span>
+              <span class="chat-workspace__status-summary" :class="{ 'has-unread-mention': statusStats(annotationStatus).unread }">{{ annotationStatus ? annotationStatusLabel(annotationStatus) : '不限状态' }} ({{ statusStats(annotationStatus).count }})</span>
+              <span v-if="statusStats('').unread" class="chat-status-mention" :title="statusStats(annotationStatus).unread ? '当前状态有未读 @我' : '其他状态有未读 @我'">@我</span>
+              <span class="chat-workspace__status-toggle-action">{{ statusOptionsExpanded ? '收起' : '展开' }}<el-icon :class="{ 'is-expanded': statusOptionsExpanded }"><ArrowDown /></el-icon></span>
+            </button>
+            <div v-show="statusOptionsExpanded" id="chat-annotation-status-options" class="chat-workspace__status-options" role="group" aria-label="标注项目状态">
+              <button v-for="status in commonStatusOptions" :key="status.value" type="button" :aria-label="status.label" :title="statusSummary(status.value, status.label)" :aria-pressed="annotationStatus === status.value" :class="{ 'is-active': annotationStatus === status.value, 'has-unread-mention': statusStats(status.value).unread }" @click="annotationStatus = status.value">{{ status.label }} ({{ statusStats(status.value).count }})<span v-if="statusStats(status.value).unread" class="chat-status-mention">@我</span></button>
+              <el-popover v-model:visible="moreStatusesVisible" trigger="click" placement="bottom-start" :width="220" :popper-options="statusPopoverOptions" popper-class="chat-session-popover chat-status-popover">
+                <template #reference><button type="button" :aria-label="moreStatusLabel" :title="`${moreStatusLabel}：聊天列表中 ${moreStatusStats.count} 个项目${moreStatusStats.unread ? '，有未读 @我' : ''}`" :aria-pressed="isMoreStatus" :class="{ 'is-active': isMoreStatus, 'has-unread-mention': moreStatusStats.unread }">{{ moreStatusLabel }} ({{ moreStatusStats.count }})<span v-if="moreStatusStats.unread" class="chat-status-mention">@我</span><span aria-hidden="true"> ▾</span></button></template>
+                <div class="chat-session-groups" role="group" aria-label="更多标注项目状态"><el-button v-for="status in moreStatusOptions" :key="status.value" link :aria-label="status.label" :title="statusSummary(status.value, status.label)" :class="{ 'has-unread-mention': statusStats(status.value).unread }" :type="annotationStatus === status.value ? 'primary' : ''" :aria-pressed="annotationStatus === status.value" @click="selectMoreStatus(status.value)">{{ status.label }} ({{ statusStats(status.value).count }})<span v-if="statusStats(status.value).unread" class="chat-status-mention">@我</span></el-button></div>
               </el-popover>
             </div>
             <div class="chat-workspace__annotation-mode" role="group" aria-label="标注项目消息范围">
@@ -79,7 +85,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ChatDotRound, Close, Collection, Filter, Minus, Position, Search, StarFilled, Top, User } from '@element-plus/icons-vue'
+import { ArrowDown, ChatDotRound, Close, Collection, Filter, Minus, Position, Search, StarFilled, Top, User } from '@element-plus/icons-vue'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
 import { formatBusinessDateTime, businessDateTimeInputValue } from '@/utils/dateTime'
 import { annotationStatusLabels, annotationStatusLabel, normalizeAnnotationStatus } from '@/utils/annotationStatus'
@@ -132,10 +138,40 @@ const groupsVisible = ref(false)
 const annotationStatus = ref('')
 const annotationMentions = ref(false)
 const moreStatusesVisible = ref(false)
+const statusOptionsExpanded = ref(true)
+function toggleStatusOptions() {
+  statusOptionsExpanded.value = !statusOptionsExpanded.value
+  moreStatusesVisible.value = false
+}
+const statusPopoverOptions = { modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 16 } }] }
 const commonStatuses = ['initial_consultation', 'trial_preparation', 'trial_in_progress', 'project_in_progress', 'client_feedback']
 const commonStatusOptions = [{ value: '', label: '不限状态' }, ...commonStatuses.map(value => ({ value, label: annotationStatusLabels[value] }))]
 const moreStatusOptions = Object.entries(annotationStatusLabels).filter(([value]) => !commonStatuses.includes(value)).map(([value, label]) => ({ value, label }))
 const isMoreStatus = computed(() => !!annotationStatus.value && !commonStatuses.includes(annotationStatus.value))
+// 状态入口统计聊天目录中的项目，不受当前状态、关键词或历史提及分页影响。
+const annotationStatusStats = computed(() => {
+  const stats = { '': { count: 0, unread: false } }
+  for (const session of props.sessions) {
+    if (session.projectType !== 'annotation') continue
+    const status = normalizeAnnotationStatus(session.projectStatus)
+    const unread = Number(session.mentionUnread) > 0
+    stats[''].count += 1
+    stats[''].unread ||= unread
+    if (!status) continue
+    stats[status] ||= { count: 0, unread: false }
+    stats[status].count += 1
+    stats[status].unread ||= unread
+  }
+  return stats
+})
+const statusStats = status => annotationStatusStats.value[status] || { count: 0, unread: false }
+const statusSummary = (status, label) => `${label}：聊天列表中 ${statusStats(status).count} 个项目${statusStats(status).unread ? '，有未读 @我' : ''}`
+const statusFilterSummary = computed(() => `${statusSummary(annotationStatus.value, annotationStatus.value ? annotationStatusLabel(annotationStatus.value) : '不限状态')}${!statusStats(annotationStatus.value).unread && statusStats('').unread ? '；其他状态有未读 @我' : ''}`)
+const moreStatusLabel = computed(() => isMoreStatus.value ? annotationStatusLabel(annotationStatus.value) : '更多状态')
+const moreStatusStats = computed(() => isMoreStatus.value ? statusStats(annotationStatus.value) : moreStatusOptions.reduce((summary, status) => ({
+  count: summary.count + statusStats(status.value).count,
+  unread: summary.unread || statusStats(status.value).unread,
+}), { count: 0, unread: false }))
 const showMentions = computed(() => tab.value === 'mention' || (tab.value === 'annotation' && annotationMentions.value))
 const mentionFilters = computed(() => tab.value === 'annotation' ? { projectType: 'annotation', projectStatus: annotationStatus.value } : {})
 const filteredMentionTotal = ref(0)
@@ -183,7 +219,20 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace__status-options{display:flex;flex-wrap:wrap;gap:5px;max-height:min(220px,30vh);overflow-y:auto}
 .chat-workspace__annotation-filters button{border:1px solid #dce3ed;border-radius:5px;background:#fff;color:#475569;padding:5px 7px;font:inherit;font-size:12px;cursor:pointer}
 .chat-workspace__annotation-filters button.is-active{background:#e6efff;border-color:#b0c7ee;color:#245eaa}
+.chat-workspace__annotation-filters button.has-unread-mention{color:#b91c1c;border-color:#f2b8b8;background:#fff1f2}
+.chat-workspace__annotation-filters button.has-unread-mention.is-active{border-color:#b91c1c;box-shadow:inset 0 0 0 1px #b91c1c}
+.chat-status-popover .el-button.has-unread-mention{color:#b91c1c}
+.chat-status-popover .el-button[aria-pressed="true"]{background:#e6efff;border-radius:5px}
+.chat-status-mention{display:inline-block;margin-left:4px;padding:0 3px;border-radius:3px;background:#fee2e2;color:#b91c1c;font-size:10px;line-height:16px}
 .chat-workspace__annotation-filters button:focus-visible{outline:2px solid #409eff;outline-offset:1px}
+.chat-workspace__annotation-filters .chat-workspace__status-toggle{display:flex;align-items:center;gap:6px;width:100%;min-width:0;margin-bottom:6px;padding:6px 2px;border:0;background:transparent;text-align:left}
+.chat-workspace__status-toggle:hover{background:#eef2f8!important}
+.chat-workspace__status-caption{flex:none;color:#64748b;font-size:11px}
+.chat-workspace__status-summary{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:#334155}
+.chat-workspace__status-summary.has-unread-mention{color:#b91c1c}
+.chat-workspace__status-toggle-action{display:flex;flex:none;align-items:center;gap:3px;color:#64748b;font-size:11px}
+.chat-workspace__status-toggle-action .is-expanded{transform:rotate(180deg)}
+.chat-workspace__status-toggle[aria-expanded="false"]{margin-bottom:0}
 .chat-workspace__annotation-mode{display:flex;gap:6px;margin-top:10px}
 .chat-workspace__annotation-mode button{flex:1}
 .chat-workspace__result-count{padding:8px 12px;color:#64748b;font-size:12px}

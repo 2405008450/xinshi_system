@@ -79,6 +79,13 @@ def run():
         rows = page.locator('.chat-workspace__session')
         expect(filters).to_be_visible(timeout=30000)
         expect(rows).to_have_count(6)
+        expect(filters.get_by_role('button', name='不限状态', exact=True)).to_contain_text('(6)')
+        expect(filters.get_by_role('button', name='更多状态', exact=True)).to_contain_text('(1)')
+        trial_status = filters.get_by_role('button', name='试标中', exact=True)
+        expect(trial_status).to_contain_text('(1)')
+        expect(trial_status).to_contain_text('@我')
+        expect(trial_status).to_have_css('color', 'rgb(185, 28, 28)')
+        expect(filters.get_by_role('button', name='客户反馈', exact=True)).not_to_contain_text('@我')
         for label in ['初步咨询', '试标准备', '试标中', '项目进行中', '客户反馈']:
             filters.get_by_role('button', name=label, exact=True).click()
             expect(rows).to_have_count(1)
@@ -86,12 +93,27 @@ def run():
         expect(rows.locator('.chat-mention-label')).to_have_text('[有人@我] ')
         assert rows.locator('strong').evaluate('(el)=>getComputedStyle(el).color') == 'rgb(185, 28, 28)'
         page.screenshot(path=str(output / 'desktop.png'))
+        # 收起只隐藏状态选项，保留筛选、项目数、未读提示和会话/提及切换。
+        list_height = page.locator('.chat-workspace__list').bounding_box()['height']
+        filters.get_by_role('button', name='收起状态筛选', exact=True).click()
+        summary = filters.get_by_role('button', name='展开状态筛选', exact=True)
+        expect(summary).to_have_attribute('aria-expanded', 'false')
+        expect(summary).to_contain_text('试标中 (1)')
+        expect(summary).to_contain_text('@我')
+        expect(page.get_by_role('group', name='标注项目状态', exact=True)).to_be_hidden()
+        expect(rows).to_have_count(1)
+        assert page.locator('.chat-workspace__list').bounding_box()['height'] > list_height + 40
+        page.screenshot(path=str(output / 'collapsed.png'))
         filters.get_by_role('button', name='@我', exact=True).click()
         items = page.locator('.chat-mention-inbox__message')
         expect(items).to_have_count(50)
+        expect(summary).to_be_visible()
+        summary.press('Enter')
+        expect(filters.get_by_role('button', name='收起状态筛选', exact=True)).to_have_attribute('aria-expanded', 'true')
         expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('55 条')
         page.get_by_role('button', name='加载更多', exact=True).click()
         expect(items).to_have_count(55)
+        expect(trial_status).to_contain_text('(1)')  # 项目数不随同一项目的提及条数变化。
         assert requests[-1]['project_status'] == 'trial_in_progress' and requests[-1]['before'] == '6'
         items.first.click()
         assert page.evaluate('window.located') == 'm55'
@@ -99,6 +121,7 @@ def run():
         search.fill('确认试标 55')
         expect(items).to_have_count(1)
         expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('1 条')
+        expect(trial_status).to_contain_text('(1)')
         search.fill('')
         expect(items).to_have_count(50)
         filters.get_by_role('button', name='客户反馈', exact=True).click()
@@ -110,6 +133,8 @@ def run():
         filters.get_by_role('button', name='全部会话', exact=True).click()
         filters.get_by_role('button', name='更多状态').click()
         popup = page.locator('.chat-status-popover:visible')
+        expect(popup.get_by_role('button', name='暂停', exact=True)).to_contain_text('(1)')
+        expect(popup.get_by_role('button', name='已结束', exact=True)).to_contain_text('(0)')
         popup.get_by_role('button', name='暂停', exact=True).click()
         expect(rows).to_contain_text('暂停项目')
         expect(popup).to_have_count(0)
@@ -118,8 +143,11 @@ def run():
         page.evaluate("window.fixture.sessions[2].mentionUnread=0; window.fixture.sessions[2].projectStatus='client_feedback'")
         filters.get_by_role('button', name='试标中', exact=True).click()
         expect(rows).to_have_count(0)
+        expect(trial_status).to_contain_text('(0)')
+        expect(trial_status).not_to_contain_text('@我')
         filters.get_by_role('button', name='客户反馈', exact=True).click()
         expect(rows).to_have_count(2)
+        expect(filters.get_by_role('button', name='客户反馈', exact=True)).to_contain_text('(2)')
         expect(page.locator('.has-unread-mention')).to_have_count(0)
 
         def group(label):
@@ -139,19 +167,40 @@ def run():
         page.set_viewport_size({'width': 390, 'height': 700})
         page.locator('#app').evaluate("el=>{el.style.width='100%';el.style.height='100%'}")
         page.evaluate('window.fixture.narrow=true;window.fixture.sessionWidth=280')
+        page.evaluate('window.fixture.sessions[5].mentionUnread=2')
+        expect(filters.get_by_role('button', name='更多状态', exact=True)).to_contain_text('@我')
         filters.get_by_role('button', name='更多状态').click()
         expect(popup).to_be_visible()
         expect(popup).to_have_css('opacity', '1')
+        expect(popup.get_by_role('button', name='暂停', exact=True)).to_have_css('color', 'rgb(185, 28, 28)')
+        expect(popup.get_by_role('button', name='暂停', exact=True)).to_contain_text('@我')
         box = popup.bounding_box()
         assert box['x'] >= 0 and box['x'] + box['width'] <= 390
-        assert box['y'] >= 0 and box['y'] + box['height'] <= 700
+        assert box['y'] >= 0 and box['y'] + box['height'] <= 700, box
         assert popup.locator('.chat-session-groups').evaluate('el=>el.scrollHeight>el.clientHeight')
         page.screenshot(path=str(output / 'mobile.png'))
         popup.get_by_role('button', name='已结束', exact=True).click()
         expect(rows).to_have_count(0)
+        expect(filters.get_by_role('button', name='已结束', exact=True)).to_contain_text('(0)')
+        filters.get_by_role('button', name='已结束', exact=True).click()
+        popup.get_by_role('button', name='暂停', exact=True).click()
+        expect(filters.get_by_role('button', name='暂停', exact=True)).to_contain_text('(1)')
+        expect(filters.get_by_role('button', name='暂停', exact=True)).to_contain_text('@我')
+        page.evaluate('window.fixture.sessions[5].mentionUnread=0')
+        expect(filters.get_by_role('button', name='暂停', exact=True)).not_to_contain_text('@我')
+        filters.get_by_role('button', name='暂停', exact=True).click()
+        expect(popup).to_be_visible()
+        # 即使更多状态小窗打开，收起也必须同时关闭它，不能留下悬空浮层。
+        filters.get_by_role('button', name='收起状态筛选', exact=True).click()
+        expect(popup).to_have_count(0)
+        expect(filters.get_by_role('button', name='展开状态筛选', exact=True)).to_contain_text('暂停 (1)')
+        page.evaluate('window.fixture.sessions[2].mentionUnread=1')
+        expect(filters.get_by_role('button', name='展开状态筛选', exact=True)).to_contain_text('@我')
+        expect(filters.get_by_role('button', name='展开状态筛选', exact=True)).to_have_attribute('title', re.compile('其他状态有未读 @我'))
+        page.screenshot(path=str(output / 'mobile-collapsed.png'))
         assert not errors, errors
         browser.close()
-    print('通过：常用/更多状态、提及分页和计数、关键词、消息定位、已读颜色、状态更新、全局分类、普通/最大化/小屏布局。')
+    print('通过：状态区展开/收起、保留筛选和提及切换、键盘展开、列表空间回收、浮层关闭、项目数与未读提示、普通/最大化/小屏布局。')
     print(f'截图：{output}')
 
 
