@@ -144,7 +144,7 @@
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" layout="total, sizes, prev, pager, next" @change="fetchData" />
     </el-card>
 
-    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :before-close="beforeEditorClose" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :show-close="!editorBusy" :before-close="beforeEditorClose" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -157,8 +157,8 @@
           @clear="clearFieldSearch"
         />
       </template>
-      <div ref="editorBodyRef">
-        <AppForm ref="formRef" :model="form" :rules="formRules" :validate-on-rule-change="false" label-width="110px">
+      <div ref="editorBodyRef" :inert="editorBusy || undefined">
+        <AppForm ref="formRef" :model="form" :rules="formRules" :disabled="editorBusy" :validate-on-rule-change="false" label-width="110px">
         <div class="lifecycle-bar">
           <div>
             <span class="lifecycle-label">当前状态</span>
@@ -229,16 +229,19 @@
       </div>
       <template #footer>
         <div class="editor-footer">
-          <el-button v-if="form.demandStatus === 'confirmed'" type="danger" plain :loading="cancelling" @click="cancelDemand">取消需求</el-button>
+          <el-button v-if="form.demandStatus === 'confirmed'" type="danger" plain :loading="cancelling" :disabled="editorBusy" @click="cancelDemand">取消需求</el-button>
           <span v-else></span>
-          <div>
-            <el-button :disabled="saving || sending || cancelling" @click="requestEditorClose">关闭</el-button>
-            <el-button :loading="saving" :disabled="sending || cancelling" @click="saveDraftManually">保存</el-button>
-            <el-button v-if="form.demandStatus !== 'confirmed'" type="primary" :loading="sending" :disabled="saving || cancelling" @click="sendDemand">{{ form.demandStatus === 'cancelled' ? '重新发送' : '发送' }}</el-button>
+          <div class="editor-footer-actions">
+            <el-button :disabled="editorBusy" @click="requestEditorClose">关闭</el-button>
+            <el-button :loading="saving" :disabled="editorBusy" @click="saveDraftManually">保存</el-button>
+            <el-button v-if="canArrangeDemand" type="primary" :loading="arranging" :disabled="editorBusy" @click="openDailyArrangement">发到每日安排</el-button>
+            <el-button v-if="form.demandStatus !== 'confirmed'" type="primary" :loading="sending" :disabled="editorBusy" @click="sendDemand">{{ form.demandStatus === 'cancelled' ? '重新发送' : '发送' }}</el-button>
           </div>
         </div>
       </template>
     </DraggableFormDialog>
+
+    <RequestArrangementDialog ref="arrangementRef" :options="arrangementOptions" @visibility-change="arrangementVisible = $event" @saved="arrangementSaved" />
 
     <DraggableFormDialog v-model="progressDialog" title="更新资源开拓进度" width="min(520px, calc(100vw - 32px))">
       <AppForm label-width="90px"><el-form-item label="完成比例"><el-slider v-model="progressForm.progressPercent" show-input /></el-form-item><el-form-item label="进度说明"><el-input v-model="progressForm.progressNote" type="textarea" :rows="3" /></el-form-item></AppForm>
@@ -259,6 +262,9 @@ import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import { CircleClose, Plus } from '@element-plus/icons-vue'
 import * as api from '@/api/resourceRequests'
+import { developmentApi } from '@/api/resourceDevelopment'
+import { arrangementToday } from '@/utils/resourceArrangements'
+import RequestArrangementDialog from './components/RequestArrangementDialog.vue'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import { getUserOptions } from '@/api/users'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -339,6 +345,11 @@ const { openNotes } = useResourceNotesDock()
 const saving = ref(false)
 const sending = ref(false)
 const cancelling = ref(false)
+const arranging = ref(false)
+const arrangementVisible = ref(false)
+const arrangementRef = ref(null)
+const arrangementOptions = reactive({ options: [], arrangement_platforms: [], can_delegate: false })
+const editorBusy = computed(() => saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value)
 const autoSaveState = ref('idle')
 const lastAutoSavedAt = ref('')
 let submitLocked = false
@@ -359,6 +370,7 @@ const tableRef = ref(null)
 const canWrite = hasPermission('projects:write')
 const searchForm = reactive({ keyword: '' })
 const form = reactive({})
+const canArrangeDemand = computed(() => canWrite && arrangementOptions.can_delegate && form.id && form.demandStatus === 'confirmed' && form.requestStatus !== 'cancelled')
 const sourceInfo = reactive({ projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const progressForm = reactive({ id: '', progressPercent: 0, progressNote: '' })
 
@@ -599,7 +611,10 @@ const openEditor = async (row = null, source = null) => {
     form.requestCategory = source.requestCategory || (source.sourceType === 'annotation' ? 'annotation_trial' : source.sourceType)
     form.sourceProjectId = source.sourceProjectId
   }
-  await loadSourceOptions()
+  arrangementOptions.can_delegate = false
+  await Promise.all([loadSourceOptions(), loadArrangementOptions().catch(error => {
+    ElMessage.error(getLocalizedErrorMessage(error, '加载每日安排权限失败，请重新打开需求窗口重试'))
+  })])
   if (form.sourceProjectId && !availableProjects.value.some((item) => item.id === form.sourceProjectId)) {
     projects[form.sourceType].unshift({ id: form.sourceProjectId, orderNo: sourceInfo.orderNo, projectName: sourceInfo.projectName, projectStatus: sourceInfo.projectStatus, clientShortName: sourceInfo.clientShortName })
   }
@@ -707,7 +722,7 @@ const persistDraft = async (options = {}) => {
 
 const scheduleAutoSave = () => {
   clearTimeout(autoSaveTimer)
-  if (!editorReady || !dialogVisible.value || !canPersistDraft() || editorRevision === savedRevision) return
+  if (!editorReady || !dialogVisible.value || arranging.value || arrangementVisible.value || !canPersistDraft() || editorRevision === savedRevision) return
   autoSaveState.value = 'pending'
   autoSaveTimer = setTimeout(async () => {
     try {
@@ -726,7 +741,7 @@ watch(form, () => {
 }, { deep: true })
 
 const saveDraftManually = async () => {
-  if (submitLocked) return
+  if (submitLocked || editorBusy.value) return
   submitLocked = true
   clearTimeout(autoSaveTimer)
   saving.value = true
@@ -746,7 +761,7 @@ const saveDraftManually = async () => {
 }
 
 const sendDemand = async () => {
-  if (submitLocked) return
+  if (submitLocked || editorBusy.value) return
   submitLocked = true
   clearTimeout(autoSaveTimer)
   try { await formRef.value?.validate() } catch { submitLocked = false; return }
@@ -770,11 +785,13 @@ const sendDemand = async () => {
 }
 
 const cancelDemand = async () => {
+  if (submitLocked || editorBusy.value) return
+  submitLocked = true
   try {
     await ElMessageBox.confirm('取消后资源需求记录将保留，并标记为“需求取消”。是否继续？', '取消需求', {
       confirmButtonText: '确认取消', cancelButtonText: '返回', type: 'warning',
     })
-  } catch { return }
+  } catch { submitLocked = false; return }
   cancelling.value = true
   try {
     const cancelled = await api.cancelResourceRequest(form.id)
@@ -785,8 +802,50 @@ const cancelDemand = async () => {
     await fetchData()
   } catch (error) {
     ElMessage.error(error.detail || '取消需求失败')
-  } finally { cancelling.value = false }
+  } finally { cancelling.value = false; submitLocked = false }
 }
+
+const loadArrangementOptions = async () => {
+  if (!canWrite || !hasPermission(['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'])) {
+    arrangementOptions.can_delegate = false
+    return
+  }
+  Object.assign(arrangementOptions, await developmentApi.options())
+}
+
+const openDailyArrangement = async () => {
+  if (submitLocked || editorBusy.value || !canArrangeDemand.value) return
+  submitLocked = true
+  clearTimeout(autoSaveTimer)
+  try { await formRef.value.validate() } catch { submitLocked = false; scheduleAutoSave(); return }
+  arranging.value = true
+  let failure
+  try {
+    // 重新核对安排权限；保存队列会等待已开始的自动保存，再写入当前内容。
+    await loadArrangementOptions()
+    if (!arrangementOptions.can_delegate) throw new Error('当前账号没有资源安排权限')
+    const saved = await persistDraft()
+    if (!saved || saved.demandStatus !== 'confirmed' || saved.requestStatus === 'cancelled') throw new Error('需求已取消或尚未发送，请刷新后重试')
+    clearDraft()
+    const request = await developmentApi.arrangementRequest(saved.id)
+    if (request.demand_status !== 'confirmed' || request.request_status === 'cancelled') throw new Error('需求已取消或尚未发送，请刷新后重试')
+    await arrangementRef.value.open(request, arrangementToday())
+  } catch (error) {
+    failure = error
+    ElMessage.error(getLocalizedErrorMessage(error, '打开每日安排失败，请重试'))
+  } finally {
+    arranging.value = false
+    submitLocked = false
+    scheduleAutoSave()
+  }
+  if (failure) await formRef.value?.applyServerErrors(failure)
+}
+
+const arrangementSaved = async () => {
+  delete detailCache[form.id]
+  await fetchData()
+}
+watch(arrangementVisible, visible => { if (!visible) scheduleAutoSave() })
 
 const flushPendingDraft = async () => {
   clearTimeout(autoSaveTimer)
@@ -799,8 +858,8 @@ const flushPendingDraft = async () => {
   clearDraft()
   return true
 }
-const requestEditorClose = async () => { if (await flushPendingDraft()) dialogVisible.value = false }
-const beforeEditorClose = async (done) => { if (await flushPendingDraft()) done() }
+const requestEditorClose = async () => { if (!submitLocked && !editorBusy.value && await flushPendingDraft()) dialogVisible.value = false }
+const beforeEditorClose = async (done) => { if (!submitLocked && !editorBusy.value && await flushPendingDraft()) done() }
 const openProgress = (row) => { Object.assign(progressForm, { id: row.id, progressPercent: row.progressPercent, progressNote: '' }); progressDialog.value = true }
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }
 
@@ -853,7 +912,9 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 .autosave-state { color: var(--el-text-color-secondary); font-size: 12px; }
 .autosave-state.is-error { color: var(--el-color-danger); }
 .autosave-state.is-saving, .autosave-state.is-pending { color: var(--el-color-primary); }
-.editor-footer { width: 100%; }
+.editor-footer { width: 100%; flex-wrap: wrap; }
+.editor-footer-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.editor-footer-actions .el-button + .el-button { margin-left: 0; }
 .items { padding: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; }
 .section-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; font-weight: normal; }
 .item-card { margin-top: 12px; padding: 12px; border-radius: 6px; background: var(--el-fill-color-light); }

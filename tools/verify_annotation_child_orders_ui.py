@@ -27,13 +27,13 @@ def run():
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')
     process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '12423', '--strictPort'], cwd=ROOT / 'frontend', stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
-    parent = dict(id=PID, order_no='AP-QA-CHILD', project_name='多语种标注母订单', project_types=['text_annotation'], task_description='公共标注要求', client_id=CID, client_short_name='验收客户', client_full_name='验收客户全称', client_code='QA-CLIENT', contact_name='母订单联系人', customer_order_no='CUSTOMER-QA', client_manager_id=UID, client_manager_name='验收经理', project_status='trial_preparation', priority='medium', status_effective_on=NOW, task_dispatched_at=NOW, task_submitted_at=None, updated_at=NOW, created_at=NOW, language_items=[dict(id=str(uuid4()), source_language_id=LID, source_language_label='英语', display='英语', sequence_no=1)], language_items_display='英语', price_items=[], assignees=[], custom_values={}, role_assignments=[dict(role_code='project_manager', role_name='项目经理', assignee_id=UID, assignee_name='验收经理', assignment_type='direct')], parent_project_id=None, child_count=2, child_status_counts={'trial_preparation': 2})
+    parent = dict(id=PID, order_no='AP-QA-CHILD', project_name='多语种标注订单', project_types=['text_annotation'], task_description='公共标注要求', client_id=CID, client_short_name='验收客户', client_full_name='验收客户全称', client_code='QA-CLIENT', contact_name='订单联系人', customer_order_no='CUSTOMER-QA', client_manager_id=UID, client_manager_name='验收经理', project_status='trial_preparation', priority='medium', status_effective_on=NOW, task_dispatched_at=NOW, task_submitted_at=None, updated_at=NOW, created_at=NOW, language_items=[dict(id=str(uuid4()), source_language_id=LID, source_language_label='英语', display='英语', sequence_no=1)], language_items_display='英语', price_items=[], assignees=[], custom_values={}, role_assignments=[dict(role_code='project_manager', role_name='项目经理', assignee_id=UID, assignee_name='验收经理', assignment_type='direct')], parent_project_id=None, child_count=2, child_status_counts={'trial_preparation': 2})
     # 长编号和七个语种用于复现列表逐字换行、行高失控的问题。
     parent['order_no'] = 'AP-260929-003'
     for sequence, label in enumerate(['南非荷兰语', '冰岛语', '阿尔巴尼亚语', '爱尔兰语', '宿务语', '加泰罗尼亚语'], 2):
         parent['language_items'].append(dict(id=str(uuid4()), source_language_id=str(uuid4()), source_language_label=label, display=label, sequence_no=sequence))
     parent['language_items_display'] = '；'.join(item['display'] for item in parent['language_items'])
-    parent['custom_values'] = {FIELD_ID: '母订单字段值'}
+    parent['custom_values'] = {FIELD_ID: '订单字段值'}
     parent['task_submitted_at'] = '2026-12-01T18:00:00'
     parent['language_items'][0]['target_language_id'] = LID2
     parent['language_items'][0]['display'] = '英语 → 日语'
@@ -252,7 +252,7 @@ def run():
             expect(first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='任务名称')).locator('input')).to_have_value(parent['project_name'])
             expect(first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='目标语种')).locator('.el-select__placeholder')).to_contain_text('日语')
             inherited = first_split.locator('.el-form-item').filter(has=page.locator('label', has_text='验收必填字段'))
-            expect(inherited.locator('textarea')).to_have_value('母订单字段值')
+            expect(inherited.locator('textarea')).to_have_value('订单字段值')
             page.screenshot(path=str(out / 'split-copy-preview.png'), full_page=True)
             split_dialog.locator('.el-dialog__headerbtn').click()
             expect(split_dialog).not_to_be_visible()
@@ -284,7 +284,7 @@ def run():
             dialog.locator('.el-dialog__headerbtn').click(); expect(dialog).not_to_be_visible()
             page.goto(BASE+f'/annotation-child-orders?parentProjectId={PID}&projectId={children[0]["id"]}&openEditor=1')
             editor=page.locator('.annotation-editor-dialog:visible')
-            expect(editor).to_be_visible(); expect(editor.get_by_text('所属母订单：',exact=False)).to_be_visible()
+            expect(editor).to_be_visible(); expect(editor.get_by_text('所属订单：',exact=False)).to_be_visible()
             expect(editor.get_by_role('button',name='添加语言项',exact=True)).to_be_disabled()
             expect(editor.get_by_text('子订单必须且只能绑定一个语种或语言方向。',exact=True)).to_be_visible()
             for label in ['联系人','客户单号/项目标识']:
@@ -409,7 +409,7 @@ def run():
             expect(menu.get_by_role('menuitem', name='加入安排', exact=True)).not_to_have_attribute('aria-disabled', 'true')
             dismiss_menu(child_row)
 
-            # 母订单编辑窗口中的菜单和详情必须位于遮罩上方；安排窗口保留父窗口。
+            # 订单编辑窗口中的菜单和详情必须位于遮罩上方；安排窗口保留父窗口。
             children[0]['arrangement_included'] = True
             page.set_viewport_size({'width':1440,'height':1000})
             current_panel, child_row = open_panel(True)
@@ -452,7 +452,7 @@ def run():
             editor.get_by_role('button', name='取消', exact=True).click()
             expect(editor).not_to_be_visible()
 
-            # 每个跳转均核对当前子订单，而非母订单；编辑页签中的跳转关闭母订单窗口。
+            # 每个跳转均核对当前子订单，而非订单；编辑页签中的跳转关闭订单窗口。
             for in_editor in [False, True]:
                 for label, section in [('发起需求', 'request'), ('试标/试采管理', 'trials'), ('进入项目账号表', 'accounts'), ('编辑', 'edit'), ('沟通', 'chat')]:
                     current_panel, child_row = open_panel(in_editor)
@@ -512,7 +512,7 @@ def run():
             assert not errors, errors
             (out/'result.json').write_text(json.dumps(dict(passed=True,list_row_height=list_row_height,language_count=7,layout_viewports=[1920,1440,1024,768],column_settings_verified=True,child_actions_verified=True,readonly_verified=True,membership_requests=membership_requests,batch_rows=2,scopes=sorted(set(scopes)),errors=errors),ensure_ascii=False,indent=2),encoding='utf-8')
             browser.close()
-            print('UI 验收通过：订单号详情入口、固定订单号及字段配置隔离、子订单菜单与正确跳转、安排状态及失败保护、只读权限、删除模式、嵌套拖拽与复位、小屏详情滚动、母子订单原有流程')
+            print('UI 验收通过：订单号详情入口、固定订单号及字段配置隔离、子订单菜单与正确跳转、安排状态及失败保护、只读权限、删除模式、嵌套拖拽与复位、小屏详情滚动、订单与子订单原有流程')
     finally:
         process.terminate(); process.wait(timeout=10); log.close()
 

@@ -1,4 +1,4 @@
-"""在独立 PostgreSQL 实例验证母子订单事务与执行隔离。"""
+"""在独立 PostgreSQL 实例验证订单与子订单事务与执行隔离。"""
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -17,12 +17,17 @@ from annotation_schemas import AnnotationProjectCreate, AnnotationProjectUpdate
 from interpretation_models import InterpretationLanguage
 from project_order_no_models import ProjectOrderNoReservation
 
+_session_factories = {}
 
-@pytest.fixture(scope="module")
+
+@pytest.fixture(scope="session")
 def sessions():
     url = os.getenv("ANNOTATION_TEST_DATABASE_URL")
     if not url:
         pytest.skip("需要独立 PostgreSQL 测试实例")
+    if url in _session_factories:
+        yield _session_factories[url]
+        return
     import main  # noqa: F401 注册所有既有关系，不启动应用
     from models import Base
     engine = create_engine(url)
@@ -41,12 +46,19 @@ def sessions():
         connection.exec_driver_sql(sql)
         historical = connection.execute(text("SELECT project_name, parent_project_id, child_sequence_no FROM annotation_project WHERE order_no = 'AP-LEGACY-KEEP'")).one()
         assert tuple(historical) == ("历史保留项目", None, None)
+    grandchild_sql = (Path(__file__).resolve().parents[1] / 'data/migrations/20261017_annotation_grandchild_inheritance.sql').read_text(encoding='utf-8')
+    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
+        connection.exec_driver_sql('ALTER TABLE annotation_project DROP COLUMN area_id CASCADE')
+        connection.exec_driver_sql('ALTER TABLE annotation_project DROP COLUMN inheritance_overrides')
+        connection.exec_driver_sql(grandchild_sql)
+        connection.exec_driver_sql(grandchild_sql)
     material_sql = (Path(__file__).resolve().parents[1] / "data/migrations/20261015_annotation_material_shared_versions.sql").read_text(encoding="utf-8")
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE annotation_material_version ADD CONSTRAINT legacy_upload_unique UNIQUE (upload_id)"))
         connection.exec_driver_sql(material_sql)
         connection.exec_driver_sql(material_sql)
-    yield sessionmaker(bind=engine)
+    _session_factories[url] = sessionmaker(bind=engine)
+    yield _session_factories[url]
     engine.dispose()
 
 
@@ -57,7 +69,7 @@ def context(sessions):
         db.add(language)
         db.commit()
         parent = service.create_annotation_project(db, AnnotationProjectCreate(
-            project_name="多语种母订单", task_description="公共任务要求",
+            project_name="多语种订单", task_description="公共任务要求",
             project_types=["text_annotation"], contact_name="原联系人", customer_order_no="CLIENT-001",
             language_items=[{"source_language_id": language.id}],
         ), None)
@@ -92,10 +104,10 @@ def test_create_project_with_folders_and_child_snapshot(context):
         language_items=[{'source_language_id': language_id}], material_changes={'created_folders': [
             {'id': root, 'name': '规范'}, {'id': child, 'parent_id': root, 'name': '中文'},
         ]}), None)
-    assert len(folders(db, parent.id)) == 2
+    assert len(folders(db, parent.id)) == 3
     copied = service.create_annotation_children(db, parent.id, [item(language_id)], None, 'folder-snapshot')[0]
     snapshot = folders(db, copied.id)
-    assert {row['name'] for row in snapshot} == {'规范', '中文'}
+    assert {row['name'] for row in snapshot} == {'规范', '中文', '1. 项目详情'}
     assert not {row['id'] for row in snapshot} & {root, child}
 
 
@@ -121,7 +133,7 @@ def test_concurrent_folder_edit_rejects_stale_project(context, sessions):
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(save, payloads))
     assert sorted(results) == ['saved', 'stale']
-    assert [row['name'] for row in folders(db, parent_id)] == ['并发目录']
+    assert {row['name'] for row in folders(db, parent_id)} == {'并发目录','1. 项目详情'}
 
 
 def test_automatic_create_single_and_multiple_directions(context):
@@ -132,7 +144,7 @@ def test_automatic_create_single_and_multiple_directions(context):
                   {'source_language_id': language_id, 'target_language_id': second},
                   {'source_language_id': second, 'target_language_id': language_id}]
     parent = service.create_annotation_project(db, AnnotationProjectCreate(
-        project_name='自动母订单', language_items=directions), None)
+        project_name='自动订单', language_items=directions), None)
     assert parent.auto_created_child_count == parent.child_count == 3
     children = service.get_annotation_projects(db, parent_project_id=parent.id)
     assert len(children) == 3 and all(len(child.language_items) == 1 for child in children)
@@ -249,7 +261,7 @@ def test_automatic_snapshot_includes_current_form_rates(context):
     parent = service.update_annotation_project(db, parent_id, update_payload(parent,
         assignees=[{'id':parent.assignees[0].id,'person_id':person.id,'rate':None}]))
     assert parent.assignees[0].rate is None
-    assert all(service.get_annotation_project(db, child.id).assignees[0].rate.amount == 8 for child in children)
+    assert all(service.get_annotation_project(db, child.id).assignees[0].rate is None for child in children)
 
 
 def test_historical_preview_apply_retry_partial_failure_and_legacy_child(context, sessions, monkeypatch):
@@ -287,7 +299,7 @@ def test_historical_preview_apply_retry_partial_failure_and_legacy_child(context
     original = directions.ensure_direction_children
     def fail_one(db,parent,*args,**kwargs):
         if parent.id == other.id:
-            raise ValueError('母订单失败测试')
+            raise ValueError('订单失败测试')
         return original(db,parent,*args,**kwargs)
     monkeypatch.setattr(directions,'ensure_direction_children',fail_one)
     db.rollback()
@@ -431,7 +443,7 @@ def test_batch_failure_rolls_back_rows_reservations_and_history(context):
 def test_no_nested_children_no_manual_numbers_no_parent_delete(context):
     db, parent_id, language_id = context
     child = service.create_annotation_children(db, parent_id, [item(language_id)], None, "constraints-key")[0]
-    with pytest.raises(ValueError, match="不能继续"):
+    with pytest.raises(ValueError, match="必须选择片区"):
         service.create_annotation_children(db, child.id, [item(language_id)], None, "nested-key")
     db.rollback()
     with pytest.raises(ValueError, match="不允许手动"):
@@ -440,7 +452,7 @@ def test_no_nested_children_no_manual_numbers_no_parent_delete(context):
     with pytest.raises(ValueError, match="不能修改"):
         service.update_annotation_project_order_no(db, parent_id, "AP-PARENT-EDIT", "测试", None, None)
     db.rollback()
-    with pytest.raises(service.AnnotationProjectDeleteConflict, match="全部子订单"):
+    with pytest.raises(service.AnnotationProjectDeleteConflict, match="全部下级订单"):
         service.delete_annotation_project(db, parent_id)
     db.rollback()
 
@@ -481,8 +493,8 @@ def test_copied_fields_remain_independent_after_parent_and_child_edits(context):
     parent = service.get_annotation_project(db, parent_id)
     service.update_annotation_project(db, parent_id, update_payload(parent, contact_name="新联系人", task_description="新母任务"))
     child = service.get_annotation_project(db, child.id)
-    assert child.contact_name == "原联系人" and child.task_description == "独立任务"
-    assert child.updated_at == old_version
+    assert child.contact_name == "新联系人" and child.task_description == "独立任务"
+    assert child.updated_at > old_version
     service.update_annotation_project(db, child.id, update_payload(child, customer_order_no="CHILD-EDITED", contact_name="子单联系人"))
     assert service.get_annotation_project(db, parent_id).contact_name == "新联系人"
     assert service.get_annotation_project(db, child.id).customer_order_no == "CHILD-EDITED"

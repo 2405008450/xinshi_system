@@ -2,8 +2,8 @@
   <el-card class="common-page-card duplicate-review-page">
     <template #header>
       <div class="review-header">
-        <div><strong>同名核重</strong><span class="subtitle">同名候选需人工确认身份；支持部分成员处理</span></div>
-        <div><el-button @click="returnToList">返回人才列表</el-button><el-button @click="openHistory">处理历史</el-button></div>
+        <div><strong>同名核重</strong><span class="subtitle">支持逐条核对，或按客户姓名规则批量合并</span></div>
+        <div><el-button v-if="canOperate" type="primary" :disabled="!ready || !nameMergeAvailable || !originalDataAvailable" :title="nameMergeAvailable && originalDataAvailable ? '扫描全库并展示合并预览' : '本机后端重新加载后启用'" @click="nameMergeVisible = true">按姓名批量合并</el-button><el-button @click="returnToList">返回人才列表</el-button><el-button @click="openHistory">处理历史</el-button></div>
       </div>
     </template>
     <el-alert v-if="!ready" title="数据库尚未启用核重结构，当前可只读比对。启用需要单独授权数据库迁移。" type="warning" :closable="false" show-icon />
@@ -118,15 +118,25 @@
       <el-table v-loading="historyLoading" :data="historyItems" border size="small">
         <el-table-column prop="name_key" label="姓名组" min-width="130" /><el-table-column label="操作" width="125"><template #default="{ row }">{{ actionLabels[row.action] }}</template></el-table-column><el-table-column prop="actor_name" label="操作人" width="110" /><el-table-column label="时间" min-width="170"><template #default="{ row }">{{ formatBusinessDateTime(row.created_at) }}</template></el-table-column>
         <el-table-column label="状态" width="80"><template #default="{ row }">{{ row.undone_at ? '已撤销' : '已处理' }}</template></el-table-column>
-        <el-table-column v-if="canOperate" label="详情" width="130" fixed="right"><template #default="{ row }">
+        <el-table-column v-if="canOperate" label="详情" width="165" fixed="right"><template #default="{ row }">
+          <el-button v-if="['merge','keep'].includes(row.action)" link type="primary" @click="openAudit(row)">合并记录</el-button>
+          <el-button v-if="['merge','keep'].includes(row.action)" link type="primary" :disabled="!originalDataAvailable" @click="openAudit(row, 'original')">合并前原始资料</el-button>
           <el-popover v-for="(id,index) in row.person_ids" :key="id" trigger="click" placement="left" :width="760" title="人才核重档案详情" @show="loadHistoryTalent(id)">
-            <template #reference><el-button link type="primary">档案 {{ index + 1 }} 详情</el-button></template>
+            <template #reference><el-button link type="primary">档案 {{ index + 1 }} 当前详情</el-button></template>
             <TalentDetailContent v-loading="historyTalentLoading[id]" :detail="historyTalents[id] || {}" />
           </el-popover>
         </template></el-table-column>
         <el-table-column v-if="canOperate" label="操作" width="110" fixed="right"><template #default="{ row }"><el-button v-if="!row.undone_at" link type="warning" :loading="undoingId === row.id" @click="undoOperation(row)">撤销处理</el-button></template></el-table-column>
       </el-table>
       <template #footer><el-pagination v-model:current-page="historyPage" :page-size="20" :total="historyTotal" layout="total, prev, pager, next" @current-change="loadHistory" /><el-button @click="historyVisible = false">关闭</el-button></template>
+    </DraggableFormDialog>
+    <TalentNameMergeDialog v-model="nameMergeVisible" @processed="refreshAfterBatch" />
+    <DraggableFormDialog v-model="auditVisible" title="人才同名合并记录" width="min(1120px, calc(100vw - 32px))" top="5vh" class="review-action-dialog" append-to-body>
+      <div v-loading="auditLoading">
+        <el-alert v-if="auditError" :title="auditError" type="error" :closable="false" />
+        <template v-if="auditOperation"><p>{{ auditOperation.actor_name }} · {{ formatBusinessDateTime(auditOperation.created_at) }} · {{ auditOperation.undone_at ? '已撤销' : '已处理' }}</p><p>{{ auditOperation.note }}</p><el-tabs v-model="auditTab"><el-tab-pane label="逐字段合并记录" name="audit"><TalentMergeAuditTable v-if="auditOperation.audit" :audit="auditOperation.audit" /><el-alert v-else title="此旧操作尚无逐字段日志；原档案和处理前快照仍保留。" type="info" :closable="false" /></el-tab-pane><el-tab-pane label="合并前原始资料" name="original" :disabled="!originalDataAvailable"><TalentOriginalData v-if="auditTab === 'original' && originalDataAvailable" :key="auditOperation.id" :operation-id="auditOperation.id" /></el-tab-pane></el-tabs></template>
+      </div>
+      <template #footer><el-button @click="auditVisible = false">关闭</el-button></template>
     </DraggableFormDialog>
   </el-card>
 </template>
@@ -138,11 +148,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { isSuperAdmin } from '@/utils/permission'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import TalentDetailContent from '@/views/resource/components/TalentDetailContent.vue'
+import TalentNameMergeDialog from '@/views/resource/components/TalentNameMergeDialog.vue'
+import TalentMergeAuditTable from '@/views/resource/components/TalentMergeAuditTable.vue'
+import TalentOriginalData from '@/views/resource/components/TalentOriginalData.vue'
 import { getTalent } from '@/api/talents'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { actionLabels, fieldStateLabels, reviewStateLabels, reviewDisplay, selectedFieldState, buildReviewPayload } from '@/utils/talentDuplicateReview'
-import { getDuplicateGroups, getDuplicateGroup, previewDuplicateReview, commitDuplicateReview, getDuplicateHistory, undoDuplicateReview } from '@/api/talentDuplicateReview'
+import { getDuplicateGroups, getDuplicateGroup, previewDuplicateReview, commitDuplicateReview, getDuplicateHistory, undoDuplicateReview, getDuplicateOperation } from '@/api/talentDuplicateReview'
 
 const route = useRoute(), router = useRouter()
 const actionBodyRef = ref(null)
@@ -151,6 +164,8 @@ const canOperate = computed(() => isSuperAdmin())
 const agentBucketLabels = { all:'全部结果', high_same:'高置信度同一人', likely_same:'可能同一人，需复核', different:'疑似不同人，需复核', uncertain:'证据不足，二次核对', unreviewed:'未初筛／资料已变化' }
 const filters = reactive({ keyword: '', status: 'pending', agent_bucket: 'all' }), counts = ref({}), agentSummary = ref(null)
 const items = ref([]), total = ref(0), page = ref(1), loading = ref(false), ready = ref(true), pageError = ref('')
+const nameMergeAvailable = ref(false)
+const originalDataAvailable = ref(false)
 const detail = ref(null), currentKey = ref(''), detailLoading = ref(false), detailError = ref(''), selectedIds = ref([]), differencesOnly = ref(true)
 const contactLabels = { phone: '电话', email: '邮箱', wechat: '个人微信', whatsapp: 'WhatsApp', skype: 'Skype', line: 'Line' }
 const selectedMembers = computed(() => detail.value?.members.filter(member => selectedIds.value.includes(member.id)) || [])
@@ -168,6 +183,8 @@ async function loadGroups() {
     if (sequence !== listSequence) return
     items.value = result.items; total.value = result.total; counts.value = result.counts; ready.value = result.ready
     agentSummary.value = result.agent_summary || null
+    nameMergeAvailable.value = Boolean(result.name_merge_available)
+    originalDataAvailable.value = Boolean(result.original_data_available)
     if (!items.value.length && page.value > 1 && total.value) { page.value = Math.max(1, Math.ceil(total.value / 20)); return loadGroups() }
   } catch (error) { if (!cancelled(error) && sequence === listSequence) pageError.value = errorText(error) }
   finally { if (sequence === listSequence) loading.value = false }
@@ -219,6 +236,22 @@ async function submitAction() {
 }
 const historyVisible = ref(false), historyItems = ref([]), historyPage = ref(1), historyTotal = ref(0), historyLoading = ref(false), undoingId = ref('')
 const historyTalents = ref({}), historyTalentLoading = reactive({})
+const nameMergeVisible = ref(false), auditVisible = ref(false), auditLoading = ref(false), auditError = ref(''), auditOperation = ref(null)
+const auditTab = ref('audit')
+let auditSequence = 0
+async function openAudit(row, tab = 'audit') {
+  auditTab.value = tab
+  const sequence = ++auditSequence; auditVisible.value = true; auditOperation.value = null; auditLoading.value = true; auditError.value = ''
+  try { const result = await getDuplicateOperation(row.id); if (sequence === auditSequence) auditOperation.value = result }
+  catch (error) { if (sequence === auditSequence) auditError.value = errorText(error) }
+  finally { if (sequence === auditSequence) auditLoading.value = false }
+}
+async function refreshAfterBatch() {
+  historyTalents.value = {}; clearPreview(); await loadGroups()
+  if (currentKey.value && items.value.some(item => item.key === currentKey.value)) await selectGroup(currentKey.value)
+  else { detailController?.abort(); ++detailSequence; currentKey.value = ''; detail.value = null; selectedIds.value = []; detailError.value = ''; detailLoading.value = false }
+  if (historyVisible.value) await loadHistory()
+}
 async function loadHistoryTalent(id) { if (historyTalents.value[id] || historyTalentLoading[id]) return; historyTalentLoading[id] = true; try { historyTalents.value[id] = await getTalent(id) } catch (error) { ElMessage.error(errorText(error)) } finally { historyTalentLoading[id] = false } }
 async function loadHistory() { historyLoading.value = true; try { const result = await getDuplicateHistory({ skip: (historyPage.value - 1) * 20, limit: 20 }); historyItems.value = result.items; historyTotal.value = result.total } catch (error) { ElMessage.error(errorText(error)) } finally { historyLoading.value = false } }
 function openHistory() { historyPage.value = 1; historyVisible.value = true; loadHistory() }

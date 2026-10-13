@@ -360,7 +360,7 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
                       "priority": 0 if contact_match else 1 if complement else 2})
     items.sort(key=lambda item: (item["priority"], -item["count"], item["key"]))
     return {"items": items[skip:skip + limit], "total": len(items), "counts": counts, "ready": ready,
-            **({"agent_summary": {"counts": agent_counts, "created_at": agent_report.get("created_at"),
+            **({"name_merge_available": ready, "original_data_available": ready, "agent_summary": {"counts": agent_counts, "created_at": agent_report.get("created_at"),
                                    "reviewer": agent_report.get("reviewer")}} if contacts_visible else {})}
 
 
@@ -450,7 +450,7 @@ def _merge_values(people, target, decisions):
             variants = {}
             for option in options:
                 for value in option["value"] or []:
-                    variants.setdefault(_collection_key(key, value), {})[digest(value)] = {"person_id": option["person_id"], "value": value}
+                    variants.setdefault(_collection_key(key, value), {}).setdefault(digest(value), {"person_id": option["person_id"], "value": value})
             merged = []
             for identity, variants_by_hash in variants.items():
                 choice_key = f"{key}:{identity}"
@@ -486,7 +486,7 @@ def _merge_values(people, target, decisions):
                 unique.setdefault(str(option["value"]), []).append(option["person_id"])
             result[key] = "\n\n".join(f"【来源：{'、'.join(str(next(p.resource_code or p.full_name for p in people if str(p.id) == identifier)) for identifier in origins)}】\n{value}"
                                        for value, origins in unique.items()) if len(unique) > 1 else (nonempty[0]["value"] if nonempty else None)
-        elif nonempty and all(isinstance(row["value"], list) for row in nonempty):
+        elif any(isinstance(row["value"], list) for row in options) and all(isinstance(row["value"], list) for row in nonempty):
             union = []
             for option in nonempty:
                 for value in option["value"]:
@@ -643,7 +643,52 @@ def _apply_merge(db, target, payload, actor):
     _sync_legacy_translator(db, target)
 
 
-def commit(db, request, actor):
+def merge_audit(proposed, decisions=None):
+    """审计原档案、字段来源及最终处理方式；原值只通过超级管理员详情接口展示。"""
+    people = proposed["before_snapshot"]["people"]
+    participants = [{"id": identifier, "name": row["person"].get("full_name"),
+                     "code": row["person"].get("resource_code")}
+                    for identifier, row in people.items()]
+    target_id = proposed["target_id"]
+    entries = []
+    for field in proposed["fields"]:
+        if field.get("state") == "missing":
+            continue
+        options = field.get("options", [])
+        before = next((option["value"] for option in options if option["person_id"] == target_id), None)
+        value = field["value"]
+        changed = digest(before) != digest(value)
+        if field.get("decision") is not None:
+            method = "按所选来源或修正值取值；其他原值留档"
+        elif field["key"] in COLLECTIONS:
+            method = "明细合并、相同项去重；同项冲突按字段决策取值，其他原值留档"
+        elif isinstance(value, list):
+            method = "多值取并集并去重"
+        elif changed and before in (None, "", []):
+            method = "补充主档空值"
+        elif changed:
+            method = "合并来源原文或规范化取值"
+        else:
+            method = "保留主档值；其他原值留档" if field.get("state") == "conflict" else "保留主档值"
+        choices = {key: choice for key, choice in (decisions or {}).items()
+                   if key == field["key"] or key.startswith(field["key"] + ":")}
+        entries.append({**field, "before_value": before, "changed": changed, "method": method, "choices": choices})
+    attachment_options = [{"person_id": identifier, "value": [
+        {"id": attachment["id"], "name": attachment.get("original_name"), "category": attachment.get("category"),
+         "readonly": identifier != target_id} for attachment in row.get("attachments", [])]}
+        for identifier, row in people.items()]
+    all_attachments = [attachment for option in attachment_options for attachment in option["value"]]
+    if all_attachments:
+        before_attachments = next((option["value"] for option in attachment_options if option["person_id"] == target_id), [])
+        entries.append({"key": "attachments", "label": "附件（来源继承）", "options": attachment_options,
+                        "before_value": before_attachments, "value": all_attachments, "state": "complement",
+                        "changed": len(all_attachments) > len(before_attachments),
+                        "method": "保留原文件关联；来源附件由主档只读继承，不复制或删除共享文件"})
+    return {"participants": participants, "target_id": target_id, "archive_ids": proposed["archive_ids"],
+            "fields": entries, "history_policy": proposed["history_policy"]}
+
+
+def commit(db, request, actor, audit_metadata=None):
     require_ready(db)
     from talent_wechat_accounts import lock_account_writes
     lock_account_writes(db)
@@ -664,6 +709,10 @@ def commit(db, request, actor):
         raise HTTPException(422, "请先解决所有字段冲突")
     from resource_service import get_talent
     fingerprints = {str(identifier): comparison_fingerprint(get_talent(db, identifier)) for identifier in request.person_ids}
+    retention = None
+    if request.action in {"keep", "merge"}:
+        from talent_retention_service import prepare_retention
+        retention = prepare_retention(db, current)
     if request.action in {"keep", "merge"}:
         target = get_talent(db, request.target_id)
         if request.action == "merge":
@@ -675,10 +724,14 @@ def commit(db, request, actor):
             source.archived_at = source.archived_at or now
         db.flush()
     after = full_snapshot(db, ids)
+    if retention:
+        retention["after_sha256"] = digest(after)
     op = TalentDuplicateOperation(id=uuid4(), idempotency_key=request.idempotency_key, request_hash=request_hash,
                                  action=request.action, name_key=current["name_key"], person_ids=[str(i) for i in request.person_ids],
                                  target_id=request.target_id, actor_id=actor.id, actor_name=actor.full_name or actor.username,
-                                 decisions={"fields": request.decisions, "note": request.note, "fingerprints": fingerprints},
+                                 decisions={"fields": request.decisions, "note": request.note, "fingerprints": fingerprints,
+                                            "merge_audit": merge_audit(current, request.decisions) if request.action in {"merge", "keep"} else None,
+                                            **(audit_metadata or {}), "retention": retention},
                                  before_snapshot=current["before_snapshot"], after_snapshot=after,
                                  comparison_fingerprint=digest(fingerprints), created_at=datetime.now(BUSINESS_TIMEZONE))
     db.add(op)
@@ -707,6 +760,16 @@ def history(db, skip=0, limit=20, contacts_visible=False, person_id=None):
         operations = [op for op in operations if str(person_id) in op.before_snapshot["people"]]
     # 历史只返回操作摘要；原始敏感快照不出接口。
     return {"items": [operation_result(op) for op in operations[skip:skip + limit]], "total": len(operations)}
+
+
+def operation_detail(db, operation_id):
+    require_ready(db)
+    op = db.get(TalentDuplicateOperation, operation_id)
+    if op is None:
+        raise HTTPException(404, "核重操作不存在")
+    return {**operation_result(op), "note": op.decisions.get("note", ""),
+            "audit": op.decisions.get("merge_audit"), "field_decisions": op.decisions.get("fields", {}),
+            "audit_available": bool(op.decisions.get("merge_audit"))}
 
 
 def annotate_review_states(db, people):

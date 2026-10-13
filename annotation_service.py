@@ -11,7 +11,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, select, text
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 from annotation_manager_change_service import record_annotation_manager_change
@@ -34,6 +34,7 @@ from annotation_models import (
     AnnotationProjectAssignee,
     AnnotationProjectLanguageItem,
     AnnotationProjectPriceItem,
+    AnnotationArea,
 )
 from annotation_schemas import (
     ANNOTATION_PROJECT_PRIORITY_LABELS,
@@ -188,7 +189,7 @@ def generate_annotation_order_no(
 
 def _project_options():
     return (
-        joinedload(AnnotationProject.parent_project),
+        joinedload(AnnotationProject.parent_project).joinedload(AnnotationProject.parent_project),
         joinedload(AnnotationProject.consultation),
         joinedload(AnnotationProject.client),
         joinedload(AnnotationProject.sub_client),
@@ -244,6 +245,20 @@ def _attach_child_statistics(db: Session, projects) -> None:
     for project in projects:
         project.child_status_counts = counts.get(project.id, {})
         project.child_count = sum(project.child_status_counts.values())
+    # 一次查询当前页自身、孩子和三级订单的片区，不逐行加载。
+    child = aliased(AnnotationProject)
+    grandchild = aliased(AnnotationProject)
+    areas = db.query(AnnotationProject.id, AnnotationArea.label).outerjoin(
+        child, child.parent_project_id == AnnotationProject.id,
+    ).outerjoin(grandchild, grandchild.parent_project_id == child.id).join(
+        AnnotationArea, or_(AnnotationArea.id == AnnotationProject.area_id,
+                           AnnotationArea.id == child.area_id, AnnotationArea.id == grandchild.area_id),
+    ).filter(AnnotationProject.id.in_(ids)).distinct().all()
+    labels = {}
+    for project_id, label in areas:
+        labels.setdefault(project_id, set()).add(label)
+    for project in projects:
+        project.area_labels = sorted(labels.get(project.id, set()))
 
 
 def _latest_progress_expressions():
@@ -320,15 +335,27 @@ def _apply_filters(
     field_filters=None,
     order_scope="all",
     parent_project_id=None,
+    area_ids=None,
 ):
-    if order_scope not in {"all", "parent", "child"}:
+    if order_scope not in {"all", "parent", "child", "grandchild"}:
         raise ValueError("无效的订单查询范围")
     if order_scope == "parent":
         query = query.filter(AnnotationProject.parent_project_id.is_(None))
     elif order_scope == "child":
-        query = query.filter(AnnotationProject.parent_project_id.is_not(None))
+        query = query.filter(AnnotationProject.parent_project.has(AnnotationProject.parent_project_id.is_(None)))
+    elif order_scope == "grandchild":
+        query = query.filter(AnnotationProject.parent_project.has(AnnotationProject.parent_project_id.is_not(None)))
     if parent_project_id is not None:
         query = query.filter(AnnotationProject.parent_project_id == parent_project_id)
+    if area_ids:
+        child = aliased(AnnotationProject)
+        grandchild = aliased(AnnotationProject)
+        query = query.filter(or_(
+            AnnotationProject.area_id.in_(area_ids),
+            db_exists(select(child.id).where(child.parent_project_id == AnnotationProject.id, child.area_id.in_(area_ids))),
+            db_exists(select(child.id).join(grandchild, grandchild.parent_project_id == child.id).where(
+                child.parent_project_id == AnnotationProject.id, grandchild.area_id.in_(area_ids))),
+        ))
     if keyword and keyword.strip():
         normalized_keyword = keyword.strip()
         pattern = f"%{normalized_keyword}%"
@@ -527,15 +554,15 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes"}
 
-# 母订单仅提供创建时的快照，子订单保存后独立维护。
+# 订单仅提供创建时的快照，子订单保存后独立维护。
 CHILD_CREATE_CONTROL_FIELDS = {"copy_source_language_item_id", "expected_parent_updated_at", "copy_parent_materials"}
 
 def _lock_parent(db, parent_id):
     parent = db.query(AnnotationProject).filter(AnnotationProject.id == parent_id).with_for_update().populate_existing().first()
     if not parent:
-        raise ValueError("母订单不存在")
-    if parent.parent_project_id:
-        raise ValueError("子订单不能继续创建子订单")
+        raise ValueError("上级订单不存在")
+    if parent.order_level >= 2:
+        raise ValueError("最多支持三层订单，三级订单不能继续创建下级")
     return parent
 
 
@@ -548,7 +575,7 @@ def _child_create_payload(parent, payload):
         raise ValueError("子订单必须且只能绑定一个语种或语言方向")
     source = source_direction(parent, payload)
     values = payload.model_dump()
-    scalar_fields = set(AnnotationProjectWrite.model_fields) - NESTED_FIELDS - WRITE_ONLY_CLIENT_FIELDS
+    scalar_fields = set(AnnotationProjectWrite.model_fields) - NESTED_FIELDS - WRITE_ONLY_CLIENT_FIELDS - {'area_id'}
     for field in scalar_fields - payload.model_fields_set:
         values[field] = deepcopy(getattr(parent, field))
     if 'role_assignments' not in payload.model_fields_set:
@@ -583,18 +610,21 @@ def _next_child_number(db, parent):
     sequence = max([*sequences, *existing_sequences], default=0) + 1
     number = f"{parent.order_no}.{sequence:03d}"
     if len(number) > 50:
-        raise ValueError("母订单号过长，无法生成子订单号")
+        raise ValueError("上级订单号过长，无法生成下级订单号")
     return number, sequence
 
 
 
-def _sync_child_shared_fields(db, project):
-    """兼容既有交接入口；客户信息现在是创建时快照，不再同步覆盖子订单。"""
-    return None
+def _sync_child_shared_fields(db, project, previous_manager_id=None, actor_id=None):
+    """客户经理交接入口与表单使用同一字段继承规则。调用方先获取编号锁。"""
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    before = snapshot(project)
+    before['client_manager_id'] = previous_manager_id
+    finish_inline_change(db, project, before, actor_id)
 
 
 def create_annotation_children(db, parent_id, items, actor_id, idempotency_key):
-    """整批创建只提交一次；每行幂等键绑定母订单、批次及原始请求。"""
+    """整批创建只提交一次；每行幂等键绑定订单、批次及原始请求。"""
     _lock_annotation_order_numbers(db)
     parent = _lock_parent(db, parent_id)
     # 生效时间未显式传入时使用模型默认值，不参与重试指纹。
@@ -611,7 +641,7 @@ def create_annotation_children(db, parent_id, items, actor_id, idempotency_key):
     projects = []
     for index, item in enumerate(items):
         if item.parent_project_id and item.parent_project_id != parent_id:
-            raise ValueError("子订单所属母订单与请求地址不一致")
+            raise ValueError("下级订单所属上级订单与请求地址不一致")
         payload = AnnotationProjectCreate.model_validate({**item.model_dump(exclude_unset=True), "parent_project_id": parent_id})
         projects.append(create_annotation_project(db, payload, actor_id, idempotency_key=f"{prefix}{digest}:{index}", operation_source="child_order_create", commit=False))
     db.commit()
@@ -650,6 +680,8 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 def _validate_write_references(db: Session, payload) -> None:
+    if payload.area_id and not db.get(AnnotationArea, payload.area_id):
+        raise ValueError('所选片区不存在')
     language_ids = {
         value
         for item in payload.language_items
@@ -743,9 +775,9 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
                         row.rate = AnnotationAssigneeRate()
                     for key, value in item.rate.model_dump().items():
                         setattr(row.rate, key, value)
-                    row.rate.updated_at = datetime.now()
+                    row.rate.updated_at = business_now().replace(tzinfo=None)
             if hasattr(row, "updated_at"):
-                row.updated_at = datetime.now()
+                row.updated_at = business_now().replace(tzinfo=None)
 
     language_item_ids = {item.id for item in project.language_items if item.id is not None}
     for assignee in project.assignees:
@@ -766,9 +798,20 @@ def create_annotation_project(
         _lock_annotation_order_numbers(db)
         parent = _lock_parent(db, payload.parent_project_id)
         payload = _child_create_payload(parent, payload)
+        if parent.parent_project_id:
+            if not payload.area_id:
+                raise ValueError('三级订单必须选择片区')
+            if [(item.source_language_id, item.target_language_id) for item in payload.language_items] != [
+                    (item.source_language_id, item.target_language_id) for item in parent.language_items]:
+                raise ValueError('三级订单语种必须与所属子订单一致')
         order_no, child_sequence_no = _next_child_number(db, parent)
     else:
+        if payload.area_id:
+            raise ValueError('片区只能设置在三级订单上')
         order_no = generate_annotation_order_no(db)
+    if parent and not parent.parent_project_id and payload.area_id:
+        raise ValueError('片区只能设置在三级订单上')
+    _validate_write_references(db, payload)
     data = payload.model_dump(exclude=NESTED_FIELDS | CHILD_CREATE_CONTROL_FIELDS)
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
@@ -782,6 +825,7 @@ def create_annotation_project(
     )
     project = AnnotationProject(
         order_no=order_no, created_by=created_by,
+        created_at=business_now().replace(tzinfo=None),
         child_sequence_no=child_sequence_no,
         idempotency_key=idempotency_key, **data
     )
@@ -802,6 +846,8 @@ def create_annotation_project(
         effective_on=project.status_effective_on,
         changed_by=created_by,
         entry_kind="status",
+        changed_at=business_now().replace(tzinfo=None),
+        updated_at=business_now().replace(tzinfo=None),
     ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
@@ -820,7 +866,10 @@ def create_annotation_project(
             copy_materials(db, parent.id, project.id)
     from annotation_material_service import apply_changes
     apply_changes(db, project.id, payload.material_changes, created_by)
-    project.updated_at = datetime.now()
+    if parent:
+        from annotation_inheritance_service import initialize_inheritance
+        initialize_inheritance(db, parent, project)
+    project.updated_at = business_now().replace(tzinfo=None)
     record_project_operation(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
@@ -841,6 +890,7 @@ def create_annotation_project(
 def update_annotation_project(
     db: Session, project_id: UUID, payload: AnnotationProjectUpdate,
     changed_by: Optional[UUID] = None,
+    *, commit: bool = True, inherited: bool = False,
 ) -> Optional[AnnotationProject]:
     _lock_annotation_order_numbers(db)
     existing = db.get(AnnotationProject, project_id)
@@ -851,9 +901,20 @@ def update_annotation_project(
     if not project:
         return None
     assert_fresh(project, payload.expected_updated_at)
+    from annotation_inheritance_service import snapshot, mark_changes, apply_restore, propagate
+    before = snapshot(project)
+    payload = apply_restore(db, parent, project, payload)
+    if project.order_level == 2:
+        if not payload.area_id:
+            raise ValueError('三级订单必须选择片区')
+        if [(item.source_language_id, item.target_language_id) for item in payload.language_items] != [
+                (item.source_language_id, item.target_language_id) for item in parent.language_items]:
+            raise ValueError('三级订单语种必须与所属子订单一致')
+    elif payload.area_id:
+        raise ValueError('片区只能设置在三级订单上')
     previous_client_manager_id = project.client_manager_id
     previous_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
-    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD, 'restore_inheritance'})
     if parent:
         if len(payload.language_items) != 1:
             raise ValueError("子订单必须且只能绑定一个语种或语言方向")
@@ -880,6 +941,9 @@ def update_annotation_project(
             effective_on=project.status_effective_on,
             changed_by=changed_by,
             entry_kind="status",
+            change_note='继承上级订单状态' if inherited else None,
+            changed_at=business_now().replace(tzinfo=None),
+            updated_at=business_now().replace(tzinfo=None),
         ))
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
@@ -887,6 +951,7 @@ def update_annotation_project(
     responsibility_rows = ensure_active_project_responsibilities(
         db, 'annotation', project.id, project.project_status, assignments,
     )
+    db.expire(project, ['workbench_responsibilities'])
     current_project_manager_ids = (
         _project_manager_ids(responsibility_rows)
         if responsibility_rows else previous_project_manager_ids
@@ -896,7 +961,7 @@ def update_annotation_project(
     if payload.material_changes is not None and payload.expected_updated_at is None:
         raise ValueError('保存项目资料必须携带项目版本，请刷新后重试')
     apply_changes(db, project.id, payload.material_changes, changed_by)
-    project.updated_at = datetime.now()
+    project.updated_at = business_now().replace(tzinfo=None)
     record_annotation_manager_change(
         db,
         project=project,
@@ -916,7 +981,17 @@ def update_annotation_project(
     )
     from annotation_direction_service import ensure_direction_children
     auto_count = len(ensure_direction_children(db, project, changed_by)) if not parent else 0
-    db.commit()
+    db.flush()
+    if not inherited:
+        mark_changes(db, project, before)
+        if payload.restore_inheritance:
+            from annotation_inheritance_service import restore_metadata
+            restore_metadata(project, payload.restore_inheritance)
+    propagate(db, project, changed_by)
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     result = get_annotation_project(db, project.id)
     result.auto_created_child_count = auto_count
     return result
@@ -930,7 +1005,7 @@ def update_annotation_project_order_no(
     expected_updated_at: Optional[datetime],
     changed_by: Optional[UUID],
 ) -> Optional[AnnotationProject]:
-    # 与创建子订单保持“全局编号锁 → 母订单行锁”的顺序，避免并发改号死锁。
+    # 与创建子订单保持“全局编号锁 → 订单行锁”的顺序，避免并发改号死锁。
     _lock_annotation_order_numbers(db)
     project = (
         db.query(AnnotationProject)
@@ -944,7 +1019,7 @@ def update_annotation_project_order_no(
     if getattr(project, "parent_project_id", None):
         raise ValueError("子订单号由系统生成，不允许手动修改")
     if db.query(AnnotationProject.id).filter(AnnotationProject.parent_project_id == project.id).first():
-        raise ValueError("已有子订单的母订单不能修改订单号")
+        raise ValueError("已有子订单的订单不能修改订单号")
     normalized = normalize_annotation_order_no(new_order_no)
     previous_order_no = project.order_no
     if normalized == previous_order_no:
@@ -985,6 +1060,8 @@ def update_annotation_project_status(
     changed_by: Optional[UUID] = None,
     progress_only: bool = False,
 ) -> Optional[AnnotationProject]:
+    _lock_annotation_order_numbers(db)
+    db.query(AnnotationProject).filter_by(id=project_id).with_for_update().populate_existing().first()
     project = get_annotation_project(db, project_id)
     if not project:
         return None
@@ -1005,6 +1082,8 @@ def update_annotation_project_status(
     ):
         return project
     previous_status = project.project_status
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    before = snapshot(project)
     if progress_only:
         history_from_status = project_status
     else:
@@ -1026,6 +1105,7 @@ def update_annotation_project_status(
     if not progress_only:
         from project_workbench_service import ensure_active_project_responsibilities
         ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
+        finish_inline_change(db, project, before, changed_by)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -1035,13 +1115,17 @@ def update_annotation_project_priority(
     project_id: UUID,
     priority: str,
 ) -> Optional[AnnotationProject]:
+    _lock_annotation_order_numbers(db)
+    db.query(AnnotationProject).filter_by(id=project_id).with_for_update().populate_existing().first()
     project = get_annotation_project(db, project_id)
     if not project:
         return None
     if project.priority == priority:
         return project
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    before = snapshot(project)
     project.priority = priority
-    project.updated_at = datetime.now()
+    finish_inline_change(db, project, before)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -1054,6 +1138,7 @@ def update_annotation_project_managers(
     changed_by: Optional[UUID] = None,
 ) -> Optional[AnnotationProject]:
     """更新标注项目的客户经理和项目经理用户关联。"""
+    _lock_annotation_order_numbers(db)
     existing = db.get(AnnotationProject, project_id)
     if existing and existing.parent_project_id:
         _lock_parent(db, existing.parent_project_id)
@@ -1062,6 +1147,8 @@ def update_annotation_project_managers(
     if not project:
         return None
     previous_client_manager_id = project.client_manager_id
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    before = snapshot(project)
 
     if client_manager_id and client_manager_id != project.client_manager_id:
         client_manager = db.query(AppUser).filter(
@@ -1087,7 +1174,8 @@ def update_annotation_project_managers(
         validate_assignment_map(db, assignments)
     project.client_manager_id = client_manager_id
     ensure_project_responsibilities(db, "annotation", project.id, assignments)
-    project.updated_at = datetime.now()
+    db.expire(project, ['workbench_responsibilities'])
+    project.updated_at = business_now().replace(tzinfo=None)
     record_annotation_manager_change(
         db,
         project=project,
@@ -1105,6 +1193,7 @@ def update_annotation_project_managers(
         change_mode="inline_edit", actor_user_id=changed_by,
         reason="标注项目列表直接修改负责人",
     )
+    finish_inline_change(db, project, before, changed_by)
     db.commit()
     return get_annotation_project(db, project.id)
 
@@ -1121,7 +1210,7 @@ def delete_annotation_project(
     if not project:
         return False
     if db.query(AnnotationProject.id).filter(AnnotationProject.parent_project_id == project.id).first():
-        raise AnnotationProjectDeleteConflict("请先删除该母订单的全部子订单")
+        raise AnnotationProjectDeleteConflict("请先删除该订单的全部下级订单")
 
     resource_requests = db.query(ResourceRequest).filter(
         ResourceRequest.annotation_project_id == project_id,

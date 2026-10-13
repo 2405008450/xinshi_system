@@ -36,6 +36,8 @@ class AnnotationProject(Base):
         UniqueConstraint("order_no", name="uq_annotation_project_order_no"),
         UniqueConstraint("parent_project_id", "child_sequence_no", name="uq_annotation_project_child_sequence"),
         ForeignKeyConstraint(["parent_project_id"], ["annotation_project.id"], ondelete="RESTRICT", name="fk_annotation_project_parent"),
+        ForeignKeyConstraint(["area_id"], ["annotation_area.id"], ondelete="RESTRICT", name="fk_annotation_project_area"),
+        Index("ix_annotation_project_area", "area_id"),
         CheckConstraint("(parent_project_id IS NULL AND child_sequence_no IS NULL) OR (parent_project_id IS NOT NULL AND child_sequence_no IS NOT NULL AND child_sequence_no > 0)", name="ck_annotation_project_child_sequence"),
         CheckConstraint("parent_project_id IS NULL OR parent_project_id <> id", name="ck_annotation_project_not_self"),
         Index("ix_annotation_project_parent", "parent_project_id"),
@@ -98,6 +100,8 @@ class AnnotationProject(Base):
     )
     order_no: Mapped[str] = mapped_column(String(50), nullable=False)
     parent_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    area_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, nullable=True)
+    inheritance_overrides: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     child_sequence_no: Mapped[Optional[int]] = mapped_column(Integer)
     parent_project: Mapped[Optional["AnnotationProject"]] = relationship(
         "AnnotationProject", remote_side="AnnotationProject.id", foreign_keys=[parent_project_id],
@@ -110,6 +114,12 @@ class AnnotationProject(Base):
     @property
     def parent_project_name(self):
         return self.parent_project.project_name if self.parent_project else None
+
+    @property
+    def order_level(self):
+        if not self.parent_project_id:
+            return 0
+        return 2 if self.parent_project and self.parent_project.parent_project_id else 1
 
     project_name: Mapped[Optional[str]] = mapped_column(String(500))
     project_types: Mapped[list] = mapped_column(
@@ -382,6 +392,14 @@ class AnnotationProjectAssignee(Base):
     @property
     def resource_code(self) -> Optional[str]:
         return self.person.resource_code
+
+
+class AnnotationArea(Base):
+    """标注模块共享片区，标准化名称保证并发新增去重。"""
+    __tablename__ = "annotation_area"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
 
 
 class AnnotationProjectLanguageItem(Base):

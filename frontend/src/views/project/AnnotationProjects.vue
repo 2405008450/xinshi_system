@@ -2,14 +2,14 @@
   <el-card class="common-page-card annotation-card compact-list-card">
     <template #header>
       <div class="card-header">
-        <span>{{ props.orderScope === 'child' ? '标注子订单管理' : '标注项目管理' }}</span>
+        <span>{{ props.orderScope === 'child' ? (effectiveOrderScope === 'grandchild' ? '标注三级订单管理' : '标注子订单管理') : '标注项目管理' }}</span>
         <div class="header-actions">
           <ProjectExportMenu v-if="!deleteMode" module="annotation" :build-filters="buildFilters" />
-          <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回母订单列表</el-button>
+          <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回订单列表</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="goChildManagement()">子订单管理</el-button>
-          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false, true)">分拆母订单</el-button>
-          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, true)">新增子订单</el-button>
-          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false)">批量新增子订单</el-button>
+          <el-button v-if="props.orderScope === 'child' && effectiveOrderScope !== 'grandchild' && canWrite && !deleteMode" @click="openChildCreate(null, false, true)">分拆订单</el-button>
+          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, true)">{{ effectiveOrderScope === 'grandchild' ? '新增三级订单' : '新增子订单' }}</el-button>
+          <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false)">{{ effectiveOrderScope === 'grandchild' ? '批量新增三级订单' : '批量新增子订单' }}</el-button>
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
           <TableColumnSettings v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
@@ -23,7 +23,7 @@
     <AppForm :inline="true" :model="searchForm" class="search-form">
       <div class="annotation-search-toolbar">
         <div class="project-list-primary-filters">
-          <el-form-item v-if="props.orderScope === 'child'" label="母订单"><el-select v-model="parentFilterId" filterable remote clearable :remote-method="searchParentFilters" style="width:250px" @change="handleSearch"><el-option v-for="parent in parentFilterOptions" :key="parent.id" :value="parent.id" :label="`${parent.orderNo} · ${parent.projectName || ''}`" /></el-select></el-form-item>
+          <el-form-item v-if="props.orderScope === 'child'" :label="effectiveOrderScope === 'grandchild' ? '子订单' : '订单'"><el-select v-model="parentFilterId" filterable remote clearable :remote-method="searchParentFilters" style="width:250px" @change="handleSearch"><el-option v-for="parent in parentFilterOptions" :key="parent.id" :value="parent.id" :label="`${parent.orderNo} · ${parent.projectName || ''}`" /></el-select></el-form-item>
           <el-form-item label="关键词" class="project-list-keyword-filter">
             <el-input
               v-model="searchForm.keyword"
@@ -61,56 +61,27 @@
       </div>
     </AppForm>
 
-    <el-table ref="projectTableRef" height="100%" :data="tableData" v-loading="loading" row-key="id" :expand-row-keys="expandedProjectIds" @expand-change="handleProjectExpandChange" :row-class-name="projectRowClass" border class="annotation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
-      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column v-if="props.orderScope !== 'child'" type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column">
-        <template #default="{ row }">
-          <AnnotationChildOrderPanel v-if="!row.parentProjectId" :parent="row" :editable="canWrite && !deleteMode" :revision="childRevision"
-            :show-row-actions="!deleteMode" :row-extra-actions="projectRowExtraActions" :start-request-label="resourceRequestActionLabel"
-            @create="openChildCreate" @start-request="startResourceRequest" @extra-command="handleProjectExtraAction" />
-        </template>
-      </el-table-column>
-      <el-table-column v-if="props.orderScope === 'child'" label="母订单" min-width="180"><template #default="{ row }"><el-button link type="primary" @click="openParent(row)">{{ row.parentOrderNo || '-' }}</el-button></template></el-table-column>
-      <el-table-column label="序号" :width="56" align="center" fixed="left">
-        <template #default="{ row, $index }">
-          <div class="annotation-index-cell">
-            <span>{{ $index + 1 }}</span>
-            <TableExpandButton
-              v-if="props.orderScope !== 'child' && !row.parentProjectId && row.childCount > 0"
-              :expanded="expandedProjectIds.includes(row.id)"
-              expand-label="展开子订单" collapse-label="收起子订单"
-              @click="toggleProjectExpansion(row)"
-            />
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="订单号" :width="200" fixed="left">
-        <template #header>
-          <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
-            <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看标注项目管理" /></template>
-          </ConfiguredColumnHeaderFilter>
-        </template>
-        <template #default="{ row }">
-          <div class="order-cell">
-            <AnnotationProjectDetailPopover :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="(updated) => Object.assign(row, updated)">
-              <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
-            </AnnotationProjectDetailPopover>
-            <div class="order-cell-secondary">
-              <el-tag v-if="row.parentProjectId" size="small" type="warning">子订单</el-tag>
-              <el-button v-else link type="primary" @click="goChildManagement(row.id)">子订单 {{ row.childCount || 0 }}</el-button>
-              <el-popover trigger="click" placement="left" :width="760" :popper-options="materialPopoverOptions" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
-            </div>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column v-for="column in visibleTableColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)">
-        <template #header>
+    <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
+    <AnnotationOrderTable ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
+      <template #header="{ column }">
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
           </ConfiguredColumnHeaderFilter>
           <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
-        <template #default="{ row }">
+      <template #order="{ row }">
+          <div class="order-cell">
+            <AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="handleOrderUpdated">
+              <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
+            </AnnotationProjectDetailPopover>
+            <div class="order-cell-secondary">
+              <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
+              <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
+              <el-popover trigger="click" placement="left" :width="760" :popper-options="materialPopoverOptions" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
+            </div>
+          </div>
+        </template>
+      <template #cell="{ row, column }">
           <el-button
             v-if="column.key === 'projectStatus'"
             type="primary"
@@ -231,12 +202,11 @@
           >
             <span class="compact-datetime">{{ compactDateTime(row[column.key]) }}</span>
           </el-tooltip>
+          <span v-else-if="column.key === 'areaLabels'">{{ row.areaLabels?.join('、') || '-' }}</span>
           <span v-else-if="column.customField">{{ customFieldText(row.customValues?.[column.customField.id]) }}</span>
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
-      </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right" align="center">
-        <template #default="{ row }">
+      <template #actions="{ row }">
           <div class="annotation-row-actions">
             <span class="arrangement-status-slot">
               <el-tooltip
@@ -259,8 +229,7 @@
             />
           </div>
         </template>
-      </el-table-column>
-    </el-table>
+    </AnnotationOrderTable>
 
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @size-change="handlePageSizeChange" @current-change="handlePageChange" />
 
@@ -467,7 +436,8 @@
         />
       </template>
       <div ref="dialogBodyRef" class="editor-body">
-        <el-alert v-if="form.parentProjectId" type="info" :closable="false"><template #title>所属母订单：{{ form.parentOrderNo }} · {{ form.parentProjectName || '' }} <el-button link type="primary" @click="openParent(form)">查看母订单</el-button></template></el-alert>
+        <el-alert v-if="form.parentProjectId" type="info" :closable="false"><template #title>{{ form.orderLevel === 2 ? '所属子订单' : '所属订单' }}：{{ form.parentOrderNo }} · {{ form.parentProjectName || '' }} <el-button link type="primary" @click="openParent(form)">查看上级订单</el-button></template></el-alert>
+        <AnnotationInheritancePanel v-if="supportsGrandchildOrders && form.parentProjectId" :overrides="form.inheritanceOverrides" :custom-fields="visibleProjectCustomFields" v-model="form.restoreInheritance" />
         <el-tabs v-model="editorTab">
           <el-tab-pane label="订单信息" name="form">
         <AppForm ref="formRef" :model="form" :rules="rules" label-width="125px">
@@ -492,7 +462,9 @@
                 <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
               </div>
             </el-form-item>
-            <el-form-item label="语种方向" prop="languageItems" class="annotation-language-form-item">
+            <el-form-item v-if="form.orderLevel === 2" label="语种方向"><ReadonlyField :model-value="form.languageItems.map(languageItemLabel).join('、')" source="auto" placeholder="由所属子订单带出" /></el-form-item>
+            <el-form-item v-if="form.orderLevel === 2" label="片区" prop="areaId" :rules="[{required:true,message:'请选择片区',trigger:'change'}]"><AnnotationAreaSelect v-model="form.areaId" @changed="loadAreas" /></el-form-item>
+            <el-form-item v-if="form.orderLevel !== 2" label="语种方向" prop="languageItems" class="annotation-language-form-item">
               <div class="annotation-language-panel">
                 <div class="section-title-row"><h3>语种方向</h3><div><el-button @click="addLanguage">新增共享语种</el-button><el-button type="primary" plain :disabled="!!form.parentProjectId" @click="addLanguageItem">添加语言项</el-button></div></div>
                 <p class="form-hint">{{ form.parentProjectId ? '子订单必须且只能绑定一个语种或语言方向。' : '一个方向不自动生成子订单；两个及以上方向保存后自动补齐对应子订单，已有子订单不会覆盖。' }}</p><div v-for="(item,index) in form.languageItems" :key="index" class="language-row">
@@ -517,7 +489,7 @@
           <section class="form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="订单号"><div class="order-no-field"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /><el-button v-if="canChangeOrderNo && form.id && !form.parentProjectId && !form.childCount" type="primary" plain @click="openOrderNoDialog">修改订单号</el-button></div></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="订单号"><div class="order-no-field"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /><el-button v-if="canChangeOrderNo && form.id && form.orderLevel < 2 && !form.childCount" type="primary" plain @click="openOrderNoDialog">修改订单号</el-button></div></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目进度" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="优先次序"><el-select v-model="form.priority" style="width:100%"><el-option v-for="item in priorityOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="状态生效时间"><el-date-picker v-model="form.statusEffectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></el-form-item></el-col>
@@ -606,17 +578,17 @@
           <InternalProjectRolesForm v-model="form.roleAssignments" :role-codes="['project_specialist', 'project_assistant']" />
         </AppForm>
           </el-tab-pane>
-          <el-tab-pane v-if="!form.parentProjectId" label="子订单" name="children" lazy>
+          <el-tab-pane v-if="form.orderLevel < (supportsGrandchildOrders ? 2 : 1)" :label="form.orderLevel === 1 ? '三级订单' : '子订单'" name="children" lazy>
             <AnnotationChildOrderPanel v-if="form.id" :parent="form" :editable="canWrite" :revision="childRevision"
               :row-extra-actions="projectRowExtraActions" :start-request-label="resourceRequestActionLabel"
               @create="openChildCreate" @navigate="dialogVisible=false" @start-request="startChildResourceRequest" @extra-command="handleChildProjectExtraAction" />
-            <el-alert v-else title="请先保存母订单，再创建子订单。" type="info" :closable="false" />
+            <el-alert v-else title="请先保存订单，再创建子订单。" type="info" :closable="false" />
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer><el-button :disabled="submitLoading" @click="dialogVisible=false">取消</el-button><el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button><el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button></template>
     </DraggableFormDialog>
-    <AnnotationChildCreateDialog v-model="childCreateVisible" :parent="childCreateParent" :single="childCreateSingle" :split="childCreateSplit" :languages="languages" :project-types="projectTypeOptions" :managers="projectManagerOptions" :custom-fields="visibleProjectCustomFields" @created="onChildrenCreated" />
+    <AnnotationChildCreateDialog :inheritance-enabled="supportsGrandchildOrders" :grandchild="effectiveOrderScope === 'grandchild'" v-model="childCreateVisible" :parent="childCreateParent" :single="childCreateSingle" :split="childCreateSplit" :languages="languages" :project-types="projectTypeOptions" :managers="projectManagerOptions" :custom-fields="visibleProjectCustomFields" @created="onChildrenCreated" @areas-changed="loadAreas" />
     <DraggableFormDialog v-model="orderNoDialogVisible" title="修改标注项目订单号" width="min(560px, calc(100vw - 32px))" append-to-body @closed="resetOrderNoForm">
       <el-alert title="订单号修改后，原号码仍会永久保留，不能再次分配给其他项目。" type="warning" :closable="false" show-icon />
       <AppForm ref="orderNoFormRef" :model="orderNoForm" :rules="orderNoRules" label-width="100px" class="order-no-change-form">
@@ -642,6 +614,9 @@
 <script setup>
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { annotationStatusLabel as statusLabel, annotationStatusType as statusType } from '@/utils/annotationStatus'
+import AnnotationOrderTable from '@/components/annotation/AnnotationOrderTable.vue'
+import AnnotationAreaSelect from '@/components/annotation/AnnotationAreaSelect.vue'
+import AnnotationInheritancePanel from '@/components/annotation/AnnotationInheritancePanel.vue'
 import AnnotationChildOrderPanel from '@/components/annotation/AnnotationChildOrderPanel.vue'
 import AnnotationChildCreateDialog from '@/components/annotation/AnnotationChildCreateDialog.vue'
 import { customFieldRules } from '@/utils/annotationCustomFieldRules.js'
@@ -710,20 +685,33 @@ const childCreateSplit = ref(false)
 const childCreateVisible = ref(false), childCreateParent = ref(null), childCreateSingle = ref(false), childRevision = ref(0), editorTab = ref('form')
 const parentFilterId = ref(''), parentFilterOptions = ref([])
 let parentFilterController, parentFilterRequestId = 0
+const supportsGrandchildOrders = ref(false), capabilitiesLoaded = ref(false)
+const effectiveOrderScope = computed(()=>props.orderScope === 'child' ? (supportsGrandchildOrders.value && route.query.orderScope === 'grandchild' ? 'grandchild' : 'child') : props.orderScope)
+const areaOptions=ref([])
+const loadAreas=async()=>{if(!supportsGrandchildOrders.value)return;try{areaOptions.value=await annotationApi.getAnnotationAreas()}catch(error){ElMessage.error(error.detail||'片区加载失败')}}
+const handleOrderUpdated=async()=>{for(const id of Object.keys(detailCache))delete detailCache[id];await fetchData()}
 const searchParentFilters = async (keyword = '') => {
   parentFilterController?.abort(); parentFilterController = new AbortController(); const current = ++parentFilterRequestId
-  try { const page = await annotationApi.getAnnotationProjectPage({ order_scope: 'parent', keyword, limit: 50 }, { signal: parentFilterController.signal }); if (current === parentFilterRequestId) parentFilterOptions.value = page.items }
-  catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '母订单加载失败') }
+  try {
+    const config = { signal: parentFilterController.signal }
+    const page = await annotationApi.getAnnotationProjectPage({ order_scope: effectiveOrderScope.value === 'grandchild' ? 'child' : 'parent', keyword, limit: 50 }, config)
+    if (parentFilterId.value && !page.items.some(item => item.id === parentFilterId.value)) {
+      const selected = await annotationApi.getAnnotationProject(parentFilterId.value, config)
+      page.items.unshift(selected)
+    }
+    if (current === parentFilterRequestId) parentFilterOptions.value = page.items
+  }
+  catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '上级订单加载失败') }
 }
-const goChildManagement = (id) => router.push({ name: 'AnnotationChildOrders', query: id ? { parentProjectId: id } : {} })
-const openParent = (row) => { dialogVisible.value = false; router.push({ name: 'AnnotationProjectDetails', query: { projectId: row.parentProjectId, openEditor: '1' } }) }
+const goChildManagement = (id, level = 0) => router.push({ name: 'AnnotationChildOrders', query: { ...(id ? { parentProjectId: id } : {}), ...(level === 1 ? { orderScope: 'grandchild' } : {}) } })
+const openParent = async (row) => { const parent = await annotationApi.getAnnotationProject(row.parentProjectId); await handleEdit(parent,true) }
 const openChildCreate = async (parent, single = false, split = false) => {
-  try { childCreateParent.value = parent?.id ? await annotationApi.getAnnotationProject(parent.id) : parentFilterId.value ? await annotationApi.getAnnotationProject(parentFilterId.value) : null; childCreateSingle.value = single; childCreateSplit.value = split; childCreateVisible.value = true }
-  catch (error) { ElMessage.error(error.detail || '母订单加载失败') }
+  try { childCreateParent.value = parent?.id ? await annotationApi.getAnnotationProject(parent.id) : parentFilterId.value ? await annotationApi.getAnnotationProject(parentFilterId.value) : null; if(!supportsGrandchildOrders.value && childCreateParent.value?.orderLevel === 1){ElMessage.info('当前后端尚未启用三级订单');return} childCreateSingle.value = single; childCreateSplit.value = split; childCreateVisible.value = true }
+  catch (error) { ElMessage.error(error.detail || '上级订单加载失败') }
 }
 const onChildrenCreated = async () => {
   childRevision.value++; for (const id of Object.keys(detailCache)) delete detailCache[id]
-  if (form.id && !form.parentProjectId) { const refreshed = await annotationApi.getAnnotationProject(form.id); form.childCount = refreshed.childCount; form.childStatusCounts = refreshed.childStatusCounts }
+  if (form.id && form.orderLevel < 2) { const refreshed = await annotationApi.getAnnotationProject(form.id); form.childCount = refreshed.childCount; form.childStatusCounts = refreshed.childStatusCounts }
   await fetchData()
 }
 const handlePageChange = () => { exitDeleteMode(); fetchData() }
@@ -817,7 +805,7 @@ const currencyOptions = [
 ]
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:110,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看全部语言及人才储备' },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',width:110,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看全部语言及人才储备' },{ key:'areaLabels',label:'片区',minWidth:140 },{ key:'languageRegion',label:'语言地区',minWidth:100 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -827,10 +815,10 @@ const tableColumns = computed(()=>[...staticTableColumns,...customTableColumns.v
 // 订单号承担详情入口，固定显示；其余字段继续保留用户自己的配置。
 const configurableTableColumns = computed(() => tableColumns.value.filter((column) => column.key !== 'orderNo'))
 const legacyDefaultColumns = ['orderNo','projectName','projectTypes','clientManagerName','projectManagerName','taskDescription','projectStatus','priority','clientShortName','languageItemsDisplay','potentialDemand','customerPriceSummary','taskDispatchedAt','taskSubmittedAt']
-const defaultColumns = ['orderNo','projectName','taskDescription','projectManagerName','projectStatus','clientShortName','languageItemsDisplay','taskSubmittedAt']
-const selectedDefaultColumns = props.orderScope === 'child' ? ['orderNo','projectName','languageItemsDisplay','projectStatus','projectManagerName','taskSubmittedAt'] : defaultColumns
-const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(props.orderScope === 'child' ? 'annotation-child-orders-v1' : 'annotation-details-v6',configurableTableColumns,selectedDefaultColumns,{legacyDefaultKeys:legacyDefaultColumns})
-const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && isVisible(item.key)))
+const defaultColumns = ['orderNo','projectName','taskDescription','projectManagerName','projectStatus','clientShortName','languageItemsDisplay','areaLabels','taskSubmittedAt']
+const selectedDefaultColumns = defaultColumns
+const { selectedKeys: visibleColumnKeys, isVisible, reset: resetColumns } = useTableColumns(props.orderScope === 'child' ? 'annotation-child-orders-v1' : 'annotation-details-v6',configurableTableColumns,selectedDefaultColumns,{legacyDefaultKeys:[legacyDefaultColumns,['projectName','taskDescription','projectManagerName','projectStatus','clientShortName','languageItemsDisplay','taskSubmittedAt'],['projectName','languageItemsDisplay','projectStatus','projectManagerName','taskSubmittedAt']]})
+const visibleTableColumns = computed(() => tableColumns.value.filter((item) => item.key !== 'orderNo' && (supportsGrandchildOrders.value || item.key !== 'areaLabels') && isVisible(item.key)))
 
 const loading=ref(true), dialogVisible=ref(false), submitLoading=ref(false), advancedVisible=ref(false)
 const arrangementVisible=ref(false), arrangementProject=ref(null)
@@ -936,7 +924,7 @@ const localDateTimeValue=businessDateTimeInputValue
 
 const projectNameDate=()=>{const matched=String(form.orderNo||'').match(/^AP-(\d{2})(\d{2})(\d{2})-\d+$/);return matched?`20${matched[1]}-${matched[2]}-${matched[3]}`:today()}
 const emptyLanguageItem=()=>({mode:'single',sourceLanguageId:'',targetLanguageId:''})
-const emptyForm=()=>({id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:localDateTimeValue(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',taskSubmittedAtPending:false,clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
+const emptyForm=()=>({areaId:null,orderLevel:0,parentProjectId:null,inheritanceOverrides:null,restoreInheritance:[],id:'',orderNo:'',projectName:'',projectTypes:[],taskDescription:'',clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientFullName:'',managerContact:'',contactName:'',customerOrderNo:'',subjectPrefix:'',emailSubjectPreview:'',projectStatus:'trial_preparation',priority:'medium',statusEffectiveOn:localDateTimeValue(),languageRegion:'',customValues:{},potentialDemand:'',projectPath:'',quotationPath:'',contractPath:'',taskDispatchedAt:'',taskSubmittedAt:'',taskSubmittedAtPending:false,clientManagerId:'',languageItems:[emptyLanguageItem()],priceItems:[],assignees:[],roleAssignments:[]})
 const form=reactive(emptyForm())
 const onTaskSubmittedAtPendingChange=()=>{
   if(form.taskSubmittedAtPending)form.taskSubmittedAt=''
@@ -972,7 +960,7 @@ const baseAnnotationFilterFields=[
   {key:'clientCode',label:'客户编号',type:'text'},{key:'clientFullName',label:'客户全称',type:'text'},
   {key:'contactName',label:'子客户/联系人',type:'text'},{key:'customerOrderNo',label:'客户单号/项目标识',type:'text'},
   {key:'languageItemsDisplay',apiKey:'language_id',label:'语言方向',type:'select',options:()=>languages.value.map((item)=>({label:item.label,value:item.id}))},
-  {key:'languageRegion',label:'语言地区',type:'text'},{key:'potentialDemand',label:'（潜在）需求量',type:'text'},
+  {key:'areaIds',label:'片区',type:'select',options:()=>areaOptions.value.map(item=>({label:item.label,value:item.id}))},{key:'languageRegion',label:'语言地区',type:'text'},{key:'potentialDemand',label:'（潜在）需求量',type:'text'},
   {key:'hasCustomerPrice',apiKey:'has_customer_price',label:'是否有客户报价',type:'boolean'},
   {key:'customerPriceSummary',apiKey:'customer_price',label:'客户单价',type:'number-range',wide:true,min:0,precision:6},
   {key:'assigneeSummary',apiKey:'assignee_person_id',label:'标注人员安排',type:'select',options:()=>annotationTalents.value.map((item)=>({label:`${item.fullName}${item.resourceCode?`（${item.resourceCode}）`:''}`,value:item.id}))},
@@ -992,15 +980,15 @@ const customFilterDefinition=(field)=>{
   return {...common,type:'text'}
 }
 const annotationFilterFields=computed(()=>[
-  ...baseAnnotationFilterFields,
+  ...baseAnnotationFilterFields.filter(item => supportsGrandchildOrders.value || item.key !== 'areaIds'),
   ...visibleProjectCustomFields.value.filter((field)=>field.isActive!==false&&!['image','url'].includes(field.dataType)).map(customFilterDefinition),
 ])
-const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>item.key!=='projectStatus'))
+const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>!['projectStatus','areaIds'].includes(item.key)))
 Object.assign(searchForm,createFilterModel(baseAnnotationFilterFields),{keyword:''})
 const ensureDynamicFilterModel=()=>annotationFilterFields.value.forEach((field)=>{if(!(field.key in searchForm))searchForm[field.key]=createFilterModel([field])[field.key]})
 const advancedCount=computed(()=>{ensureDynamicFilterModel();return countActiveFilters(searchForm,annotationAdvancedFilterFields.value)})
 const headerFilterDefinition=(key)=>{
-  return annotationFilterFields.value.find((item)=>item.key===key)||null
+  return annotationFilterFields.value.find((item)=>item.key===(key==='areaLabels'?'areaIds':key))||null
 }
 
 const userLabel=(item)=>item.full_name||item.fullName||item.username
@@ -1021,7 +1009,7 @@ const languageItemLabel=(item)=>item.mode==='direction'?`${languageName(item.sou
 const buildGeneratedProjectName=()=>{const labels=form.languageItems.map(languageItemLabel).filter(Boolean);const directionSummary=labels.length>3?`${labels.slice(0,3).join('、')}等方向`:labels.join('、');const typeSummary=form.projectTypes.map((value)=>projectTypeMap[value]||value).join('、');const clientName=form.clientShortName?.trim();if(!clientName&&!directionSummary&&!typeSummary)return '';return `【${[clientName,projectNameDate().replaceAll('-',''),directionSummary,typeSummary].filter(Boolean).join('-')}】`}
 const detailRow=(row)=>detailCache[row.id]||row
 
-const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value),sort:listSort.value,order_scope:props.orderScope,parent_project_id:props.orderScope === 'child' ? (parentFilterId.value || undefined) : undefined}}
+const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value.filter(item=>item.key!=='areaIds')),sort:listSort.value,order_scope:effectiveOrderScope.value,area_ids:supportsGrandchildOrders.value && searchForm.areaIds?.length?searchForm.areaIds:undefined,parent_project_id:props.orderScope === 'child' ? (parentFilterId.value || undefined) : undefined}}
 const pageLanguageIds=(rows)=>[...new Set((rows||[]).flatMap((row)=>(row.languageItems||[]).flatMap((item)=>[item.sourceLanguageId,item.targetLanguageId])).filter(Boolean))]
 const loadPageLanguageReserves=async(rows)=>{const ids=pageLanguageIds(rows);const current=++languageReserveRequestId;languageReserveLoading.value=Boolean(ids.length);languageReserveError.value='';for(const key of Object.keys(languageReserveById))delete languageReserveById[key];if(!ids.length)return;try{const result=await annotationApi.lookupAnnotationLanguageReserves(ids);if(current!==languageReserveRequestId)return;for(const item of result?.items||[])languageReserveById[item.languageId]=item}catch(error){if(current!==languageReserveRequestId)return;languageReserveError.value=error?.detail||'请稍后重试'}finally{if(current===languageReserveRequestId)languageReserveLoading.value=false}}
 const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];expandedProjectIds.value=expandedProjectIds.value.filter((id)=>tableData.value.some((row)=>row.id===id && row.childCount>0));pagination.total=page?.total||0;childRevision.value++;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
@@ -1130,7 +1118,7 @@ const returnToProgressSearch=async()=>{if(await closeProgressDialog()){returnToS
 
 const loadAssignmentCustomFields=async()=>{assignmentCustomFields.value=form.id?await annotationOpsApi.getCustomFields('assignment',form.id):[]}
 const projectRowClass=({row})=>String(row.id)===highlightedProjectId.value?'workbench-target-row':''
-const focusRouteProject=async(editorReady=Promise.resolve())=>{const projectId=String(route.query.projectId||'');if(!projectId)return;const detail=await loadDetail(projectId);if(!detail)return;if(detail.parentProjectId && props.orderScope !== 'child'){await router.replace({name:'AnnotationChildOrders',query:{...route.query,parentProjectId:detail.parentProjectId}});return;}highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;const listPromise=fetchData();if(route.query.tab==='chat'){await listPromise;await openProgress(detail,'','chat')}else if(route.query.openProgress==='1'){await listPromise;await openProgress(detail);const query={...route.query};delete query.openProgress;await router.replace({query})}else if(route.query.openEditor==='1'){await editorReady;await handleEdit(detail,true);const query={...route.query};delete query.openEditor;await router.replace({query})}await Promise.all([listPromise,editorReady])}
+const focusRouteProject=async(editorReady=Promise.resolve())=>{const projectId=String(route.query.projectId||'');if(!projectId)return;const detail=await loadDetail(projectId);if(!detail)return;if(detail.parentProjectId && props.orderScope !== 'child'){await router.replace({name:'AnnotationChildOrders',query:{...route.query,parentProjectId:detail.parentProjectId,...(detail.orderLevel===2?{orderScope:'grandchild'}:{})}});return;}highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;const listPromise=fetchData();if(route.query.tab==='chat'){await listPromise;await openProgress(detail,'','chat')}else if(route.query.openProgress==='1'){await listPromise;await openProgress(detail);const query={...route.query};delete query.openProgress;await router.replace({query})}else if(route.query.openEditor==='1'){await editorReady;await handleEdit(detail,true);const query={...route.query};delete query.openEditor;await router.replace({query})}await Promise.all([listPromise,editorReady])}
 
 const fetchClientSuggestions=fetchProjectClientSuggestions
 const handleClientSelect=(client)=>{form.clientId=client.parent_client_id||client.id||'';form.subClientId=client.sub_client_id||'';form.clientShortName=client.client_short_name||'';form.clientFullName=client.client_name||'';form.clientCode=client.client_code||'';form.managerContact=client.manager_contact||''}
@@ -1144,10 +1132,10 @@ const normalizedLanguageItems=()=>form.languageItems.filter((item)=>item.sourceL
 const splitLanguageKey=(key)=>{if(!key)return {sourceLanguageId:null,targetLanguageId:null};const [source,target]=key.split(':');return {sourceLanguageId:source||null,targetLanguageId:target||null}}
 const validateLanguageItems=()=>{if(form.parentProjectId&&form.languageItems.length!==1)throw new Error('子订单必须且只能绑定一个语种或语言方向');if(!form.languageItems.length)throw new Error('请至少添加一个语种方向');for(const item of form.languageItems){if(!item.sourceLanguageId)throw new Error('每个语言项都必须选择语种');if(item.mode==='direction'&&!item.targetLanguageId)throw new Error('翻译方向必须选择目标语种');if(item.targetLanguageId===item.sourceLanguageId)throw new Error('语言方向的两个语种不能相同')}const keys=normalizedLanguageItems().map((item)=>`${item.sourceLanguageId}:${item.targetLanguageId||''}`);if(new Set(keys).size!==keys.length)throw new Error('同一语言或语言方向不能重复')}
 const validateFormData=()=>{validateLanguageItems();if(!form.taskSubmittedAtPending&&form.taskDispatchedAt&&form.taskSubmittedAt&&new Date(form.taskSubmittedAt)<new Date(form.taskDispatchedAt))throw new Error('任务提交时间不能早于任务派发时间');const languageKeys=new Set(currentLanguageOptions.value.map((item)=>item.key));for(const item of form.priceItems){if(item.projectType&&!form.projectTypes.includes(item.projectType))throw new Error('报价引用了当前项目未选择的项目类型');if(item.languageKey&&!languageKeys.has(item.languageKey))throw new Error('报价引用了当前项目未选择的语言项');if(!item.amount||item.amount<=0)throw new Error('报价金额必须大于零');if(!item.unit?.trim())throw new Error('报价必须填写计价单位')}for(const item of form.assignees){if(!item.personId)throw new Error('每条标注人员安排都必须选择人员')}const keys=form.assignees.map((item)=>`${item.personId}:${item.languageItemId||''}:${item.assignmentRole}`);if(new Set(keys).size!==keys.length)throw new Error('同一人员、语种与角色不能重复安排')}
-const buildPayload=()=>{validateFormData();return {projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,priority:form.priority,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAtPending?null:(form.taskSubmittedAt||null),clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null,rate:item.rate?.amount>0?{amount:item.rate.amount,currency:item.rate.currency||null,unit:item.rate.unit,remarks:item.rate.remarks?.trim()||null}:null}))}}
+const buildPayload=()=>{validateFormData();return {areaId:form.areaId||null,restoreInheritance:form.restoreInheritance||[],projectName:form.projectName?.trim()||null,projectTypes:form.projectTypes,taskDescription:form.taskDescription?.trim()||null,clientId:form.clientId||null,subClientId:form.subClientId||null,clientName:form.clientFullName?.trim()||null,clientShortName:form.clientShortName?.trim()||null,clientCode:form.clientCode?.trim()||null,managerContact:form.managerContact?.trim()||null,contactName:form.contactName?.trim()||null,customerOrderNo:form.customerOrderNo?.trim()||null,emailSubjectPreview:form.emailSubjectPreview?.trim()||null,expectedUpdatedAt:form.updatedAt||null,projectStatus:form.projectStatus,priority:form.priority,statusEffectiveOn:form.statusEffectiveOn,languageRegion:form.languageRegion?.trim()||null,customValues:form.customValues||{},potentialDemand:form.potentialDemand?.trim()||null,projectPath:form.projectPath?.trim()||null,quotationPath:form.quotationPath?.trim()||null,contractPath:form.contractPath?.trim()||null,taskDispatchedAt:form.taskDispatchedAt||null,taskSubmittedAt:form.taskSubmittedAtPending?null:(form.taskSubmittedAt||null),clientManagerId:form.clientManagerId||null,roleAssignments:form.roleAssignments,languageItems:normalizedLanguageItems(),priceItems:form.priceItems.map((item)=>({id:item.id||null,projectType:item.projectType||null,...splitLanguageKey(item.languageKey),amount:item.amount,currency:item.currency||null,unit:item.unit.trim(),remarks:item.remarks?.trim()||null})),assignees:form.assignees.filter(item=>item.personId).map(item=>({id:item.id||null,personId:item.personId,assignmentRole:item.assignmentRole,languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue,audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus,qualityScore:item.qualityScore?.trim()||null,evaluationNote:item.evaluationNote?.trim()||null,rate:item.rate?.amount>0?{amount:item.rate.amount,currency:item.rate.currency||null,unit:item.rate.unit,remarks:item.rate.remarks?.trim()||null}:null}))}}
 const generateProjectName=async()=>{try{validateLanguageItems();const result=await annotationApi.previewAnnotationProjectName({clientShortName:form.clientShortName?.trim()||null,projectTypes:form.projectTypes,languageItems:normalizedLanguageItems(),nameDate:projectNameDate()});form.projectName=result.projectName;nameManuallyEdited.value=false;ElMessage.success('项目名称已生成，仍可手工修改')}catch(error){ElMessage.warning(getLocalizedErrorMessage(error,'无法生成项目名称'))}}
 const generateEmailSubject=()=>notifyEmailSubjectGenerated(form,ElMessage)
-const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:detail.statusEffectiveOn||localDateTimeValue(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:detail.taskDispatchedAt||'',taskSubmittedAt:detail.taskSubmittedAt||'',taskSubmittedAtPending:!detail.taskSubmittedAt,clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||''})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
+const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:businessDateTimeInputValue(detail.statusEffectiveOn||null)||localDateTimeValue(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:businessDateTimeInputValue(detail.taskDispatchedAt||null)||'',taskSubmittedAt:businessDateTimeInputValue(detail.taskSubmittedAt||null)||'',taskSubmittedAtPending:!detail.taskSubmittedAt,clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||''})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
 const resetEditorScroll=async()=>{await nextTick();dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'auto'})}
 const handleAdd=async()=>{editorTab.value='form';dialogTitle.value='新增标注项目';resetForm();annotationApi.resetAnnotationProjectIdempotency();nameManuallyEdited.value=false;dialogVisible.value=true;await resetEditorScroll();await beginDraft('create')}
 const handleEdit=async(row,useProvidedDetail=false)=>{editorTab.value='form';const detail=useProvidedDetail?row:await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`编辑标注项目 · ${detail.orderNo}`;assignForm(detail);await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll();await beginDraft(`edit:${detail.id}`)}
@@ -1159,7 +1147,7 @@ const confirmOrderNoChange=async()=>{normalizeOrderNoInput();const valid=await o
         await orderNoFormRef.value?.applyServerErrors(error)
 ElMessage.error(getLocalizedErrorMessage(error,'订单号修改失败'))}finally{orderNoSubmitting.value=false}}
 const scrollEditorToTop=async()=>{await nextTick();if(await formRef.value?.locateFirstError?.())return;dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})}
-const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;editorTab.value='form';await nextTick();submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;let projectSaved=false;try{if(!materialEditorRef.value?.validate()){await locateDialogFieldByLabel('项目资料');return}const payload={...buildPayload(),materialChanges:materialEditorRef.value.changes()};const wasNew=!form.id;let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);projectSaved=true;if(!saved.parentProjectId){for(const id of Object.keys(detailCache))delete detailCache[id]}materialEditorRef.value?.saved();form.id=saved.id;form.updatedAt=saved.updatedAt;delete detailCache[saved.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(`${wasNew?'标注项目已创建':'标注项目已更新'}${saved.autoCreatedChildCount?`，自动生成 ${saved.autoCreatedChildCount} 个子订单`:''}`);clearDraft();dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){
+const handleSubmit=async(sendAfterSave=false)=>{if(submitLocked)return;editorTab.value='form';await nextTick();submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;let projectSaved=false;try{if(!materialEditorRef.value?.validate()){await locateDialogFieldByLabel('项目资料');return}const payload={...buildPayload(),materialChanges:materialEditorRef.value.changes()};const wasNew=!form.id;let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);projectSaved=true;for(const id of Object.keys(detailCache))delete detailCache[id];materialEditorRef.value?.saved();form.id=saved.id;form.updatedAt=saved.updatedAt;delete detailCache[saved.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(`${wasNew?'标注项目已创建':'标注项目已更新'}${saved.autoCreatedChildCount?`，自动生成 ${saved.autoCreatedChildCount} 个子订单`:''}`);clearDraft();dialogVisible.value=false;if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true}await fetchData()}catch(error){
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(projectSaved?'项目已保存，但后续操作失败，请刷新列表确认。'+getLocalizedErrorMessage(error,''):getLocalizedErrorMessage(error,'保存失败'))}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
@@ -1191,9 +1179,9 @@ const confirmProgressDelete=async()=>{
 }
 
 const setPrioritySaving=(id,saving)=>{const next=new Set(prioritySavingIds.value);if(saving)next.add(id);else next.delete(id);prioritySavingIds.value=next}
-const updatePriority=async(row,priority)=>{if(!priority||priority===row.priority)return;setPrioritySaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectPriority(row.id,priority);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('优先次序已更新');if(searchForm.priority?.length&&!searchForm.priority.includes(updated.priority))await fetchData()}catch(error){ElMessage.error(error?.detail||'优先次序更新失败')}finally{setPrioritySaving(row.id,false)}}
+const updatePriority=async(row,priority)=>{if(!priority||priority===row.priority)return;setPrioritySaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectPriority(row.id,priority);Object.assign(row,updated);detailCache[row.id]=updated;ElMessage.success('优先次序已更新');await handleOrderUpdated()}catch(error){ElMessage.error(error?.detail||'优先次序更新失败')}finally{setPrioritySaving(row.id,false)}}
 const setManagerSaving=(id,saving)=>{const next=new Set(managerSavingIds.value);if(saving)next.add(id);else next.delete(id);managerSavingIds.value=next}
-const updateManager=async(row,columnKey,value)=>{const isClientManager=columnKey==='clientManagerName';const payload={clientManagerId:isClientManager?(value||null):(row.clientManagerId||null),projectManagerIds:isClientManager?roleAssignmentIds(row,'project_manager'):(value||[])};setManagerSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectManagers(row.id,payload);Object.assign(row,updated);if(isClientManager){for(const id of Object.keys(detailCache))delete detailCache[id];childRevision.value++}detailCache[row.id]=updated;ElMessage.success(`${isClientManager?'客户经理':'项目经理'}已更新`);if(searchForm.clientManagerName?.length||searchForm.projectManagerName?.length)await fetchData()}catch(error){ElMessage.error(error?.detail||'负责人更新失败')}finally{setManagerSaving(row.id,false)}}
+const updateManager=async(row,columnKey,value)=>{const isClientManager=columnKey==='clientManagerName';const payload={clientManagerId:isClientManager?(value||null):(row.clientManagerId||null),projectManagerIds:isClientManager?roleAssignmentIds(row,'project_manager'):(value||[])};setManagerSaving(row.id,true);try{const updated=await annotationApi.updateAnnotationProjectManagers(row.id,payload);Object.assign(row,updated);if(isClientManager){for(const id of Object.keys(detailCache))delete detailCache[id];childRevision.value++}detailCache[row.id]=updated;ElMessage.success(`${isClientManager?'客户经理':'项目经理'}已更新`);await handleOrderUpdated()}catch(error){ElMessage.error(error?.detail||'负责人更新失败')}finally{setManagerSaving(row.id,false)}}
 const resetForm=()=>{Object.assign(form,emptyForm());assignmentCustomFields.value=[];nameManuallyEdited.value=false;formRef.value?.clearValidate();clearFieldSearch()}
 const onEditorClosed=()=>{pauseDraft();resetForm()}
 const closeMaterialEditor=(done)=>{if(submitLoading.value){ElMessage.warning('项目正在保存，请稍候');return}done()}
@@ -1201,9 +1189,9 @@ const closeMaterialEditor=(done)=>{if(submitLoading.value){ElMessage.warning('�
 
 watch(()=>[form.clientShortName,[...form.projectTypes],form.languageItems.map((item)=>`${item.mode}:${item.sourceLanguageId}:${item.targetLanguageId}`).join('|')],()=>{clearTimeout(autoNameTimer);if(nameManuallyEdited.value||!dialogVisible.value)return;autoNameTimer=setTimeout(()=>{form.projectName=buildGeneratedProjectName()},300)},{deep:true})
 
-onMounted(async()=>{parentFilterId.value=String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
+onMounted(async()=>{try{supportsGrandchildOrders.value=await annotationApi.getAnnotationOrderCapabilities()}catch{supportsGrandchildOrders.value=false}finally{capabilitiesLoaded.value=true}parentFilterId.value=String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadAreas(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
 watch(()=>[route.query.projectId,route.query.openEditor,route.query.openProgress,route.query.tab],([projectId,openEditor,openProgress,tab],[previousProjectId,previousOpenEditor,previousOpenProgress,previousTab])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(openProgress==='1'&&previousOpenProgress!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
-watch(()=>route.query.parentProjectId,(id)=>{parentFilterId.value=String(id||'');if(props.orderScope==='child')handleSearch()})
+watch(()=>[route.query.parentProjectId,route.query.orderScope],([id])=>{parentFilterId.value=String(id||'');if(props.orderScope==='child'){void searchParentFilters();handleSearch()}})
 onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);clearTimeout(autoNameTimer);requestController?.abort();languageReserveRequestId+=1})
 </script>
 

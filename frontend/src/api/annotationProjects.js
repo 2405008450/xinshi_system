@@ -2,31 +2,41 @@ import api from './index'
 import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
 import { invalidateOptionCache } from '@/utils/optionCache'
 import { convertAnnotationKeys as convertKeys } from '@/utils/annotationStatus'
+import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders } from '@/utils/annotationOrderCapabilities'
 
 const projectCreateState = { key: '', signature: '' }
+export const getAnnotationOrderCapabilities = () => api.get('/openapi.json').then(supportsAnnotationGrandchildOrders)
+export const getAnnotationAreas = () => api.get('/projects/annotation/areas')
+export const createAnnotationArea = label => api.post('/projects/annotation/areas', {label})
 export const resetAnnotationProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
 
 const toCamelCase = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const toSnakeCase = (value) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
 
 export const getAnnotationProjects = (params, config = {}) => (
-  api.get('/projects/annotation/', { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+  api.get('/projects/annotation/', { ...config, params, paramsSerializer: {indexes: null} }).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const getAnnotationProjectCount = (params, config = {}) => (
-  api.get('/projects/annotation/count', { ...config, params })
+  api.get('/projects/annotation/count', { ...config, params, paramsSerializer: {indexes: null} })
 )
 
 export const getAnnotationProjectPage = (params, config = {}) => (
-  api.get('/projects/annotation/page', { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+  api.get('/projects/annotation/page', { ...config, params, paramsSerializer: {indexes: null} }).then((res) => {
+    const page = convertKeys(res, toCamelCase)
+    return {...page, items: (page.items || []).map(normalizeAnnotationOrderLevel)}
+  })
 )
 
 export const getAnnotationProject = (id, config = {}) => (
-  api.get(`/projects/annotation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
+  api.get(`/projects/annotation/${id}`, config).then((res) => normalizeAnnotationOrderLevel(convertKeys(res, toCamelCase)))
 )
 
 export const getAnnotationChildren = (id, params = {}, config = {}) => (
-  api.get(`/projects/annotation/${id}/children`, { ...config, params }).then((res) => convertKeys(res, toCamelCase))
+  api.get(`/projects/annotation/${id}/children`, { ...config, params, paramsSerializer: {indexes: null} }).then((res) => {
+    const page = convertKeys(res, toCamelCase)
+    return {...page, items: (page.items || []).map(normalizeAnnotationOrderLevel)}
+  })
 )
 
 export const createAnnotationChildren = (id, items, key, single = false) => (
@@ -88,7 +98,7 @@ export const updateAnnotationProjectManagers = (id, data) => (
 )
 
 export const getAnnotationManagerChangeLogs = (params = {}, config = {}) => (
-  api.get('/projects/annotation/manager-change-logs', { ...config, params })
+  api.get('/projects/annotation/manager-change-logs', { ...config, params, paramsSerializer: {indexes: null} })
     .then((res) => convertKeys(res, toCamelCase))
 )
 

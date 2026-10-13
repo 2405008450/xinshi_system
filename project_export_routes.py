@@ -20,7 +20,7 @@ from project_export_service import (
 
 def build_export_filters(module, parser, db, *, time_field=None, date_start=None, date_end=None,
                          keyword=None, field_filters=None, client_id=None, order_scope="parent",
-                         parent_project_id=None, sort=None):
+                         parent_project_id=None, area_ids=None, sort=None):
     if client_id is not None:
         # 按母客户精确导出，不混入当前列表的筛选、分页或时间条件。
         result = {"client_id": client_id}
@@ -40,7 +40,7 @@ def build_export_filters(module, parser, db, *, time_field=None, date_start=None
     if module == "annotation":
         if sort not in (None, "order_no_desc", "latest_progress_desc"):
             raise HTTPException(status_code=422, detail="不支持的排序方式")
-        result.update(order_scope=order_scope, parent_project_id=parent_project_id, sort=sort or "order_no_desc")
+        result.update(order_scope=order_scope, parent_project_id=parent_project_id, area_ids=area_ids, sort=sort or "order_no_desc")
     elif sort is not None:
         raise HTTPException(status_code=422, detail="该模块沿用列表默认排序")
     return result
@@ -71,8 +71,9 @@ def register_project_exports(router, module, parser):
             keyword: Optional[str] = None,
             field_filters: Optional[str] = Query(None),
             client_id: Optional[UUID] = None,
-            order_scope: Literal["parent", "child", "all"] = "parent",
+            order_scope: Literal["parent", "child", "grandchild", "all"] = "parent",
             parent_project_id: Optional[UUID] = None,
+            area_ids: Optional[list[UUID]] = Query(None),
             sort: Optional[str] = None,
             db: Session = Depends(get_db),
         ):
@@ -81,7 +82,7 @@ def register_project_exports(router, module, parser):
             filters = build_export_filters(
                 module, parser, db, time_field=time_field, date_start=date_start, date_end=date_end,
                 keyword=keyword, field_filters=field_filters, client_id=client_id,
-                order_scope=order_scope, parent_project_id=parent_project_id, sort=sort,
+                order_scope=order_scope, parent_project_id=parent_project_id, area_ids=area_ids, sort=sort,
             )
             return export_response(db, module, mode, filters, time_field=time_field,
                                    date_start=date_start, date_end=date_end, client_id=client_id)

@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" width="min(760px, calc(100vw - 32px))" top="5vh" class="development-dialog request-arrangement-dialog" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @closed="closed">
+  <DraggableFormDialog v-model="visible" width="min(760px, calc(100vw - 32px))" top="5vh" class="request-arrangement-dialog" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @closed="closed">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="项目每日安排" placeholder="搜索字段，如日期、平台账号" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef" v-loading="loading">
       <el-alert v-if="error" :title="error" type="warning" :closable="false"><el-button text :disabled="loading" @click="loadDate">重新加载</el-button></el-alert>
@@ -28,14 +28,15 @@
   </DraggableFormDialog>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { groupArrangementAccounts } from '@/utils/resourceArrangements'
-const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved'])
+const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved', 'visibility-change'])
 const visible = ref(false), saving = ref(false), loading = ref(false), error = ref(''), request = ref(null), cells = ref([])
+watch(visible, value => emit('visibility-change', value))
 const form = reactive({ work_date: '', revision: 0, platform_ids: [] }), bodyRef = ref(), formRef = ref()
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const groups = computed(() => groupArrangementAccounts(props.options, cells.value.filter(c => c.targets?.some(t => t.request_id === request.value?.id)), { includeEmpty: false }))
@@ -86,6 +87,12 @@ onBeforeUnmount(closed)
 defineExpose({ open })
 </script>
 <style>
+.request-arrangement-dialog { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
+.request-arrangement-dialog > .el-dialog__header, .request-arrangement-dialog > .el-dialog__footer { flex-shrink: 0; }
+.request-arrangement-dialog > .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
+.request-arrangement-dialog > .el-dialog__footer { border-top: 1px solid var(--el-border-color-light); background: var(--el-fill-color-light); padding: 16px; }
+.request-arrangement-dialog .muted { color: var(--el-text-color-secondary); font-size: 13px; }
+.request-arrangement-dialog .el-alert { margin: 12px 0; }
 .request-account-options{width:100%}.request-account-category{padding:10px 14px;border:1px solid var(--el-border-color-light);border-radius:6px;margin-bottom:12px}.request-account-category h4{margin:0 0 10px}.request-account-platform{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.request-account-platform>strong{width:120px;overflow-wrap:anywhere}.request-account-platform .el-checkbox{height:auto;min-height:32px;margin-right:12px;max-width:100%}.request-account-platform .el-checkbox__label{white-space:normal;overflow-wrap:anywhere}.request-arrangement-dialog>.el-dialog__footer{display:flex;justify-content:flex-end;align-items:center;gap:10px}.request-arrangement-dialog>.el-dialog__footer>.muted{margin-right:auto}.request-arrangement-dialog .el-date-editor{width:100%}
 @media(max-width:600px){.request-account-platform>strong{width:100%}.request-arrangement-dialog>.el-dialog__footer{flex-wrap:wrap}}
 </style>

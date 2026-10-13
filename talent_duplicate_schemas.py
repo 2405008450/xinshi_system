@@ -25,3 +25,13 @@ class DuplicateReviewRequest(BaseModel):
 class DuplicateReviewCommit(DuplicateReviewRequest):
     preview_token: str = Field(min_length=64, max_length=64)
     idempotency_key: str = Field(min_length=8, max_length=128)
+
+
+class NameMergePreviewRequest(BaseModel):
+    group_key: str = Field(min_length=1, max_length=1000)
+    group_version: str = Field(min_length=64, max_length=64)
+
+
+class NameMergeCommitRequest(NameMergePreviewRequest):
+    preview_token: str = Field(min_length=64, max_length=64)
+    idempotency_key: str = Field(min_length=8, max_length=128)

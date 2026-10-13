@@ -53,7 +53,7 @@ def parser(module):
 def test_typed_project_exports_and_safe_text(module):
     p = project(project_name="=HYPERLINK(\"bad\")\x01", service_fee_amount=Decimal("1234.56"))
     book = workbook(module, "projects", [p, p])
-    sheet = book["母订单" if module == "annotation" else "项目"]
+    sheet = book["订单" if module == "annotation" else "项目"]
     assert sheet.max_row == 2  # 按 ID 去重
     values = row(sheet)
     assert values["订单号"] == "0000123"
@@ -85,10 +85,10 @@ def test_annotation_parent_child_rates_and_custom_fields():
                                   language_item=NS(display="英语"), audio_duration_value=Decimal("12.5"), audio_duration_unit="minute",
                                   rate=NS(amount=Decimal("0.025"), currency="USD", unit="second"))])
     book = workbook("annotation", "projects", [p, child, child], custom_labels={"field-id": "业务标签"})
-    assert book.sheetnames == ["母订单", "子订单", "语言项", "客户单价", "人员安排"]
-    assert book["母订单"].max_row == book["子订单"].max_row == 2
-    assert row(book["子订单"])["母订单号"] == p.order_no
-    assert json.loads(row(book["母订单"])["自定义字段"]) == {"业务标签": "原值"}
+    assert book.sheetnames == ["订单", "子订单", "三级订单", "语言项", "客户单价", "人员安排"]
+    assert book["订单"].max_row == book["子订单"].max_row == 2
+    assert row(book["子订单"])["上级订单号"] == p.order_no
+    assert json.loads(row(book["订单"])["自定义字段"]) == {"业务标签": "原值"}
     assert row(book["客户单价"])["客户单价"] == 2.125
     values = row(book["人员安排"])
     assert (values["人员单价"], values["工作量单位"], values["人员计价单位"], values["安排角色"]) == (0.025, "分钟", "秒", "质检员")
@@ -122,7 +122,7 @@ def test_real_model_customer_properties_are_exported(module):
     p = model(id=uuid4(), order_no="001", project_status="in_progress")
     p.client = Client(client_name="母公司", client_short_name="母简称", client_code="P001")
     p.sub_client = SubClient(client_name="子公司", client_short_name="子简称", sub_client_code="S001")
-    values = row(workbook(module, "projects", [p])["母订单" if module == "annotation" else "项目"])
+    values = row(workbook(module, "projects", [p])["订单" if module == "annotation" else "项目"])
     assert values["客户全称"] == "子公司"
     assert values["客户编号"] == "S001"
     assert values["客户简称"] == "子简称"
@@ -244,31 +244,36 @@ def test_batch_loading_exports_beyond_first_page_and_loads_relations(monkeypatch
         calls.append(kwargs)
         return data[kwargs["skip"]:kwargs["skip"] + kwargs["limit"]]
     monkeypatch.setattr(import_module(f"{module}_service"), f"get_{module}_projects", loader)
-    filters = {"keyword": "当前筛选", **({"order_scope": "child"} if module == "annotation" else {})}
+    filters = {"keyword": "当前筛选", **({"order_scope": "all"} if module == "annotation" else {})}
     book = load_workbook(BytesIO(service.projects_to_xlsx(module, "projects", service.iter_project_batches(object(), module, filters))))
-    assert sum(book[title].max_row - 1 for title in (["母订单", "子订单"] if module == "annotation" else ["项目"])) == 503
+    assert sum(book[title].max_row - 1 for title in (["订单", "子订单"] if module == "annotation" else ["项目"])) == 503
     assert [call["skip"] for call in calls] == [0, 500]
     assert all(call["keyword"] == "当前筛选" for call in calls)
     if module != "interpretation":
         assert all(call["extra_options"] for call in calls)
 
 
-def test_annotation_parent_batch_includes_all_children_and_child_scope_does_not(monkeypatch):
+def test_annotation_parent_child_and_grandchild_export_scopes(monkeypatch):
     import annotation_service
     parent = project()
     child = project(parent_project_id=parent.id)
+    grandchild = project(parent_project_id=child.id)
+    monkeypatch.setattr(annotation_service, '_attach_child_statistics', lambda *_: None)
     monkeypatch.setattr(annotation_service, "get_annotation_projects", lambda *_a, **_k: [parent])
     class Query:
         def options(self, *_a): return self
-        def filter(self, *_a): return self
+        def filter(self, expression): self.parent_ids = expression.right.value; return self
         def order_by(self, *_a): return self
         def offset(self, skip): self.skip = skip; return self
         def limit(self, *_a): return self
-        def all(self): return [child] if self.skip == 0 else []
+        def all(self): return [row for row in [child,grandchild] if row.parent_project_id in self.parent_ids] if self.skip == 0 else []
     class DB:
         def query(self, *_a): return Query()
-    assert list(service.iter_project_batches(DB(), "annotation", {"order_scope": "parent"})) == [[parent], [child]]
-    assert list(service.iter_project_batches(object(), "annotation", {"order_scope": "child"})) == [[parent]]
+    assert list(service.iter_project_batches(DB(), "annotation", {"order_scope": "parent"})) == [[parent], [child], [grandchild]]
+    monkeypatch.setattr(annotation_service, 'get_annotation_projects', lambda *_a, **_k: [child])
+    assert list(service.iter_project_batches(DB(), 'annotation', {'order_scope':'child'})) == [[child], [grandchild]]
+    monkeypatch.setattr(annotation_service, 'get_annotation_projects', lambda *_a, **_k: [grandchild])
+    assert list(service.iter_project_batches(object(), 'annotation', {'order_scope':'grandchild'})) == [[grandchild]]
 
 
 @pytest.mark.parametrize("module", service.MODULE_LABELS)

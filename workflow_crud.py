@@ -1631,6 +1631,9 @@ def direct_transfer_annotation_client_manager(
     unique_project_ids = list(dict.fromkeys(project_ids))
     if not unique_project_ids:
         raise ValueError('请至少选择一个需要移交的标注项目')
+    from annotation_service import _lock_annotation_order_numbers
+    if isinstance(db, Session):
+        _lock_annotation_order_numbers(db)
     projects = _annotation_client_manager_project_query(
         db,
         source_manager_id,
@@ -1697,7 +1700,7 @@ def direct_transfer_annotation_client_manager(
         project.client_manager_id = target_manager_id
         project.updated_at = now
         from annotation_service import _sync_child_shared_fields
-        _sync_child_shared_fields(db, project)
+        _sync_child_shared_fields(db, project, source_manager_id, operator.id)
 
     source_name = source.full_name or source.username
     target_name = target.full_name or target.username

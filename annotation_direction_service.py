@@ -33,7 +33,7 @@ def ensure_direction_children(db, parent, actor_id=None, operation_source='autom
     from annotation_schemas import AnnotationProjectCreate
     if parent.parent_project_id:
         return []
-    # 保存、补建、手动创建均按编号锁→母订单锁的顺序，避免相互等待。
+    # 保存、补建、手动创建均按编号锁→订单锁的顺序，避免相互等待。
     _lock_annotation_order_numbers(db)
     db.flush()
     parent = _lock_parent(db, parent.id)

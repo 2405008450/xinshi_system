@@ -84,7 +84,8 @@ PROJECT_FIELDS = {
         ("social_post_request", "发帖需求"), ("resource_request", "资源需求"), ("remarks", "备注"),
     ],
     "annotation": [
-        ("parent_order_no", "母订单号", "identifier"), ("parent_project_name", "母项目名称"),
+        ("parent_order_no", "上级订单号", "identifier"), ("parent_project_name", "上级项目名称"),
+        ("area_labels", "片区"),
         ("project_types", "项目类型"), ("task_description", "任务描述"),
         ("priority", "优先次序"), ("language_region", "语言地区"),
         ("potential_demand", "潜在需求量原文"), ("client_manager_name", "客户经理"),
@@ -234,7 +235,7 @@ def sheet_specs(module, mode):
         return [SheetSpec("项目", fields), SheetSpec("时间安排", fields + TIME_RANGE_FIELDS),
                 SheetSpec("语言方向", fields + LANGUAGE_FIELDS[module]), SheetSpec("译员安排", fields + INTERPRETER_FIELDS)]
     if module == "annotation":
-        return [SheetSpec("母订单", fields), SheetSpec("子订单", fields),
+        return [SheetSpec("订单", fields), SheetSpec("子订单", fields), SheetSpec("三级订单", fields),
                 SheetSpec("语言项", fields + LANGUAGE_FIELDS[module]), SheetSpec("客户单价", fields + PRICE_FIELDS),
                 SheetSpec("人员安排", fields + ASSIGNEE_FIELDS)]
     candidate_fields = fields + CANDIDATE_FIELDS
@@ -278,7 +279,7 @@ def project_rows(module, mode, project, custom_labels=None):
             yield "待补数据", row
         return
     if mode == "projects":
-        title = ("子订单" if read(project, "parent_project_id") else "母订单") if module == "annotation" else "项目"
+        title = ({0: '订单', 1: '子订单', 2: '三级订单'}[read(project, 'order_level', 1 if read(project, 'parent_project_id') else 0)]) if module == "annotation" else "项目"
         yield title, base
     relations = {
         "interpretation": [("时间安排", "time_ranges", TIME_RANGE_FIELDS), ("语言方向", "language_directions", LANGUAGE_FIELDS[module]), ("译员安排", "interpreter_assignments", INTERPRETER_FIELDS)],
@@ -355,18 +356,33 @@ def iter_project_batches(db, module, filters):
         if not rows:
             break
         yield rows
-        if module == "annotation" and filters.get("order_scope", "parent") == "parent":
-            parent_ids = [item.id for item in rows if not item.parent_project_id]
-            # 每个父批次的子单也分页读取，避免大型母订单一次装载所有子单。
+        if module == "annotation" and filters.get("order_scope", "parent") in {'parent', 'child'}:
+            from annotation_service import _attach_child_statistics, _apply_filters
+            parent_ids = [item.id for item in rows]
+            # 每个父批次的子单也分页读取，避免大型订单一次装载所有子单。
             child_skip = 0
             while parent_ids:
-                children = (db.query(AnnotationProject).options(*_project_options(), *extra)
-                            .filter(AnnotationProject.parent_project_id.in_(parent_ids))
+                child_query = db.query(AnnotationProject).options(*_project_options(), *extra).filter(AnnotationProject.parent_project_id.in_(parent_ids))
+                child_query = _apply_filters(child_query, area_ids=filters.get('area_ids'))
+                children = (child_query
                             .order_by(AnnotationProject.order_no.desc(), AnnotationProject.id.desc())
                             .offset(child_skip).limit(EXPORT_BATCH_SIZE).all())
                 if not children:
                     break
+                _attach_child_statistics(db, children)
                 yield children
+                if filters.get('order_scope', 'parent') == 'parent':
+                    grandchild_skip = 0
+                    while children:
+                        grandchildren_query = db.query(AnnotationProject).options(*_project_options(), *extra).filter(
+                            AnnotationProject.parent_project_id.in_([child.id for child in children]))
+                        grandchildren_query = _apply_filters(grandchildren_query, area_ids=filters.get('area_ids'))
+                        grandchildren = grandchildren_query.order_by(AnnotationProject.order_no.desc(), AnnotationProject.id.desc()).offset(grandchild_skip).limit(EXPORT_BATCH_SIZE).all()
+                        if not grandchildren:
+                            break
+                        _attach_child_statistics(db, grandchildren)
+                        yield grandchildren
+                        grandchild_skip += len(grandchildren)
                 child_skip += len(children)
         skip += len(rows)
         if len(rows) < EXPORT_BATCH_SIZE:

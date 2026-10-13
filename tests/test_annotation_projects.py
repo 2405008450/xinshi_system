@@ -213,7 +213,13 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
         def commit(self):
             pass
 
+        def expire(self, *_args):
+            pass
+
     db = ManagerDb()
+    monkeypatch.setattr(annotation_service, '_lock_annotation_order_numbers', lambda *_: None)
+    monkeypatch.setattr('annotation_inheritance_service.snapshot', lambda *_: {})
+    monkeypatch.setattr('annotation_inheritance_service.finish_inline_change', lambda *_: None)
 
     monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
     monkeypatch.setattr(

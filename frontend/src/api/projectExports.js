@@ -18,6 +18,7 @@ export async function exportProjectWorkbook(module, type, params, config = {}) {
     return await api.get(`/projects/${module}/${paths[type]}`, {
       ...config,
       params,
+      paramsSerializer: {indexes: null},
       responseType: 'blob',
       timeout: 120000,
     })

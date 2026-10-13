@@ -1,4 +1,4 @@
-"""子订单复制母订单业务快照，所有明细重新归属子订单。"""
+"""子订单复制订单业务快照，所有明细重新归属子订单。"""
 from copy import deepcopy
 
 from annotation_models import AnnotationProjectAssignee
@@ -10,7 +10,7 @@ def source_direction(parent, payload):
     if payload.copy_source_language_item_id:
         source = next((item for item in items if item.id == payload.copy_source_language_item_id), None)
         if source is None:
-            raise ValueError("复制来源语种不属于当前母订单")
+            raise ValueError("复制来源语种不属于当前上级订单")
         return source
     selected = payload.language_items[0] if payload.language_items else None
     return next((item for item in items if selected and item.source_language_id == selected.source_language_id

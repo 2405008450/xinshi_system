@@ -5,9 +5,9 @@ from decimal import Decimal
 import re
 from typing import Optional
 from uuid import UUID
-from annotation_progress_time import business_now, project_progress_datetime
+from annotation_progress_time import business_now, business_datetime, project_progress_datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
 from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 from annotation_material_schemas import MaterialChanges
@@ -234,6 +234,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
 
 
 class AnnotationProjectWrite(BaseModel):
+    area_id: Optional[UUID] = None
     material_changes: Optional[MaterialChanges] = None
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list, max_length=11)
@@ -250,7 +251,7 @@ class AnnotationProjectWrite(BaseModel):
     project_status: str = "initial_consultation"
     priority: str = "medium"
     language_region: Optional[str] = None
-    status_effective_on: datetime = Field(default_factory=datetime.now)
+    status_effective_on: datetime = Field(default_factory=lambda: project_progress_datetime(business_now()))
     custom_values: dict = Field(default_factory=dict)
     potential_demand: Optional[str] = None
     project_path: Optional[str] = None
@@ -265,6 +266,12 @@ class AnnotationProjectWrite(BaseModel):
     price_items: list[AnnotationPriceItemInput] = Field(default_factory=list)
     assignees: list[AnnotationAssigneeInput] = Field(default_factory=list)
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
+
+    @field_validator('status_effective_on', 'task_dispatched_at', 'task_submitted_at',
+                     'customer_consultation_time', 'customer_confirmation_time')
+    @classmethod
+    def normalize_business_time(cls, value):
+        return project_progress_datetime(value) if value is not None else None
 
     @field_validator("project_path", "quotation_path", "contract_path")
     @classmethod
@@ -340,6 +347,11 @@ class AnnotationProjectCreate(AnnotationProjectWrite):
     expected_parent_updated_at: Optional[datetime] = None
     copy_parent_materials: bool = True
 
+    @field_validator('expected_parent_updated_at')
+    @classmethod
+    def normalize_parent_version(cls, value):
+        return project_progress_datetime(value) if value is not None else None
+
 
 class AnnotationChildBatchCreate(BaseModel):
     items: list[AnnotationProjectCreate] = Field(min_length=1, max_length=100)
@@ -347,6 +359,12 @@ class AnnotationChildBatchCreate(BaseModel):
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
     expected_updated_at: Optional[datetime] = None
+    restore_inheritance: list[str] = Field(default_factory=list)
+
+    @field_validator('expected_updated_at')
+    @classmethod
+    def normalize_version(cls, value):
+        return project_progress_datetime(value) if value is not None else None
 
 
 def normalize_annotation_order_no(value: str) -> str:
@@ -438,9 +456,17 @@ class AnnotationProjectManagersUpdate(BaseModel):
 
 
 class AnnotationProjectListResponse(BaseModel):
+    @field_serializer('*', when_used='json')
+    def serialize_business_time(self, value):
+        return business_datetime(value).isoformat() if isinstance(value, datetime) else value
+
     id: UUID
     order_no: str
     parent_project_id: Optional[UUID] = None
+    order_level: int = 0
+    area_id: Optional[UUID] = None
+    area_labels: list[str] = Field(default_factory=list)
+    inheritance_overrides: Optional[list[str]] = None
     child_sequence_no: Optional[int] = None
     parent_order_no: Optional[str] = None
     parent_project_name: Optional[str] = None

@@ -1176,25 +1176,42 @@ def create_trial_follow_up(db: Session, trial_id: UUID, payload, created_by: UUI
 
 
 def save_assignee_rate(db: Session, assignee_id: UUID, payload):
+    from annotation_service import _lock_annotation_order_numbers, get_annotation_project
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    _lock_annotation_order_numbers(db)
     if not db.get(AnnotationProjectAssignee, assignee_id):
         return None
+    assignee = db.get(AnnotationProjectAssignee, assignee_id)
+    db.query(AnnotationProject).filter_by(id=assignee.project_id).with_for_update().populate_existing().first()
+    project = get_annotation_project(db, assignee.project_id)
+    before = snapshot(project)
     row = db.query(AnnotationAssigneeRate).filter(AnnotationAssigneeRate.assignee_id == assignee_id).first()
     if not row:
         row = AnnotationAssigneeRate(assignee_id=assignee_id)
         db.add(row)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(row, key, value)
-    row.updated_at = datetime.now()
+    row.updated_at = business_now().replace(tzinfo=None)
+    assignee.rate = row
+    finish_inline_change(db, project, before)
     db.commit()
     db.refresh(row)
     return row
 
 
 def delete_assignee_rate(db: Session, assignee_id: UUID) -> bool:
+    from annotation_service import _lock_annotation_order_numbers, get_annotation_project
+    from annotation_inheritance_service import snapshot, finish_inline_change
+    _lock_annotation_order_numbers(db)
     row = db.query(AnnotationAssigneeRate).filter(AnnotationAssigneeRate.assignee_id == assignee_id).first()
     if not row:
         return False
-    db.delete(row)
+    assignee = db.get(AnnotationProjectAssignee, assignee_id)
+    db.query(AnnotationProject).filter_by(id=assignee.project_id).with_for_update().populate_existing().first()
+    project = get_annotation_project(db, assignee.project_id)
+    before = snapshot(project)
+    assignee.rate = None
+    finish_inline_change(db, project, before)
     db.commit()
     return True
 

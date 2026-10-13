@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import String, and_, cast, func, inspect, or_, select, text, union_all
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload, Load
 
 from interpretation_models import InterpretationLanguage
 from resource_models import (
@@ -187,6 +187,9 @@ def delete_talent(db: Session, person_id: UUID) -> bool:
             "请先解除关联，或将人才状态改为停用以保留历史记录。"
         )
     attachment_names = [item.storage_name for item in person.attachments]
+    from talent_retention_service import ensure_attachment_retained
+    for attachment in person.attachments:
+        ensure_attachment_retained(db, person_id, attachment.id)
     try:
         db.delete(person)
         db.commit()
@@ -718,11 +721,16 @@ def get_talent_project_histories(
                     participated_at=getattr(assignment, "created_at", None) or project.created_at,
                 )
 
+    # 人才项目汇总只加载需要的项目摘要字段，避免批量推荐加载整份订单及未启用的新模块字段。
+    annotation_summary = Load(AnnotationProject).load_only(
+        AnnotationProject.id, AnnotationProject.project_name, AnnotationProject.order_no,
+        AnnotationProject.project_status,
+    )
     for assignment, project in db.query(
         AnnotationProjectAssignee, AnnotationProject,
     ).join(
         AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id,
-    ).filter(AnnotationProjectAssignee.person_id.in_(requested_ids)).all():
+    ).filter(AnnotationProjectAssignee.person_id.in_(requested_ids)).options(annotation_summary).all():
         add(
             assignment.person_id, ("annotation", project.id),
             project_type="annotation", project_id=project.id,
@@ -734,7 +742,7 @@ def get_talent_project_histories(
         AnnotationTrialRecord, AnnotationProject,
     ).join(
         AnnotationProject, AnnotationProject.id == AnnotationTrialRecord.project_id,
-    ).filter(AnnotationTrialRecord.person_id.in_(requested_ids)).all():
+    ).filter(AnnotationTrialRecord.person_id.in_(requested_ids)).options(annotation_summary).all():
         add(
             trial.person_id, ("annotation", project.id),
             project_type="annotation", project_id=project.id,

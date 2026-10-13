@@ -68,6 +68,7 @@ build/
 /backups/*.dump
 /data/annotation_custom_field_images/
 /data/annotation_materials/
+/data/talent_review_archives/
 
 # Browser automation and test artifacts
 .playwright/

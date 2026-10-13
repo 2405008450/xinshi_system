@@ -7,7 +7,8 @@
     [ValidateRange(1, 24)]
     [int]$MaxAttempts = 1,
     [ValidateRange(1, 5)]
-    [int]$RetryDelaySeconds = 5
+    [int]$RetryDelaySeconds = 5,
+    [int]$ValidationPort = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,21 @@ $pythonExecutable = Join-Path $projectRoot '.venv\Scripts\python.exe'
 $frontendRoot = Join-Path $projectRoot 'frontend'
 $needsBackend = $Service -in @('All', 'Backend')
 $needsFrontend = $Service -in @('All', 'Frontend')
+$backendPort = 8000
+$frontendPort = 3000
+# 隔离验收只允许独立服务和备用端口，绝不替换日常业务服务。
+if ($ValidationPort) {
+    if ($Service -eq 'All' -or $ValidationPort -lt 9000 -or $ValidationPort -gt 9999) {
+        throw '隔离验收须指定单个服务，端口范围为 9000～9999。'
+    }
+    if ($needsBackend) { $backendPort = $ValidationPort }
+    if ($needsFrontend) {
+        if ($env:VITE_API_PROXY_TARGET -notmatch '^http://127\.0\.0\.1:9\d{3}$') {
+            throw '隔离验收前端必须代理到本机 9000～9999 端口。'
+        }
+        $frontendPort = $ValidationPort
+    }
+}
 
 function Get-PortListener {
     param([int]$Port)
@@ -60,6 +76,11 @@ if ($needsBackend) {
     $configJson = & $pythonExecutable (Join-Path $projectRoot 'tools\local_startup_config.py')
     if ($LASTEXITCODE -ne 0) { throw '后端配置检查失败。' }
     $config = $configJson | ConvertFrom-Json
+    if ($ValidationPort -and ($config.database_host -ne '127.0.0.1' -or
+        $config.database_driver -notlike 'postgresql*' -or
+        $config.database_name -notlike 'xinshi_annotation_validation_*')) {
+        throw '隔离验收后端仅允许连接本机命名为 xinshi_annotation_validation_* 的 PostgreSQL 数据库。'
+    }
     Write-Host "Python：$($config.python)"
     Write-Host "数据库：$($config.database_driver) $($config.database_host):$($config.database_port)/$($config.database_name)；APP_ENV=$($config.app_env)；结构迁移关闭"
     & $pythonExecutable -c 'import uvicorn, fastapi, sqlalchemy, psycopg2'
@@ -96,8 +117,8 @@ if ($needsFrontend) {
 }
 
 $ports = @()
-if ($needsBackend) { $ports += 8000 }
-if ($needsFrontend) { $ports += 3000 }
+if ($needsBackend) { $ports += $backendPort }
+if ($needsFrontend) { $ports += $frontendPort }
 foreach ($port in $ports) {
     $listeners = @(Get-PortListener $port)
     Write-Host "端口 $port：$(if ($listeners.Count) { '已监听，PID=' + ($listeners.OwningProcess -join ',') } else { '空闲' })"
@@ -112,8 +133,8 @@ if ($Service -eq 'All' -and $SharePath) {
 }
 
 if ($Service -eq 'Backend') {
-    Write-Host '后端：http://127.0.0.1:8000/；当前终端 Ctrl+C 停止。'
-    $uvicornArgs = @('-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000', '--log-level', 'info')
+    Write-Host "后端：http://127.0.0.1:$backendPort/；当前终端 Ctrl+C 停止。"
+    $uvicornArgs = @('-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', "$backendPort", '--log-level', 'info')
     if ($Reload) { $uvicornArgs += '--reload' }
     & $pythonExecutable @uvicornArgs
     if ($LASTEXITCODE -ne 0) { throw "后端退出，错误码 $LASTEXITCODE" }
@@ -121,8 +142,8 @@ if ($Service -eq 'Backend') {
 }
 if ($Service -eq 'Frontend') {
     Set-Location -LiteralPath $frontendRoot
-    Write-Host '前端：http://localhost:3000/；当前终端 Ctrl+C 停止。'
-    & npm.cmd run dev -- --host 127.0.0.1 --port 3000 --strictPort
+    Write-Host "前端：http://localhost:$frontendPort/；当前终端 Ctrl+C 停止。"
+    & npm.cmd run dev -- --host 127.0.0.1 --port $frontendPort --strictPort
     if ($LASTEXITCODE -ne 0) { throw "前端退出，错误码 $LASTEXITCODE" }
     return
 }

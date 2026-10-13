@@ -1,4 +1,4 @@
-"""历史多方向母订单补建：默认只读，应用时逐母订单事务并输出报告。"""
+"""历史多方向订单补建：默认只读，应用时逐订单事务并输出报告。"""
 import argparse
 import json
 from pathlib import Path
@@ -28,10 +28,10 @@ def backfill(sessions, *, apply=False, parent_ids=None, on_result=None):
                 if apply:
                     _lock_annotation_order_numbers(db)
                     if not _lock_parent(db, project_id):
-                        raise ValueError('母订单不存在')
+                        raise ValueError('订单不存在')
                 parent = get_annotation_project(db, project_id)
                 if parent is None:
-                    raise ValueError('母订单不存在')
+                    raise ValueError('订单不存在')
                 missing, summary = direction_state(db, parent)
                 if summary['direction_count'] < 2:
                     continue
@@ -78,7 +78,7 @@ def run():
     write_report([])
     rows = backfill(SessionLocal, apply=args.apply, on_result=write_report)
     failures = sum(row['status'] == 'failed' for row in rows)
-    print(f'已{"应用" if args.apply else "预览"} {len(rows)} 个多方向母订单，失败 {failures} 个；报告：{args.report}')
+    print(f'已{"应用" if args.apply else "预览"} {len(rows)} 个多方向订单，失败 {failures} 个；报告：{args.report}')
     return 1 if failures else 0
 
 

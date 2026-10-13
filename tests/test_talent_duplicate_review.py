@@ -27,6 +27,12 @@ from talent_duplicate_service import (commit, undo, preview, groups, group_detai
 ACTOR = SimpleNamespace(id=uuid4(), username="qa", full_name="核重测试员")
 
 
+@pytest.fixture(autouse=True)
+def isolated_retention_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("TALENT_UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("TALENT_REVIEW_ARCHIVE_DIR", str(tmp_path / "retained"))
+
+
 @pytest.fixture
 def db():
     url = os.environ.get("TALENT_DUPLICATE_TEST_DATABASE_URL")
@@ -303,6 +309,272 @@ def test_redaction_and_http_write_permissions(db, monkeypatch):
     request = dict(action="keep", person_ids=[str(a.id), str(uuid4())], target_id=str(a.id))
     assert client.post("/talents/duplicate-review/preview", json=request).status_code == 403
     assert client.post("/talents/duplicate-review/operations/" + str(uuid4()) + "/undo").status_code == 403
+    assert client.get("/talents/duplicate-review/name-merge/groups").status_code == 403
+    assert client.post("/talents/duplicate-review/name-merge/preview", json={"group_key": "王测试", "group_version": "a" * 64}).status_code == 403
+    assert client.post("/talents/duplicate-review/name-merge/commit", json={"group_key": "王测试", "group_version": "a" * 64, "preview_token": "a" * 64, "idempotency_key": str(uuid4())}).status_code == 403
+    assert client.get("/talents/duplicate-review/operations/" + str(uuid4())).status_code == 403
+    operation_root = "/talents/duplicate-review/operations/" + str(uuid4()) + "/original-data"
+    assert client.get(operation_root).status_code == 403
+    assert client.get(operation_root + "/export").status_code == 403
+    assert client.get(operation_root + "/attachments/" + str(uuid4())).status_code == 403
+
+
+def test_retention_master_original_survives_later_edits_catalog_changes_and_repeat_merge(db):
+    from interpretation_models import InterpretationLanguage
+    from talent_retention_service import original_data, export_original_data
+    language = InterpretationLanguage(id=uuid4(), label="原始语种名")
+    db.add(language); db.commit()
+    a, b, c = person(db, remarks="原主档备注\n第二行"), person(db, residence_address="泉州"), person(db)
+    a.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id, role="native", priority=0))
+    db.commit()
+    operation, _ = process(db, [a.id, b.id], a.id, "merge")
+    operation_id = UUID(operation["id"])
+    retained = original_data(db, operation_id, a.id)
+    assert retained["snapshot"]["person"]["remarks"] == "原主档备注\n第二行"
+    assert retained["snapshot"]["person"]["residence_address"] is None
+    assert retained["integrity_recorded"] and retained["frozen_at"].endswith("+08:00")
+    assert next(item for item in retained["people"] if item["id"] == str(a.id))["role"] == "原主档"
+    assert "原始语种名" in str(retained["fields"])
+    a = get_talent(db, a.id); a.remarks = "主档后来编辑的备注"
+    language.label = "后来目录名称"
+    db.commit()
+    process(db, [a.id, c.id], c.id, "keep")
+    again = original_data(db, operation_id, a.id)
+    assert again["snapshot"] == retained["snapshot"]
+    assert "原始语种名" in str(again["fields"]) and "后来目录名称" not in str(again["fields"])
+    assert {item["id"] for item in again["people"]} == {str(a.id), str(b.id)}
+    exported = export_original_data(db, operation_id)
+    assert exported["before_snapshot"]["people"][str(a.id)] == retained["snapshot"]
+    exported["before_snapshot"]["people"][str(a.id)]["person"]["remarks"] = "修改客户端副本"
+    assert original_data(db, operation_id, a.id)["snapshot"]["person"]["remarks"] == "原主档备注\n第二行"
+    with pytest.raises(HTTPException) as caught:
+        original_data(db, operation_id, uuid4())
+    assert caught.value.status_code == 404
+
+
+def test_retention_keeps_binary_original_after_live_attachment_deleted_and_blocks_corruption(db):
+    from talent_attachment_service import attachment_path, delete_talent_attachment
+    from talent_retention_service import original_data, original_attachment, _blob_path
+    content = b"synthetic original photo bytes"
+    a, b = person(db), person(db)
+    attachment = ResourcePersonAttachment(id=uuid4(), person_id=a.id, category="photo", original_name="合成照片.png", storage_name="synthetic.png", content_type="image/png", file_size=len(content))
+    db.add(attachment); db.commit()
+    attachment_path(attachment.storage_name).write_bytes(content)
+    operation, _ = process(db, [a.id, b.id], a.id, "merge")
+    operation_id = UUID(operation["id"])
+    retained = original_data(db, operation_id)
+    assert retained["attachments"][0]["state"] == "archived"
+    archived, item = original_attachment(db, operation_id, attachment.id)
+    assert archived.read_bytes() == content
+    assert delete_talent_attachment(db, a.id, attachment.id)
+    assert not attachment_path(attachment.storage_name).exists()
+    archived, _ = original_attachment(db, operation_id, attachment.id)
+    assert archived.read_bytes() == content
+    assert original_data(db, operation_id, a.id)["snapshot"]["attachments"][0]["id"] == str(attachment.id)
+    archived.write_bytes(b"tampered")
+    with pytest.raises(HTTPException) as caught:
+        original_attachment(db, operation_id, attachment.id)
+    assert caught.value.status_code == 409
+
+
+def test_retention_survives_undo_missing_files_are_explicit_and_legacy_files_protected(db):
+    from talent_attachment_service import attachment_path, delete_talent_attachment
+    from talent_retention_service import original_data, original_attachment
+    a, b = person(db), person(db)
+    missing = ResourcePersonAttachment(id=uuid4(), person_id=b.id, category="photo", original_name="缺失照片.png", storage_name="missing.png", content_type="image/png", file_size=99)
+    legacy = ResourcePersonAttachment(id=uuid4(), person_id=a.id, category="photo", original_name="旧照片.png", storage_name="legacy.png", content_type="image/png", file_size=6)
+    db.add_all([missing, legacy]); db.commit()
+    attachment_path(legacy.storage_name).write_bytes(b"legacy")
+    operation, _ = process(db, [a.id, b.id], a.id, "keep")
+    operation_id = UUID(operation["id"])
+    data = original_data(db, operation_id)
+    assert next(item for item in data["attachments"] if item["attachment_id"] == str(missing.id))["state"] == "missing_at_merge"
+    undo(db, operation_id, ACTOR)
+    assert original_data(db, operation_id)["operation"]["undone_at"]
+    assert original_attachment(db, operation_id, legacy.id)[0].read_bytes() == b"legacy"
+    op = db.get(TalentDuplicateOperation, operation_id)
+    op.decisions = {key: value for key, value in op.decisions.items() if key != "retention"}
+    db.commit()
+    assert not original_data(db, operation_id)["integrity_recorded"]
+    with pytest.raises(HTTPException) as caught:
+        delete_talent_attachment(db, a.id, legacy.id)
+    assert caught.value.status_code == 409
+    db.rollback()
+    assert attachment_path(legacy.storage_name).read_bytes() == b"legacy"
+
+
+def test_retention_fails_before_merging_when_file_store_unwritable(db, monkeypatch):
+    import talent_retention_service as retention
+    from talent_attachment_service import attachment_path
+    a, b = person(db), person(db)
+    attachment = ResourcePersonAttachment(id=uuid4(), person_id=a.id, category="photo", original_name="测试.png", storage_name="qa.png", content_type="image/png", file_size=2)
+    db.add(attachment); db.commit(); attachment_path(attachment.storage_name).write_bytes(b"qa")
+    request = DuplicateReviewRequest(action="keep",person_ids=[a.id,b.id],target_id=a.id)
+    proposed = preview(db,request)
+    payload = DuplicateReviewCommit(**request.model_dump(),preview_token=proposed["preview_token"],idempotency_key=str(uuid4()))
+    def failure(*_args, **_kwargs):
+        raise OSError("模拟磁盘留存失败")
+    monkeypatch.setattr(retention.tempfile,"NamedTemporaryFile",failure)
+    with pytest.raises(HTTPException) as caught:
+        commit(db,payload,ACTOR)
+    assert caught.value.status_code == 503
+    db.rollback()
+    assert not get_talent(db,b.id).archived_into_id and db.query(TalentDuplicateOperation).count() == 0
+
+
+def test_retention_http_export_and_snapshot_integrity(db):
+    from sqlalchemy.orm.attributes import flag_modified
+    from routers import talent_duplicate_review as router
+    from routers.auth import get_current_user, require_super_admin
+    from database import get_db
+    a, b = person(db, resume_path="https://example.org/external-cv.pdf", primary_email="synthetic@example.org"), person(db)
+    operation, _ = process(db, [a.id,b.id], a.id, "keep")
+    app = FastAPI(); app.include_router(router.router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: ACTOR
+    app.dependency_overrides[require_super_admin] = lambda: ACTOR
+    client = TestClient(app)
+    root = "/talents/duplicate-review/operations/" + operation["id"] + "/original-data"
+    response = client.get(root,params={"person_id":str(a.id)})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json()["snapshot"]["person"]["primary_email"] == "synthetic@example.org"
+    assert response.json()["external_references"][0]["state"] == "reference_only"
+    exported = client.get(root+"/export")
+    assert exported.status_code == 200 and "attachment;" in exported.headers["content-disposition"]
+    assert exported.json()["before_snapshot"]["people"][str(a.id)]["person"]["resume_path"] == a.resume_path
+    op = db.get(TalentDuplicateOperation,UUID(operation["id"]))
+    op.before_snapshot["people"][str(a.id)]["person"]["remarks"] = "模拟快照损坏"
+    flag_modified(op,"before_snapshot"); db.commit()
+    assert client.get(root).status_code == 409 and client.get(root+"/export").status_code == 409
+
+
+def test_customer_name_rule_boundaries():
+    from talent_name_merge_service import name_kind
+    for name in ["张小真", "王测试（英文名）", "欧阳测试", "張測試", " 张\t小 真 "]:
+        assert name_kind(name) == "chinese"
+    for name in ["王露", "夏优（泰语）", "张 三"]:
+        assert name_kind(name) == "short_chinese"
+    for name in ["William Zhao", " WILLIAM\n  Zhao ", "José da Silva", "Mary-Jane O’Neill", "J. Smith"]:
+        assert name_kind(name) == "english"
+    for name in ["William", "王露 Zhao", "ABC 123", "Иван Петров", "", "-(备注)"]:
+        assert name_kind(name) == "other"
+
+
+def test_name_merge_preview_all_members_field_audit_and_idempotency(db):
+    from talent_name_merge_service import list_groups, preview_group, commit_group
+    from talent_duplicate_schemas import NameMergePreviewRequest, NameMergeCommitRequest
+    from talent_duplicate_service import operation_detail
+    a = person(db, "张小真", gender="女", primary_email="first@example.org", remarks="主档备注\n第二行")
+    b = person(db, "张小真（来源甲）", gender="男", primary_email="second@example.org", residence_address="泉州", remarks="来源备注")
+    c = person(db, "张小真", secondary_phone="1234567890")
+    person(db, "王露"), person(db, "王露")
+    person(db, "WILLIAM Zhao"), person(db, "William  Zhao")
+    rows = list_groups(db, limit=100)
+    assert rows["total"] == 2 and rows["archive_count"] == 3
+    assert rows["counts"]["short_chinese"] == 1
+    group = next(item for item in rows["items"] if item["key"] == "张小真")
+    assert group["target_id"] == str(a.id) and group["count"] == 3
+    request = NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"])
+    proposed = preview_group(db, request)
+    assert not proposed["conflicts"]
+    assert proposed["final_values"]["gender"] == "女"
+    assert proposed["final_values"]["primary_email"] == "first@example.org"
+    assert proposed["final_values"]["residence_address"] == "泉州"
+    assert "主档备注\n第二行" in proposed["final_values"]["remarks"] and "来源备注" in proposed["final_values"]["remarks"]
+    assert len(proposed["audit"]["participants"]) == 3
+    assert all(not get_talent(db, row.id).archived_into_id for row in [a, b, c])
+    payload = NameMergeCommitRequest(**request.model_dump(), preview_token=proposed["preview_token"], idempotency_key=str(uuid4()))
+    result = commit_group(db, payload, ACTOR)
+    assert commit_group(db, payload, ACTOR)["id"] == result["id"]
+    assert db.query(TalentDuplicateOperation).count() == 1
+    detail = operation_detail(db, UUID(result["id"]))
+    field = next(row for row in detail["audit"]["fields"] if row["key"] == "gender")
+    assert field["value"] == "女" and {row["value"] for row in field["options"]} == {"女", "男", None}
+    assert len(detail["audit"]["archive_ids"]) == 2 and detail["created_at"].endswith("+08:00")
+    assert get_talent(db, a.id).resource_code == a.resource_code
+    assert get_talent(db, b.id).gender == "男" and get_talent(db, b.id).archived_into_id == a.id
+    assert get_talent(db, c.id).archived_into_id == a.id
+    assert "second@example.org" in str(detail_inheritance(db, a.id, True)["inherited_contacts"])
+    altered = payload.model_copy(update={"group_key": "其他同名"})
+    with pytest.raises(HTTPException) as caught:
+        commit_group(db, altered, ACTOR)
+    assert caught.value.status_code == 409
+    undo(db, UUID(result["id"]), ACTOR)
+    assert all(not get_talent(db, row.id).archived_into_id for row in [a, b, c])
+    assert get_talent(db, a.id).residence_address is None
+
+
+def test_name_merge_rejects_short_names_stale_members_and_business_links(db):
+    from talent_name_merge_service import list_groups, preview_group, commit_group
+    from talent_duplicate_schemas import NameMergePreviewRequest, NameMergeCommitRequest
+    a, b = person(db), person(db, residence_address="北京")
+    group = list_groups(db)["items"][0]
+    request = NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"])
+    with pytest.raises(HTTPException) as caught:
+        preview_group(db, NameMergePreviewRequest(group_key="王露", group_version=group["group_version"]))
+    assert caught.value.status_code == 422
+    person(db)
+    with pytest.raises(HTTPException) as caught:
+        preview_group(db, request)
+    assert caught.value.status_code == 409
+    group = list_groups(db)["items"][0]
+    request = NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"])
+    proposed = preview_group(db, request)
+    with db.get_bind().begin() as conn:
+        conn.execute(text("CREATE TABLE merge_business(id uuid PRIMARY KEY, person_id uuid REFERENCES resource_person(id), note text)"))
+    db.execute(text("INSERT INTO merge_business VALUES (:id,:person,'新关联')"), {"id": uuid4(), "person": a.id})
+    db.commit()
+    payload = NameMergeCommitRequest(**request.model_dump(), preview_token=proposed["preview_token"], idempotency_key=str(uuid4()))
+    with pytest.raises(HTTPException) as caught:
+        commit_group(db, payload, ACTOR)
+    assert caught.value.status_code == 409
+    db.rollback()
+    assert not get_talent(db, b.id).archived_into_id and not db.query(TalentDuplicateOperation).count()
+
+
+def test_name_merge_collection_conflict_keeps_master_attachments_and_capacity(db):
+    from interpretation_models import InterpretationLanguage
+    from talent_name_merge_service import list_groups, preview_group, commit_group
+    from talent_duplicate_schemas import NameMergePreviewRequest, NameMergeCommitRequest
+    from talent_duplicate_service import operation_detail
+    language = InterpretationLanguage(id=uuid4(), label="合成英语")
+    db.add(language); db.commit()
+    a = person(db, registration_source="甲" * 200)
+    b = person(db, registration_source="乙" * 200)
+    c = person(db)
+    a.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id, role="native", priority=0))
+    b.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id, role="foreign", priority=0))
+    c.language_skills.append(ResourceLanguageSkill(id=uuid4(), language_id=language.id, role="native", priority=0))
+    attachment = ResourcePersonAttachment(id=uuid4(), person_id=b.id, category="resume", original_name="合成简历.pdf", storage_name="qa.pdf", content_type="application/pdf", file_size=12)
+    db.add(attachment); db.commit()
+    group = list_groups(db)["items"][0]
+    request = NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"])
+    proposed = preview_group(db, request)
+    assert not proposed["conflicts"] and proposed["final_values"]["language_skills"][0]["role"] == "native"
+    assert proposed["final_values"]["registration_source"] == "甲" * 200
+    payload = NameMergeCommitRequest(**request.model_dump(), preview_token=proposed["preview_token"], idempotency_key=str(uuid4()))
+    result = commit_group(db, payload, ACTOR)
+    audit = operation_detail(db, UUID(result["id"]))["audit"]
+    attachment_field = next(row for row in audit["fields"] if row["key"] == "attachments")
+    assert attachment_field["value"][0]["readonly"] and attachment_field["value"][0]["id"] == str(attachment.id)
+    assert get_talent(db, b.id).language_skills[0].role == "foreign"
+    assert detail_inheritance(db, a.id, True)["inherited_attachments"][0]["readonly"]
+
+
+def test_name_merge_handles_empty_profile_lists_when_master_has_no_profile(db):
+    from resource_models import AnnotationProfile, ResourceCareerProfile
+    from talent_name_merge_service import list_groups, preview_group
+    from talent_duplicate_schemas import NameMergePreviewRequest
+    a, b = person(db), person(db)
+    b.capabilities.append(ResourceCapability(id=uuid4(), capability_type="annotation", status="active", source="manual"))
+    db.add_all([AnnotationProfile(person_id=b.id), ResourceCareerProfile(person_id=b.id)])
+    db.commit()
+    group = list_groups(db)["items"][0]
+    proposed = preview_group(db, NameMergePreviewRequest(group_key=group["key"], group_version=group["group_version"]))
+    assert not proposed["conflicts"]
+    for field in ["annotation_profile.task_types", "annotation_profile.tools", "career_profile.industries", "career_profile.job_titles"]:
+        assert proposed["final_values"][field] == []
+    assert get_talent(db, a.id).annotation_profile is None
 
 
 def test_language_conflict_and_attachment_preservation(db):

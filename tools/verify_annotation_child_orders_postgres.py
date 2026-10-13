@@ -1,4 +1,4 @@
-"""调试机隔离PostgreSQL实例：迁移、行锁与母子订单事务验收，不连接业务数据库。"""
+"""调试机隔离PostgreSQL实例：迁移、行锁与订单与子订单事务验收，不连接业务数据库。"""
 import os
 from pathlib import Path
 import socket

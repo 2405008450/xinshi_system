@@ -40,6 +40,11 @@ from annotation_service import (
 )
 from database import get_db
 from annotation_models import AnnotationProject
+from annotation_models import AnnotationArea
+from annotation_inheritance_service import snapshot, finish_inline_change
+from annotation_service import _lock_annotation_order_numbers
+from pydantic import BaseModel, Field
+import unicodedata
 from annotation_manager_change_schemas import AnnotationManagerChangeLogListResponse
 from annotation_manager_change_service import list_annotation_manager_changes
 from annotation_ops_models import AnnotationCustomFieldDefinition
@@ -190,6 +195,7 @@ def _filters(
     field_filters=None,
     order_scope="all",
     parent_project_id=None,
+    area_ids=None,
     sort="order_no_desc",
 ):
     return dict(
@@ -214,6 +220,7 @@ def _filters(
         field_filters=field_filters,
         order_scope=order_scope,
         parent_project_id=parent_project_id,
+        area_ids=area_ids,
         sort=sort,
     )
 
@@ -221,6 +228,32 @@ def _filters(
 from project_export_routes import register_project_exports
 
 register_project_exports(router, "annotation", lambda raw, db: _field_filters(raw, db))
+
+
+class AreaInput(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+
+
+@router.get('/areas', response_model=list[dict])
+def read_areas(db: Session = Depends(get_db)):
+    return [{'id': str(row.id), 'label': row.label} for row in db.query(AnnotationArea).order_by(AnnotationArea.label)]
+
+
+@router.post('/areas', response_model=dict, dependencies=[Depends(require_any_permission('projects:write'))])
+def create_area(payload: AreaInput, db: Session = Depends(get_db)):
+    label = unicodedata.normalize('NFKC', payload.label).strip()
+    if not label:
+        raise HTTPException(status_code=400, detail='片区名称不能为空')
+    key = label.casefold()
+    if len(label) > 100 or len(key) > 100:
+        raise HTTPException(status_code=400, detail='片区名称标准化后不能超过 100 个字符')
+    _lock_annotation_order_numbers(db)
+    row = db.query(AnnotationArea).filter_by(name_key=key).first()
+    if row is None:
+        row = AnnotationArea(label=label, name_key=key)
+        db.add(row)
+    db.commit()
+    return {'id': str(row.id), 'label': row.label}
 
 
 @router.get("/", response_model=List[AnnotationProjectListResponse], deprecated=True)
@@ -246,8 +279,9 @@ def read_projects(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
-    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    order_scope: str = Query("all", pattern="^(all|parent|child|grandchild)$"),
     parent_project_id: Optional[UUID] = None,
+    area_ids: Optional[List[UUID]] = Query(None),
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -270,7 +304,7 @@ def read_projects(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
-        order_scope=order_scope, parent_project_id=parent_project_id,
+        order_scope=order_scope, parent_project_id=parent_project_id, area_ids=area_ids,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -298,8 +332,9 @@ def read_project_count(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
-    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    order_scope: str = Query("all", pattern="^(all|parent|child|grandchild)$"),
     parent_project_id: Optional[UUID] = None,
+    area_ids: Optional[List[UUID]] = Query(None),
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -322,7 +357,7 @@ def read_project_count(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
-        order_scope=order_scope, parent_project_id=parent_project_id,
+        order_scope=order_scope, parent_project_id=parent_project_id, area_ids=area_ids,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -352,8 +387,9 @@ def read_project_page(
     confirmation_date_start: Optional[date] = None,
     confirmation_date_end: Optional[date] = None,
     field_filters: Optional[str] = Query(None),
-    order_scope: str = Query("all", pattern="^(all|parent|child)$"),
+    order_scope: str = Query("all", pattern="^(all|parent|child|grandchild)$"),
     parent_project_id: Optional[UUID] = None,
+    area_ids: Optional[List[UUID]] = Query(None),
     sort: str = Query("order_no_desc", pattern="^(order_no_desc|latest_progress_desc)$"),
     db: Session = Depends(get_db),
 ):
@@ -372,7 +408,7 @@ def read_project_page(
         consultation_date_end=consultation_date_end,
         confirmation_date_start=confirmation_date_start,
         confirmation_date_end=confirmation_date_end,
-        order_scope=order_scope, parent_project_id=parent_project_id,
+        order_scope=order_scope, parent_project_id=parent_project_id, area_ids=area_ids,
         field_filters=_field_filters(field_filters, db),
         sort=sort,
     )
@@ -431,13 +467,13 @@ def create_project(
 
 
 @router.get("/{project_id}/children", response_model=PageResponse[AnnotationProjectListResponse])
-def read_children(project_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=500), db: Session = Depends(get_db)):
+def read_children(project_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=500), area_ids: Optional[List[UUID]] = Query(None), db: Session = Depends(get_db)):
     parent = get_annotation_project(db, project_id)
     if not parent:
-        raise HTTPException(status_code=404, detail="母订单不存在")
-    if parent.parent_project_id:
-        raise HTTPException(status_code=400, detail="子订单没有下一级订单")
-    filters = {"order_scope": "child", "parent_project_id": project_id}
+        raise HTTPException(status_code=404, detail="上级订单不存在")
+    if parent.order_level >= 2:
+        raise HTTPException(status_code=400, detail="三级订单没有下一级订单")
+    filters = {"order_scope": "all", "parent_project_id": project_id, "area_ids": area_ids}
     items = get_annotation_projects(db, skip=skip, limit=limit, **filters)
     return {"items": items, "total": resolve_page_total(items, skip, lambda: count_annotation_projects(db, **filters))}
 
@@ -504,10 +540,12 @@ def update_project_text_field(
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     try:
+        _lock_annotation_order_numbers(db)
         project = db.query(AnnotationProject).filter(AnnotationProject.id == project_id).with_for_update().populate_existing().first()
+        before = snapshot(project)
         changed = apply_text_field_update(project, payload, ANNOTATION_TEXT_FIELDS)
         if changed:
-            _sync_child_shared_fields(db, project)
+            finish_inline_change(db, project, before)
             db.commit()
     except ValueError as exc:
         db.rollback()
@@ -542,6 +580,9 @@ def update_project_custom_text_field(
     if payload.field != definition.field_key:
         raise HTTPException(status_code=400, detail="动态字段键与接口地址不一致")
     try:
+        _lock_annotation_order_numbers(db)
+        project = db.query(AnnotationProject).filter_by(id=project_id).with_for_update().populate_existing().first()
+        before = snapshot(project)
         assert_fresh(project, payload.expected_updated_at)
         value = normalize_text_value(
             payload.value,
@@ -559,7 +600,7 @@ def update_project_custom_text_field(
         )
         if normalized != (project.custom_values or {}):
             project.custom_values = normalized
-            project.updated_at = datetime.now()
+            finish_inline_change(db, project, before, current_user.id)
             db.commit()
     except ValueError as exc:
         db.rollback()
@@ -576,7 +617,11 @@ def update_project_priority(
     payload: AnnotationProjectPriorityUpdate,
     db: Session = Depends(get_db),
 ):
-    project = update_annotation_project_priority(db, project_id, payload.priority)
+    try:
+        project = update_annotation_project_priority(db, project_id, payload.priority)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not project:
         raise HTTPException(status_code=404, detail="标注项目不存在")
     return project

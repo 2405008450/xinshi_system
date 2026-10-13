@@ -123,6 +123,8 @@ def delete_talent_attachment(db: Session, person_id: UUID, attachment_id: UUID) 
     ).first()
     if not row:
         return False
+    from talent_retention_service import ensure_attachment_retained
+    ensure_attachment_retained(db, person_id, attachment_id)
     path = attachment_path(row.storage_name)
     db.delete(row)
     db.commit()

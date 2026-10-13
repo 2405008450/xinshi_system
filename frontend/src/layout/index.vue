@@ -349,6 +349,7 @@ watch(isCollapse, (collapsed) => {
 })
 
 const currentPageTitle = computed(() => {
+  if (route.name === 'AnnotationChildOrders' && route.query.orderScope === 'grandchild') return '标注三级订单管理'
   return route.meta?.title || '首页'
 })
 
