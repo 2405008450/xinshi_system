@@ -5,6 +5,11 @@
         <ChatWorkspace
           :sessions="sessions"
           :mention-history-total="mentionHistoryTotal"
+          :project-mentions="mentionPreview"
+          @browse-project-mentions="previewProject = $event"
+          @select-project-mention="selectPreviewMention"
+          @more-project-mentions="mentionPreview.loadMore"
+          @retry-project-mentions="mentionPreview.refresh"
           :active-key="state.activeKey"
           :error="followedError"
           :narrow="workspaceNarrow"
@@ -103,7 +108,13 @@
             :text-only="chatWindow.projectType === 'annotation'"
             :always-enabled="chatWindow.projectType === 'annotation'"
             @unread="incrementUnread(chatWindow.key)"
-          />
+          >
+            <template v-if="chatWindow.projectType === 'annotation' && mentionSession(chatWindow).mentionHistoryCount" #mention-navigation>
+              <ProjectMentionCorner :ref="el => setMentionRef(chatWindow.key, el)" :session="mentionSession(chatWindow)"
+                :selected="state.activeKey === chatWindow.key" :locate="id => panelRefs.get(chatWindow.key)?.locate?.(id)"
+                :cancel-locate="() => panelRefs.get(chatWindow.key)?.cancelLocate?.()" @activate="focusChat(chatWindow.key)" />
+            </template>
+          </component>
         </div>
       </section>
 
@@ -145,7 +156,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
@@ -155,6 +166,8 @@ import DirectChat from './DirectChat.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import ProjectMentionCorner from './ProjectMentionCorner.vue'
+import { useChatMentions } from '@/composables/useChatMentions'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
 import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
@@ -194,7 +207,7 @@ const {
   restoreWorkspace,
   ensurePreferences,
 } = useProjectChatDock()
-const { sessions: followed, mentionTotal, mentionHistoryTotal, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
+const { sessions: followed, mentionTotal, mentionHistoryTotal, annotationMentionCounts, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
 
 const COMPACT_SCREEN_WIDTH = 768
 const WORKSPACE_HEADER = 52
@@ -203,6 +216,20 @@ const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight 
 const draggingKey = ref('')
 const sidebarOpen = ref(true)
 const panelRefs = new Map()
+const mentionRefs = new Map()
+const setMentionRef = (key, el) => { if (el) mentionRefs.set(key, el); else mentionRefs.delete(key) }
+const previewProject = ref(null)
+const previewQuery = useChatMentions(ref(''), computed(() => !!previewProject.value), computed(() => ({
+  projectType: previewProject.value?.projectType, projectId: previewProject.value?.projectId,
+})))
+const mentionPreview = reactive({ project: previewProject, ...previewQuery })
+const mentionSession = chatWindow => sessions.value.find(row => row.key === chatWindow.key) || chatWindow
+async function selectPreviewMention(item) {
+  const key = openChat({ projectId: item.projectId, projectType: item.projectType, title: item.title, subtitle: item.subtitle })
+  if (workspaceNarrow.value) sidebarOpen.value = false
+  await nextTick()
+  if (state.activeKey === key) await mentionRefs.get(key)?.select(item)
+}
 
 const setPanelRef = (key, el) => {
   if (el) panelRefs.set(key, el)
@@ -236,7 +263,9 @@ const sessions = computed(() => {
   for (const item of state.windows) {
     if (!rows.some(s => s.key === item.key)) rows.push({ ...item, opened: true })
   }
-  return rows
+  const counts = new Map(annotationMentionCounts.value.map(item => [String(item.projectId), item.count]))
+  // 先保持现有目录范围，再补充个人提及信息；历史提及不能把未关注项目带入目录。
+  return rows.map(row => ({ ...row, mentionHistoryCount: row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0 }))
 })
 async function updatePreference({ session, data }) {
   try { await chatRequest(`sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }

@@ -1309,6 +1309,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
 import {
+  normalizeConsultationIntakePriority,
   interpretationDirectionsError,
   interpretationTimeRangesError,
 } from '@/utils/consultationIntakeValidation'
@@ -2331,7 +2332,7 @@ const buildPayload = () => {
     customer_order_no: form.customer_order_no?.trim() || null,
     project_name: form.project_name?.trim() || null,
     project_intake: {
-      ...form.project_intake,
+      ...normalizeConsultationIntakePriority(form.project_intake, form.consultation_type),
       word_count_matrix: serializeWordCountMatrix(form.project_intake.word_count_matrix),
       required_interpreter_count: isInterpretationConsultationType(form.consultation_type)
         ? (interpretationRequiredTotal.value || null)
@@ -2686,7 +2687,7 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
 
 const buildConfirmationProjectIntake = () => {
   const source = confirmationContext.consultationPayload || confirmationContext.row || {}
-  const intake = { ...(source.project_intake || {}) }
+  const intake = normalizeConsultationIntakePriority(source.project_intake, source.consultation_type)
   if (confirmationPreview.project_type === 'translation' || isTranslationConsultationType(source.consultation_type)) {
     intake.service_content = confirmationForm.serviceContent?.trim() || null
     intake.language_pair = confirmationForm.languagePair?.trim() || null

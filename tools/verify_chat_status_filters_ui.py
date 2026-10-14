@@ -22,8 +22,8 @@ const statuses = ['initial_consultation','trial_preparation','trial_in_progress'
 const names = ['咨询项目','准备项目','试标项目','进行项目','反馈项目','暂停项目'];
 window.fixture = reactive({ maximized:true, narrow:false, sidebarOpen:true, sessionWidth:300,
   sessions:statuses.map((status,i)=>({key:'annotation:'+i,projectId:String(i),projectType:'annotation',
-    title:names[i],subtitle:'AP-'+i,projectStatus:status,unread:i===2?1:0,mentionUnread:i===2?1:0})),
-  mentionHistoryTotal:57 });
+    title:names[i],subtitle:'AP-'+i,projectStatus:status,mentionHistoryCount:i===2?55:i===4?1:0,unread:i===2?1:0,mentionUnread:i===2?1:0})),
+  mentionHistoryTotal:58 });
 window.fixture.sessions.push({key:'direct:1',projectId:'1',projectType:'direct',title:'单聊同事'});
 const app=createApp({render:()=>h(ChatWorkspace,{...window.fixture,
   onLocateMention:item=>window.located=item.messageId,
@@ -45,7 +45,9 @@ def run():
                      preview=f'确认试标 {i}', unread=i == 55, created_at='2026-10-13T10:00:00+08:00',
                      status='trial_in_progress') for i in range(1, 56)]
     messages.extend([dict(messages[0], message_id='feedback', sequence_no=56, title='反馈项目',
-                          status='client_feedback', preview='反馈内容'),
+                          project_id='4', key='annotation:4', status='client_feedback', preview='反馈内容'),
+                     dict(messages[0], message_id='outside', sequence_no=58, title='目录外历史项目',
+                          project_id='99', key='annotation:99', status='trial_in_progress', preview='目录外提及'),
                      dict(messages[0], message_id='translation', sequence_no=57, title='笔译项目',
                           project_type='translation', status='', preview='笔译内容')])
 
@@ -105,31 +107,30 @@ def run():
         assert page.locator('.chat-workspace__list').bounding_box()['height'] > list_height + 40
         page.screenshot(path=str(output / 'collapsed.png'))
         filters.get_by_role('button', name='@我', exact=True).click()
-        items = page.locator('.chat-mention-inbox__message')
-        expect(items).to_have_count(50)
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text('55 条历史提及')
+        expect(page.locator('.chat-workspace__result-count')).to_have_text('1 个会话')
+        expect(page.locator('.chat-mention-inbox')).to_have_count(0)
         expect(summary).to_be_visible()
         summary.press('Enter')
         expect(filters.get_by_role('button', name='收起状态筛选', exact=True)).to_have_attribute('aria-expanded', 'true')
-        expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('55 条')
-        page.get_by_role('button', name='加载更多', exact=True).click()
-        expect(items).to_have_count(55)
-        expect(trial_status).to_contain_text('(1)')  # 项目数不随同一项目的提及条数变化。
-        assert requests[-1]['project_status'] == 'trial_in_progress' and requests[-1]['before'] == '6'
-        items.first.click()
-        assert page.evaluate('window.located') == 'm55'
-        search = page.get_by_placeholder('搜索名称、订单号、消息')
-        search.fill('确认试标 55')
-        expect(items).to_have_count(1)
-        expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('1 条')
         expect(trial_status).to_contain_text('(1)')
+        # 已读仅取消着色，不移除含历史提及的项目。
+        page.evaluate('window.fixture.sessions[2].mentionUnread=0')
+        expect(rows).to_have_count(1)
+        expect(rows).not_to_have_class(re.compile('has-unread-mention'))
+        search = page.get_by_placeholder('搜索名称、订单号、消息')
+        search.fill('准备项目')
+        expect(rows).to_have_count(0)
+        search.fill('试标项目')
+        expect(rows).to_have_count(1)
         search.fill('')
-        expect(items).to_have_count(50)
         filters.get_by_role('button', name='客户反馈', exact=True).click()
-        expect(items).to_have_count(1)
-        expect(items).to_contain_text('反馈内容')
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text('反馈项目')
         filters.get_by_role('button', name='试标准备', exact=True).click()
-        expect(items).to_have_count(0)
-        expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('0 条')
+        expect(rows).to_have_count(0)
+        assert not requests, '项目内 @我 不应请求全局消息收件箱'
         filters.get_by_role('button', name='全部会话', exact=True).click()
         filters.get_by_role('button', name='更多状态').click()
         popup = page.locator('.chat-status-popover:visible')
@@ -156,9 +157,19 @@ def run():
             page.locator('.chat-workspace__stage').click(position={'x': 30, 'y': 100})
 
         group('单聊'); expect(rows).to_have_count(1); expect(filters).to_have_count(0)
-        group('@我'); expect(items).to_have_count(50)
-        expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('57 条')
+        group('@我')
+        items = page.locator('.chat-mention-inbox__message')
+        expect(items).to_have_count(50)
+        expect(page.locator('.chat-mention-inbox__heading')).to_contain_text('58 条')
         assert not requests[-1].get('project_status') and not requests[-1].get('project_type')
+        page.get_by_role('button', name='加载更多', exact=True).click()
+        expect(items).to_have_count(58)
+        items.first.click()
+        assert page.evaluate('window.located') == 'outside'
+        search.fill('确认试标 55')
+        expect(items).to_have_count(1)
+        search.fill('')
+        expect(items).to_have_count(50)
         group('标注项目群')
         page.evaluate('window.fixture.maximized=false')
         page.locator('#app').evaluate("el=>{el.style.width='760px';el.style.height='680px'}")
@@ -198,9 +209,26 @@ def run():
         expect(filters.get_by_role('button', name='展开状态筛选', exact=True)).to_contain_text('@我')
         expect(filters.get_by_role('button', name='展开状态筛选', exact=True)).to_have_attribute('title', re.compile('其他状态有未读 @我'))
         page.screenshot(path=str(output / 'mobile-collapsed.png'))
+        # 复现用户的四个项目目录：消息再多也只能筛出原目录的子集。
+        page.set_viewport_size({'width': 1233, 'height': 884})
+        page.evaluate("window.fixture.narrow=false;window.fixture.maximized=true;window.fixture.sessionWidth=300;window.fixture.sessions=window.fixture.sessions.filter(s=>['annotation:0','annotation:2','annotation:4','annotation:5'].includes(s.key))")
+        filters.get_by_role('button', name='展开状态筛选', exact=True).click()
+        filters.get_by_role('button', name='不限状态', exact=True).click()
+        filters.get_by_role('button', name='全部会话', exact=True).click()
+        expect(rows).to_have_count(4)
+        before_titles = set(rows.locator('.chat-workspace__session-title strong').all_text_contents())
+        page.screenshot(path=str(output / 'four-projects.png'))
+        filters.get_by_role('button', name='@我', exact=True).click()
+        expect(rows).to_have_count(2)
+        expect(page.locator('.chat-workspace__result-count')).to_have_text('2 个会话')
+        after_titles = set(rows.locator('.chat-workspace__session-title strong').all_text_contents())
+        assert after_titles <= before_titles and '目录外历史项目' not in after_titles
+        page.screenshot(path=str(output / 'two-mentioned-projects.png'))
+        page.evaluate('window.fixture.sessions.forEach(s=>s.mentionHistoryCount=0)')
+        expect(rows).to_have_count(0)
         assert not errors, errors
         browser.close()
-    print('通过：状态区展开/收起、保留筛选和提及切换、键盘展开、列表空间回收、浮层关闭、项目数与未读提示、普通/最大化/小屏布局。')
+    print('通过：四个项目筛为两个项目、排除目录外历史消息、已读提及保留、状态区展开/收起、保留筛选和提及切换、键盘展开、列表空间回收、浮层关闭、项目数与未读提示、普通/最大化/小屏布局。')
     print(f'截图：{output}')
 
 

@@ -56,6 +56,23 @@ function workspaceVisibility(state, followedItems = [{ projectId: 'followed-proj
   })
 }
 
+test('历史提及只标记原目录及临时打开的项目，不能加入目录外项目', () => {
+  const source = dock.slice(dock.indexOf('const sessions = computed'), dock.indexOf('async function updatePreference'))
+  const rows = runInNewContext(`${source}\n;sessions.value`, {
+    computed: getter => ({ get value() { return getter() } }),
+    followed: { value: [
+      { key: 'annotation:a', kind: 'annotation', projectId: 'a' },
+      { key: 'annotation:b', kind: 'annotation', projectId: 'b' },
+      { key: 'direct:d', kind: 'direct', projectId: 'd' },
+    ] },
+    state: { windows: [{ key: 'annotation:temp', projectType: 'annotation', projectId: 'temp' }] },
+    annotationMentionCounts: { value: [{ projectId: 'a', count: 3 }, { projectId: 'outside', count: 5 }, { projectId: 'temp', count: 2 }] },
+  })
+  assert.deepEqual(Array.from(rows, row => row.key), ['annotation:a', 'annotation:b', 'direct:d', 'annotation:temp'])
+  assert.deepEqual(Array.from(rows, row => row.mentionHistoryCount), [3, 0, 0, 2])
+  assert.deepEqual(Array.from(rows.filter(row => row.mentionHistoryCount > 0), row => row.projectId), ['a', 'temp'])
+})
+
 test('旧版全屏偏好刷新后恢复普通布局，已关注项目不会自动打开窗口', () => {
   for (const maximizedFrom of ['float', 'workspace', undefined]) {
     const storage = new Map([['xinshi.chatDock.anonymous', JSON.stringify({
@@ -314,7 +331,7 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(historyPanel, /allowFiles/)
   assert.match(annotationChat, /ChatHistorySearchPanel/)
   assert.match(annotationChat, /allow-files/)
-  assert.match(annotationChat, /defineExpose\(\{ openSearch, locate, toggleFilters: openSearch \}\)/)
+  assert.match(annotationChat, /defineExpose\(\{ openSearch, locate, cancelLocate, toggleFilters: openSearch \}\)/)
   assert.match(chatPanel, /const locateMessage = async/)
   assert.match(chatPanel, /返回最新消息/)
   assert.match(chatPanel, /around: messageId/)

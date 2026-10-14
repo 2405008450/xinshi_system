@@ -9,7 +9,7 @@ from models import (AnnotationChatMember, ChatProjectEnabled, ChatProjectMemberP
                     ChatProjectMessage, ChatProjectMention, TranslationProject)
 
 
-def mention_query(db, user, keyword='', *, project_type=None, project_status=None):
+def mention_query(db, user, keyword='', *, project_type=None, project_status=None, project_id=None):
     message = ChatProjectMessage
     ready = phase_one_ready(db)
     annotation_scope = message.annotation_project_id.is_not(None)
@@ -42,6 +42,9 @@ def mention_query(db, user, keyword='', *, project_type=None, project_status=Non
         query = query.filter(annotation_scope)
     elif project_type == 'translation':
         query = query.filter(message.project_id.is_not(None))
+    if project_id is not None:
+        project_column = message.annotation_project_id if project_type == 'annotation' else message.project_id
+        query = query.filter(project_column == project_id)
     if project_status:
         # 按项目当前状态筛选历史提及；总数与游标分页共用同一查询。
         query = query.filter(AnnotationProject.project_status == project_status)
@@ -56,8 +59,16 @@ def mention_count(db, user):
     return mention_query(db, user).with_entities(ChatProjectMessage.id).count()
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None):
-    query = mention_query(db, user, keyword, project_type=project_type, project_status=project_status)
+def annotation_mention_counts(db, user):
+    """按项目汇总当前用户的有效历史提及，供会话目录逐层筛选使用。"""
+    project_id = ChatProjectMessage.annotation_project_id
+    rows = mention_query(db, user, project_type='annotation').with_entities(
+        project_id, func.count(ChatProjectMessage.id)).group_by(project_id).all()
+    return [dict(project_id=pid, count=count) for pid, count in rows]
+
+
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None):
+    query = mention_query(db, user, keyword, project_type=project_type, project_status=project_status, project_id=project_id)
     total = query.with_entities(ChatProjectMessage.id).count()
     if before is not None:
         query = query.filter(ChatProjectMessage.sequence_no < before)

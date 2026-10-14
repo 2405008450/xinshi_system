@@ -17,9 +17,14 @@
       <el-button v-if="canAddToProgress" size="small" :disabled="!selected.length" @click="toProgress">转进度 {{ selected.length || '' }}</el-button>
     </div></Teleport>
     <div v-if="draggingFiles" class="chat-file-drop">松开鼠标，添加图片或文件</div>
-    <el-button v-if="unreadMentions.length" class="group-mention-jump" size="small" type="warning" @click="nextMention">{{ unreadMentions.length }} 条消息@了你</el-button>
     <div v-if="error" class="group-error" role="alert">{{ error }} <el-button link @click="search">重新加载</el-button></div>
-    <ChatTimeline />
+    <div class="chat-timeline-area" :class="{ 'has-mention-tools': !!$slots['mention-navigation'] || unreadMentions.length, 'has-both-mention-tools': !!$slots['mention-navigation'] && unreadMentions.length }">
+      <ChatTimeline />
+      <div v-if="$slots['mention-navigation'] || unreadMentions.length" class="chat-timeline-corner">
+        <slot name="mention-navigation" />
+        <el-button v-if="unreadMentions.length" class="group-mention-jump" size="small" type="warning" @click="nextMention">{{ unreadMentions.length }} 条消息@了你</el-button>
+      </div>
+    </div>
     <el-button v-if="pendingNew || viewingHistory" size="small" class="group-new" @click="returnLatest">{{ pendingNew ? `有 ${pendingNew} 条新消息` : '返回最新消息' }}</el-button>
     <ChatComposer />
     </div>
@@ -99,6 +104,14 @@ const canSend = computed(() => !sending.value && (retryPayload.value || (!files.
 const detail = e => e?.detail || e?.message || '操作失败，请重试'
 const sizeLabel = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
 let disposed = false, generation = 0, searchController, searchTimer, syncTimer, syncing = false, syncAgain = false, unwatch, observer, readTimer
+let locateVersion = 0, locateController, initialized = false, resolveReady
+const ready = new Promise(resolve => { resolveReady = resolve })
+function cancelLocate() {
+  ++locateVersion
+  highlighted.value = ''
+  if (locateController) { ++generation; locateController.abort(); locateController = null }
+}
+watch(() => props.active, active => { if (!active) cancelLocate() })
 let lastRead = 0, readBusy = false
 const visibleMessages = new Map(), observedElements = new WeakSet(), cleanup = []
 const atBottom = () => !!list.value && list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 45
@@ -147,6 +160,7 @@ function merge(rows) {
   rows.filter(m => !m.recalledAt).forEach(m => m.attachments?.filter(f => f.contentType.startsWith('image/')).forEach(loadImage))
 }
 async function search() {
+  if (initialized) cancelLocate()
   clearTimeout(searchTimer)
   searchController?.abort()
   searchController = new AbortController()
@@ -203,20 +217,31 @@ async function sync() {
 }
 async function returnLatest() { await search(); await bottom() }
 async function locate(id) {
+  const requestVersion = ++locateVersion
+  locateController?.abort()
+  await ready
+  if (disposed || requestVersion !== locateVersion) return false
+  const version = ++generation
+  searchController?.abort()
+  loading.value = false
   if (!messages.value.some(m => m.id === id)) {
-    const version = ++generation
-    searchController?.abort()
-    const controller = new AbortController(); searchController = controller
+    const controller = new AbortController(); searchController = controller; locateController = controller
     try {
       const data = await request(props.projectId, 'timeline', { params: { around: id }, signal: controller.signal })
-      if (version !== generation || disposed) return
+      if (version !== generation || disposed || requestVersion !== locateVersion) return false
+      if (!data.items?.some(m => m.id === id && !m.recalledAt)) return false
       messages.value = []; visibleMessages.clear(); merge(data.items); hasEarlier.value = true; viewingHistory.value = true
-    } catch (e) { if (!controller.signal.aborted) ElMessage.error(detail(e)); return }
+    } catch (e) { if (!controller.signal.aborted && requestVersion === locateVersion) ElMessage.error(detail(e)); return false }
+    finally { if (locateController === controller) locateController = null }
   }
   await nextTick()
-  list.value?.querySelector(`[data-message-id="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  if (disposed || requestVersion !== locateVersion || version !== generation) return false
+  const target = list.value?.querySelector(`[data-message-id="${id}"]`)
+  if (!target || messages.value.find(m => m.id === id)?.recalledAt) return false
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
   highlighted.value = id
-  setTimeout(() => { highlighted.value = '' }, 1800)
+  setTimeout(() => { if (requestVersion === locateVersion) highlighted.value = '' }, 1800)
+  return true
 }
 function observeMessage(el) {
   if (el && observer && !observedElements.has(el)) { observedElements.add(el); observer.observe(el) }
@@ -384,12 +409,14 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)
   window.addEventListener('resize', closeMention)
   await loadGroup(); await search()
+  initialized = true; resolveReady()
   if (props.targetMessageId) await locate(props.targetMessageId)
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
+  cancelLocate(); resolveReady()
   unwatch?.(); cleanup.forEach(fn => fn()); observer?.disconnect()
   document.removeEventListener('visibilitychange', foreground); window.removeEventListener('focus', foreground)
   window.removeEventListener('resize', closeMention)
@@ -398,7 +425,7 @@ onBeforeUnmount(() => {
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
 provide('chatController', { props, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
-defineExpose({ openSearch, locate, toggleFilters: openSearch })
+defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 
 <style scoped src="./chatConversation.css" />
@@ -409,7 +436,12 @@ defineExpose({ openSearch, locate, toggleFilters: openSearch })
 .annotation-members-popover.annotation-participants-popover{overflow:visible}
 </style>
 <style scoped>
-.group-mention-jump{position:absolute;right:12px;top:48px;z-index:2}
+.chat-timeline-area{position:relative;display:flex;flex:1;min-height:0;min-width:0;overflow:hidden}
+.chat-timeline-corner{position:absolute;right:12px;top:8px;z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:calc(100% - 24px);pointer-events:none}
+.chat-timeline-corner>*{pointer-events:auto}
+.chat-timeline-corner .group-mention-jump{position:static;margin:0}
+.chat-timeline-area.has-mention-tools :deep(.group-timeline){padding-top:52px;scroll-padding-top:52px}
+.chat-timeline-area.has-both-mention-tools :deep(.group-timeline){padding-top:86px;scroll-padding-top:86px}
 </style>
 
 <style scoped>

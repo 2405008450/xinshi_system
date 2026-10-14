@@ -122,6 +122,10 @@ def validated_intake(project_type: str, intake: Optional[dict]) -> dict:
             data = normalize_legacy_interpretation_intake(data)
             return InterpretationProjectUpdate(**data).model_dump(mode="json", exclude={"interpreter_assignments", "expected_updated_at"})
         if project_type == "annotation":
+            # 旧版咨询表单共用笔译优先级字段，未填写时会提交空值；按未提供处理，沿用标注默认值。
+            priority = data.get("priority")
+            if priority is None or (isinstance(priority, str) and not priority.strip()):
+                data.pop("priority", None)
             return AnnotationProjectUpdate(**data).model_dump(mode="json", exclude={"assignees", "expected_updated_at"})
         if project_type == "recruitment":
             return RecruitmentProjectUpdate(**data).model_dump(mode="json", exclude={"expected_updated_at"})

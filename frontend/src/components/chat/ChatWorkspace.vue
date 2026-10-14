@@ -29,7 +29,7 @@
       </nav>
       <aside v-show="!narrow || sidebarOpen" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
         <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="pane = item.key"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'messages' && unreadTotal" class="chat-pane-count">{{ unreadTotal > 99 ? '99+' : unreadTotal }}</span></button></div>
-        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && showMentions ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : `${visibleSessions.length} 个会话` : pane === 'contacts' ? '内部通讯录' : '按主题查找消息' }}</small></div>
+        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : `${visibleSessions.length} 个会话` : pane === 'contacts' ? '内部通讯录' : '按主题查找消息' }}</small></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
             <div class="chat-workspace__search"><el-input v-model="keyword" clearable size="small" placeholder="搜索名称、订单号、消息" @keyup.enter="applyKeyword"><template #prefix><el-button link :icon="Search" aria-label="查询会话" title="查询" @click="applyKeyword" /></template></el-input></div>
@@ -56,15 +56,18 @@
           </div>
           <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
           <div class="chat-workspace__list">
-            <ChatMentionInbox v-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
+            <ChatMentionInbox v-if="showMentions" :keyword="appliedKeyword" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
             <div class="chat-workspace__result-count">{{ visibleSessions.length }} 个会话</div>
-            <el-empty v-if="!visibleSessions.length" :description="tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
+            <el-empty v-if="!visibleSessions.length" :description="annotationMentionView ? '当前筛选中没有提及我的项目' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
             <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span>
               <span class="chat-workspace__session-main">
                 <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time :title="formatBusinessDateTime(session.lastMessage?.createdAt)">{{ chatDateLabel(session.lastMessage?.createdAt) }}</time></span>
                 <span class="chat-workspace__preview-row"><small class="chat-session-preview"><b v-if="session.mentionUnread" class="chat-mention-label">[有人@我] </b><mark v-else-if="session.lastMessage?.mentionsMe" class="chat-mention-preview">[@我]</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${session.lastMessage.preview}` : '暂无消息' }}</small><span v-if="session.unread" class="chat-session-unread">{{ session.unread > 99 ? '99+' : session.unread }}</span></span>
+                <ProjectMentionPopover v-if="annotationMentionView" :session="session" :model="projectMentions"
+                  @browse="emit('browse-project-mentions', $event)" @select="emit('select-project-mention', $event)"
+                  @more="emit('more-project-mentions')" @retry="emit('retry-project-mentions')" />
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-hover" @click.stop @keydown.stop>
@@ -91,6 +94,7 @@ import { formatBusinessDateTime, businessDateTimeInputValue } from '@/utils/date
 import { annotationStatusLabels, annotationStatusLabel, normalizeAnnotationStatus } from '@/utils/annotationStatus'
 import ChatContacts from './ChatContacts.vue'
 import ChatMentionInbox from './ChatMentionInbox.vue'
+import ProjectMentionPopover from './ProjectMentionPopover.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import ChatWindowStateMenu from './ChatWindowStateMenu.vue'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
@@ -99,6 +103,7 @@ const props = defineProps({
   projectId: { type: String, default: '' },
   sessions: { type: Array, default: () => [] },
   mentionHistoryTotal: { type: Number, default: 0 },
+  projectMentions: { type: Object, default: () => ({}) },
   activeKey: { type: String, default: '' },
   error: { type: String, default: '' },
   narrow: { type: Boolean, default: false },
@@ -113,6 +118,7 @@ const props = defineProps({
   dragging: { type: Boolean, default: false },
 })
 const emit = defineEmits([
+  'browse-project-mentions', 'select-project-mention', 'more-project-mentions', 'retry-project-mentions',
   'preference', 'select', 'open', 'locate-mention', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
 ])
@@ -172,8 +178,8 @@ const moreStatusStats = computed(() => isMoreStatus.value ? statusStats(annotati
   count: summary.count + statusStats(status.value).count,
   unread: summary.unread || statusStats(status.value).unread,
 }), { count: 0, unread: false }))
-const showMentions = computed(() => tab.value === 'mention' || (tab.value === 'annotation' && annotationMentions.value))
-const mentionFilters = computed(() => tab.value === 'annotation' ? { projectType: 'annotation', projectStatus: annotationStatus.value } : {})
+const showMentions = computed(() => tab.value === 'mention')
+const annotationMentionView = computed(() => tab.value === 'annotation' && annotationMentions.value)
 const filteredMentionTotal = ref(0)
 function selectMoreStatus(value) { annotationStatus.value = value; moreStatusesVisible.value = false }
 watch(tab, () => { moreStatusesVisible.value = false; groupsVisible.value = false })
@@ -207,6 +213,7 @@ watch(keyword, (value) => {
 const visibleSessions = computed(() => props.sessions.filter((session) => {
   if (!inGroup(session, tab.value)) return false
   if (tab.value === 'annotation' && annotationStatus.value && normalizeAnnotationStatus(session.projectStatus) !== annotationStatus.value) return false
+  if (annotationMentionView.value && !(Number(session.mentionHistoryCount) > 0)) return false
   if (!appliedKeyword.value) return true
   return `${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`.toLowerCase().includes(appliedKeyword.value)
 }).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
@@ -216,6 +223,7 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 </script>
 <style scoped>
 .chat-workspace__annotation-filters{flex:none;padding:0 12px 10px;border-bottom:1px solid #e6eaf0}
+.chat-session-mention-history{color:#64748b;font-size:11px}
 .chat-workspace__status-options{display:flex;flex-wrap:wrap;gap:5px;max-height:min(220px,30vh);overflow-y:auto}
 .chat-workspace__annotation-filters button{border:1px solid #dce3ed;border-radius:5px;background:#fff;color:#475569;padding:5px 7px;font:inherit;font-size:12px;cursor:pointer}
 .chat-workspace__annotation-filters button.is-active{background:#e6efff;border-color:#b0c7ee;color:#245eaa}

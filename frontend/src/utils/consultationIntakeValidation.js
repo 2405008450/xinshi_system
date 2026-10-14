@@ -1,3 +1,14 @@
+export function normalizeConsultationIntakePriority(intake, consultationType) {
+  const normalized = { ...(intake || {}) }
+  // 标注咨询没有优先级输入项，空值不参与提交，由后端使用默认优先次序。
+  if (['标注项目', 'annotation'].includes(consultationType)
+    && (normalized.priority == null
+      || (typeof normalized.priority === 'string' && !normalized.priority.trim()))) {
+    delete normalized.priority
+  }
+  return normalized
+}
+
 export function interpretationTimeRangesError(value) {
   if (!Array.isArray(value) || !value.length) return '请至少保留一个预定时段'
   if (value.some((item) => !item?.scheduled_start || !item?.scheduled_end)) {

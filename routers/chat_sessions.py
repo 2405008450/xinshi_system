@@ -18,7 +18,7 @@ from notification_ws import broadcast_to_users
 import annotation_chat_service as annotation
 import direct_chat_service as direct
 from chat_schema import phase_one_ready, require_phase_one
-from chat_mention_history import list_mentions, mention_count
+from chat_mention_history import list_mentions, mention_count, annotation_mention_counts
 
 router = APIRouter(prefix='/chat', tags=['chat_sessions'])
 
@@ -127,6 +127,7 @@ def summaries(db, column, ids, baselines, user_id):
 def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
     history_total = mention_count(db, user)
+    annotation_counts = annotation_mention_counts(db, user)
     rows = []
     if annotation.can_view(db, user):
         # 保留已有自动关注和主动退订规则。
@@ -149,6 +150,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
                 subtitle=p.order_no, project_status=p.project_status, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
         return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
+            'annotation_mention_counts': annotation_counts,
             'mention_total': sum(r['mention_unread'] for r in rows)}
     if annotation.can_view(db, user):
         prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
@@ -172,20 +174,22 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         target = targets[p.user_high_id if p.user_low_id == user.id else p.user_low_id]
         rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
             subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
-    return {'phase_one_enabled': True, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows)}
+    return {'phase_one_enabled': True, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
 
 
 @router.get('/mentions')
 def mentions(keyword: str = Query('', max_length=200), before: int | None = Query(None, ge=1),
              limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation'] | None = None,
-             project_status: str | None = None,
+             project_status: str | None = None, project_id: UUID | None = None,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if project_id is not None and project_type is None:
+        raise HTTPException(422, '指定项目时必须同时指定项目类型')
     if project_status is not None and project_status not in ANNOTATION_PROJECT_STATUSES:
         raise HTTPException(422, '无效的标注项目状态')
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status)
+                         project_type=project_type, project_status=project_status, project_id=project_id)
 
 
 class PreferenceRequest(BaseModel):

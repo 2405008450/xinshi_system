@@ -7,6 +7,7 @@ const sessions = ref([])
 const followed = computed(() => sessions.value.filter(s => s.kind === 'annotation' && s.following !== false).map(s => ({ ...s, projectName: s.title, orderNo: s.subtitle })))
 const mentionTotal = ref(0)
 const mentionHistoryTotal = ref(0)
+const annotationMentionCounts = ref([])
 const phaseOneEnabled = ref(false)
 const total = ref(0)
 const error = ref('')
@@ -35,6 +36,7 @@ async function refresh() {
     phaseOneEnabled.value = !!data.phaseOneEnabled
     mentionTotal.value = data.mentionTotal || 0
     mentionHistoryTotal.value = data.mentionHistoryTotal || 0
+    annotationMentionCounts.value = data.annotationMentionCounts || []
     total.value = followed.value.reduce((sum, item) => sum + (item.unread || 0), 0)
     error.value = ''
     const { state } = useProjectChatDock()
@@ -77,6 +79,7 @@ function stop() {
   total.value = 0
   mentionTotal.value = 0
   mentionHistoryTotal.value = 0
+  annotationMentionCounts.value = []
   phaseOneEnabled.value = false
   window.clearInterval(timer)
   cleanup.forEach(fn => fn())
@@ -92,5 +95,5 @@ export function useAnnotationFollowed() {
     users -= 1
     stop()
   })
-  return { followed, sessions, total, mentionTotal, mentionHistoryTotal, phaseOneEnabled, error, refresh }
+  return { followed, sessions, total, mentionTotal, mentionHistoryTotal, annotationMentionCounts, phaseOneEnabled, error, refresh }
 }

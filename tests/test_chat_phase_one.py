@@ -385,6 +385,44 @@ def test_annotation_status_mentions_filter_count_pagination_and_current_state(en
     assert list_mentions(db, users[1], project_status='client_feedback')['total'] == 5
 
 
+@pytest.mark.parametrize('migrated', [False, True])
+def test_annotation_mention_counts_do_not_expand_session_directory(environment, migrated):
+    db, users, engine = environment
+    from annotation_models import AnnotationProject
+    from schemas import AnnotationProjectChatMessageCreate
+    from routers.chat_sessions import sessions, preferences, PreferenceRequest
+    from chat_mention_history import annotation_mention_counts
+    import annotation_chat_service as annotation
+    if not migrated:
+        remove_phase_one_columns(db, engine)
+    projects = [AnnotationProject(order_no='SUBSET-' + uuid4().hex[:12], project_name=f'项目{i}', project_types=[]) for i in range(5)]
+    db.add_all(projects); db.commit()
+    for i, project in enumerate(projects):
+        member = annotation.add_member(db, project.id, users[1].id, following=i < 4, baseline=0)
+        if i == 4:
+            member.explicit_unfollow = True
+    db.commit()
+    sent = []
+    # 两个目录内项目有多条提及，另一个已退订项目也有历史提及。
+    for i, count in [(0, 3), (1, 2), (4, 1)]:
+        for _ in range(count):
+            sent.append(annotation.send_message(db, projects[i].id, users[0], AnnotationProjectChatMessageCreate(
+                content='请确认', mentioned_user_ids=[users[1].id])))
+        preferences('annotation', projects[i].id, PreferenceRequest(mark_read=True), db, users[1])
+        annotation.send_message(db, projects[i].id, users[0], AnnotationProjectChatMessageCreate(content='后续普通消息'))
+    data = sessions(db, users[1])
+    directory = {row['project_id'] for row in data['items'] if row['kind'] == 'annotation'}
+    counts = {row['project_id']: row['count'] for row in data['annotation_mention_counts']}
+    assert directory == {p.id for p in projects[:4]}
+    assert directory.intersection(counts) == {projects[0].id, projects[1].id}
+    assert counts == {projects[0].id: 3, projects[1].id: 2, projects[4].id: 1}
+    assert data['mention_history_total'] == 6 and data['mention_total'] == 0
+    annotation.recall_message(db, projects[0].id, sent[0].id, users[0])
+    assert {row['project_id']: row['count'] for row in annotation_mention_counts(db, users[1])}[projects[0].id] == 2
+    assert annotation_mention_counts(db, users[2]) == []
+    assert annotation_mention_counts(db, users[3]) == []
+
+
 def test_mention_status_api_validation_and_filtering(environment):
     db, users, _engine = environment
     from annotation_models import AnnotationProject
@@ -401,9 +439,50 @@ def test_mention_status_api_validation_and_filtering(environment):
     client = TestClient(main.app)
     response = client.get('/chat/mentions', params={'project_type': 'annotation', 'project_status': 'paused', 'keyword': '确认'})
     assert response.status_code == 200 and response.json()['total'] == 1
+    scoped = {'project_type': 'annotation', 'project_id': str(project.id)}
+    assert client.get('/chat/mentions', params=scoped).json()['total'] == 1
+    assert client.get('/chat/mentions', params={**scoped, 'project_id': str(uuid4())}).json()['total'] == 0
+    assert client.get('/chat/mentions', params={**scoped, 'project_type': 'translation'}).json()['total'] == 0
+    assert client.get('/chat/mentions', params={'project_id': str(project.id)}).status_code == 422
+    assert client.get('/chat/mentions', params={**scoped, 'project_id': 'invalid'}).status_code == 422
     assert client.get('/chat/mentions', params={'project_status': 'trial_in_progress'}).json()['total'] == 0
     for params in ({'project_status': 'unknown'}, {'project_type': 'direct'}, {'project_type': 'translation', 'project_status': 'paused'}):
         assert client.get('/chat/mentions', params=params).status_code == 422
+
+
+@pytest.mark.parametrize('migrated', [True, False])
+def test_project_mentions_pagination_read_and_scope(environment, migrated):
+    db, users, engine = environment
+    from annotation_models import AnnotationProject
+    from models import ChatProjectMessage, ChatProjectMention
+    from chat_mention_history import list_mentions
+    import annotation_chat_service as annotation
+    if not migrated:
+        remove_phase_one_columns(db, engine)
+    projects = [AnnotationProject(order_no='NAV-' + uuid4().hex[:12], project_name='定位项目', project_types=[]) for _ in range(2)]
+    db.add_all(projects); db.flush()
+    rows = []
+    for index in range(56):
+        row = ChatProjectMessage(annotation_project_id=projects[index == 55].id, sender_user_id=users[0].id,
+                                 sender_name='发送人', content=f'提及 {index}', message_type='user')
+        db.add(row); db.flush()
+        db.add(ChatProjectMention(message_id=row.id, mentioned_user_id=users[1].id, mentioned_user_name=users[1].full_name)); rows.append(row)
+    db.commit()
+    params = dict(project_type='annotation', project_id=projects[0].id, limit=50)
+    first = list_mentions(db, users[1], **params)
+    assert first['total'] == 55 and len(first['items']) == 50 and first['has_more']
+    second = list_mentions(db, users[1], before=first['next_before'], **params)
+    assert second['total'] == 55 and len(second['items']) == 5 and not second['has_more']
+    assert {item['message_id'] for item in first['items'] + second['items']} == {row.id for row in rows[:55]}
+    assert list_mentions(db, users[1])['total'] == 56
+    assert list_mentions(db, users[2], **params)['total'] == 0
+    assert list_mentions(db, users[3], **params)['total'] == 0
+    from routers.annotation_chat import read, ReadRequest
+    read(projects[0].id, ReadRequest(message_id=rows[54].id), db, users[1])
+    assert list_mentions(db, users[1], **params)['total'] == 55
+    assert not any(item['unread'] for item in list_mentions(db, users[1], **params)['items'])
+    annotation.recall_message(db, projects[0].id, rows[54].id, users[0])
+    assert list_mentions(db, users[1], **params)['total'] == 54
 
 
 def test_message_retry_concurrency_and_recall_deadline(environment):

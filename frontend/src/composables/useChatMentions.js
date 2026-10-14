@@ -2,7 +2,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { subscribe } from '@/utils/realtimeSocket'
 
-export function useChatMentions(keyword, active, filters = ref({})) {
+export function useChatMentions(keyword, active, filters = ref({}), anchor = ref('')) {
   const items = ref([])
   const total = ref(0)
   const loading = ref(false)
@@ -23,7 +23,7 @@ export function useChatMentions(keyword, active, filters = ref({})) {
     const version = ++generation
     const userId = localStorage.getItem('user_id')
     const params = { keyword: keyword.value, project_type: filters.value.projectType || undefined,
-      project_status: filters.value.projectStatus || undefined }
+      project_status: filters.value.projectStatus || undefined, project_id: filters.value.projectId || undefined }
     const target = background ? Math.max(50, items.value.length) : 50
     const collected = []
     let before = append ? nextBefore : null
@@ -38,7 +38,8 @@ export function useChatMentions(keyword, active, filters = ref({})) {
         if (version !== generation || userId !== localStorage.getItem('user_id')) return
         collected.push(...(data.items || []))
         before = data.nextBefore
-      } while (background && data.hasMore && before && collected.length < target)
+      } while (data.hasMore && before && ((background && collected.length < target) ||
+        (!append && anchor.value && !collected.some(row => row.messageId === anchor.value))))
       const rows = append ? [...items.value, ...collected] : collected
       items.value = [...new Map(rows.map(row => [row.messageId, row])).values()]
       total.value = data.total || 0
@@ -65,5 +66,5 @@ export function useChatMentions(keyword, active, filters = ref({})) {
     timer = setInterval(refresh, 15000)
   })
   onBeforeUnmount(() => { cancel(); clearInterval(timer); cleanup.forEach(fn => fn()) })
-  return { items, total, loading, error, hasMore, reload: () => load(), loadMore: () => load({ append: true }) }
+  return { items, total, loading, error, hasMore, reload: () => load(), refresh: () => load({ background: true }), loadMore: () => load({ append: true }) }
 }

@@ -31,6 +31,43 @@ class _FlushOnlyDb:
         self.flush_count += 1
 
 
+@pytest.mark.parametrize("priority", ["", "  ", None])
+def test_annotation_consultation_empty_priority_uses_default_without_mutating_intake(priority):
+    intake = {"priority": priority, "task_description": "测试标注任务"}
+    data = validated_intake("annotation", intake)
+    assert data["priority"] == "medium"
+    assert data["task_description"] == "测试标注任务"
+    assert intake["priority"] == priority
+
+
+@pytest.mark.parametrize("priority", ["low", "medium", "high"])
+def test_annotation_consultation_preserves_explicit_priority(priority):
+    assert validated_intake("annotation", {"priority": priority})["priority"] == priority
+
+
+def test_annotation_consultation_still_rejects_invalid_priority():
+    with pytest.raises(ValueError, match="标注项目信息有误：不支持的标注项目优先次序"):
+        validated_intake("annotation", {"priority": "urgent"})
+    assert validated_intake("annotation", {})["priority"] == "medium"
+    assert validated_intake("translation", {"priority": "紧急"})["priority"] == "紧急"
+
+
+def test_annotation_consultation_save_accepts_frontend_default_empty_priority():
+    payload = ConsultationCreate(
+        client_short_name="测试客户",
+        consultation_time=datetime.fromisoformat("2026-10-14T10:00:00+08:00"),
+        consultation_method="phone",
+        client_source="老客户",
+        source_keyword="续单",
+        consultation_description="标注咨询",
+        consultation_type="标注项目",
+        status="following",
+        project_intake={"priority": "", "project_types": ["text_annotation"],
+                        "task_description": "测试标注任务"},
+    )
+    validate_consultation_required_fields(payload)
+
+
 def test_translation_empty_customer_deadline_is_normalized_before_project_write():
     data = validated_intake("translation", {"customer_deadline_time": "  "})
     assert data["customer_deadline_time"] is None
