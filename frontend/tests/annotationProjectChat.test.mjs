@@ -114,7 +114,7 @@ test('多条沟通消息按发送人整理后预填补充进度并保留两条�
   assert.match(annotationPage, /const handleChatMessageToProgress=async\(messages\)=>/)
   assert.match(annotationPage, /const draft=progressChatDraft\(messages\)/)
   assert.match(annotationPage, /appendProgressDraft\(statusForm\.changeNote,draft\.changeNote\)/)
-  assert.match(annotationPage, /customerProgressRef\.value\?\.acceptDraft\(draft\)/)
+  assert.match(annotationPage, /customerProgress\.acceptDraft\(draft\)/)
   assert.match(annotationPage, /progressDraftSource\.value=previous&&draft\.source/)
   assert.match(annotationPage, /statusEntryMode\.value='progress'/)
   assert.match(annotationPage, /statusForm\.projectStatus=activeProgressProject\.value\?\.projectStatus\|\|''/)

@@ -83,11 +83,14 @@ def propose(db, key):
             'idempotency_key': str(uuid4())}
 
 
-def execute_one(db, request, username):
+def execute_one(db, request, username, *, on_pressure=None):
     """不排队等待线上人才／开拓写入；所有修改复用原核重服务。"""
     from talent_duplicate_schemas import NameMergeCommitRequest
     from talent_name_merge_service import commit_group
-    assert_quiet(read_pressure(db))
+    pressure = read_pressure(db)
+    if on_pressure is not None:
+        on_pressure(pressure)
+    assert_quiet(pressure)
     actor = actor_for(db, username)
     if not db.execute(text('SELECT pg_try_advisory_xact_lock(724092401)')).scalar():
         raise PauseTask('线上人才或开拓正在写入，本任务让行')
@@ -100,7 +103,8 @@ def write_status(path, state):
     temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)
     progress = {key: state[key] for key in ('status', 'operator', 'started_at', 'updated_at',
-                                            'interval_seconds', 'workers', 'reason', 'pressure', 'last_group_seconds') if key in state}
+                                            'interval_seconds', 'workers', 'reason', 'pressure', 'pressure_checked_at',
+                                            'failure_details', 'last_group_seconds') if key in state}
     progress.update({'total': len(state.get('keys', [])), 'success': len(state['results']),
                      'remaining': len(state.get('keys', []))-len(state.get('processed_keys', state.get('keys', [])[:state['index']])),
                      'archived_records': sum(len(row['person_ids'])-1 for row in state['results'])})
@@ -110,8 +114,20 @@ def write_status(path, state):
     progress_temporary.replace(progress_path)
 
 
+def failure_details(exc):
+    """只记录错误类型和 SQLSTATE，不输出 SQL、参数或联系方式。"""
+    original = getattr(exc, 'orig', exc)
+    sqlstate = getattr(original, 'pgcode', None) or getattr(original, 'sqlstate', None)
+    return {'type': type(exc).__name__, **({'sqlstate': sqlstate} if sqlstate else {})}
+
+
 def pause_reason(exc):
     from fastapi import HTTPException
+    details = failure_details(exc)
+    database_reasons = {'57014': '数据库查询超时', '55P03': '数据库写锁繁忙',
+                        '08006': '数据库连接中断', '25P03': '数据库空闲事务超时'}
+    if details.get('sqlstate') in database_reasons:
+        return database_reasons[details['sqlstate']] + f"（SQLSTATE {details['sqlstate']}），已停止后续处理"
     return (str(exc) if isinstance(exc, PauseTask) else
             f'核重拒绝提交（HTTP {exc.status_code}）' if isinstance(exc, HTTPException) else
             f'执行异常：{type(exc).__name__}；已停止，需检查后手动恢复')
@@ -130,6 +146,11 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
     failures = []
     cursor = 0
 
+    def observe_pressure(pressure):
+        with state_lock:
+            state['pressure'] = pressure
+            state['pressure_checked_at'] = business_iso(business_now())
+
     def check_stop():
         if stop_path.exists():
             raise PauseTask('用户停止')
@@ -144,6 +165,8 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
 
     def worker(worker_id):
         nonlocal cursor
+        stage = '等待'
+        key = None
         try:
             # 错开两线程，避免同时产生查询高峰。
             if wait_idle((worker_id-1)*interval/workers):
@@ -156,9 +179,12 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
                     request = state['requests'].get(key)
                 started = time.monotonic()
                 if request is None:
+                    stage = '预览'
                     with Session(engine) as db:
                         db.execute(text('SET TRANSACTION READ ONLY'))
-                        assert_quiet(read_pressure(db))
+                        pressure = read_pressure(db)
+                        observe_pressure(pressure)
+                        assert_quiet(pressure)
                         request = propose(db, key)
                         db.rollback()
                     if request is not None:
@@ -168,15 +194,17 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
                             write_status(status_path, state)
                 result = None
                 if request is not None:
+                    stage = '等待写入'
                     while not write_lock.acquire(timeout=0.1):
                         if check_stop():
                             return
                     try:
                         if check_stop():
                             return
+                        stage = '提交'
                         with Session(engine) as db:
                             try:
-                                result = execute_one(db, request, username)
+                                result = execute_one(db, request, username, on_pressure=observe_pressure)
                             except Exception:
                                 db.rollback()
                                 raise
@@ -206,6 +234,8 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
         except Exception as exc:
             with state_lock:
                 failures.append(pause_reason(exc))
+                state['failure_details'] = {**failure_details(exc), 'stage': stage,
+                                            'worker_id': worker_id, 'group_key': key}
                 stopped.set()
 
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='talent-merge') as pool:
@@ -275,6 +305,7 @@ def run(args):
     state['interval_seconds'] = args.interval
     state['workers'] = args.workers
     state.pop('reason', None)
+    state.pop('failure_details', None)
     try:
         with single_worker():
             with Session(engine) as db:
@@ -283,6 +314,7 @@ def run(args):
                 pressure = read_pressure(db)
                 assert_quiet(pressure)
                 state['pressure'] = pressure
+                state['pressure_checked_at'] = business_iso(business_now())
                 if 'keys' not in state:
                     state['keys'] = candidate_keys(db)
                 db.rollback()

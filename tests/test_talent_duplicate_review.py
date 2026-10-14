@@ -113,6 +113,20 @@ def test_two_workers_stop_before_commit_on_failure(tmp_path, monkeypatch):
     with pytest.raises(runner.PauseTask, match='模拟线上负载升高'):
         runner.run_queue(None, state, tmp_path/'status.json', tmp_path/'STOP', 'qa', 2, 0.1)
     assert not commits and state['index'] == 0
+    assert state['failure_details']['stage'] == '预览'
+    assert state['pressure_checked_at'].endswith('+08:00')
+
+
+def test_slow_worker_error_diagnostics_do_not_expose_sql_parameters():
+    from sqlalchemy.exc import OperationalError
+    from tools.run_talent_name_merge_slow import failure_details, pause_reason
+    original = SimpleNamespace(pgcode='57014')
+    error = OperationalError('SELECT private_contact FROM resource_person',
+                             {'private_contact': 'secret@example.test'}, original)
+    assert failure_details(error) == {'type': 'OperationalError', 'sqlstate': '57014'}
+    reason = pause_reason(error)
+    assert '数据库查询超时' in reason and '57014' in reason
+    assert 'private_contact' not in reason and 'secret@example.test' not in reason
 
 
 @pytest.mark.parametrize('pressure', [
