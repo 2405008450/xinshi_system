@@ -159,6 +159,71 @@ def test_custom_fields_inherit_separately(context):
     assert service.get_annotation_project(db, leaf_id).custom_values[keys[0]] == 'AA'
 
 
+@pytest.mark.parametrize('legacy_values', [
+    (None, None, None),
+    ('母单历史经理', None, None),
+    ('母单历史经理', '子单历史经理', '三级历史经理'),
+    (None, '子单历史经理', '三级历史经理'),
+])
+def test_inactive_custom_fields_do_not_block_material_save_or_sync(context, legacy_values):
+    from annotation_material_models import AnnotationMaterialUpload
+    from annotation_material_service import folders, versions
+    db, root_id, child_id, leaf_id, _ = chain(context)
+    legacy = AnnotationCustomFieldDefinition(table_code='project', field_key=uuid4().hex,
+        field_label='历史项目经理（文本，已停用）', data_type='text', sequence_no=920, is_active=False)
+    active = AnnotationCustomFieldDefinition(table_code='project', field_key=uuid4().hex,
+        field_label='仍在使用的字段', data_type='text', sequence_no=921)
+    upload = AnnotationMaterialUpload(uploader_name='隔离验收', original_name='项目资料.pdf',
+        storage_key=uuid4().hex, file_size=7, content_type='application/pdf', sha256='a' * 64,
+        expires_at=datetime(2099, 1, 1))
+    db.add_all([legacy, active, upload]); db.flush()
+    legacy_key, active_key = str(legacy.id), str(active.id)
+    project_ids = (root_id, child_id, leaf_id)
+    # 在隔离库模拟迁移保留的历史值：不存在、各级不同值及上级无值。
+    for project_id, value in zip(project_ids, legacy_values):
+        project = service.get_annotation_project(db, project_id)
+        project.custom_values = {legacy_key: value} if value is not None else {}
+    db.commit()
+    folder_id = uuid4()
+    save(db, root_id, material_changes={
+        'created_folders': [{'id': folder_id, 'name': '历史字段回归资料'}],
+        'additions': [{'upload_id': upload.id, 'category': 'project', 'folder_id': folder_id}],
+    })
+    assert any(row['id'] == folder_id for row in folders(db, root_id))
+    assert any(row['folder_id'] == folder_id for row in versions(db, root_id))
+    assert db.get(AnnotationMaterialUpload, upload.id).consumed_at is not None
+    # 保存其他业务字段仍须跨两级同步启用字段，不能改写或补空历史字段。
+    root = service.get_annotation_project(db, root_id)
+    save(db, root_id, contact_name='更新后联系人',
+         custom_values={**root.custom_values, active_key: '新业务值'})
+    for project_id, value in zip(project_ids, legacy_values):
+        project = service.get_annotation_project(db, project_id)
+        assert project.contact_name == '更新后联系人'
+        assert project.custom_values[active_key] == '新业务值'
+        assert project.custom_values.get(legacy_key) == value
+        assert (legacy_key in project.custom_values) == (value is not None)
+
+
+def test_inactive_custom_fields_cannot_be_changed_or_restored(context):
+    from annotation_inheritance_service import all_fields
+    db, root_id, child_id, leaf_id, _ = chain(context)
+    field = AnnotationCustomFieldDefinition(table_code='project', field_key=uuid4().hex,
+        field_label='停用字段保护', data_type='text', sequence_no=922, is_active=False)
+    db.add(field); db.flush()
+    key = str(field.id)
+    child = service.get_annotation_project(db, child_id)
+    child.custom_values = {key: '原历史值'}
+    db.commit()
+    assert 'custom:' + key not in all_fields(db)
+    with pytest.raises(ValueError, match='已停用，不能修改'):
+        save(db, child_id, custom_values={key: '手工篡改'})
+    db.rollback()
+    with pytest.raises(ValueError, match='恢复继承包含无效字段'):
+        save(db, child_id, restore_inheritance=['custom:' + key])
+    db.rollback()
+    assert service.get_annotation_project(db, child_id).custom_values[key] == '原历史值'
+
+
 def test_area_rollup_scopes_and_counts(context):
     db, root_id, child_id, leaf_id, area_id = chain(context)
     filters={'area_ids':[area_id]}

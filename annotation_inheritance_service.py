@@ -46,7 +46,9 @@ def snapshot(project):
 
 def all_fields(db):
     from annotation_custom_field_service import list_custom_fields
-    return FIELDS | {f'custom:{field.id}' for field in list_custom_fields(db, 'project', None, True)}
+    # 停用字段仅保留各级订单自己的历史值，不再同步或恢复继承。
+    # 即使双方均无历史值，也不能补写 None，否则会触发停用字段修改校验。
+    return FIELDS | {f'custom:{field.id}' for field in list_custom_fields(db, 'project', None)}
 
 
 def independent_fields(db, project):
