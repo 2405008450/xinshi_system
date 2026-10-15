@@ -10,7 +10,7 @@
         <el-descriptions-item label="项目状态">{{ getProjectStatusLabel(project.source_type, detail?.project_status) }}</el-descriptions-item>
         <template v-for="request in detail?.requirements || []" :key="request.request_no">
           <el-descriptions-item label="需求编号">{{ request.request_no }}</el-descriptions-item>
-          <el-descriptions-item label="需求状态">{{ demandLabels[request.demand_status] || request.demand_status }}</el-descriptions-item>
+          <el-descriptions-item label="需求状态">{{ demandStatusText(request.demand_status) }}</el-descriptions-item>
           <el-descriptions-item label="语种／方言" :span="2">{{ request.languages.join('、') || '-' }}</el-descriptions-item>
         </template>
       </el-descriptions>
@@ -25,11 +25,11 @@ import { useRouter } from 'vue-router'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { arrangementProjectRoute, arrangementProjectTypes, arrangementPopoverOptions as popoverOptions } from '@/utils/resourceArrangements'
 import { getProjectStatusLabel } from '@/utils/projectStatus'
+import { demandStatusText } from '@/utils/resourceRequestLifecycle'
 import RequestArrangementHistory from './RequestArrangementHistory.vue'
 const props = defineProps({ project: { type: Object, required: true }, showName: Boolean })
 const router = useRouter(), loading = ref(false), error = ref(''), detail = ref(null)
 const typeLabel = computed(() => arrangementProjectTypes.find(t => t.value === props.project.source_type)?.label || '-')
-const demandLabels = { confirmed: '需求已发送', cancelled: '需求已取消', draft: '草稿' }
 let controller, sequence = 0
 async function load() {
   controller?.abort(); controller = new AbortController(); const seq = ++sequence

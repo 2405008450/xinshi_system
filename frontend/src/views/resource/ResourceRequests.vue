@@ -138,7 +138,7 @@
         <el-table-column v-if="canWrite && !deleteMode" label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
             <PrimaryEditButton @click="openEditor(row)" />
-            <el-button link type="primary" @click="openProgress(row)">更新进度</el-button>
+            <el-button link type="primary" :disabled="row.demandStatus === 'paused'" @click="openProgress(row)">更新进度</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -230,15 +230,31 @@
       </div>
       <template #footer>
         <div class="editor-footer">
-          <el-button v-if="form.demandStatus === 'confirmed'" type="danger" plain :loading="cancelling" :disabled="editorBusy" @click="cancelDemand">取消需求</el-button>
-          <span v-else></span>
+          <div class="editor-footer-lifecycle">
+            <el-button v-if="['confirmed', 'paused'].includes(form.demandStatus)" type="danger" plain :loading="cancelling" :disabled="editorBusy" @click="cancelDemand">取消需求</el-button>
+            <el-button v-if="canPauseDemand(form)" type="warning" plain :disabled="editorBusy" @click="openLifecycleDialog(false)">暂停需求</el-button>
+            <el-button v-if="form.demandStatus === 'paused'" type="primary" plain :disabled="editorBusy" @click="openLifecycleDialog(true)">恢复需求</el-button>
+          </div>
           <div class="editor-footer-actions">
             <el-button :disabled="editorBusy" @click="requestEditorClose">关闭</el-button>
             <el-button :loading="saving" :disabled="editorBusy" @click="saveDraftManually">保存</el-button>
             <el-button v-if="canArrangeDemand" type="primary" :loading="arranging" :disabled="editorBusy" @click="openDailyArrangement">发到每日安排</el-button>
-            <el-button v-if="form.demandStatus !== 'confirmed'" type="primary" :loading="sending" :disabled="editorBusy" @click="sendDemand">{{ form.demandStatus === 'cancelled' ? '重新发送' : '发送' }}</el-button>
+            <el-button v-if="canSendDemand(form)" type="primary" :loading="sending" :disabled="editorBusy" @click="sendDemand">{{ form.demandStatus === 'cancelled' ? '重新发送' : '发送' }}</el-button>
           </div>
         </div>
+      </template>
+    </DraggableFormDialog>
+
+    <DraggableFormDialog v-model="lifecycleDialog" :title="resuming ? '恢复需求' : '暂停需求'" width="min(520px, calc(100vw - 32px))" top="8vh" class="resource-lifecycle-dialog" append-to-body :show-close="!lifecycleSaving" :before-close="beforeLifecycleClose" @closed="scheduleAutoSave">
+      <p class="lifecycle-hint">{{ resuming ? '恢复后可继续资源开拓并新增每日安排，原进度及已有安排将保留。' : '暂停后将停止新增每日安排，已有安排保留并标记暂停，可随时恢复。' }}</p>
+      <AppForm ref="lifecycleFormRef" :model="lifecycleForm" :rules="lifecycleRules" :disabled="lifecycleSaving" label-position="top">
+        <el-form-item v-if="!resuming" label="暂停原因（选填）" prop="reason">
+          <el-input v-model="lifecycleForm.reason" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="例如：等待客户反馈或项目计划调整" />
+        </el-form-item>
+      </AppForm>
+      <template #footer>
+        <el-button :disabled="lifecycleSaving" @click="lifecycleDialog = false">返回</el-button>
+        <el-button :type="resuming ? 'primary' : 'warning'" :loading="lifecycleSaving" @click="submitLifecycleChange">{{ resuming ? '确认恢复' : '确认暂停' }}</el-button>
       </template>
     </DraggableFormDialog>
 
@@ -284,7 +300,8 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission } from '@/utils/permission'
-import { formatDateTimeMinute as formatDate, formatTimeMinute } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatDate, businessDateTimeInputValue } from '@/utils/dateTime'
+import { canPauseDemand, canSendDemand, demandStatusLabels, demandStatusText, demandStatusType } from '@/utils/resourceRequestLifecycle'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { getCachedOptions } from '@/utils/optionCache'
@@ -346,11 +363,17 @@ const { openNotes } = useResourceNotesDock()
 const saving = ref(false)
 const sending = ref(false)
 const cancelling = ref(false)
+const lifecycleDialog = ref(false)
+const lifecycleSaving = ref(false)
+const resuming = ref(false)
+const lifecycleFormRef = ref(null)
+const lifecycleForm = reactive({ reason: '' })
+const lifecycleRules = { reason: [{ max: 500, message: '暂停原因不能超过 500 字', trigger: 'blur' }] }
 const arranging = ref(false)
 const arrangementVisible = ref(false)
 const arrangementRef = ref(null)
 const arrangementOptions = reactive({ options: [], arrangement_platforms: [], can_delegate: false })
-const editorBusy = computed(() => saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value)
+const editorBusy = computed(() => saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value || lifecycleDialog.value || lifecycleSaving.value)
 const autoSaveState = ref('idle')
 const lastAutoSavedAt = ref('')
 let submitLocked = false
@@ -378,7 +401,6 @@ const progressForm = reactive({ id: '', progressPercent: 0, progressNote: '' })
 const sourceLabels = { annotation: '标注', recruitment: '招聘', interpretation: '口译', translation: '笔译', other: '其他' }
 const categoryLabels = { annotation_trial: '标注试标', annotation_formal: '标注正式', recruitment: '招聘', interpretation: '口译', translation: '笔译', other: '其他' }
 const statusLabels = { draft: '草稿', submitted: '已提交', in_progress: '进行中', fulfilled: '已完成', cancelled: '已取消' }
-const demandStatusLabels = { draft: '草稿准备中', confirmed: '需求确认', cancelled: '需求取消' }
 const priorityLabels = { high: '高', medium: '中', low: '低' }
 const projectTypeLabels = {
   audio_collection: '音频采集', audio_annotation: '音频标注', audio_evaluation: '音频评测', text_evaluation: '文本评测', text_annotation: '文本标注', quality_inspection: '质检', listening_test: '测听', slot_deduction: '扣槽', generalization: '泛化', translation: '翻译', ai_evaluation: 'ai评测',
@@ -510,8 +532,7 @@ const ownerName = (row) => {
 const languageOptionLabel = (language) => language.isCustom ? `${language.label}（自定义）` : language.label
 const priorityType = (value) => ({ high: 'danger', medium: 'warning', low: 'info' }[value])
 const statusType = (value) => ({ draft: 'info', submitted: 'warning', in_progress: 'primary', fulfilled: 'success', cancelled: 'danger' }[value])
-const demandStatusType = (value) => ({ draft: 'info', confirmed: 'success', cancelled: 'danger' }[value] || 'info')
-const editorDemandStatusText = computed(() => form.demandStatus === 'confirmed' ? '需求已发送' : form.demandStatus === 'cancelled' ? '需求已取消' : '草稿准备中')
+const editorDemandStatusText = computed(() => demandStatusText(form.demandStatus))
 const autoSaveText = computed(() => {
   if (autoSaveState.value === 'saving') return '自动保存中…'
   if (autoSaveState.value === 'saved') return lastAutoSavedAt.value ? `已自动保存 ${lastAutoSavedAt.value}` : '已自动保存'
@@ -689,6 +710,7 @@ const performPersistDraft = async ({ automatic = false } = {}) => {
   if (automatic) autoSaveState.value = 'saving'
   const data = await payload()
   if (!form.id) data.requestStatus = 'draft'
+  else data.expectedUpdatedAt = form.updatedAt
   const saved = form.id ? await api.updateResourceRequest(form.id, data) : await api.createResourceRequest(data)
   if (editorRevision === revision) applySavedRequest(saved)
   else {
@@ -706,7 +728,7 @@ const performPersistDraft = async ({ automatic = false } = {}) => {
   savedRevision = revision
   if (automatic) {
     autoSaveState.value = 'saved'
-    lastAutoSavedAt.value = formatTimeMinute(new Date())
+    lastAutoSavedAt.value = businessDateTimeInputValue().slice(11, 16)
   }
   if (editorRevision !== revision) scheduleAutoSave()
   return saved
@@ -723,7 +745,7 @@ const persistDraft = async (options = {}) => {
 
 const scheduleAutoSave = () => {
   clearTimeout(autoSaveTimer)
-  if (!editorReady || !dialogVisible.value || arranging.value || arrangementVisible.value || !canPersistDraft() || editorRevision === savedRevision) return
+  if (!editorReady || !dialogVisible.value || submitLocked || editorBusy.value || !canPersistDraft() || editorRevision === savedRevision) return
   autoSaveState.value = 'pending'
   autoSaveTimer = setTimeout(async () => {
     try {
@@ -762,7 +784,7 @@ const saveDraftManually = async () => {
 }
 
 const sendDemand = async () => {
-  if (submitLocked || editorBusy.value) return
+  if (submitLocked || editorBusy.value || !canSendDemand(form)) return
   submitLocked = true
   clearTimeout(autoSaveTimer)
   try { await formRef.value?.validate() } catch { submitLocked = false; return }
@@ -794,7 +816,9 @@ const cancelDemand = async () => {
     })
   } catch { submitLocked = false; return }
   cancelling.value = true
+  clearTimeout(autoSaveTimer)
   try {
+    await persistDraft()
     const cancelled = await api.cancelResourceRequest(form.id)
     applySavedRequest(cancelled)
     clearDraft()
@@ -803,7 +827,46 @@ const cancelDemand = async () => {
     await fetchData()
   } catch (error) {
     ElMessage.error(error.detail || '取消需求失败')
-  } finally { cancelling.value = false; submitLocked = false }
+  } finally { cancelling.value = false; submitLocked = false; scheduleAutoSave() }
+}
+
+const openLifecycleDialog = (resume) => {
+  if (!canWrite || submitLocked || editorBusy.value || !form.id) return
+  if (resume ? form.demandStatus !== 'paused' : !canPauseDemand(form)) return
+  clearTimeout(autoSaveTimer)
+  resuming.value = resume
+  lifecycleForm.reason = ''
+  lifecycleDialog.value = true
+  nextTick(() => lifecycleFormRef.value?.clearValidate())
+}
+const beforeLifecycleClose = done => { if (!lifecycleSaving.value) done() }
+const submitLifecycleChange = async () => {
+  if (submitLocked || lifecycleSaving.value || !lifecycleDialog.value) return
+  submitLocked = true
+  lifecycleSaving.value = true
+  clearTimeout(autoSaveTimer)
+  try {
+    await lifecycleFormRef.value?.validate()
+    // 保存队列会先等待已发起的自动保存，再保存当前修改；任一步失败都不改变状态。
+    const saved = await persistDraft()
+    if (!saved) throw new Error('请先选择来源项目')
+    const result = resuming.value
+      ? await api.resumeResourceRequest(saved.id, saved.updatedAt)
+      : await api.pauseResourceRequest(saved.id, lifecycleForm.reason, saved.updatedAt)
+    applySavedRequest(result)
+    delete detailCache[result.id]
+    clearDraft()
+    lifecycleDialog.value = false
+    dialogVisible.value = false
+    ElMessage.success(resuming.value ? '需求已恢复' : '需求已暂停')
+    await fetchData()
+  } catch (error) {
+    if (error instanceof Error || error?.detail) ElMessage.error(getLocalizedErrorMessage(error, resuming.value ? '恢复需求失败' : '暂停需求失败'))
+  } finally {
+    lifecycleSaving.value = false
+    submitLocked = false
+    scheduleAutoSave()
+  }
 }
 
 const loadArrangementOptions = async () => {
@@ -826,10 +889,10 @@ const openDailyArrangement = async () => {
     await loadArrangementOptions()
     if (!arrangementOptions.can_delegate) throw new Error('当前账号没有资源安排权限')
     const saved = await persistDraft()
-    if (!saved || saved.demandStatus !== 'confirmed' || saved.requestStatus === 'cancelled') throw new Error('需求已取消或尚未发送，请刷新后重试')
+    if (!saved || saved.demandStatus !== 'confirmed' || saved.requestStatus === 'cancelled') throw new Error('需求已暂停、已取消或尚未发送，请刷新后重试')
     clearDraft()
     const request = await developmentApi.arrangementRequest(saved.id)
-    if (request.demand_status !== 'confirmed' || request.request_status === 'cancelled') throw new Error('需求已取消或尚未发送，请刷新后重试')
+    if (request.demand_status !== 'confirmed' || request.request_status === 'cancelled') throw new Error('需求已暂停、已取消或尚未发送，请刷新后重试')
     await arrangementRef.value.open(request, arrangementToday())
   } catch (error) {
     failure = error
@@ -861,7 +924,7 @@ const flushPendingDraft = async () => {
 }
 const requestEditorClose = async () => { if (!submitLocked && !editorBusy.value && await flushPendingDraft()) dialogVisible.value = false }
 const beforeEditorClose = async (done) => { if (!submitLocked && !editorBusy.value && await flushPendingDraft()) done() }
-const openProgress = (row) => { Object.assign(progressForm, { id: row.id, progressPercent: row.progressPercent, progressNote: '' }); progressDialog.value = true }
+const openProgress = (row) => { if (row.demandStatus === 'paused') return ElMessage.warning('请先恢复需求再更新进度'); Object.assign(progressForm, { id: row.id, progressPercent: row.progressPercent, progressNote: '' }); progressDialog.value = true }
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }
 
 onMounted(async () => {
@@ -914,6 +977,9 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 .autosave-state.is-error { color: var(--el-color-danger); }
 .autosave-state.is-saving, .autosave-state.is-pending { color: var(--el-color-primary); }
 .editor-footer { width: 100%; flex-wrap: wrap; }
+.editor-footer-lifecycle { display: flex; flex-wrap: wrap; gap: 8px; }
+.editor-footer-lifecycle .el-button + .el-button { margin-left: 0; }
+.lifecycle-hint { margin: 0 0 18px; line-height: 1.7; }
 .editor-footer-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .editor-footer-actions .el-button + .el-button { margin-left: 0; }
 .items { padding: 14px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; }
@@ -934,7 +1000,10 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 </style>
 
 <style>
-.resource-dialog { display: flex; max-height: 90vh; flex-direction: column; overflow: hidden; }
+.resource-dialog, .resource-lifecycle-dialog { display: flex; max-height: 90vh; flex-direction: column; overflow: hidden; }
+.resource-lifecycle-dialog .el-dialog__header, .resource-lifecycle-dialog .el-dialog__footer { flex-shrink: 0; }
+.resource-lifecycle-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
+.resource-lifecycle-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); }
 .resource-dialog .el-dialog__header, .resource-dialog .el-dialog__footer { flex-shrink: 0; }
 .resource-dialog .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
 .resource-dialog .el-dialog__footer { border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light); box-shadow: 0 -4px 12px rgb(0 0 0 / 4%); }

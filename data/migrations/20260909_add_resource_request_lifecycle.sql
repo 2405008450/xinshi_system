@@ -7,7 +7,7 @@ SET demand_status = CASE
     ELSE 'confirmed'
 END
 WHERE demand_status IS NULL
-   OR demand_status NOT IN ('draft', 'confirmed', 'cancelled');
+   OR demand_status NOT IN ('draft', 'confirmed', 'paused', 'cancelled');
 
 DO $$
 BEGIN
@@ -17,7 +17,7 @@ BEGIN
     ) THEN
         ALTER TABLE resource_request
             ADD CONSTRAINT ck_resource_request_demand_status
-            CHECK (demand_status IN ('draft', 'confirmed', 'cancelled'));
+            CHECK (demand_status IN ('draft', 'confirmed', 'paused', 'cancelled'));
     END IF;
 END
 $$;

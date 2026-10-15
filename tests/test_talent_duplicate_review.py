@@ -51,6 +51,50 @@ def test_readonly_verifier_detects_snapshot_and_reference_loss():
     assert 'business_reference_ids' in {failure['check'] for failure in verify_operation(operation, {})}
 
 
+@pytest.mark.parametrize(('change', 'expected'), [
+    ('code', 'retained_resource_code'), ('id', 'retained_target_id'), ('missing', 'retained_target_snapshot')])
+def test_readonly_verifier_preserves_retained_identity(change, expected):
+    from tools.verify_talent_name_merge_run import verify_operation
+    operation = synthetic_verification_operation()
+    operation['before_snapshot']['people']['a']['person'].update(id='a', resource_code='QA001')
+    operation['after_snapshot'] = copy.deepcopy(operation['before_snapshot'])
+    operation['decisions']['retention']['before_sha256'] = digest(operation['before_snapshot'])
+    operation['decisions']['retention']['after_sha256'] = digest(operation['after_snapshot'])
+    assert verify_operation(operation, {}) == []
+    if change == 'missing':
+        operation['after_snapshot']['people'].pop('a')
+    else:
+        operation['after_snapshot']['people']['a']['person'][{'code': 'resource_code', 'id': 'id'}[change]] = 'changed'
+    operation['decisions']['retention']['after_sha256'] = digest(operation['after_snapshot'])
+    assert expected in {failure['check'] for failure in verify_operation(operation, {})}
+
+
+def test_readonly_verifier_tracks_current_targets_across_later_merges():
+    from tools.verify_talent_name_merge_run import verify_archive_targets
+    operations = [{'id': 'first', 'person_ids': ['a', 'b'], 'target_id': 'a'},
+                  {'id': 'later', 'person_ids': ['a', 'c'], 'target_id': 'c'}]
+    people = {'a': {'archived_into_id': 'c'}, 'b': {'archived_into_id': 'c'}, 'c': {'archived_into_id': None}}
+    assert verify_archive_targets(operations, people) == []
+    people['b']['archived_into_id'] = 'wrong'
+    assert 'archive_target_mismatch' in {failure['check'] for failure in verify_archive_targets(operations, people)}
+    people.pop('b')
+    assert 'archive_participant_missing' in {failure['check'] for failure in verify_archive_targets(operations, people)}
+
+
+def test_readonly_verifier_detects_wrong_live_archive_target(db):
+    from tools.verify_talent_name_merge_run import archive_people, verify_archive_targets
+    a, b, other = person(db), person(db), person(db, '另一人员')
+    operation, _ = process(db, [a.id, b.id], a.id)
+    identifiers = {str(a.id), str(b.id)}
+    assert verify_archive_targets([operation], archive_people(db.connection(), identifiers)) == []
+    # 隔离库模拟指向另一有效档案；全库循环检查正常也必须发现归档对象错误。
+    db.execute(text('UPDATE resource_person SET archived_into_id=:target WHERE id=:source'),
+               {'target': other.id, 'source': b.id})
+    db.commit()
+    failures = verify_archive_targets([operation], archive_people(db.connection(), identifiers))
+    assert failures == [{'operation_id': str(operation['id']), 'person_id': str(b.id), 'check': 'archive_target_mismatch'}]
+
+
 def test_readonly_verifier_checks_retained_attachment_bytes(tmp_path, monkeypatch):
     from tools import verify_talent_name_merge_run as verifier
     import hashlib
@@ -65,6 +109,112 @@ def test_readonly_verifier_checks_retained_attachment_bytes(tmp_path, monkeypatc
     assert verifier.verify_operation(operation, {}) == []
     path.write_bytes(b'changed')
     assert 'retained_attachment' in {failure['check'] for failure in verifier.verify_operation(operation, {})}
+
+
+def test_readonly_verifier_batches_snapshots_and_releases_connections(db):
+    from sqlalchemy import event
+    from tools.verify_talent_name_merge_run import operation_batches
+    identifiers = []
+    original = synthetic_verification_operation()
+    for _ in range(21):
+        identifier = uuid4()
+        identifiers.append(str(identifier))
+        db.add(TalentDuplicateOperation(
+            id=identifier, idempotency_key=str(uuid4()), request_hash='0'*64,
+            action='merge', name_key='合成姓名', person_ids=original['person_ids'],
+            target_id=uuid4(), actor_id=ACTOR.id, actor_name=ACTOR.full_name,
+            decisions=original['decisions'], before_snapshot=original['before_snapshot'],
+            after_snapshot=original['after_snapshot'], comparison_fingerprint='0'*64,
+            created_at=business_now()))
+    db.commit()
+    engine = db.get_bind()
+    batch_sizes, readonly_transactions = [], []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith('SET TRANSACTION'):
+            readonly_transactions.append('REPEATABLE READ READ ONLY' in statement)
+        if 'FROM talent_duplicate_operation' in statement:
+            batch_sizes.append(len(parameters['ids']))
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        observed = []
+        for batch in operation_batches(engine, identifiers):
+            # 消费快照期间不能持有核验事务，JSON/文件校验耗时不影响线上连接。
+            assert engine.pool.checkedout() == 0
+            observed.extend(str(row['id']) for row in batch)
+            assert all(row['before_snapshot'] == original['before_snapshot'] for row in batch)
+        assert set(observed) == set(identifiers)
+        assert len(observed) == len(identifiers)
+        assert batch_sizes == [20, 1]
+        assert readonly_transactions == [True, True]
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+
+
+def test_readonly_verifier_reuses_one_connection_without_idle_transaction_and_disposes(db):
+    import time
+    from tools.verify_talent_name_merge_run import verification_engine
+    engine = verification_engine(db.get_bind().url)
+    backend_ids = set()
+    try:
+        for _ in range(3):
+            with engine.connect() as connection:
+                connection.execute(text('SET TRANSACTION READ ONLY'))
+                backend_ids.add(connection.execute(text('SELECT pg_backend_pid()')).scalar_one())
+                connection.rollback()
+            assert engine.pool.checkedout() == 0
+            state = db.execute(text('SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid'),
+                               {'pid': next(iter(backend_ids))}).one()
+            assert state.state == 'idle' and state.xact_start is None
+            db.rollback()
+        assert len(backend_ids) == 1
+    finally:
+        engine.dispose()
+    # 结束核验后服务端连接也必须退出，不只是归还到专用连接池。
+    deadline = time.monotonic()+2
+    while True:
+        remaining = db.execute(text('SELECT count(*) FROM pg_stat_activity WHERE pid=:pid'),
+                               {'pid': next(iter(backend_ids))}).scalar_one()
+        db.rollback()
+        if not remaining or time.monotonic() >= deadline:
+            break
+        time.sleep(0.02)
+    assert remaining == 0
+
+
+def test_slow_worker_readonly_preflight_timeout_releases_connection(db, monkeypatch):
+    from tools import run_talent_name_merge_slow as runner
+    attempts = []
+    def check_actor(session, username):
+        attempts.append(username)
+        if len(attempts) == 1:
+            session.execute(text('SET LOCAL statement_timeout=20'))
+            session.execute(text('SELECT pg_sleep(0.1)'))
+    monkeypatch.setattr(runner, 'actor_for', check_actor)
+    state = {'keys': []}
+    engine = db.get_bind()
+    with pytest.raises(runner.CapacityBusy, match='只读启动检查暂时失败'):
+        runner.prepare_queue(engine, state, 'qa')
+    assert engine.pool.checkedout() == 0
+    assert state['failure_details']['sqlstate'] == '57014'
+    assert state['failure_details']['stage'] == '只读启动检查'
+    runner.prepare_queue(engine, state, 'qa')
+    assert attempts == ['qa', 'qa']
+    assert engine.pool.checkedout() == 0
+
+
+def test_slow_worker_readonly_preflight_does_not_retry_authentication_errors(db, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    from tools import run_talent_name_merge_slow as runner
+    class AuthenticationFailure(Exception):
+        pgcode = '28P01'
+    def check_actor(session, username):
+        raise OperationalError('private SQL', {'private': 'hidden'}, AuthenticationFailure())
+    monkeypatch.setattr(runner, 'actor_for', check_actor)
+    state = {'keys': []}
+    with pytest.raises(OperationalError):
+        runner.prepare_queue(db.get_bind(), state, 'qa')
+    assert db.get_bind().pool.checkedout() == 0
+    assert state['failure_details'] == {'type': 'OperationalError', 'sqlstate': '28P01', 'stage': '只读启动检查'}
 
 
 def test_slow_worker_preserves_audit_and_retries_idempotently(db):
@@ -167,6 +317,68 @@ def test_slow_worker_error_diagnostics_do_not_expose_sql_parameters():
     reason = pause_reason(error)
     assert '数据库查询超时' in reason and '57014' in reason
     assert 'private_contact' not in reason and 'secret@example.test' not in reason
+    disconnected = OperationalError('private SQL', {'secret': 'hidden'}, RuntimeError('private text'),
+                                    connection_invalidated=True)
+    assert failure_details(disconnected) == {'type': 'OperationalError', 'connection_invalidated': True}
+
+
+def test_slow_worker_preview_connection_failure_waits_without_marking_group_done(db, tmp_path, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    from tools import run_talent_name_merge_slow as runner
+    def broken_preview(*args):
+        raise OperationalError(None, None, RuntimeError('synthetic connect timeout'))
+    monkeypatch.setattr(runner, 'propose', broken_preview)
+    state = {'keys': ['合成姓名'], 'index': 0, 'requests': {}, 'results': []}
+    with pytest.raises(runner.CapacityBusy, match='只读预览暂时失败'):
+        runner.run_queue(db.get_bind(), state, tmp_path/'status.json', tmp_path/'STOP', 'qa', 1, 0)
+    assert state['processed_keys'] == [] and state['requests'] == {} and state['results'] == []
+    assert state['failure_details']['type'] == 'OperationalError'
+    assert state['failure_details']['read_check_stage'] == '只读预览'
+    assert db.get_bind().pool.checkedout() == 0
+
+
+def test_slow_worker_only_yields_connection_failure_before_business_write(db, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+    from tools import run_talent_name_merge_slow as runner
+    import talent_name_merge_service
+    calls = []
+    def disconnected(*args, **kwargs):
+        raise OperationalError(None, None, RuntimeError('synthetic disconnect'), connection_invalidated=True)
+    def commit_failed(*args):
+        calls.append('business_write')
+        disconnected()
+    monkeypatch.setattr(talent_name_merge_service, 'commit_group', commit_failed)
+    monkeypatch.setattr(runner, 'read_pressure', disconnected)
+    request = {'group_key': '合成姓名', 'group_version': '0'*64, 'preview_token': '0'*64,
+               'idempotency_key': str(uuid4())}
+    with Session(db.get_bind()) as worker:
+        with pytest.raises(runner.CapacityBusy, match='提交前只读检查暂时失败'):
+            runner.execute_one(worker, request, 'qa')
+    assert not calls and db.get_bind().pool.checkedout() == 0
+    monkeypatch.setattr(runner, 'read_pressure', lambda _: {'connections': 0, 'active': 0, 'idle_transactions': 0, 'old_transactions': 0})
+    monkeypatch.setattr(runner, 'actor_for', lambda *args: ACTOR)
+    with Session(db.get_bind()) as worker:
+        # 业务提交开始后的断连不能被误判为只读故障，必须留给人工核对幂等结果。
+        with pytest.raises(OperationalError):
+            runner.execute_one(worker, request, 'qa')
+    assert calls == ['business_write'] and db.get_bind().pool.checkedout() == 0
+
+
+def test_review_readiness_reuses_the_current_transaction_connection(db):
+    from sqlalchemy import event
+    engine = db.get_bind()
+    checkouts = []
+    def checkout(connection, record, proxy):
+        checkouts.append(id(connection))
+    event.listen(engine, 'checkout', checkout)
+    try:
+        with Session(engine) as session:
+            session.execute(text('SELECT 1'))
+            assert review_ready(session)
+            assert review_ready(session)
+            assert len(checkouts) == 1
+    finally:
+        event.remove(engine, 'checkout', checkout)
 
 
 def test_backend_pool_health_probe_is_cached_and_records_checked_at(monkeypatch):
@@ -186,6 +398,14 @@ def test_backend_pool_health_probe_is_cached_and_records_checked_at(monkeypatch)
     now[0] = 61
     monitor.check()
     assert len(calls) == 2
+
+
+def test_retry_wait_jitter_never_speeds_up_or_exceeds_bounds(monkeypatch):
+    from tools import run_talent_name_merge_slow as runner
+    monkeypatch.setattr(runner.random, 'uniform', lambda lower, upper: lower)
+    assert runner.retry_wait_seconds(60) == 65
+    monkeypatch.setattr(runner.random, 'uniform', lambda lower, upper: upper)
+    assert runner.retry_wait_seconds(60) == 75
 
 
 @pytest.mark.parametrize('failure', ['timeout', 'slow'])

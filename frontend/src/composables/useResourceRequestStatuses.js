@@ -4,6 +4,7 @@ import { getResourceRequestSourceStatuses } from '@/api/resourceRequests'
 const actionLabels = {
   draft: '草稿准备中',
   confirmed: '需求已发送',
+  paused: '需求已暂停',
   cancelled: '需求已取消',
 }
 

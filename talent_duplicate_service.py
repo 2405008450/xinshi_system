@@ -100,11 +100,12 @@ def name_key(value):
 
 def review_ready(db):
     """仅检查结构；不在服务启动或请求中执行迁移。每个会话只检查一次。"""
-    if not hasattr(db, "info") or not hasattr(db, "get_bind"):
+    if not hasattr(db, "info") or not hasattr(db, "connection"):
         return False
     if "talent_duplicate_ready" not in db.info:
         try:
-            inspector = inspect(db.get_bind())
+            # 复用当前事务，避免结构检查另借连接挤占在线请求的连接池。
+            inspector = inspect(db.connection())
             columns = {row["name"] for row in inspector.get_columns("resource_person")}
             db.info["talent_duplicate_ready"] = {"archived_into_id", "archived_at"} <= columns and inspector.has_table("talent_duplicate_operation")
         except (NoInspectionAvailable, UnboundExecutionError):

@@ -19,9 +19,12 @@ from resource_request_schemas import (
     ResourceRequestResponse,
     ResourceRequestSourcePrefillResponse,
     ResourceRequestWrite,
+    ResourceRequestUpdate,
+    ResourceRequestLifecycleAction,
+    ResourceRequestPause,
 )
 from resource_request_service import (
-    cancel_resource_request, count_resource_requests, create_resource_request, delete_resource_request,
+    cancel_resource_request, change_resource_request_pause, count_resource_requests, create_resource_request, delete_resource_request,
     get_resource_request, get_resource_request_by_source, get_resource_request_source_prefill,
     list_progress_logs, list_resource_request_daily_notes,
     list_resource_request_source_statuses, list_resource_requests,
@@ -31,6 +34,7 @@ from resource_request_service import (
 )
 from routers.auth import get_current_user, require_any_permission, require_module_access
 from concurrency import assert_fresh
+from business_time import business_now
 from inline_text_update import (
     TextFieldRule,
     TextFieldUpdate,
@@ -261,7 +265,7 @@ def edit_request_item_text_field(
         assert_fresh(request, payload.expected_updated_at)
         value = normalize_text_value(payload.value, TextFieldRule())
         if item.requirement_detail != value:
-            now = datetime.now()
+            now = business_now()
             item.requirement_detail = value
             item.updated_at = now
             request.updated_at = now
@@ -273,7 +277,7 @@ def edit_request_item_text_field(
 
 
 @router.put("/{request_id}", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
-def edit_request(request_id: UUID, payload: ResourceRequestWrite, db: Session = Depends(get_db)):
+def edit_request(request_id: UUID, payload: ResourceRequestUpdate, db: Session = Depends(get_db)):
     try: row = update_resource_request(db, request_id, payload)
     except (ValueError, IntegrityError) as exc:
         db.rollback(); raise HTTPException(400, str(exc))
@@ -284,6 +288,22 @@ def edit_request(request_id: UUID, payload: ResourceRequestWrite, db: Session = 
 @router.post("/{request_id}/send", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
 def send_request(request_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     row = send_resource_request(db, request_id, user.id)
+    if not row:
+        raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.post("/{request_id}/pause", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def pause_request(request_id: UUID, payload: ResourceRequestPause, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    row = change_resource_request_pause(db, request_id, payload, user.id)
+    if not row:
+        raise HTTPException(404, "资源需求不存在")
+    return row
+
+
+@router.post("/{request_id}/resume", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
+def resume_request(request_id: UUID, payload: ResourceRequestLifecycleAction, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    row = change_resource_request_pause(db, request_id, payload, user.id, resume=True)
     if not row:
         raise HTTPException(404, "资源需求不存在")
     return row

@@ -6,9 +6,10 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from annotation_notice_schemas import validate_tiptap_document
+from business_time import business_iso
 
 
 class ResourceRequestItemWrite(BaseModel):
@@ -94,6 +95,19 @@ class ResourceRequestWrite(BaseModel):
         return self
 
 
+class ResourceRequestUpdate(ResourceRequestWrite):
+    expected_updated_at: Optional[datetime] = None
+
+
+class ResourceRequestLifecycleAction(BaseModel):
+    expected_updated_at: datetime
+    model_config = ConfigDict(extra="forbid")
+
+
+class ResourceRequestPause(ResourceRequestLifecycleAction):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
 class ResourceRequestSourcePrefillResponse(BaseModel):
     """从来源项目生成资源需求时的统一预填数据。"""
 
@@ -133,6 +147,10 @@ class ResourceRequestResponse(ResourceRequestWrite):
     items: list[ResourceRequestItemResponse] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer("requested_at", "completed_at", "created_at", "updated_at")
+    def serialize_business_time(self, value):
+        return business_iso(value)
+
 
 class ResourceProgressUpdate(BaseModel):
     progress_percent: int = Field(ge=0, le=100)
@@ -154,6 +172,10 @@ class ResourceProgressLogResponse(BaseModel):
     changed_by: Optional[UUID] = None
     changed_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("changed_at")
+    def serialize_business_time(self, value):
+        return business_iso(value)
 
 
 class ResourceRequestDailyNoteWrite(BaseModel):

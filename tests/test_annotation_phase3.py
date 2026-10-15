@@ -199,7 +199,7 @@ def test_resource_request_send_cancel_and_resend_lifecycle(monkeypatch):
         commits = 0
         logs = []
 
-        def get(self, _model, value):
+        def get(self, _model, value, **_kwargs):
             return row if value == request_id else None
 
         def add(self, value):
@@ -350,9 +350,13 @@ def test_annotation_status_update_requires_a_note():
 def test_progress_for_historical_status_does_not_change_current_project_status(monkeypatch):
     project = SimpleNamespace(
         id=uuid4(),
+        order_no="AP-history-test",
+        priority="medium",
+        created_at=datetime(2026, 9, 7, 16, 20),
+        custom_values={},
         project_status="project_in_progress",
         status_effective_on=datetime(2026, 9, 7, 16, 20),
-        updated_at=None,
+        updated_at=datetime(2026, 9, 7, 16, 20),
     )
     db = MagicMock()
     monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)

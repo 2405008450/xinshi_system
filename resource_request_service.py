@@ -7,6 +7,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -21,7 +22,8 @@ from resource_request_models import (
     ResourceRequestItemExtraLanguage,
     ResourceRequestProgressLog,
 )
-from concurrency import assert_fresh
+from concurrency import StaleUpdateError, assert_fresh
+from business_time import BUSINESS_TIMEZONE, business_now
 
 
 SOURCE_MODELS = {
@@ -322,7 +324,7 @@ def _sync_items(db: Session, request: ResourceRequest, payload_items) -> None:
             for language_index, language_id in enumerate(current_language_ids[2:], start=3)
         ]
         row.sequence_no = index
-        row.updated_at = datetime.now()
+        row.updated_at = business_now()
 
 
 def create_resource_request(
@@ -331,6 +333,7 @@ def create_resource_request(
     data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
     row = ResourceRequest(
         request_no=generate_resource_request_no(db), requested_by=user_id,
+        requested_at=business_now(), created_at=business_now(), updated_at=business_now(),
         idempotency_key=idempotency_key,
         demand_status="draft" if payload.request_status == "draft" else "confirmed",
         **data,
@@ -339,7 +342,7 @@ def create_resource_request(
     db.add(row)
     db.flush()
     note = "资源需求草稿已创建" if row.demand_status == "draft" else "资源需求已发送"
-    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=0, progress_note=note, changed_by=user_id))
+    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=0, progress_note=note, changed_by=user_id, changed_at=business_now()))
     db.commit()
     return get_resource_request(db, row.id)
 
@@ -355,14 +358,17 @@ def _request_options():
 
 
 def update_resource_request(db: Session, request_id: UUID, payload):
-    row = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id == request_id).first()
+    row = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id == request_id).with_for_update().populate_existing().first()
     if not row:
         return None
-    data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
+    _assert_request_version(row, getattr(payload, "expected_updated_at", None))
+    if row.demand_status == "paused" and payload.request_status != row.request_status:
+        raise HTTPException(409, "需求已暂停，请先恢复需求再更新进度")
+    data = payload.model_dump(exclude={"items", "expected_updated_at"}) | _source_snapshot(db, payload)
     for key, value in data.items():
         setattr(row, key, value)
     _sync_items(db, row, payload.items)
-    row.updated_at = datetime.now()
+    row.updated_at = business_now()
     db.commit()
     return get_resource_request(db, row.id)
 
@@ -398,26 +404,29 @@ def list_resource_request_source_statuses(db: Session, source_type: str) -> dict
 
 
 def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]):
-    row = db.get(ResourceRequest, request_id)
+    row = db.get(ResourceRequest, request_id, with_for_update=True, populate_existing=True)
     if not row:
         return None
+    if row.demand_status == "paused":
+        raise HTTPException(409, "需求已暂停，请使用“恢复需求”继续处理")
     row.demand_status = "confirmed"
     row.request_status = "submitted"
-    row.requested_at = datetime.now()
+    row.requested_at = business_now()
     row.completed_at = None
-    row.updated_at = datetime.now()
+    row.updated_at = business_now()
     db.add(ResourceRequestProgressLog(
         request_id=row.id,
         progress_percent=row.progress_percent,
         progress_note="资源需求已发送",
         changed_by=user_id,
+        changed_at=business_now(),
     ))
     db.commit()
     return get_resource_request(db, row.id)
 
 
 def cancel_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]):
-    row = db.get(ResourceRequest, request_id)
+    row = db.get(ResourceRequest, request_id, with_for_update=True, populate_existing=True)
     if not row:
         return None
     if row.demand_status == "draft":
@@ -425,12 +434,55 @@ def cancel_resource_request(db: Session, request_id: UUID, user_id: Optional[UUI
     row.demand_status = "cancelled"
     row.request_status = "cancelled"
     row.completed_at = None
-    row.updated_at = datetime.now()
+    row.updated_at = business_now()
     db.add(ResourceRequestProgressLog(
         request_id=row.id,
         progress_percent=row.progress_percent,
         progress_note="资源需求已取消",
         changed_by=user_id,
+        changed_at=business_now(),
+    ))
+    db.commit()
+    return get_resource_request(db, row.id)
+
+
+def _assert_request_version(row, expected):
+    """资源需求无时区字段按 UTC+8 存储，版本比较保留微秒及实际时刻。"""
+    if expected is None:
+        return
+    current = row.updated_at
+    if expected.tzinfo is not None:
+        expected = expected.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
+    if current.tzinfo is not None:
+        current = current.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
+    if current != expected:
+        raise StaleUpdateError("需求已被其他人修改，请重新打开后重试；当前内容仍保留")
+
+
+def change_resource_request_pause(db: Session, request_id: UUID, payload, user_id: Optional[UUID], *, resume=False):
+    """只变更需求生命周期；恢复时不重置发送时间、进度或负责人。"""
+    row = db.get(ResourceRequest, request_id, with_for_update=True, populate_existing=True)
+    if not row:
+        return None
+    target = "confirmed" if resume else "paused"
+    # 相同目标的重试无需再次更新版本或追加日志。
+    if row.demand_status == target:
+        return get_resource_request(db, row.id)
+    _assert_request_version(row, payload.expected_updated_at)
+    if resume:
+        if row.demand_status != "paused":
+            raise HTTPException(409, "只有已暂停需求可以恢复")
+        note = "资源需求已恢复"
+    else:
+        if row.demand_status != "confirmed" or row.request_status in {"draft", "cancelled", "fulfilled"} or row.progress_percent >= 100:
+            raise HTTPException(409, "只有已发送且未完成的需求可以暂停")
+        reason = (payload.reason or "").strip()
+        note = "资源需求已暂停" + (f"；原因：{reason}" if reason else "")
+    now = business_now()
+    row.demand_status, row.updated_at = target, now
+    db.add(ResourceRequestProgressLog(
+        request_id=row.id, progress_percent=row.progress_percent,
+        progress_note=note, changed_by=user_id, changed_at=now,
     ))
     db.commit()
     return get_resource_request(db, row.id)
@@ -580,19 +632,21 @@ def count_resource_requests(db: Session, **filters) -> int:
 
 
 def update_resource_progress(db: Session, request_id: UUID, payload, user_id: Optional[UUID]):
-    row = db.get(ResourceRequest, request_id)
+    row = db.get(ResourceRequest, request_id, with_for_update=True, populate_existing=True)
     if not row:
         return None
+    if row.demand_status == "paused":
+        raise HTTPException(409, "需求已暂停，请先恢复需求再更新进度")
     row.progress_percent = payload.progress_percent
     if payload.request_status:
         row.request_status = payload.request_status
     if row.progress_percent == 100 and row.request_status != "cancelled":
         row.request_status = "fulfilled"
-        row.completed_at = datetime.now()
+        row.completed_at = business_now()
     elif row.request_status != "fulfilled":
         row.completed_at = None
-    row.updated_at = datetime.now()
-    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=payload.progress_percent, progress_note=payload.progress_note, changed_by=user_id))
+    row.updated_at = business_now()
+    db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=payload.progress_percent, progress_note=payload.progress_note, changed_by=user_id, changed_at=business_now()))
     db.commit()
     return get_resource_request(db, row.id)
 

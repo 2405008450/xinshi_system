@@ -46,7 +46,9 @@ def run():
     command(pg_bin/'pg_ctl.exe','-D',data,'-l',data/'server.log','-o',f'-h 127.0.0.1 -p {port}','-w','start')
     try:
         env = dict(os.environ,DATABASE_URL=f'postgresql+psycopg2://arrangement_test@127.0.0.1:{port}/postgres',
-                   SECRET_KEY=secrets.token_urlsafe(48),RUN_RESOURCE_DEVELOPMENT_DB_TESTS='1',PYTHONIOENCODING='utf-8')
+                   SECRET_KEY=secrets.token_urlsafe(48),RUN_RESOURCE_DEVELOPMENT_DB_TESTS='1',PYTHONIOENCODING='utf-8',LOCAL_SCHEMA_MIGRATIONS_ENABLED='0')
+        commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        print(f'主机=PC 项目={ROOT} Git={commit} 隔离数据库=127.0.0.1:{port}/postgres', flush=True)
         setup = """
 import main
 from models import Base, AppUser
@@ -63,6 +65,10 @@ with engine.begin() as connection:
 tables=[t for t in Base.metadata.sorted_tables if not t.name.startswith('resource_development_arrangement')]
 Base.metadata.create_all(engine,tables=tables)
 with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
+    connection.exec_driver_sql(Path('data/migrations/20260909_add_resource_request_lifecycle.sql').read_text(encoding='utf-8'))
+    pause_sql=Path('data/migrations/20261015_resource_request_pause.sql').read_text(encoding='utf-8')
+    connection.exec_driver_sql(pause_sql)
+    connection.exec_driver_sql(pause_sql)
     sql=Path('data/migrations/20261008_resource_development_arrangements.sql').read_text(encoding='utf-8')
     connection.exec_driver_sql(sql)
     connection.exec_driver_sql(sql)
@@ -90,7 +96,8 @@ print('每日安排及岗位目标迁移首次执行及重复执行通过')
 """
         command(sys.executable,'-c',setup,env=env)
         results = command(sys.executable,'-m','pytest','tests/test_resource_arrangements.py','tests/test_resource_development.py',
-                          'tests/test_resource_follow_up.py','tests/test_resource_request_daily_notes.py','-q','--tb=short',env=env,timeout=300)
+                          'tests/test_resource_follow_up.py','tests/test_resource_request_daily_notes.py',
+                          'tests/test_resource_request_pause.py','tests/test_annotation_phase3.py','-q','--tb=short',env=env,timeout=300)
         (out/'tests.log').write_text(results,encoding='utf-8')
     finally:
         command(pg_bin/'pg_ctl.exe','-D',data,'-m','fast','-w','stop')

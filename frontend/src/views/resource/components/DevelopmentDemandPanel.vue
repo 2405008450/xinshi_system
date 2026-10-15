@@ -21,7 +21,7 @@
                 <el-descriptions-item label="订单号">{{ row.order_no || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="项目名称">{{ row.project_name || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="需求编号">{{ row.request_no }}</el-descriptions-item>
-                <el-descriptions-item label="需求状态">{{ detailCache[row.id]?.demand_status === 'cancelled' ? '已取消' : '已发送' }}</el-descriptions-item>
+                <el-descriptions-item label="需求状态">{{ demandStatusText(detailCache[row.id]?.demand_status || row.demand_status) }}</el-descriptions-item>
                 <el-descriptions-item label="语种／方言" :span="2">{{ (detailCache[row.id]?.languages || row.languages || []).join('、') || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="需求说明" :span="2">{{ detailCache[row.id]?.request_detail || row.request_detail || '-' }}</el-descriptions-item>
               </el-descriptions>
@@ -42,6 +42,7 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { arrangementPopoverOptions as popoverOptions } from '@/utils/resourceArrangements'
+import { demandStatusText } from '@/utils/resourceRequestLifecycle'
 import RequestArrangementDialog from './RequestArrangementDialog.vue'
 import RequestArrangementHistory from './RequestArrangementHistory.vue'
 defineProps({ options: { type: Object, required: true }, defaultDate: { type: String, default: '' } })

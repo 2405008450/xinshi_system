@@ -158,6 +158,161 @@ def request_context(db, context, status='confirmed', child=False):
     return request, project
 
 
+def test_paused_request_preserves_arrangement_snapshots_and_carry_skips_it(db, context):
+    from resource_arrangement_service import (arrangement_options, carry_preview, complete_arrangement,
+                                             get_cells, list_arrangement_requests, read_arrangement)
+    from resource_request_schemas import ResourceRequestPause, ResourceRequestLifecycleAction
+    from resource_request_service import change_resource_request_pause
+    manager, owner, _, platforms, language = context
+    first, _ = request_context(db, context)
+    second, _ = request_context(db, context)
+    targets = [dict(kind='request', request_id=first.id, language_id=language.id),
+               dict(kind='request_project', request_id=first.id),
+               dict(kind='request', request_id=second.id, language_id=language.id),
+               dict(kind='manual', language_id=language.id)]
+    cell_payload = dict(platform_id=platforms[0].id, owner_id=owner.id, targets=targets)
+    day = save(db, context, cells=[cell_payload])
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    cell = get_cells(db, day)[0]
+    before = (cell.targets.copy(), cell.completed_at, cell.completed_by, day.revision)
+    change_resource_request_pause(db, first.id, ResourceRequestPause(expected_updated_at=first.updated_at), manager.id)
+    visible = read_arrangement(db, manager, day.work_date)['cells'][0]
+    assert [t['inactive_reason'] for t in visible['targets'][:2]] == ['需求已暂停'] * 2
+    assert all(t['active'] for t in visible['targets'][2:])
+    assert visible['completed'] and (cell.targets, cell.completed_at, cell.completed_by, day.revision) == before
+    assert str(first.id) not in {r['id'] for r in list_arrangement_requests(db)['items']}
+    assert all(t.get('request_id') != str(first.id) for t in arrangement_options(db)['targets'])
+    # 已有失效项允许原样保留，不能新增到另一个账号。
+    save(db, context, revision=day.revision, cells=[cell_payload])
+    assert cell.completed
+    with pytest.raises(HTTPException) as error:
+        save(db, context, revision=day.revision, cells=[dict(platform_id=platforms[1].id, targets=[targets[1]])])
+    assert error.value.status_code == 409 and '暂停' in error.value.detail
+    preview = carry_preview(db, manager, date(2026, 10, 9))
+    assert all(t.get('request_id') != str(first.id) for t in preview['cells'][0]['targets'])
+    assert any('需求已暂停' in warning for warning in preview['warnings'])
+    change_resource_request_pause(db, first.id, ResourceRequestLifecycleAction(expected_updated_at=first.updated_at), manager.id, resume=True)
+    assert all(t['active'] for t in read_arrangement(db, manager, day.work_date)['cells'][0]['targets'])
+    assert cell.completed and cell.completed_at == before[1]
+    assert str(first.id) in {r['id'] for r in list_arrangement_requests(db)['items']}
+
+
+def test_pause_migration_repeated_and_legacy_migrations_preserve_paused_rows(db, context):
+    from pathlib import Path
+    from main import RESOURCE_REQUEST_LIFECYCLE_STATEMENTS
+    from sqlalchemy import text
+    request, _ = request_context(db, context)
+    db.execute(text('ALTER TABLE resource_request DROP CONSTRAINT ck_resource_request_demand_status'))
+    db.execute(text("ALTER TABLE resource_request ADD CONSTRAINT ck_resource_request_demand_status CHECK(demand_status IN ('draft','confirmed','cancelled'))"))
+    migration = Path('data/migrations/20261015_resource_request_pause.sql').read_text(encoding='utf-8')
+    db.connection().exec_driver_sql(migration)
+    request.demand_status = 'paused'; db.flush()
+    before = (request.request_status, request.updated_at, request.progress_percent)
+    db.connection().exec_driver_sql(migration)
+    db.connection().exec_driver_sql(Path('data/migrations/20260909_add_resource_request_lifecycle.sql').read_text(encoding='utf-8'))
+    for statement in RESOURCE_REQUEST_LIFECYCLE_STATEMENTS:
+        db.execute(text(statement))
+    db.refresh(request)
+    assert request.demand_status == 'paused'
+    assert (request.request_status, request.updated_at, request.progress_percent) == before
+
+
+def test_pause_http_permissions_versions_edit_guards_and_cancel(db, context, monkeypatch):
+    import json
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+    from database import get_db
+    from routers.auth import get_current_user
+    import routers.auth as auth
+    from routers.resource_requests import router
+    from concurrency import StaleUpdateError
+    from resource_request_models import ResourceRequestProgressLog
+    manager, *_ = context
+    request, _ = request_context(db, context)
+    request.progress_percent = 35; request.request_status = 'in_progress'; db.flush()
+    permissions = ['projects:read', 'projects:write']
+    monkeypatch.setattr(auth, 'get_user_permission_codes', lambda *_: permissions)
+    monkeypatch.setattr(auth, 'user_has_permission', lambda _db, _user, code: code in permissions)
+    app = FastAPI(); app.include_router(router)
+    app.add_exception_handler(StaleUpdateError, lambda _req, exc: JSONResponse(status_code=409, content={'detail': str(exc)}))
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: manager
+    path = f'/resource-requests/{request.id}'
+    with TestClient(app) as client:
+        detail = client.get(path)
+        assert detail.status_code == 200, detail.text
+        original = detail.json()
+        version = {'expected_updated_at': original['updated_at']}
+        permissions.remove('projects:write')
+        assert client.post(path + '/pause', json=version).status_code == 403
+        assert client.post(path + '/resume', json=version).status_code == 403
+        permissions.append('projects:write')
+        assert client.post(path + '/pause', json={}).status_code == 422
+        assert client.post(path + '/pause', json=version | {'reason': '等' * 501}).status_code == 422
+        paused = client.post(path + '/pause', json=version | {'reason': '等待客户'})
+        assert paused.status_code == 200, paused.text
+        paused = paused.json()
+        assert paused['demand_status'] == 'paused' and paused['updated_at'].endswith('+08:00')
+        filters = {'field_filters': json.dumps({'demand_status': {'op': 'in', 'value': ['paused']}})}
+        page = client.get('/resource-requests/page', params=filters)
+        assert page.status_code == 200, page.text
+        assert page.json()['total'] == 1 and page.json()['items'][0]['id'] == str(request.id)
+        assert client.get('/resource-requests/count', params=filters).json()['total'] == page.json()['total']
+        assert client.post(path + '/pause', json=version).status_code == 200
+        assert client.post(path + '/send').status_code == 409
+        assert client.patch(path + '/progress', json={'progress_percent': 100}).status_code == 409
+        assert client.put(path, json=original | version).status_code == 409
+        assert client.put(path, json=paused | {'request_status': 'fulfilled'}).status_code == 409
+        # 暂停期间正常编辑不改变生命周期；新版本可用于恢复，旧版本应拒绝。
+        edited = client.put(path, json=paused | {'request_detail': '暂停期间补充需求', 'expected_updated_at': paused['updated_at']})
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['demand_status'] == 'paused'
+        assert client.post(path + '/resume', json=version).status_code == 409
+        resumed = client.post(path + '/resume', json={'expected_updated_at': edited.json()['updated_at']})
+        assert resumed.status_code == 200, resumed.text
+        for field in ['progress_percent', 'requested_at', 'request_status', 'owner_id', 'completed_at']:
+            assert resumed.json()[field] == original[field]
+        assert client.post(path + '/resume', json=version).status_code == 200
+        paused_again = client.post(path + '/pause', json={'expected_updated_at': resumed.json()['updated_at']})
+        assert paused_again.status_code == 200
+        cancelled = client.post(path + '/cancel')
+        assert cancelled.status_code == 200 and cancelled.json()['demand_status'] == 'cancelled'
+        assert client.post(path + '/resume', json={'expected_updated_at': cancelled.json()['updated_at']}).status_code == 409
+        assert client.post('/resource-requests/' + str(uuid4()) + '/pause', json=version).status_code == 404
+        logs = client.get(path + '/progress-logs').json()
+        assert all(log['changed_at'].endswith('+08:00') for log in logs)
+        assert sum('已暂停' in (log.progress_note or '') for log in db.query(ResourceRequestProgressLog).filter_by(request_id=request.id)) == 2
+
+
+def test_concurrent_pause_retries_record_one_log(db):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy.orm import Session
+    from database import engine
+    from resource_request_models import ResourceRequest, ResourceRequestProgressLog
+    from resource_request_schemas import ResourceRequestPause
+    from resource_request_service import change_resource_request_pause
+    from business_time import business_now
+    # 此测试仅在 fixture 已确认的隔离数据库内使用独立事务，才能验证真实行锁。
+    request_id = uuid4()
+    with Session(engine) as session:
+        row = ResourceRequest(id=request_id, request_no='RR-concurrency-' + uuid4().hex, source_type='other',
+                              request_category='other', other_source_name='并发测试', source_project_name_snapshot='并发测试',
+                              request_detail='', demand_status='confirmed', request_status='submitted', updated_at=business_now())
+        session.add(row); session.commit(); version = row.updated_at
+    try:
+        def pause():
+            with Session(engine) as session:
+                return change_resource_request_pause(session, request_id, ResourceRequestPause(expected_updated_at=version), None)['demand_status']
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert list(pool.map(lambda _: pause(), range(2))) == ['paused', 'paused']
+        with Session(engine) as session:
+            assert session.query(ResourceRequestProgressLog).filter_by(request_id=request_id).count() == 1
+    finally:
+        with Session(engine) as session:
+            session.delete(session.get(ResourceRequest, request_id)); session.commit()
+
+
 def save(db, context, revision=0, cells=None, day=date(2026, 10, 8), user=None, **kwargs):
     from resource_arrangement_service import save_arrangement
     manager, owner, _, platforms, _ = context

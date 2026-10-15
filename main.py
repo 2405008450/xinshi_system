@@ -483,11 +483,11 @@ RESOURCE_COMPAT_COLUMN_STATEMENTS = (
 )
 RESOURCE_REQUEST_LIFECYCLE_STATEMENTS = (
     "ALTER TABLE resource_request ADD COLUMN IF NOT EXISTS demand_status VARCHAR(30) NOT NULL DEFAULT 'confirmed'",
-    "UPDATE resource_request SET demand_status=CASE WHEN request_status='cancelled' THEN 'cancelled' ELSE 'confirmed' END WHERE demand_status IS NULL OR demand_status NOT IN ('draft','confirmed','cancelled')",
+    "UPDATE resource_request SET demand_status=CASE WHEN request_status='cancelled' THEN 'cancelled' ELSE 'confirmed' END WHERE demand_status IS NULL OR demand_status NOT IN ('draft','confirmed','paused','cancelled')",
     """
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_resource_request_demand_status') THEN
-        ALTER TABLE resource_request ADD CONSTRAINT ck_resource_request_demand_status CHECK(demand_status IN ('draft','confirmed','cancelled'));
+        ALTER TABLE resource_request ADD CONSTRAINT ck_resource_request_demand_status CHECK(demand_status IN ('draft','confirmed','paused','cancelled'));
       END IF;
     END $$
     """,

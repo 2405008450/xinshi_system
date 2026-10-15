@@ -138,7 +138,7 @@ def assign_request(db, user, request_id, work_date, payload):
     check_day_revision(day, payload.revision)
     request = db.query(ResourceRequest).options(*_request_options()).filter_by(id=request_id).with_for_update().populate_existing().one_or_none()
     if not request_active(request):
-        raise HTTPException(409, '需求已取消或尚未发送，请刷新后重试')
+        raise HTTPException(409, '需求已暂停、已取消或尚未发送，请刷新后重试')
     request_project_target(db, request)
     cells = {str(c.platform_id): c for c in get_cells(db, day)}
     selected = {str(value) for value in payload.platform_ids}
@@ -180,6 +180,8 @@ def target_status(db, target):
         return False, '需求已删除'
     if request.demand_status == 'cancelled' or request.request_status == 'cancelled':
         return False, '需求已取消'
+    if request.demand_status == 'paused':
+        return False, '需求已暂停'
     if not request_active(request):
         return False, '需求尚未发送'
     if target['kind'] == 'request_project':
@@ -316,7 +318,7 @@ def normalize_targets(db, payloads, existing):
         if payload.kind == 'request_project':
             request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
             if not request_active(request):
-                raise HTTPException(409, '所选需求已取消，请刷新后重试')
+                raise HTTPException(409, '所选需求已暂停、已取消或尚未发送，请刷新后重试')
             result.append(request_project_target(db, request))
             continue
         language = db.get(InterpretationLanguage, payload.language_id)
@@ -327,7 +329,7 @@ def normalize_targets(db, payloads, existing):
             # 锁住需求行，避免校验通过到安排提交之间被另一事务取消。
             request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
             if not request_active(request) or not language_in_request(request, payload.language_id):
-                raise HTTPException(409, '所选需求已取消或语种已调整，请刷新开拓方向后重试')
+                raise HTTPException(409, '所选需求已暂停、已取消或语种已调整，请刷新开拓方向后重试')
             value.update(request_no=request.request_no, source_name=request.source_project_name_snapshot,
                          project=request_project(db, request))
         result.append(value)

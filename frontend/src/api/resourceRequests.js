@@ -33,6 +33,12 @@ export const createResourceRequest = async (data, idempotencyKey) => {
 export const updateResourceRequest = (id, data) => api.put(`/resource-requests/${id}`, convert(data, snake)).then((res) => convert(res, camel))
 export const sendResourceRequest = (id) => api.post(`/resource-requests/${id}/send`).then((res) => convert(res, camel))
 export const cancelResourceRequest = (id) => api.post(`/resource-requests/${id}/cancel`).then((res) => convert(res, camel))
+export const pauseResourceRequest = (id, reason, expectedUpdatedAt) => api.post(`/resource-requests/${id}/pause`, {
+  reason: reason?.trim() || null, expected_updated_at: expectedUpdatedAt,
+}).then((res) => convert(res, camel))
+export const resumeResourceRequest = (id, expectedUpdatedAt) => api.post(`/resource-requests/${id}/resume`, {
+  expected_updated_at: expectedUpdatedAt,
+}).then((res) => convert(res, camel))
 export const updateResourceRequestTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/resource-requests/${id}/text-field`, {
   field: snake(field), value, expected_updated_at: expectedUpdatedAt,
 }).then((res) => convert(res, camel))
