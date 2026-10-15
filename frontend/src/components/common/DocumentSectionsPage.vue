@@ -8,12 +8,13 @@
           <p>{{ description }}</p>
         </div>
         <div class="notice-page__actions">
-          <el-button v-if="canEdit" @click="managerVisible = true">栏目管理</el-button>
+          <el-button v-if="canEdit" :disabled="loading || !!treeError" @click="managerVisible = true">栏目管理</el-button>
           <el-button :disabled="editorVisible || managerVisible" @click="loadTree">刷新</el-button>
         </div>
       </div>
     </template>
 
+    <el-alert v-if="treeError" :title="treeError" type="warning" :closable="false" show-icon class="notice-load-error" />
     <div class="notice-search">
       <el-input
         v-model="searchKeyword"
@@ -160,7 +161,7 @@
           <slot name="attachments" :section="activeNotice" :can-edit="canEdit" :refresh-key="refreshKey" />
         </section>
       </div>
-      <el-empty v-else-if="!loading && (!isDrilldown || !noticeTree.length)" :description="`${pageTitle}暂无栏目，请通过栏目管理添加`" />
+      <el-empty v-else-if="!loading && !treeError && (!isDrilldown || !noticeTree.length)" :description="`${pageTitle}暂无栏目，请通过栏目管理添加`" />
     </template>
   </el-card>
 
@@ -222,6 +223,7 @@ const expandedIds = ref(new Set())
 const detailCache = ref({})
 const detailLoading = ref(false)
 const loading = ref(false)
+const treeError = ref('')
 const refreshKey = ref(0)
 const saving = ref(false)
 const composerRef = ref(null)
@@ -269,6 +271,7 @@ async function loadTree() {
   refreshKey.value += 1
   detailCache.value = {}
   loading.value = true
+  treeError.value = ''
   try {
     const result = await props.adapter.tree()
     noticeTree.value = Array.isArray(result) ? result : []
@@ -282,7 +285,8 @@ async function loadTree() {
       if (activeId.value) await loadDetail(activeId.value)
     }
   } catch (error) {
-    ElMessage.error(getLocalizedErrorMessage(error, props.pageTitle + '加载失败'))
+    treeError.value = getLocalizedErrorMessage(error, props.pageTitle + '加载失败')
+    ElMessage.error(treeError.value)
   } finally {
     loading.value = false
   }
@@ -484,6 +488,7 @@ onActivated(() => {
 </script>
 
 <style scoped>
+.notice-load-error{margin-bottom:14px}
 .notice-breadcrumb{display:flex;flex-wrap:wrap;gap:8px 0;margin:20px 0;line-height:1.6}
 .notice-breadcrumb :deep(.el-breadcrumb__inner){white-space:normal;overflow-wrap:anywhere}
 .notice-breadcrumb__link{padding:0;border:0;background:transparent;color:var(--el-color-primary);font:inherit;cursor:pointer;text-align:left}

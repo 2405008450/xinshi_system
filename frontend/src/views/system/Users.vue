@@ -2,8 +2,7 @@
   <el-card class="common-page-card page-card compact-list-card users-card">
     <template #header>
       <div class="card-header">
-        <div class="header-left">
-          <el-icon class="header-icon"><User /></el-icon>
+        <div>
           <span class="header-title">用户管理</span>
         </div>
         <div class="header-actions">
@@ -125,44 +124,36 @@
       </el-table-column>
       <el-table-column label="详情" width="100" fixed="right" align="center">
         <template #default="{ row }">
-          <el-popover trigger="click" placement="left" :width="760" title="用户详情" popper-class="user-detail-popover">
-            <template #reference><el-button link type="primary">查看详情</el-button></template>
-            <div class="user-detail-content">
-              <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="用户名">{{ row.username || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="姓名">{{ row.full_name || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="部门">{{ normalizeDepartment(row.department) || '未分部门' }}</el-descriptions-item>
-                <el-descriptions-item label="状态">{{ row.is_active ? '启用' : '禁用' }}</el-descriptions-item>
-                <el-descriptions-item label="邮箱" :span="2">{{ row.email || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="角色" :span="2">{{ row.roles?.map(role => role.role_name).join('、') || '未分配角色' }}</el-descriptions-item>
-                <el-descriptions-item label="邮件显示名">{{ row.mail_display_name || row.full_name || row.username || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="邮件签名">{{ row.mail_signature_enabled ? '签名已启用' : '无签名' }}</el-descriptions-item>
-                <el-descriptions-item label="发件邮箱">{{ row.mail_account_verified ? '已验证' : (row.mail_account_bound ? '待验证' : '未配置') }}</el-descriptions-item>
-                <el-descriptions-item label="创建时间">{{ row.created_at ? formatDateTime(row.created_at) : '-' }}</el-descriptions-item>
-              </el-descriptions>
-              <div v-if="canManageMailProfile && !deleteMode" class="user-detail-actions">
-                <el-button link type="primary" @click="openMailProfileDialog(row)">管理邮件资料</el-button>
+          <BusinessDetailPopover :row="row" title="用户详情" popper-class="user-detail-popover">
+            <template #content>
+              <div class="user-detail-content">
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="用户名">{{ row.username || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="姓名">{{ row.full_name || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="部门">{{ normalizeDepartment(row.department) || '未分部门' }}</el-descriptions-item>
+                  <el-descriptions-item label="状态">{{ row.is_active ? '启用' : '禁用' }}</el-descriptions-item>
+                  <el-descriptions-item label="邮箱" :span="2">{{ row.email || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="角色" :span="2">{{ row.roles?.map(role => role.role_name).join('、') || '未分配角色' }}</el-descriptions-item>
+                  <el-descriptions-item label="邮件显示名">{{ row.mail_display_name || row.full_name || row.username || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="邮件签名">{{ row.mail_signature_enabled ? '签名已启用' : '无签名' }}</el-descriptions-item>
+                  <el-descriptions-item label="发件邮箱">{{ row.mail_account_verified ? '已验证' : (row.mail_account_bound ? '待验证' : '未配置') }}</el-descriptions-item>
+                  <el-descriptions-item label="创建时间">{{ row.created_at ? formatDateTime(row.created_at) : '-' }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-if="canManageMailProfile && !deleteMode" class="user-detail-actions">
+                  <el-button link type="primary" @click="openMailProfileDialog(row)">管理邮件资料</el-button>
+                </div>
               </div>
-            </div>
-          </el-popover>
+            </template>
+          </BusinessDetailPopover>
         </template>
       </el-table-column>
-      <el-table-column v-if="!deleteMode" label="操作" width="190" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="210" fixed="right" align="center">
         <template #default="{ row }">
           <div class="user-row-actions">
-          <TableActionButton
-            v-if="canAssignRoles"
-            action="assign"
-            label="分配角色"
-            @click="handleAssignRoles(row)"
-          />
-          <TableActionButton
-            v-if="canResetPassword"
-            action="password"
-            @click="handleResetPassword(row)"
-          />
-          <TableActionButton v-if="canWriteUsers" action="edit" @click="handleEdit(row)" />
-          <el-button v-if="canManageSchedule" type="primary" link size="small" @click="handleShiftSettings(row)">排班设置</el-button>
+            <el-button v-if="canWriteUsers" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="canAssignRoles" type="primary" link size="small" @click="handleAssignRoles(row)">角色</el-button>
+            <el-button v-if="canResetPassword" type="primary" link size="small" @click="handleResetPassword(row)">改密</el-button>
+            <el-button v-if="canManageSchedule" type="primary" link size="small" @click="handleShiftSettings(row)">排班设置</el-button>
           </div>
         </template>
       </el-table-column>
@@ -429,7 +420,7 @@
 <script setup>
 import { computed, ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, Plus } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
@@ -440,6 +431,7 @@ import EmployeeShiftTemplateDialog from '@/views/schedule/components/EmployeeShi
 import MailSignatureEditor from '@/components/common/MailSignatureEditor.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 

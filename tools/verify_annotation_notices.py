@@ -19,7 +19,8 @@ def run():
     pg_bin = Path(r'C:\Program Files\PostgreSQL\17\bin')
     if not (pg_bin / 'initdb.exe').is_file():
         raise SystemExit('缺少本机 PostgreSQL，禁止回退到业务库')
-    output = ROOT / '.tmp' / 'annotation-notices-qa'
+    project_notices = '--projects' in sys.argv
+    output = ROOT / '.tmp' / ('project-notices-qa' if project_notices else 'annotation-notices-qa')
     output.mkdir(parents=True, exist_ok=True)
     data = Path(tempfile.mkdtemp(prefix='pg-', dir=output))
     def port():
@@ -52,6 +53,7 @@ def run():
             with (output / 'pytest.log').open('w', encoding='utf-8') as log:
                 tests = subprocess.run([str(python), '-m', 'pytest', 'tests/test_annotation_notice_attachments.py',
                     'tests/test_annotation_notices.py', 'tests/test_company_management.py', 'tests/test_company_management_time.py',
+                    *(['tests/test_project_notices.py'] if project_notices else []),
                     '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
             print((output / 'pytest.log').read_text(encoding='utf-8'), flush=True)
             if tests.returncode:
@@ -61,8 +63,11 @@ def run():
                 ANNOTATION_NOTICE_UPLOAD_DIR=str(output / 'notice-uploads'),
                 COMPANY_MANAGEMENT_UPLOAD_DIR=str(output / 'company-uploads'),
                 NOTICE_UI_BASE=f'http://localhost:{ui_port}', NOTICE_UI_OUTPUT=str(output))
+            if project_notices:
+                env.update(PROJECT_NOTICES_QA='1', PROJECT_NOTICE_UPLOAD_DIR=str(output / 'project-uploads'))
             with (output / 'server.log').open('w', encoding='utf-8') as log:
-                server = subprocess.Popen([str(python), '-m', 'uvicorn', 'tools.notices_isolated_app:app',
+                app_module = 'tools.project_notices_isolated_app:app' if project_notices else 'tools.notices_isolated_app:app'
+                server = subprocess.Popen([str(python), '-m', 'uvicorn', app_module,
                     '--host', '127.0.0.1', '--port', str(ui_port)], cwd=ROOT, env=env, stdout=log,
                     stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
                 for _ in range(100):
@@ -75,7 +80,8 @@ def run():
                     except OSError:
                         time.sleep(.2)
                 with (output / 'ui.log').open('w', encoding='utf-8') as ui_log:
-                    ui = subprocess.run([str(python), 'tools/verify_annotation_notices_ui.py'], cwd=ROOT, env=env,
+                    ui_script = 'tools/verify_project_notices_ui.py' if project_notices else 'tools/verify_annotation_notices_ui.py'
+                    ui = subprocess.run([str(python), ui_script], cwd=ROOT, env=env,
                         stdout=ui_log, stderr=subprocess.STDOUT)
                 print((output / 'ui.log').read_text(encoding='utf-8'), flush=True)
                 return ui.returncode

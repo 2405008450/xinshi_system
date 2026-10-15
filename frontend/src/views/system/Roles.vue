@@ -6,11 +6,23 @@
           <span class="title">角色与权限</span>
           <div class="subtitle">“查看”权限控制菜单和路由，“管理”权限控制新增、编辑、删除等操作</div>
         </div>
-        <el-button v-if="canWrite" type="primary" @click="handleAdd">新增角色</el-button>
+        <div class="header-actions">
+          <BatchDeleteToolbar
+            v-if="canWrite"
+            :active="deleteMode"
+            :selected-count="selectedRows.length"
+            :loading="deleting"
+            @enter="enterDeleteMode"
+            @exit="exitDeleteMode"
+            @confirm="confirmBatchDelete"
+          />
+          <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增角色</el-button>
+        </div>
       </div>
     </template>
 
-    <el-table :data="tableData" v-loading="loading" border>
+    <el-table ref="roleTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" :selectable="(row) => !isProtectedRole(row)" />
       <el-table-column prop="role_name" label="角色名称" width="180" />
       <el-table-column prop="description" label="描述" min-width="220" />
       <el-table-column label="已授权" min-width="300">
@@ -32,19 +44,18 @@
           <el-text v-else type="info">尚未授权</el-text>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="124" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" width="140" fixed="right" align="center">
         <template #default="{ row }">
-          <TableActionButton
-            v-if="canWrite && !isProtectedRole(row)"
-            action="permission"
-            @click="handlePermission(row)"
-          />
-          <TableActionButton v-if="canWrite" action="edit" @click="handleEdit(row)" />
-          <TableActionButton
-            v-if="canWrite && !isProtectedRole(row)"
-            action="delete"
-            @click="handleDelete(row)"
-          />
+          <div class="role-row-actions">
+            <el-button v-if="canWrite" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button
+              v-if="canWrite && !isProtectedRole(row)"
+              type="primary"
+              link
+              size="small"
+              @click="handlePermission(row)"
+            >权限配置</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -107,8 +118,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import * as roleApi from '@/api/roles'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import { useBatchDelete } from '@/composables/useBatchDelete'
 import { hasPermission } from '@/utils/permission'
 
 const loading = ref(false)
@@ -116,6 +129,7 @@ const roleDialogVisible = ref(false)
 const permissionDialogVisible = ref(false)
 const roleDialogTitle = ref('新增角色')
 const formRef = ref(null)
+const roleTableRef = ref(null)
 const tableData = ref([])
 const permissionGroups = ref([])
 const catalogLoading = ref(false)
@@ -125,6 +139,23 @@ const selectedPermissions = ref([])
 
 const canWrite = computed(() => hasPermission('system:roles:write'))
 const protectedRoles = ['admin', '超级管理员']
+
+const {
+  deleteMode,
+  deleting,
+  selectedRows,
+  enterDeleteMode,
+  exitDeleteMode,
+  handleDeleteSelectionChange,
+  confirmBatchDelete,
+} = useBatchDelete({
+  rows: tableData,
+  tableRef: roleTableRef,
+  deleteRow: (row) => roleApi.deleteRole(row.id),
+  getLabel: (row) => row.role_name || row.id,
+  reload: () => fetchData(),
+  entityName: '角色',
+})
 
 const form = reactive({ id: null, role_name: '', description: '' })
 const rules = { role_name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }] }
@@ -174,17 +205,6 @@ function handleEdit(row) {
   })
   roleDialogTitle.value = '编辑角色'
   roleDialogVisible.value = true
-}
-
-async function handleDelete(row) {
-  try {
-    await ElMessageBox.confirm(`确定删除角色“${row.role_name}”吗？`, '删除角色', { type: 'warning' })
-    await roleApi.deleteRole(row.id)
-    ElMessage.success('角色已删除')
-    await fetchData()
-  } catch (error) {
-    if (error !== 'cancel') ElMessage.error(error.detail || '删除失败')
-  }
 }
 
 async function handleRoleSubmit() {
@@ -269,6 +289,13 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
 }
+.header-actions,
+.role-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 .title {
   font-size: 18px;
   font-weight: 600;
@@ -303,5 +330,14 @@ onMounted(async () => {
   display: block;
   margin-left: 24px;
   font-size: 12px;
+}
+.role-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.role-row-actions .el-button + .el-button {
+  margin-left: 0;
 }
 </style>

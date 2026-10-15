@@ -47,5 +47,5 @@ watch(favoritesVisible, value => { if (value) refresh() })
 .annotation-favorite-project{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:#334155;font:inherit}
 .annotation-favorite-project span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .annotation-favorite-project small{color:#94a3b8;font-size:12px}
-.annotation-favorite-project:hover span{color:#2563eb}
+.annotation-favorite-project:hover span{color:var(--color-primary-hover)}
 </style>

@@ -1,7 +1,7 @@
 <template>
-  <el-card class="common-page-card mail-settings-card">
+  <el-card class="common-page-card compact-list-card mail-settings-card">
     <template #header>
-      <div class="page-header"><div><h2>邮件设置</h2><p>项目邮件和个人工作报告共用邮件组；成员来自启用且已绑定邮箱的系统用户。</p></div><el-button v-if="canWrite" type="primary" @click="openGroup()">新增邮件组</el-button></div>
+      <div class="card-header"><div><h2>邮件设置</h2><p>项目邮件和个人工作报告共用邮件组；成员来自启用且已绑定邮箱的系统用户。</p></div><div class="header-actions"><el-button v-if="canWrite" type="primary" @click="openGroup()">新增邮件组</el-button></div></div>
     </template>
     <el-alert :title="mailStatus.detail || '正在读取 SMTP 状态'" :type="mailStatus.configured ? (mailStatus.mode === 'test' ? 'warning' : 'success') : 'error'" :closable="false" show-icon />
     <el-alert

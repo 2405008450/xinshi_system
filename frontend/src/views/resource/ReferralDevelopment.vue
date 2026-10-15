@@ -1,23 +1,37 @@
 <template>
-  <el-card class="referral-development-page">
-    <div class="referral-heading"><div><h2>推荐拓展</h2><p class="referral-muted">按推荐人与日期记录推广奖励、凭证和付款情况</p></div><div class="referral-actions">
-      <el-popover trigger="click" placement="bottom-end" :width="280"><template #reference><el-button>字段设置</el-button></template><div class="referral-column-options"><el-checkbox-group v-model="selectedColumns"><el-checkbox v-for="column in referralColumns" :key="column.key" :value="column.key">{{ column.label }}</el-checkbox></el-checkbox-group></div><el-button text type="primary" @click="selectedColumns = [...defaultReferralColumns]">恢复默认</el-button></el-popover>
-      <el-button v-if="options.can_write && !deleteMode" type="primary" @click="editorRef.open()">新增</el-button>
-      <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
-    </div></div>
+  <el-card class="common-page-card compact-list-card referral-development-page">
+    <template #header>
+      <div class="card-header">
+        <div>
+          <span class="page-title">推荐拓展</span>
+          <p class="page-subtitle">按推荐人与日期记录推广奖励、凭证和付款情况</p>
+        </div>
+        <div class="header-actions">
+          <TableColumnSettings
+            v-model="selectedColumns"
+            :columns="referralColumns"
+            :column-count="2"
+            title="推荐拓展字段"
+            @reset="selectedColumns = [...defaultReferralColumns]"
+          />
+          <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="options.can_write && !deleteMode" type="primary" @click="editorRef.open()">新增</el-button>
+        </div>
+      </div>
+    </template>
     <TalentResourceNav />
-    <div class="referral-filters">
+    <div class="referral-filters search-bar">
       <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="推广开始日期" end-placeholder="推广结束日期" @change="query" />
       <el-input v-model="filters.keyword" clearable placeholder="推荐人姓名、微信" @input="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.payment_status" clearable placeholder="付款状态" @change="query"><el-option label="未支付" value="unpaid" /><el-option label="已支付" value="paid" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="referral-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-        <div class="referral-advanced-body"><div class="referral-advanced-grid">
+      <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="referral-advanced" @clear="clearAdvanced" @reset="reset">
+        <div class="referral-advanced-grid">
           <div><label>录入人</label><el-select v-model="filters.creator_id" clearable filterable @change="query"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></div>
           <div><label>最近操作人</label><el-select v-model="filters.operator_id" clearable filterable @change="query"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></div>
           <div class="referral-wide"><label>付款日期</label><el-date-picker v-model="filters.paid_range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="付款开始日期" end-placeholder="付款结束日期" @change="query" /></div>
-        </div><div class="referral-advanced-footer"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div>
-      </el-popover>
+        </div>
+      </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" row-key="id" border @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" :selectable="row => row.can_delete" />
@@ -45,6 +59,8 @@ import TalentResourceNav from './components/TalentResourceNav.vue'
 import ReferralDetailContent from './components/ReferralDetailContent.vue'
 import ReferralRecordEditor from './components/ReferralRecordEditor.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { referralApi as api } from '@/api/referralDevelopment'
 import { referralColumns, defaultReferralColumns, cleanReferralColumns, displayReferralValue } from '@/utils/referralDevelopment'

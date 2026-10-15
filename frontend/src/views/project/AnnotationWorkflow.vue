@@ -1,6 +1,6 @@
 <template>
   <div class="annotation-workflow-page">
-    <el-card class="workflow-card compact-list-card">
+    <el-card class="common-page-card workflow-card compact-list-card">
       <template #header>
         <div class="card-header">
           <div><h2>标注流程</h2><p>默认展示全部项目的进行状态；选择项目后仅查看该项目</p></div>
@@ -13,7 +13,7 @@
       </template>
 
       <AnnotationOrderContext :project="filterProject" />
-      <div class="filters">
+      <div class="filters search-bar">
         <el-select v-model="projectId" clearable filterable placeholder="全部标注项目" style="width:340px" @change="handleProjectChange">
           <el-option v-for="item in projects" :key="item.id" :label="`${item.orderNo || '-'} · ${item.projectName || '未命名'}`" :value="item.id" />
         </el-select>

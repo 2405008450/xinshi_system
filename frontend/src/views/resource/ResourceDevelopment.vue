@@ -1,20 +1,48 @@
 <template>
-  <el-card class="resource-development-page">
-    <div class="development-heading"><div><h2>资源开拓</h2><span class="muted">按日期统筹平台安排、记录开拓与跟进</span></div><div v-if="activeSection === 'logs'" class="development-actions">
-      <el-popover trigger="click" placement="bottom-end" :width="280"><template #reference><el-button>字段设置</el-button></template><div class="development-column-options"><el-checkbox-group v-model="selectedColumns"><el-checkbox v-for="c in developmentColumns" :key="c.key" :value="c.key">{{ c.label }}</el-checkbox></el-checkbox-group></div><el-button text type="primary" @click="selectedColumns = [...defaultDevelopmentColumns]">恢复默认</el-button></el-popover>
-      <el-button v-if="!deleteMode" @click="friendPanelRef.open(activeDay || filters.range?.[1])">新增统计</el-button><template v-if="options.can_write"><template v-if="!deleteMode"><el-button @click="settingsRef.open()">平台与选项</el-button><el-button @click="openWork()">每日工作</el-button><el-button type="primary" @click="openEditor()">新增</el-button></template><BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" /></template>
-    </div></div>
+  <el-card class="common-page-card compact-list-card resource-development-page">
+    <template #header>
+      <div class="card-header">
+        <div>
+          <span class="page-title">资源开拓</span>
+          <p class="page-subtitle">按日期统筹平台安排、记录开拓与跟进</p>
+        </div>
+        <div v-if="activeSection === 'logs'" class="header-actions">
+          <TableColumnSettings
+            v-model="selectedColumns"
+            :columns="developmentColumns"
+            :column-count="2"
+            title="开拓记录字段"
+            @reset="selectedColumns = [...defaultDevelopmentColumns]"
+          />
+          <el-button v-if="!deleteMode" @click="friendPanelRef.open(activeDay || filters.range?.[1])">新增统计</el-button>
+          <template v-if="options.can_write">
+            <template v-if="!deleteMode">
+              <el-button @click="settingsRef.open()">平台与选项</el-button>
+              <el-button @click="openWork()">每日工作</el-button>
+              <el-button type="primary" @click="openEditor()">新增</el-button>
+            </template>
+            <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          </template>
+        </div>
+      </div>
+    </template>
     <TalentResourceNav />
     <el-tabs v-model="activeSection" @tab-change="sectionChanged"><el-tab-pane v-if="issueAccess.can_resource" label="开拓日志" name="logs" /><el-tab-pane v-if="issueAccess.can_resource" label="每日安排" name="arrangements" /><el-tab-pane v-if="issueAccess.can_enter" label="开拓问题" name="issues" /></el-tabs>
     <DevelopmentIssuePanel v-if="activeSection === 'issues'" />
     <DevelopmentArrangementPanel v-if="activeSection === 'arrangements'" :options="options" @add-platform="settingsRef.addPlatform()" />
     <template v-if="activeSection === 'logs'">
-    <div class="development-filters">
+    <div class="development-filters search-bar">
       <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" />
       <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.owner_id" clearable filterable placeholder="开拓人员" @change="commonChanged('owner_id')"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template><div class="development-advanced-body"><div class="development-form-grid"><div><label>开拓平台</label><el-select v-model="filters.platform_id" clearable filterable @change="commonChanged('platform_id')"><el-option v-for="p in platforms" :key="p.id" :label="p.name" :value="p.id" /></el-select></div><div><label>交换账号</label><el-select v-model="filters.account_id" clearable filterable @change="commonChanged('account_id')"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></div><div><label>添加状态（任一渠道）</label><el-select v-model="filters.state" clearable filterable allow-create @change="query"><el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" /></el-select></div></div><div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div></el-popover>
+      <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="development-advanced" @clear="clearAdvanced" @reset="reset">
+        <div class="development-form-grid">
+          <div><label>开拓平台</label><el-select v-model="filters.platform_id" clearable filterable @change="commonChanged('platform_id')"><el-option v-for="p in platforms" :key="p.id" :label="p.name" :value="p.id" /></el-select></div>
+          <div><label>交换账号</label><el-select v-model="filters.account_id" clearable filterable @change="commonChanged('account_id')"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></div>
+          <div><label>添加状态（任一渠道）</label><el-select v-model="filters.state" clearable filterable allow-create @change="query"><el-option v-for="s in statusOptions" :key="s" :label="s" :value="s" /></el-select></div>
+        </div>
+      </AdvancedFilterPopover>
       <div v-if="!deleteMode" class="development-status-entry"><el-button @click="statusRecordsRef.open('未处理')">未处理</el-button><el-button @click="statusRecordsRef.open('一次请求')">一次请求</el-button></div>
     </div>
     <div class="development-actions" v-if="activeColumnKeys.length"><el-tag v-for="key in activeColumnKeys" :key="key" closable @close="delete columnFilters[key]; query()">{{ developmentColumns.find(c => c.key === key)?.label }}：已筛选</el-tag><el-button link @click="clearColumns">清空列筛选</el-button></div>
@@ -69,6 +97,8 @@ import DevelopmentStatusRecordsDialog from './components/DevelopmentStatusRecord
 import DevelopmentArrangementPanel from './components/DevelopmentArrangementPanel.vue'
 import DevelopmentIssuePanel from './components/DevelopmentIssuePanel.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'

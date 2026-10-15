@@ -42,20 +42,6 @@
           </el-button>
           <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="annotation-advanced-popover" @clear="clearAdvanced" @reset="resetSearch">
             <CompactFilterGrid :fields="annotationAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
-            <AppForm v-if="false" label-position="top">
-              <el-row :gutter="16">
-                <el-col :xs="24" :md="12"><el-form-item label="项目类型"><el-select v-model="searchForm.projectType" clearable style="width:100%" @change="handleSearch"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="语言"><el-select v-model="searchForm.languageId" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="客户经理"><el-select v-model="searchForm.clientManagerId" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="item in activeUsers" :key="item.id" :label="userLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="任务派发日期"><el-date-picker v-model="searchForm.dispatchedRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="任务提交日期"><el-date-picker v-model="searchForm.submittedRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="客户/子客户"><el-select v-model="searchForm.clientSelection" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="item in filterClientOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="标注人员"><el-select v-model="searchForm.assigneePersonId" filterable clearable style="width:100%" @change="handleSearch"><el-option v-for="person in annotationTalents" :key="person.id" :label="`${person.fullName}${person.resourceCode ? `（${person.resourceCode}）` : ''}`" :value="person.id" /></el-select></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="创建时间"><el-date-picker v-model="searchForm.createdRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="咨询时间"><el-date-picker v-model="searchForm.consultationRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
-                <el-col :xs="24" :md="12"><el-form-item label="确认时间"><el-date-picker v-model="searchForm.confirmationRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始" end-placeholder="结束" @change="handleSearch" /></el-form-item></el-col>
-              </el-row>
-            </AppForm>
           </AdvancedFilterPopover>
         </el-form-item>
       </div>

@@ -1,7 +1,7 @@
 <template>
-  <el-card class="common-page-card audit-card">
+  <el-card class="common-page-card compact-list-card audit-card">
     <template #header>
-      <div class="page-header">
+      <div class="card-header">
         <div>
           <h2>项目操作审计</h2>
           <p>永久保留四类项目的关键操作记录，用于追溯项目数据、操作人及操作原因。</p>
@@ -88,10 +88,8 @@
       </el-table-column>
       <el-table-column label="详情" width="100" fixed="right">
         <template #default="{ row }">
-          <el-popover trigger="click" placement="left" :width="760">
-            <template #reference><el-button link type="primary">查看详情</el-button></template>
+          <BusinessDetailPopover :title="`${row.order_no} 操作详情`">
             <div class="audit-detail">
-              <h3>{{ row.order_no }} 操作详情</h3>
               <el-descriptions :column="2" border size="small">
                 <el-descriptions-item label="订单号">{{ row.order_no }}</el-descriptions-item>
                 <el-descriptions-item label="项目类型">{{ projectTypeLabel(row.project_type) }}</el-descriptions-item>
@@ -116,7 +114,7 @@
                 >{{ item.value }}</el-descriptions-item>
               </el-descriptions>
             </div>
-          </el-popover>
+          </BusinessDetailPopover>
         </template>
       </el-table-column>
     </el-table>
@@ -140,6 +138,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getProjectOperationAudits } from '@/api/projectAudits'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 const projectTypeOptions = [

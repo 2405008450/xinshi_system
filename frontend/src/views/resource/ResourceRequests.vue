@@ -22,23 +22,24 @@
         </div>
       </template>
 
-      <AppForm :inline="true" :model="searchForm" class="search-form">
-        <el-form-item label="关键词">
-          <el-input
-            v-model="searchForm.keyword"
-            clearable
-            placeholder="搜索请求编号、项目、客户或需求详情"
-            style="width: 380px"
-            @input="onKeyword"
-            @keyup.enter="search"
-          />
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" style="width: 180px" @change="search">
-            <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
+      <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+        <div class="project-list-primary-filters">
+          <el-form-item label="关键词" class="project-list-keyword-filter">
+            <el-input
+              v-model="searchForm.keyword"
+              clearable
+              placeholder="搜索请求编号、项目、客户或需求详情"
+              @input="onKeyword"
+              @keyup.enter="search"
+            />
+          </el-form-item>
+          <el-form-item label="状态" class="project-list-status-filter">
+            <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" @change="search">
+              <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item class="project-list-search-actions">
           <el-button type="primary" @click="search">查询</el-button>
           <el-button @click="reset">重置</el-button>
           <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="resource-request-advanced-popover" @clear="clearAdvanced" @reset="reset">

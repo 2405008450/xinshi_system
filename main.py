@@ -151,7 +151,7 @@ from annotation_comparison_models import (
 )
 from company_management_models import CompanyManagementSection, CompanyManagementAttachment
 from company_management_service import ensure_company_management_sections
-from routers import company_management
+from routers import company_management, project_notices
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
@@ -261,6 +261,7 @@ app.include_router(annotation_materials.router)
 app.include_router(annotation_projects.router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
+app.include_router(project_notices.router)
 app.include_router(company_management.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)

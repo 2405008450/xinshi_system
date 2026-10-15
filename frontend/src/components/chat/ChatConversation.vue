@@ -445,5 +445,5 @@ defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </style>
 
 <style scoped>
-.group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:28px;height:28px;padding:4px;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed #409eff;border-radius:12px;background:#edf5fff2;color:#2563eb;font-size:15px}.group-mention-jump{top:8px}
+.group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:28px;height:28px;padding:4px;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed var(--color-primary);border-radius:12px;background:rgb(241 245 249 / 95%);color:var(--color-primary);font-size:15px}.group-mention-jump{top:8px}
 </style>

@@ -293,7 +293,7 @@ const resolveActiveMenu = (path) => {
 }
 
 const resolveActiveGroup = (menuIndex) => {
-  if (['/users', '/roles', '/mail-settings'].includes(menuIndex)) return SYSTEM_MENU_INDEX
+  if (['/users', '/roles', '/mail-settings', '/project-operation-audits'].includes(menuIndex)) return SYSTEM_MENU_INDEX
   return ''
 }
 
@@ -393,7 +393,7 @@ const handleLogout = async () => {
 }
 
 .sidebar {
-  --sidebar-active-accent: #60a5fa;
+  --sidebar-active-accent: #cbd5e1;
   display: flex;
   flex-direction: column;
   background: var(--color-sidebar);
@@ -543,9 +543,9 @@ const handleLogout = async () => {
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: rgba(96, 165, 250, 0.16);
+  background: var(--color-primary);
   color: #fff;
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active::before) {
@@ -556,7 +556,6 @@ const handleLogout = async () => {
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--sidebar-active-accent);
-  box-shadow: 0 0 8px rgba(96, 165, 250, 0.7);
   content: '';
 }
 

@@ -1,12 +1,12 @@
 <template>
-  <el-card>
+  <el-card class="common-page-card compact-list-card">
     <template #header>
-      <div class="page-header">
+      <div class="card-header">
         <div>
-          <div class="page-title">子订单管理</div>
-          <div class="page-subtitle">{{ project.orderNo || route.query.orderNo || '-' }} / {{ project.projectName || route.query.projectName || '-' }}</div>
+          <span class="page-title">子订单管理</span>
+          <p class="page-subtitle">{{ project.orderNo || route.query.orderNo || '-' }} / {{ project.projectName || route.query.projectName || '-' }}</p>
         </div>
-        <div class="page-actions">
+        <div class="header-actions">
           <el-button @click="goBack">返回项目详情</el-button>
           <BatchDeleteToolbar
             v-if="canWriteProjects"

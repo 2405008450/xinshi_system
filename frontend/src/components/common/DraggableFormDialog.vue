@@ -75,8 +75,30 @@ defineExpose({ resetPosition, handleClose })
 
 <style>
 .el-dialog.draggable-form-dialog {
+  display: flex;
+  flex-direction: column;
   max-width: calc(100vw - 32px);
+  max-height: 90vh;
+  overflow: hidden;
   transition: box-shadow 160ms ease;
+}
+
+.el-dialog.draggable-form-dialog > .el-dialog__header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.el-dialog.draggable-form-dialog > .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.el-dialog.draggable-form-dialog > .el-dialog__footer {
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
 }
 
 .el-dialog.draggable-form-dialog.is-draggable .el-dialog__header {

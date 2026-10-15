@@ -11,6 +11,7 @@ import socket
 import sys
 import time
 import threading
+from urllib.request import urlopen
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,76 @@ from business_time import business_iso, business_now
 
 class PauseTask(Exception):
     pass
+
+
+class OnlineWriteBusy(PauseTask):
+    """仅用于尚未发生资料写入的共享锁竞争，可以释放连接后让行。"""
+    def __init__(self, message, holders=None):
+        super().__init__(message)
+        self.holders = holders or []
+
+
+class CapacityBusy(PauseTask):
+    """没有提交资料时检测到负载／后端健康异常，关闭连接等待容量恢复。"""
+    pass
+
+
+class BackendHealthMonitor:
+    """最多每分钟一次真实数据库健康请求，检测共享池能否及时借出连接。"""
+    def __init__(self, observer=None):
+        self.lock = threading.Lock()
+        self.checked = None
+        self.result = None
+        self.observer = observer
+
+    def check(self):
+        with self.lock:
+            if self.checked is None or time.monotonic()-self.checked >= 60:
+                started = time.monotonic()
+                try:
+                    with urlopen('http://127.0.0.1:8000/health/db', timeout=3) as response:
+                        healthy = response.status == 200 and json.loads(response.read(1024)).get('status') == 'ok'
+                    elapsed = time.monotonic()-started
+                    self.result = {'healthy': healthy and elapsed < 2,
+                                   'latency_ms': round(elapsed*1000),
+                                   'checked_at': business_iso(business_now())}
+                except Exception as exc:
+                    self.result = {'healthy': False, 'error_type': type(exc).__name__,
+                                   'checked_at': business_iso(business_now())}
+                self.checked = time.monotonic()
+                if self.observer:
+                    self.observer(dict(self.result))
+            if not self.result['healthy']:
+                raise CapacityBusy('后端数据库健康检查失败或响应超过 2 秒，等待恢复')
+
+
+def run_with_capacity_wait(action, state, status_path, stop_path, *, health=None, retry_delay=60, waiter=time.sleep):
+    """只对容量保护自动恢复；数据冲突、超时和执行错误继续停止。"""
+    while True:
+        if stop_path.exists():
+            raise PauseTask('用户停止')
+        try:
+            if health:
+                health.check()
+            state['status'] = 'running'
+            state.pop('reason', None)
+            state.pop('failure_details', None)
+            write_status(status_path, state)
+            action()
+            return
+        except CapacityBusy as exc:
+            # action 中的 Session 和线程已全部退出，再进入等待。
+            state['status'] = 'waiting_for_capacity'
+            state['reason'] = str(exc)
+            state['capacity_wait_count'] = state.get('capacity_wait_count', 0)+1
+            write_status(status_path, state)
+            print(json.dumps({'updated_at': state['updated_at'], 'status': state['status'],
+                              'reason': state['reason'], 'retry_after_seconds': retry_delay}, ensure_ascii=False), flush=True)
+            deadline = time.monotonic()+retry_delay
+            while time.monotonic() < deadline:
+                if stop_path.exists():
+                    raise PauseTask('用户停止')
+                waiter(min(1, max(0, deadline-time.monotonic())))
 
 
 def read_pressure(db):
@@ -41,7 +112,7 @@ def read_pressure(db):
 def assert_quiet(pressure):
     if (pressure['connections'] >= 40 or pressure['active'] >= 5
             or pressure['idle_transactions'] >= 3 or pressure['old_transactions']):
-        raise PauseTask('数据库负载升高：' + json.dumps(pressure, ensure_ascii=False))
+        raise CapacityBusy('数据库负载升高：' + json.dumps(pressure, ensure_ascii=False))
 
 
 def actor_for(db, username):
@@ -93,7 +164,15 @@ def execute_one(db, request, username, *, on_pressure=None):
     assert_quiet(pressure)
     actor = actor_for(db, username)
     if not db.execute(text('SELECT pg_try_advisory_xact_lock(724092401)')).scalar():
-        raise PauseTask('线上人才或开拓正在写入，本任务让行')
+        holders = db.execute(text("""
+            SELECT a.pid, a.application_name, a.state,
+                   extract(epoch FROM clock_timestamp()-a.xact_start)::int AS transaction_seconds
+            FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+            WHERE l.locktype='advisory' AND l.classid=0 AND l.objid=724092401
+                  AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                  AND l.granted AND l.pid<>pg_backend_pid()
+        """)).mappings().all()
+        raise OnlineWriteBusy('线上人才或开拓正在写入，本任务让行', [dict(row) for row in holders])
     return commit_group(db, NameMergeCommitRequest(**request), actor)
 
 
@@ -104,7 +183,11 @@ def write_status(path, state):
     temporary.replace(path)
     progress = {key: state[key] for key in ('status', 'operator', 'started_at', 'updated_at',
                                             'interval_seconds', 'workers', 'reason', 'pressure', 'pressure_checked_at',
-                                            'failure_details', 'last_group_seconds') if key in state}
+                                            'failure_details', 'last_group_seconds', 'waiting_workers',
+                                            'write_yield_count', 'last_write_yield_at', 'write_retry_delay_seconds') if key in state}
+    for key in ('backend_health', 'capacity_wait_count', 'online_write_lock_holders'):
+        if key in state:
+            progress[key] = state[key]
     progress.update({'total': len(state.get('keys', [])), 'success': len(state['results']),
                      'remaining': len(state.get('keys', []))-len(state.get('processed_keys', state.get('keys', [])[:state['index']])),
                      'archived_records': sum(len(row['person_ids'])-1 for row in state['results'])})
@@ -133,7 +216,7 @@ def pause_reason(exc):
             f'执行异常：{type(exc).__name__}；已停止，需检查后手动恢复')
 
 
-def run_queue(engine, state, status_path, stop_path, username, workers, interval, max_groups=0):
+def run_queue(engine, state, status_path, stop_path, username, workers, interval, max_groups=0, *, retry_delay=60, health=None):
     """两个线程独立预览，写入在进程内串行；等待写入时不打开连接。"""
     done = set(state.get('processed_keys', state['keys'][:state['index']]))
     pending = [key for key in state['keys'] if key not in done]
@@ -141,6 +224,7 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
     if max_groups:
         pending = pending[:max_groups]
     state['processed_keys'] = [key for key in state['keys'] if key in done]
+    state['write_retry_delay_seconds'] = retry_delay
     state_lock, write_lock = threading.Lock(), threading.Lock()
     stopped = threading.Event()
     failures = []
@@ -178,8 +262,11 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
                     key = pending[cursor]; cursor += 1
                     request = state['requests'].get(key)
                 started = time.monotonic()
+                idle_seconds = 0.0
                 if request is None:
                     stage = '预览'
+                    if health:
+                        health.check()
                     with Session(engine) as db:
                         db.execute(text('SET TRANSACTION READ ONLY'))
                         pressure = read_pressure(db)
@@ -195,25 +282,55 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
                 result = None
                 if request is not None:
                     stage = '等待写入'
-                    while not write_lock.acquire(timeout=0.1):
-                        if check_stop():
-                            return
-                    try:
-                        if check_stop():
-                            return
-                        stage = '提交'
-                        with Session(engine) as db:
-                            try:
-                                result = execute_one(db, request, username, on_pressure=observe_pressure)
-                            except Exception:
-                                db.rollback()
-                                raise
-                    finally:
-                        write_lock.release()
-                elapsed = time.monotonic()-started
+                    while True:
+                        while not write_lock.acquire(timeout=0.1):
+                            if check_stop():
+                                return
+                        busy = False
+                        try:
+                            if check_stop():
+                                return
+                            stage = '提交'
+                            if health:
+                                health.check()
+                            with Session(engine) as db:
+                                try:
+                                    result = execute_one(db, request, username, on_pressure=observe_pressure)
+                                except Exception:
+                                    db.rollback()
+                                    raise
+                        except OnlineWriteBusy as exc:
+                            busy = True
+                            with state_lock:
+                                state['online_write_lock_holders'] = exc.holders
+                        finally:
+                            write_lock.release()
+                        if not busy:
+                            break
+                        # Session 已退出，进程内写锁已释放。等待期间不占数据库
+                        # 连接；再次提交仍检查负载、权限、资料版本和幂等键。
+                        stage = '等待线上写入'
+                        with state_lock:
+                            state.setdefault('waiting_workers', {})[str(worker_id)] = key
+                            state['write_yield_count'] = state.get('write_yield_count', 0)+1
+                            state['last_write_yield_at'] = business_iso(business_now())
+                            write_status(status_path, state)
+                            print(json.dumps({'updated_at': state['updated_at'], 'worker_id': worker_id,
+                                              'status': 'waiting_for_online_write',
+                                              'retry_after_seconds': retry_delay}, ensure_ascii=False), flush=True)
+                        waiting_started = time.monotonic()
+                        try:
+                            if wait_idle(retry_delay):
+                                return
+                        finally:
+                            idle_seconds += time.monotonic()-waiting_started
+                            with state_lock:
+                                state['waiting_workers'].pop(str(worker_id), None)
+                elapsed = time.monotonic()-started-idle_seconds
                 with state_lock:
                     if result is not None:
                         state['results'].append({**result, 'worker_id': worker_id})
+                        state['online_write_lock_holders'] = []
                     done.add(key)
                     state['processed_keys'] = [item for item in state['keys'] if item in done]
                     # 保留连续前缀，并单独记录乱序完成项，续跑不遗漏失败组。
@@ -234,6 +351,8 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
         except Exception as exc:
             with state_lock:
                 failures.append(pause_reason(exc))
+                if isinstance(exc, CapacityBusy):
+                    failures[-1] = exc
                 state['failure_details'] = {**failure_details(exc), 'stage': stage,
                                             'worker_id': worker_id, 'group_key': key}
                 stopped.set()
@@ -243,7 +362,10 @@ def run_queue(engine, state, status_path, stop_path, username, workers, interval
         for future in futures:
             future.result()
     if failures:
-        raise PauseTask(failures[0])
+        fatal = next((failure for failure in failures if not isinstance(failure, CapacityBusy)), None)
+        if fatal is not None:
+            raise PauseTask(fatal)
+        raise failures[0]
     if limited:
         raise PauseTask(f'双线程试运行已完成 {len(pending)} 组')
 
@@ -306,26 +428,40 @@ def run(args):
     state['workers'] = args.workers
     state.pop('reason', None)
     state.pop('failure_details', None)
+    state.pop('waiting_workers', None)
     try:
         with single_worker():
-            with Session(engine) as db:
-                db.execute(text('SET TRANSACTION READ ONLY'))
-                actor_for(db, args.actor)
-                pressure = read_pressure(db)
-                assert_quiet(pressure)
-                state['pressure'] = pressure
-                state['pressure_checked_at'] = business_iso(business_now())
-                if 'keys' not in state:
-                    state['keys'] = candidate_keys(db)
-                db.rollback()
-            state['status'] = 'running' if args.execute else 'preview_only'
-            write_status(status_path, state)
-            print(json.dumps({'run_dir': str(directory), 'groups': len(state['keys']),
-                              'execute': args.execute, 'pressure': pressure}, ensure_ascii=False), flush=True)
-            if not args.execute:
+            baseline = len(state.get('processed_keys', state.get('keys', [])[:state['index']]))
+            health = BackendHealthMonitor(lambda result: state.update(backend_health=result)) if args.execute else None
+            def process_remaining():
+                with Session(engine) as db:
+                    db.execute(text('SET TRANSACTION READ ONLY'))
+                    actor_for(db, args.actor)
+                    pressure = read_pressure(db)
+                    state['pressure'] = pressure
+                    state['pressure_checked_at'] = business_iso(business_now())
+                    assert_quiet(pressure)
+                    if 'keys' not in state:
+                        state['keys'] = candidate_keys(db)
+                    db.rollback()
+                state['status'] = 'running' if args.execute else 'preview_only'
+                write_status(status_path, state)
+                print(json.dumps({'run_dir': str(directory), 'groups': len(state['keys']),
+                                  'execute': args.execute, 'pressure': pressure}, ensure_ascii=False), flush=True)
+                if not args.execute:
+                    return
+                remaining_limit = args.max_groups
+                if remaining_limit:
+                    remaining_limit -= len(state.get('processed_keys', []))-baseline
+                    if remaining_limit <= 0:
+                        raise PauseTask('本轮试运行已完成')
+                run_queue(engine, state, status_path, stop_path, args.actor,
+                          args.workers, args.interval, remaining_limit, health=health)
+            if args.execute:
+                run_with_capacity_wait(process_remaining, state, status_path, stop_path, health=health)
+            else:
+                process_remaining()
                 return 0
-            run_queue(engine, state, status_path, stop_path, args.actor,
-                      args.workers, args.interval, args.max_groups)
             state['status'] = 'completed'
             write_status(status_path, state)
             return 0

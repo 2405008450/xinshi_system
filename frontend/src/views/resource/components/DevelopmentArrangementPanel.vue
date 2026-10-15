@@ -1,8 +1,7 @@
 <template>
   <div class="arrangement-panel">
     <DevelopmentDemandPanel ref="demandRef" :options="options" :default-date="range?.[0] === range?.[1] ? range[0] : ''" @saved="saved" />
-    <h3 class="arrangement-section-title">每日安排</h3>
-    <div class="development-filters">
+    <div class="development-filters search-bar">
       <el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="query" />
       <el-button type="primary" @click="query">查询</el-button><el-button @click="selectTomorrow">明天</el-button>
       <template v-if="options.can_delegate"><el-date-picker v-model="editDate" value-format="YYYY-MM-DD" :clearable="false" aria-label="新增或编辑安排日期" /><el-button @click="openDate">明天/第二天</el-button><el-button @click="carry">沿用最近一次安排</el-button><el-button @click="emit('add-platform')">增加平台</el-button></template>
@@ -100,7 +99,7 @@ onMounted(load)
 onBeforeUnmount(() => { sequence++; controller?.abort() })
 </script>
 <style>
-.arrangement-panel .development-filters>.el-date-editor{max-width:310px}.arrangement-panel .development-filters>.el-input{width:160px}.arrangement-table .cell{white-space:normal;overflow-wrap:anywhere}.arrangement-owner,.arrangement-targets,.arrangement-linked-projects{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0}.arrangement-owner{justify-content:space-between}.arrangement-targets .el-tag{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}.arrangement-cell-remarks{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0}.arrangement-table small{display:block}.arrangement-panel>.muted{margin:12px 0}
+.arrangement-panel .development-filters{margin:12px 0;padding:12px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-page-bg)}.arrangement-panel .development-filters>.el-date-editor{max-width:310px}.arrangement-panel .development-filters>.el-input{width:160px}.arrangement-table .cell{white-space:normal;overflow-wrap:anywhere}.arrangement-owner,.arrangement-targets,.arrangement-linked-projects{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0}.arrangement-owner{justify-content:space-between}.arrangement-targets .el-tag{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}.arrangement-cell-remarks{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0}.arrangement-table small{display:block}.arrangement-panel>.muted{margin:12px 0}
 .arrangement-day-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 0}.arrangement-day-heading>.el-button{margin-left:auto}.arrangement-days .el-collapse-item__header{height:auto;min-height:48px}.arrangement-day-heading{flex:1;padding-right:12px}.arrangement-day-remarks{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--el-text-color-secondary);margin:8px 0 12px}.arrangement-table .el-checkbox{height:auto;white-space:normal;align-items:flex-start}.arrangement-table .el-checkbox__label{white-space:normal;padding-left:5px}.arrangement-table .el-checkbox__input{margin-top:3px}.arrangement-table .el-tag__content{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .arrangement-table .cell{padding-left:8px;padding-right:8px}.arrangement-table td.arrangement-group-cell{vertical-align:top}.arrangement-table td.arrangement-group-cell>.cell{padding-top:8px}
 </style>

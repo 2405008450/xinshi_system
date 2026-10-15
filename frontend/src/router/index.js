@@ -52,7 +52,8 @@ const routes = [
       {
         path: 'translation-details',
         name: 'TranslationProjectDetails',
-        component: () => import('../views/project/translation/ProjectDetails.vue'),
+        component: () => import('../views/project/ProjectWorkspace.vue'),
+        props: { module: 'translation' },
         meta: { title: '笔译项目管理', permissions: ['projects:read'] }
       },
       {
@@ -95,7 +96,8 @@ const routes = [
       {
         path: 'interpretation-details',
         name: 'InterpretationProjectDetails',
-        component: () => import('../views/project/interpretation/InterpretationProjectDetails.vue'),
+        component: () => import('../views/project/ProjectWorkspace.vue'),
+        props: { module: 'interpretation' },
         meta: { title: '口译项目管理', permissions: ['projects:read'] }
       },
       {
@@ -151,7 +153,8 @@ const routes = [
       {
         path: 'recruitment-details',
         name: 'RecruitmentProjectDetails',
-        component: () => import('../views/project/RecruitmentProjects.vue'),
+        component: () => import('../views/project/ProjectWorkspace.vue'),
+        props: { module: 'recruitment' },
         meta: { title: '招聘项目管理', permissions: ['projects:read'] }
       },
       {

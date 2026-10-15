@@ -61,51 +61,6 @@
             @change="handleSearch"
             @enter="handleSearch"
           />
-          <AppForm v-if="false" label-position="top">
-              <el-row :gutter="16">
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="项目类型">
-                    <el-select v-model="searchForm.projectType" clearable placeholder="全部" @change="handleSearch">
-                      <el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="预定日期">
-                    <el-date-picker
-                      v-model="searchForm.scheduledDateRange"
-                      type="daterange"
-                      value-format="YYYY-MM-DD"
-                      range-separator="至"
-                      start-placeholder="开始日期"
-                      end-placeholder="结束日期"
-                      @change="handleSearch"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="译员">
-                    <el-select v-model="searchForm.translatorId" filterable clearable placeholder="全部" @change="handleSearch">
-                      <el-option v-for="item in translators" :key="item.id" :label="translatorOptionLabel(item)" :value="item.id" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="客户/子客户">
-                    <el-select v-model="searchForm.clientSelection" filterable clearable placeholder="全部" @change="handleSearch">
-                      <el-option v-for="item in filterClientOptions" :key="item.value" :label="item.label" :value="item.value" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12" :lg="8">
-                  <el-form-item label="语言">
-                    <el-select v-model="searchForm.languageId" filterable clearable placeholder="全部" @change="handleSearch">
-                      <el-option v-for="item in languages" :key="item.id" :label="item.label" :value="item.id" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-          </AppForm>
         </AdvancedFilterPopover>
       </el-form-item>
     </AppForm>

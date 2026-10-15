@@ -102,8 +102,8 @@ defineExpose({ close })
   min-width: 14px;
   padding: 0 2px;
   border-radius: 7px;
-  background: #2563eb;
-  color: white;
+  background: var(--color-primary);
+  color: #fff;
   font-size: 10px;
   line-height: 14px;
 }
@@ -114,13 +114,13 @@ defineExpose({ close })
 }
 
 .column-header-filter__trigger.is-active {
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
-  box-shadow: 0 0 0 2px #bfdbfe;
+  box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
 
 .column-header-filter__trigger.is-active:hover {
-  background: #1d4ed8;
+  background: var(--color-primary-hover);
   color: #fff;
 }
 

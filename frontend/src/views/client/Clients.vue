@@ -7,23 +7,13 @@
           <small class="header-hint">母客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
-          <el-popover placement="bottom-end" :width="360" trigger="click" title="首页显示字段">
-            <template #reference>
-              <el-button>字段设置</el-button>
-            </template>
-            <el-checkbox-group v-model="visibleColumnKeys" class="column-settings">
-              <el-checkbox
-                v-for="column in clientColumnOptions"
-                :key="column.key"
-                :label="column.key"
-              >
-                {{ column.label }}
-              </el-checkbox>
-            </el-checkbox-group>
-            <div class="column-settings-footer">
-              <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
-            </div>
-          </el-popover>
+          <TableColumnSettings
+            v-model="visibleColumnKeys"
+            :columns="clientColumnOptions"
+            :column-count="2"
+            title="客户列表字段"
+            @reset="resetVisibleColumns"
+          />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="handleAdd">新增客户</el-button>
         </div>
@@ -78,87 +68,6 @@
               </el-button>
             </template>
             <CompactFilterGrid :fields="clientAdvancedFilterFields" :model="advancedFilters" @update="updateConfiguredFilter" @text-input="handleAdvancedTextInput" @change="handleSelectionChange" @enter="handleSearch" />
-            <div v-if="false" class="advanced-filter-panel">
-              <div class="advanced-filter-title">高级筛选</div>
-              <AppForm :model="advancedFilters" label-width="112px" class="advanced-filter-form">
-                <el-row :gutter="16">
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户编号">
-                      <el-input v-model="advancedFilters.client_code" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户简称">
-                      <el-input v-model="advancedFilters.client_short_name" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="英文名称">
-                      <el-input v-model="advancedFilters.english_name" placeholder="匹配英文全称、简称" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户负责人">
-                      <el-input v-model="advancedFilters.client_manager" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="负责人联系方式">
-                      <el-input v-model="advancedFilters.manager_contact" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户领域一级">
-                      <el-input v-model="advancedFilters.field_level1" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户领域二级">
-                      <el-input v-model="advancedFilters.field_level2" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="国家">
-                      <el-input v-model="advancedFilters.country" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="省份">
-                      <el-input v-model="advancedFilters.province" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="地级市">
-                      <el-input v-model="advancedFilters.city" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="区县">
-                      <el-input v-model="advancedFilters.district" clearable @input="handleAdvancedTextInput" @keyup.enter="handleSearch" />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="开始合作日期">
-                      <el-date-picker
-                        v-model="advancedFilters.cooperation_date_range"
-                        type="daterange"
-                        range-separator="至"
-                        start-placeholder="开始日期"
-                        end-placeholder="结束日期"
-                        value-format="YYYY-MM-DD"
-                        clearable
-                        style="width: 100%"
-                        @change="handleSelectionChange"
-                      />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-              </AppForm>
-              <div class="advanced-filter-actions">
-                <el-button link type="primary" @click="clearAdvancedFilters">清空高级条件</el-button>
-                <el-button @click="advancedFilterVisible = false">关闭</el-button>
-              </div>
-            </div>
           </AdvancedFilterPopover>
         </el-form-item>
       </AppForm>
@@ -587,6 +496,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'

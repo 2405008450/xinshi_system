@@ -27,6 +27,46 @@ from talent_duplicate_service import (commit, undo, preview, groups, group_detai
 ACTOR = SimpleNamespace(id=uuid4(), username="qa", full_name="核重测试员")
 
 
+def synthetic_verification_operation():
+    before = {'people': {'a': {'person': {'full_name': '合成姓名'}},
+                          'b': {'person': {'full_name': '合成姓名'}}},
+              'references': {'synthetic_project': [{'id': 'original-project'}]}}
+    after = copy.deepcopy(before)
+    return {'id': 'synthetic-operation', 'person_ids': ['a', 'b'], 'target_id': 'a',
+            'before_snapshot': before, 'after_snapshot': after, 'undone_at': None,
+            'decisions': {'retention': {'before_sha256': digest(before), 'after_sha256': digest(after),
+                                       'attachments': []},
+                          'merge_audit': {'target_id': 'a', 'fields': [{'key': 'full_name'}]}}}
+
+
+def test_readonly_verifier_detects_snapshot_and_reference_loss():
+    from tools.verify_talent_name_merge_run import verify_operation
+    operation = synthetic_verification_operation()
+    assert verify_operation(operation, {}) == []
+    operation['before_snapshot']['people']['b']['person']['full_name'] = '被改写的原姓名'
+    assert 'before_snapshot_hash' in {failure['check'] for failure in verify_operation(operation, {})}
+    operation = synthetic_verification_operation()
+    operation['after_snapshot']['references']['synthetic_project'] = []
+    operation['decisions']['retention']['after_sha256'] = digest(operation['after_snapshot'])
+    assert 'business_reference_ids' in {failure['check'] for failure in verify_operation(operation, {})}
+
+
+def test_readonly_verifier_checks_retained_attachment_bytes(tmp_path, monkeypatch):
+    from tools import verify_talent_name_merge_run as verifier
+    import hashlib
+    content = '合成原附件'.encode('utf-8')
+    checksum = hashlib.sha256(content).hexdigest()
+    path = tmp_path/'original.bin'
+    path.write_bytes(content)
+    monkeypatch.setattr(verifier, '_blob_path', lambda _: path)
+    operation = synthetic_verification_operation()
+    operation['decisions']['retention']['attachments'] = [
+        {'state': 'archived', 'sha256': checksum, 'file_size': len(content)}]
+    assert verifier.verify_operation(operation, {}) == []
+    path.write_bytes(b'changed')
+    assert 'retained_attachment' in {failure['check'] for failure in verifier.verify_operation(operation, {})}
+
+
 def test_slow_worker_preserves_audit_and_retries_idempotently(db):
     from models import AppUser, Role, UserRole
     from tools.run_talent_name_merge_slow import candidate_keys, propose, execute_one
@@ -127,6 +167,135 @@ def test_slow_worker_error_diagnostics_do_not_expose_sql_parameters():
     reason = pause_reason(error)
     assert '数据库查询超时' in reason and '57014' in reason
     assert 'private_contact' not in reason and 'secret@example.test' not in reason
+
+
+def test_backend_pool_health_probe_is_cached_and_records_checked_at(monkeypatch):
+    from contextlib import nullcontext
+    from tools import run_talent_name_merge_slow as runner
+    now = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: now[0]))
+    calls, observations = [], []
+    def response(url, timeout):
+        calls.append((url, timeout))
+        return nullcontext(SimpleNamespace(status=200, read=lambda _: b'{"status":"ok"}'))
+    monkeypatch.setattr(runner, 'urlopen', response)
+    monitor = runner.BackendHealthMonitor(observations.append)
+    monitor.check(); monitor.check()
+    assert len(calls) == 1 and observations[0]['healthy']
+    assert observations[0]['checked_at'].endswith('+08:00')
+    now[0] = 61
+    monitor.check()
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('failure', ['timeout', 'slow'])
+def test_backend_pool_probe_backs_off_on_failure(monkeypatch, failure):
+    from contextlib import nullcontext
+    from tools import run_talent_name_merge_slow as runner
+    now, calls = [0.0], []
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: now[0]))
+    def response(url, timeout):
+        calls.append(url)
+        if failure == 'timeout':
+            raise TimeoutError('synthetic-secret')
+        now[0] += 3
+        return nullcontext(SimpleNamespace(status=200, read=lambda _: b'{"status":"ok"}'))
+    monkeypatch.setattr(runner, 'urlopen', response)
+    monitor = runner.BackendHealthMonitor()
+    for _ in range(2):
+        with pytest.raises(runner.CapacityBusy):
+            monitor.check()
+    assert len(calls) == 1 and not monitor.result['healthy']
+    assert 'synthetic-secret' not in str(monitor.result)
+
+
+@pytest.mark.parametrize('stop', [False, True])
+def test_capacity_wait_releases_resources_then_resumes_or_stops(tmp_path, monkeypatch, stop):
+    from tools import run_talent_name_merge_slow as runner
+    now, attempts, active = [0.0], [], [0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: now[0]))
+    state = {'keys': ['甲测试'], 'index': 0, 'requests': {}, 'results': []}
+    stop_path = tmp_path/'STOP'
+    def action():
+        attempts.append(1)
+        active[0] += 1
+        try:
+            if len(attempts) == 1:
+                raise runner.CapacityBusy('合成容量不足')
+        finally:
+            active[0] -= 1
+    def wait(seconds):
+        assert active[0] == 0
+        assert __import__('json').loads((tmp_path/'progress.json').read_text(encoding='utf-8'))['status'] == 'waiting_for_capacity'
+        now[0] += seconds
+        if stop:
+            stop_path.write_text('暂停', encoding='utf-8')
+    if stop:
+        with pytest.raises(runner.PauseTask, match='用户停止'):
+            runner.run_with_capacity_wait(action, state, tmp_path/'status.json', stop_path, retry_delay=2, waiter=wait)
+        assert len(attempts) == 1
+    else:
+        runner.run_with_capacity_wait(action, state, tmp_path/'status.json', stop_path, retry_delay=2, waiter=wait)
+        assert len(attempts) == 2 and state['status'] == 'running'
+    assert state['capacity_wait_count'] == 1 and active[0] == 0
+
+
+def test_capacity_wait_does_not_retry_data_or_query_failures(tmp_path):
+    from tools import run_talent_name_merge_slow as runner
+    state = {'keys': [], 'index': 0, 'requests': {}, 'results': []}
+    attempts, waits = [], []
+    def action():
+        attempts.append(1)
+        raise runner.PauseTask('资料冲突')
+    with pytest.raises(runner.PauseTask, match='资料冲突'):
+        runner.run_with_capacity_wait(action, state, tmp_path/'status.json', tmp_path/'STOP', waiter=waits.append)
+    assert len(attempts) == 1 and not waits
+
+
+@pytest.mark.parametrize('stop_during_wait', [False, True])
+def test_online_write_busy_retries_with_closed_session_and_same_request(tmp_path, monkeypatch, stop_during_wait):
+    from contextlib import contextmanager
+    from tools import run_talent_name_merge_slow as runner
+    active = 0
+    @contextmanager
+    def session(_):
+        nonlocal active
+        active += 1
+        try:
+            yield SimpleNamespace(execute=lambda _: None, rollback=lambda: None)
+        finally:
+            active -= 1
+    monkeypatch.setattr(runner, 'Session', session)
+    monkeypatch.setattr(runner, 'read_pressure', lambda _: {'connections': 0, 'active': 0, 'idle_transactions': 0, 'old_transactions': 0})
+    request = {'idempotency_key': 'synthetic-fixed-key'}
+    monkeypatch.setattr(runner, 'propose', lambda *args: request)
+    attempts = []
+    def execute(db, payload, actor, **kwargs):
+        attempts.append(payload)
+        if len(attempts) == 1:
+            raise runner.OnlineWriteBusy('合成线上写入')
+        return {'id': 'synthetic-operation', 'person_ids': ['a', 'b']}
+    monkeypatch.setattr(runner, 'execute_one', execute)
+    stop = tmp_path/'STOP'
+    actual_write = runner.write_status
+    waited_without_session = []
+    def checkpoint(path, state):
+        if state.get('waiting_workers'):
+            waited_without_session.append(active == 0)
+            if stop_during_wait:
+                stop.write_text('用户暂停', encoding='utf-8')
+        actual_write(path, state)
+    monkeypatch.setattr(runner, 'write_status', checkpoint)
+    state = {'keys': ['甲测试'], 'index': 0, 'requests': {}, 'results': []}
+    if stop_during_wait:
+        with pytest.raises(runner.PauseTask, match='用户停止'):
+            runner.run_queue(None, state, tmp_path/'status.json', stop, 'qa', 1, 0.1, retry_delay=0.05)
+        assert len(attempts) == 1 and state['index'] == 0
+    else:
+        runner.run_queue(None, state, tmp_path/'status.json', stop, 'qa', 1, 0.1, retry_delay=0.05)
+        assert len(attempts) == 2 and attempts[0] is attempts[1]
+        assert state['index'] == 1 and len(state['results']) == 1
+    assert waited_without_session and all(waited_without_session) and active == 0
 
 
 @pytest.mark.parametrize('pressure', [

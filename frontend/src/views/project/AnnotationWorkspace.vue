@@ -83,6 +83,8 @@ const handleFocusModeChange = (value) => {
 
 .workspace-navigation {
   flex: none;
+  border-color: var(--color-border);
+  border-radius: var(--radius-lg);
 }
 
 .annotation-workspace--focus {

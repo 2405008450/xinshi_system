@@ -4,23 +4,13 @@
       <div class="card-header">
         <span>新咨询管理</span>
         <div class="header-actions">
-          <el-popover placement="bottom-end" :width="360" trigger="click" title="首页显示字段">
-            <template #reference>
-              <el-button>字段设置</el-button>
-            </template>
-            <el-checkbox-group v-model="visibleColumnKeys" class="column-settings">
-              <el-checkbox
-                v-for="column in consultationColumnOptions"
-                :key="column.key"
-                :label="column.key"
-              >
-                {{ column.label }}
-              </el-checkbox>
-            </el-checkbox-group>
-            <div class="column-settings-footer">
-              <el-button link type="primary" @click="resetVisibleColumns">恢复默认</el-button>
-            </div>
-          </el-popover>
+          <TableColumnSettings
+            v-model="visibleColumnKeys"
+            :columns="consultationColumnOptions"
+            :column-count="2"
+            title="咨询列表字段"
+            @reset="resetVisibleColumns"
+          />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmConsultationBatchDelete" />
           <el-tooltip content="快捷键：N" placement="bottom" :disabled="!canWrite || deleteMode">
             <el-button v-if="canWrite && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增咨询</el-button>
@@ -29,28 +19,29 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="关键词">
-        <el-input
-          v-model="searchForm.keyword"
-          placeholder="咨询编号、项目名称、客户名称或客户单号"
-          clearable
-          style="width: 320px"
-          @input="handleDebouncedSearchInput"
-          @keyup.enter="handleSearch"
-        />
-      </el-form-item>
-      <el-form-item label="咨询状态">
-        <el-select v-model="searchForm.status" multiple collapse-tags collapse-tags-tooltip placeholder="全部" clearable style="width: 180px" @change="handleSearch">
-          <el-option
-            v-for="item in consultationStatusOptions"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
+    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+      <div class="project-list-primary-filters">
+        <el-form-item label="关键词" class="project-list-keyword-filter">
+          <el-input
+            v-model="searchForm.keyword"
+            placeholder="咨询编号、项目名称、客户名称或客户单号"
+            clearable
+            @input="handleDebouncedSearchInput"
+            @keyup.enter="handleSearch"
           />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
+        </el-form-item>
+        <el-form-item label="咨询状态" class="project-list-status-filter">
+          <el-select v-model="searchForm.status" multiple collapse-tags collapse-tags-tooltip placeholder="全部" clearable @change="handleSearch">
+            <el-option
+              v-for="item in consultationStatusOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+      </div>
+      <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover
@@ -1288,6 +1279,7 @@ import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
 import * as mailApi from '@/api/businessMails'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'

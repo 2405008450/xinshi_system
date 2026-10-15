@@ -1,26 +1,38 @@
 <template>
   <section class="issue-panel">
-    <div class="issue-panel-heading"><h3>开拓问题</h3><div class="issue-panel-actions">
-      <el-button v-if="access.can_collect && !deleteMode" type="primary" @click="editorRef.open(null, null, 'problem')">新增开拓事项</el-button>
-      <el-popover trigger="click" placement="bottom-end" :width="280"><template #reference><el-button>字段设置</el-button></template><div class="issue-column-options"><el-checkbox-group v-model="columns"><el-checkbox v-for="column in issueColumns" :key="column.key" :value="column.key">{{ column.label }}</el-checkbox></el-checkbox-group></div><el-button text type="primary" @click="columns=[...defaultIssueColumns]">恢复默认</el-button></el-popover>
-      <BatchDeleteToolbar v-if="rows.some(row=>row.can_delete) || deleteMode" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
-    </div></div>
+    <div class="issue-panel-heading">
+      <p class="issue-hint">可从聊天消息收录，或直接新增开拓事项。仅显示你有权查看的内容。</p>
+      <div class="issue-panel-actions">
+        <TableColumnSettings
+          v-model="columns"
+          :columns="issueColumns"
+          :column-count="2"
+          title="开拓问题字段"
+          @reset="columns=[...defaultIssueColumns]"
+        />
+        <BatchDeleteToolbar v-if="rows.some(row=>row.can_delete) || deleteMode" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+        <el-button v-if="access.can_collect && !deleteMode" type="primary" @click="editorRef.open(null, null, 'problem')">新增开拓事项</el-button>
+      </div>
+    </div>
     <el-alert v-if="!access.ready" title="开拓问题尚未完成数据库迁移，请联系管理员。" type="info" :closable="false" />
     <template v-else>
-      <p class="issue-hint">可从聊天消息收录，或直接新增开拓事项。仅显示你有权查看的内容。</p>
-      <div class="issue-filters">
+      <div class="issue-filters search-bar">
         <el-input v-model="filters.keyword" placeholder="内容、来源、提出人、执行人、进展、备注" clearable @input="keywordChanged" @keyup.enter="query" />
         <el-select v-model="filters.category" placeholder="类别" clearable @change="query"><el-option v-for="category in issueCategories" :key="category.value" :value="category.value" :label="category.label" /></el-select>
         <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-        <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="issue-advanced"><template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-          <div class="issue-advanced-body" @focusin.stop><AppForm :model="filters" label-position="top"><div class="issue-grid">
-            <el-form-item label="讨论主题"><ChatTopicSelect v-model="filters.topic_id" @change="query" /></el-form-item>
-            <el-form-item label="提出人"><el-select v-model="filters.proposer_id" clearable filterable @change="query"><el-option v-for="person in users" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
-            <el-form-item label="执行人"><el-select v-model="filters.executor_id" clearable filterable @change="query"><el-option v-for="person in users" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
-            <el-form-item label="任务状态"><el-select v-model="filters.status" clearable @change="query"><el-option v-for="status in issueStatuses" :key="status.value" :value="status.value" :label="status.label" /></el-select></el-form-item>
-            <el-form-item label="预定完成日期" class="wide"><el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" /></el-form-item>
-          </div></AppForm><div class="issue-panel-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced=false">关闭</el-button></div></div>
-        </el-popover>
+        <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="issue-advanced" @clear="clearAdvanced" @reset="reset">
+          <div @focusin.stop>
+            <AppForm :model="filters" label-position="top">
+              <div class="issue-grid">
+                <el-form-item label="讨论主题"><ChatTopicSelect v-model="filters.topic_id" @change="query" /></el-form-item>
+                <el-form-item label="提出人"><el-select v-model="filters.proposer_id" clearable filterable @change="query"><el-option v-for="person in users" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
+                <el-form-item label="执行人"><el-select v-model="filters.executor_id" clearable filterable @change="query"><el-option v-for="person in users" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
+                <el-form-item label="任务状态"><el-select v-model="filters.status" clearable @change="query"><el-option v-for="status in issueStatuses" :key="status.value" :value="status.value" :label="status.label" /></el-select></el-form-item>
+                <el-form-item label="预定完成日期" class="wide"><el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" /></el-form-item>
+              </div>
+            </AppForm>
+          </div>
+        </AdvancedFilterPopover>
       </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text @click="reload">重试</el-button></el-alert>
       <el-table ref="tableRef" v-loading="loading" :data="rows" row-key="id" border @selection-change="handleDeleteSelectionChange">
@@ -52,6 +64,8 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { issueCategories, issueStatuses, issueColumns, defaultIssueColumns, cleanIssueColumns, issueParams, issueCategoryLabel, issueStatusSummary } from '@/utils/resourceIssues'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import DevelopmentIssueDetail from './DevelopmentIssueDetail.vue'
 import DevelopmentIssueEditor from './DevelopmentIssueEditor.vue'
 import DevelopmentIssueTasks from './DevelopmentIssueTasks.vue'
@@ -93,7 +107,7 @@ onMounted(async()=>{
 onBeforeUnmount(()=>{window.removeEventListener('resource-issue-saved',saved);disposed=true;clearTimeout(timer);sequence++;controller?.abort()})
 </script>
 <style scoped>
-.issue-panel-heading,.issue-panel-actions,.issue-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.issue-panel-heading{justify-content:space-between}.issue-filters{margin:16px 0}.issue-filters>.el-input{width:340px}.issue-filters>.el-select{width:150px}.issue-column-options{max-height:400px;overflow:auto}.issue-column-options .el-checkbox{display:flex}.issue-advanced-body{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.issue-panel .el-pagination{max-width:100%;overflow-x:auto}.issue-panel .el-alert{margin:12px 0}
+.issue-panel-heading,.issue-panel-actions,.issue-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.issue-panel-heading{justify-content:space-between;margin-bottom:10px}.issue-hint{margin:0;color:var(--el-text-color-secondary);font-size:13px}.issue-filters{margin:0 0 14px;padding:12px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-page-bg)}.issue-filters>.el-input{width:340px}.issue-filters>.el-select{width:150px}.issue-panel .el-pagination{max-width:100%;overflow-x:auto}.issue-panel .el-alert{margin:12px 0}
 @media(max-width:700px){.issue-filters>.el-input,.issue-filters>.el-select{width:100%}}
 </style>
 <style>.issue-advanced{max-width:calc(100vw - 32px)!important}</style>

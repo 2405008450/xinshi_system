@@ -1,19 +1,19 @@
 <template>
-  <el-card class="comparison-card compact-list-card">
+  <el-card class="common-page-card comparison-card compact-list-card">
     <template #header>
-      <div class="comparison-header">
+      <div class="card-header">
         <div>
-          <strong>项目对比</strong>
-          <span class="comparison-header__hint">将相似或有关联的标注项目放在同一组中横向比较</span>
+          <span class="page-title">项目对比</span>
+          <p class="page-subtitle">将相似或有关联的标注项目放在同一组中横向比较</p>
         </div>
-        <div class="comparison-header__actions">
+        <div class="header-actions">
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openCreate">新增比较组</el-button>
         </div>
       </div>
     </template>
 
-    <AppForm :inline="true" class="comparison-search" @submit.prevent>
+    <AppForm :inline="true" class="comparison-search search-form" @submit.prevent>
       <el-form-item label="关键字">
         <el-input v-model="keyword" clearable placeholder="比较组名称或比较说明" @input="handleKeywordInput" @keyup.enter="search" />
       </el-form-item>

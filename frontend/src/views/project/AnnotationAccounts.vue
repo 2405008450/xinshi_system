@@ -1,5 +1,5 @@
 <template>
-  <el-card class="page-card annotation-accounts compact-list-card" :class="{ 'annotation-accounts--focus': viewMode === 'project' }">
+  <el-card class="common-page-card page-card annotation-accounts compact-list-card" :class="{ 'annotation-accounts--focus': viewMode === 'project' }">
     <template #header>
       <div v-if="viewMode === 'project'" class="focus-header card-header">
         <div class="focus-header__title">
@@ -40,7 +40,7 @@
     </template>
 
     <AnnotationOrderContext :project="selectedProject" />
-    <div class="filters" :class="{ 'filters--focus': viewMode === 'project' }">
+    <div class="filters search-bar" :class="{ 'filters--focus': viewMode === 'project' }">
       <el-select v-if="viewMode === 'assets'" v-model="clientId" :disabled="sheetLocked" filterable remote clearable :loading="clientSearchLoading" :remote-method="searchClients" placeholder="输入客户名称后联想" style="width:260px" @change="changeClient">
         <el-option v-for="item in clients" :key="item.id" :label="item.client_short_name || item.client_name" :value="item.id" />
       </el-select>
@@ -58,19 +58,15 @@
       </div>
       <el-input v-model="keyword" :disabled="sheetLocked" clearable placeholder="平台、编号、姓名或昵称" style="width:280px" @input="onKeyword" @keyup.enter="queryNow" />
       <el-button class="query-button" type="primary" :disabled="sheetLocked" @click="queryNow">查询</el-button><el-button :disabled="sheetLocked" @click="resetFilters">重置</el-button>
-      <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="account-advanced-popper">
+      <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="account-advanced-popper" @clear="clearAdvanced" @reset="resetFilters">
         <template #reference><el-button :disabled="sheetLocked">高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-        <div class="advanced-panel">
-          <div class="advanced-title">高级筛选</div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :md="12"><el-form-item label="平台"><el-select v-model="filters.platformId" clearable style="width:100%" @change="selectionChanged"><el-option v-for="item in platforms" :key="item.id" :label="platformName(item)" :value="item.id" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="分配状态"><el-select v-model="filters.assignmentState" clearable style="width:100%" @change="selectionChanged"><el-option label="已分配" value="assigned" /><el-option label="未分配" value="unassigned" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="账号状态"><el-select v-model="filters.accountStatus" clearable style="width:100%" @change="selectionChanged"><el-option v-for="(label,value) in accountStatusLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="语言方向"><el-select v-model="filters.languageItemId" clearable filterable style="width:100%" @change="selectionChanged"><el-option v-for="item in filterLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
-          </el-row>
-          <div class="advanced-actions"><el-button link type="primary" @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible=false">关闭</el-button></div>
-        </div>
-      </el-popover>
+        <el-row :gutter="16">
+          <el-col :xs="24" :md="12"><el-form-item label="平台"><el-select v-model="filters.platformId" clearable style="width:100%" @change="selectionChanged"><el-option v-for="item in platforms" :key="item.id" :label="platformName(item)" :value="item.id" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="分配状态"><el-select v-model="filters.assignmentState" clearable style="width:100%" @change="selectionChanged"><el-option label="已分配" value="assigned" /><el-option label="未分配" value="unassigned" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="账号状态"><el-select v-model="filters.accountStatus" clearable style="width:100%" @change="selectionChanged"><el-option v-for="(label,value) in accountStatusLabels" :key="value" :label="label" :value="value" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item label="语言方向"><el-select v-model="filters.languageItemId" clearable filterable style="width:100%" @change="selectionChanged"><el-option v-for="item in filterLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
+        </el-row>
+      </AdvancedFilterPopover>
     </div>
 
     <ProjectAccountSpreadsheet
@@ -231,6 +227,7 @@ import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { hasPermission } from '@/utils/permission'

@@ -1,15 +1,19 @@
 <template>
   <div class="arrangement-overview-page">
-    <el-card class="page-header-card" shadow="never">
-      <div class="page-heading">
-        <div>
-          <h2>标注项目安排</h2>
-          <p>按日期集中查看项目安排和人员任务分布，并可直接调整项目任务。</p>
+    <el-card class="common-page-card compact-list-card page-header-card" shadow="never">
+      <template #header>
+        <div class="card-header">
+          <div>
+            <h2>标注项目安排</h2>
+            <p>按日期集中查看项目安排和人员任务分布，并可直接调整项目任务。</p>
+          </div>
+          <div class="header-actions">
+            <el-button :loading="overviewLoading || workloadLoading" @click="refreshAll">刷新</el-button>
+          </div>
         </div>
-        <el-button :loading="overviewLoading || workloadLoading" @click="refreshAll">刷新</el-button>
-      </div>
+      </template>
 
-      <div class="primary-filters">
+      <div class="primary-filters search-bar">
         <div class="date-filter">
           <el-button-group>
             <el-button :type="quickDateOffset === -1 ? 'primary' : 'default'" @click="setQuickDate(-1)">昨日</el-button>
@@ -120,7 +124,7 @@
       <div class="summary-card is-primary"><span>执行人数</span><strong>{{ summary.assigneeCount }}</strong></div>
     </section>
 
-    <el-card class="overview-content" shadow="never">
+    <el-card class="common-page-card compact-list-card overview-content" shadow="never">
       <el-tabs v-model="activeView">
         <el-tab-pane label="项目视图" name="projects">
           <div class="table-toolbar">
@@ -531,7 +535,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.arrangement-overview-page{display:grid;gap:14px}.page-header-card :deep(.el-card__body){display:grid;gap:16px}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.page-heading h2{margin:0;font-size:22px}.page-heading p{margin:6px 0 0;color:var(--el-text-color-secondary)}.primary-filters{display:grid;grid-template-columns:minmax(310px,auto) 150px 190px minmax(240px,1fr) auto auto auto;align-items:center;gap:10px}.date-filter{display:flex;align-items:center;gap:8px}.date-filter .el-date-editor{width:138px}.advanced-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.advanced-grid label{display:grid;gap:5px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.summary-card{display:flex;align-items:center;justify-content:space-between;min-height:82px;padding:16px 18px;border:1px solid var(--el-border-color-light);border-radius:10px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;text-align:left;box-shadow:var(--el-box-shadow-lighter)}button.summary-card{cursor:pointer}.summary-card:hover{border-color:var(--el-color-primary-light-5)}.summary-card strong{font-size:28px;color:var(--el-text-color-primary)}.summary-card.is-success strong{color:var(--el-color-success)}.summary-card.is-warning strong{color:var(--el-color-warning)}.summary-card.is-info strong{color:var(--el-color-info)}.summary-card.is-primary strong{color:var(--el-color-primary)}.overview-content :deep(.el-card__body){padding-top:4px}.table-toolbar,.workload-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:var(--el-text-color-secondary);font-size:13px}.sort-select{width:190px}.workload-toolbar{justify-content:flex-start}.workload-toolbar .el-input{width:280px}.workload-toolbar .el-select{width:140px}.workload-toolbar span{margin-left:auto}.expanded-tasks{padding:10px 52px;background:var(--el-fill-color-lighter)}.el-pagination{justify-content:flex-end;margin-top:14px}
+.arrangement-overview-page{display:grid;gap:14px}.page-header-card :deep(.el-card__body){display:grid;gap:0}.page-header-card .primary-filters{margin-bottom:0}.primary-filters{display:grid;grid-template-columns:minmax(310px,auto) 150px 190px minmax(240px,1fr) auto auto auto;align-items:center;gap:10px}.date-filter{display:flex;align-items:center;gap:8px}.date-filter .el-date-editor{width:138px}.advanced-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.advanced-grid label{display:grid;gap:5px;color:var(--el-text-color-secondary);font-size:12px}.summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.summary-card{display:flex;align-items:center;justify-content:space-between;min-height:82px;padding:16px 18px;border:1px solid var(--el-border-color-light);border-radius:10px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;text-align:left;box-shadow:var(--el-box-shadow-lighter)}button.summary-card{cursor:pointer}.summary-card:hover{border-color:var(--el-color-primary-light-5)}.summary-card strong{font-size:28px;color:var(--el-text-color-primary)}.summary-card.is-success strong{color:var(--el-color-success)}.summary-card.is-warning strong{color:var(--el-color-warning)}.summary-card.is-info strong{color:var(--el-color-info)}.summary-card.is-primary strong{color:var(--el-color-primary)}.overview-content :deep(.el-card__body){padding-top:4px}.table-toolbar,.workload-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:var(--el-text-color-secondary);font-size:13px}.sort-select{width:190px}.workload-toolbar{justify-content:flex-start}.workload-toolbar .el-input{width:280px}.workload-toolbar .el-select{width:140px}.workload-toolbar span{margin-left:auto}.expanded-tasks{padding:10px 52px;background:var(--el-fill-color-lighter)}.el-pagination{justify-content:flex-end;margin-top:14px}
 .table-toolbar-actions{display:flex;align-items:center;gap:8px}.overview-order-link{display:block;width:100%;height:auto;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.ellipsis-cell{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1200px){.primary-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.primary-filters>.el-input{grid-column:span 2}.summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.page-heading{align-items:stretch;flex-direction:column}.primary-filters{grid-template-columns:minmax(0,1fr)}.primary-filters>.el-input{grid-column:span 1}.date-filter{align-items:stretch;flex-direction:column}.date-filter .el-button-group{display:flex}.date-filter .el-button{flex:1}.date-filter .el-date-editor{width:100%}.advanced-grid{grid-template-columns:minmax(0,1fr)}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-card{min-height:70px;padding:12px}.summary-card strong{font-size:23px}.table-toolbar,.workload-toolbar{align-items:stretch;flex-direction:column}.sort-select,.workload-toolbar .el-input,.workload-toolbar .el-select{width:100%}.workload-toolbar span{margin-left:0}.expanded-tasks{padding:8px}.el-pagination{justify-content:flex-start;overflow-x:auto}}

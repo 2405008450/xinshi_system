@@ -33,7 +33,8 @@
   color: var(--color-text-primary);
 }
 
-.common-page-card > .el-card__header :is(p, .subtitle, .header-hint, .page-subtitle) {
+.common-page-card > .el-card__header :is(p, .subtitle, .header-hint, .page-subtitle, small) {
+  display: block;
   margin: 4px 0 0;
   font-size: 13px;
   font-weight: 400;
@@ -56,7 +57,8 @@
   margin-left: 0;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area),
+.common-page-card > .el-card__body :is(.search-bar, .filter-bar) {
   margin: 0 0 14px;
   padding: 12px;
   border: 1px solid var(--color-border);
@@ -65,7 +67,7 @@
 }
 
 .common-page-card > .el-card__body > .search-form.el-form--inline:not(.project-list-search-form),
-.common-page-card > .el-card__body > :is(.search-bar, .search-area) > .el-form--inline {
+.common-page-card > .el-card__body > :is(.search-bar, .search-area) > .el-form--inline:not(.project-list-search-form) {
   display: flex;
   align-items: flex-start;
   flex-wrap: wrap;
@@ -80,25 +82,25 @@
   background: transparent;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) .el-form-item {
   margin: 0;
   max-width: 100%;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item__content {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) .el-form-item__content {
   min-width: 0;
   gap: 8px;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-form-item__label {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) .el-form-item__label {
   padding-right: 8px;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) :is(.el-input, .el-select) {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) :is(.el-input, .el-select) {
   max-width: 100%;
 }
 
-.common-page-card > .el-card__body > :is(.search-form, .search-bar, .search-area) .el-button + .el-button {
+.common-page-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) .el-button + .el-button {
   margin-left: 0;
 }
 
@@ -197,35 +199,30 @@
   height: 26px;
 }
 
-.compact-list-card > .el-card__body > .search-form .el-form-item,
-.compact-list-card > .el-card__body > .search-bar .el-form-item {
+.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar) .el-form-item {
   margin-bottom: 4px;
 }
 
-.compact-list-card > .el-card__body > .search-form .el-form-item__label,
-.compact-list-card > .el-card__body > .search-bar .el-form-item__label {
+.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar) .el-form-item__label {
   height: 30px;
   padding-right: 8px;
   font-size: 13px;
   line-height: 30px;
 }
 
-.compact-list-card > .el-card__body > .search-form .el-form-item__content,
-.compact-list-card > .el-card__body > .search-bar .el-form-item__content {
+.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar) .el-form-item__content {
   min-height: 30px;
   line-height: 30px;
 }
 
-.compact-list-card > .el-card__body > .search-form .el-input__wrapper,
-.compact-list-card > .el-card__body > .search-form .el-select__wrapper,
-.compact-list-card > .el-card__body > .search-bar .el-input__wrapper,
-.compact-list-card > .el-card__body > .search-bar .el-select__wrapper {
+.compact-list-card > .el-card__body :is(.search-form, .search-bar, .filter-bar) .el-input__wrapper,
+.compact-list-card > .el-card__body :is(.search-form, .search-bar, .filter-bar) .el-select__wrapper,
+.compact-list-card > .el-card__body :is(.search-form, .search-bar, .filter-bar) .el-date-editor.el-input__wrapper {
   min-height: 30px;
   height: 30px;
 }
 
-.compact-list-card > .el-card__body > .search-form .el-button,
-.compact-list-card > .el-card__body > .search-bar .el-button {
+.compact-list-card > .el-card__body :is(.search-form, .search-bar, .filter-bar) .el-button {
   min-height: 30px;
   height: 30px;
   padding: 5px 11px;

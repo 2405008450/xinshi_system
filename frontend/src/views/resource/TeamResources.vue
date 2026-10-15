@@ -1,25 +1,32 @@
 <template>
-  <el-card class="team-resources-page">
-    <div class="team-heading"><div><h2>团队资源</h2><span class="team-muted">统一维护团队与企业资源档案</span></div><div class="team-actions">
-      <TableColumnSettings v-model="selectedColumns" :columns="teamColumns" title="团队列表字段" @reset="selectedColumns = [...defaultTeamColumns]" />
-      <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
-      <el-button v-if="options.can_write && !deleteMode" type="primary" @click="openEditor()">新增团队</el-button>
-    </div></div>
+  <el-card class="common-page-card compact-list-card team-resources-page">
+    <template #header>
+      <div class="card-header">
+        <div>
+          <span class="page-title">团队资源</span>
+          <p class="page-subtitle">统一维护团队与企业资源档案</p>
+        </div>
+        <div class="header-actions">
+          <TableColumnSettings v-model="selectedColumns" :columns="teamColumns" :column-count="2" title="团队列表字段" @reset="selectedColumns = [...defaultTeamColumns]" />
+          <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+          <el-button v-if="options.can_write && !deleteMode" type="primary" @click="openEditor()">新增团队</el-button>
+        </div>
+      </div>
+    </template>
     <TalentResourceNav />
     <el-alert v-if="moduleError" :title="moduleError" type="warning" :closable="false" show-icon />
-    <div class="team-filters">
+    <div class="team-filters search-bar">
       <el-input :model-value="filters.keyword" placeholder="团队简称或全称" clearable @update:model-value="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.team_type" placeholder="团队类型" clearable @change="query"><el-option v-for="item in options.team_types" :key="item.value" :label="item.label" :value="item.value" /></el-select>
       <el-select v-model="filters.resource_types" placeholder="资源类型（可多选）" multiple clearable collapse-tags collapse-tags-tooltip @change="query"><el-option v-for="item in options.resource_types" :key="item.value" :label="item.label" :value="item.value" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="team-advanced">
-        <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-        <div class="team-advanced-body"><div class="team-advanced-grid">
+      <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="team-advanced" @clear="clearAdvanced" @reset="reset">
+        <div class="team-advanced-grid">
           <div><label>信实对接人</label><el-select v-model="filters.contact_user_id" filterable clearable @change="query"><el-option v-for="person in options.people" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
           <div><label>信实跟进人</label><el-select v-model="filters.follow_up_user_id" filterable clearable @change="query"><el-option v-for="person in options.people" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
           <div class="team-wide"><label>对接日期范围</label><el-date-picker v-model="filters.contact_dates" type="daterange" value-format="YYYY-MM-DD" format="YYYY年MM月DD日" start-placeholder="开始日期" end-placeholder="结束日期" @change="query" /></div>
-        </div><div class="team-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div></div>
-      </el-popover>
+        </div>
+      </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" border row-key="id" empty-text="暂无符合条件的团队资源" @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" />
@@ -54,6 +61,7 @@ import { ElMessage } from 'element-plus'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { teamApi } from '@/api/teams'
 import { getRawErrorDetail } from '@/utils/errorMessages'

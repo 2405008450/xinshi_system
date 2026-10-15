@@ -32,16 +32,18 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form">
-      <el-form-item label="关键词">
-        <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable style="width: 380px" @input="handleTextSearch" @keyup.enter="handleSearch" />
-      </el-form-item>
-      <el-form-item label="状态">
-        <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable style="width: 180px" @change="handleSearch">
-          <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item>
+    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+      <div class="project-list-primary-filters">
+        <el-form-item label="关键词" class="project-list-keyword-filter">
+          <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
+        </el-form-item>
+        <el-form-item label="状态" class="project-list-status-filter">
+          <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable @change="handleSearch">
+            <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+      </div>
+      <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedFilterCount" popper-class="translation-advanced-filter-popover" @clear="clearAdvancedFilters" @reset="resetSearch">
@@ -2536,7 +2538,7 @@ onBeforeUnmount(() => {
   background: var(--el-color-primary-light-9) !important;
   color: var(--el-color-primary);
 }
-.project-table :deep(td.is-active-sort-column) { background: rgb(64 158 255 / 4%); }
+.project-table :deep(td.is-active-sort-column) { background: rgb(51 65 85 / 4%); }
 .project-column-header { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; }
 .time-column-sort-trigger {
   display: inline-flex;
@@ -2555,11 +2557,11 @@ onBeforeUnmount(() => {
 }
 .time-column-sort-trigger:hover { background: var(--el-fill-color); color: var(--el-color-primary); }
 .time-column-sort-trigger.is-active {
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
-  box-shadow: 0 0 0 2px #bfdbfe;
+  box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
-.time-column-sort-trigger.is-active:hover { background: #1d4ed8; color: #fff; }
+.time-column-sort-trigger.is-active:hover { background: var(--color-primary-hover); color: #fff; }
 .index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
 
 @media (max-width: 768px) {

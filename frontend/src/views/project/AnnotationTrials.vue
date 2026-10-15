@@ -1,5 +1,5 @@
 <template>
-  <el-card class="compact-list-card">
+  <el-card class="common-page-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div><h2>试标/试采流程</h2><p>跨项目查看候选进度；选择项目后可打开项目级管理窗口</p></div>
@@ -13,25 +13,20 @@
       </div>
     </template>
 
-    <div class="trial-search-toolbar">
+    <div class="trial-search-toolbar search-bar">
       <el-select v-model="projectId" clearable filterable placeholder="全部标注项目" class="project-filter" @change="handleProjectChange"><el-option v-for="item in projects" :key="item.id" :label="projectLabel(item)" :value="item.id" /></el-select>
       <el-input v-model="filters.keyword" clearable placeholder="搜索项目、编号、姓名、意愿或评语" class="keyword-filter" @input="handleKeywordInput" @keyup.enter="search" />
       <el-button type="primary" @click="search">查询</el-button><el-button @click="resetFilters">重置</el-button>
-      <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="trial-advanced-popover">
-        <template #reference><el-button>高级筛选<span v-if="advancedCount" class="filter-count">{{ advancedCount }}</span></el-button></template>
-        <div class="advanced-panel">
-          <div class="advanced-header"><strong>高级筛选</strong><el-button link type="primary" @click="clearAdvanced">清空高级条件</el-button></div>
-          <AppForm label-position="top"><el-row :gutter="16">
-            <el-col :xs="24" :md="8"><el-form-item label="人员"><el-select v-model="personId" clearable filterable style="width:100%" @change="search"><el-option v-for="item in talents" :key="item.id" :label="talentLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="8"><el-form-item label="语言方向"><el-select v-model="filters.languageItemId" clearable :disabled="!selectedProject" style="width:100%" @change="search"><el-option v-for="item in selectedProject?.languageItems||[]" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="8"><el-form-item label="候选阶段"><el-select v-model="filters.candidateStage" clearable style="width:100%" @change="search"><el-option v-for="item in stageOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="8"><el-form-item label="业务类型"><el-select v-model="filters.activityType" clearable style="width:100%" @change="search"><el-option v-for="item in activityOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="8"><el-form-item label="工作职责"><el-select v-model="filters.dutyRole" clearable style="width:100%" @change="search"><el-option v-for="item in dutyOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-            <el-col :xs="24" :md="8"><el-form-item label="结果"><el-select v-model="filters.trialResult" clearable style="width:100%" @change="search"><el-option v-for="item in resultOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
-          </el-row></AppForm>
-          <div class="advanced-footer"><el-button @click="advancedVisible=false">关闭</el-button></div>
-        </div>
-      </el-popover>
+      <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="trial-advanced-popover" @clear="clearAdvanced" @reset="resetFilters">
+        <AppForm label-position="top"><el-row :gutter="16">
+          <el-col :xs="24" :md="8"><el-form-item label="人员"><el-select v-model="personId" clearable filterable style="width:100%" @change="search"><el-option v-for="item in talents" :key="item.id" :label="talentLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="语言方向"><el-select v-model="filters.languageItemId" clearable :disabled="!selectedProject" style="width:100%" @change="search"><el-option v-for="item in selectedProject?.languageItems||[]" :key="item.id" :label="item.display" :value="item.id" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="候选阶段"><el-select v-model="filters.candidateStage" clearable style="width:100%" @change="search"><el-option v-for="item in stageOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="业务类型"><el-select v-model="filters.activityType" clearable style="width:100%" @change="search"><el-option v-for="item in activityOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="工作职责"><el-select v-model="filters.dutyRole" clearable style="width:100%" @change="search"><el-option v-for="item in dutyOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="结果"><el-select v-model="filters.trialResult" clearable style="width:100%" @change="search"><el-option v-for="item in resultOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
+        </el-row></AppForm>
+      </AdvancedFilterPopover>
     </div>
 
     <AnnotationTrialTable ref="trialTableRef" :rows="rows" :columns="visibleColumns" :custom-fields="customFields" :loading="loading" :delete-mode="deleteMode" :can-write="canWrite" @selection-change="handleDeleteSelectionChange" @follow-up="openFollowUps" @accounts="openAccounts" @edit="openEditor" />
@@ -135,6 +130,7 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useTableColumns } from '@/composables/useTableColumns'

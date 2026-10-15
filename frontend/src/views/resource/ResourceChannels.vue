@@ -1,31 +1,34 @@
 <template>
-  <el-card class="resource-channels-page">
-    <div class="channel-heading">
-      <div><h2>渠道管理</h2><span class="channel-muted">集中维护开拓平台资料、用途与人员分工</span></div>
-      <div class="channel-actions">
-        <el-popover trigger="click" placement="bottom-end" :width="280">
-          <template #reference><el-button>字段设置</el-button></template>
-          <div class="channel-column-options"><el-checkbox-group v-model="selectedColumns"><el-checkbox v-for="column in channelColumns" :key="column.key" :value="column.key">{{ column.label }}</el-checkbox></el-checkbox-group></div>
-          <el-button text type="primary" @click="selectedColumns = [...defaultChannelColumns]">恢复默认</el-button>
-        </el-popover>
-        <el-button v-if="options.can_write" type="primary" @click="openEditor()">新增渠道</el-button>
+  <el-card class="common-page-card compact-list-card resource-channels-page">
+    <template #header>
+      <div class="card-header">
+        <div>
+          <span class="page-title">渠道管理</span>
+          <p class="page-subtitle">集中维护开拓平台资料、用途与人员分工</p>
+        </div>
+        <div class="header-actions">
+          <TableColumnSettings
+            v-model="selectedColumns"
+            :columns="channelColumns"
+            :column-count="2"
+            title="渠道列表字段"
+            @reset="selectedColumns = [...defaultChannelColumns]"
+          />
+          <el-button v-if="options.can_write" type="primary" @click="openEditor()">新增渠道</el-button>
+        </div>
       </div>
-    </div>
+    </template>
     <TalentResourceNav />
-    <div class="channel-filters">
+    <div class="channel-filters search-bar">
       <el-input v-model="filters.keyword" clearable maxlength="255" placeholder="平台名称、账号名称、平台用途" @input="keywordChanged" @keyup.enter="query" />
       <el-select v-model="filters.category" clearable placeholder="平台性质" @change="query"><el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select>
       <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-      <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="channel-advanced">
-        <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
-        <div class="channel-advanced-body">
-          <div class="channel-advanced-grid">
-            <div><label>维护人</label><el-select v-model="filters.maintainer_ids" multiple filterable clearable placeholder="选择维护人" @change="query"><el-option v-for="person in filterPeople" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
-            <div><label>使用人</label><el-select v-model="filters.user_ids" multiple filterable clearable placeholder="选择使用人" @change="query"><el-option v-for="person in filterPeople" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
-          </div>
-          <div class="channel-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div>
+      <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="channel-advanced" @clear="clearAdvanced" @reset="reset">
+        <div class="channel-advanced-grid">
+          <div><label>维护人</label><el-select v-model="filters.maintainer_ids" multiple filterable clearable placeholder="选择维护人" @change="query"><el-option v-for="person in filterPeople" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
+          <div><label>使用人</label><el-select v-model="filters.user_ids" multiple filterable clearable placeholder="选择使用人" @change="query"><el-option v-for="person in filterPeople" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select></div>
         </div>
-      </el-popover>
+      </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" :expand-row-keys="expandedIds" border row-key="id" empty-text="暂无符合条件的渠道" @expand-change="expandedChanged">
       <el-table-column type="expand" width="1" class-name="channel-expand-column" label-class-name="channel-expand-column">
@@ -71,6 +74,8 @@ import ChannelEditor from './components/ChannelEditor.vue'
 import ChannelTextPreview from './components/ChannelTextPreview.vue'
 import ChannelDetailPopover from './components/ChannelDetailPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { categoryOptions } from '@/utils/resourceDevelopment'
 import { channelColumns, defaultChannelColumns, cleanChannelColumns, channelMembersText, channelDateTime, channelParams } from '@/utils/resourceChannels'
