@@ -152,7 +152,7 @@ def test_reader_manager_selection_reason_cancel_drag_and_history(environment):
             expect(transfer.get_by_role('tab',name='变更记录')).to_be_visible()
             assert transfer.get_by_role('tab',name='批量交接').count() == 0
             expect(transfer.get_by_text('页面验收：调整项目分工',exact=True).first).to_be_visible()
-            expect(transfer.get_by_text(users[0].full_name,exact=True).first).to_be_visible()
+            expect(transfer.get_by_text(f'操作人：{users[0].full_name}',exact=True).first).to_be_visible()
             transfer.get_by_role('button',name='高级筛选',exact=True).click()
             advanced = page.locator('.manager-log-advanced-popover')
             expect(advanced).to_be_visible()

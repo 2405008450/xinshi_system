@@ -33,7 +33,7 @@ def run():
         commit = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, text=True).strip()
         print(f'主机 PC；项目 {ROOT}；Git {commit}；隔离库 127.0.0.1:{port}/postgres；输出 {scratch}', flush=True)
         with (scratch / 'pytest.log').open('w', encoding='utf-8') as output:
-            result = subprocess.run([str(ROOT / '.venv/Scripts/python.exe'), '-m', 'pytest', 'tests/test_annotation_manager_changes.py', 'tests/test_annotation_manager_changes_ui.py', 'tests/test_annotation_projects.py', 'tests/test_project_manager_handover.py', 'tests/test_annotation_phase3.py', 'tests/test_annotation_workflow.py', 'tests/test_annotation_child_orders.py', 'tests/test_annotation_grandchild_orders.py', '-q', '--tb=short', *sys.argv[1:]], cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW, timeout=420)
+            result = subprocess.run([str(ROOT / '.venv/Scripts/python.exe'), '-m', 'pytest', 'tests/test_annotation_manager_changes.py', 'tests/test_annotation_manager_changes_ui.py', 'tests/test_annotation_manager_timeline_ui.py', 'tests/test_annotation_projects.py', 'tests/test_project_manager_handover.py', 'tests/test_annotation_phase3.py', 'tests/test_annotation_workflow.py', 'tests/test_annotation_child_orders.py', 'tests/test_annotation_grandchild_orders.py', '-q', '--tb=short', *sys.argv[1:]], cwd=ROOT, env=env, stdout=output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW, timeout=420)
         print((scratch / 'pytest.log').read_text(encoding='utf-8', errors='replace'), flush=True)
         return result.returncode
     finally:
