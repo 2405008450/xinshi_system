@@ -12,7 +12,7 @@
     @open="handleDialogOpen"
   >
     <el-tabs v-model="activeTab" class="manager-transfer-tabs" @tab-change="handleTabChange">
-      <el-tab-pane label="交接操作" name="transfer">
+      <el-tab-pane v-if="canTransfer" label="批量交接" name="transfer">
     <el-alert
       :title="alertTitle"
       type="warning"
@@ -68,7 +68,6 @@
                 :key="manager.id"
                 :value="manager.id"
                 :label="targetManagerLabel(manager)"
-                :disabled="manager.is_on_leave"
               />
             </el-select>
           </el-form-item>
@@ -169,15 +168,16 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { getProjectStatusLabel } from '@/utils/projectStatus'
 import AnnotationManagerChangeLogDialog from './AnnotationManagerChangeLogDialog.vue'
 
-defineProps({
+const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  canTransfer: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'transferred'])
 const formRef = ref(null)
 const previewTableRef = ref(null)
 const changeLogRef = ref(null)
-const activeTab = ref('transfer')
+const activeTab = ref('history')
 const optionsLoading = ref(false)
 const previewLoading = ref(false)
 const submitting = ref(false)
@@ -218,16 +218,15 @@ const statusEntries = computed(() => Object.entries(statusCounts.value).map(([st
 const statusLabel = status => getProjectStatusLabel('annotation', status)
 const managerName = manager => manager.full_name || manager.username
 const sourceManagerLabel = manager => `${managerName(manager)}${manager.is_active ? '' : '（已停用）'} · ${manager.project_count} 个项目`
-const targetManagerLabel = manager => manager.is_on_leave
-  ? `${managerName(manager)}（${manager.assignment_disabled_reason || '正在请假'}）`
-  : managerName(manager)
+const targetManagerLabel = manager => managerName(manager)
 
 function handleDialogOpen() {
-  if (activeTab.value === 'history') changeLogRef.value?.load()
+  if (activeTab.value === 'history') nextTick(() => changeLogRef.value?.load())
   else loadOptions()
 }
 
 function handleTabChange(tabName) {
+  if (tabName === 'transfer' && props.canTransfer) loadOptions()
   if (tabName === 'history') nextTick(() => changeLogRef.value?.load())
 }
 
@@ -300,6 +299,7 @@ function selectAllProjects() {
 }
 
 async function submitTransfer() {
+  if (!props.canTransfer) return
   if (!selectedProjects.value.length) return
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -344,7 +344,7 @@ function resetDialog() {
   optionsRequestId += 1
   previewRequestId += 1
   selectedManagerType.value = 'project_manager'
-  activeTab.value = 'transfer'
+  activeTab.value = 'history'
   Object.assign(form, { sourceManagerId: '', targetManagerId: '', reason: '' })
   sourceManagers.value = []
   targetManagers.value = []

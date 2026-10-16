@@ -305,19 +305,18 @@ def test_inline_rates_and_people_preserve_child_identity(context):
     assert service.get_annotation_project(db,leaf_id).assignees[0].rate is None
 
 
-def test_inline_managers_and_handover_inherit_without_stale_roles(context,monkeypatch):
+def test_inline_managers_and_handover_inherit_without_stale_roles(context):
     from models import AppUser
-    monkeypatch.setattr('project_workbench_service.validate_assignment_map',lambda *_:None)
     db,root_id,child_id,leaf_id,_=chain(context)
     users=[AppUser(username=uuid4().hex,password_hash='isolated-test',full_name='继承负责人') for _ in range(2)]
     db.add_all(users);db.commit()
-    service.update_annotation_project_managers(db,root_id,users[0].id,[users[0].id])
+    service.update_annotation_project_managers(db,root_id,users[0].id,[users[0].id],expected_updated_at=service.get_annotation_project(db,root_id).updated_at)
     for id in [child_id,leaf_id]:
         row=service.get_annotation_project(db,id)
         assert row.client_manager_id==users[0].id
         assert any(role.assignee_id==users[0].id for role in row.workbench_responsibilities)
-    service.update_annotation_project_managers(db,child_id,users[0].id,[users[1].id])
-    service.update_annotation_project_managers(db,root_id,users[1].id,[])
+    service.update_annotation_project_managers(db,child_id,users[0].id,[users[1].id],expected_updated_at=service.get_annotation_project(db,child_id).updated_at,reason='独立维护项目经理')
+    service.update_annotation_project_managers(db,root_id,users[1].id,[],expected_updated_at=service.get_annotation_project(db,root_id).updated_at,reason='调整客户经理并清空项目经理')
     row=service.get_annotation_project(db,leaf_id)
     assert row.client_manager_id==users[1].id and any(role.assignee_id==users[1].id for role in row.workbench_responsibilities)
     root=service.get_annotation_project(db,root_id);root.client_manager_id=users[0].id

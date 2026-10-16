@@ -30,7 +30,7 @@ export const convertAnnotationKeys = (value, converter) => {
   if (Array.isArray(value)) return value.map(item => convertAnnotationKeys(item, converter))
   if (value && value.constructor === Object) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [converter(key),
-      ['child_status_counts', 'childStatusCounts'].includes(key) ? item : convertAnnotationKeys(item, converter)]))
+      ['child_status_counts', 'childStatusCounts', 'manager_assignment_history', 'managerAssignmentHistory'].includes(key) ? item : convertAnnotationKeys(item, converter)]))
   }
   return value
 }

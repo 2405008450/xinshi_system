@@ -1485,13 +1485,15 @@ def direct_transfer_annotation_manager(
         AppUser.id == target_manager_id,
         AppUser.is_active == True,
     ).first()
-    if not target or '项目经理' not in get_user_roles_with_role_names(db, target_manager_id):
-        raise ValueError('新负责人必须是启用中的项目经理')
-    ensure_user_assignable(db, target_manager_id)
+    if not target:
+        raise ValueError('新负责人必须是启用中的用户')
 
     unique_project_ids = list(dict.fromkeys(project_ids))
     if not unique_project_ids:
         raise ValueError('请至少选择一个需要移交的标注项目')
+    if isinstance(db, Session):
+        from annotation_service import _lock_annotation_order_numbers
+        _lock_annotation_order_numbers(db)
     rows = _annotation_manager_responsibility_query(
         db,
         source_manager_id,
@@ -1502,6 +1504,9 @@ def direct_transfer_annotation_manager(
         raise LookupError('部分项目的项目经理归属已变化，请刷新预览后重试')
     if any(not row.project for row in rows):
         raise LookupError('部分项目已不存在，请刷新预览后重试')
+    if isinstance(db, Session):
+        # 同批选中上下级时先处理下级，避免父级继承删除尚待处理的责任记录。
+        rows.sort(key=lambda row: row.project.order_level, reverse=True)
 
     responsibility_ids = [row.id for row in rows]
     pending_requests = (
@@ -1534,9 +1539,20 @@ def direct_transfer_annotation_manager(
         decided_by=operator.id,
         decided_at=now,
     )
+    snapshots = {}
+    existing_targets = {}
+    if isinstance(db, Session):
+        from annotation_service import get_annotation_project
+        from annotation_inheritance_service import snapshot
+        for row in rows:
+            project = get_annotation_project(db, row.annotation_project_id)
+            snapshots[project.id] = snapshot(project)
+            existing_targets[row.id] = next((r for r in project.workbench_responsibilities
+                if r.role_code == 'project_manager' and r.assignee_id == target_manager_id), None)
+
     request.items = [
         ProjectManagerHandoverItem(
-            project_responsibility_id=row.id,
+            project_responsibility_id=(existing_targets[row.id].id if existing_targets.get(row.id) else row.id),
             expected_manager_id=source_manager_id,
         )
         for row in rows
@@ -1558,8 +1574,17 @@ def direct_transfer_annotation_manager(
             reason=normalized_reason,
             source_request_id=request.id,
         )
-        row.assignee_id = target_manager_id
-        row.updated_at = now
+        if existing_targets.get(row.id):
+            db.delete(row)
+        else:
+            row.assignee_id = target_manager_id
+            row.updated_at = business_now().replace(tzinfo=None)
+        if isinstance(db, Session):
+            from annotation_inheritance_service import finish_inline_change
+            db.flush()
+            db.expire(row.project, ['workbench_responsibilities'])
+            finish_inline_change(db, row.project, snapshots[row.annotation_project_id], operator.id,
+                                 manager_change_reason=normalized_reason)
 
     source_name = source.full_name or source.username
     target_name = target.full_name or target.username
@@ -1624,9 +1649,8 @@ def direct_transfer_annotation_client_manager(
         AppUser.id == target_manager_id,
         AppUser.is_active == True,
     ).first()
-    if not target or '客户专员' not in get_user_roles_with_role_names(db, target_manager_id):
-        raise ValueError('新负责人必须是启用中的客户专员')
-    ensure_user_assignable(db, target_manager_id)
+    if not target:
+        raise ValueError('新负责人必须是启用中的用户')
 
     unique_project_ids = list(dict.fromkeys(project_ids))
     if not unique_project_ids:
@@ -1698,9 +1722,9 @@ def direct_transfer_annotation_client_manager(
             source_request_id=request.id,
         )
         project.client_manager_id = target_manager_id
-        project.updated_at = now
+        project.updated_at = business_now().replace(tzinfo=None)
         from annotation_service import _sync_child_shared_fields
-        _sync_child_shared_fields(db, project, source_manager_id, operator.id)
+        _sync_child_shared_fields(db, project, source_manager_id, operator.id, manager_change_reason=normalized_reason)
 
     source_name = source.full_name or source.username
     target_name = target.full_name or target.username

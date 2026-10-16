@@ -158,16 +158,18 @@ def test_annotation_project_manager_update_accepts_user_relations_and_clearing()
     second_project_manager_id = uuid4()
 
     payload = AnnotationProjectManagersUpdate(
+        expected_updated_at=datetime(2026,10,16,12),
         client_manager_id=client_manager_id,
         project_manager_id=project_manager_id,
     )
     assert payload.client_manager_id == client_manager_id
     assert payload.project_manager_id == project_manager_id
     multiple_payload = AnnotationProjectManagersUpdate(
+        expected_updated_at=datetime(2026,10,16,12),
         project_manager_ids=[project_manager_id, second_project_manager_id, project_manager_id],
     )
     assert multiple_payload.project_manager_ids == [project_manager_id, second_project_manager_id]
-    assert AnnotationProjectManagersUpdate().project_manager_id is None
+    assert AnnotationProjectManagersUpdate(expected_updated_at=datetime(2026,10,16,12)).project_manager_id is None
 
 
 def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
@@ -219,12 +221,12 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
     db = ManagerDb()
     monkeypatch.setattr(annotation_service, '_lock_annotation_order_numbers', lambda *_: None)
     monkeypatch.setattr('annotation_inheritance_service.snapshot', lambda *_: {})
-    monkeypatch.setattr('annotation_inheritance_service.finish_inline_change', lambda *_: None)
+    monkeypatch.setattr('annotation_inheritance_service.finish_inline_change', lambda *_, **__: None)
 
     monkeypatch.setattr(annotation_service, "get_annotation_project", lambda *_args: project)
     monkeypatch.setattr(
         "project_workbench_service.validate_assignment_map",
-        lambda _db, assignments: assignments_seen.append(("validate", assignments)),
+        lambda _db, assignments, **_kwargs: assignments_seen.append(("validate", assignments)),
     )
     monkeypatch.setattr(
         "project_workbench_service.ensure_project_responsibilities",
@@ -234,7 +236,7 @@ def test_update_annotation_project_managers_persists_role_relation(monkeypatch):
     )
 
     result = annotation_service.update_annotation_project_managers(
-        db, project_id, None, project_manager_id, uuid4(),
+        db, project_id, None, project_manager_id, uuid4(), expected_updated_at=datetime(2026,10,16,12),
     )
 
     assert result is project

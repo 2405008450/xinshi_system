@@ -6,6 +6,7 @@ import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders } fro
 
 const projectCreateState = { key: '', signature: '' }
 export const getAnnotationOrderCapabilities = () => api.get('/openapi.json').then(supportsAnnotationGrandchildOrders)
+export const getAnnotationManagerOptions = () => api.get('/projects/annotation/manager-options')
 export const getAnnotationAreas = () => api.get('/projects/annotation/areas')
 export const createAnnotationArea = label => api.post('/projects/annotation/areas', {label})
 export const resetAnnotationProjectIdempotency = () => resetIdempotencyKey(projectCreateState)

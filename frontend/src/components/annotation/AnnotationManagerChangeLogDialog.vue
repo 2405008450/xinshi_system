@@ -17,11 +17,17 @@
           <el-option label="项目经理" value="project_manager" />
         </el-select>
       </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="search">查询</el-button>
+        <el-button @click="reset">重置</el-button>
+        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
+          <div class="manager-log-advanced-content">
       <el-form-item label="变更方式">
         <el-select v-model="filters.changeMode" clearable placeholder="全部" class="manager-log-short-filter" @change="search">
           <el-option label="批量交接" value="direct_transfer" />
           <el-option label="列表直接修改" value="inline_edit" />
           <el-option label="编辑项目" value="project_edit" />
+          <el-option label="上级同步" value="inheritance" />
         </el-select>
       </el-form-item>
       <el-form-item label="变更时间">
@@ -36,23 +42,21 @@
           @change="search"
         />
       </el-form-item>
-      <el-form-item>
-        <el-button type="primary" @click="search">查询</el-button>
-        <el-button @click="reset">重置</el-button>
+          <div class="manager-log-advanced-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible = false">关闭</el-button></div>
+          </div>
+          <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
+        </el-popover>
       </el-form-item>
     </AppForm>
 
     <el-table v-loading="loading" :data="rows" border row-key="id" class="manager-log-table">
-      <el-table-column type="index" label="序号" width="64" :index="indexMethod" />
       <el-table-column label="变更时间" width="155"><template #default="{ row }">{{ formatDateTime(row.changedAt) }}</template></el-table-column>
-      <el-table-column prop="orderNo" label="订单号" min-width="145" show-overflow-tooltip />
-      <el-table-column prop="projectName" label="项目名称" min-width="180" show-overflow-tooltip />
-      <el-table-column label="类型" width="95"><template #default="{ row }">{{ roleLabel(row.managerRole) }}</template></el-table-column>
-      <el-table-column label="原负责人" min-width="105"><template #default="{ row }">{{ row.previousManagerName || '未分配' }}</template></el-table-column>
-      <el-table-column label="新负责人" min-width="105"><template #default="{ row }">{{ row.newManagerName || '未分配' }}</template></el-table-column>
-      <el-table-column label="变更方式" width="120"><template #default="{ row }"><el-tag size="small" effect="plain">{{ modeLabel(row.changeMode) }}</el-tag></template></el-table-column>
-      <el-table-column label="操作人" min-width="105"><template #default="{ row }">{{ row.actorNameSnapshot || row.actorUsernameSnapshot || '系统' }}</template></el-table-column>
-      <el-table-column prop="reason" label="原因/说明" min-width="190" show-overflow-tooltip><template #default="{ row }">{{ row.reason || '-' }}</template></el-table-column>
+      <el-table-column label="订单 / 项目" min-width="200"><template #default="{ row }"><div>{{ row.orderNo }}</div><div>{{ row.projectName || '-' }}</div></template></el-table-column>
+      <el-table-column label="类型" width="90"><template #default="{ row }">{{ roleLabel(row.managerRole) }}</template></el-table-column>
+      <el-table-column label="变更内容" min-width="190"><template #default="{ row }">{{ changeText(row) }}</template></el-table-column>
+      <el-table-column label="变更方式" width="110"><template #default="{ row }"><el-tag size="small" effect="plain">{{ modeLabel(row.changeMode) }}</el-tag></template></el-table-column>
+      <el-table-column label="操作人" min-width="110"><template #default="{ row }">{{ row.actorNameSnapshot || row.actorUsernameSnapshot || '系统' }}</template></el-table-column>
+      <el-table-column prop="reason" label="原因/说明" min-width="200" show-overflow-tooltip><template #default="{ row }">{{ row.reason || '-' }}</template></el-table-column>
     </el-table>
 
     <div class="manager-log-pagination">
@@ -70,29 +74,34 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getAnnotationManagerChangeLogs } from '@/api/annotationProjects'
 import AppForm from '@/components/common/AppForm.vue'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 
 const rows = ref([])
 const loading = ref(false)
 const filters = reactive({ keyword: '', managerRole: '', changeMode: '', changedRange: [] })
+const advancedVisible = ref(false)
+const advancedCount = computed(() => Number(Boolean(filters.changeMode)) + Number(Boolean(filters.changedRange?.length)))
+const clearAdvanced = () => { filters.changeMode = ''; filters.changedRange = []; search() }
 const pagination = reactive({ page: 1, pageSize: 50, total: 0 })
 let debounceTimer
 let requestController
 let requestSequence = 0
 
 const roleLabel = value => ({ client_manager: '客户经理', project_manager: '项目经理' }[value] || value || '-')
-const modeLabel = value => ({ direct_transfer: '批量交接', inline_edit: '列表直接修改', project_edit: '编辑项目' }[value] || value || '-')
-const indexMethod = index => (pagination.page - 1) * pagination.pageSize + index + 1
+const modeLabel = value => ({ direct_transfer: '批量交接', inline_edit: '列表直接修改', project_edit: '编辑项目', inheritance: '上级同步' }[value] || value || '-')
+const changeText = row => row.previousManagerId && row.newManagerId
+  ? `${row.previousManagerName || '原负责人'} → ${row.newManagerName || '新负责人'}`
+  : row.newManagerId ? `新增：${row.newManagerName || '-'}` : `移除：${row.previousManagerName || '-'}`
 const buildParams = () => ({
   keyword: filters.keyword.trim() || undefined,
   manager_role: filters.managerRole || undefined,
   change_mode: filters.changeMode || undefined,
-  changed_from: filters.changedRange?.[0] || undefined,
-  changed_to: filters.changedRange?.[1] || undefined,
+  changed_from: filters.changedRange?.[0] ? filters.changedRange[0] + '+08:00' : undefined,
+  changed_to: filters.changedRange?.[1] ? filters.changedRange[1] + '+08:00' : undefined,
   skip: (pagination.page - 1) * pagination.pageSize,
   limit: pagination.pageSize,
 })
@@ -108,7 +117,7 @@ const load = async () => {
     rows.value = result.items || []
     pagination.total = result.total || 0
   } catch (error) {
-    if (error?.code !== 'ERR_CANCELED') ElMessage.error(error?.detail || '加载负责人变更记录失败')
+    if (sequence === requestSequence && error?.code !== 'ERR_CANCELED') ElMessage.error(error?.detail || '加载负责人变更记录失败')
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -135,5 +144,9 @@ onBeforeUnmount(() => { clearTimeout(debounceTimer); cancelRequest() })
 .manager-log-filters{display:flex;align-items:flex-end;gap:0;flex-wrap:wrap}
 .manager-log-keyword{width:270px}.manager-log-short-filter{width:140px}.manager-log-date-filter{width:340px}
 .manager-log-pagination{display:flex;justify-content:flex-end;margin-top:16px}
+.manager-log-advanced-popover{max-width:calc(100vw - 32px);box-sizing:border-box}
+.manager-log-advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}
+.manager-log-advanced-actions{display:flex;justify-content:flex-end;gap:8px}
+.manager-log-table .cell{overflow-wrap:anywhere}
 @media(max-width:768px){.manager-log-keyword,.manager-log-short-filter,.manager-log-date-filter{width:100%}}
 </style>

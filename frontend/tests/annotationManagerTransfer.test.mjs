@@ -15,9 +15,12 @@ const apiSource = readFileSync(
   'utf8',
 )
 
-test('标注项目页仅向超级管理员展示一个交接入口', () => {
+test('标注项目所有查看用户可查看记录，批量交接仍限超级管理员', () => {
   assert.match(viewSource, /const canDirectTransferManager = isSuperAdmin\(\)/)
-  assert.match(viewSource, /v-if="canDirectTransferManager && !deleteMode[^"]*"/)
+  assert.match(viewSource, /v-if="canAdjustManagers && !deleteMode"/)
+  assert.match(viewSource, /:can-transfer="canDirectTransferManager"/)
+  assert.match(dialogSource, /v-if="canTransfer" label="批量交接"/)
+  assert.match(dialogSource, /const activeTab = ref\('history'\)/)
   assert.equal(viewSource.match(/>交接<\/el-button>/g)?.length, 1)
   assert.doesNotMatch(viewSource, />项目经理交接<\/el-button>/)
   assert.doesNotMatch(viewSource, />客户经理交接<\/el-button>/)

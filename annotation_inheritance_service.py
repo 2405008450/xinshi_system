@@ -176,7 +176,7 @@ def restore_metadata(project, requested):
     project.inheritance_overrides = sorted(metadata)
 
 
-def propagate(db, parent, actor_id=None):
+def propagate(db, parent, actor_id=None, manager_change_reason=None):
     from annotation_service import get_annotation_project, update_annotation_project
     # 运行会话关闭 autoflush；先写入本事务，再锁定并刷新下级，防止父级关联刷新丢失修改。
     # flush 不提交，任一下级同步失败时仍由调用方整笔回滚。
@@ -215,7 +215,9 @@ def propagate(db, parent, actor_id=None):
         if before == after and not language_changed:
             continue
         try:
-            payload = AnnotationProjectUpdate.model_validate({**values, 'expected_updated_at': child.updated_at})
+            inherited_reason = f'继承上级订单 {parent.order_no}：{manager_change_reason or "同步负责人"}'[:500]
+            payload = AnnotationProjectUpdate.model_validate({**values, 'expected_updated_at': child.updated_at,
+                                                             'manager_change_reason': inherited_reason})
             update_annotation_project(db, child.id, payload, actor_id, commit=False, inherited=True)
         except ValueError as exc:
             raise ValueError(f'下级订单 {child.order_no} 同步失败：{exc}') from exc
@@ -223,7 +225,7 @@ def propagate(db, parent, actor_id=None):
             raise ValueError(f'下级订单 {child_id} 存在关联执行记录，无法同步人员或报价；请先处理关联或将该组字段独立维护') from exc
 
 
-def finish_inline_change(db, project, before, actor_id=None):
+def finish_inline_change(db, project, before, actor_id=None, manager_change_reason=None):
     mark_changes(db, project, before)
     project.updated_at = business_now().replace(tzinfo=None)
-    propagate(db, project, actor_id)
+    propagate(db, project, actor_id, manager_change_reason=manager_change_reason)

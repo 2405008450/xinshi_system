@@ -11,6 +11,48 @@ from sqlalchemy.orm import Session
 
 from annotation_manager_change_models import AnnotationManagerChangeLog
 from models import AppUser
+from annotation_progress_time import business_datetime, business_now
+
+
+def active_annotation_manager_users(db: Session) -> list[AppUser]:
+    """标注项目职责可分配给所有启用账号，与账号角色、请假状态无关。"""
+    return db.query(AppUser).filter(AppUser.is_active.is_(True)).order_by(
+        AppUser.full_name, AppUser.username, AppUser.id,
+    ).all()
+
+
+def attach_manager_assignment_history(db: Session, projects) -> None:
+    """一次读取当前页的历史，清空后再次添加也不能冒充首次分配。"""
+    if not projects:
+        return
+    history = set(db.query(
+        AnnotationManagerChangeLog.project_id, AnnotationManagerChangeLog.manager_role,
+    ).filter(AnnotationManagerChangeLog.project_id.in_([p.id for p in projects])).distinct().all())
+    for project in projects:
+        project.manager_assignment_history = {
+            'client_manager': bool(project.client_manager_id) or (project.id, 'client_manager') in history,
+            'project_manager': any(
+                r.role_code == 'project_manager' and r.assignee_id
+                for r in project.workbench_responsibilities
+            ) or (project.id, 'project_manager') in history,
+        }
+
+
+def validate_manager_change_reason(project, previous_client, previous_managers, new_client, new_managers, reason):
+    """首次分配只免原因，不免留痕；不变更的字段无需填写原因。"""
+    normalized = (reason or '').strip()
+    if len(normalized) > 500:
+        raise ValueError('调整原因不能超过500字')
+    history = getattr(project, 'manager_assignment_history', {})
+    needs_reason = (
+        previous_client != new_client and (bool(previous_client) or history.get('client_manager', False))
+    ) or (
+        set(previous_managers) != set(new_managers)
+        and (bool(previous_managers) or history.get('project_manager', False))
+    )
+    if needs_reason and not normalized:
+        raise ValueError('请填写负责人调整原因')
+    return normalized or '首次分配'
 
 
 def _user_snapshot(db: Session, user_id: Optional[UUID]) -> tuple[Optional[str], Optional[str]]:
@@ -58,6 +100,7 @@ def record_annotation_manager_change(
         actor_user_id=actor_user_id,
         actor_username_snapshot=actor_username,
         actor_name_snapshot=actor_name,
+        changed_at=business_now(),
     )
     add = getattr(db, "add", None)
     if callable(add):
@@ -97,9 +140,9 @@ def list_annotation_manager_changes(
     if project_id:
         query = query.filter(AnnotationManagerChangeLog.project_id == project_id)
     if changed_from:
-        query = query.filter(AnnotationManagerChangeLog.changed_at >= changed_from)
+        query = query.filter(AnnotationManagerChangeLog.changed_at >= business_datetime(changed_from))
     if changed_to:
-        query = query.filter(AnnotationManagerChangeLog.changed_at <= changed_to)
+        query = query.filter(AnnotationManagerChangeLog.changed_at <= business_datetime(changed_to))
     total = query.count()
     rows = query.order_by(
         AnnotationManagerChangeLog.changed_at.desc(),

@@ -358,6 +358,7 @@ class AnnotationChildBatchCreate(BaseModel):
 
 
 class AnnotationProjectUpdate(AnnotationProjectWrite):
+    manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     expected_updated_at: Optional[datetime] = None
     restore_inheritance: list[str] = Field(default_factory=list)
 
@@ -444,10 +445,17 @@ class AnnotationProjectPriorityUpdate(BaseModel):
 
 
 class AnnotationProjectManagersUpdate(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+    expected_updated_at: datetime
     client_manager_id: Optional[UUID] = None
     project_manager_ids: Optional[list[UUID]] = None
     # 兼容旧版客户端；新客户端统一提交 project_manager_ids。
     project_manager_id: Optional[UUID] = None
+
+    @field_validator('expected_updated_at')
+    @classmethod
+    def normalize_manager_version(cls, value):
+        return project_progress_datetime(value)
 
     @field_validator("project_manager_ids")
     @classmethod
@@ -456,6 +464,7 @@ class AnnotationProjectManagersUpdate(BaseModel):
 
 
 class AnnotationProjectListResponse(BaseModel):
+    manager_assignment_history: dict[str, bool] = Field(default_factory=dict)
     @field_serializer('*', when_used='json')
     def serialize_business_time(self, value):
         return business_datetime(value).isoformat() if isinstance(value, datetime) else value

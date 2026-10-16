@@ -14,7 +14,10 @@ from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
-from annotation_manager_change_service import record_annotation_manager_change
+from annotation_manager_change_service import (
+    record_annotation_manager_change, attach_manager_assignment_history,
+    validate_manager_change_reason,
+)
 from annotation_customer_progress_service import attach_customer_progress_summary
 from annotation_progress_time import business_now
 from annotation_custom_field_image_service import delete_custom_field_image_files
@@ -220,6 +223,7 @@ def get_annotation_project(
         .first()
     )
     if project:
+        attach_manager_assignment_history(db, [project])
         project.auto_created_child_count = 0
         _attach_child_statistics(db, [project])
         attach_customer_progress_summary(db, [project])
@@ -539,6 +543,7 @@ def get_annotation_projects(
         projects.append(project)
     _attach_child_statistics(db, projects)
     attach_customer_progress_summary(db, projects)
+    attach_manager_assignment_history(db, projects)
     return projects
 
 
@@ -615,12 +620,12 @@ def _next_child_number(db, parent):
 
 
 
-def _sync_child_shared_fields(db, project, previous_manager_id=None, actor_id=None):
+def _sync_child_shared_fields(db, project, previous_manager_id=None, actor_id=None, manager_change_reason=None):
     """客户经理交接入口与表单使用同一字段继承规则。调用方先获取编号锁。"""
     from annotation_inheritance_service import snapshot, finish_inline_change
     before = snapshot(project)
     before['client_manager_id'] = previous_manager_id
-    finish_inline_change(db, project, before, actor_id)
+    finish_inline_change(db, project, before, actor_id, manager_change_reason=manager_change_reason)
 
 
 def create_annotation_children(db, parent_id, items, actor_id, idempotency_key):
@@ -851,8 +856,19 @@ def create_annotation_project(
     ))
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
-    validate_assignment_map(db, assignments)
+    validate_assignment_map(db, assignments, project_type='annotation')
     ensure_project_responsibilities(db, 'annotation', project.id, assignments)
+    record_annotation_manager_change(
+        db, project=project, manager_role='client_manager',
+        previous_manager_id=None, new_manager_id=project.client_manager_id,
+        change_mode='project_edit', actor_user_id=created_by, reason='首次分配',
+    )
+    db.expire(project, ['workbench_responsibilities'])
+    _record_project_manager_changes(
+        db, project=project, previous_ids=[],
+        current_ids=_project_manager_ids(project.workbench_responsibilities),
+        change_mode='project_edit', actor_user_id=created_by, reason='首次分配',
+    )
     if parent:
         from annotation_child_copy_service import copy_scoped_fields
         field_mapping = copy_scoped_fields(db, parent, project, created_by)
@@ -914,7 +930,16 @@ def update_annotation_project(
         raise ValueError('片区只能设置在三级订单上')
     previous_client_manager_id = project.client_manager_id
     previous_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
-    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD, 'restore_inheritance'})
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD, 'restore_inheritance', 'manager_change_reason'})
+    from project_workbench_service import assignment_map_from_payload
+    submitted_assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
+    submitted_managers = (submitted_assignments or {}).get('project_manager', previous_project_manager_ids)
+    submitted_managers = submitted_managers if isinstance(submitted_managers, list) else ([submitted_managers] if submitted_managers else [])
+    manager_reason = validate_manager_change_reason(
+        project, previous_client_manager_id, previous_project_manager_ids,
+        payload.client_manager_id, submitted_managers,
+        (payload.manager_change_reason or '继承上级订单负责人') if inherited else payload.manager_change_reason,
+    )
     if parent:
         if len(payload.language_items) != 1:
             raise ValueError("子订单必须且只能绑定一个语种或语言方向")
@@ -947,10 +972,13 @@ def update_annotation_project(
         ))
     from project_workbench_service import assignment_map_from_payload, ensure_active_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments) if 'role_assignments' in payload.model_fields_set else None
-    validate_assignment_map(db, assignments)
+    validate_assignment_map(db, assignments, project_type='annotation')
     responsibility_rows = ensure_active_project_responsibilities(
         db, 'annotation', project.id, project.project_status, assignments,
     )
+    if assignments is not None and not responsibility_rows:
+        from project_workbench_service import ensure_project_responsibilities
+        responsibility_rows = ensure_project_responsibilities(db, 'annotation', project.id, assignments)
     db.expire(project, ['workbench_responsibilities'])
     current_project_manager_ids = (
         _project_manager_ids(responsibility_rows)
@@ -968,16 +996,16 @@ def update_annotation_project(
         manager_role="client_manager",
         previous_manager_id=previous_client_manager_id,
         new_manager_id=project.client_manager_id,
-        change_mode="project_edit",
+        change_mode="inheritance" if inherited else "project_edit",
         actor_user_id=changed_by,
-        reason="编辑标注项目时修改负责人",
+        reason=manager_reason,
     )
     _record_project_manager_changes(
         db, project=project,
         previous_ids=previous_project_manager_ids,
         current_ids=current_project_manager_ids,
-        change_mode="project_edit", actor_user_id=changed_by,
-        reason="编辑标注项目时修改负责人",
+        change_mode="inheritance" if inherited else "project_edit", actor_user_id=changed_by,
+        reason=manager_reason,
     )
     from annotation_direction_service import ensure_direction_children
     auto_count = len(ensure_direction_children(db, project, changed_by)) if not parent else 0
@@ -987,7 +1015,7 @@ def update_annotation_project(
         if payload.restore_inheritance:
             from annotation_inheritance_service import restore_metadata
             restore_metadata(project, payload.restore_inheritance)
-    propagate(db, project, changed_by)
+    propagate(db, project, changed_by, manager_change_reason=manager_reason)
     if commit:
         db.commit()
     else:
@@ -1136,6 +1164,8 @@ def update_annotation_project_managers(
     client_manager_id: Optional[UUID],
     project_manager_ids: list[UUID] | UUID | None,
     changed_by: Optional[UUID] = None,
+    *, reason: Optional[str] = None, expected_updated_at: Optional[datetime] = None,
+    update_client: bool = True, update_project: bool = True,
 ) -> Optional[AnnotationProject]:
     """更新标注项目的客户经理和项目经理用户关联。"""
     _lock_annotation_order_numbers(db)
@@ -1146,6 +1176,9 @@ def update_annotation_project_managers(
     project = get_annotation_project(db, project_id)
     if not project:
         return None
+    if expected_updated_at is None:
+        raise ValueError('调整负责人必须携带项目版本，请刷新后重试')
+    assert_fresh(project, expected_updated_at)
     previous_client_manager_id = project.client_manager_id
     from annotation_inheritance_service import snapshot, finish_inline_change
     before = snapshot(project)
@@ -1164,14 +1197,24 @@ def update_annotation_project_managers(
     )
 
     current_project_manager_ids = _project_manager_ids(project.workbench_responsibilities)
+    if not update_client:
+        client_manager_id = previous_client_manager_id
     submitted_manager_ids = (
         project_manager_ids if isinstance(project_manager_ids, list)
         else ([project_manager_ids] if project_manager_ids else [])
     )
     normalized_project_manager_ids = list(dict.fromkeys(submitted_manager_ids))
+    if not update_project:
+        normalized_project_manager_ids = current_project_manager_ids
+    if previous_client_manager_id == client_manager_id and set(current_project_manager_ids) == set(normalized_project_manager_ids):
+        return project
+    normalized_reason = validate_manager_change_reason(
+        project, previous_client_manager_id, current_project_manager_ids,
+        client_manager_id, normalized_project_manager_ids, reason,
+    )
     assignments = {"project_manager": normalized_project_manager_ids}
     if normalized_project_manager_ids != current_project_manager_ids:
-        validate_assignment_map(db, assignments)
+        validate_assignment_map(db, assignments, project_type='annotation')
     project.client_manager_id = client_manager_id
     ensure_project_responsibilities(db, "annotation", project.id, assignments)
     db.expire(project, ['workbench_responsibilities'])
@@ -1184,16 +1227,16 @@ def update_annotation_project_managers(
         new_manager_id=client_manager_id,
         change_mode="inline_edit",
         actor_user_id=changed_by,
-        reason="标注项目列表直接修改负责人",
+        reason=normalized_reason,
     )
     _record_project_manager_changes(
         db, project=project,
         previous_ids=current_project_manager_ids,
         current_ids=normalized_project_manager_ids,
         change_mode="inline_edit", actor_user_id=changed_by,
-        reason="标注项目列表直接修改负责人",
+        reason=normalized_reason,
     )
-    finish_inline_change(db, project, before, changed_by)
+    finish_inline_change(db, project, before, changed_by, manager_change_reason=normalized_reason)
     db.commit()
     return get_annotation_project(db, project.id)
 

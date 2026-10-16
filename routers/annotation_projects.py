@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -46,7 +46,7 @@ from annotation_service import _lock_annotation_order_numbers
 from pydantic import BaseModel, Field
 import unicodedata
 from annotation_manager_change_schemas import AnnotationManagerChangeLogListResponse
-from annotation_manager_change_service import list_annotation_manager_changes
+from annotation_manager_change_service import list_annotation_manager_changes, active_annotation_manager_users
 from annotation_ops_models import AnnotationCustomFieldDefinition
 from pagination_schemas import PageResponse, resolve_page_total
 from annotation_custom_field_service import validate_custom_values
@@ -67,11 +67,30 @@ from talent_overview_schemas import (
 from talent_overview_service import lookup_language_reserves
 
 
+def _annotation_module_access(request: Request, current_user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 只放宽经理专用接口，其他项目写入继续要求 projects:write。
+    if request.method == 'PATCH' and request.scope['route'].path == '/projects/annotation/{project_id}/managers':
+        return require_any_permission('projects:read', 'projects:write')(current_user=current_user, db=db)
+    return require_module_access('projects:read', 'projects:write')(request=request, current_user=current_user, db=db)
+
+
 router = APIRouter(
     prefix="/projects/annotation",
     tags=["annotation_projects"],
-    dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
+    dependencies=[Depends(_annotation_module_access)],
 )
+
+
+class AnnotationManagerOption(BaseModel):
+    id: UUID
+    username: str
+    full_name: Optional[str] = None
+    model_config = {'from_attributes': True}
+
+
+@router.get('/manager-options', response_model=list[AnnotationManagerOption])
+def read_annotation_manager_options(db: Session = Depends(get_db)):
+    return active_annotation_manager_users(db)
 
 
 ANNOTATION_TEXT_FIELDS = {
@@ -117,7 +136,7 @@ def read_annotation_language_reserves(
 def read_manager_change_logs(
     keyword: Optional[str] = Query(default=None, max_length=200),
     manager_role: Optional[str] = Query(default=None, pattern="^(client_manager|project_manager)$"),
-    change_mode: Optional[str] = Query(default=None, pattern="^(direct_transfer|inline_edit|project_edit)$"),
+    change_mode: Optional[str] = Query(default=None, pattern="^(direct_transfer|inline_edit|project_edit|inheritance)$"),
     project_id: Optional[UUID] = None,
     changed_from: Optional[datetime] = None,
     changed_to: Optional[datetime] = None,
@@ -629,7 +648,7 @@ def update_project_priority(
 
 @router.patch(
     "/{project_id}/managers", response_model=AnnotationProjectDetailResponse,
-    dependencies=[Depends(require_any_permission("projects:write"))],
+    dependencies=[Depends(require_any_permission("projects:read", "projects:write"))],
 )
 def update_project_managers(
     project_id: UUID,
@@ -646,6 +665,10 @@ def update_project_managers(
             if payload.project_manager_ids is not None
             else ([payload.project_manager_id] if payload.project_manager_id else []),
             current_user.id,
+            reason=payload.reason,
+            expected_updated_at=payload.expected_updated_at,
+            update_client='client_manager_id' in payload.model_fields_set,
+            update_project=bool({'project_manager_ids', 'project_manager_id'} & payload.model_fields_set),
         )
     except ValueError as exc:
         db.rollback()

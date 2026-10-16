@@ -95,7 +95,8 @@ def ensure_project_responsibilities(
     by_role: dict[str, list[ProjectWorkbenchResponsibility]] = {}
     for row in rows:
         by_role.setdefault(row.role_code, []).append(row)
-    now = datetime.datetime.utcnow()
+    from annotation_progress_time import business_now
+    now = business_now().replace(tzinfo=None) if project_type == 'annotation' else datetime.datetime.utcnow()
     for role_code in RESPONSIBILITY_ROLE_CODES:
         role_rows = by_role.get(role_code, [])
         if project_type == 'annotation' and role_code == 'project_manager' and assignments is not None and role_code in assignments:
@@ -282,7 +283,7 @@ def assignment_map_from_payload(values: Optional[Iterable]) -> Optional[dict[str
     return result
 
 
-def validate_assignment_map(db: Session, assignments: Optional[dict[str, Optional[UUID] | list[UUID]]]) -> None:
+def validate_assignment_map(db: Session, assignments: Optional[dict[str, Optional[UUID] | list[UUID]]], *, project_type: Optional[str] = None) -> None:
     if assignments is None:
         return
     from crud import get_user_roles_with_role_names
@@ -297,6 +298,8 @@ def validate_assignment_map(db: Session, assignments: Optional[dict[str, Optiona
             user = db.query(AppUser).filter(AppUser.id == user_id, AppUser.is_active == True).first()
             if not user:
                 raise ValueError('所选内部负责人不存在或已停用')
+            if project_type == 'annotation' and role_code == 'project_manager':
+                continue
             if PROJECT_ROLE_NAME_BY_CODE[role_code] not in set(get_user_roles_with_role_names(db, user_id)):
                 raise ValueError(f'所选用户不具备{PROJECT_ROLE_NAME_BY_CODE[role_code]}角色')
             ensure_user_assignable(db, user_id)

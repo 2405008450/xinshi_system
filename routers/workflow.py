@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from database import get_db
+from annotation_manager_change_service import active_annotation_manager_users
 from leave_service import assignment_disabled_reason, get_active_leave_map
 from workflow_crud import (
     ALL_STAGES,
@@ -18,7 +19,6 @@ from workflow_crud import (
     get_project_manager_candidates,
     get_annotation_manager_transfer_sources,
     get_annotation_client_manager_transfer_sources,
-    get_client_manager_candidates,
     get_project_editor_candidates,
     get_project_role_candidates,
     claim_management_projects,
@@ -229,7 +229,7 @@ def get_annotation_manager_transfer_options_endpoint(
         source_managers=get_annotation_manager_transfer_sources(db),
         target_managers=_serialize_transfer_users(
             db,
-            get_project_manager_candidates(db, current_user.id, include_current=True),
+            active_annotation_manager_users(db),
         ),
     )
 
@@ -287,10 +287,10 @@ def get_annotation_client_manager_transfer_options_endpoint(
     db: Session = Depends(get_db),
     _current_user: AppUser = Depends(require_super_admin),
 ):
-    """返回原客户经理及可承接客户经理职责的启用客户专员。"""
+    """返回原客户经理及可承接客户经理职责的全部启用用户。"""
     return AnnotationManagerTransferOptionsResponse(
         source_managers=get_annotation_client_manager_transfer_sources(db),
-        target_managers=_serialize_transfer_users(db, get_client_manager_candidates(db)),
+        target_managers=_serialize_transfer_users(db, active_annotation_manager_users(db)),
     )
 
 

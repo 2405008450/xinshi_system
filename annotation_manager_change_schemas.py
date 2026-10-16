@@ -4,10 +4,15 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
+from annotation_progress_time import business_datetime
 
 
 class AnnotationManagerChangeLogResponse(BaseModel):
+    @field_serializer('changed_at', when_used='json')
+    def serialize_changed_at(self, value):
+        return business_datetime(value).isoformat()
+
     id: UUID
     source_request_id: Optional[UUID] = None
     project_id: UUID
