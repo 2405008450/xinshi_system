@@ -557,8 +557,10 @@
 
           <section class="form-section">
             <h3>项目资料</h3>
+            <el-form-item label="文件路径" prop="projectPath">
+              <el-input v-model="form.projectPath" clearable placeholder="请输入文件路径，例如 \\Win-server\项目资料\项目名称" />
+            </el-form-item>
             <AnnotationMaterialManager ref="materialEditorRef" :project-id="form.id || ''" :active="dialogVisible" :disabled="submitLoading" />
-            <el-form-item v-if="form.projectPath" label="历史项目路径"><ReadonlyField :model-value="form.projectPath" source="auto" /></el-form-item>
             <el-form-item v-if="form.quotationPath" label="历史报价单路径"><ReadonlyField :model-value="form.quotationPath" source="auto" /></el-form-item>
             <el-form-item v-if="form.contractPath" label="历史合同路径"><ReadonlyField :model-value="form.contractPath" source="auto" /></el-form-item>
             <el-form-item label="标题前缀"><el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" /></el-form-item>

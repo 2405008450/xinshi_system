@@ -1,0 +1,26 @@
+services:
+  backend:
+    environment:
+      MAIL_INLINE_IMAGE_DIR: /app/data/chat_uploads/mail_inline_images
+      CHAT_STORAGE_MODE: "${CHAT_STORAGE_MODE:-local}"
+      CHAT_REMOTE_ORIGIN: "${CHAT_REMOTE_ORIGIN:-}"
+      CHAT_UPLOADS_PAUSED: "${CHAT_UPLOADS_PAUSED:-false}"
+      ANNOTATION_NOTICE_UPLOAD_DIR: /app/data/annotation_notice_uploads
+      TEAM_UPLOAD_DIR: /app/data/team_uploads
+      PROJECT_NOTICE_UPLOAD_DIR: /app/data/project_notice_uploads
+      LOCAL_SCHEMA_MIGRATIONS_ENABLED: "false"
+    volumes:
+      - annotation_notice_uploads:/app/data/annotation_notice_uploads
+      - team_uploads:/app/data/team_uploads
+      - project_notice_uploads:/app/data/project_notice_uploads
+  frontend:
+    volumes:
+      - ./nginx-frontend.cloud.local.conf:/etc/nginx/conf.d/default.conf:ro
+  https_gateway:
+    volumes:
+      - ./nginx-gateway.cloud.local.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  annotation_notice_uploads:
+  team_uploads:
+  project_notice_uploads:

@@ -63,7 +63,7 @@
         <el-descriptions-item label="任务提交时间">{{ displayRow.taskSubmittedAt ? formatDateTime(displayRow.taskSubmittedAt) : '待定' }}</el-descriptions-item>
         <el-descriptions-item label="客户经理">{{ textValue(displayRow.clientManagerName) }}</el-descriptions-item>
         <el-descriptions-item label="创建人">{{ textValue(displayRow.createdByName) }}</el-descriptions-item>
-        <el-descriptions-item v-if="displayRow.projectPath" label="历史项目路径" :span="2">{{ displayRow.projectPath }}</el-descriptions-item>
+        <el-descriptions-item label="文件路径" :span="2">{{ textValue(displayRow.projectPath) }}</el-descriptions-item>
         <el-descriptions-item v-if="displayRow.quotationPath" label="历史报价单路径" :span="2">{{ displayRow.quotationPath }}</el-descriptions-item>
         <el-descriptions-item v-if="displayRow.contractPath" label="历史合同路径" :span="2">{{ displayRow.contractPath }}</el-descriptions-item>
         <el-descriptions-item label="关联咨询编号">{{ textValue(displayRow.consultationCode) }}</el-descriptions-item>
