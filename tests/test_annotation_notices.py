@@ -13,6 +13,7 @@ from annotation_notice_service import (
     ANNOTATION_NOTICE_SECTIONS,
     _display_titles,
     _escape_like_keyword,
+    build_notice_preview,
     extract_notice_text,
     get_annotation_notice_section,
     list_annotation_notice_sections,
@@ -51,6 +52,21 @@ def test_display_titles_use_plain_section_titles():
     assert labels[root_a.id] == "客户报价"
     assert labels[group.id] == "项目流程"
     assert labels[child.id] == "音频采集流程"
+
+
+def test_build_notice_preview_truncates_and_falls_back_to_content():
+    long_text = "甲" * 130
+    row = notice_row()
+    row.search_text = long_text
+    assert build_notice_preview(row) == "甲" * 120 + "…"
+
+    row.search_text = "   "
+    row.content_json = document(text="回退\n正文")
+    assert build_notice_preview(row) == "回退 正文"
+
+    row.search_text = "已有摘要"
+    row.content_json = document(text="不应使用")
+    assert build_notice_preview(row) == "已有摘要"
 
 
 def test_extract_notice_text_collects_nested_tiptap_text():
@@ -196,6 +212,7 @@ def test_tree_detail_search_and_legacy_responses_use_plain_titles(monkeypatch):
     search = search_annotation_notice_sections(db, "客户报价")
 
     assert tree[0]["display_title"] == "客户报价"
+    assert tree[0]["preview"] == "客户报价填写说明"
     assert detail["display_title"] == "客户报价"
     assert legacy[0]["title"] == "客户报价"
     assert legacy[0]["display_title"] == "客户报价"
@@ -237,6 +254,24 @@ def test_notice_update_records_user_time_and_search_text(monkeypatch):
     assert row.updated_at is not None
     assert row.search_text == "可检索正文"
     assert result["updated_by_name"] == "测试用户"
+    assert list_annotation_notice_tree(db)[0]["preview"] == "可检索正文"
+
+
+def test_tree_preview_is_empty_for_group_and_uses_content_fallback(monkeypatch):
+    group = notice_row(title="项目流程", has_content=False)
+    group.search_text = "分组不应出现"
+    child = notice_row(title="音频采集流程", parent_id=group.id)
+    child.search_text = ""
+    child.content_json = document(text="采集说明")
+    rows = [group, child]
+    db = FakeRowsDb(rows)
+    monkeypatch.setattr(annotation_notice_service, "ensure_annotation_notice_sections", lambda _db: None)
+    monkeypatch.setattr(annotation_notice_service, "_active_rows", lambda _db: rows)
+
+    tree = list_annotation_notice_tree(db)
+
+    assert tree[0]["preview"] == ""
+    assert tree[0]["children"][0]["preview"] == "采集说明"
 
 
 def test_notice_update_rejects_stale_version(monkeypatch):

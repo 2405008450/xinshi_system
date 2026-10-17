@@ -128,6 +128,7 @@ class AnnotationNoticeSectionResponse(BaseModel):
 
 class AnnotationNoticeTreeNodeResponse(AnnotationNoticeSectionResponse):
     content_json: None = None
+    preview: str = ""
     children: list["AnnotationNoticeTreeNodeResponse"] = Field(default_factory=list)
 
 

@@ -10,7 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from project_notice_models import ProjectNoticeSection
-from annotation_notice_service import extract_notice_text
+from annotation_notice_service import build_notice_preview, extract_notice_text
 from annotation_notice_schemas import (
     AnnotationNoticeReorder,
     AnnotationNoticeSectionCreate,
@@ -106,6 +106,7 @@ def list_tree(db: Session, module: str) -> list[dict]:
 
     def node(row: ProjectNoticeSection) -> dict:
         payload = _serialize(row, labels, include_content=False)
+        payload["preview"] = build_notice_preview(row) if row.has_content else ""
         payload["children"] = [node(child) for child in children[row.id]]
         return payload
 

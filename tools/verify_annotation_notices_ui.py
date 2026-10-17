@@ -44,18 +44,20 @@ def run():
             expect(attachment_panel().locator('h4')).to_have_text(re.compile(rf'栏目附件\s*\({count}/50\)'))
         def cards():
             return section().locator('.notice-section-card')
+        def open_card(name):
+            cards().filter(has_text=name).locator('.notice-section-card__title').first.click()
         def breadcrumb():
             return section().locator('.notice-breadcrumb')
         open_section()
         expect(section().locator('.notice-nav')).to_have_count(0)
         expect(cards().filter(has_text='验收流程分组')).to_be_visible()
         assert 'noticeSectionId' not in page.url
-        cards().filter(has_text='验收流程分组').click()
+        open_card('验收流程分组')
         expect(page).to_have_url(re.compile('noticeSectionId=' + GROUP))
         expect(breadcrumb()).to_contain_text('验收流程分组')
         expect(section().get_by_role('button', name='编辑内容', exact=True)).to_have_count(0)
         heading(0)
-        cards().filter(has_text='验收二级栏目').click()
+        open_card('验收二级栏目')
         expect(page).to_have_url(re.compile('noticeSectionId=' + CHILD))
         expect(breadcrumb()).to_contain_text(re.compile(r'标注须知\s*/\s*验收流程分组\s*/\s*验收二级栏目'))
         expect(section().get_by_role('button', name='编辑内容', exact=True)).to_be_visible()
@@ -85,7 +87,7 @@ def run():
         page.screenshot(path=str(output / 'notices-attachments.png'), full_page=True)
         breadcrumb().get_by_role('button', name='验收流程分组', exact=True).click()
         heading(0)
-        cards().filter(has_text='验收二级栏目').click()
+        open_card('验收二级栏目')
         heading(2)
         results.append('真实多文件上传、中文文件下载、栏目附件隔离、UTC+8展示')
 
@@ -118,7 +120,7 @@ def run():
         page.wait_for_timeout(250)
         assert held, '未捕获需要取消的附件请求'
         breadcrumb().get_by_role('button', name='标注须知', exact=True).click()
-        cards().filter(has_text='独立栏目').click()
+        open_card('独立栏目')
         heading(0)
         for route in held:
             try:
@@ -131,8 +133,8 @@ def run():
         assert any('/sections/' + CHILD + '/attachments' in url for url in cancelled)
         page.unroute(pattern, hold_list)
         breadcrumb().get_by_role('button', name='标注须知', exact=True).click()
-        cards().filter(has_text='验收流程分组').click()
-        cards().filter(has_text='验收二级栏目').click()
+        open_card('验收流程分组')
+        open_card('验收二级栏目')
         heading(2)
         results.append('快速切换取消旧附件请求，迟到响应不覆盖新栏目')
 
@@ -248,12 +250,12 @@ def run():
         page.goto(base + '/company-management')
         expect(section().locator('.notice-nav')).to_have_count(0)
         expect(breadcrumb()).to_contain_text('公司管理')
-        cards().filter(has_text='公司资料验收').click()
+        open_card('公司资料验收')
         expect(page).to_have_url(re.compile('companySectionId=' + company_root))
         assert 'noticeSectionId' not in page.url and 'section=notices' not in page.url
         expect(section().get_by_role('button', name='编辑内容', exact=True)).to_have_count(0)
         heading(0)
-        cards().filter(has_text='公司制度细则').click()
+        open_card('公司制度细则')
         expect(breadcrumb()).to_contain_text(re.compile(r'公司管理\s*/\s*公司资料验收\s*/\s*公司制度细则'))
         expect(page).to_have_url(re.compile('companySectionId=' + company_child))
         page.go_back()
@@ -267,7 +269,7 @@ def run():
         heading(1)
         breadcrumb().get_by_role('button', name='公司资料验收', exact=True).click()
         heading(0)
-        cards().filter(has_text='公司制度细则').click()
+        open_card('公司制度细则')
         heading(1)
         results.append('公司管理两级面包屑、分组栏目、独立URL、刷新及前进后退、附件隔离')
 

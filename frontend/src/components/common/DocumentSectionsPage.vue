@@ -77,10 +77,36 @@
       </el-breadcrumb>
 
       <div v-if="isDrilldown && !activeNotice && noticeTree.length" class="notice-section-cards" aria-label="一级栏目">
-        <button v-for="root in noticeTree" :key="root.id" type="button" class="notice-section-card" @click="selectSection(root)">
-          <span class="notice-section-card__title">{{ root.title }}</span>
-          <span class="notice-section-card__hint">{{ root.children?.length ? `${root.children.length} 个子栏目 · 点击进入` : '查看内容与附件' }}</span>
-        </button>
+        <article
+          v-for="root in noticeTree"
+          :key="root.id"
+          class="notice-section-card"
+          role="link"
+          tabindex="0"
+          @click="openCard($event, root)"
+          @keydown="onCardKeydown($event, root)"
+        >
+          <span class="notice-section-card__heading">
+            <span class="notice-section-card__title">{{ root.title }}</span>
+            <span v-if="formatCardDate(root.updatedAt)" class="notice-section-card__meta">更新于 {{ formatCardDate(root.updatedAt) }}</span>
+          </span>
+          <p v-if="root.hasContent" class="notice-section-card__preview" :class="{ 'is-empty': !root.preview }">{{ root.preview || '暂无内容' }}</p>
+          <div v-if="root.children?.length" class="notice-section-card__children">
+            <button
+              v-for="child in previewChildren(root)"
+              :key="child.id"
+              type="button"
+              class="notice-section-card__child"
+              @click.stop="selectSection(child)"
+            >{{ child.title }}</button>
+            <button
+              v-if="root.children.length > CHILD_PREVIEW_LIMIT"
+              type="button"
+              class="notice-section-card__more"
+              @click.stop="selectSection(root)"
+            >查看全部 {{ root.children.length }} 个子栏目 ></button>
+          </div>
+        </article>
       </div>
 
       <el-select v-if="!isDrilldown" v-model="activeId" class="notice-page__mobile-select" placeholder="请选择主题" @change="selectSectionById">
@@ -132,10 +158,21 @@
 
         <section class="notice-content" v-loading="detailLoading">
           <div v-if="isDrilldown && activeNotice.children?.length" class="notice-section-cards notice-section-cards--children" aria-label="二级栏目">
-            <button v-for="child in activeNotice.children" :key="child.id" type="button" class="notice-section-card" @click="selectSection(child)">
-              <span class="notice-section-card__title">{{ child.title }}</span>
-              <span class="notice-section-card__hint">查看内容与附件</span>
-            </button>
+            <article
+              v-for="(child, index) in activeNotice.children"
+              :key="child.id"
+              class="notice-section-card"
+              role="link"
+              tabindex="0"
+              @click="openCard($event, child)"
+              @keydown="onCardKeydown($event, child)"
+            >
+              <span class="notice-section-card__heading">
+                <span class="notice-section-card__title">{{ child.title }}</span>
+                <span v-if="formatCardDate(child.updatedAt)" class="notice-section-card__meta">更新于 {{ formatCardDate(child.updatedAt) }}</span>
+              </span>
+              <p v-if="child.hasContent" class="notice-section-card__preview" :class="[`is-tint-${index % 4}`, { 'is-empty': !child.preview }]">{{ child.preview || '暂无内容' }}</p>
+            </article>
           </div>
           <div class="notice-content__heading">
             <div>
@@ -244,7 +281,50 @@ let detailRequestId = 0
 let closingAfterSave = false
 let firstActivation = true
 
+const CHILD_PREVIEW_LIMIT = 4
 const canEdit = computed(() => props.allowAllUsersEdit || (Boolean(props.writePermission) && hasPermission(props.writePermission)))
+const previewChildren = section => (section?.children || []).slice(0, CHILD_PREVIEW_LIMIT)
+function formatCardDate(value) {
+  const formatted = formatDateTime(value)
+  if (!formatted || formatted === '-') return ''
+  return formatted.split(/\s+/)[0]
+}
+function openCard(event, section) {
+  if (event.target.closest('button, a')) return
+  selectSection(section)
+}
+function onCardKeydown(event, section) {
+  if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+  event.preventDefault()
+  selectSection(section)
+}
+function plainPreview(document, size = 120) {
+  const chunks = []
+  const visit = node => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'text' && typeof node.text === 'string') chunks.push(node.text)
+    else if (['hardBreak', 'paragraph', 'heading', 'listItem'].includes(node.type) && chunks.length) chunks.push('\n')
+    ;(node.content || []).forEach(visit)
+  }
+  visit(document)
+  const text = chunks.join('').replace(/\s+/g, ' ').trim()
+  return text.length > size ? `${text.slice(0, size)}…` : text
+}
+function patchTreePreview(id, saved) {
+  const visit = nodes => {
+    for (const node of nodes || []) {
+      if (node.id === id) {
+        node.preview = plainPreview(saved?.contentJson)
+        node.updatedAt = saved?.updatedAt || node.updatedAt
+        node.updatedByName = saved?.updatedByName || node.updatedByName
+        return true
+      }
+      if (visit(node.children)) return true
+    }
+    return false
+  }
+  visit(noticeTree.value)
+}
 const flatNotices = computed(() => noticeTree.value.flatMap(root => [root, ...(root.children || [])]))
 const activeNotice = computed(() => flatNotices.value.find(item => item.id === activeId.value) || null)
 const activePath = computed(() => sectionPath(noticeTree.value, activeId.value))
@@ -384,6 +464,7 @@ async function saveNotice() {
   try {
     const saved = await props.adapter.saveContent(activeId.value, draftContent.value, activeDetail.value?.updatedAt)
     detailCache.value = { ...detailCache.value, [activeId.value]: saved }
+    patchTreePreview(activeId.value, saved)
     composerRef.value?.markImagesSaved(saved.contentJson)
     closingAfterSave = true
     editorVisible.value = false
@@ -496,12 +577,34 @@ onActivated(() => {
 .notice-section-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:14px}
 .notice-section-cards--children{margin-bottom:24px}
 .notice-section-card{display:flex;flex-direction:column;gap:10px;padding:20px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-bg-color);text-align:left;font:inherit;cursor:pointer;min-width:0}
-.notice-section-card:hover,.notice-section-card:focus-visible{border-color:var(--el-color-primary);background:var(--el-color-primary-light-9)}
+.notice-section-card:hover,.notice-section-card:focus-visible{border-color:var(--el-color-primary);background:var(--el-color-primary-light-9);outline:none}
+.notice-section-card__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .notice-section-card__title{font-weight:600;color:var(--el-text-color-primary);overflow-wrap:anywhere}
-.notice-section-card__hint{font-size:13px;color:var(--el-text-color-secondary)}
+.notice-section-card__meta{flex:none;color:var(--el-text-color-secondary);font-size:12px;line-height:1.6;white-space:nowrap}
+.notice-section-card__preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;margin:0;color:var(--el-text-color-secondary);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.notice-section-card__preview.is-empty{color:var(--el-text-color-placeholder)}
+.notice-section-cards--children .notice-section-card__preview{padding:8px 10px;border-radius:6px}
+.notice-section-cards--children .notice-section-card__preview.is-tint-0{background:#e7f0ea}
+.notice-section-cards--children .notice-section-card__preview.is-tint-1{background:#e8eef6}
+.notice-section-cards--children .notice-section-card__preview.is-tint-2{background:#f3eee6}
+.notice-section-cards--children .notice-section-card__preview.is-tint-3{background:#eeeaf3}
+.notice-section-card__children{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto;padding-top:12px;border-top:1px solid var(--el-border-color-lighter)}
+.notice-section-card__child,.notice-section-card__more{width:100%;padding:7px 10px;border:0;border-radius:6px;background:transparent;font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.notice-section-card__child{color:var(--el-text-color-regular)}
+.notice-section-card__child:nth-child(4n+1){background:#e7f0ea}
+.notice-section-card__child:nth-child(4n+2){background:#e8eef6}
+.notice-section-card__child:nth-child(4n+3){background:#f3eee6}
+.notice-section-card__child:nth-child(4n+4){background:#eeeaf3}
+.notice-section-card__child:nth-child(4n+1):hover,.notice-section-card__child:nth-child(4n+1):focus-visible{background:#d7e6dc}
+.notice-section-card__child:nth-child(4n+2):hover,.notice-section-card__child:nth-child(4n+2):focus-visible{background:#d9e3f1}
+.notice-section-card__child:nth-child(4n+3):hover,.notice-section-card__child:nth-child(4n+3):focus-visible{background:#e8e0d4}
+.notice-section-card__child:nth-child(4n+4):hover,.notice-section-card__child:nth-child(4n+4):focus-visible{background:#e1dbe9}
+.notice-section-card__child:hover,.notice-section-card__child:focus-visible{color:var(--el-text-color-primary)}
+.notice-section-card__more{color:var(--el-color-primary)}
+.notice-section-card__more:hover,.notice-section-card__more:focus-visible{background:var(--el-color-primary-light-8);color:var(--el-color-primary)}
 .notice-layout.notice-layout--drilldown{display:block;min-height:0}
 .notice-layout--drilldown .notice-content__document{min-height:0}
-@media(max-width:768px){.notice-section-cards{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:768px){.notice-section-cards{grid-template-columns:minmax(0,1fr)}.notice-section-card__preview{-webkit-line-clamp:2}.notice-section-card__heading{flex-wrap:wrap}.notice-section-card__meta{white-space:normal}}
 .notice-page__header,.notice-page__actions,.notice-search,.notice-search-results__heading,.notice-search-result__heading,.notice-search-result__heading>div,.notice-nav__row{display:flex;align-items:center}.notice-page__header{justify-content:space-between;gap:16px;flex-wrap:wrap}.notice-page__header>div{min-width:0}.notice-page__header h2{margin:0;font-size:20px}.notice-page__header p{margin:6px 0 0;color:var(--el-text-color-secondary);font-size:13px}.notice-page__actions{gap:10px}.notice-search{gap:10px;margin-bottom:14px}.notice-search .el-input{max-width:520px;min-width:0}.notice-layout{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:520px;border:1px solid var(--el-border-color-lighter);border-radius:8px;overflow:hidden}.notice-nav{padding:10px;background:var(--el-fill-color-lighter);border-right:1px solid var(--el-border-color-lighter);overflow-y:auto}.notice-nav__row{gap:2px}.notice-nav__item,.notice-nav__group,.notice-nav__toggle{border:0;border-radius:6px;background:transparent;color:var(--el-text-color-regular);font:inherit;cursor:pointer}.notice-nav__item,.notice-nav__group{display:flex;align-items:center;width:100%;padding:11px 12px;text-align:left}.notice-nav__item:hover,.notice-nav__group:hover,.notice-nav__toggle:hover{background:var(--el-fill-color)}.notice-nav__group.is-active,.notice-nav__item.is-active{background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-weight:600}.notice-nav__group{justify-content:space-between;font-weight:600}.notice-nav__group.has-active-child{color:var(--el-color-primary)}.notice-nav__toggle{display:flex;flex:0 0 34px;align-items:center;justify-content:center;height:34px}.notice-nav__arrow{transition:transform .2s ease}.notice-nav__arrow.is-expanded{transform:rotate(180deg)}.notice-nav__children{padding:2px 0 4px 10px}.notice-nav__item--child{padding:9px 10px;font-size:14px}.notice-content{min-width:0;padding:24px}.notice-content__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--el-border-color-lighter)}.notice-content__heading h3{margin:0;font-size:20px;overflow-wrap:anywhere}.notice-content__heading>div{min-width:0}.notice-content__meta{margin-top:7px;color:var(--el-text-color-secondary);font-size:13px}.notice-content__document{min-height:300px;padding:22px 4px}.notice-page__mobile-select{display:none;width:100%;margin-bottom:14px}.notice-search-results{min-height:420px;padding:18px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.notice-search-results__heading{justify-content:space-between;margin-bottom:14px;font-weight:600}.notice-search-results__heading span+span{color:var(--el-text-color-secondary);font-size:13px;font-weight:400}.notice-search-result{padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.notice-search-result+.notice-search-result{margin-top:10px}.notice-search-result__heading{justify-content:space-between;gap:12px}.notice-search-result__heading>div{min-width:0;gap:10px}.notice-search-result__heading span{overflow:hidden;color:var(--el-text-color-secondary);font-size:13px;text-overflow:ellipsis;white-space:nowrap}.notice-search-result p{margin:10px 0;line-height:1.65;white-space:pre-wrap}.notice-search-result mark{padding:0 2px;background:var(--el-color-warning-light-7);color:inherit}.notice-search-result__tags{display:flex;gap:6px}.notice-search-results .el-pagination{justify-content:flex-end;margin-top:16px}:deep(.notice-content__document ul),:deep(.notice-content__document ol){padding-left:24px}:deep(.notice-content__document h1),:deep(.notice-content__document h2),:deep(.notice-content__document h3){margin:14px 0 8px}:deep(.notice-content__document blockquote){margin:12px 0;padding-left:14px;border-left:3px solid var(--el-border-color);color:var(--el-text-color-secondary)}
 @media(max-width:768px){.notice-page__mobile-select{display:block}.notice-layout{display:block;min-height:420px}.notice-nav{display:none}.notice-content{padding:18px}.notice-content__heading{align-items:center}.notice-page__header p{display:none}.notice-search-result__heading,.notice-search-result__heading>div{align-items:flex-start;flex-direction:column}.notice-search-result__heading span{white-space:normal}}
 </style>

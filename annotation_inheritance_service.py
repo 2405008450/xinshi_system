@@ -7,7 +7,7 @@ from annotation_schemas import AnnotationProjectDetailResponse, AnnotationProjec
 from annotation_progress_time import business_now
 
 EXCLUDED = {'area_id', 'language_items', 'custom_values', 'material_changes',
-            'client_name', 'client_short_name', 'client_code', 'manager_contact'}
+            'client_name', 'client_short_name', 'client_code', 'manager_contact', 'client_manager_id'}
 FIELDS = set(AnnotationProjectWrite.model_fields) - EXCLUDED
 LABELS = {
     'project_name': '项目名称', 'project_types': '项目类型', 'task_description': '具体任务',
@@ -16,9 +16,9 @@ LABELS = {
     'project_status': '项目进度', 'status_effective_on': '状态生效时间', 'priority': '优先次序',
     'language_region': '语言地区', 'potential_demand': '需求量', 'project_path': '项目路径',
     'quotation_path': '报价单路径', 'contract_path': '合同路径', 'task_dispatched_at': '任务派发时间',
-    'task_submitted_at': '任务提交时间', 'client_manager_id': '客户经理',
+    'task_submitted_at': '任务提交时间',
     'customer_consultation_time': '客户咨询时间', 'customer_confirmation_time': '客户确认时间',
-    'price_items': '客户报价', 'assignees': '人员安排', 'role_assignments': '内部负责人',
+    'price_items': '客户报价', 'assignees': '人员安排', 'role_assignments': '项目专员、项目助理',
 }
 
 
@@ -37,9 +37,22 @@ def _comparable(value):
     return value
 
 
+def _field_comparable(key, value):
+    # 项目经理始终独立；只比较其余角色，避免交接误切断专员、助理的继承。
+    if key == 'role_assignments':
+        value = [row for row in value or [] if row['role_code'] != 'project_manager']
+    return _comparable(value)
+
+
+def _with_local_managers(inherited, local):
+    """同步内部角色时保留本订单的全部项目经理，包括明确清空的状态。"""
+    return ([row for row in inherited if row['role_code'] != 'project_manager']
+            + [row for row in local if row['role_code'] == 'project_manager'])
+
+
 def snapshot(project):
     values = write_values(project)
-    result = {key: _comparable(values.get(key)) for key in FIELDS}
+    result = {key: _field_comparable(key, values.get(key)) for key in FIELDS}
     result.update({f'custom:{key}': deepcopy(value) for key, value in project.custom_values.items()})
     return result
 
@@ -105,6 +118,9 @@ def projected_values(db, parent, child, *, copy_assignments=True):
     from annotation_schemas import AnnotationAssigneeInput
     from utils import normalize_email_subject_order_no
     values = write_values(parent)
+    local = write_values(child)
+    values['client_manager_id'] = local['client_manager_id']
+    values['role_assignments'] = _with_local_managers(values['role_assignments'], local['role_assignments'])
     target = child.language_items[0]
     source = next((item for item in parent.language_items
                    if (item.source_language_id, item.target_language_id) ==
@@ -136,7 +152,7 @@ def projected_values(db, parent, child, *, copy_assignments=True):
 def initialize_inheritance(db, parent, child):
     expected = projected_values(db, parent, child)
     actual = snapshot(child)
-    inherited = {key: _comparable(expected.get(key)) for key in FIELDS}
+    inherited = {key: _field_comparable(key, expected.get(key)) for key in FIELDS}
     inherited.update({f'custom:{key}': value for key, value in expected['custom_values'].items()})
     child.inheritance_overrides = sorted(key for key in set(actual) | set(inherited)
                                          if actual.get(key) != inherited.get(key))
@@ -148,6 +164,8 @@ def apply_restore(db, parent, project, payload):
     requested = set(payload.restore_inheritance)
     if not requested:
         return payload
+    if 'client_manager_id' in requested:
+        raise ValueError('客户经理由各订单独立管理，不能恢复继承')
     if parent is None or requested - all_fields(db):
         raise ValueError('恢复继承包含无效字段，或当前订单没有上级')
     if requested & {'project_status', 'status_effective_on'}:
@@ -159,6 +177,10 @@ def apply_restore(db, parent, project, payload):
         if key.startswith('custom:'):
             field = key.split(':', 1)[1]
             values['custom_values'][field] = inherited['custom_values'].get(field)
+        elif key == 'role_assignments':
+            # 同一次保存可以调整项目经理并恢复其他角色，不能丢失表单中提交的经理。
+            local = values[key] if key in payload.model_fields_set else inherited[key]
+            values[key] = _with_local_managers(inherited[key], local)
         else:
             values[key] = inherited[key]
     return AnnotationProjectUpdate.model_validate(values)
@@ -210,14 +232,12 @@ def propagate(db, parent, actor_id=None, manager_change_reason=None):
                 for row in values['price_items']:
                     if row['source_language_id']:
                         row.update(source_language_id=direction.source_language_id, target_language_id=direction.target_language_id)
-        after = {key: _comparable(values.get(key)) for key in FIELDS}
+        after = {key: _field_comparable(key, values.get(key)) for key in FIELDS}
         after.update({f'custom:{key}': value for key, value in values['custom_values'].items()})
         if before == after and not language_changed:
             continue
         try:
-            inherited_reason = f'继承上级订单 {parent.order_no}：{manager_change_reason or "同步负责人"}'[:500]
-            payload = AnnotationProjectUpdate.model_validate({**values, 'expected_updated_at': child.updated_at,
-                                                             'manager_change_reason': inherited_reason})
+            payload = AnnotationProjectUpdate.model_validate({**values, 'expected_updated_at': child.updated_at})
             update_annotation_project(db, child.id, payload, actor_id, commit=False, inherited=True)
         except ValueError as exc:
             raise ValueError(f'下级订单 {child.order_no} 同步失败：{exc}') from exc

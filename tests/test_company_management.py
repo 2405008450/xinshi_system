@@ -67,6 +67,11 @@ def doc(value="公司管理验收正文"):
     return {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": value}]}]}
 
 
+def _tree_child(tree, root_id, child_id):
+    root = next(item for item in tree if item["id"] == root_id)
+    return next(item for item in root["children"] if item["id"] == child_id)
+
+
 def upload(db, section, user, name="中文资料.pdf", content=b"company-file"):
     return asyncio.run(files.save_attachment(db, section, UploadFile(filename=name, file=io.BytesIO(content)), user.id))
 
@@ -82,11 +87,22 @@ def test_tree_versions_search_and_soft_delete(db):
     with pytest.raises(ValueError, match="二级栏目"):
         sections.delete_company_management_section(session, root["id"])
     saved = sections.update_company_management_content(session, child["id"], AnnotationNoticeSectionUpdate(content_json=doc()), user.id)
+    long_text = "预" * 130
+    long_saved = sections.update_company_management_content(session, child["id"], AnnotationNoticeSectionUpdate(
+        content_json=doc(long_text), expected_updated_at=saved["updated_at"]), user.id)
+    assert _tree_child(sections.list_company_management_tree(session), root["id"], child["id"])["preview"] == long_text[:120] + "…"
+    stored = session.get(CompanyManagementSection, child["id"])
+    stored.search_text = ""
+    session.flush()
+    assert _tree_child(sections.list_company_management_tree(session), root["id"], child["id"])["preview"] == long_text[:120] + "…"
+    saved = sections.update_company_management_content(session, child["id"], AnnotationNoticeSectionUpdate(
+        content_json=doc(), expected_updated_at=long_saved["updated_at"]), user.id)
     with pytest.raises(StaleUpdateError):
         sections.update_company_management_content(session, child["id"], AnnotationNoticeSectionUpdate(content_json=doc("旧保存")), user.id)
     group = sections.update_company_management_structure(session, child["id"], AnnotationNoticeSectionEdit(
         title="资料分组", has_content=False, expected_structure_updated_at=child["structure_updated_at"]))
     assert group["content_json"] == saved["content_json"]
+    assert _tree_child(sections.list_company_management_tree(session), root["id"], child["id"])["preview"] == ""
     with pytest.raises(StaleUpdateError):
         sections.update_company_management_structure(session, child["id"], AnnotationNoticeSectionEdit(title="旧栏目", has_content=True))
     sections.update_company_management_structure(session, child["id"], AnnotationNoticeSectionEdit(

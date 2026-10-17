@@ -76,6 +76,14 @@ def extract_notice_text(document: dict | None) -> str:
     return re.sub(r"[ \t]+", " ", "".join(chunks)).strip()
 
 
+def build_notice_preview(row, size: int = 120) -> str:
+    """栏目卡片摘要：优先使用检索文本，历史空值回退到正文。"""
+    stored = (getattr(row, "search_text", None) or "").strip()
+    text = stored or extract_notice_text(getattr(row, "content_json", None))
+    text = re.sub(r"\s+", " ", text or "").strip()
+    return text[:size] + ("…" if len(text) > size else "")
+
+
 def _ordered_rows(rows: list[AnnotationNoticeSection]) -> list[AnnotationNoticeSection]:
     children: dict[UUID | None, list[AnnotationNoticeSection]] = defaultdict(list)
     for row in rows:
@@ -164,6 +172,7 @@ def list_annotation_notice_tree(db: Session) -> list[dict]:
 
     def node(row: AnnotationNoticeSection) -> dict:
         payload = _serialize(row, labels, include_content=False)
+        payload["preview"] = build_notice_preview(row) if row.has_content else ""
         payload["children"] = [node(child) for child in children[row.id]]
         return payload
 

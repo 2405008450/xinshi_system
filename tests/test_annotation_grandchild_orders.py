@@ -305,24 +305,28 @@ def test_inline_rates_and_people_preserve_child_identity(context):
     assert service.get_annotation_project(db,leaf_id).assignees[0].rate is None
 
 
-def test_inline_managers_and_handover_inherit_without_stale_roles(context):
+def test_inline_managers_and_handover_remain_independent(context):
     from models import AppUser
     db,root_id,child_id,leaf_id,_=chain(context)
-    users=[AppUser(username=uuid4().hex,password_hash='isolated-test',full_name='继承负责人') for _ in range(2)]
+    users=[AppUser(username=uuid4().hex,password_hash='isolated-test',full_name='独立负责人') for _ in range(2)]
     db.add_all(users);db.commit()
     service.update_annotation_project_managers(db,root_id,users[0].id,[users[0].id],expected_updated_at=service.get_annotation_project(db,root_id).updated_at)
     for id in [child_id,leaf_id]:
         row=service.get_annotation_project(db,id)
-        assert row.client_manager_id==users[0].id
-        assert any(role.assignee_id==users[0].id for role in row.workbench_responsibilities)
+        assert row.client_manager_id is None
+        assert not any(role.assignee_id for role in row.workbench_responsibilities)
     service.update_annotation_project_managers(db,child_id,users[0].id,[users[1].id],expected_updated_at=service.get_annotation_project(db,child_id).updated_at,reason='独立维护项目经理')
     service.update_annotation_project_managers(db,root_id,users[1].id,[],expected_updated_at=service.get_annotation_project(db,root_id).updated_at,reason='调整客户经理并清空项目经理')
     row=service.get_annotation_project(db,leaf_id)
-    assert row.client_manager_id==users[1].id and any(role.assignee_id==users[1].id for role in row.workbench_responsibilities)
+    assert row.client_manager_id is None and not any(role.assignee_id for role in row.workbench_responsibilities)
+    child=service.get_annotation_project(db,child_id)
+    assert child.client_manager_id==users[0].id
+    assert any(role.role_code=='project_manager' and role.assignee_id==users[1].id for role in child.workbench_responsibilities)
     root=service.get_annotation_project(db,root_id);root.client_manager_id=users[0].id
     service._sync_child_shared_fields(db,root,users[1].id)
     db.commit()
-    assert service.get_annotation_project(db,leaf_id).client_manager_id==users[0].id
+    assert service.get_annotation_project(db,leaf_id).client_manager_id is None
+    assert service.get_annotation_project(db,child_id).client_manager_id==users[0].id
 
 
 def test_status_propagation_records_own_history_and_priority(context):

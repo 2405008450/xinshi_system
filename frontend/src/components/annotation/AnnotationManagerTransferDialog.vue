@@ -198,7 +198,7 @@ const dialogTitle = computed(() => activeTab.value === 'history'
   ? '标注项目负责人交接'
   : `${managerLabel.value}离职交接`)
 const alertTitle = computed(() => (
-  `该操作由超级管理员直接生效，无需接收人确认；可交接全部状态的标注项目，只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
+  `该操作由超级管理员直接生效，无需接收人确认；仅交接所选订单，各级订单独立管理。可交接全部状态的标注项目，只会变更${managerLabel.value}，不会修改客户及其他项目角色。`
 ))
 const rules = computed(() => ({
   sourceManagerId: [{ required: true, message: `请选择${sourceLabel.value}`, trigger: 'change' }],

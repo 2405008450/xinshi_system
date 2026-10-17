@@ -16,7 +16,7 @@ from annotation_notice_schemas import (
     AnnotationNoticeSectionEdit,
 )
 from concurrency import StaleUpdateError, parse_expected_updated_at
-from annotation_notice_service import extract_notice_text
+from annotation_notice_service import build_notice_preview, extract_notice_text
 from company_management_schemas import CompanyManagementSectionUpdate
 from company_management_image_service import commit_removed_images, validate_content_images
 
@@ -108,6 +108,7 @@ def list_company_management_tree(db: Session) -> list[dict]:
 
     def node(row: CompanyManagementSection) -> dict:
         payload = _serialize(row, labels, include_content=False)
+        payload["preview"] = build_notice_preview(row) if row.has_content else ""
         payload["children"] = [node(child) for child in children[row.id]]
         return payload
 

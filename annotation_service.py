@@ -621,10 +621,9 @@ def _next_child_number(db, parent):
 
 
 def _sync_child_shared_fields(db, project, previous_manager_id=None, actor_id=None, manager_change_reason=None):
-    """客户经理交接入口与表单使用同一字段继承规则。调用方先获取编号锁。"""
+    """仅同步可继承业务字段，客户经理交接只影响当前订单。调用方先获取编号锁。"""
     from annotation_inheritance_service import snapshot, finish_inline_change
     before = snapshot(project)
-    before['client_manager_id'] = previous_manager_id
     finish_inline_change(db, project, before, actor_id, manager_change_reason=manager_change_reason)
 
 
@@ -938,7 +937,7 @@ def update_annotation_project(
     manager_reason = validate_manager_change_reason(
         project, previous_client_manager_id, previous_project_manager_ids,
         payload.client_manager_id, submitted_managers,
-        (payload.manager_change_reason or '继承上级订单负责人') if inherited else payload.manager_change_reason,
+        payload.manager_change_reason,
     )
     if parent:
         if len(payload.language_items) != 1:

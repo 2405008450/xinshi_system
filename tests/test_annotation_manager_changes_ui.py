@@ -4,10 +4,10 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from test_annotation_manager_changes import environment, reader_client, project_managers, inherited_project
+from test_annotation_manager_changes import environment, reader_client, project_managers, inherited_project, patch
 
 
-def test_reader_manager_selection_reason_cancel_drag_and_history(environment):
+def test_reader_manager_selection_reason_cancel_drag_and_history(environment, monkeypatch):
     from playwright.sync_api import sync_playwright, expect
     db, users, parent, child, _ = environment
     inherited_project(db, users, parent, child)
@@ -174,17 +174,37 @@ def test_reader_manager_selection_reason_cancel_drag_and_history(environment):
             admin_role = Role(role_name='超级管理员')
             db.add(admin_role); db.flush()
             db.add_all([UserRole(user_id=users[0].id,role_id=admin_role.id),RolePermission(role_id=admin_role.id,permission_code='*')]); db.commit()
+            monkeypatch.setattr('workflow_crud._push_notifications', lambda *_: None)
+            assert patch(client, child.id, project_manager_ids=[str(users[2].id)]).status_code == 200
             page.evaluate('localStorage.setItem("user_roles",JSON.stringify(["超级管理员"]));localStorage.setItem("user_permissions",JSON.stringify(["*"]))')
             page.set_viewport_size({'width':1360,'height':900})
             page.goto(f'http://localhost:3000/annotation-details?projectId={parent.id}',wait_until='networkidle')
             page.get_by_role('button',name='交接',exact=True).click()
             expect(transfer.get_by_role('tab',name='变更记录')).to_have_attribute('aria-selected','true')
             transfer.get_by_role('tab',name='批量交接').click()
+            expect(transfer.get_by_text(re.compile('仅交接所选订单，各级订单独立管理'))).to_be_visible()
             expect(transfer.locator('.manager-transfer-form .el-select')).to_have_count(2)
             transfer.locator('.manager-transfer-form .el-select').nth(1).click()
             expect(page.locator('.el-select-dropdown:visible').get_by_text(users[0].full_name,exact=True)).to_be_visible()
             page.keyboard.press('Escape')
-            transfer.get_by_role('button',name='取消',exact=True).click()
+            expect(page.locator('.el-select-dropdown:visible')).not_to_be_visible()
+            selects = transfer.locator('.manager-transfer-form .el-select')
+            selects.nth(0).click()
+            page.get_by_role('option',name=f'{users[2].full_name} · 2 个项目',exact=True).click()
+            expect(transfer.locator('.manager-transfer-preview .el-table__body tbody tr')).to_have_count(2)
+            # 明确取消勾选子订单，验证父级批量交接不隐式影响下级。
+            child_row = transfer.locator('.manager-transfer-preview .el-table__body tbody tr').filter(has_text=child.order_no)
+            child_row.locator('.el-checkbox').click()
+            selects.nth(1).click()
+            page.locator('.el-select-dropdown:visible').get_by_text(users[0].full_name,exact=True).click()
+            transfer.locator('textarea').fill('仅主订单批量交接')
+            transfer.get_by_role('button',name='确认直接移交（1）',exact=True).click()
+            confirmation = page.locator('.el-message-box')
+            confirmation.locator('input').fill('交接')
+            confirmation.get_by_role('button',name='确认移交',exact=True).click()
+            expect(transfer).not_to_be_visible()
+            assert project_managers(client.get(f'/projects/annotation/{parent.id}').json()) == {str(users[0].id)}
+            assert project_managers(client.get(f'/projects/annotation/{child.id}').json()) == {str(users[2].id)}
             # 编辑表单的经理变更也要求原因，并与主表单正确保持嵌套层级。
             page.goto(f'http://localhost:3000/annotation-details?projectId={parent.id}&openEditor=1',wait_until='networkidle')
             editor = page.locator('.annotation-editor-dialog')
@@ -206,6 +226,21 @@ def test_reader_manager_selection_reason_cancel_drag_and_history(environment):
                 dialog.get_by_role('button',name='确认调整',exact=True).click()
             expect(editor).not_to_be_visible()
             assert client.get(f'/projects/annotation/{parent.id}').json()['client_manager_id'] == str(users[1].id)
+            assert client.get(f'/projects/annotation/{child.id}').json()['client_manager_id'] is None
+            # 恢复继承入口也不再包含客户经理或项目经理。
+            child.inheritance_overrides = ['*']; db.commit()
+            page.goto(f'http://localhost:3000/annotation-details?projectId={child.id}&openEditor=1',wait_until='networkidle')
+            expect(editor).to_be_visible()
+            editor.get_by_role('button',name='恢复继承',exact=True).click()
+            inheritance = page.locator('.el-popover:visible').filter(has=page.locator('.inheritance-options'))
+            other_roles = inheritance.locator('.el-checkbox').filter(has_text='项目专员、项目助理')
+            other_roles.scroll_into_view_if_needed()
+            expect(other_roles).to_be_visible()
+            assert inheritance.get_by_role('checkbox',name='客户经理',exact=True).count() == 0
+            assert inheritance.get_by_role('checkbox',name='项目经理',exact=True).count() == 0
+            inheritance.get_by_role('button',name='全部恢复',exact=True).click()
+            page.screenshot(path=str(output/'independent-manager-inheritance.png'),full_page=True)
+            editor.locator('.el-dialog__headerbtn').click()
             assert not errors, errors
         except Exception:
             page.screenshot(path=str(output/'failure.png'),full_page=True)

@@ -84,6 +84,18 @@ def test_initial_empty_crud_search_and_soft_delete(db, module):
     with pytest.raises(ValueError, match='仅用于分组'):
         sections.update_content(session, module, root['id'], AnnotationNoticeSectionUpdate(content_json=document()), user.id)
     saved = sections.update_content(session, module, child['id'], AnnotationNoticeSectionUpdate(content_json=document()), user.id)
+    tree = sections.list_tree(session, module)
+    assert tree[0]['preview'] == ''
+    assert tree[0]['children'][0]['preview'] == '注意事项 50%_完成'
+    long_text = '甲' * 130
+    long_saved = sections.update_content(session, module, child['id'], AnnotationNoticeSectionUpdate(
+        content_json=document(long_text), expected_updated_at=saved['updated_at']), user.id)
+    stored = session.get(ProjectNoticeSection, child['id'])
+    stored.search_text = ''
+    session.flush()
+    assert sections.list_tree(session, module)[0]['children'][0]['preview'] == long_text[:120] + '…'
+    saved = sections.update_content(session, module, child['id'], AnnotationNoticeSectionUpdate(
+        content_json=document(), expected_updated_at=long_saved['updated_at']), user.id)
     assert saved['updated_by_name'] == '须知验收员'
     assert saved['updated_at'].endswith('+08:00')
     hit = sections.search_sections(session, module, '50%_')

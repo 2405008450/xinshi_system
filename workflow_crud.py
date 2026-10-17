@@ -1293,13 +1293,13 @@ def _annotation_client_manager_project_query(
     *,
     lock: bool = False,
 ):
-    """查询由指定客户经理负责的标注项目，并支持事务行锁。"""
+    """查询指定客户经理负责的各级标注订单，并支持事务行锁。"""
     query = db.query(AnnotationProject).options(
         joinedload(AnnotationProject.client),
         joinedload(AnnotationProject.sub_client),
         joinedload(AnnotationProject.client_manager),
         selectinload(AnnotationProject.language_items),
-    ).filter(AnnotationProject.client_manager_id == source_manager_id, AnnotationProject.parent_project_id.is_(None))
+    ).filter(AnnotationProject.client_manager_id == source_manager_id)
     if project_ids is not None:
         query = query.filter(AnnotationProject.id.in_(project_ids))
     if lock:
@@ -1505,7 +1505,7 @@ def direct_transfer_annotation_manager(
     if any(not row.project for row in rows):
         raise LookupError('部分项目已不存在，请刷新预览后重试')
     if isinstance(db, Session):
-        # 同批选中上下级时先处理下级，避免父级继承删除尚待处理的责任记录。
+        # 同批选中上下级时保持固定处理顺序；各级项目经理独立交接。
         rows.sort(key=lambda row: row.project.order_level, reverse=True)
 
     responsibility_ids = [row.id for row in rows]
