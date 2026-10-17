@@ -38,7 +38,7 @@
         <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(displayRow) }}</el-descriptions-item>
         <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(displayRow.projectTypes) }}</el-descriptions-item>
         <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="displayRow.taskDescription" :editable="editable" label="具体任务" multiline :save-field="(value) => saveText('taskDescription', value)" @conflict="load" /></el-descriptions-item>
-        <el-descriptions-item label="语言方向" :span="2">{{ textValue(displayRow.languageItemsDisplay) }}</el-descriptions-item>
+        <el-descriptions-item label="语言方向" :span="2"><LanguageTalentReservePopover v-if="displayRow.languageItems?.length" :language-items="displayRow.languageItems" /><span v-else>{{ textValue(displayRow.languageItemsDisplay) }}</span></el-descriptions-item>
         <el-descriptions-item label="（潜在）需求量" :span="2"><InlineTextField :model-value="displayRow.potentialDemand" :editable="editable" label="（潜在）需求量" multiline :save-field="(value) => saveText('potentialDemand', value)" @conflict="load" /></el-descriptions-item>
         <el-descriptions-item label="客户简称">{{ textValue(displayRow.clientShortName) }}</el-descriptions-item>
         <el-descriptions-item label="客户编号">{{ textValue(displayRow.clientCode) }}</el-descriptions-item>
@@ -88,11 +88,13 @@
 
 <script setup>
 import { annotationStatusLabel as statusLabel, annotationStatusType as statusType } from '@/utils/annotationStatus'
+import { annotationInternalRolesText as internalRolesText } from '@/utils/annotationInternalRoles'
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as annotationApi from '@/api/annotationProjects'
 import * as annotationOpsApi from '@/api/annotationOps'
 import InlineTextField from '@/components/common/InlineTextField.vue'
+import LanguageTalentReservePopover from '@/components/annotation/LanguageTalentReservePopover.vue'
 import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
 const materialsActive = ref(false)
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
@@ -130,7 +132,6 @@ const projectTypeMap = { audio_collection:'音频采集',audio_annotation:'音�
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
 const customFieldText = (value) => Array.isArray(value) ? value.join('、') : value === true ? '是' : value === false ? '否' : textValue(value)
 const projectTypesText = (values) => Array.isArray(values) && values.length ? values.map((value) => projectTypeMap[value] || value).join('；') : '-'
-const internalRolesText = (row) => { const labels={project_manager:'项目经理',project_specialist:'项目专员',project_assistant:'项目助理'}; return (row.roleAssignments||[]).map((item)=>`${labels[item.roleCode]||item.roleName}：${item.assigneeName||'未分配'}`).join('；')||'-' }
 const priorityLabel = (value) => ({low:'低',medium:'中',high:'高'}[value] || '-')
 const priorityType = (value) => ({high:'danger',medium:'warning',low:'info'}[value] || 'info')
 const assignmentStatusLabel = (value) => ({assigned:'已安排',in_progress:'进行中',completed:'已完成',cancelled:'已取消'}[value] || value || '-')

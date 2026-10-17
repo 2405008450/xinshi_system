@@ -220,7 +220,7 @@ class AnnotationProject(Base):
 
     @property
     def role_assignments(self) -> list[dict]:
-        from project_roles import PROJECT_ROLE_DEFINITIONS
+        from project_roles import PROJECT_ROLE_DEFINITIONS, effective_role_assignees
         by_role: dict[str, list] = {}
         for item in self.workbench_responsibilities or []:
             by_role.setdefault(item.role_code, []).append(item)
@@ -228,7 +228,7 @@ class AnnotationProject(Base):
         for definition in PROJECT_ROLE_DEFINITIONS:
             if definition["role_code"] not in {"project_manager", "project_specialist", "project_assistant"}:
                 continue
-            rows = by_role.get(definition["role_code"]) or [None]
+            rows = effective_role_assignees(by_role.get(definition["role_code"], [])) or [None]
             for row in rows:
                 result.append({
                 "role_code": definition["role_code"],
@@ -425,6 +425,7 @@ class AnnotationProjectLanguageItem(Base):
             "target_language_id IS NULL OR source_language_id <> target_language_id",
             name="ck_annotation_language_item_distinct",
         ),
+        CheckConstraint("jsonb_typeof(regions) = 'array'", name="ck_annotation_language_regions_array"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -434,6 +435,10 @@ class AnnotationProjectLanguageItem(Base):
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
     source_language_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     target_language_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+    regions: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
 
     project: Mapped[AnnotationProject] = relationship(back_populates="language_items")
     source_language: Mapped[InterpretationLanguage] = relationship(

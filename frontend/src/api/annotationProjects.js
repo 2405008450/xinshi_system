@@ -2,9 +2,15 @@ import api from './index'
 import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
 import { invalidateOptionCache } from '@/utils/optionCache'
 import { convertAnnotationKeys as convertKeys } from '@/utils/annotationStatus'
-import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders } from '@/utils/annotationOrderCapabilities'
+import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders, supportsAnnotationLanguageRegions, supportsAnnotationRegionFilters } from '@/utils/annotationOrderCapabilities'
 
 const projectCreateState = { key: '', signature: '' }
+export const getAnnotationListCapabilities = () => api.get('/openapi.json').then(schema => ({
+  grandchildOrders: supportsAnnotationGrandchildOrders(schema),
+  languageRegions: supportsAnnotationLanguageRegions(schema),
+  regionFilters: supportsAnnotationRegionFilters(schema),
+}))
+export const getAnnotationLanguageRegionCapabilities = () => api.get('/openapi.json').then(supportsAnnotationLanguageRegions)
 export const getAnnotationOrderCapabilities = () => api.get('/openapi.json').then(supportsAnnotationGrandchildOrders)
 export const getAnnotationManagerOptions = () => api.get('/projects/annotation/manager-options')
 export const getAnnotationAreas = () => api.get('/projects/annotation/areas')

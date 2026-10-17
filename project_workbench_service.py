@@ -12,7 +12,7 @@ from annotation_models import AnnotationProject
 from interpretation_models import InterpretationProject
 from recruitment_models import RecruitmentProject
 from models import AppUser
-from project_roles import PROJECT_ROLE_NAME_BY_CODE
+from project_roles import PROJECT_ROLE_NAME_BY_CODE, effective_role_assignees
 from workflow_models import ProjectWorkbenchResponsibility
 
 
@@ -249,7 +249,7 @@ def role_assignments_for_project(db: Session, project_type: str, project_id: UUI
         by_role.setdefault(row.role_code, []).append(row)
     result = []
     for role_code in RESPONSIBILITY_ROLE_CODES:
-        role_rows = by_role.get(role_code) or [None]
+        role_rows = effective_role_assignees(by_role.get(role_code, [])) or [None]
         for row in role_rows:
             user = row.assignee if row else None
             result.append({

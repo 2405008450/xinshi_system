@@ -60,6 +60,16 @@ test('查看与填写激活共享已加载记录，隐藏再显示保留草稿�
   assert.equal(c.progress.form.changeNote, '未保存客户草稿')
 })
 
+test('客户草稿仅修改时间也需要关闭保护，恢复后不再提示', (t) => {
+  const c = mount(); t.after(c.unmount)
+  const initialTime = c.progress.form.effectiveOn
+  assert.equal(c.progress.hasDraft(), false)
+  c.progress.form.effectiveOn = '2026-10-10 17:30:00'
+  assert.equal(c.progress.hasDraft(), true)
+  c.progress.form.effectiveOn = initialTime
+  assert.equal(c.progress.hasDraft(), false)
+})
+
 test('首次加载与沟通带入并发时复用请求，等待后追加来源与内容', async (t) => {
   const loading = deferred(), calls = []
   const c = mount({ api: { get: (...args) => { calls.push(args); return loading.promise } } }); t.after(c.unmount)

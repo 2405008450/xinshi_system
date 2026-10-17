@@ -63,6 +63,8 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     )).filter((element) => (
       element.matches('.el-form-item')
       || !element.closest('.el-form-item')
+      // 复合字段可在外层表单项内显式声明独立的定位目标。
+      || Boolean(element.dataset.dialogFieldSearchLabel)
     ))
     return targets.flatMap((element, index) => {
       const labelElement = element.querySelector(':scope > .el-form-item__label, :scope > label.el-form-item__label')

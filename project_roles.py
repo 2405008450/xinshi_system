@@ -47,6 +47,16 @@ ROLE_NAME_BY_CODE = {
 }
 
 
+def effective_role_assignees(rows):
+    """同一角色按人员去重；有实际负责人时忽略角色池占位记录。"""
+    assigned = {}
+    rows = list(rows)
+    for row in rows:
+        if row.assignee_id is not None:
+            assigned.setdefault(row.assignee_id, row)
+    return list(assigned.values()) or rows[:1]
+
+
 def get_stage_role(stage_key: str) -> dict[str, str]:
     """返回阶段对应的稳定角色编码与系统角色名称。"""
     return STAGE_ROLE_DEFINITIONS.get(

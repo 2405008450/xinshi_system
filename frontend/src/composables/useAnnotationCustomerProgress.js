@@ -9,8 +9,8 @@ export function useAnnotationCustomerProgress({ projectId, active, busy, entryRe
   const loading = ref(false), validating = ref(false), submitting = ref(false), loadError = ref(''), rows = ref([])
   const editingId = ref(''), expectedUpdatedAt = ref(''), draftSource = ref(null)
   const form = reactive({ effectiveOn: businessDateTimeInputValue(), changeNote: '' })
-  let baseline = '', loadedProject = '', requestId = 0, controller, pendingLoad
-  const hasDraft = () => editingId.value ? JSON.stringify(form) !== baseline : Boolean(form.changeNote.trim())
+  let baseline = JSON.stringify(form), loadedProject = '', requestId = 0, controller, pendingLoad
+  const hasDraft = () => Boolean(draftSource.value) || JSON.stringify(form) !== baseline
   const getDraft = () => ({ ...form, source: draftSource.value, editingId: editingId.value })
   const clearDraft = () => {
     editingId.value = ''; expectedUpdatedAt.value = ''; draftSource.value = null

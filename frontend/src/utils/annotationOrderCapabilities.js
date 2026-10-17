@@ -10,3 +10,12 @@ export function normalizeAnnotationOrderLevel(row) {
   if (!row) return row
   return {...row, orderLevel: Number.isInteger(row.orderLevel) ? row.orderLevel : row.parentProjectId ? 1 : 0}
 }
+
+export function supportsAnnotationLanguageRegions(schema) {
+  return Boolean(schema?.components?.schemas?.AnnotationLanguageItemInput?.properties?.regions)
+}
+
+export function supportsAnnotationRegionFilters(schema) {
+  const fields = schema?.paths?.['/projects/annotation/page']?.get?.['x-annotation-region-filters']
+  return Array.isArray(fields) && ['city','district','street'].every(field => fields.includes(field))
+}

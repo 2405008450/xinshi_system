@@ -78,10 +78,28 @@ def currency_symbol(code=None) -> str:
     return CURRENCY_SYMBOLS.get(normalized, normalized)
 
 
+class AnnotationLanguageRegion(BaseModel):
+    """当前订单语言项的地区要求，不依赖行政区划目录。"""
+    city: Optional[str] = Field(default=None, max_length=100)
+    district: Optional[str] = Field(default=None, max_length=100)
+    street: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator("city", "district", "street", mode="before")
+    @classmethod
+    def normalize_text(cls, value):
+        return _nullable_text(value)
+
+
 class AnnotationLanguageItemInput(BaseModel):
     id: Optional[UUID] = None
     source_language_id: UUID
     target_language_id: Optional[UUID] = None
+    regions: list[AnnotationLanguageRegion] = Field(default_factory=list)
+
+    @field_validator("regions")
+    @classmethod
+    def remove_empty_regions(cls, values):
+        return [row for row in values if row.city or row.district or row.street]
 
     @model_validator(mode="after")
     def validate_distinct(self):

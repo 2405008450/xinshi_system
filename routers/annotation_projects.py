@@ -109,7 +109,8 @@ ANNOTATION_TEXT_FIELDS = {
 ANNOTATION_FILTER_FIELDS = {
     "order_no", "project_name", "project_types", "task_description", "project_status", "priority",
     "client_short_name", "client_code", "client_full_name", "contact_name", "customer_order_no",
-    "language_id", "language_region", "potential_demand", "has_customer_price", "customer_price",
+    "language_id", "language_region", "region_city", "region_district", "region_street",
+    "potential_demand", "has_customer_price", "customer_price",
     "assignee_person_id", "task_dispatched_at", "task_submitted_at", "client_manager_id",
     "project_manager_id",
     "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at",
@@ -383,7 +384,8 @@ def read_project_count(
     return {"total": count_annotation_projects(db, **filters)}
 
 
-@router.get("/page", response_model=PageResponse[AnnotationProjectListResponse])
+@router.get("/page", response_model=PageResponse[AnnotationProjectListResponse],
+            openapi_extra={"x-annotation-region-filters": ["city", "district", "street"]})
 def read_project_page(
     skip: int = 0,
     limit: int = Query(100, ge=1, le=500),

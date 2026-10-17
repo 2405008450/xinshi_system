@@ -5,12 +5,14 @@ from __future__ import annotations
 import re
 import hashlib
 import json
+from copy import deepcopy
 from datetime import date, datetime, time
 from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, exists as db_exists, func, or_, select, text
+from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, column, exists as db_exists, func, or_, select, text, true
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
@@ -315,6 +317,31 @@ def _keyword_enum_values(keyword: str, labels: dict[str, str]) -> tuple[str, ...
     )
 
 
+def _annotation_region_match(terms, *, match_any=False, language_ids=None, language_id=None):
+    """同一条地区内组合匹配，避免城市与区县来自不同地区造成误命中。"""
+    language_item = aliased(AnnotationProjectLanguageItem)
+    entries = func.jsonb_array_elements(language_item.regions).table_valued(column('value', JSONB)).alias()
+    conditions = []
+    for key, value in terms.items():
+        if value is None or not str(value).strip():
+            continue
+        literal = str(value).strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        conditions.append(entries.c.value[key].astext.ilike(f'%{literal}%', escape='\\'))
+    match = select(1).select_from(language_item).join(entries, true()).where(
+        language_item.project_id == AnnotationProject.id)
+    if language_ids:
+        match = match.where(or_(language_item.source_language_id.in_(language_ids),
+                                language_item.target_language_id.in_(language_ids)))
+    if language_id:
+        match = match.where(or_(language_item.source_language_id == language_id,
+                                language_item.target_language_id == language_id))
+    if match_any:
+        match = match.where(or_(*conditions))
+    else:
+        match = match.where(*conditions)
+    return db_exists(match)
+
+
 def _apply_filters(
     query,
     *,
@@ -386,6 +413,7 @@ def _apply_filters(
             SubClient.sub_client_code.ilike(pattern),
             SubClient.client_name.ilike(pattern),
             SubClient.client_short_name.ilike(pattern),
+            _annotation_region_match({key: normalized_keyword for key in ('city', 'district', 'street')}, match_any=True),
         ]
         keyword_conditions.extend(
             AnnotationProject.project_types.contains([value])
@@ -431,6 +459,11 @@ def _apply_filters(
         if end_value:
             query = query.filter(field <= datetime.combine(end_value, time.max))
     field_filters = field_filters or {}
+    region_terms = {key: field_filters[f'region_{key}']['value'] for key in ('city', 'district', 'street')
+                    if f'region_{key}' in field_filters and str(field_filters[f'region_{key}'].get('value') or '').strip()}
+    if region_terms:
+        selected_languages = [UUID(str(value)) for value in field_filters.get('language_id', {}).get('value', [])]
+        query = query.filter(_annotation_region_match(region_terms, language_ids=selected_languages, language_id=language_id))
     latest_progress_effective_on, _ = _latest_progress_expressions()
     query = apply_scalar_specs(query, field_filters, {
         "order_no": (AnnotationProject.order_no, "string"),
@@ -580,6 +613,9 @@ def _child_create_payload(parent, payload):
         raise ValueError("子订单必须且只能绑定一个语种或语言方向")
     source = source_direction(parent, payload)
     values = payload.model_dump()
+    # 地区仅在创建时复制；显式传入空数组表示不带入来源地区。
+    if 'regions' not in payload.language_items[0].model_fields_set:
+        values['language_items'][0]['regions'] = deepcopy(source.regions if source else [])
     scalar_fields = set(AnnotationProjectWrite.model_fields) - NESTED_FIELDS - WRITE_ONLY_CLIENT_FIELDS - {'area_id'}
     for field in scalar_fields - payload.model_fields_set:
         values[field] = deepcopy(getattr(parent, field))
@@ -758,6 +794,15 @@ def _sync_nested(db: Session, project: AnnotationProject, payload) -> None:
         for index, item in enumerate(items, start=1):
             values = item.model_dump(exclude={"id", "rate"})
             row = current_by_id.get(item.id) if item.id else None
+            if model is AnnotationProjectLanguageItem and 'regions' not in item.model_fields_set:
+                # 兼容旧客户端：未提交地区时保留原值，提交 [] 时才清空。
+                values.pop('regions', None)
+                if row is None:
+                    original = next((candidate for candidate in current_by_id.values()
+                                     if (candidate.source_language_id, candidate.target_language_id)
+                                     == (item.source_language_id, item.target_language_id)), None)
+                    if original is not None:
+                        values['regions'] = deepcopy(original.regions)
             if model is AnnotationProjectAssignee:
                 from annotation_custom_field_service import validate_custom_values
                 values["custom_values"] = validate_custom_values(

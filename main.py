@@ -1713,7 +1713,11 @@ def ensure_multitype_workbench_schema():
             INSERT INTO project_workbench_responsibility (annotation_project_id, role_code)
             SELECT p.id, r.role_code FROM annotation_project p
             CROSS JOIN (VALUES ('project_manager'), ('project_specialist'), ('project_assistant')) r(role_code)
-            WHERE p.project_status IN ('initial_consultation', 'resource_sourcing', 'trial_preparation', 'trial_in_progress', 'trial_submitted', 'trial_passed', 'trial_partially_passed', 'project_in_progress', 'sent_to_client', 'client_feedback') ON CONFLICT DO NOTHING
+            WHERE p.project_status IN ('initial_consultation', 'resource_sourcing', 'trial_preparation', 'trial_in_progress', 'trial_submitted', 'trial_passed', 'trial_partially_passed', 'project_in_progress', 'sent_to_client', 'client_feedback')
+            AND NOT EXISTS (
+                SELECT 1 FROM project_workbench_responsibility existing
+                WHERE existing.annotation_project_id = p.id AND existing.role_code = r.role_code
+            ) ON CONFLICT DO NOTHING
         """))
         conn.execute(text("""
             INSERT INTO project_workbench_responsibility (recruitment_project_id, role_code)

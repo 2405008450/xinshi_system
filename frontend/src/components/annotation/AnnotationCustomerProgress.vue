@@ -13,12 +13,15 @@
     </div>
     <AppForm ref="formRef" :model="form" :rules="rules" label-width="76px" size="small" class="progress-entry-form" :disabled="saving || loading || Boolean(loadError)">
       <el-form-item label="节点时间" prop="effectiveOn">
-        <el-date-picker v-model="form.effectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+        <el-date-picker v-model="form.effectiveOn" :validate-event="!busy" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
       </el-form-item>
       <el-form-item label="具体进度" prop="changeNote">
-        <el-input ref="noteRef" v-model="form.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="10000" show-word-limit placeholder="例如：报价已发，等待客户确认；客户预计周五反馈试标结果" />
+        <el-input ref="noteRef" v-model="form.changeNote" :validate-event="!busy" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="10000" show-word-limit placeholder="例如：报价已发，等待客户确认；客户预计周五反馈试标结果" />
       </el-form-item>
     </AppForm>
+    <div class="progress-entry-actions">
+      <el-button type="primary" :loading="submitLoading" :disabled="submitDisabled" @click="$emit('submit')">{{ submitLabel }}</el-button>
+    </div>
   </section>
 </template>
 
@@ -26,8 +29,8 @@
 import { nextTick, ref } from 'vue'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 
-defineProps({ form: { type: Object, required: true }, editingId: String, draftSource: Object, loading: Boolean, loadError: String, busy: Boolean, saving: Boolean })
-defineEmits(['cancel-edit', 'retry', 'transfer'])
+defineProps({ form: { type: Object, required: true }, editingId: String, draftSource: Object, loading: Boolean, loadError: String, busy: Boolean, saving: Boolean, submitLoading: Boolean, submitDisabled: Boolean, submitLabel: { type: String, default: '添加客户进度' } })
+defineEmits(['cancel-edit', 'retry', 'transfer', 'submit'])
 const formRef = ref(), entryRef = ref(), noteRef = ref()
 const rules = {
   effectiveOn: [{ required: true, message: '请选择节点时间', trigger: 'change' }],
@@ -49,4 +52,6 @@ defineExpose({ focusEntry, validate: () => formRef.value?.validate(), clearValid
 .progress-entry-panel__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .progress-entry-form :deep(.el-form-item){margin-bottom:10px}
 .progress-chat-source{margin-bottom:10px;font-size:12px;color:var(--el-color-primary)}
+.progress-entry-actions{display:flex;justify-content:flex-end;gap:12px;padding:2px 0 10px}
+@media(max-width:768px){.progress-entry-actions{flex-wrap:wrap}}
 </style>

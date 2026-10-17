@@ -28,7 +28,7 @@ test('可多选的表头漏斗筛选统一使用暂存值并确认后提交', ()
 
 test('标注项目不再为项目进度提供重复的查询栏筛选按钮', () => {
   assert.doesNotMatch(annotationSource, /class="status-filter-trigger"/)
-  assert.match(annotationSource, /<ConfiguredColumnHeaderFilter v-if="headerFilterDefinition\(column\.key\)"/)
+  assert.match(annotationSource, /<ConfiguredColumnHeaderFilter v-(?:else-)?if="headerFilterDefinition\(column\.key\)"/)
 })
 
 test('前端协作文档约束新增页面复用公共漏斗筛选组件', () => {

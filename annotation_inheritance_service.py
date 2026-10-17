@@ -172,6 +172,8 @@ def apply_restore(db, parent, project, payload):
         requested.update({'project_status', 'status_effective_on'})
     restore_metadata(project, requested)
     values = payload.model_dump()
+    # 保留旧客户端对地区的省略语义，避免恢复其他字段继承时误清空地区。
+    values['language_items'] = [item.model_dump(exclude_unset=True) for item in payload.language_items]
     inherited = projected_values(db, parent, project, copy_assignments='assignees' in requested)
     for key in requested:
         if key.startswith('custom:'):
@@ -228,7 +230,8 @@ def propagate(db, parent, actor_id=None, manager_change_reason=None):
                     'assignees' not in fields and any(row.language_item_id for row in child.assignees)):
                     raise ValueError(f'三级订单 {child.order_no} 已独立维护语种关联的报价或人员，请先恢复继承或清理后再更换子订单语种')
                 values['language_items'] = [{'id': target.id, 'source_language_id': direction.source_language_id,
-                                            'target_language_id': direction.target_language_id}]
+                                            'target_language_id': direction.target_language_id,
+                                            'regions': deepcopy(target.regions)}]
                 for row in values['price_items']:
                     if row['source_language_id']:
                         row.update(source_language_id=direction.source_language_id, target_language_id=direction.target_language_id)
